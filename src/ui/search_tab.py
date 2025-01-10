@@ -145,9 +145,17 @@ class SearchTab(QWidget):
             QApplication.processEvents()
 
             text = self.search_input.text()
-            pattern = r'"([^"]+)"|([^,]+(?:,[^,]+)*)'
-            matches = re.findall(pattern, text)
-            search_terms = [match[0] if match[0] else match[1].strip() for match in matches]
+            # Extrahiere Begriffe, die in Anführungszeichen stehen
+            quoted_pattern = r'"([^"]+)"'
+            quoted_matches = re.findall(quoted_pattern, text)
+            
+            # Entferne die extrahierten Begriffe aus dem ursprünglichen Text
+            text = re.sub(quoted_pattern, '', text)
+            
+            # Teile den verbleibenden Text nach Kommas auf
+            remaining_terms = [term.strip() for term in text.split(',') if term.strip()]
+            search_terms = quoted_matches + remaining_terms
+
             self.logger.info(search_terms)
 
             if not search_terms:
