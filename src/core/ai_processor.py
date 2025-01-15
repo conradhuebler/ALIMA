@@ -53,7 +53,7 @@ class AIProcessor(QObject):
         self.generated_prompt = prompt
         return prompt
         
-    def prepare_request(self, prompt : str = "") -> tuple[QNetworkRequest, QByteArray]:
+    def prepare_request(self, prompt : str = "", temperature: float = 0.7, seed: int = None) -> tuple[QNetworkRequest, QByteArray]:
         # Verwende die Provider-URL aus der Konfiguration und füge API-Key hinzu
         base_url = self.provider_config["api_url"]
         if not base_url:
@@ -81,8 +81,11 @@ class AIProcessor(QObject):
         #if self.ai_config.provider == AIProvider.GEMINI:
         data = {
                 "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
+                    "parts": [{"text": prompt,
+                               "temperature": temperature,
+                                 "seed": seed
+                               }
+                              ]             }]
             }
         #else:
         #    # OpenAI-kompatibles Format
@@ -98,7 +101,7 @@ class AIProcessor(QObject):
         self.logger.info(request_data)
         return request, request_data
 
-    def prepare_request(self, abstract: str, keywords: str = "") -> tuple[QNetworkRequest, QByteArray]:
+    def prepare_request(self, abstract: str, keywords: str = "", temperature: float = 0.7, seed: int = None) -> tuple[QNetworkRequest, QByteArray]:
         """
         Bereitet den Request für die AI-API vor.
         

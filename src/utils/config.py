@@ -116,7 +116,7 @@ class PromptConfig:
                 [Deine qualitative Analyse der Verschlagwortung]
 
                 Schlagworte:
-                [Liste der passende Konzepte aus dem Prompt - bitte kommagetrennt]
+                [Liste der passende Schlagwort aus dem Prompt - bitte kommagetrennt. ***Nutze keine Synonyme oder alternative Schreibweisen/Formulierungen***] 
 
                 Schlagworte OGND Eintrage:
                 [Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]
@@ -141,7 +141,31 @@ class PromptConfig:
             - Theoretische Konzepte
             - Untersuchungsgegenstände""",
             required_variables=["text"]
-        )
+        ),
+        "ub_search": PromptTemplate(
+            name="ub_search",
+            description="Verknüpft Schlagworte und Klassifizierung aus dem UB-Katalog",
+         #   template="""Wähle aus der folgendenen Liste von Schlagworten - {keywords} - exakt diejenige, die auf die Titelliste passen?, 
+         #   Folgende Titel sind verfügbar:
+         #   {abstract}
+         #   
+         #   Gibt deine Anwort in folgendem Format:
+         #   Am besten passendes Schlagwort (nur eines):
+         #   [1. Schlagwort]
+         #   Zweit bestes passendes Schlagwort (nur eines):
+         #   [2. Schlagwort]
+         #   ANALYSE:
+         #   [Deine qualitative Analyse der Zuordnung]""",
+         template="""### Aufgabe: Schlagwort-Klassifizierung
+
+        Finde das am besten passende Schlagwort aus der folgenden Liste für den gegebenen Text.  Verwende **keine** alternativen Schlagworte oder Synonyme.  Gib nur das beste Schlagwort aus der Liste zurück.  Wenn kein Schlagwort passt, gib "Kein passendes Schlagwort gefunden" zurück.
+
+        **Schlagwortliste:**
+        {keywords}
+
+        **Text:**
+        {abstract}""",
+        required_variables=["keywords", "abstract"])
     })
 
 @dataclass

@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
-    QPushButton, QLabel, QMessageBox, QProgressBar
+    QPushButton, QLabel, QMessageBox, QProgressBar,
+    QSlider, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
@@ -61,6 +62,24 @@ class AbstractTab(QWidget):
         #self.prompt.setMaximumHeight(100)
         layout.addWidget(self.prompt)
 
+        config_layout = QHBoxLayout()
+        self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
+        self.ki_temperature.setRange(0, 100)
+        self.ki_temperature.setValue(70)
+        self.ki_temperature.setTickInterval(1)
+        self.ki_temperature.valueChanged.connect(self.update_temperature_label)
+
+        # Temperatur-Label
+        self.temperature_label = QLabel(f"Temperatur: {self.ki_temperature.value()}")
+        config_layout.addWidget(self.temperature_label)
+        config_layout.addWidget(self.ki_temperature)
+
+        self.ki_seed = QSpinBox()
+        self.ki_seed.setRange(0, 1000000000)
+        self.ki_seed.setValue(0)
+
+        config_layout.addWidget(self.ki_seed)
+        layout.addLayout(config_layout)
         # Button-Bereich
         button_layout = QHBoxLayout()
         
@@ -90,6 +109,9 @@ class AbstractTab(QWidget):
         self.results_edit.setReadOnly(True)
         self.results_edit.setPlaceholderText("Hier erscheinen die Analyseergebnisse...")
         layout.addWidget(self.results_edit)
+
+    def update_temperature_label(self, value):
+        self.temperature_label.setText(f"Temperatur: {value}")
 
     def update_input(self):
         self.logger.info(self.template_name)
@@ -141,7 +163,9 @@ class AbstractTab(QWidget):
         try:
             # Bereite Request vor und erhalte Request und Daten
             #request, data = self.ai_processor.prepare_request(abstract, keywords)
-            request, data = self.ai_processor.prepare_request(self.ai_processor.generated_prompt)
+            seed = self.ki_seed.value()
+            temperature = self.ki_temperature.value() / 100
+            request, data = self.ai_processor.prepare_request(self.ai_processor.generated_prompt, temperature=temperature, seed=seed)
 
             # Sende Request mit separaten Daten
             self.network_manager.post(request, data)

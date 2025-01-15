@@ -14,6 +14,8 @@ from ..core.search_engine import SearchEngine
 from ..core.cache_manager import CacheManager
 from ..core.ai_processor import AIProcessor
 from ..utils.config import Config
+from .crossref_tab import CrossrefTab
+from .ubsearch_tab import UBSearchTab
 import logging
 
 class MainWindow(QMainWindow):
@@ -52,7 +54,11 @@ class MainWindow(QMainWindow):
             search_engine=self.search_engine,
             cache_manager=self.cache_manager
         )
+
+        self.crossref_tab = CrossrefTab()
+
         self.abstract_tab = AbstractTab()
+        self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
         self.abstract_tab.keywords_extracted.connect(self.update_search_field)
         self.abstract_tab.template_name = "abstract_analysis"
 
@@ -62,10 +68,14 @@ class MainWindow(QMainWindow):
         self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
         self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
+        self.ub_search_tab = UBSearchTab()
+
         
+        self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
         self.tabs.addTab(self.search_tab, "GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "Verifikation")
+        self.tabs.addTab(self.ub_search_tab, "UB Suche")
 
         # Statusleiste
         self.status_bar = QStatusBar()
