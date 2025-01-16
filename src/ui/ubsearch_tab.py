@@ -225,6 +225,7 @@ class UBSearchTab(QWidget):
 
         self.status_label = QLabel()
         input_layout.addWidget(self.status_label)
+        layout.addLayout(input_layout)
 
         self.mainsplitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -233,12 +234,13 @@ class UBSearchTab(QWidget):
         self.results_view.setReadOnly(True)
 
         # Splitter für geteilte Ansicht
-        splitter = QSplitter()
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         
         # TreeView für die Klassifikationen
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels(["Klassifikation", "Anzahl"])
         self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
+        self.tree_widget.setSortingEnabled(True)  # Sortierung aktivieren
         splitter.addWidget(self.tree_widget)
         
         # Detailansicht
@@ -250,19 +252,24 @@ class UBSearchTab(QWidget):
         self.ai_search.template_name = "ub_search"
         splitter.addWidget(self.ai_search)
 
+        # Setze die Stretchfaktoren für den Splitter
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(2, 3)
+
         # Layout zusammenbauen
-        layout.addLayout(input_layout)
-        layout.addWidget(self.results_view)
         self.mainsplitter.addWidget(self.results_view)
         self.mainsplitter.addWidget(splitter)
         layout.addWidget(self.mainsplitter)
         self.setLayout(layout)
         
-        self.setLayout(layout)
-
     def update_num_results(self, value):
         self.num_label.setText(f"Anzahl Treffer: {value}")
 
+    def update_keywords(self, keywords):
+        self.logger.info(keywords)
+
+        self.keywords_input.append(", ".join(keywords))
 
     def start_search(self):
         """Startet die Suche"""
@@ -272,14 +279,15 @@ class UBSearchTab(QWidget):
             return
 
         keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
-        
+        unique_keywords = list(dict.fromkeys(keywords))
+
         self.search_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         self.detail_view.clear()
         self.status_label.setText("Suche wird gestartet...")
 
-        self.worker = UBSearchWorker(keywords)
+        self.worker = UBSearchWorker(unique_keywords)
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.result_ready.connect(self.display_results)
         self.worker.error_occurred.connect(self.handle_error)
@@ -303,7 +311,55 @@ class UBSearchTab(QWidget):
         self.detail_view.clear()
         html_results = ["<h3>Suchergebnisse:</h3>"]
         
-        # Sammle alle Nummern mit ihren zugehörigen Records
+        # Sammle Statistiken für Keywords
+        keyword_stats = {}
+        classification_counts = {}  # Zählt Häufigkeit pro Klassifikation pro Keyword
+        for keyword, entries in results.items():
+            if not entries:
+                continue
+            
+            # Sammle Klassifikationen und zähle ihre Häufigkeit
+            classifications = {}  # Dict für Klassifikation -> Anzahl
+            for entry in entries:
+                if entry:
+                    number_type, number, _, _ = entry
+                    class_key = f"{number_type} {number}"
+                    classifications[class_key] = classifications.get(class_key, 0) + 1
+            
+            if classifications:
+                keyword_stats[keyword] = classifications
+                classification_counts[keyword] = len(entries)  # Gesamtzahl der Einträge
+
+        # Zeige Keyword-Statistiken
+        if keyword_stats:
+            html_results.append("<h4>Gefundene Klassifikationen pro Schlagwort:</h4>")
+            # Sortiere Keywords nach Anzahl der gefundenen Klassifikationen (absteigend)
+            sorted_keywords = sorted(keyword_stats.items(), 
+                                key=lambda x: len(x[1]), 
+                                reverse=True)
+            
+            html_results.append("<ul>")
+            for keyword, classifications in sorted_keywords:
+                # Sortiere Klassifikationen nach Häufigkeit (absteigend)
+                sorted_classifications = sorted(
+                    classifications.items(),
+                    key=lambda x: (-x[1],  # Primär nach Häufigkeit (absteigend)
+                                x[0].split()[0],  # Sekundär nach Typ (DK/Q)
+                                [float(n) if n.replace('.','').isdigit() else n  # Tertiär nach Nummer
+                                for n in re.split(r'([^0-9]+)', x[0].split()[1])])
+                )
+                
+                class_strings = [f"{class_key} ({count})" 
+                            for class_key, count in sorted_classifications]
+                
+                html_results.append(
+                    f"<li><b>{keyword}</b> ({len(classifications)} Klassifikationen, "
+                    f"{classification_counts[keyword]} Treffer): "
+                    f"{', '.join(class_strings)}</li>"
+                )
+            html_results.append("</ul><hr>")
+
+        # Ursprüngliche Ergebnisdarstellung
         number_mapping = {}
         for keyword, entries in results.items():
             if not entries:
@@ -328,9 +384,10 @@ class UBSearchTab(QWidget):
         if not sorted_numbers:
             html_results.append("<p>Keine Ergebnisse gefunden.</p>")
         else:
+            html_results.append("<h4>Detaillierte Ergebnisse:</h4>")
             for number in sorted_numbers:
                 entries = number_mapping[number]
-                total_titles = len(set(record_id for _, record_id, _, _ in entries))  # Eindeutige Titel
+                total_titles = len(set(record_id for _, record_id, _, _ in entries))
                 html_results.append(f"<p><b>{number}</b> ({total_titles} Titel)</p>")
                 html_results.append("<ul>")
                 
@@ -351,6 +408,8 @@ class UBSearchTab(QWidget):
 
         self.results_view.setHtml("".join(html_results))
         self.update_tree_view(results)
+
+
 
     def handle_error(self, error_message):
         """Behandelt Fehler"""

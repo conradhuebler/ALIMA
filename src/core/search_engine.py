@@ -102,7 +102,11 @@ class SearchEngine(QObject):
         cached_results = self.cache.get_cached_results(term)
         if cached_results:
             return cached_results
-
+        
+        self.logger.info(f"Suche nach Begriff: {term}")
+        if len(term) < 3:
+            return None
+        
         # Erstelle URL mit Parametern
         url = QUrl(self.base_url)
         url.setQuery(f"q={term}&format=jsonl")

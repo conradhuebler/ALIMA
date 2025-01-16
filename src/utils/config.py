@@ -89,7 +89,7 @@ class PromptConfig:
         "abstract_analysis": PromptTemplate(
             name="abstract_analysis",
             description="Analysiert einen Abstract und extrahiert relevante Schlagworte",
-            template="""Basierend auf folgendem Abstract und Keywords, schlage passende deutsche Schlagworte vor.
+            template="""Basierend auf folgendem Abstract und Keywords, schlage passende deutsche Schlagworte vor. Bei chemischen Verbindungen als Summenformeln oder Elementen gibt zusätzlich jeden Elementnamen als weiteres Schlagwort mit an.
             
             Abstract:
             {abstract}
@@ -157,8 +157,7 @@ class PromptConfig:
          #   ANALYSE:
          #   [Deine qualitative Analyse der Zuordnung]""",
          template="""### Aufgabe: Schlagwort-Klassifizierung
-
-        Finde das am besten passende Schlagwort aus der folgenden Liste für den gegebenen Text.  Verwende **keine** alternativen Schlagworte oder Synonyme.  Gib nur das beste Schlagwort aus der Liste zurück.  Wenn kein Schlagwort passt, gib "Kein passendes Schlagwort gefunden" zurück.
+        Bewerte jedes Schlagwort in der Liste mit einem Score zwischen 0 (am wenigsten passend) und 10 (am besten passend). Gibt den Score in Klammern hinter das Schlagwort und sortiere die Ausgabe mit absteigendem Score! Nutze dabei ***ausschließlich*** Schlagworte aus der Liste und ***keine*** Synonyme oder alternative Bezeichnungen und schlage ***keine*** anderen Schlagworte vor.
 
         **Schlagwortliste:**
         {keywords}

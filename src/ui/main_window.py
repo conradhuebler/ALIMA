@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSlot
 from pathlib import Path
+import re
 from typing import Optional, Dict
 
 from .search_tab import SearchTab
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
         self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
+        self.analyse_keywords.keywords_extracted.connect(self.update_gnd_keywords)
         self.ub_search_tab = UBSearchTab()
 
         
@@ -89,8 +91,96 @@ class MainWindow(QMainWindow):
         self.update_cache_info()
 
     @pyqtSlot(str)
+    def update_gnd_keywords(self, keywords):
+        self.logger.info(keywords)
+        """
+        Extrahiert GND-Schlagworte aus einem Text.
+        
+        Args:
+            text (str): Der Text, der die GND-Einträge enthält
+            
+        Returns:
+            list: Liste der GND-Schlagworte ohne IDs
+        """
+        try:
+            # Suche den Abschnitt mit den GND-Einträgen
+            if "Schlagworte OGND Eintrage:" not in keywords:
+                return []
+                
+            # Extrahiere den relevanten Teil des Textes
+            gnd_section = keywords.split("Schlagworte OGND Eintrage:")[1].split("FEHLENDE KONZEPTE:")[0]
+            
+            # Extrahiere die Schlagworte (alles vor der URL)
+            gnd_terms = []
+            for line in gnd_section.split(","):
+                if "(https://" in line:
+                    term = line.split("(https://")[0].strip().replace("\"","")
+                    
+                    self.logger.info(term)
+                    if term:
+                        gnd_terms.append(term)
+            self.logger.info(gnd_terms)
+            self.ub_search_tab.update_keywords(gnd_terms)       
+            return gnd_terms
+            
+        except Exception as e:
+            print(f"Fehler beim Extrahieren der GND-Terme: {str(e)}")
+            return []
+        
+    @pyqtSlot(str)
     def update_search_field(self, keywords):
-        self.search_tab.update_search_field(keywords)
+        """
+        Extrahiert Keywords aus einem String, behandelt geklammerte Terme und schützt Slashes.
+        
+        Args:
+            keyword_string (str): String mit kommagetrennten Keywords in Anführungszeichen
+            
+        Returns:
+            list: Liste von extrahierten Keywords
+            list: Liste von extrahierten Klammer-Termen
+        """
+        
+        # Entferne Leerzeichen am Anfang und Ende
+        keyword_string = keywords.strip()
+        
+        # Wenn der String mit [ beginnt und mit ] endet, entferne diese
+        if keyword_string.startswith('[') and keyword_string.endswith(']'):
+            keyword_string = keyword_string[1:-1]
+        
+        # Regulärer Ausdruck für das Matching
+        # Matches entweder:
+        # 1. Terme in Anführungszeichen die Slash enthalten
+        # 2. Terme in Anführungszeichen mit Klammern
+        # 3. Normale Terme in Anführungszeichen
+        pattern = r'"([^"]*?/[^"]*?)"|"([^"]*?\([^)]+?\)[^"]*?)"|"([^"]*?)"'
+        
+        matches = re.finditer(pattern, keyword_string)
+        
+        keywords = []
+        bracketed_terms = []
+        
+        for match in matches:
+            # Wenn es ein Slash-Term ist
+            if match.group(1):
+                term = match.group(1).replace('/', '\\/')
+                keywords.append(f'"{term}"')
+            # Wenn es ein Term mit Klammern ist
+            elif match.group(2):
+                term = match.group(2)
+                # Extrahiere den Klammerinhalt
+                bracket_content = re.findall(r'\(([^)]+)\)', term)
+                # Füge den Hauptterm zu den Keywords hinzu
+                main_term = re.sub(r'\s*\([^)]+\)', '', term).strip()
+                if main_term:
+                    keywords.append(main_term)
+                # Füge die Klammerterme zur separaten Liste hinzu
+                bracketed_terms.extend([f'"{term}"' for term in bracket_content])
+            # Wenn es ein normaler Term ist
+            elif match.group(3):
+                keywords.append(f'"{match.group(3)}"')
+        
+        result = keywords + bracketed_terms
+        self.search_tab.update_search_field(", ".join(result))
 
     def create_menu_bar(self):
         """Erstellt die Menüleiste"""

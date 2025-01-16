@@ -167,13 +167,18 @@ class SearchTab(QWidget):
 
             # Führe Suche für jeden Term durch
             for term in search_terms:
+                if len(term) < 3:
+                    self.details_display.append(f"Der Begriff '{term}' ist zu kurz (mindestens 3 Zeichen)")
+                    term_results[term] = {'headings': set(), 'counter': Counter(), 'total': 0}
+                    continue
+
                 subject_headings = []
                 
                 url = f"https://lobid.org/resources/search?q={term}&format=jsonl"
                 response = requests.get(url, stream=True)
 
                 if response.status_code != 200:
-                    self.results_display.append(f"Fehler bei der API-Anfrage für {term}: {response.status_code}")
+                    self.details_display.append(f"Fehler bei der API-Anfrage für {term}: {response.status_code}")
                     term_results[term] = {'headings': set(), 'counter': Counter(), 'total': 0}
                     continue
 
