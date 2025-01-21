@@ -32,7 +32,8 @@ class PromptConfig:
         "results_verification": PromptTemplate(
             name="results_verification",
             description="Überprüft die Qualität der gefundenen GND-Schlagworte",
-            template="""Bitte analysiere die Qualität der Verschlagwortung für folgenden Abstract.
+            template="""Wähle aus der Liste der OGND-Schlagworte diejenigen heraus, die zur inhaltlichen Beschreibung des Abstraktes verwendet werden können. Nutze nur Schlagworte, die in der OGND-Liste korrekt auftauchen und keine Synonyme. Führe auch keine weitere Erschließung durch, außer in der letzten Diskussion.
+
 
             Abstract:
             {abstract}
@@ -42,14 +43,20 @@ class PromptConfig:
             
             Bitte gib deine Antwort in folgendem Format:
             
-            ANALYSE:
-            [Deine qualitative Analyse der Verschlagwortung]
-            
-            SUCHBEGRIFFE:
-            [Liste der Konzepte, nach denen gesucht werden soll - bitte kommagetrennt]
-            
-            FEHLENDE KONZEPTE:
-            [Liste von Konzepten, die noch nicht durch GND abgedeckt sind]""",
+                ANALYSE:
+                [Deine qualitative Analyse der Verschlagwortung]
+
+                Schlagworte:
+                [Liste der passende Schlagwort aus dem Prompt - bitte kommagetrennt. ***Nutze keine Synonyme oder alternative Schreibweisen/Formulierungen***] 
+
+                Schlagworte OGND Eintrage:
+                [Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]
+
+               Schlagwortketten:
+              [Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]	
+
+                FEHLENDE KONZEPTE:
+                [Liste von Konzepten, die noch nicht durch GND abgedeckt sind]""",
             required_variables=["abstract", "gnd_results"]
         )
     })

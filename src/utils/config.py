@@ -97,14 +97,15 @@ class PromptConfig:
             Vorhandene Keywords:
             {keywords}
             
-            Bitte gib nur eine Liste deutscher Schlagworte zurück, die für eine bibliothekarische Erschließung geeignet sind.
-            Die Schlagworte sollten möglichst präzise und spezifisch sein.""",
+            Bitte gibt die Schlagworte kommagetrennt aus, nutze nur eine Zeile und gib keinen weiteren Text aus. Verwende auch das Wort Schlagwort nicht.            Die Schlagworte sollten möglichst präzise und spezifisch sein.""",
             required_variables=["abstract", "keywords"]
         ),
         "results_verification": PromptTemplate(
             name="results_verification",
             description="Überprüft die Qualität der gefundenen GND-Schlagworte",
-            template=""" Abstract:
+            template="""
+             Wähle aus der Liste der OGND-Schlagworte diejenigen heraus, die zur inhaltlichen Beschreibung des Abstraktes verwendet werden können. Nutze nur Schlagworte, die in der OGND-Liste korrekt auftauchen und keine Synonyme. Führe auch keine weitere Erschließung durch, außer in der letzten Diskussion.
+                 Abstract:
                 {abstract}
 
                 Gefundene GND-Schlagworte:
@@ -112,7 +113,7 @@ class PromptConfig:
 
                 Bitte gib deine Antwort in folgendem Format:
 
-                ANALYSE:
+                                ANALYSE:
                 [Deine qualitative Analyse der Verschlagwortung]
 
                 Schlagworte:
@@ -120,6 +121,9 @@ class PromptConfig:
 
                 Schlagworte OGND Eintrage:
                 [Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]
+
+                Schlagwortketten:
+                [Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]	
 
                 FEHLENDE KONZEPTE:
                 [Liste von Konzepten, die noch nicht durch GND abgedeckt sind]""",

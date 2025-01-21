@@ -1,11 +1,29 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
     QPushButton, QLabel, QMessageBox, QProgressBar,
-    QSlider, QSpinBox
+    QSlider, QSpinBox, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from ..core.ai_processor import AIProcessor
+from ollama import chat
+from ollama import ChatResponse
+
+from pydantic import BaseModel
+
+
+
+# Define the schema for the response
+class FriendInfo(BaseModel):
+  name: str
+  age: int
+  is_available: bool
+
+
+class FriendList(BaseModel):
+  friends: list[FriendInfo]
+
+
 import json
 import logging
 
@@ -79,6 +97,11 @@ class AbstractTab(QWidget):
         self.ki_seed.setValue(0)
 
         config_layout.addWidget(self.ki_seed)
+
+        self.llama = QCheckBox("Llama")
+        self.llama.setChecked(False)
+        config_layout.addWidget(self.llama)
+
         layout.addLayout(config_layout)
         # Button-Bereich
         button_layout = QHBoxLayout()
@@ -157,23 +180,47 @@ class AbstractTab(QWidget):
         self.set_ui_enabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Unbestimmter Fortschritt
-        self.prompt.setPlainText(self.ai_processor.generated_prompt)
-        self.logger.info(self.ai_processor.generated_prompt)
-
-        try:
-            # Bereite Request vor und erhalte Request und Daten
-            #request, data = self.ai_processor.prepare_request(abstract, keywords)
-            seed = self.ki_seed.value()
-            temperature = self.ki_temperature.value() / 100
-            request, data = self.ai_processor.prepare_request(self.ai_processor.generated_prompt, temperature=temperature, seed=seed)
-
-            # Sende Request mit separaten Daten
-            self.network_manager.post(request, data)
+        #self.prompt.setPlainText(self.ai_processor.generated_prompt)
+        #self.logger.info(self.ai_processor.generated_prompt)
+        self.logger.info(self.prompt.toPlainText())
+        if self.llama.isChecked():
+            self.progress_bar.setVisible(True)
+            self.set_ui_enabled(False)
+            response: ChatResponse = chat(model='llama3:latest', 
+                messages=[
+                    {
+                        'role': 'user',
+                        'content': self.prompt.toPlainText()
+                    },
+                ],
+                #format=FriendList.model_json_schema(),  # Use Pydantic to generate the schema or format=schema
+                options={'temperature': self.ki_temperature.value() / 100, 'seed' : self.ki_seed.value() },  # Make responses more deterministic
+      
+                )
             
-        except Exception as e:
-            self.handle_error("Fehler bei der Anfrage", str(e))
-            self.set_ui_enabled(True)
+            result = response['message']['content']
+            #friends_response = FriendList.model_validate_json(response.message.content)
+            #print(friends_response)
+            self.results_edit.setPlainText(result)
+            keywords = self.extract_keywords(result)
+            self.keywords_extracted.emit(keywords)
             self.progress_bar.setVisible(False)
+            self.set_ui_enabled(True)
+        else:
+            try:
+                # Bereite Request vor und erhalte Request und Daten
+                #request, data = self.ai_processor.prepare_request(abstract, keywords)
+                seed = self.ki_seed.value()
+                temperature = self.ki_temperature.value() / 100
+                
+                request, data = self.ai_processor.prepare_request(self.prompt.toPlainText(), temperature=temperature, seed=seed)
+                # Sende Request mit separaten Daten
+                self.network_manager.post(request, data)
+                
+            except Exception as e:
+                self.handle_error("Fehler bei der Anfrage", str(e))
+                self.set_ui_enabled(True)
+                self.progress_bar.setVisible(False)
 
     @pyqtSlot(QNetworkReply)
     def handle_ai_response(self, reply: QNetworkReply):

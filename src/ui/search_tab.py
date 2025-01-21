@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
     QLineEdit, QPushButton, QGroupBox, QComboBox, QSpinBox,
     QDoubleSpinBox, QCheckBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSplitter, QApplication, QListWidgetItem
+    QHeaderView, QSplitter, QApplication, QListWidgetItem, QProgressBar
 )
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from collections import Counter
@@ -24,6 +24,7 @@ class SearchTab(QWidget):
     error_occurred = pyqtSignal(str)
     search_completed = pyqtSignal(dict)
     keywords_found = pyqtSignal(str)
+    keywords_exact = pyqtSignal(str)
 
     def __init__(self, search_engine, cache_manager, parent=None):
         super().__init__(parent)
@@ -55,6 +56,17 @@ class SearchTab(QWidget):
         # Erweiterte Suchoptionen
         options_layout = QHBoxLayout()
         
+        # max. Anzahl der Ergebnisse
+        max_results_layout = QHBoxLayout()
+        max_results_label = QLabel("Max. Ergebnisse:")
+        self.max_results_spin = QSpinBox()
+        self.max_results_spin.setRange(1, 1000000)
+        self.max_results_spin.setValue(10000)
+        self.max_results_spin.setSingleStep(100)
+        max_results_layout.addWidget(max_results_label)
+        max_results_layout.addWidget(self.max_results_spin)
+        options_layout.addLayout(max_results_layout)
+
         # Threshold-Einstellung
         threshold_layout = QHBoxLayout()
         threshold_label = QLabel("Schwellenwert (%):")
@@ -75,7 +87,7 @@ class SearchTab(QWidget):
         self.sort_combo.addItems(["Häufigkeit", "Alphabetisch", "Relevanz"])
         sort_layout.addWidget(sort_label)
         sort_layout.addWidget(self.sort_combo)
-        options_layout.addLayout(sort_layout)
+        #options_layout.addLayout(sort_layout)
 
         # Filteroptionen
         self.exact_match_check = QCheckBox("Nur exakte Treffer")
@@ -84,6 +96,9 @@ class SearchTab(QWidget):
         search_layout.addLayout(options_layout)
         search_group.setLayout(search_layout)
         layout.addWidget(search_group)
+
+        self.progressBar = QProgressBar()
+        layout.addWidget(self.progressBar)
 
         # Ergebnisbereich
         results_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -97,14 +112,22 @@ class SearchTab(QWidget):
         self.results_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
         )
-        results_splitter.addWidget(self.results_table)
+
+        self.details_display = QTextEdit()
+        self.details_display.setReadOnly(True)
+
+        table_split = QSplitter(Qt.Orientation.Horizontal)
+        table_split.addWidget(self.results_table)
+        table_split.addWidget(self.details_display)
+        table_split.setSizes([600, 400])
+        results_splitter.addWidget(table_split)
 
         # Detailansicht
         details_group = QGroupBox("Details")
         details_layout = QVBoxLayout()
-        self.details_display = QTextEdit()
-        self.details_display.setReadOnly(True)
-        details_layout.addWidget(self.details_display)
+        self.content_display = QTextEdit()
+        self.content_display.setReadOnly(True)
+        details_layout.addWidget(self.content_display)
         details_group.setLayout(details_layout)
         results_splitter.addWidget(details_group)
 
@@ -166,7 +189,10 @@ class SearchTab(QWidget):
             total_counter = Counter()
 
             # Führe Suche für jeden Term durch
+            self.progressBar.setMaximum(2*len(search_terms))
+            self.progressBar.setValue(0)
             for term in search_terms:
+                self.progressBar.setValue(self.progressBar.value() + 1)
                 if len(term) < 3:
                     self.details_display.append(f"Der Begriff '{term}' ist zu kurz (mindestens 3 Zeichen)")
                     term_results[term] = {'headings': set(), 'counter': Counter(), 'total': 0}
@@ -191,13 +217,15 @@ class SearchTab(QWidget):
                 for line in response.iter_lines(decode_unicode=True):
                     if not line:
                         continue
-
+                    if total_items >= self.max_results_spin.value():
+                        break
+                    
                     try:
                         item = json.loads(line)
                         headings = self.extract_subject_headings(item)
                         subject_headings.extend(headings)
                         total_items += 1
-                        if total_items % 100 == 0:
+                        if total_items % 1000 == 0:
                             self.status_label.setText(f"Verarbeite Eintrag {total_items} für: {term}")
                             QApplication.processEvents()
                     except json.JSONDecodeError as e:
@@ -217,6 +245,7 @@ class SearchTab(QWidget):
 
                 # Cache die Ergebnisse
                 self.search_engine.cache.cache_results(term, term_results[term])
+                self.progressBar.setValue(self.progressBar.value() + 1)
 
             # Verarbeite Gesamtergebnisse
             processed_results = self.search_engine.process_results(
@@ -243,24 +272,20 @@ class SearchTab(QWidget):
         # Hier können zusätzliche Verarbeitungsschritte erfolgen
         initial_prompt = []
         try:
-            
-
             # Exakte Treffer
             if results.get('exact_matches'):
                 for item, count in results['exact_matches']:
                     label, gnd_id = item
                     list_item = f"{label} ({gnd_id})"
                     initial_prompt.append(list_item)
-
-
+            self.keywords_exact.emit(", ".join(initial_prompt))
+            
             # Häufige Treffer
             if results.get('frequent_matches'):
                 for item, count in results['frequent_matches']:
                     label, gnd_id = item
                     list_item = f"{label} ({gnd_id})"
                     initial_prompt.append(list_item)
-
-
 
             QApplication.processEvents()  # UI aktualisieren
             self.keywords_found.emit(", ".join(initial_prompt))
@@ -272,32 +297,59 @@ class SearchTab(QWidget):
     def display_results(self, results):
         """Zeigt die Suchergebnisse an"""
         try:
-            self.details_display.clear()
-
+            self.content_display.clear()
+            self.logger.info(results)
             # Exakte Treffer
             if results.get('exact_matches'):
                 exact_header = "Exakte Treffer:\n"
-                self.details_display.append(exact_header)
+                self.content_display.append(exact_header)
                 
                 for item, count in results['exact_matches']:
                     label, gnd_id = item
                     list_item = f"{label} ({count}x)"
-                    self.details_display.append(list_item)
+                    self.content_display.append(list_item)
+                    self.results_table.insertRow(self.results_table.rowCount())
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 0, QTableWidgetItem(label)
+                    )
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 1, QTableWidgetItem(gnd_id)
+                    )
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 2, QTableWidgetItem(str(count))
+                    )
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 3, QTableWidgetItem("Exakt")
+                    )
 
             # Häufige Treffer
             if results.get('frequent_matches'):
                 frequent_header = "\nHäufige Treffer:\n"
-                self.details_display.append(frequent_header)
+                self.content_display.append(frequent_header)
                 
                 for item, count in results['frequent_matches']:
                     label, gnd_id = item
                     list_item = f"{label} ({count}x)"
-                    self.details_display.append(list_item)
+                    self.content_display.append(list_item)
+                    self.result_list.append(list_item)
+                    self.results_table.insertRow(self.results_table.rowCount())
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 0, QTableWidgetItem(label)
+                    )
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 1, QTableWidgetItem(gnd_id)
+                    )
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 2, QTableWidgetItem(str(count))
+                    )
+                    self.results_table.setItem(
+                        self.results_table.rowCount() - 1, 3, QTableWidgetItem("Ähnlich")
+                    )
 
             # Keine Ergebnisse
             if not results.get('exact_matches') and not results.get('frequent_matches'):
                 no_results = "Keine Ergebnisse gefunden"
-                self.details_display.append(no_results)
+                self.content_display.append(no_results)
 
             QApplication.processEvents()  # UI aktualisieren
 
@@ -368,11 +420,6 @@ class SearchTab(QWidget):
         details += f"Typ: {result_type}\n\n"
 
         # Hole zusätzliche Informationen aus dem Cache
-        cache_info = self.cache_manager.get_term_info(gnd_id)
-        if cache_info:
-            details += "=== Cache-Informationen ===\n\n"
-            details += f"Zuletzt verwendet: {cache_info['last_used']}\n"
-            details += f"Verwendungshäufigkeit: {cache_info['usage_count']}\n"
 
         self.details_display.setText(details)
 
