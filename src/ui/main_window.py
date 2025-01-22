@@ -88,7 +88,6 @@ class MainWindow(QMainWindow):
         # Cache-Info Widget
         self.cache_info = QLabel()
         self.status_bar.addPermanentWidget(self.cache_info)
-        self.update_cache_info()
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):
@@ -213,14 +212,6 @@ class MainWindow(QMainWindow):
         # Cache-Menü
         cache_menu = menubar.addMenu('&Cache')
         
-        # Cache leeren
-        clear_cache_action = cache_menu.addAction('Cache &leeren')
-        clear_cache_action.triggered.connect(self.clear_cache)
-        
-        # Cache-Statistiken
-        cache_stats_action = cache_menu.addAction('Cache-&Statistiken')
-        cache_stats_action.triggered.connect(self.show_cache_stats)
-
         # Hilfe-Menü
         help_menu = menubar.addMenu('&Hilfe')
         
@@ -271,29 +262,6 @@ class MainWindow(QMainWindow):
         # Speichere Tab-Einstellungen
         self.search_tab.save_settings(self.settings)
         self.abstract_tab.save_settings(self.settings)
-
-    def update_cache_info(self):
-        """Aktualisiert die Cache-Informationen in der Statusleiste"""
-        stats = self.cache_manager.get_stats(days=1)
-        if stats:
-            hit_rate = stats.get('hit_rate', 0) * 100
-            self.cache_info.setText(
-                f"Cache: {hit_rate:.1f}% Trefferquote | "
-                f"{stats.get('total_searches', 0)} Suchen heute"
-            )
-
-    def clear_cache(self):
-        """Leert den Cache"""
-        removed = self.cache_manager.cleanup_old_entries(max_age_days=0)
-        self.status_label.setText(f"{removed} Cache-Einträge gelöscht")
-        self.update_cache_info()
-
-    def show_cache_stats(self):
-        """Zeigt detaillierte Cache-Statistiken"""
-        from .dialogs import CacheStatsDialog
-        stats = self.cache_manager.get_stats(days=30)
-        dialog = CacheStatsDialog(stats, self)
-        dialog.exec()
 
     def export_results(self):
         """Exportiert die aktuellen Suchergebnisse"""

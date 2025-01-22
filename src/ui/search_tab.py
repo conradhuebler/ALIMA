@@ -45,7 +45,7 @@ class SearchTab(QWidget):
 
         # Hauptsuchfeld
         search_input_layout = QHBoxLayout()
-        self.search_input = QLineEdit()
+        self.search_input = QTextEdit()
         self.search_input.setPlaceholderText("Suchbegriffe (durch Komma getrennt)")
         self.search_button = QPushButton("Suchen")
         self.search_button.clicked.connect(self.perform_search)
@@ -154,7 +154,7 @@ class SearchTab(QWidget):
         layout.addLayout(actions_layout)
 
         # Verbinde Signals
-        self.search_input.returnPressed.connect(self.perform_search)
+        #self.search_input.returnPressed.connect(self.perform_search)
         self.results_table.itemSelectionChanged.connect(self.show_details)
         self.sort_combo.currentTextChanged.connect(self.sort_results)
 
@@ -167,7 +167,7 @@ class SearchTab(QWidget):
             self.result_list.clear()
             QApplication.processEvents()
 
-            text = self.search_input.text()
+            text = self.search_input.toPlainText().strip();
             # Extrahiere Begriffe, die in Anführungszeichen stehen
             quoted_pattern = r'"([^"]+)"'
             quoted_matches = re.findall(quoted_pattern, text)
@@ -229,7 +229,13 @@ class SearchTab(QWidget):
                             self.status_label.setText(f"Verarbeite Eintrag {total_items} für: {term}")
                             QApplication.processEvents()
                     except json.JSONDecodeError as e:
-                        self.results_display.append(f"Fehler beim Parsen einer Zeile: {str(e)}")
+                        self.results_display.append(f"(Suchsterm: {term}) Fehler beim Parsen einer Zeile: {str(e)}")
+                        self.logger.info(line)
+                        self.logger.info(f"(Suchsterm: {term}) JSON Decode Error: {e}")
+                        continue
+                    except requests.exceptions.ChunkedEncodingError as e:
+                        self.logger.info(line)
+                        self.logger.info(f"(Suchsterm: {term}) ChunkedEncodingError: {e}")
                         continue
 
                 # Erstelle Counter und update total counter
@@ -244,7 +250,7 @@ class SearchTab(QWidget):
                 }
 
                 # Cache die Ergebnisse
-                self.search_engine.cache.cache_results(term, term_results[term])
+                #self.search_engine.cache.cache_results(term, term_results[term])
                 self.progressBar.setValue(self.progressBar.value() + 1)
 
             # Verarbeite Gesamtergebnisse
@@ -278,6 +284,8 @@ class SearchTab(QWidget):
                     label, gnd_id = item
                     list_item = f"{label} ({gnd_id})"
                     initial_prompt.append(list_item)
+                    if(self.cache_manager.gnd_entry_exists(gnd_id) == False):
+                        self.cache_manager.insert_gnd_entry(gnd_id, title = label)
             self.keywords_exact.emit(", ".join(initial_prompt))
             
             # Häufige Treffer
@@ -285,7 +293,10 @@ class SearchTab(QWidget):
                 for item, count in results['frequent_matches']:
                     label, gnd_id = item
                     list_item = f"{label} ({gnd_id})"
-                    initial_prompt.append(list_item)
+                    initial_prompt.append(list_item)   
+
+                    if(self.cache_manager.gnd_entry_exists(gnd_id) == False):
+                        self.cache_manager.insert_gnd_entry(gnd_id, title = label)
 
             QApplication.processEvents()  # UI aktualisieren
             self.keywords_found.emit(", ".join(initial_prompt))
@@ -406,18 +417,18 @@ class SearchTab(QWidget):
         selected_items = self.results_table.selectedItems()
         if not selected_items:
             return
-
         row = selected_items[0].row()
-        label = self.results_table.item(row, 0).text()
-        gnd_id = self.results_table.item(row, 1).text()
-        count = self.results_table.item(row, 2).text()
-        result_type = self.results_table.item(row, 3).text()
-
-        details = f"=== Details für GND-Begriff ===\n\n"
-        details += f"Begriff: {label}\n"
-        details += f"GND-ID: {gnd_id}\n"
-        details += f"Häufigkeit: {count}\n"
-        details += f"Typ: {result_type}\n\n"
+        gnd_id = self.results_table.item(row, 1).text()     
+        if self.cache_manager.gnd_entry_exists(gnd_id): 
+            gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
+            details = f"Details für GND-ID: {gnd_id}\n\n"
+            details += f"Titel: {gnd_entry['title']}\n"
+            details += f"Beschreibung: {gnd_entry['description']}\n"
+            details += f"DDC: {gnd_entry['ddcs']}\n"
+            details += f"DK: {gnd_entry['dks']}\n"
+            details += f"Synonyme: {gnd_entry['synonyms']}\n"
+            details += f"Erstellt am: {gnd_entry['created_at']}\n"
+            details += f"Zuletzt aktualisiert am: {gnd_entry['updated_at']}\n"
 
         # Hole zusätzliche Informationen aus dem Cache
 
@@ -427,7 +438,7 @@ class SearchTab(QWidget):
         """Prüft die eingegebenen Begriffe im Cache"""
         search_terms = [
             term.strip() 
-            for term in self.search_input.text().split(',') 
+            for term in self.search_input.toPlainText().split(',') 
             if term.strip()
         ]
 

@@ -83,7 +83,7 @@ class AbstractTab(QWidget):
         config_layout = QHBoxLayout()
         self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
         self.ki_temperature.setRange(0, 100)
-        self.ki_temperature.setValue(70)
+        self.ki_temperature.setValue(0)
         self.ki_temperature.setTickInterval(1)
         self.ki_temperature.valueChanged.connect(self.update_temperature_label)
 

@@ -45,25 +45,17 @@ class CacheManager:
     def create_tables(self) -> None:
         """Erstellt die notwendigen Tabellen in der Datenbank."""
         try:
-            with self.conn:
-                # Haupttabelle für Suchergebnisse
+            with self.conn:             
                 self.conn.execute('''
-                    CREATE TABLE IF NOT EXISTS searches (
-                        search_term TEXT PRIMARY KEY,
-                        results BLOB,
-                        timestamp DATETIME,
-                        hit_count INTEGER DEFAULT 0,
-                        last_accessed DATETIME
-                    )
-                ''')
-                
-                # Tabelle für Statistiken
-                self.conn.execute('''
-                    CREATE TABLE IF NOT EXISTS cache_stats (
-                        stat_date DATE PRIMARY KEY,
-                        total_searches INTEGER,
-                        cache_hits INTEGER,
-                        cache_misses INTEGER
+                    CREATE TABLE IF NOT EXISTS gnd_entry (
+                        gnd_id TEXT PRIMARY KEY,
+                        title TEXT,
+                        description TEXT,
+                        ddcs TEXT,
+                        dks TEXT,
+                        synonyms TEXT,
+                        created_at DATETIME,
+                        updated_at DATETIME
                     )
                 ''')
                 
@@ -72,257 +64,159 @@ class CacheManager:
             self.logger.error(f"Fehler beim Erstellen der Tabellen: {e}")
             raise
 
-    def _convert_for_storage(self, results: Dict) -> Dict:
+    def load_entrys(self) -> Dict:
         """
-        Konvertiert Sets und Counter in JSON-serialisierbare Formate.
+        Lädt alle GND-Einträge aus der Datenbank.
         
-        Args:
-            results: Dictionary mit Suchergebnissen
-            
         Returns:
-            JSON-serialisierbares Dictionary
-        """
-        return {
-            'headings': list(results['headings']),
-            'counter': {str(k): v for k, v in results['counter'].items()},
-            'total': results['total'],
-            'timestamp': results.get('timestamp', datetime.now().isoformat())
-        }
-
-    def _convert_from_storage(self, stored_results: Dict) -> Dict:
-        """
-        Konvertiert gespeicherte Daten zurück in Sets und Counter.
-        
-        Args:
-            stored_results: Gespeichertes Dictionary
-            
-        Returns:
-            Dictionary mit wiederhergestellten Datentypen
+            Dictionary mit GND-Einträgen
         """
         try:
-            return {
-                'headings': set(tuple(h) for h in stored_results['headings']),
-                'counter': {
-                    tuple(k.strip('()').split(', ')): v
-                    for k, v in stored_results['counter'].items()
-                },
-                'total': stored_results['total'],
-                'timestamp': stored_results.get('timestamp')
-            }
+            with self.conn:
+                cursor = self.conn.execute('SELECT * FROM gnd_entry')
+                results = cursor.fetchall()
+                
+                return {row['gnd_id']: dict(row) for row in results}
         except Exception as e:
-            self.logger.error(f"Fehler bei der Konvertierung der gespeicherten Daten: {e}")
+            self.logger.error(f"Fehler beim Laden der GND-Einträge: {e}")
             raise
 
-    def get_cached_results(self, search_term: str, max_age_hours: int = 24) -> Optional[Dict]:
+    def gnd_entry_exists(self, gnd_id: str) -> bool:
         """
-        Holt gecachte Ergebnisse, wenn sie nicht älter als die angegebene Zeit sind.
-        
+        Überprüft, ob ein GND-Eintrag in der Datenbank existiert.
+
         Args:
-            search_term: Suchbegriff
-            max_age_hours: Maximales Alter der Cache-Einträge in Stunden
-            
+            gnd_id: GND-ID
+
         Returns:
-            Dictionary mit Suchergebnissen oder None
+            True, wenn der Eintrag existiert, sonst False
         """
         try:
             with self.conn:
                 cursor = self.conn.execute(
                     '''
-                    SELECT results, timestamp, hit_count 
-                    FROM searches 
-                    WHERE search_term = ?
+                    SELECT COUNT(*) FROM gnd_entry 
+                    WHERE gnd_id = ?
                     ''',
-                    (search_term,)
+                    (gnd_id,)
                 )
                 result = cursor.fetchone()
-
-                if result:
-                    results, timestamp, hit_count = result
-                    cached_time = datetime.fromisoformat(timestamp)
-                    
-                    if datetime.now() - cached_time < timedelta(hours=max_age_hours):
-                        # Update Zugriffstatistiken
-                        self.conn.execute(
-                            '''
-                            UPDATE searches 
-                            SET hit_count = hit_count + 1,
-                                last_accessed = ? 
-                            WHERE search_term = ?
-                            ''',
-                            (datetime.now().isoformat(), search_term)
-                        )
-                        
-                        self._update_stats('hits')
-                        self.logger.info(f"Cache-Hit für '{search_term}'")
-                        return self._convert_from_storage(json.loads(results))
-                    
-                    self._update_stats('misses')
-                    self.logger.info(f"Cache-Miss (veraltet) für '{search_term}'")
-                    return None
                 
-                self._update_stats('misses')
-                self.logger.info(f"Cache-Miss (nicht gefunden) für '{search_term}'")
-                return None
+                return result[0] > 0
                 
         except Exception as e:
-            self.logger.error(f"Fehler beim Abrufen von Cache-Daten: {e}")
-            return None
+            self.logger.error(f"Fehler beim Überprüfen des GND-Eintrags: {e}")
+            return False
 
-    def cache_results(self, search_term: str, results: Dict) -> None:
+    def insert_gnd_entry(self, gnd_id: str, title: str, description: str = "", ddcs: str = "", dks: str = "", synonyms: str = "") -> None:
         """
-        Speichert Ergebnisse im Cache.
+        Speichert einen GND-Eintrag in der Datenbank.
         
         Args:
-            search_term: Suchbegriff
-            results: Dictionary mit Suchergebnissen
+            gnd_id: GND-ID
+            title: Titel des Eintrags
+            description: Beschreibung
+            ddcs: DDCs
+            dks: DKS
+            synonyms: Synonyme
         """
         try:
-            serializable_results = self._convert_for_storage(results)
-            
             with self.conn:
                 self.conn.execute(
                     '''
-                    INSERT OR REPLACE INTO searches 
-                    (search_term, results, timestamp, last_accessed, hit_count)
-                    VALUES (?, ?, ?, ?, 0)
+                    INSERT OR REPLACE INTO gnd_entry 
+                    (gnd_id, title, description, ddcs, dks, synonyms, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
-                        search_term,
-                        json.dumps(serializable_results),
+                        gnd_id,
+                        title,
+                        description,
+                        ddcs,
+                        dks,
+                        synonyms,
                         datetime.now().isoformat(),
                         datetime.now().isoformat()
                     )
                 )
                 
-            self.logger.info(f"Ergebnisse für '{search_term}' erfolgreich gecacht")
+            self.logger.info(f"GND-Eintrag '{gnd_id}' erfolgreich gespeichert")
             
         except Exception as e:
-            self.logger.error(f"Fehler beim Cachen der Ergebnisse: {e}")
+            self.logger.error(f"Fehler beim Speichern des GND-Eintrags: {e}")
             raise
 
-    def _update_stats(self, stat_type: str) -> None:
+    def get_gnd_entry(self, gnd_id: str) -> Optional[Dict]:
         """
-        Aktualisiert die Cache-Statistiken.
+        Holt einen GND-Eintrag aus der Datenbank.
         
         Args:
-            stat_type: Art der Statistik ('hits' oder 'misses')
-        """
-        today = datetime.now().date()
-        
-        try:
-            with self.conn:
-                # Prüfe, ob bereits ein Eintrag für heute existiert
-                cursor = self.conn.execute(
-                    'SELECT * FROM cache_stats WHERE stat_date = ?',
-                    (today,)
-                )
-                
-                if cursor.fetchone():
-                    # Update existierenden Eintrag
-                    if stat_type == 'hits':
-                        self.conn.execute(
-                            '''
-                            UPDATE cache_stats 
-                            SET cache_hits = cache_hits + 1,
-                                total_searches = total_searches + 1
-                            WHERE stat_date = ?
-                            ''',
-                            (today,)
-                        )
-                    else:
-                        self.conn.execute(
-                            '''
-                            UPDATE cache_stats 
-                            SET cache_misses = cache_misses + 1,
-                                total_searches = total_searches + 1
-                            WHERE stat_date = ?
-                            ''',
-                            (today,)
-                        )
-                else:
-                    # Erstelle neuen Eintrag
-                    hits = 1 if stat_type == 'hits' else 0
-                    misses = 1 if stat_type == 'misses' else 0
-                    self.conn.execute(
-                        '''
-                        INSERT INTO cache_stats 
-                        (stat_date, total_searches, cache_hits, cache_misses)
-                        VALUES (?, 1, ?, ?)
-                        ''',
-                        (today, hits, misses)
-                    )
-        
-        except Exception as e:
-            self.logger.error(f"Fehler beim Aktualisieren der Statistiken: {e}")
-
-    def get_stats(self, days: int = 7) -> Dict[str, Any]:
-        """
-        Holt Cache-Statistiken für die letzten X Tage.
-        
-        Args:
-            days: Anzahl der Tage für die Statistik
-            
-        Returns:
-            Dictionary mit Statistiken
-        """
-        start_date = (datetime.now() - timedelta(days=days)).date()
-        
+            gnd_id: GND-ID
+        """ 
+        self.logger.info(f"Lade GND-Eintrag '{gnd_id}'")
         try:
             with self.conn:
                 cursor = self.conn.execute(
                     '''
-                    SELECT * FROM cache_stats 
-                    WHERE stat_date >= ? 
-                    ORDER BY stat_date DESC
+                    SELECT * FROM gnd_entry 
+                    WHERE gnd_id = ?
                     ''',
-                    (start_date,)
+                    (gnd_id,)
                 )
+                result = cursor.fetchone()
                 
-                stats = cursor.fetchall()
-                
-                return {
-                    'total_searches': sum(row['total_searches'] for row in stats),
-                    'cache_hits': sum(row['cache_hits'] for row in stats),
-                    'cache_misses': sum(row['cache_misses'] for row in stats),
-                    'hit_rate': sum(row['cache_hits'] for row in stats) / 
-                               sum(row['total_searches'] for row in stats) 
-                               if stats else 0,
-                    'daily_stats': [dict(row) for row in stats]
-                }
+                if result:
+                    # Spaltennamen abrufen
+                    column_names = [description[0] for description in cursor.description]
+                    # Dictionary erstellen
+                    entry = dict(zip(column_names, result))
+                    return entry
+                else:
+                    self.logger.info(f"GND-Eintrag '{gnd_id}' nicht gefunden")
+                    return None
                 
         except Exception as e:
-            self.logger.error(f"Fehler beim Abrufen der Statistiken: {e}")
-            return {}
-
-    def cleanup_old_entries(self, max_age_days: int = 30) -> int:
+            self.logger.error(f"Fehler beim Abrufen des GND-Eintrags: {e}")
+            return None
+        
+    def update_gnd_entry(self, gnd_id: str, title: str, description: str, ddcs: str, dks: str, synonyms: str) -> None:
         """
-        Entfernt alte Cache-Einträge.
+        Aktualisiert einen GND-Eintrag in der Datenbank.
         
         Args:
-            max_age_days: Maximales Alter der Einträge in Tagen
-            
-        Returns:
-            Anzahl der entfernten Einträge
+            gnd_id: GND-ID
+            title: Titel des Eintrags
+            description: Beschreibung
+            ddcs: DDCs
+            dks: DKS
+            synonyms: Synonyme
         """
-        cutoff_date = (datetime.now() - timedelta(days=max_age_days)).isoformat()
-        
         try:
             with self.conn:
-                cursor = self.conn.execute(
-                    'DELETE FROM searches WHERE timestamp < ?',
-                    (cutoff_date,)
+                self.conn.execute(
+                    '''
+                    UPDATE gnd_entry 
+                    SET title = ?,
+                        description = ?,
+                        ddcs = ?,
+                        dks = ?,
+                        synonyms = ?,
+                        updated_at = ?
+                    WHERE gnd_id = ?
+                    ''',
+                    (
+                        title,
+                        description,
+                        ddcs,
+                        dks,
+                        synonyms,
+                        datetime.now().isoformat(),
+                        gnd_id
+                    )
                 )
                 
-                removed_count = cursor.rowcount
-                self.logger.info(f"{removed_count} alte Cache-Einträge entfernt")
-                return removed_count
-                
+            self.logger.info(f"GND-Eintrag '{gnd_id}' erfolgreich aktualisiert")
+            
         except Exception as e:
-            self.logger.error(f"Fehler beim Bereinigen des Caches: {e}")
-            return 0
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.conn.close()
+            self.logger.error(f"Fehler beim Aktualisieren des GND-Eintrags: {e}")
+            raise
