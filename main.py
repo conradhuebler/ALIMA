@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import sys
 from PyQt6.QtWidgets import QApplication
 from src.ui.main_window import MainWindow

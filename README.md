@@ -4,12 +4,12 @@ Ein Tool zur Suche und Analyse von GND-Schlagworten mit KI-Unterstützung.
 
 ## Installation
 
-\`\`\`bash
+```bash
 pip install -r requirements.txt
-\`\`\`
+```
 
 ## Verwendung
 
-\`\`\`bash
+```bash
 python main.py
-\`\`\`
+```

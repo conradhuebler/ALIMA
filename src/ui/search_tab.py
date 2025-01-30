@@ -213,31 +213,34 @@ class SearchTab(QWidget):
 
                 # Verarbeitung der JSON Lines
                 total_items = 0
-
-                for line in response.iter_lines(decode_unicode=True):
-                    if not line:
-                        continue
-                    if total_items >= self.max_results_spin.value():
-                        break
-                    
-                    try:
-                        item = json.loads(line)
-                        headings = self.extract_subject_headings(item)
-                        subject_headings.extend(headings)
-                        total_items += 1
-                        if total_items % 1000 == 0:
-                            self.status_label.setText(f"Verarbeite Eintrag {total_items} für: {term}")
-                            QApplication.processEvents()
-                    except json.JSONDecodeError as e:
-                        self.results_display.append(f"(Suchsterm: {term}) Fehler beim Parsen einer Zeile: {str(e)}")
-                        self.logger.info(line)
-                        self.logger.info(f"(Suchsterm: {term}) JSON Decode Error: {e}")
-                        continue
-                    except requests.exceptions.ChunkedEncodingError as e:
-                        self.logger.info(line)
-                        self.logger.info(f"(Suchsterm: {term}) ChunkedEncodingError: {e}")
-                        continue
-
+                try:
+                    for line in response.iter_lines(decode_unicode=True):
+                        if not line:
+                            continue
+                        if total_items >= self.max_results_spin.value():
+                            break
+                        
+                        try:
+                            item = json.loads(line)
+                            headings = self.extract_subject_headings(item)
+                            subject_headings.extend(headings)
+                            total_items += 1
+                            if total_items % 1000 == 0:
+                                self.status_label.setText(f"Verarbeite Eintrag {total_items} für: {term}")
+                                QApplication.processEvents()
+                        except json.JSONDecodeError as e:
+                            self.results_display.append(f"(Suchsterm: {term}) Fehler beim Parsen einer Zeile: {str(e)}")
+                            self.logger.info(line)
+                            self.logger.info(f"(Suchsterm: {term}) JSON Decode Error: {e}")
+                            continue
+                        except requests.exceptions.ChunkedEncodingError as e:
+                            self.logger.info(line)
+                            self.logger.info(f"(Suchsterm: {term}) ChunkedEncodingError: {e}")
+                            continue
+                except Exception as e:
+                    self.logger.error(f"Fehler beim Verarbeiten der Ergebnisse: {e}", exc_info=True)
+                    self.error_occurred.emit(f"Fehler beim Verarbeiten der Ergebnisse: {str(e)}")
+                    continue
                 # Erstelle Counter und update total counter
                 term_counter = Counter(subject_headings)
                 total_counter.update(term_counter)
