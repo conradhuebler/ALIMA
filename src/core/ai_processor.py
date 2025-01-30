@@ -53,13 +53,25 @@ class AIProcessor(QObject):
         self.generated_prompt = prompt
         return prompt
         
-    def prepare_request(self, prompt : str = "", temperature: float = 0.7, seed: int = None) -> tuple[QNetworkRequest, QByteArray]:
+    def prepare_request(self, prompt : str = "", temperature: float = 0.7, seed: int = None, model : str = "") -> tuple[QNetworkRequest, QByteArray]:
         # Verwende die Provider-URL aus der Konfiguration und füge API-Key hinzu
         base_url = self.provider_config["api_url"]
         if not base_url:
             raise ValueError(f"Keine API-URL für Provider {self.ai_config.provider} gefunden")
         
-        #if self.ai_config.provider == AIProvider.GEMINI:
+        self.logger.info(model)
+        if(not model == ""):
+            self.logger.info("Modelname gefunden")
+            
+            base_url = base_url.replace("modelname", model)
+        else:
+            self.logger.info("Kein Modelname gefunden")
+            base_url = base_url.replace("modelname", "gemini-1.5-flash")
+
+        if not base_url:
+            raise ValueError(f"Keine API-URL für Provider {self.ai_config.provider} gefunden")
+        self.logger.info(base_url)
+
         api_url = f"{base_url}?key={self.ai_config.api_key}"
         #else:
 
@@ -69,115 +81,21 @@ class AIProcessor(QObject):
             QNetworkRequest.KnownHeaders.ContentTypeHeader,
             "application/json"
         )
-        
-        # Provider-spezifische Header (nicht mehr nötig für Gemini, da API-Key in URL)
-        #if self.ai_config.provider != AIProvider.GEMINI:
-        #    request.setRawHeader(
-        #        b"Authorization",
-        #        f"Bearer {self.ai_config.api_key}".encode()
-        #    )
-        
-        # Provider-spezifisches Request-Format
-        #if self.ai_config.provider == AIProvider.GEMINI:
+
         data = {
                 "contents": [{
-                    "parts": [{"text": prompt,
-                               "temperature": temperature,
-                                 "seed": seed
+                    "parts": [{"text": prompt#,
+                               #"temperature": temperature,
+                               #"seed": seed
                                }
                               ]             }]
             }
-        #else:
-        #    # OpenAI-kompatibles Format
-        #    data = {
-        #        "model": template.model,
-        #        "messages": [{"role": "user", "content": prompt}],
-        #        "temperature": self.ai_config.temperature,
-        #        "max_tokens": self.ai_config.max_tokens
-        #    }
-        
+
+        self.logger.info(data)
         # Konvertiere die Daten in QByteArray
         request_data = QByteArray(json.dumps(data).encode())
         self.logger.info(request_data)
         return request, request_data
-
-    def prepare_request(self, abstract: str, keywords: str = "", temperature: float = 0.7, seed: int = None) -> tuple[QNetworkRequest, QByteArray]:
-        """
-        Bereitet den Request für die AI-API vor.
-        
-        Returns:
-            Tuple von (QNetworkRequest, QByteArray mit den Request-Daten)
-        """
-        template_name = "abstract_analysis"
-        
-        if template_name not in self.prompt_config.templates:
-            self.logger.error(f"Template '{template_name}' nicht in {list(self.prompt_config.templates.keys())}")
-            raise ValueError(f"Template '{template_name}' nicht gefunden")
-
-        template = self.prompt_config.templates[template_name]
-        
-        # Verwende die Provider-URL aus der Konfiguration und füge API-Key hinzu
-        base_url = self.provider_config["api_url"]
-        if not base_url:
-            raise ValueError(f"Keine API-URL für Provider {self.ai_config.provider} gefunden")
-        
-        self.logger.info(template)
-
-        # Für Gemini: API-Key als URL-Parameter
-
-        #if self.ai_config.provider == AIProvider.GEMINI:
-        api_url = f"{base_url}?key={self.ai_config.api_key}"
-        #else:
-        #    api_url = base_url
-        self.logger.info(api_url)
-        # Bereite die Variablen vor
-        variables = {
-            "abstract": abstract,
-            "keywords": keywords if keywords else "Keine Keywords vorhanden"
-        }
-        
-        try:
-            # Erstelle den Prompt
-            prompt = template.template.format(**variables)
-        except KeyError as e:
-            raise ValueError(f"Fehlende Variable im Template: {e}")
-        self.generated_prompt = prompt
-        self.logger.info(self.generated_prompt)
-        # Erstelle Request
-        request = QNetworkRequest(QUrl(api_url))
-        request.setHeader(
-            QNetworkRequest.KnownHeaders.ContentTypeHeader,
-            "application/json"
-        )
-        
-        # Provider-spezifische Header (nicht mehr nötig für Gemini, da API-Key in URL)
-        #if self.ai_config.provider != AIProvider.GEMINI:
-        #    request.setRawHeader(
-        #        b"Authorization",
-        #        f"Bearer {self.ai_config.api_key}".encode()
-        #    )
-        
-        # Provider-spezifisches Request-Format
-        #if self.ai_config.provider == AIProvider.GEMINI:
-        data = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
-            }
-        #else:
-        #    # OpenAI-kompatibles Format
-        #    data = {
-        #        "model": template.model,
-        #        "messages": [{"role": "user", "content": prompt}],
-        #        "temperature": self.ai_config.temperature,
-        #        "max_tokens": self.ai_config.max_tokens
-        #    }
-        
-        # Konvertiere die Daten in QByteArray
-        request_data = QByteArray(json.dumps(data).encode())
-        self.logger.info(request_data)
-        return request, request_data
-
 
     def send_request(self, abstract: str, keywords: str = ""):
         """

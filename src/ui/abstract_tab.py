@@ -1,27 +1,14 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
     QPushButton, QLabel, QMessageBox, QProgressBar,
-    QSlider, QSpinBox, QCheckBox
+    QSlider, QSpinBox, QCheckBox, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from ..core.ai_processor import AIProcessor
-from ollama import chat
-from ollama import ChatResponse
-
-from pydantic import BaseModel
-
-
-
-# Define the schema for the response
-class FriendInfo(BaseModel):
-  name: str
-  age: int
-  is_available: bool
-
-
-class FriendList(BaseModel):
-  friends: list[FriendInfo]
+from ..utils.config import Config, ConfigSection, AIConfig
+#from ollama import chat
+#from ollama import ChatResponse
 
 
 import json
@@ -37,9 +24,11 @@ class AbstractTab(QWidget):
         self.network_manager = QNetworkAccessManager()
         self.network_manager.finished.connect(self.handle_ai_response) 
         self.need_keywords = False
+        self.config = Config.get_instance()
 
-        self.setup_ui()
         self.logger = logging.getLogger(__name__)
+        self.setup_ui()
+
         self.template_name = ""
 
     def setup_ui(self):
@@ -81,6 +70,17 @@ class AbstractTab(QWidget):
         layout.addWidget(self.prompt)
 
         config_layout = QHBoxLayout()
+
+        self.model_combo = QComboBox()
+        #self.combo_box.addItem()
+
+        ai_config = self.config.get_section(ConfigSection.AI)
+        provider_config = self.config.get_ai_provider_config(ai_config.provider)
+
+        if provider_config and "models" in provider_config:
+            self.model_combo.addItems(provider_config["models"])
+
+        config_layout.addWidget(self.model_combo)
         self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
         self.ki_temperature.setRange(0, 100)
         self.ki_temperature.setValue(0)
@@ -186,24 +186,23 @@ class AbstractTab(QWidget):
         if self.llama.isChecked():
             self.progress_bar.setVisible(True)
             self.set_ui_enabled(False)
-            response: ChatResponse = chat(model='llama3:latest', 
-                messages=[
-                    {
-                        'role': 'user',
-                        'content': self.prompt.toPlainText()
-                    },
-                ],
-                #format=FriendList.model_json_schema(),  # Use Pydantic to generate the schema or format=schema
-                options={'temperature': self.ki_temperature.value() / 100, 'seed' : self.ki_seed.value() },  # Make responses more deterministic
-      
-                )
+            #response: ChatResponse = chat(model='deepseek-r1:latest', 
+            #    messages=[
+            #        {
+            #            'role': 'user',
+            #            'content': self.prompt.toPlainText()
+            #        },
+            #    ],
+            #    #format=FriendList.model_json_schema(),  # Use Pydantic to generate the schema or format=schema
+            #    options={'temperature': self.ki_temperature.value() / 100, 'seed' : self.ki_seed.value() },  # Make responses more deterministic
+     # 
+     #           )
             
-            result = response['message']['content']
-            #friends_response = FriendList.model_validate_json(response.message.content)
-            #print(friends_response)
-            self.results_edit.setPlainText(result)
-            keywords = self.extract_keywords(result)
-            self.keywords_extracted.emit(keywords)
+            #result = response['message']['content']
+
+            #self.results_edit.setPlainText(result)
+            #keywords = self.extract_keywords(result)
+            #self.keywords_extracted.emit(keywords)
             self.progress_bar.setVisible(False)
             self.set_ui_enabled(True)
         else:
@@ -213,7 +212,7 @@ class AbstractTab(QWidget):
                 seed = self.ki_seed.value()
                 temperature = self.ki_temperature.value() / 100
                 
-                request, data = self.ai_processor.prepare_request(self.prompt.toPlainText(), temperature=temperature, seed=seed)
+                request, data = self.ai_processor.prepare_request(self.prompt.toPlainText(), temperature=temperature, seed=seed, model=self.model_combo.currentText())
                 # Sende Request mit separaten Daten
                 self.network_manager.post(request, data)
                 
@@ -243,9 +242,11 @@ class AbstractTab(QWidget):
                     f"Fehler bei der Verarbeitung der Antwort: {str(e)}"
                 )
         else:
+            response_data = json.loads(str(reply.readAll(), 'utf-8'))
+            self.logger.info(response_data["error"].get("message"))
             self.handle_error(
                 "Netzwerkfehler",
-                f"Fehler bei der API-Anfrage: {reply.errorString()}"
+                f"Fehler bei der API-Anfrage: {response_data.get('error', 'Unbekannter Fehler')}"
             )
 
         reply.deleteLater()

@@ -53,6 +53,7 @@ class CacheManager:
                         description TEXT,
                         ddcs TEXT,
                         dks TEXT,
+                        gnd_systems TEXT,
                         synonyms TEXT,
                         created_at DATETIME,
                         updated_at DATETIME
@@ -108,7 +109,7 @@ class CacheManager:
             self.logger.error(f"Fehler beim Überprüfen des GND-Eintrags: {e}")
             return False
 
-    def insert_gnd_entry(self, gnd_id: str, title: str, description: str = "", ddcs: str = "", dks: str = "", synonyms: str = "") -> None:
+    def insert_gnd_entry(self, gnd_id: str, title: str, description: str = "", ddcs: str = "", dks: str = "", gnd_systems : str = "", synonyms: str = "") -> None:
         """
         Speichert einen GND-Eintrag in der Datenbank.
         
@@ -118,6 +119,7 @@ class CacheManager:
             description: Beschreibung
             ddcs: DDCs
             dks: DKS
+            gnd_systems: GND-Systematik
             synonyms: Synonyme
         """
         try:
@@ -125,8 +127,8 @@ class CacheManager:
                 self.conn.execute(
                     '''
                     INSERT OR REPLACE INTO gnd_entry 
-                    (gnd_id, title, description, ddcs, dks, synonyms, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (gnd_id, title, description, ddcs, dks, gnd_systems, synonyms, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
                         gnd_id,
@@ -134,6 +136,7 @@ class CacheManager:
                         description,
                         ddcs,
                         dks,
+                        gnd_systems,
                         synonyms,
                         datetime.now().isoformat(),
                         datetime.now().isoformat()
@@ -153,7 +156,7 @@ class CacheManager:
         Args:
             gnd_id: GND-ID
         """ 
-        self.logger.info(f"Lade GND-Eintrag '{gnd_id}'")
+
         try:
             with self.conn:
                 cursor = self.conn.execute(
@@ -179,7 +182,7 @@ class CacheManager:
             self.logger.error(f"Fehler beim Abrufen des GND-Eintrags: {e}")
             return None
         
-    def update_gnd_entry(self, gnd_id: str, title: str, description: str, ddcs: str, dks: str, synonyms: str) -> None:
+    def update_gnd_entry(self, gnd_id: str, title: str, description: str, ddcs: str, dks: str, gnd_systems : str, synonyms: str) -> None:
         """
         Aktualisiert einen GND-Eintrag in der Datenbank.
         
@@ -200,6 +203,7 @@ class CacheManager:
                         description = ?,
                         ddcs = ?,
                         dks = ?,
+                        gn_systems = ?,
                         synonyms = ?,
                         updated_at = ?
                     WHERE gnd_id = ?
@@ -209,6 +213,7 @@ class CacheManager:
                         description,
                         ddcs,
                         dks,
+                        gnd_systems,
                         synonyms,
                         datetime.now().isoformat(),
                         gnd_id
