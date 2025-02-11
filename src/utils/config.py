@@ -32,9 +32,9 @@ class AIConfig:
     providers: Dict[str, AIProviderConfig] = field(default_factory=lambda: {
         "gemini": AIProviderConfig(
             name="Google Gemini",
-            api_url="https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+            api_url="https://generativelanguage.googleapis.com/v1beta/models/modelname:generateContent",
             default_model="gemini-1.5-flash",
-            models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-8b", "gemini-2.0-flash-exp"]
+            models = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash-exp"]
         ),
         "openai": AIProviderConfig(
             name="OpenAI",

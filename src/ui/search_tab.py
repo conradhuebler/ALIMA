@@ -15,6 +15,8 @@ import requests
 from datetime import datetime
 import logging
 import re
+from ..core.lobid_subjects import SubjectSuggester
+from ..core.dnb_utils import get_dnb_classification
 
 class SearchTab(QWidget):
     """Tab für die direkte GND-Schlagwortsuche"""
@@ -48,7 +50,7 @@ class SearchTab(QWidget):
         self.search_input = QTextEdit()
         self.search_input.setPlaceholderText("Suchbegriffe (durch Komma getrennt)")
         self.search_button = QPushButton("Suchen")
-        self.search_button.clicked.connect(self.perform_search)
+        self.search_button.clicked.connect(self.lobid_search)
         search_input_layout.addWidget(self.search_input)
         search_input_layout.addWidget(self.search_button)
         search_layout.addLayout(search_input_layout)
@@ -275,6 +277,114 @@ class SearchTab(QWidget):
         finally:
             self.search_button.setEnabled(True)
             QApplication.processEvents()
+    def current_lobid_term(self, term):
+        self.progressBar.setcurrentValue(self.progressBar.value() + 1)
+
+    def lobid_search(self):
+        """Suche in Lobid nach Begriffen"""
+        suggestor = SubjectSuggester()
+         # UI-Updates vor der Suche
+        self.search_button.setEnabled(False)
+        self.status_updated.emit("Suche wird durchgeführt...")
+        self.result_list.clear()
+        QApplication.processEvents()
+
+        text = self.search_input.toPlainText().strip();
+        # Extrahiere Begriffe, die in Anführungszeichen stehen
+        quoted_pattern = r'"([^"]+)"'
+        quoted_matches = re.findall(quoted_pattern, text)
+            
+        # Entferne die extrahierten Begriffe aus dem ursprünglichen Text
+        text = re.sub(quoted_pattern, '', text)
+            
+            # Teile den verbleibenden Text nach Kommas auf
+        remaining_terms = [term.strip() for term in text.split(',') if term.strip()]
+        search_terms = quoted_matches + remaining_terms
+
+    
+        def process_entries(entries, parent_term):
+            for term, info in entries.items():
+                if isinstance(info, dict):
+                    if 'count' in info and 'gndid' in info:
+                        gnd_id = list(info['gndid'])[0]
+                        count = info['count']
+                        
+                        # Bestimme die Beziehung
+                        relation = 'verschieden'
+                        if term == parent_term:
+                            relation = 'exakt'
+                        elif parent_term.lower() in term.lower() or term.lower() in parent_term.lower():
+                            relation = 'ähnlich'
+                        
+                        # Aktualisiere oder füge neuen Eintrag hinzu
+                        if gnd_id in gnd_analysis:
+                            current_count = gnd_analysis[gnd_id][1]
+                            current_relation = gnd_analysis[gnd_id][2]
+                            # Behalte die "stärkste" Beziehung
+                            if current_relation != 'exakt':
+                                if relation == 'exakt' or (relation == 'ähnlich' and current_relation == 'verschieden'):
+                                    gnd_analysis[gnd_id] = (term, current_count + count, relation)
+                                else:
+                                    gnd_analysis[gnd_id] = (term, current_count + count, current_relation)
+                            else:
+                                gnd_analysis[gnd_id] = (term, current_count + count, current_relation)
+                        else:
+                            gnd_analysis[gnd_id] = (term, count, relation)
+                    else:
+                        process_entries(info, parent_term)
+                        
+        gnd_analysis = {}
+        self.progressBar.setMaximum(len(search_terms))
+        self.logger.info(f"Suche nach Begriffen: {search_terms}")
+        #suggestor.connect.currentTerm.connect(self.current_lobid_term)
+        results = suggestor.search(search_terms)
+
+        # Verarbeite alle Einträge
+        for main_term, entries in results.items():
+            process_entries(entries, main_term)
+        
+        
+
+        # Sortiere die Ergebnisse
+        sorted_results = sorted(gnd_analysis.items(), key=lambda x: x[1][1], reverse=True)
+        
+        initial_prompt = []
+
+        for gnd_id, (term, count, relation) in sorted_results:
+            ddc = ""
+            gdn_category = ""
+            category = ""
+            checked = False
+            if term == gnd_id:
+                self.logger.info(gnd_id)
+                dnb_class = get_dnb_classification(gnd_id)
+                self.logger.info(dnb_class)
+                term = dnb_class['preferred_name']
+                ddc_list = dnb_class['ddc']
+                ddc = ";".join(f"{d['code']}({d['determinancy']})" for d in ddc_list)
+                self.logger.info(ddc)  
+                gdn_category = dnb_class['gnd_subject_categories']
+                gdn_category = ";".join(gdn_category)
+                category = dnb_class['category']
+                self.logger.info(gdn_category)
+                checked = True
+
+            #if term != gnd_id:
+            #    sorted_results[gnd_id] = (term, count, relation)
+
+            if not self.cache_manager.gnd_entry_exists(gnd_id):
+                        self.cache_manager.insert_gnd_entry(gnd_id, title = term)
+            if checked:
+                self.cache_manager.update_gnd_entry(gnd_id, title = term, ddcs = ddc, gnd_systems = gdn_category, classification = category)
+            if not term == gnd_id:
+                list_item = f"{term} ({gnd_id})"
+                initial_prompt.append(list_item)
+
+        self.keywords_found.emit(", ".join(initial_prompt))
+
+        self.display_results_patrick(sorted_results)
+        self.search_button.setEnabled(True)
+        QApplication.processEvents()
 
     def prepare_results(self, results):
         """Bereitet die Ergebnisse für die KI-Abfrage vor"""
@@ -312,7 +422,7 @@ class SearchTab(QWidget):
         """Zeigt die Suchergebnisse an"""
         try:
             self.content_display.clear()
-            self.logger.info(results)
+            #self.logger.info(results)
             # Exakte Treffer
             if results.get('exact_matches'):
                 exact_header = "Exakte Treffer:\n"
@@ -362,6 +472,81 @@ class SearchTab(QWidget):
 
             # Keine Ergebnisse
             if not results.get('exact_matches') and not results.get('frequent_matches'):
+                no_results = "Keine Ergebnisse gefunden"
+                self.content_display.append(no_results)
+
+            QApplication.processEvents()  # UI aktualisieren
+
+        except Exception as e:
+            self.logger.error(f"Fehler beim Anzeigen der Ergebnisse: {e}", exc_info=True)
+            self.error_occurred.emit(f"Fehler beim Anzeigen der Ergebnisse: {str(e)}")
+
+    def display_results_patrick(self, sorted_results):
+        """Zeigt die Suchergebnisse an"""
+        try:
+            self.content_display.clear()
+            self.results_table.setRowCount(0)  # Tabelle leeren
+
+            # sorted_results ist bereits eine sortierte Liste von Tupeln:
+            # [(gnd_id, (term, count, relation)), ...]
+            
+            # Gruppiere nach Beziehungstyp
+            exact_matches = []
+            similar_matches = []
+            different_matches = []
+            
+            for gnd_id, (term, count, relation) in sorted_results:
+                if relation == 'exakt':
+                    exact_matches.append((term, gnd_id, count))
+                elif relation == 'ähnlich':
+                    similar_matches.append((term, gnd_id, count))
+                else:
+                    different_matches.append((term, gnd_id, count))
+
+            # Exakte Treffer anzeigen
+            if exact_matches:
+                self.content_display.append("Exakte Treffer:")
+                for term, gnd_id, count in exact_matches:
+                    list_item = f"{term} ({count}x) = [{gnd_id}]"
+                    self.content_display.append(list_item)
+                    
+                    row = self.results_table.rowCount()
+                    self.results_table.insertRow(row)
+                    self.results_table.setItem(row, 0, QTableWidgetItem(term))
+                    self.results_table.setItem(row, 1, QTableWidgetItem(gnd_id))
+                    self.results_table.setItem(row, 2, QTableWidgetItem(str(count)))
+                    self.results_table.setItem(row, 3, QTableWidgetItem("="))
+
+            # Ähnliche Treffer anzeigen
+            if similar_matches:
+                self.content_display.append("\nÄhnliche Treffer:")
+                for term, gnd_id, count in similar_matches:
+                    list_item = f"{term} ({count}x) ≈ [{gnd_id}]"
+                    self.content_display.append(list_item)
+                    
+                    row = self.results_table.rowCount()
+                    self.results_table.insertRow(row)
+                    self.results_table.setItem(row, 0, QTableWidgetItem(term))
+                    self.results_table.setItem(row, 1, QTableWidgetItem(gnd_id))
+                    self.results_table.setItem(row, 2, QTableWidgetItem(str(count)))
+                    self.results_table.setItem(row, 3, QTableWidgetItem("≈"))
+
+            # Verschiedene Treffer anzeigen
+            if different_matches:
+                self.content_display.append("\nWeitere Treffer:")
+                for term, gnd_id, count in different_matches:
+                    list_item = f"{term} ({count}x) ≠ [{gnd_id}]"
+                    self.content_display.append(list_item)
+                    
+                    row = self.results_table.rowCount()
+                    self.results_table.insertRow(row)
+                    self.results_table.setItem(row, 0, QTableWidgetItem(term))
+                    self.results_table.setItem(row, 1, QTableWidgetItem(gnd_id))
+                    self.results_table.setItem(row, 2, QTableWidgetItem(str(count)))
+                    self.results_table.setItem(row, 3, QTableWidgetItem("≠"))
+
+            # Keine Ergebnisse
+            if not exact_matches and not similar_matches and not different_matches:
                 no_results = "Keine Ergebnisse gefunden"
                 self.content_display.append(no_results)
 

@@ -186,7 +186,7 @@ class AbstractTab(QWidget):
         if self.llama.isChecked():
             self.progress_bar.setVisible(True)
             self.set_ui_enabled(False)
-            #response: ChatResponse = chat(model='deepseek-r1:latest', 
+            #response: ChatResponse = chat(model='deepseek-coder-v2:16b', 
             #    messages=[
             #        {
             #            'role': 'user',
@@ -195,8 +195,8 @@ class AbstractTab(QWidget):
             #    ],
             #    #format=FriendList.model_json_schema(),  # Use Pydantic to generate the schema or format=schema
             #    options={'temperature': self.ki_temperature.value() / 100, 'seed' : self.ki_seed.value() },  # Make responses more deterministic
-     # 
-     #           )
+      # 
+      #          )
             
             #result = response['message']['content']
 

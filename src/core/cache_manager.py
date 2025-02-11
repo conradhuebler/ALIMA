@@ -55,6 +55,8 @@ class CacheManager:
                         dks TEXT,
                         gnd_systems TEXT,
                         synonyms TEXT,
+                        classification TEXT,
+                        ppn TEXT,
                         created_at DATETIME,
                         updated_at DATETIME
                     )
@@ -109,7 +111,7 @@ class CacheManager:
             self.logger.error(f"Fehler beim Überprüfen des GND-Eintrags: {e}")
             return False
 
-    def insert_gnd_entry(self, gnd_id: str, title: str, description: str = "", ddcs: str = "", dks: str = "", gnd_systems : str = "", synonyms: str = "") -> None:
+    def insert_gnd_entry(self, gnd_id: str, title: str, description: str = "", ddcs: str = "", dks: str = "", gnd_systems : str = "", synonyms: str = "", classification: str = "", ppn : str = "") -> None:
         """
         Speichert einen GND-Eintrag in der Datenbank.
         
@@ -127,8 +129,8 @@ class CacheManager:
                 self.conn.execute(
                     '''
                     INSERT OR REPLACE INTO gnd_entry 
-                    (gnd_id, title, description, ddcs, dks, gnd_systems, synonyms, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (gnd_id, title, description, ddcs, dks, gnd_systems, synonyms, classification, ppn, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
                         gnd_id,
@@ -138,6 +140,8 @@ class CacheManager:
                         dks,
                         gnd_systems,
                         synonyms,
+                        classification,
+                        ppn,
                         datetime.now().isoformat(),
                         datetime.now().isoformat()
                     )
@@ -182,7 +186,7 @@ class CacheManager:
             self.logger.error(f"Fehler beim Abrufen des GND-Eintrags: {e}")
             return None
         
-    def update_gnd_entry(self, gnd_id: str, title: str, description: str, ddcs: str, dks: str, gnd_systems : str, synonyms: str) -> None:
+    def update_gnd_entry(self, gnd_id: str, title: str, description: str, ddcs: str, dks: str, gnd_systems : str, synonyms: str, classification: str = "", ppn : str = "") -> None:
         """
         Aktualisiert einen GND-Eintrag in der Datenbank.
         
@@ -205,6 +209,8 @@ class CacheManager:
                         dks = ?,
                         gn_systems = ?,
                         synonyms = ?,
+                        classification = ?,
+                        ppn = ?,
                         updated_at = ?
                     WHERE gnd_id = ?
                     ''',
@@ -215,6 +221,8 @@ class CacheManager:
                         dks,
                         gnd_systems,
                         synonyms,
+                        classification,
+                        ppn,
                         datetime.now().isoformat(),
                         gnd_id
                     )
@@ -225,3 +233,47 @@ class CacheManager:
         except Exception as e:
             self.logger.error(f"Fehler beim Aktualisieren des GND-Eintrags: {e}")
             raise
+
+
+#self.cache_manager.update_gnd_entry(gnd_id, title = term, ddcs = ddc, gnd_systems = gdn_category, classification = category)
+
+    def update_gnd_entry(self, gnd_id: str, title: str, ddcs: str, gnd_systems : str,  classification: str) -> None:
+            """
+            Aktualisiert einen GND-Eintrag in der Datenbank.
+            
+            Args:
+                gnd_id: GND-ID
+                title: Titel des Eintrags
+                description: Beschreibung
+                ddcs: DDCs
+                dks: DKS
+                synonyms: Synonyme
+            """
+            self.logger.info(f"Update GND-Eintrag '{ddcs}'")
+            try:
+                with self.conn:
+                    self.conn.execute(
+                        '''
+                        UPDATE gnd_entry 
+                        SET title = ?,
+                            ddcs = ?,
+                            gnd_systems = ?,
+                            classification = ?,
+                            updated_at = ?
+                        WHERE gnd_id = ?
+                        ''',
+                        (
+                            title,
+                            ddcs,
+                            gnd_systems,
+                            classification,
+                            datetime.now().isoformat(),
+                            gnd_id
+                        )
+                    )
+                    
+                self.logger.info(f"GND-Eintrag '{gnd_id}' erfolgreich aktualisiert")
+                
+            except Exception as e:
+                self.logger.error(f"Fehler beim Aktualisieren des GND-Eintrags: {e}")
+                raise
