@@ -74,26 +74,29 @@ def get_dnb_classification(gnd_id):
                 type_name = type_uri.split('#')[1]
                 result['types'].append(type_name)
                 type_found = True
-                
                 # Determine main category
                 if 'DifferentiatedPerson' in type_name or 'Person' in type_name:
                     result['category'] = 'Person'
                 elif 'Work' in type_name:
                     result['category'] = 'Work'
+                elif any(keyword in type_name for keyword in ['PlaceOrGeographic', 'Country', 'Territory', 'TerritorialCorporateBodyOrAdministrativeUnit']):
+                    result['category'] = 'PlaceOrGeographic'
+                elif 'CorporateBody' in type_name:
+                    result['category'] = 'CorporateBody'
                 elif any(keyword in type_name for keyword in ['SubjectHeading', 'Heading', 'Nomenclature']):
                     result['category'] = 'SubjectHeading'
-                elif any(keyword in type_name for keyword in ['PlaceOrGeographic', 'Country', 'Territory']):
-                    result['category'] = 'PlaceOrGeographic'
-        
+
         if not type_found:
             logger.warning(f"Keine RDF-Typen gefunden für GND {gnd_id}")
         
         # Get preferred name based on category
-        name_predicates = []
+        name_predicates = [GNDO.preferredName]
         if result['category'] == 'Person':
             name_predicates.append(GNDO.preferredNameForThePerson)
         elif result['category'] == 'Work':
             name_predicates.append(GNDO.preferredNameForTheWork)
+        elif result['category'] == 'CorporateBody':
+            name_predicates.append(GNDO.preferredNameForTheCorporateBody)
         elif result['category'] == 'SubjectHeading':
             name_predicates.append(GNDO.preferredNameForTheSubjectHeading)
         elif result['category'] == 'PlaceOrGeographic':
@@ -110,7 +113,7 @@ def get_dnb_classification(gnd_id):
                 
         if not name_found:
             logger.warning(f"Kein bevorzugter Name gefunden für GND {gnd_id}")
-            result['preferred_name'] = f"Unbekannter Name (GND: {gnd_id})"
+            result['preferred_name'] = f"{gnd_id}"
         
         # Get DDC with determinacy
         for pred in [GNDO.relatedDdcWithDegreeOfDeterminacy1,
@@ -143,7 +146,7 @@ def get_dnb_classification(gnd_id):
         return result
 
 # Beispielverwendung:
-#ef safe_print_result(gnd_id):
+#def safe_print_result(gnd_id):
 #    result = get_dnb_classification(gnd_id)
 #    if result:
 #        print(f"\nGND-ID: {gnd_id}")
@@ -160,6 +163,7 @@ def get_dnb_classification(gnd_id):
 #        print(f"\nKeine Daten für GND-ID: {gnd_id}")
 
 # Test
-#gnd_ids = ["118548018", "4064784-5", "4027833-5", "4099365-6", "invalid-id"]
+#gnd_ids = ["118548018", "4064784-5", "4027833-5", "4099365-6", "2006134-1", "4031483-2"]
+#gnd_ids = ["4031483-2"]
 #for gnd_id in gnd_ids:
 #    safe_print_result(gnd_id)

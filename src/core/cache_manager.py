@@ -126,6 +126,7 @@ class CacheManager:
         """
         try:
             with self.conn:
+                time = datetime.now().isoformat()
                 self.conn.execute(
                     '''
                     INSERT OR REPLACE INTO gnd_entry 
@@ -142,8 +143,8 @@ class CacheManager:
                         synonyms,
                         classification,
                         ppn,
-                        datetime.now().isoformat(),
-                        datetime.now().isoformat()
+                        time,
+                        time
                     )
                 )
                 

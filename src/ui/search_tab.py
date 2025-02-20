@@ -109,51 +109,75 @@ class SearchTab(QWidget):
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(4)
         self.results_table.setHorizontalHeaderLabels([
-            "Begriff", "GND-ID", "Häufigkeit", "Quelle"
+            "Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit"
         ])
         self.results_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
         )
 
+
+        widget = QWidget()
+        vlayout = QVBoxLayout()
+
         self.details_display = QTextEdit()
         self.details_display.setReadOnly(True)
-
+        self.update_button = QPushButton("Update Entry")
+        self.update_button.clicked.connect(self.update_entry)
+        vlayout.addWidget(self.update_button)
+        vlayout.addWidget(self.details_display)
+        widget.setLayout(vlayout)
         table_split = QSplitter(Qt.Orientation.Horizontal)
         table_split.addWidget(self.results_table)
-        table_split.addWidget(self.details_display)
+        table_split.addWidget(widget)
         table_split.setSizes([600, 400])
         results_splitter.addWidget(table_split)
 
         # Detailansicht
-        details_group = QGroupBox("Details")
-        details_layout = QVBoxLayout()
-        self.content_display = QTextEdit()
-        self.content_display.setReadOnly(True)
-        details_layout.addWidget(self.content_display)
-        details_group.setLayout(details_layout)
-        results_splitter.addWidget(details_group)
+        self.prompt_widget = QWidget()
+        ddc_box = QHBoxLayout()
+        self.ddc1_check = QCheckBox("DDC 1xx")
+        self.ddc1_check.setChecked(True)
+        self.ddc2_check = QCheckBox("DDC 2xx")
+        self.ddc2_check.setChecked(True)
+        self.ddc3_check = QCheckBox("DDC 3xx")
+        self.ddc3_check.setChecked(True)
+        self.ddc4_check = QCheckBox("DDC 4xx")
+        self.ddc4_check.setChecked(True)
+        self.ddc5_check = QCheckBox("DDC 5xx")
+        self.ddc5_check.setChecked(True)
+        self.ddc6_check = QCheckBox("DDC 6xx")
+        self.ddc6_check.setChecked(True)
+        self.ddc7_check = QCheckBox("DDC 7xx")
+        self.ddc7_check.setChecked(True)
+        self.ddc8_check = QCheckBox("DDC 8xx")
+        self.ddc8_check.setChecked(True)
+        self.ddc9_check = QCheckBox("DDC 9xx")
+        self.ddc9_check.setChecked(True)
+        self.regenerate = QPushButton("Regenerate")
+        self.regenerate.clicked.connect(self.generate_prompt)
+
+        ddc_box.addWidget(self.ddc1_check)
+        ddc_box.addWidget(self.ddc2_check)
+        ddc_box.addWidget(self.ddc3_check)
+        ddc_box.addWidget(self.ddc4_check)
+        ddc_box.addWidget(self.ddc5_check)
+        ddc_box.addWidget(self.ddc6_check)
+        ddc_box.addWidget(self.ddc7_check)
+        ddc_box.addWidget(self.ddc8_check)
+        ddc_box.addWidget(self.ddc9_check)
+        ddc_box.addWidget(self.regenerate)
+        self.prompt_widget.setLayout(ddc_box)
+        results_splitter.addWidget(self.prompt_widget)
+
+        #details_group = QGroupBox("Details")
+        #details_layout = QVBoxLayout()
+        #self.content_display = QTextEdit()
+        #self.content_display.setReadOnly(True)
+        #details_layout.addWidget(self.content_display)
+        #details_group.setLayout(details_layout)
+        #results_splitter.addWidget(details_group)
 
         layout.addWidget(results_splitter)
-
-        # Aktionsleiste
-        actions_layout = QHBoxLayout()
-        
-        # Export-Button
-        self.export_button = QPushButton("Exportieren")
-        self.export_button.clicked.connect(self.export_results)
-        actions_layout.addWidget(self.export_button)
-        
-        # Cache-Prüfung
-        self.check_cache_button = QPushButton("Im Cache prüfen")
-        self.check_cache_button.clicked.connect(self.check_cache)
-        actions_layout.addWidget(self.check_cache_button)
-        
-        # Ergebnisse löschen
-        self.clear_button = QPushButton("Zurücksetzen")
-        self.clear_button.clicked.connect(self.clear_results)
-        actions_layout.addWidget(self.clear_button)
-        
-        layout.addLayout(actions_layout)
 
         # Verbinde Signals
         #self.search_input.returnPressed.connect(self.perform_search)
@@ -277,8 +301,9 @@ class SearchTab(QWidget):
         finally:
             self.search_button.setEnabled(True)
             QApplication.processEvents()
+
     def current_lobid_term(self, term):
-        self.progressBar.setcurrentValue(self.progressBar.value() + 1)
+        self.progressBar.setValue(self.progressBar.value() + 1)
 
     def lobid_search(self):
         """Suche in Lobid nach Begriffen"""
@@ -310,19 +335,19 @@ class SearchTab(QWidget):
                         count = info['count']
                         
                         # Bestimme die Beziehung
-                        relation = 'verschieden'
+                        relation = 2 # different
                         if term == parent_term:
-                            relation = 'exakt'
+                            relation = 0 # exakt
                         elif parent_term.lower() in term.lower() or term.lower() in parent_term.lower():
-                            relation = 'ähnlich'
+                            relation = 1 #similar
                         
                         # Aktualisiere oder füge neuen Eintrag hinzu
                         if gnd_id in gnd_analysis:
                             current_count = gnd_analysis[gnd_id][1]
                             current_relation = gnd_analysis[gnd_id][2]
                             # Behalte die "stärkste" Beziehung
-                            if current_relation != 'exakt':
-                                if relation == 'exakt' or (relation == 'ähnlich' and current_relation == 'verschieden'):
+                            if current_relation != 0:
+                                if relation == 0 or (relation == 1 and current_relation == 2):
                                     gnd_analysis[gnd_id] = (term, current_count + count, relation)
                                 else:
                                     gnd_analysis[gnd_id] = (term, current_count + count, current_relation)
@@ -336,7 +361,7 @@ class SearchTab(QWidget):
         gnd_analysis = {}
         self.progressBar.setMaximum(len(search_terms))
         self.logger.info(f"Suche nach Begriffen: {search_terms}")
-        #suggestor.connect.currentTerm.connect(self.current_lobid_term)
+        suggestor.currentTerm.connect(self.current_lobid_term)
         results = suggestor.search(search_terms)
 
         # Verarbeite alle Einträge
@@ -349,52 +374,57 @@ class SearchTab(QWidget):
         sorted_results = sorted(gnd_analysis.items(), key=lambda x: x[1][1], reverse=True)
         
         initial_prompt = []
-
+        self.gnd_ids = []
+        self.progressBar.setMaximum(len(sorted_results))
         for gnd_id, (term, count, relation) in sorted_results:
+            self.logger.info(gnd_id)
+            self.gnd_ids.append(gnd_id)
             ddc = ""
             gdn_category = ""
             category = ""
             checked = False
-            if term == gnd_id:
-                self.logger.info(gnd_id)
-                
-                #dnb_class = get_dnb_classification(gnd_id)
-                dnb_class = get_dnb_classification(gnd_id)
-                if dnb_class and dnb_class['status'] == 'success':
-                    term = dnb_class['preferred_name']
-                    # weiterer Code
-                else:
-                    error_msg = dnb_class['error_message'] if dnb_class else "Keine Daten erhalten"
-                    self.logger.error(f"Fehler bei GND {gnd_id}: {error_msg}")
-                    # Fehlerbehandlung
-
-                self.logger.info(dnb_class)
-                term = dnb_class['preferred_name']
-                ddc_list = dnb_class['ddc']
-                ddc = ";".join(f"{d['code']}({d['determinancy']})" for d in ddc_list)
-                self.logger.info(ddc)  
-                gdn_category = dnb_class['gnd_subject_categories']
-                gdn_category = ";".join(gdn_category)
-                category = dnb_class['category']
-                self.logger.info(gdn_category)
-                checked = True
-
-            #if term != gnd_id:
-            #    sorted_results[gnd_id] = (term, count, relation)
 
             if not self.cache_manager.gnd_entry_exists(gnd_id):
-                        self.cache_manager.insert_gnd_entry(gnd_id, title = term)
-            if checked:
-                self.cache_manager.update_gnd_entry(gnd_id, title = term, ddcs = ddc, gnd_systems = gdn_category, classification = category)
-            if not term == gnd_id:
-                list_item = f"{term} ({gnd_id})"
-                initial_prompt.append(list_item)
+                if term == gnd_id:
+                    self.cache_manager.insert_gnd_entry(gnd_id, title = "Empty")
+                else:
+                    self.cache_manager.insert_gnd_entry(gnd_id, title = term)
+            tmp_entry = self.cache_manager.get_gnd_entry(gnd_id) # check time of update
+            if not tmp_entry == None:
+                self.logger.info(tmp_entry)
+
+                if(tmp_entry['created_at'] == tmp_entry['updated_at']):
+                    if relation == 0 or relation == 1:
+                        self.update_entry(gnd_id)
+                
+                if not term == gnd_id:
+                    list_item = f"{term} ({gnd_id})"
+                    initial_prompt.append(list_item)
+            self.progressBar.setValue(self.progressBar.value() + 1)
 
         self.keywords_found.emit(", ".join(initial_prompt))
 
         self.display_results_patrick(sorted_results)
         self.search_button.setEnabled(True)
         QApplication.processEvents()
+
+    def generate_prompt(self):
+        initial_prompt = []
+
+        for gnd_id in self.gnd_ids:
+            gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
+            ddcs = gnd_entry['ddcs']
+            include = False
+            for ddc in ddcs.split(";"):
+                self.logger.info(ddc)
+                include = (self.ddc1_check.isChecked() and ddc.startswith("1")) or (self.ddc2_check.isChecked() and ddc.startswith("2")) or  (self.ddc3_check.isChecked() and ddc.startswith("3")) or (self.ddc4_check.isChecked() and ddc.startswith("4")) or (self.ddc5_check.isChecked() and ddc.startswith("5")) or (self.ddc6_check.isChecked() and ddc.startswith("6")) or (self.ddc7_check.isChecked() and ddc.startswith("7")) or (self.ddc8_check.isChecked() and ddc.startswith("8")) or (self.ddc9_check.isChecked() and ddc.startswith("9"))
+                        
+            if include:
+                list_item = f"{gnd_entry['title']} ({gnd_id})"
+                initial_prompt.append(list_item)
+
+        self.keywords_found.emit(", ".join(initial_prompt))
+
 
     def prepare_results(self, results):
         """Bereitet die Ergebnisse für die KI-Abfrage vor"""
@@ -483,7 +513,7 @@ class SearchTab(QWidget):
             # Keine Ergebnisse
             if not results.get('exact_matches') and not results.get('frequent_matches'):
                 no_results = "Keine Ergebnisse gefunden"
-                self.content_display.append(no_results)
+                #self.content_display.append(no_results)
 
             QApplication.processEvents()  # UI aktualisieren
 
@@ -494,7 +524,7 @@ class SearchTab(QWidget):
     def display_results_patrick(self, sorted_results):
         """Zeigt die Suchergebnisse an"""
         try:
-            self.content_display.clear()
+            #self.content_display.clear()
             self.results_table.setRowCount(0)  # Tabelle leeren
 
             # sorted_results ist bereits eine sortierte Liste von Tupeln:
@@ -506,19 +536,19 @@ class SearchTab(QWidget):
             different_matches = []
             
             for gnd_id, (term, count, relation) in sorted_results:
-                if relation == 'exakt':
+                if relation == 0:
                     exact_matches.append((term, gnd_id, count))
-                elif relation == 'ähnlich':
+                elif relation == 1:
                     similar_matches.append((term, gnd_id, count))
                 else:
                     different_matches.append((term, gnd_id, count))
 
             # Exakte Treffer anzeigen
             if exact_matches:
-                self.content_display.append("Exakte Treffer:")
+                #self.content_display.append("Exakte Treffer:")
                 for term, gnd_id, count in exact_matches:
                     list_item = f"{term} ({count}x) = [{gnd_id}]"
-                    self.content_display.append(list_item)
+                    #self.content_display.append(list_item)
                     
                     row = self.results_table.rowCount()
                     self.results_table.insertRow(row)
@@ -529,10 +559,10 @@ class SearchTab(QWidget):
 
             # Ähnliche Treffer anzeigen
             if similar_matches:
-                self.content_display.append("\nÄhnliche Treffer:")
+                #self.content_display.append("\nÄhnliche Treffer:")
                 for term, gnd_id, count in similar_matches:
                     list_item = f"{term} ({count}x) ≈ [{gnd_id}]"
-                    self.content_display.append(list_item)
+                    #self.content_display.append(list_item)
                     
                     row = self.results_table.rowCount()
                     self.results_table.insertRow(row)
@@ -543,10 +573,10 @@ class SearchTab(QWidget):
 
             # Verschiedene Treffer anzeigen
             if different_matches:
-                self.content_display.append("\nWeitere Treffer:")
+                #self.content_display.append("\nWeitere Treffer:")
                 for term, gnd_id, count in different_matches:
                     list_item = f"{term} ({count}x) ≠ [{gnd_id}]"
-                    self.content_display.append(list_item)
+                    #self.content_display.append(list_item)
                     
                     row = self.results_table.rowCount()
                     self.results_table.insertRow(row)
@@ -558,7 +588,7 @@ class SearchTab(QWidget):
             # Keine Ergebnisse
             if not exact_matches and not similar_matches and not different_matches:
                 no_results = "Keine Ergebnisse gefunden"
-                self.content_display.append(no_results)
+                #self.content_display.append(no_results)
 
             QApplication.processEvents()  # UI aktualisieren
 
@@ -610,6 +640,28 @@ class SearchTab(QWidget):
                 row, 3, QTableWidgetItem(result['type'])
             )
 
+    def update_entry(self, gnd_id: str = None):
+        if gnd_id is None:
+            gnd_id = self.current_gnd_id
+        dnb_class = get_dnb_classification(gnd_id)
+        if dnb_class and dnb_class['status'] == 'success':
+            term = dnb_class['preferred_name']
+                # weiterer Code
+        else:
+            error_msg = dnb_class['error_message'] if dnb_class else "Keine Daten erhalten"
+            self.logger.error(f"Fehler bei GND {gnd_id}: {error_msg}")
+            # Fehlerbehandlung
+
+        self.logger.info(dnb_class)
+        term = dnb_class['preferred_name']
+        ddc_list = dnb_class['ddc']
+        ddc = ";".join(f"{d['code']}({d['determinancy']})" for d in ddc_list)
+        self.logger.info(ddc)  
+        gdn_category = dnb_class['gnd_subject_categories']
+        gdn_category = ";".join(gdn_category)
+        category = dnb_class['category']
+        self.cache_manager.update_gnd_entry(gnd_id, title = term, ddcs = ddc, gnd_systems = gdn_category, classification = category)
+            
     def show_details(self):
         """Zeigt Details für den ausgewählten Eintrag"""
         selected_items = self.results_table.selectedItems()
@@ -619,6 +671,9 @@ class SearchTab(QWidget):
         gnd_id = self.results_table.item(row, 1).text()     
         if self.cache_manager.gnd_entry_exists(gnd_id): 
             gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
+            if gnd_entry['updated_at'] == gnd_entry['created_at']:
+                self.update_entry(gnd_id)
+                gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
             details = f"Details für GND-ID: {gnd_id}\n\n"
             details += f"Titel: {gnd_entry['title']}\n"
             details += f"Beschreibung: {gnd_entry['description']}\n"
@@ -629,7 +684,7 @@ class SearchTab(QWidget):
             details += f"Zuletzt aktualisiert am: {gnd_entry['updated_at']}\n"
 
         # Hole zusätzliche Informationen aus dem Cache
-
+        self.current_gnd_id = gnd_id
         self.details_display.setText(details)
 
     async def check_cache(self):
