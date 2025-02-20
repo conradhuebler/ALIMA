@@ -357,7 +357,17 @@ class SearchTab(QWidget):
             checked = False
             if term == gnd_id:
                 self.logger.info(gnd_id)
+                
+                #dnb_class = get_dnb_classification(gnd_id)
                 dnb_class = get_dnb_classification(gnd_id)
+                if dnb_class and dnb_class['status'] == 'success':
+                    term = dnb_class['preferred_name']
+                    # weiterer Code
+                else:
+                    error_msg = dnb_class['error_message'] if dnb_class else "Keine Daten erhalten"
+                    self.logger.error(f"Fehler bei GND {gnd_id}: {error_msg}")
+                    # Fehlerbehandlung
+
                 self.logger.info(dnb_class)
                 term = dnb_class['preferred_name']
                 ddc_list = dnb_class['ddc']
