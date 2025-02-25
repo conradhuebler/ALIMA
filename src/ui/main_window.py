@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
         self.abstract_tab.keywords_extracted.connect(self.update_search_field)
         self.abstract_tab.template_name = "abstract_analysis"
+        self.abstract_tab.set_model_recommendations("abstract")
 
         self.analyse_keywords = AbstractTab()
         #self.analyse_keywords.keywords_extracted.connect(self.update_search_field)
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
         self.analyse_keywords.keywords_extracted.connect(self.update_gnd_keywords)
+        self.analyse_keywords.set_model_recommendations("keywords")
         self.ub_search_tab = UBSearchTab()
 
         

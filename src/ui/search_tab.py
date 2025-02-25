@@ -153,6 +153,8 @@ class SearchTab(QWidget):
         self.ddc8_check.setChecked(True)
         self.ddc9_check = QCheckBox("DDC 9xx")
         self.ddc9_check.setChecked(True)
+        self.ddcX_check = QCheckBox("DDC X")
+        self.ddcX_check.setChecked(True)
         self.regenerate = QPushButton("Regenerate")
         self.regenerate.clicked.connect(self.generate_prompt)
 
@@ -165,6 +167,7 @@ class SearchTab(QWidget):
         ddc_box.addWidget(self.ddc7_check)
         ddc_box.addWidget(self.ddc8_check)
         ddc_box.addWidget(self.ddc9_check)
+        ddc_box.addWidget(self.ddcX_check)
         ddc_box.addWidget(self.regenerate)
         self.prompt_widget.setLayout(ddc_box)
         results_splitter.addWidget(self.prompt_widget)
@@ -418,7 +421,8 @@ class SearchTab(QWidget):
             for ddc in ddcs.split(";"):
                 self.logger.info(ddc)
                 include = (self.ddc1_check.isChecked() and ddc.startswith("1")) or (self.ddc2_check.isChecked() and ddc.startswith("2")) or  (self.ddc3_check.isChecked() and ddc.startswith("3")) or (self.ddc4_check.isChecked() and ddc.startswith("4")) or (self.ddc5_check.isChecked() and ddc.startswith("5")) or (self.ddc6_check.isChecked() and ddc.startswith("6")) or (self.ddc7_check.isChecked() and ddc.startswith("7")) or (self.ddc8_check.isChecked() and ddc.startswith("8")) or (self.ddc9_check.isChecked() and ddc.startswith("9"))
-                        
+                if self.ddcX_check.isChecked():
+                    include = True  
             if include:
                 list_item = f"{gnd_entry['title']} ({gnd_id})"
                 initial_prompt.append(list_item)

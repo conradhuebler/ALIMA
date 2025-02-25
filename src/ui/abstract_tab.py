@@ -6,11 +6,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from ..core.ai_processor import AIProcessor
+from ..core.llm_interface import LLMInterface
 from ..utils.config import Config, ConfigSection, AIConfig
-#from ollama import chat
-#from ollama import ChatResponse
 
-
+from pathlib import Path
 import json
 import logging
 
@@ -18,18 +17,149 @@ class AbstractTab(QWidget):
     keywords_extracted = pyqtSignal(str)
     abstract_changed = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, recommendations_file: Path = Path(__file__).parent.parent.parent / "model_recommendations.json"):
         super().__init__(parent)
         self.ai_processor = AIProcessor()
-        self.network_manager = QNetworkAccessManager()
-        self.network_manager.finished.connect(self.handle_ai_response) 
+        self.llm = LLMInterface()
         self.need_keywords = False
-        self.config = Config.get_instance()
-
         self.logger = logging.getLogger(__name__)
+        self.template_name = ""
+        
+        # Initialisiere leere Empfehlungen
+        self.recommended_models = {}
+        self.model_descriptions = {}
+        self.recommendations_file = recommendations_file
+        
+        # Lade Empfehlungen aus JSON
+        self.load_recommendations()
+        
+        # Setze Standard-Empfehlungen
+        self.set_model_recommendations("abstract")
+        
         self.setup_ui()
 
-        self.template_name = ""
+    def load_recommendations(self):
+        """Lädt die Modell-Empfehlungen aus der JSON-Datei"""
+        try:
+            if not self.recommendations_file.exists():
+                self.logger.warning(f"Recommendations file not found: {self.recommendations_file}")
+                self.create_default_recommendations()
+                return
+
+            with open(self.recommendations_file, 'r', encoding='utf-8') as f:
+                self.recommendations = json.load(f)
+                
+            self.logger.info(f"Successfully loaded recommendations from {self.recommendations_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading recommendations: {e}")
+            self.create_default_recommendations()
+
+    def create_default_recommendations(self):
+        """Erstellt und speichert Standard-Empfehlungen"""
+        self.recommendations = {
+            "abstract": {
+                "recommended": {
+                    "openai": [
+                        "gpt-4-turbo-preview",
+                        "gpt-3.5-turbo"
+                    ],
+                    "gemini": [
+                        "gemini-pro"
+                    ],
+                    "anthropic": [
+                        "claude-3-sonnet-20240229",
+                        "claude-3-opus-20240229"
+                    ],
+                    "ollama": [
+                        "mistral",
+                        "llama2"
+                    ]
+                },
+                "descriptions": {
+                    "openai": {
+                        "gpt-4-turbo-preview": "Beste Textanalyse-Leistung",
+                        "gpt-3.5-turbo": "Gutes Preis-Leistungs-Verhältnis"
+                    },
+                    "gemini": {
+                        "gemini-pro": "Optimiert für Textverarbeitung"
+                    },
+                    "anthropic": {
+                        "claude-3-sonnet-20240229": "Ausgewogene Leistung",
+                        "claude-3-opus-20240229": "Höchste Präzision"
+                    },
+                    "ollama": {
+                        "mistral": "Effizient für Textanalyse",
+                        "llama2": "Gute Allround-Leistung"
+                    }
+                }
+            }
+            # Weitere Use-Cases können hier hinzugefügt werden
+        }
+        
+        try:
+            # Stelle sicher, dass der Verzeichnispfad existiert
+            self.recommendations_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Speichere die Standard-Empfehlungen
+            with open(self.recommendations_file, 'w', encoding='utf-8') as f:
+                json.dump(self.recommendations, f, indent=4, ensure_ascii=False)
+                
+            self.logger.info(f"Created default recommendations at {self.recommendations_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating default recommendations: {e}")
+
+    def set_model_recommendations(self, use_case: str):
+        """Setzt die Modell-Empfehlungen basierend auf dem Anwendungsfall"""
+        if use_case in self.recommendations:
+            self.recommended_models = self.recommendations[use_case]["recommended"]
+            self.model_descriptions = self.recommendations[use_case]["descriptions"]
+            # Update Modell-Liste wenn bereits initialisiert
+            if hasattr(self, 'provider_combo'):
+                self.update_models(self.provider_combo.currentText())
+        else:
+            self.logger.warning(f"Unknown use case: {use_case}")
+    
+    def update_models(self, provider: str):
+        """Update available models when provider changes"""
+        self.model_combo.clear()
+        
+        # Hole alle verfügbaren Modelle
+        all_models = self.llm.get_available_models(provider)
+        
+        # Hole empfohlene Modelle für diesen Provider
+        recommended = self.recommended_models.get(provider, [])
+        self.logger.info(f"Empfohlene Modelle für {provider}: {recommended}")
+        if recommended:
+            # Füge empfohlene Modelle zuerst hinzu
+            recommended_group = "↳ Empfohlene Modelle"
+            self.model_combo.addItem(recommended_group)
+            recommended_available = [model for model in recommended if model in all_models]
+            
+            for model in recommended_available:
+                self.model_combo.addItem(f"  {model}")
+                # Setze Tooltip mit Beschreibung
+                idx = self.model_combo.count() - 1
+                description = self.model_descriptions.get(provider, {}).get(model, "")
+                self.model_combo.setItemData(idx, description, Qt.ItemDataRole.ToolTipRole)
+            
+            if recommended_available and len(all_models) > len(recommended_available):
+                self.model_combo.addItem("↳ Weitere verfügbare Modelle")
+            
+            # Füge restliche Modelle hinzu
+            other_models = [model for model in all_models if model not in recommended_available]
+            for model in other_models:
+                self.model_combo.addItem(f"  {model}")
+
+        else:
+            # Wenn keine Empfehlungen, füge alle Modelle hinzu
+            self.model_combo.addItems(all_models)
+
+        # Wähle das erste empfohlene Modell aus, falls verfügbar
+        if recommended_available:
+            self.model_combo.setCurrentText(f"  {recommended_available[0]}")
+
 
     def setup_ui(self):
         """Erstellt die UI-Komponenten"""
@@ -43,66 +173,59 @@ class AbstractTab(QWidget):
         self.abstract_edit = QTextEdit()
         self.abstract_edit.setPlaceholderText("Fügen Sie hier den Abstract ein...")
         self.abstract_edit.textChanged.connect(self.update_input)
-
         layout.addWidget(self.abstract_edit)
 
         # Keywords-Eingabe
         keywords_label = QLabel()
-
-        if self.need_keywords:
-            keywords_label.setText("Es müssen zwingend OGND-Keywords angebeben werden:")
-        else:
-            keywords_label.setText("Vorhandene Keywords (optional):")
-
+        keywords_label.setText("Vorhandene Keywords (optional):" if not self.need_keywords 
+                             else "Es müssen zwingend OGND-Keywords angebeben werden:")
         keywords_label.setToolTip("Fügen Sie hier bereits vorhandene Keywords ein")
         layout.addWidget(keywords_label)
         
         self.keywords_edit = QTextEdit()
         self.keywords_edit.setPlaceholderText("Vorhandene Keywords, eines pro Zeile...")
-        #self.keywords_edit.setMaximumHeight(100) 
         self.keywords_edit.textChanged.connect(self.update_input)
-
         layout.addWidget(self.keywords_edit)
 
         self.prompt = QTextEdit()
         self.prompt.setPlaceholderText("Prompt...")
-        #self.prompt.setMaximumHeight(100)
         layout.addWidget(self.prompt)
 
+        # KI-Konfiguration
         config_layout = QHBoxLayout()
 
+        # Provider Auswahl
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(self.llm.get_available_providers())
+        self.provider_combo.currentTextChanged.connect(self.update_models)
+        config_layout.addWidget(QLabel("Provider:"))
+        config_layout.addWidget(self.provider_combo)
+
+        # Model Auswahl
         self.model_combo = QComboBox()
-        #self.combo_box.addItem()
-
-        ai_config = self.config.get_section(ConfigSection.AI)
-        provider_config = self.config.get_ai_provider_config(ai_config.provider)
-
-        if provider_config and "models" in provider_config:
-            self.model_combo.addItems(provider_config["models"])
-
+        config_layout.addWidget(QLabel("Model:"))
         config_layout.addWidget(self.model_combo)
+        
+        # Temperatur Slider
         self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
         self.ki_temperature.setRange(0, 100)
-        self.ki_temperature.setValue(0)
+        self.ki_temperature.setValue(70)  # Default 0.7
         self.ki_temperature.setTickInterval(1)
         self.ki_temperature.valueChanged.connect(self.update_temperature_label)
 
-        # Temperatur-Label
-        self.temperature_label = QLabel(f"Temperatur: {self.ki_temperature.value()}")
+        self.temperature_label = QLabel(f"Temperatur: {self.ki_temperature.value()/100:.2f}")
         config_layout.addWidget(self.temperature_label)
         config_layout.addWidget(self.ki_temperature)
 
+        # Seed Input
+        config_layout.addWidget(QLabel("Seed:"))
         self.ki_seed = QSpinBox()
         self.ki_seed.setRange(0, 1000000000)
         self.ki_seed.setValue(0)
-
         config_layout.addWidget(self.ki_seed)
 
-        self.llama = QCheckBox("Llama")
-        self.llama.setChecked(False)
-        config_layout.addWidget(self.llama)
-
         layout.addLayout(config_layout)
+
         # Button-Bereich
         button_layout = QHBoxLayout()
         
@@ -125,7 +248,6 @@ class AbstractTab(QWidget):
 
         # Ergebnisbereich
         results_label = QLabel("Analyseergebnis:")
-        results_label.setToolTip("Hier erscheinen die von der KI vorgeschlagenen Schlagworte")
         layout.addWidget(results_label)
         
         self.results_edit = QTextEdit()
@@ -133,8 +255,54 @@ class AbstractTab(QWidget):
         self.results_edit.setPlaceholderText("Hier erscheinen die Analyseergebnisse...")
         layout.addWidget(self.results_edit)
 
+        # Initial models update
+        self.update_models(self.provider_combo.currentText())
+
+    #def update_models(self, provider: str):
+    #    """Update available models when provider changes"""
+    #    self.model_combo.clear()
+    #    models = self.llm.get_available_models(provider)
+    #    self.model_combo.addItems(models)
+
     def update_temperature_label(self, value):
-        self.temperature_label.setText(f"Temperatur: {value}")
+        """Update temperature label to show actual value"""
+        self.temperature_label.setText(f"Temperatur: {value/100:.2f}")
+
+    def start_analysis(self):
+        """Startet die Analyse des Abstracts"""
+        abstract = self.abstract_edit.toPlainText().strip()
+        keywords = self.keywords_edit.toPlainText().strip()
+
+        if not abstract:
+            QMessageBox.warning(self, "Warnung", "Bitte geben Sie einen Abstract ein.")
+            return
+
+        if not keywords and self.need_keywords:
+            QMessageBox.warning(self, "Warnung", "Ohne GND-Keywords läuft hier nix.")
+            return
+
+        self.set_ui_enabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+
+        try:
+            response = self.llm.generate_response(
+                provider=self.provider_combo.currentText(),
+                model=self.model_combo.currentText(),
+                prompt=self.prompt.toPlainText(),
+                temperature=self.ki_temperature.value() / 100,
+                seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None
+            )
+            
+            self.results_edit.setPlainText(response)
+            keywords = self.extract_keywords(response)
+            self.keywords_extracted.emit(keywords)
+            
+        except Exception as e:
+            self.handle_error("Fehler bei der Anfrage", str(e))
+        finally:
+            self.set_ui_enabled(True)
+            self.progress_bar.setVisible(False)
 
     def update_input(self):
         self.logger.info(self.template_name)
@@ -156,100 +324,6 @@ class AbstractTab(QWidget):
         self.abstract_edit.setPlainText(abstract)
         self.update_input()
 
-    def start_analysis(self):
-        """Startet die Analyse des Abstracts"""
-        abstract = self.abstract_edit.toPlainText().strip()
-        keywords = self.keywords_edit.toPlainText().strip()
-
-        if not abstract:
-            QMessageBox.warning(
-                self,
-                "Warnung",
-                "Bitte geben Sie einen Abstract ein."
-            )
-            return
-
-        if not keywords and self.need_keywords:
-            QMessageBox.warning(
-                self,
-                "Warnung",
-                "Ohne GND-Keywords läuft hier nix."
-            )
-            return
-        # UI während der Analyse deaktivieren
-        self.set_ui_enabled(False)
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # Unbestimmter Fortschritt
-        #self.prompt.setPlainText(self.ai_processor.generated_prompt)
-        #self.logger.info(self.ai_processor.generated_prompt)
-        self.logger.info(self.prompt.toPlainText())
-        if self.llama.isChecked():
-            self.progress_bar.setVisible(True)
-            self.set_ui_enabled(False)
-            #response: ChatResponse = chat(model='deepseek-coder-v2:16b', 
-            #    messages=[
-            #        {
-            #            'role': 'user',
-            #            'content': self.prompt.toPlainText()
-            #        },
-            #    ],
-            #    #format=FriendList.model_json_schema(),  # Use Pydantic to generate the schema or format=schema
-            #    options={'temperature': self.ki_temperature.value() / 100, 'seed' : self.ki_seed.value() },  # Make responses more deterministic
-      # 
-      #          )
-            
-            #result = response['message']['content']
-
-            #self.results_edit.setPlainText(result)
-            #keywords = self.extract_keywords(result)
-            #self.keywords_extracted.emit(keywords)
-            self.progress_bar.setVisible(False)
-            self.set_ui_enabled(True)
-        else:
-            try:
-                # Bereite Request vor und erhalte Request und Daten
-                #request, data = self.ai_processor.prepare_request(abstract, keywords)
-                seed = self.ki_seed.value()
-                temperature = self.ki_temperature.value() / 100
-                
-                request, data = self.ai_processor.prepare_request(self.prompt.toPlainText(), temperature=temperature, seed=seed, model=self.model_combo.currentText())
-                # Sende Request mit separaten Daten
-                self.network_manager.post(request, data)
-                
-            except Exception as e:
-                self.handle_error("Fehler bei der Anfrage", str(e))
-                self.set_ui_enabled(True)
-                self.progress_bar.setVisible(False)
-
-    @pyqtSlot(QNetworkReply)
-    def handle_ai_response(self, reply: QNetworkReply):
-        """Verarbeitet die Antwort der AI-API"""
-        # UI wieder aktivieren
-        self.set_ui_enabled(True)
-        self.progress_bar.setVisible(False)
-
-        if reply.error() == QNetworkReply.NetworkError.NoError:
-            try:
-                response_data = json.loads(str(reply.readAll(), 'utf-8'))
-                result = self.ai_processor.process_response(response_data)
-                self.logger.info(f"AI-Response: {result}")
-                self.results_edit.setPlainText(result)
-                keywords = self.extract_keywords(result)
-                self.keywords_extracted.emit(keywords)
-            except Exception as e:
-                self.handle_error(
-                    "Verarbeitungsfehler",
-                    f"Fehler bei der Verarbeitung der Antwort: {str(e)}"
-                )
-        else:
-            response_data = json.loads(str(reply.readAll(), 'utf-8'))
-            self.logger.info(response_data["error"].get("message"))
-            self.handle_error(
-                "Netzwerkfehler",
-                f"Fehler bei der API-Anfrage: {response_data.get('error', 'Unbekannter Fehler')}"
-            )
-
-        reply.deleteLater()
 
     def extract_keywords(self, response_text):
         # Extrahiere die Schlagworte aus dem Antworttext

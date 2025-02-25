@@ -1,0 +1,100 @@
+{
+    "abstract": {
+        "recommended": {
+            "openai": [
+                "gpt-4-turbo-preview",
+                "gpt-3.5-turbo"
+            ],
+            "gemini": [
+                "gemini-1.5-flash"
+            ],
+            "anthropic": [
+                "claude-3-sonnet-20240229",
+                "claude-3-opus-20240229"
+            ],
+            "ollama": [
+                "mistral",
+                "llama2"
+            ]
+        },
+        "descriptions": {
+            "openai": {
+                "gpt-4-turbo-preview": "Beste Textanalyse-Leistung",
+                "gpt-3.5-turbo": "Gutes Preis-Leistungs-Verhältnis"
+            },
+            "gemini": {
+                "gemini-pro": "Optimiert für Textverarbeitung"
+            },
+            "anthropic": {
+                "claude-3-sonnet-20240229": "Ausgewogene Leistung",
+                "claude-3-opus-20240229": "Höchste Präzision"
+            },
+            "ollama": {
+                "mistral": "Effizient für Textanalyse",
+                "llama2": "Gute Allround-Leistung"
+            }
+        }
+    },
+    "keywords": {
+        "recommended": {
+            "openai": [
+                "gpt-4-turbo-preview",
+                "gpt-3.5-turbo"
+            ],
+            "gemini": [
+                "gemini-1.5-pro"
+            ],
+            "anthropic": [
+                "claude-3-sonnet-20240229",
+                "claude-3-opus-20240229"
+            ],
+            "ollama": [
+                "mistral",
+                "llama2"
+            ]
+        },
+        "descriptions": {
+            "openai": {
+                "gpt-4-turbo-preview": "Beste Textanalyse-Leistung",
+                "gpt-3.5-turbo": "Gutes Preis-Leistungs-Verhältnis"
+            },
+            "gemini": {
+                "gemini-pro": "Optimiert für Textverarbeitung"
+            },
+            "anthropic": {
+                "claude-3-sonnet-20240229": "Ausgewogene Leistung",
+                "claude-3-opus-20240229": "Höchste Präzision"
+            },
+            "ollama": {
+                "mistral": "Effizient für Textanalyse",
+                "llama2": "Gute Allround-Leistung"
+            }
+        }
+    },
+    "code": {
+        "recommended": {
+            "openai": [
+                "gpt-4-turbo-preview"
+            ],
+            "anthropic": [
+                "claude-3-opus-20240229"
+            ],
+            "ollama": [
+                "deepseek-coder",
+                "codellama"
+            ]
+        },
+        "descriptions": {
+            "openai": {
+                "gpt-4-turbo-preview": "Beste Code-Analyse und -Generierung"
+            },
+            "anthropic": {
+                "claude-3-opus-20240229": "Exzellent für Code-Verständnis"
+            },
+            "ollama": {
+                "deepseek-coder": "Spezialisiert auf Code-Verständnis",
+                "codellama": "Optimiert für Code-Analyse"
+            }
+        }
+    }
+}
