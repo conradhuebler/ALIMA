@@ -71,6 +71,25 @@
             }
         }
     },
+    "vision": {
+        "recommended": {
+            "gemini": [
+                "gemini-1.5-pro",
+                "gemini-1.5-flash"
+            ],
+            "ollama": [
+                "llama3.2-vision:latest"
+            ]
+        },
+        "descriptions": {
+            "gemini": {
+                "gemini-1.5-pro": "Optimiert für Textverarbeitung"
+            },
+            "ollama": {
+                "llama3.2-vision:latest": "Gute Allround-Leistung"
+            }
+        }
+    },
     "code": {
         "recommended": {
             "openai": [
