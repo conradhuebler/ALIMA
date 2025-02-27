@@ -38,7 +38,7 @@ class PromptConfig:
             Abstract:
             {abstract}
             
-            Gefundene GND-Schlagworte:
+            Zur Auswahl stehende GND-Schlagworte:
             {gnd_results}
             
             Bitte gib deine Antwort in folgendem Format:

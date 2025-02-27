@@ -177,7 +177,11 @@ class LLMInterface:
                 return [model.id for model in self.clients[provider].models.list()]
                 
             elif provider == "anthropic":
-                return ["claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-2.1"]
+                final_list = []
+                list = self.clients[provider].models.list()
+                for model in list:
+                    final_list.append(model.id)
+                return final_list
                 
         except Exception as e:
             self.logger.error(f"Error getting models for {provider}: {str(e)}")
@@ -215,13 +219,13 @@ class LLMInterface:
             
         try:
             if provider == "gemini":
-                return self._generate_gemini(model, prompt, temperature, seed, image)
+                return self._generate_gemini(model.strip(), prompt, temperature, seed, image)
             elif provider == "ollama": 
-                return self._generate_ollama(model, prompt, temperature, seed, image)
+                return self._generate_ollama(model.strip(), prompt, temperature, seed, image)
             elif provider == "openai":
-                return self._generate_openai(model, prompt, temperature, seed, image)
+                return self._generate_openai(model.strip(), prompt, temperature, seed, image)
             elif provider == "anthropic":
-                return self._generate_anthropic(model, prompt, temperature, seed, image)
+                return self._generate_anthropic(model.strip(), prompt, temperature, seed, image)
                 
         except Exception as e:
             self.logger.error(f"Error generating response from {provider}: {str(e)}")

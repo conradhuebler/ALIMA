@@ -95,9 +95,12 @@ class SearchTab(QWidget):
         self.exact_match_check = QCheckBox("Nur exakte Treffer")
         options_layout.addWidget(self.exact_match_check)
         
-        search_layout.addLayout(options_layout)
+        #search_layout.addLayout(options_layout)
         search_group.setLayout(search_layout)
         layout.addWidget(search_group)
+
+        self.status_label = QLabel("Aktueller Status: Bereit")
+        layout.addWidget(self.status_label)
 
         self.progressBar = QProgressBar()
         layout.addWidget(self.progressBar)
@@ -193,6 +196,8 @@ class SearchTab(QWidget):
             # UI-Updates vor der Suche
             self.search_button.setEnabled(False)
             self.status_updated.emit("Suche wird durchgeführt...")
+            self.status_label.setText("Suche wird durchgeführt...")
+
             self.result_list.clear()
             QApplication.processEvents()
 
@@ -378,6 +383,8 @@ class SearchTab(QWidget):
         
         initial_prompt = []
         self.gnd_ids = []
+        self.status_label.setText("Datenbank wird gefüttert ...")
+
         self.progressBar.setMaximum(len(sorted_results))
         for gnd_id, (term, count, relation) in sorted_results:
             self.logger.info(gnd_id)
@@ -418,11 +425,26 @@ class SearchTab(QWidget):
             gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
             ddcs = gnd_entry['ddcs']
             include = False
+            #self.logger.info(gnd_entry)
             for ddc in ddcs.split(";"):
-                self.logger.info(ddc)
-                include = (self.ddc1_check.isChecked() and ddc.startswith("1")) or (self.ddc2_check.isChecked() and ddc.startswith("2")) or  (self.ddc3_check.isChecked() and ddc.startswith("3")) or (self.ddc4_check.isChecked() and ddc.startswith("4")) or (self.ddc5_check.isChecked() and ddc.startswith("5")) or (self.ddc6_check.isChecked() and ddc.startswith("6")) or (self.ddc7_check.isChecked() and ddc.startswith("7")) or (self.ddc8_check.isChecked() and ddc.startswith("8")) or (self.ddc9_check.isChecked() and ddc.startswith("9"))
+                if include:
+                    continue
+                
+                #self.logger.info(gnd_id)
+                #self.logger.info(ddc)
+                #self.logger.info(ddc.startswith("5"))
+                include = include or ((self.ddc1_check.isChecked() and ddc.startswith("1")) 
+                    or (self.ddc2_check.isChecked() and ddc.startswith("2")) 
+                    or (self.ddc3_check.isChecked() and ddc.startswith("3")) 
+                    or (self.ddc4_check.isChecked() and ddc.startswith("4")) 
+                    or (self.ddc5_check.isChecked() and ddc.startswith("5")) 
+                    or (self.ddc6_check.isChecked() and ddc.startswith("6")) 
+                    or (self.ddc7_check.isChecked() and ddc.startswith("7")) 
+                    or (self.ddc8_check.isChecked() and ddc.startswith("8")) 
+                    or (self.ddc9_check.isChecked() and ddc.startswith("9")))
                 if self.ddcX_check.isChecked():
                     include = True  
+            #self.logger.info(include)
             if include:
                 list_item = f"{gnd_entry['title']} ({gnd_id})"
                 initial_prompt.append(list_item)

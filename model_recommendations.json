@@ -49,8 +49,8 @@
                 "claude-3-opus-20240229"
             ],
             "ollama": [
-                "mistral",
-                "llama2"
+                "llama3:70b-instruct-q2_K",
+                "deepseek-r1:32b"
             ]
         },
         "descriptions": {

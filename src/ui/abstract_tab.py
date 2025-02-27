@@ -55,61 +55,6 @@ class AbstractTab(QWidget):
             self.logger.error(f"Error loading recommendations: {e}")
             self.create_default_recommendations()
 
-    def create_default_recommendations(self):
-        """Erstellt und speichert Standard-Empfehlungen"""
-        self.recommendations = {
-            "abstract": {
-                "recommended": {
-                    "openai": [
-                        "gpt-4-turbo-preview",
-                        "gpt-3.5-turbo"
-                    ],
-                    "gemini": [
-                        "gemini-pro"
-                    ],
-                    "anthropic": [
-                        "claude-3-sonnet-20240229",
-                        "claude-3-opus-20240229"
-                    ],
-                    "ollama": [
-                        "mistral",
-                        "llama2"
-                    ]
-                },
-                "descriptions": {
-                    "openai": {
-                        "gpt-4-turbo-preview": "Beste Textanalyse-Leistung",
-                        "gpt-3.5-turbo": "Gutes Preis-Leistungs-Verhältnis"
-                    },
-                    "gemini": {
-                        "gemini-pro": "Optimiert für Textverarbeitung"
-                    },
-                    "anthropic": {
-                        "claude-3-sonnet-20240229": "Ausgewogene Leistung",
-                        "claude-3-opus-20240229": "Höchste Präzision"
-                    },
-                    "ollama": {
-                        "mistral": "Effizient für Textanalyse",
-                        "llama2": "Gute Allround-Leistung"
-                    }
-                }
-            }
-            # Weitere Use-Cases können hier hinzugefügt werden
-        }
-        
-        try:
-            # Stelle sicher, dass der Verzeichnispfad existiert
-            self.recommendations_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Speichere die Standard-Empfehlungen
-            with open(self.recommendations_file, 'w', encoding='utf-8') as f:
-                json.dump(self.recommendations, f, indent=4, ensure_ascii=False)
-                
-            self.logger.info(f"Created default recommendations at {self.recommendations_file}")
-            
-        except Exception as e:
-            self.logger.error(f"Error creating default recommendations: {e}")
-
     def set_model_recommendations(self, use_case: str):
         """Setzt die Modell-Empfehlungen basierend auf dem Anwendungsfall"""
         if use_case in self.recommendations:
@@ -209,7 +154,7 @@ class AbstractTab(QWidget):
         # Temperatur Slider
         self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
         self.ki_temperature.setRange(0, 100)
-        self.ki_temperature.setValue(70)  # Default 0.7
+        self.ki_temperature.setValue(0)  # Default 0.7
         self.ki_temperature.setTickInterval(1)
         self.ki_temperature.valueChanged.connect(self.update_temperature_label)
 
