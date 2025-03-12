@@ -15,7 +15,10 @@ import requests
 from datetime import datetime
 import logging
 import re
+from pathlib import Path
+import sys
 from ..core.lobid_subjects import SubjectSuggester
+from ..core.swbfetcher import SWBSubjectExtractor
 from ..core.dnb_utils import get_dnb_classification
 
 class SearchTab(QWidget):
@@ -49,10 +52,19 @@ class SearchTab(QWidget):
         search_input_layout = QHBoxLayout()
         self.search_input = QTextEdit()
         self.search_input.setPlaceholderText("Suchbegriffe (durch Komma getrennt)")
+        vlayout = QVBoxLayout()
+        self.hbz_button = QCheckBox("HBZ")
+        self.hbz_button.setChecked(True)
+        self.swb_button = QCheckBox("SWB")
+        self.swb_button.setChecked(True)
         self.search_button = QPushButton("Suchen")
         self.search_button.clicked.connect(self.lobid_search)
+        vlayout.addWidget(self.hbz_button)
+        vlayout.addWidget(self.swb_button)
+        vlayout.addWidget(self.search_button)
+
         search_input_layout.addWidget(self.search_input)
-        search_input_layout.addWidget(self.search_button)
+        search_input_layout.addLayout(vlayout)
         search_layout.addLayout(search_input_layout)
 
         # Erweiterte Suchoptionen
@@ -316,6 +328,9 @@ class SearchTab(QWidget):
     def lobid_search(self):
         """Suche in Lobid nach Begriffen"""
         suggestor = SubjectSuggester()
+        cache_dir = Path(sys.argv[0]).parent.resolve() / "swb_cache"
+
+        swbsuggestor = SWBSubjectExtractor(cache_dir)
          # UI-Updates vor der Suche
         self.search_button.setEnabled(False)
         self.status_updated.emit("Suche wird durchgeführt...")
@@ -370,14 +385,23 @@ class SearchTab(QWidget):
         self.progressBar.setMaximum(len(search_terms))
         self.logger.info(f"Suche nach Begriffen: {search_terms}")
         suggestor.currentTerm.connect(self.current_lobid_term)
-        results = suggestor.search(search_terms)
+        swbsuggestor.currentTerm.connect(self.current_lobid_term)
+        results_hbz = {}
+        results_swb = {}
+        if self.hbz_button.isChecked():
+            results_hbz = suggestor.search(search_terms)
+        if self.swb_button.isChecked():
+            results_swb = swbsuggestor.search(search_terms)
 
         # Verarbeite alle Einträge
-        for main_term, entries in results.items():
+        for main_term, entries in results_swb.items():
+            self.logger.info(f"Verarbeite Einträge für: {entries}")
             process_entries(entries, main_term)
         
+        for main_term, entries in results_hbz.items():
+            self.logger.info(f"Verarbeite Einträge für: {entries}")
+            process_entries(entries, main_term)
         
-
         # Sortiere die Ergebnisse
         sorted_results = sorted(gnd_analysis.items(), key=lambda x: x[1][1], reverse=True)
         

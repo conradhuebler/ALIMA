@@ -32,14 +32,14 @@ class PromptConfig:
         "results_verification": PromptTemplate(
             name="results_verification",
             description="Überprüft die Qualität der gefundenen GND-Schlagworte",
-            template="""Wähle aus der Liste der OGND-Schlagworte diejenigen heraus, die zur inhaltlichen Beschreibung des Abstraktes verwendet werden können. Nutze nur Schlagworte, die in der OGND-Liste korrekt auftauchen und keine Synonyme. Führe auch keine weitere Erschließung durch, außer in der letzten Diskussion.
+            template="""Wähle aus der Liste der OGND-Schlagworte diejenigen heraus, die zur inhaltlichen Beschreibung des Abstraktes verwendet werden können. Nutze nur Schlagworte, die in der OGND-Liste korrekt auftauchen und keine Synonyme. Führe auch keine weitere Erschließung durch, außer in der letzten Diskussion. Gib in der Diskussion für nicht gefundene Konzepte mögliche Oberbegriffe, die noch überprüft werden sollten.
 
 
             Abstract:
             {abstract}
             
             Zur Auswahl stehende GND-Schlagworte:
-            {gnd_results}
+            {keywords}
             
             Bitte gib deine Antwort in folgendem Format:
             
@@ -56,7 +56,10 @@ class PromptConfig:
               [Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]	
 
                 FEHLENDE KONZEPTE:
-                [Liste von Konzepten, die noch nicht durch GND abgedeckt sind]""",
-            required_variables=["abstract", "gnd_results"]
+                [Liste von Konzepten, die noch nicht durch GND abgedeckt sind]
+                
+                KONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:
+                [Kommatagetrennte Liste von Oberbegriffen, die die fehlenden Konzepte abdecken könnten]""",
+            required_variables=["abstract", "keywords"]
         )
     })

@@ -72,7 +72,8 @@ class AbstractTab(QWidget):
         
         # Hole alle verfügbaren Modelle
         all_models = self.llm.get_available_models(provider)
-        
+        recommended_available = False
+
         # Hole empfohlene Modelle für diesen Provider
         recommended = self.recommended_models.get(provider, [])
         self.logger.info(f"Empfohlene Modelle für {provider}: {recommended}")
@@ -215,16 +216,16 @@ class AbstractTab(QWidget):
 
     def start_analysis(self):
         """Startet die Analyse des Abstracts"""
-        abstract = self.abstract_edit.toPlainText().strip()
-        keywords = self.keywords_edit.toPlainText().strip()
+        #abstract = self.abstract_edit.toPlainText().strip()
+        #keywords = self.keywords_edit.toPlainText().strip()
 
-        if not abstract:
-            QMessageBox.warning(self, "Warnung", "Bitte geben Sie einen Abstract ein.")
-            return
+        #if not abstract:
+        #    QMessageBox.warning(self, "Warnung", "Bitte geben Sie einen Abstract ein.")
+        #    return
 
-        if not keywords and self.need_keywords:
-            QMessageBox.warning(self, "Warnung", "Ohne GND-Keywords läuft hier nix.")
-            return
+        #if not keywords and self.need_keywords:
+        #    QMessageBox.warning(self, "Warnung", "Ohne GND-Keywords läuft hier nix.")
+        #    return
 
         self.set_ui_enabled(False)
         self.progress_bar.setVisible(True)
@@ -250,7 +251,7 @@ class AbstractTab(QWidget):
             self.progress_bar.setVisible(False)
 
     def update_input(self):
-        self.logger.info(self.template_name)
+        #self.logger.info(self.template_name)
         self.prompt.setPlainText(self.ai_processor.set_input(
             self.abstract_edit.toPlainText().strip(),
             self.keywords_edit.toPlainText().strip(),

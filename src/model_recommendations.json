@@ -15,6 +15,12 @@
             "ollama": [
                 "mistral",
                 "llama2"
+            ],
+            "gitub" :[
+                "DeepSeek-V3",
+                "DeepSeek-R1",
+                "Llama-3.3-70B-Instruct",
+                "Mistral-large"
             ]
         },
         "descriptions": {

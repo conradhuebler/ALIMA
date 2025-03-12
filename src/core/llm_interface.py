@@ -6,6 +6,7 @@ import logging
 import base64
 import asyncio
 import json
+
 class LLMInterface:
     def __init__(self, 
                  providers: List[str] = None,
@@ -46,6 +47,18 @@ class LLMInterface:
                 "module": "requests",
                 "class": None,
                 "api_key": None
+            },
+            # GitHub Copilot über Azure Inference
+            "github": {
+                "module": "azure.ai.inference", 
+                "class": "ChatCompletionsClient",
+                "api_key": "GITHUB_TOKEN"
+            },
+            # Azure OpenAI (auch über Azure Inference)
+            "azure": {
+                "module": "azure.ai.inference", 
+                "class": "ChatCompletionsClient",
+                "api_key": "AZURE_API_KEY"
             }
         }
 
@@ -130,20 +143,59 @@ class LLMInterface:
                 except:
                     self.logger.warning("Ollama server not accessible")
                     return
+            
+            elif provider == "azure" and api_key:
+                # Für Azure OpenAI via Azure Inference API
+                from azure.ai.inference import ChatCompletionsClient
+                from azure.core.credentials import AzureKeyCredential
+                
+                # Azure Endpoint
+                azure_endpoint = self.config.get("azure_endpoint") or os.getenv("AZURE_ENDPOINT")
+                if not azure_endpoint:
+                    self.logger.warning("Missing Azure endpoint configuration")
+                    return
+                
+                self.clients[provider] = ChatCompletionsClient(
+                    endpoint=azure_endpoint,
+                    credential=AzureKeyCredential(api_key)
+                )
+                
+                # Store additional modules for message creation
+                self.clients["azure_modules"] = importlib.import_module("azure.ai.inference.models")
+                
+                # Default Azure model
+                self.config["azure_default_model"] = self.config.get("azure_default_model", "gpt-4")
+            
+            elif provider == "github" and api_key:
+                # Import der benötigten Klassen für GitHub über Azure Inference
+                from azure.ai.inference import ChatCompletionsClient
+                from azure.core.credentials import AzureKeyCredential
+                
+                # Endpunkt für GitHub Copilot über Azure Inference
+                github_endpoint = self.config.get("github_endpoint") or os.getenv("GITHUB_ENDPOINT") or "https://models.inference.ai.azure.com"
+                
+                self.clients[provider] = ChatCompletionsClient(
+                    endpoint=github_endpoint,
+                    credential=AzureKeyCredential(api_key)
+                )
+                
+                # Store additional modules for message creation
+                self.clients["github_modules"] = importlib.import_module("azure.ai.inference.models")
+                
+                # Default GitHub model
+                self.config["github_default_model"] = self.config.get("github_default_model", "DeepSeek-V3")
                     
             elif provider_info["class"] and api_key:
-                # For providers that need class instantiation (OpenAI, Anthropic)
+                # Für Provider die Klasseninstanziierung benötigen (OpenAI, Anthropic)
                 client_class = getattr(module, provider_info["class"])
                 self.clients[provider] = client_class(api_key=api_key)
                 
             self.logger.info(f"Successfully initialized {provider}")
             
-        except ImportError:
-            self.logger.warning(f"Could not import {provider_info['module']} for {provider}")
+        except ImportError as ie:
+            self.logger.warning(f"Could not import {provider_info['module']} for {provider}: {str(ie)}")
         except Exception as e:
             self.logger.error(f"Error initializing {provider}: {str(e)}")
-
-    # ... Rest der Klasse bleibt unverändert ...
 
     def initialize_providers(self, providers: List[str] = None):
         """Initialize specified providers or all supported ones"""
@@ -182,6 +234,24 @@ class LLMInterface:
                 for model in list:
                     final_list.append(model.id)
                 return final_list
+                
+            elif provider == "azure":
+                # Azure OpenAI Modelle über Azure Inference
+                return ["gpt-4", "gpt-35-turbo", "gpt-4-vision", "gpt-4-turbo"]
+                
+            elif provider == "github":
+                # GitHub Copilot Modelle über Azure Inference
+                return ["DeepSeek-V3", 
+                        "Llama-3-70b-instruct", 
+                        "Mistral-small", 
+                        "Mistral-large", 
+                        "DeepSeek-R1", 
+              #          "o1", 
+                        "Llama-3.2-90B-Vision-Instruct",
+                        "Phi-4-multimodal-instruct",
+                        "Phi-4-mini-instruct",
+                        "Phi-4",
+                        "o3-mini"]
                 
         except Exception as e:
             self.logger.error(f"Error getting models for {provider}: {str(e)}")
@@ -226,14 +296,16 @@ class LLMInterface:
                 return self._generate_openai(model.strip(), prompt, temperature, seed, image)
             elif provider == "anthropic":
                 return self._generate_anthropic(model.strip(), prompt, temperature, seed, image)
+            elif provider == "azure":
+                return self._generate_azure(model.strip(), prompt, temperature, seed, image)
+            elif provider == "github":
+                return self._generate_github(model.strip(), prompt, temperature, seed, image)
                 
         except Exception as e:
             self.logger.error(f"Error generating response from {provider}: {str(e)}")
             return f"Error: {str(e)}"
             
         return "Provider not supported"
-
-    # Provider-spezifische Methoden anpassen:
 
     def _generate_gemini(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
         try:
@@ -336,3 +408,118 @@ class LLMInterface:
         except Exception as e:
             self.logger.error(f"Anthropic error: {str(e)}")
             return f"Error with Anthropic: {str(e)}"
+
+    def _generate_azure(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+        """Generate response from Azure OpenAI via Azure Inference API"""
+        try:
+            # Zugriff auf die Klassen für Nachrichten
+            UserMessage = self.clients["azure_modules"].UserMessage
+            SystemMessage = self.clients["azure_modules"].SystemMessage
+            
+            messages = []
+            
+            # Optionale System-Nachricht für Kontext
+            system_message = self.config.get("azure_system_message", "")
+            if system_message:
+                messages.append(SystemMessage(system_message))
+            
+            # Benutzereingabe hinzufügen
+            if image and "vision" in model.lower():
+                # Für Vision-Modelle mit Bild
+                img_bytes = self.process_image(image)
+                encoded_image = base64.b64encode(img_bytes).decode("ascii")
+                
+                # Import MultiModalContent und ImageContent
+                ImageContent = self.clients["azure_modules"].ImageContent
+                MultiModalContent = self.clients["azure_modules"].MultiModalContent
+                
+                image_content = ImageContent(
+                    data=encoded_image,
+                    mime_type="image/jpeg"
+                )
+                
+                multi_modal_content = MultiModalContent(
+                    text=prompt, 
+                    images=[image_content]
+                )
+                
+                messages.append(UserMessage(content=multi_modal_content))
+            else:
+                messages.append(UserMessage(prompt))
+            
+            # Parameter für die Anfrage
+            params = {
+                "messages": messages,
+                "model": model,
+                "max_tokens": 1024,
+                "temperature": temperature
+            }
+            
+            # Seed hinzufügen, falls angegeben
+            if seed is not None and hasattr(self.clients["azure_modules"], "CompletionParams"):
+                CompletionParams = self.clients["azure_modules"].CompletionParams
+                params["params"] = CompletionParams(seed=seed)
+            
+            response = self.clients["azure"].complete(**params)
+            return response.choices[0].message.content
+        except Exception as e:
+            self.logger.error(f"Azure OpenAI error: {str(e)}")
+            return f"Error with Azure OpenAI: {str(e)}"
+
+    def _generate_github(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+        """Generate response from GitHub Copilot via Azure Inference"""
+        try:
+            # Zugriff auf die Klassen für Nachrichten
+            UserMessage = self.clients["github_modules"].UserMessage
+            SystemMessage = self.clients["github_modules"].SystemMessage
+            
+            messages = []
+            
+            # Optionale System-Nachricht für Kontext
+            system_message = self.config.get("github_system_message", "")
+            if system_message:
+                messages.append(SystemMessage(system_message))
+            
+            # Füge Bild hinzu, falls vorhanden und Phi-3-Vision
+            if image and model.lower() == "phi-3-vision":
+                # Import MultiModalContent und ImageContent
+                ImageContent = self.clients["github_modules"].ImageContent
+                MultiModalContent = self.clients["github_modules"].MultiModalContent
+                
+                img_bytes = self.process_image(image)
+                encoded_image = base64.b64encode(img_bytes).decode("ascii")
+                
+                image_content = ImageContent(
+                    data=encoded_image,
+                    mime_type="image/jpeg"
+                )
+                
+                multi_modal_content = MultiModalContent(
+                    text=prompt, 
+                    images=[image_content]
+                )
+                
+                messages.append(UserMessage(content=multi_modal_content))
+            else:
+                if image:
+                    return f"Model {model} does not support image processing. Use Phi-3-Vision instead."
+                messages.append(UserMessage(prompt))
+            
+            # Parameter für die Anfrage
+            params = {
+                "messages": messages,
+                "model": model,
+                "max_tokens": 1000,
+                "temperature": temperature
+            }
+            
+            # Seed hinzufügen, falls angegeben
+            if seed is not None and hasattr(self.clients["github_modules"], "CompletionParams"):
+                CompletionParams = self.clients["github_modules"].CompletionParams
+                params["params"] = CompletionParams(seed=seed)
+            
+            response = self.clients["github"].complete(**params)
+            return response.choices[0].message.content
+        except Exception as e:
+            self.logger.error(f"GitHub Copilot error: {str(e)}")
+            return f"Error with GitHub Copilot: {str(e)}"

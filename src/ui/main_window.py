@@ -17,6 +17,7 @@ from ..core.ai_processor import AIProcessor
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
 from .ubsearch_tab import UBSearchTab
+from .tablewidget import TableWidget
 import logging
 
 class MainWindow(QMainWindow):
@@ -74,12 +75,18 @@ class MainWindow(QMainWindow):
         self.analyse_keywords.set_model_recommendations("keywords")
         self.ub_search_tab = UBSearchTab()
 
+        #self.table_widget = TableWidget(
+        #    db_path=self.cache_manager.db_path,
+        #    table_name="gnd_entry"
+        #)
+
         
         self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
         self.tabs.addTab(self.search_tab, "GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "Verifikation")
         self.tabs.addTab(self.ub_search_tab, "UB Suche")
+        #self.tabs.addTab(self.table_widget, "GND Einträge")
 
         # Statusleiste
         self.status_bar = QStatusBar()

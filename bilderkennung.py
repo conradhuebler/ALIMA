@@ -235,6 +235,7 @@ class ImageAnalyzer(QMainWindow):
         all_models = self.llm.get_available_models(provider)
         
         # Hole empfohlene Modelle für diesen Provider
+        recommended_available = False
         recommended = self.recommended_models.get(provider, [])
         logging.info(f"Empfohlene Modelle für {provider}: {recommended}")
         if recommended:
