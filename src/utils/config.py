@@ -168,6 +168,16 @@ class PromptConfig:
 
         **Text:**
         {abstract}""",
+        required_variables=["keywords", "abstract"]
+        ),
+        "classification": PromptTemplate(
+        name="classification",
+        description="Verknüpft Schlagworte und Klassifizierung aus dem UB-Katalog",
+        template="""Du bist ein korrekter Bibliothekar und sollst einen Abstrakt, der bereits verschlagwortet wurde, mit der Dezimalklassifikation versehen. Du hast einen Ausschnitt aus dem Bibliotheksbestand der Titel, Schlagworte und DKs umfasst.
+        Wähle 10 passende DKs für den Abstrakt auf der Basis der Suche aus, die Titel, Schlagworte und DKs umfasst:
+        {abstract}
+        **Ausschnitt aus dem Bibliotheksbestand:**
+        {keywords}""",
         required_variables=["keywords", "abstract"])
     })
 

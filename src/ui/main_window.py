@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
-        self.setWindowTitle('GND Subject Headings Suche')
+        self.setWindowTitle('fAchreferentIn')
         self.setGeometry(100, 100, 1200, 800)
 
         # Zentrales Widget
@@ -74,6 +74,9 @@ class MainWindow(QMainWindow):
         self.analyse_keywords.keywords_extracted.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_model_recommendations("keywords")
         self.ub_search_tab = UBSearchTab()
+        
+        self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
+        self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
 
         #self.table_widget = TableWidget(
         #    db_path=self.cache_manager.db_path,

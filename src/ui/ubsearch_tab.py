@@ -5,12 +5,12 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QSplitter,
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QTextEdit, QPushButton, QProgressBar, QMessageBox,
-    QSlider
+    QSlider, QTabWidget
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 import logging
 from .abstract_tab import AbstractTab
-
+from ..core.katalog_subject import SubjectExtractor
 class AdditionalTitlesWorker(QThread):
     """Worker für das Laden zusätzlicher Titel"""
     titles_ready = pyqtSignal(list)
@@ -198,6 +198,7 @@ class UBSearchTab(QWidget):
         # Input-Bereich
         input_layout = QVBoxLayout()
         input_layout.addWidget(QLabel("Schlagworte (kommagetrennt):"))
+        self.abstract = ""
         self.keywords_input = QTextEdit()
         self.keywords_input.setPlaceholderText("Geben Sie hier Ihre Schlagworte ein...")
         self.keywords_input.setMaximumHeight(100)
@@ -248,9 +249,18 @@ class UBSearchTab(QWidget):
         self.detail_view.setReadOnly(True)
         splitter.addWidget(self.detail_view)
 
+        self.ai_tabs = QTabWidget()
+
         self.ai_search = AbstractTab()
         self.ai_search.template_name = "ub_search"
-        splitter.addWidget(self.ai_search)
+        self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
+
+        self.ai_classification = AbstractTab()
+        self.ai_classification.template_name = "classification"
+        self.ai_classification.set_abstract(self.abstract)
+        self.ai_tabs.addTab(self.ai_classification, "DK-Klassifizierung")
+
+        splitter.addWidget(self.ai_tabs)
 
         # Setze die Stretchfaktoren für den Splitter
         splitter.setStretchFactor(0, 1)
@@ -263,6 +273,12 @@ class UBSearchTab(QWidget):
         layout.addWidget(self.mainsplitter)
         self.setLayout(layout)
         
+    def set_abstract(self, abstract):
+        """Setzt den Abstract für die AI-Verarbeitung"""
+        self.abstract = abstract
+        self.logger.info(f"Setze Abstract: {abstract}")
+        self.ai_classification.set_abstract(self.abstract)
+
     def update_num_results(self, value):
         self.num_label.setText(f"Anzahl Treffer: {value}")
 
@@ -296,6 +312,7 @@ class UBSearchTab(QWidget):
         self.worker.setNumResults(self.num_results.value())
         self.worker.start()
         self.ai_search.set_keywords(keywords_text)
+        self.ai_classification.set_keywords(keywords_text)
 
     def update_progress(self, current, total):
         """Aktualisiert die Fortschrittsanzeige"""
@@ -408,8 +425,8 @@ class UBSearchTab(QWidget):
 
         self.results_view.setHtml("".join(html_results))
         self.update_tree_view(results)
-
-
+        self.ai_classification.set_keywords(self.results_view.toPlainText())
+        self.ai_classification.set_abstract(self.abstract)
 
     def handle_error(self, error_message):
         """Behandelt Fehler"""

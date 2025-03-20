@@ -20,6 +20,7 @@ import sys
 from ..core.lobid_subjects import SubjectSuggester
 from ..core.swbfetcher import SWBSubjectExtractor
 from ..core.dnb_utils import get_dnb_classification
+from ..core.katalog_subject import SubjectExtractor
 
 class SearchTab(QWidget):
     """Tab für die direkte GND-Schlagwortsuche"""
@@ -57,10 +58,13 @@ class SearchTab(QWidget):
         self.hbz_button.setChecked(True)
         self.swb_button = QCheckBox("SWB")
         self.swb_button.setChecked(True)
+        self.katalog_button = QCheckBox("Katalog")
+        self.katalog_button.setChecked(False)
         self.search_button = QPushButton("Suchen")
         self.search_button.clicked.connect(self.lobid_search)
         vlayout.addWidget(self.hbz_button)
         vlayout.addWidget(self.swb_button)
+        #vlayout.addWidget(self.katalog_button)
         vlayout.addWidget(self.search_button)
 
         search_input_layout.addWidget(self.search_input)
@@ -187,13 +191,13 @@ class SearchTab(QWidget):
         self.prompt_widget.setLayout(ddc_box)
         results_splitter.addWidget(self.prompt_widget)
 
-        #details_group = QGroupBox("Details")
-        #details_layout = QVBoxLayout()
-        #self.content_display = QTextEdit()
-        #self.content_display.setReadOnly(True)
-        #details_layout.addWidget(self.content_display)
-        #details_group.setLayout(details_layout)
-        #results_splitter.addWidget(details_group)
+        details_group = QGroupBox("Details")
+        details_layout = QVBoxLayout()
+        self.content_display = QTextEdit()
+        self.content_display.setReadOnly(True)
+        details_layout.addWidget(self.content_display)
+        details_group.setLayout(details_layout)
+        results_splitter.addWidget(details_group)
 
         layout.addWidget(results_splitter)
 
@@ -348,7 +352,6 @@ class SearchTab(QWidget):
             # Teile den verbleibenden Text nach Kommas auf
         remaining_terms = [term.strip() for term in text.split(',') if term.strip()]
         search_terms = quoted_matches + remaining_terms
-
     
         def process_entries(entries, parent_term):
             for term, info in entries.items():
@@ -388,11 +391,18 @@ class SearchTab(QWidget):
         swbsuggestor.currentTerm.connect(self.current_lobid_term)
         results_hbz = {}
         results_swb = {}
+        self.subjects = {}
         if self.hbz_button.isChecked():
             results_hbz = suggestor.search(search_terms)
         if self.swb_button.isChecked():
             results_swb = swbsuggestor.search(search_terms)
-
+        if self.katalog_button.isChecked():
+            extractor = SubjectExtractor(max_results=2)
+            for keyword in search_terms:
+                extractor.search_term = keyword
+                self.subjects = extractor.run(keyword)
+                self.logger.info(f"Schlagwort: {keyword}, Ergebnisse: {self.subjects}")
+                self.content_display.append(f"Schlagwort: {keyword}, Ergebnisse: {self.subjects}")
         # Verarbeite alle Einträge
         for main_term, entries in results_swb.items():
             self.logger.info(f"Verarbeite Einträge für: {entries}")

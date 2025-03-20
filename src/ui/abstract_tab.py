@@ -119,6 +119,7 @@ class AbstractTab(QWidget):
         self.abstract_edit = QTextEdit()
         self.abstract_edit.setPlaceholderText("Fügen Sie hier den Abstract ein...")
         self.abstract_edit.textChanged.connect(self.update_input)
+        #self.abstract_edit.textEdited.connect(self.update_input)
         layout.addWidget(self.abstract_edit)
 
         # Keywords-Eingabe
@@ -257,6 +258,7 @@ class AbstractTab(QWidget):
             self.keywords_edit.toPlainText().strip(),
             template_name=self.template_name
         ))
+        self.logger.info(self.prompt.toPlainText())
         self.abstract_changed.emit(self.abstract_edit.toPlainText().strip())
 
     def prompt_generated(self, prompt):
