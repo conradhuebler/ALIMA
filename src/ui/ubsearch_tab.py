@@ -253,11 +253,13 @@ class UBSearchTab(QWidget):
 
         self.ai_search = AbstractTab()
         self.ai_search.template_name = "ub_search"
+        self.ai_search.set_task("dk_list")
         self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
 
         self.ai_classification = AbstractTab()
         self.ai_classification.template_name = "classification"
         self.ai_classification.set_abstract(self.abstract)
+        self.ai_classification.set_task("dk_class")
         self.ai_tabs.addTab(self.ai_classification, "DK-Klassifizierung")
 
         splitter.addWidget(self.ai_tabs)

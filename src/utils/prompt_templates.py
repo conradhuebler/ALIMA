@@ -32,9 +32,7 @@ class PromptConfig:
         "results_verification": PromptTemplate(
             name="results_verification",
             description="Überprüft die Qualität der gefundenen GND-Schlagworte",
-            template="""Wähle aus der Liste der OGND-Schlagworte diejenigen heraus, die zur inhaltlichen Beschreibung des Abstraktes verwendet werden können. Nutze nur Schlagworte, die in der OGND-Liste korrekt auftauchen und keine Synonyme. Führe auch keine weitere Erschließung durch, außer in der letzten Diskussion. Gib in der Diskussion für nicht gefundene Konzepte mögliche Oberbegriffe, die noch überprüft werden sollten.
-
-
+            template="""Du bist ein korrekter Bibliothekar, der aus einer Liste von OGND-Schlagworten alle heraussuchen soll, die den folgenden Text beschreiben. Es dürfen nur Schlagworte verwendet werden, die in der List auftauchen. Sollten für spezielle Konzepte keine konkreten Schlagworte vorhanden sein, verwende nach Möglichkeiten gelieferte Oberbegriffe, auch wenn sie allgemein sind. Kombiniere Schlagworte in Ketten, um spezielle Konzepte genauer zu spezifizieren, insbesondere wenn die verfügbaren Schlagworte allgemein sind. Führe auch keine weitere Erschließung durch, außer in der abschließenden Diskussion, in der auch nicht gefundene Konzepte diskutiert werden können.
             Abstract:
             {abstract}
             
@@ -52,8 +50,8 @@ class PromptConfig:
                 Schlagworte OGND Eintrage:
                 [Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]
 
-               Schlagwortketten:
-              [Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]	
+                Schlagwortketten:
+                [Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]	
 
                 FEHLENDE KONZEPTE:
                 [Liste von Konzepten, die noch nicht durch GND abgedeckt sind]

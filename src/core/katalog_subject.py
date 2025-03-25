@@ -62,11 +62,11 @@ class SubjectExtractor(QThread):
         self.subjects = {}  # Zurücksetzen bei jedem neuen Suchvorgang
         
         try:
-            self.status_updated.emit(f"Starte Suche nach: {self.search_term}")
-            self.logger.info(f"Starte Suche nach: {self.search_term}")
+            #self.status_updated.emit(f"Starte Suche nach: {self.search_term}")
+            #self.logger.info(f"Starte Suche nach: {self.search_term}")
             self.extract_subjects()
             self.result_ready.emit(self.subjects)
-            return self.subjects
+            return self.subjects.keys()
         except Exception as e:
             self.logger.error(f"Fehler bei der Extraktion: {str(e)}", exc_info=True)
             self.error_occurred.emit(f"Fehler bei der Extraktion: {str(e)}")
@@ -121,7 +121,7 @@ class SubjectExtractor(QThread):
         
         # Finde alle save-record Links und extrahiere die Record-IDs
         save_links = soup.find_all('a', class_='save-record')
-        self.logger.debug(f"Gefundene save-record Links auf der Seite: {len(save_links)}")
+        #self.logger.debug(f"Gefundene save-record Links auf der Seite: {len(save_links)}")
         
         if not save_links:
             self.logger.warning("Keine save-record Links auf der Seite gefunden!")
@@ -161,10 +161,10 @@ class SubjectExtractor(QThread):
             else:
                 # Fallback: Verwende einen generischen Titel mit der Record-ID
                 title = f"Record {record_id}"
-                self.logger.debug(f"Kein Titel für Record-ID {record_id} gefunden")
+                #self.logger.debug(f"Kein Titel für Record-ID {record_id} gefunden")
             
             record_links.append((record_id, record_url, title))
-            self.logger.debug(f"Gefundener Record {idx+1}: ID={record_id}, Titel={title}")
+            #self.logger.debug(f"Gefundener Record {idx+1}: ID={record_id}, Titel={title}")
         
         return record_links
 
@@ -174,8 +174,8 @@ class SubjectExtractor(QThread):
         """
         Öffnet eine Record-Detailseite und extrahiert alle Schlagwörter
         """
-        self.logger.info(f"Extrahiere Schlagwörter von Record: {record_id} - {title}")
-        self.logger.debug(f"Öffne URL: {record_url}")
+        #self.logger.info(f"Extrahiere Schlagwörter von Record: {record_id} - {title}")
+        #self.logger.debug(f"Öffne URL: {record_url}")
         
         try:
             # Hole die Record-Detailseite
@@ -189,14 +189,14 @@ class SubjectExtractor(QThread):
             
             # Finde alle Schlagwort-Links
             subject_links = soup.select('a[href*="type=Subject"]')
-            self.logger.debug(f"Gefundene Schlagwort-Links: {len(subject_links)}")
+            #self.logger.debug(f"Gefundene Schlagwort-Links: {len(subject_links)}")
             
             extracted_subjects = []
             
             # Verarbeite jeden Schlagwort-Link
             for link in subject_links:
                 href = link.get('href', '')
-                self.logger.debug(f"Schlagwort-Link: {href}")
+                #self.logger.debug(f"Schlagwort-Link: {href}")
                 
                 # Extrahiere das Schlagwort aus der URL
                 match = re.search(r'lookfor=([^&]+)&type=Subject', href)
@@ -217,10 +217,10 @@ class SubjectExtractor(QThread):
             
             # Entferne Duplikate
             extracted_subjects = list(set(extracted_subjects))
-            self.logger.info(f"Extrahierte Schlagwörter aus Record {record_id}: {', '.join(extracted_subjects)}")
-            self.filter_keywords(extracted_subjects)
+            #self.logger.info(f"Extrahierte Schlagwörter aus Record {record_id}: {', '.join(extracted_subjects)}")
+            keywords = self.filter_keywords(extracted_subjects)
 
-            return extracted_subjects
+            return keywords
             
         except Exception as e:
             self.logger.error(f"Fehler bei Extraktion von Record {record_id}: {str(e)}", exc_info=True)
@@ -230,25 +230,44 @@ class SubjectExtractor(QThread):
     def filter_keywords(self, keywords):
         # Sortiere die Schlüsselwörter nach Länge, um die längeren zuerst zu überprüfen
         keywords_sorted = sorted(keywords, key=len, reverse=False)
-        self.logger.debug(f"Sortierte Schlüsselwörter: {keywords_sorted}")
+        #self.logger.debug(f"Sortierte Schlüsselwörter: {keywords}")
         # Initialisiere eine Liste für die endgültigen Schlüsselwörter
         final_keywords = []
-        
-        # Überprüfe jedes Schlüsselwort
-        for keyword in keywords_sorted:
-            self.logger.debug(f"Überprüfe Schlüsselwort '{keyword}'")
-            # Überprüfe, ob das Schlüsselwort in einem der bereits hinzugefügten Schlüsselwörter vorkommt
-            for existing in final_keywords:
-                if existing in keyword or keyword in existing:
-                    self.logger.debug(f"Schlüsselwort '{keyword}' nicht hinzugefügt, weil")
-                    self.logger.debug(f"'{existing}' in '{keyword}' enthalten")
-                    keyword.replace(existing, "")
-                    keywords_sorted.append(keyword)
-                    break
-            final_keywords.append(keyword)
-
-        self.logger.debug(f"Endgültige Schlüsselwörter: {final_keywords}")
+      
+        final_keywords = self.analyze_keywords(keywords_sorted)
+        #self.logger.debug(f"Endgültige Schlüsselwörter: {final_keywords}")
         return final_keywords
+
+    def analyze_keywords(self, keywords):
+        """
+        Analysiert eine Liste von Schlagworten und identifiziert eigenständige
+        Schlagworte sowie Schlagworte, die nur Teil längerer Ketten sind.
+        
+        Ein Schlagwort gilt als eigenständig, wenn es entweder:
+        - In keiner längeren Kette enthalten ist ODER
+        - Als individueller Eintrag in der ursprünglichen Liste vorkommt
+        
+        Args:
+            keywords (list): Liste von Schlagworten und Schlagwortketten
+            
+        Returns:
+            tuple: (eigenständige Schlagworte, Teil-Schlagworte)
+        """
+        # Entferne Duplikate, aber behalte die ursprüngliche Liste für späteren Vergleich
+        original_unique = list(dict.fromkeys(keywords))
+        # Sortiere nach Länge (Anzahl der Wörter), vom längsten zum kürzesten
+        sorted_keywords = sorted(original_unique, key=lambda x: len(x.split()), reverse=False)
+        # Identifiziere Schlagworte, die in anderen enthalten sind
+        contained_in_others = set()
+        for i, keyword in enumerate(sorted_keywords):
+            for j, other in enumerate(sorted_keywords):
+                if i != j: 
+                    tmp = other.replace(keyword, "").strip()
+                    tmp2 = keyword.replace(other, "").strip()
+                    contained_in_others.add(tmp)
+                    contained_in_others.add(tmp2)
+
+        return contained_in_others
 
     def extract_subjects(self):
         """
@@ -262,7 +281,7 @@ class SubjectExtractor(QThread):
             # Erstelle die URL für die Suchergebnisseite
             search_url = self.build_search_url(page)
             self.status_updated.emit(f"Verarbeite Suchergebnisseite {page}")
-            self.logger.info(f"Verarbeite Suchergebnisseite {page}: {search_url}")
+            #self.logger.info(f"Verarbeite Suchergebnisseite {page}: {search_url}")
             
             try:
                 # Hole die Suchergebnisseite
@@ -277,7 +296,7 @@ class SubjectExtractor(QThread):
                 # Beim ersten Durchlauf: Gesamtzahl der Seiten ermitteln
                 if page == 1:
                     total_pages = self.get_total_pages(soup)
-                    self.logger.info(f"Suchergebnisse umfassen {total_pages} Seiten")
+                    #self.logger.info(f"Suchergebnisse umfassen {total_pages} Seiten")
                 
                 # Extrahiere Record-Links von der Suchergebnisseite
                 record_links = self.extract_record_links(soup)
@@ -320,49 +339,41 @@ class SubjectExtractor(QThread):
                 break
         
         # Zusammenfassung der Ergebnisse
-        self.logger.info(f"Extraktion abgeschlossen: {len(self.subjects)} Schlagwörter aus {processed_records} Records")
-        self.status_updated.emit(f"Extraktion abgeschlossen: {len(self.subjects)} Schlagwörter aus {processed_records} Records")
+        #self.logger.info(f"Extraktion abgeschlossen: {len(self.subjects)} Schlagwörter aus {processed_records} Records")
+        #self.status_updated.emit(f"Extraktion abgeschlossen: {len(self.subjects)} Schlagwörter aus {processed_records} Records")
 
 ################################################################################
-if __name__ == "__main__":
-    # Process command line arguments
-    if len(sys.argv) > 1 and sys.argv[1] == "--clear-cache":
-        clear_cache()
-        sys.exit(0)
+#f __name__ == "__main__":
+#    # Process command line arguments
+#    if len(sys.argv) > 1 and sys.argv[1] == "--clear-cache":
+#        clear_cache()
+#        sys.exit(0)
     
     # Read comma-separated search terms from command line
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} SEARCH_PHRASES [MAX_PAGES]")
-        print(f"  or:  {sys.argv[0]} --clear-cache")
-        print(f"Examples:")
-        print(f"    {sys.argv[0]} Differentialgleichung")
-        print(f'    {sys.argv[0]} "Zucker, Protein, Lipid"')
-        print(f"    {sys.argv[0]} Kohlenhydrate 10  # Search 10 pages")
-        print(f'    {sys.argv[0]} "Supramolekulare Chemie"  # Single result example')
-        print()
-        sys.exit(1)
+#    if len(sys.argv) < 2:
+#        print(f"Usage: {sys.argv[0]} SEARCH_PHRASES [MAX_PAGES]")
+#        print(f"  or:  {sys.argv[0]} --clear-cache")
+#        print(f"Examples:")
+#        print(f"    {sys.argv[0]} Differentialgleichung")
+#        print(f'    {sys.argv[0]} "Zucker, Protein, Lipid"')
+#        print(f"    {sys.argv[0]} Kohlenhydrate 10  # Search 10 pages")
+#        print(f'    {sys.argv[0]} "Supramolekulare Chemie"  # Single result example')
+#        print()
+#        sys.exit(1)
 
-    searches = [s.strip() for s in sys.argv[1].split(",")]
+#    searches = [s.strip() for s in sys.argv[1].split(",")]
     
     # Optional: Maximale Anzahl von Seiten pro Suchbegriff
-    max_pages = 5
-    if len(sys.argv) > 2 and sys.argv[2].isdigit():
-        max_pages = int(sys.argv[2])
+#    max_pages = 5
+#    if len(sys.argv) > 2 and sys.argv[2].isdigit():
+#       max_pages = int(sys.argv[2])
     
     # SubjectSuggester als Drop-in-Ersatz verwenden
-    suggestor = SubjectExtractor()
-    suggestor.set_search_term("Molekulardynamik")
-    results = suggestor.run()
+#    suggestor = SubjectExtractor()
+#    suggestor.set_search_term("Molekulardynamik")
+#    results = suggestor.run()
     
     # Formatierte Ausgabe wie im Original
-    print("\nFinal Results:")
-    print(results)
+#    print("\nFinal Results:")
+#    print(results)
 
-    # Zusätzliche CSV-Ausgabe für einfache Weiterverarbeitung
-    print("\nCSV format (subject,gndid,search_term):")
-    print("subject,gndid,search_term")
-    for search_term, subjects in results.items():
-        for subject, data in subjects.items():
-            # Extrahiere die GND-ID aus dem Set (nimm das erste Element)
-            gnd_id = next(iter(data["gndid"]))
-            print(f'"{subject}","{gnd_id}","{search_term}"')

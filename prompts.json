@@ -1,0 +1,88 @@
+{
+    "keywords": {
+        "fields": ["prompt", "system", "temp", "p-value", "model"],
+        "required": ["abstract", "keywords"],
+        "prompts": [[
+            "Du bist ein korrekter Bibliothekar, der aus einer Liste von OGND-Schlagworten alle heraussuchen soll, die den folgenden Text beschreiben. Es dürfen nur Schlagworte verwendet werden, die in der List auftauchen. Sollten für spezielle Konzepte keine konkreten Schlagworte vorhanden sein, verwende nach Möglichkeiten gelieferte Oberbegriffe, auch wenn sie allgemein sind. Kombiniere Schlagworte in Ketten, um spezielle Konzepte genauer zu spezifizieren, insbesondere wenn die verfügbaren Schlagworte allgemein sind. Führe auch keine weitere Erschließung durch, außer in der abschließenden Diskussion, in der auch nicht gefundene Konzepte diskutiert werden können.\nAbstract:\n{abstract}\nZur Auswahl stehende GND-Schlagworte:\n{keywords}\nBitte gib deine Antwort in folgendem Format:\nANALYSE:\n[Deine qualitative Analyse der Verschlagwortung]\nSchlagworte:\n[Liste der passende Schlagwort aus dem Prompt - bitte kommagetrennt. ***Nutze keine Synonyme oder alternative Schreibweisen/Formulierungen***]\nSchlagworte OGND Eintrage:\n[Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]\nSchlagwortketten:\n[Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]\nFEHLENDE KONZEPTE:\n[Liste von Konzepten, die noch nicht durch GND abgedeckt sind]\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:\n[Kommatagetrennte Liste von Oberbegriffen, die die fehlenden Konzepte abdecken könnten]",
+
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
+
+            "0.25",
+
+            "0.1",
+
+            ["gemini-1.5-pro", "gemini-2.0-flash", "DeepSeek-V3", "Meta-Llama-3-70B-Instruct"]
+        ],
+        [
+            "Du bist ein korrekter Bibliothekar, der aus einer Liste von OGND-Schlagworten alle heraussuchen soll, die den folgenden Text beschreiben. Es dürfen nur Schlagworte verwendet werden, die in der List auftauchen. Sollten für spezielle Konzepte keine konkreten Schlagworte vorhanden sein, verwende nach Möglichkeiten gelieferte Oberbegriffe, auch wenn sie allgemein sind. Kombiniere Schlagworte in Ketten, um spezielle Konzepte genauer zu spezifizieren, insbesondere wenn die verfügbaren Schlagworte allgemein sind. Führe auch keine weitere Erschließung durch, außer in der abschließenden Diskussion, in der auch nicht gefundene Konzepte diskutiert werden können.\nAbstract:\n{abstract}\nZur Auswahl stehende GND-Schlagworte:\n{keywords}\nBitte gib deine Antwort in folgendem Format:\nANALYSE:\n[Deine qualitative Analyse der Verschlagwortung]\nSchlagworte:\n[Liste der passende Schlagwort aus dem Prompt - bitte kommagetrennt. ***Nutze keine Synonyme oder alternative Schreibweisen/Formulierungen***]\nSchlagworte OGND Eintrage:\n[Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]\nSchlagwortketten:\n[Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]\nFEHLENDE KONZEPTE:\n[Liste von Konzepten, die noch nicht durch GND abgedeckt sind]\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:\n[Kommatagetrennte Liste von Oberbegriffen, die die fehlenden Konzepte abdecken könnten]",
+
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
+
+            "0.25",
+
+            "0.1",
+
+            ["DeepSeek-R1"]
+        ],
+        [
+            "Du bist ein korrekter Bibliothekar, der aus einer Liste von OGND-Schlagworten alle heraussuchen soll, die den folgenden Text beschreiben. Es dürfen nur Schlagworte verwendet werden, die in der List auftauchen. Sollten für spezielle Konzepte keine konkreten Schlagworte vorhanden sein, verwende nach Möglichkeiten gelieferte Oberbegriffe, auch wenn sie allgemein sind. Kombiniere Schlagworte in Ketten, um spezielle Konzepte genauer zu spezifizieren, insbesondere wenn die verfügbaren Schlagworte allgemein sind. Führe auch keine weitere Erschließung durch, außer in der abschließenden Diskussion, in der auch nicht gefundene Konzepte diskutiert werden können.\nAbstract:\n{abstract}\nZur Auswahl stehende GND-Schlagworte:\n{keywords}\nBitte gib deine Antwort in folgendem Format:\nANALYSE:\n[Deine qualitative Analyse der Verschlagwortung]\nSchlagworte:\n[Liste der passende Schlagwort aus dem Prompt - bitte kommagetrennt. ***Nutze keine Synonyme oder alternative Schreibweisen/Formulierungen***]\nSchlagworte OGND Eintrage:\n[Liste der passende Konzepte mit der zugeörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]\nSchlagwortketten:\n[Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]\nFEHLENDE KONZEPTE:\n[Liste von Konzepten, die noch nicht durch GND abgedeckt sind]\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:\n[Kommatagetrennte Liste von Oberbegriffen, die die fehlenden Konzepte abdecken könnten]",
+
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
+
+            "0.25",
+
+            "0.1",
+
+            ["default"]
+        ]
+        ]
+    },
+    "abstract": {
+        "fields": ["prompt", "system", "temp", "p-value", "model"],
+        "required": ["abstract", "keywords"],
+        "prompts": [
+        ["Du bist ein korrekter und fachlich versierter Bibliothekar. Basierend auf folgendem Abstract und Keywords, schlage passende deutsche Schlagworte vor.\nAbstract:\n{abstract}\nVorhandene Keywords:\n{keywords}\nBitte gib nur eine Liste deutscher Schlagworte zurück, die für eine bibliothekarische Erschließung geeignet sind.\nDie Schlagworte sollten möglichst präzise und spezifisch sein.",
+
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
+
+            "0.25",
+
+            "0.1",
+
+            ["gemini-1.5-flash", "gemini-2.0-flash", "DeepSeek-V3", "Meta-Llama-3-70B-Instruct"]
+        ]
+        ]
+    },
+    "dk_list": {
+        "fields": ["prompt", "system", "temp", "p-value", "model"],
+        "required": ["abstract", "keywords"],
+        "prompts": [
+        ["Du bist ein korrekter und fachlich versierter Bibliothekar. Bewerte jedes Schlagwort in der Liste mit einem Score zwischen 0 (am wenigsten passend) und 10 (am besten passend). Gibt den Score in Klammern hinter das Schlagwort und sortiere die Ausgabe mit absteigendem Score!\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
+
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
+
+            "0.25",
+
+            "0.1",
+
+            ["gemini-1.5-flash", "gemini-2.0-flash", "DeepSeek-V3", "Meta-Llama-3-70B-Instruct"]
+        ]
+        ]
+    },
+    "dk_class": {
+        "fields": ["prompt", "system", "temp", "p-value", "model"],
+        "required": ["abstract", "keywords"],
+        "prompts": [
+        ["Du bist ein korrekter Bibliothekar und sollst einen Abstrakt, der bereits verschlagwortet wurde, mit der Dezimalklassifikation versehen. Du hast einen Ausschnitt aus dem Bibliotheksbestand der Titel, Schlagworte und DKs umfasst.\nWähle 10 passende DKs für den Abstrakt auf der Basis der Suche aus, die Titel, Schlagworte und DKs umfasst!\n{abstract}\n**Ausschnitt aus dem Bibliotheksbestand:**\n{keywords}",
+
+            "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
+
+            "0.25",
+
+            "0.1",
+
+            ["gemini-1.5-flash", "gemini-2.0-flash", "DeepSeek-V3", "Meta-Llama-3-70B-Instruct"]
+        ]
+        ]
+    }
+}

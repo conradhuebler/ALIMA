@@ -42,6 +42,7 @@ class SearchTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self.katalog_keywords = []
         """Initialisiert die Benutzeroberfläche des Such-Tabs"""
         layout = QVBoxLayout(self)
 
@@ -53,65 +54,31 @@ class SearchTab(QWidget):
         search_input_layout = QHBoxLayout()
         self.search_input = QTextEdit()
         self.search_input.setPlaceholderText("Suchbegriffe (durch Komma getrennt)")
-        vlayout = QVBoxLayout()
+        vlayout = QHBoxLayout()
         self.hbz_button = QCheckBox("HBZ")
         self.hbz_button.setChecked(True)
         self.swb_button = QCheckBox("SWB")
         self.swb_button.setChecked(True)
-        self.katalog_button = QCheckBox("Katalog")
-        self.katalog_button.setChecked(False)
-        self.search_button = QPushButton("Suchen")
+        self.search_button = QPushButton("GND-Suche + DB Anreicherung")
         self.search_button.clicked.connect(self.lobid_search)
+        
+        self.num_results = QSpinBox()
+        self.num_results.setMinimum(1)
+        self.num_results.setMaximum(20)
+        self.num_results.setValue(2)
+        self.katalog_search = QPushButton("Katalog-Suche ohne DB Anreicherung")
+        self.katalog_search.clicked.connect(self.search_katalog)
         vlayout.addWidget(self.hbz_button)
         vlayout.addWidget(self.swb_button)
-        #vlayout.addWidget(self.katalog_button)
         vlayout.addWidget(self.search_button)
+        vlayout.addWidget(self.num_results)
+        vlayout.addWidget(self.katalog_search)
 
         search_input_layout.addWidget(self.search_input)
-        search_input_layout.addLayout(vlayout)
         search_layout.addLayout(search_input_layout)
+        search_layout.addLayout(vlayout)
 
-        # Erweiterte Suchoptionen
-        options_layout = QHBoxLayout()
-        
-        # max. Anzahl der Ergebnisse
-        max_results_layout = QHBoxLayout()
-        max_results_label = QLabel("Max. Ergebnisse:")
-        self.max_results_spin = QSpinBox()
-        self.max_results_spin.setRange(1, 1000000)
-        self.max_results_spin.setValue(10000)
-        self.max_results_spin.setSingleStep(100)
-        max_results_layout.addWidget(max_results_label)
-        max_results_layout.addWidget(self.max_results_spin)
-        options_layout.addLayout(max_results_layout)
 
-        # Threshold-Einstellung
-        threshold_layout = QHBoxLayout()
-        threshold_label = QLabel("Schwellenwert (%):")
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.1, 100.0)
-        self.threshold_spin.setValue(1.0)
-        self.threshold_spin.setSingleStep(0.1)
-        threshold_layout.addWidget(threshold_label)
-        threshold_layout.addWidget(self.threshold_spin)
-        options_layout.addLayout(threshold_layout)
-
-        self.status_label = QLabel("Aktueller Status: Bereit")
-        options_layout.addWidget(self.status_label)
-        # Sortieroptionen
-        sort_layout = QHBoxLayout()
-        sort_label = QLabel("Sortierung:")
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["Häufigkeit", "Alphabetisch", "Relevanz"])
-        sort_layout.addWidget(sort_label)
-        sort_layout.addWidget(self.sort_combo)
-        #options_layout.addLayout(sort_layout)
-
-        # Filteroptionen
-        self.exact_match_check = QCheckBox("Nur exakte Treffer")
-        options_layout.addWidget(self.exact_match_check)
-        
-        #search_layout.addLayout(options_layout)
         search_group.setLayout(search_layout)
         layout.addWidget(search_group)
 
@@ -196,6 +163,9 @@ class SearchTab(QWidget):
         self.content_display = QTextEdit()
         self.content_display.setReadOnly(True)
         details_layout.addWidget(self.content_display)
+        self.katalog_keywords_button = QPushButton("Nutze Katalog Keywords")
+        self.katalog_keywords_button.clicked.connect(self.generate_prompt_katalog)
+        details_layout.addWidget(self.katalog_keywords_button)
         details_group.setLayout(details_layout)
         results_splitter.addWidget(details_group)
 
@@ -204,127 +174,6 @@ class SearchTab(QWidget):
         # Verbinde Signals
         #self.search_input.returnPressed.connect(self.perform_search)
         self.results_table.itemSelectionChanged.connect(self.show_details)
-        self.sort_combo.currentTextChanged.connect(self.sort_results)
-
-    def perform_search(self):
-        """Führt die Suche aus"""
-        try:
-            # UI-Updates vor der Suche
-            self.search_button.setEnabled(False)
-            self.status_updated.emit("Suche wird durchgeführt...")
-            self.status_label.setText("Suche wird durchgeführt...")
-
-            self.result_list.clear()
-            QApplication.processEvents()
-
-            text = self.search_input.toPlainText().strip();
-            # Extrahiere Begriffe, die in Anführungszeichen stehen
-            quoted_pattern = r'"([^"]+)"'
-            quoted_matches = re.findall(quoted_pattern, text)
-            
-            # Entferne die extrahierten Begriffe aus dem ursprünglichen Text
-            text = re.sub(quoted_pattern, '', text)
-            
-            # Teile den verbleibenden Text nach Kommas auf
-            remaining_terms = [term.strip() for term in text.split(',') if term.strip()]
-            search_terms = quoted_matches + remaining_terms
-
-            self.logger.info(search_terms)
-
-            if not search_terms:
-                self.error_occurred.emit("Bitte geben Sie mindestens einen Suchbegriff ein")
-                return
-
-            term_results = {}
-            total_counter = Counter()
-
-            # Führe Suche für jeden Term durch
-            self.progressBar.setMaximum(2*len(search_terms))
-            self.progressBar.setValue(0)
-            for term in search_terms:
-                self.progressBar.setValue(self.progressBar.value() + 1)
-                if len(term) < 3:
-                    self.details_display.append(f"Der Begriff '{term}' ist zu kurz (mindestens 3 Zeichen)")
-                    term_results[term] = {'headings': set(), 'counter': Counter(), 'total': 0}
-                    continue
-
-                subject_headings = []
-                
-                url = f"https://lobid.org/resources/search?q={term}&format=jsonl"
-                response = requests.get(url, stream=True)
-
-                if response.status_code != 200:
-                    self.details_display.append(f"Fehler bei der API-Anfrage für {term}: {response.status_code}")
-                    term_results[term] = {'headings': set(), 'counter': Counter(), 'total': 0}
-                    continue
-
-                self.status_label.setText(f"Analysiere Ergebnisse für: {term}")
-                QApplication.processEvents()
-
-                # Verarbeitung der JSON Lines
-                total_items = 0
-                try:
-                    for line in response.iter_lines(decode_unicode=True):
-                        if not line:
-                            continue
-                        if total_items >= self.max_results_spin.value():
-                            break
-                        
-                        try:
-                            item = json.loads(line)
-                            headings = self.extract_subject_headings(item)
-                            subject_headings.extend(headings)
-                            total_items += 1
-                            if total_items % 1000 == 0:
-                                self.status_label.setText(f"Verarbeite Eintrag {total_items} für: {term}")
-                                QApplication.processEvents()
-                        except json.JSONDecodeError as e:
-                            self.results_display.append(f"(Suchsterm: {term}) Fehler beim Parsen einer Zeile: {str(e)}")
-                            self.logger.info(line)
-                            self.logger.info(f"(Suchsterm: {term}) JSON Decode Error: {e}")
-                            continue
-                        except requests.exceptions.ChunkedEncodingError as e:
-                            self.logger.info(line)
-                            self.logger.info(f"(Suchsterm: {term}) ChunkedEncodingError: {e}")
-                            continue
-                except Exception as e:
-                    self.logger.error(f"Fehler beim Verarbeiten der Ergebnisse: {e}", exc_info=True)
-                    self.error_occurred.emit(f"Fehler beim Verarbeiten der Ergebnisse: {str(e)}")
-                    continue
-                # Erstelle Counter und update total counter
-                term_counter = Counter(subject_headings)
-                total_counter.update(term_counter)
-
-                # Speichere Ergebnisse für diesen Term
-                term_results[term] = {
-                    'headings': set(subject_headings),
-                    'counter': term_counter,
-                    'total': total_items
-                }
-
-                # Cache die Ergebnisse
-                #self.search_engine.cache.cache_results(term, term_results[term])
-                self.progressBar.setValue(self.progressBar.value() + 1)
-
-            # Verarbeite Gesamtergebnisse
-            processed_results = self.search_engine.process_results(
-                {'term_results': term_results, 'total_counter': total_counter},
-                self.threshold_spin.value()
-            )
-
-            # Update UI
-            self.current_results = processed_results
-            self.display_results(processed_results)
-            self.prepare_results(processed_results)
-            self.search_completed.emit(processed_results)
-            self.status_updated.emit("Suche abgeschlossen")
-
-        except Exception as e:
-            self.logger.error(f"Fehler bei der Suche: {e}", exc_info=True)
-            self.error_occurred.emit(f"Fehler bei der Suche: {str(e)}")
-        finally:
-            self.search_button.setEnabled(True)
-            QApplication.processEvents()
 
     def current_lobid_term(self, term):
         self.progressBar.setValue(self.progressBar.value() + 1)
@@ -396,13 +245,6 @@ class SearchTab(QWidget):
             results_hbz = suggestor.search(search_terms)
         if self.swb_button.isChecked():
             results_swb = swbsuggestor.search(search_terms)
-        if self.katalog_button.isChecked():
-            extractor = SubjectExtractor(max_results=2)
-            for keyword in search_terms:
-                extractor.search_term = keyword
-                self.subjects = extractor.run(keyword)
-                self.logger.info(f"Schlagwort: {keyword}, Ergebnisse: {self.subjects}")
-                self.content_display.append(f"Schlagwort: {keyword}, Ergebnisse: {self.subjects}")
         # Verarbeite alle Einträge
         for main_term, entries in results_swb.items():
             self.logger.info(f"Verarbeite Einträge für: {entries}")
@@ -485,6 +327,54 @@ class SearchTab(QWidget):
 
         self.keywords_found.emit(", ".join(initial_prompt))
 
+    def search_katalog(self):
+         # UI-Updates vor der Suche
+        self.search_button.setEnabled(False)
+        self.status_updated.emit("Suche wird durchgeführt...")
+        self.result_list.clear()
+        QApplication.processEvents()
+
+        text = self.search_input.toPlainText().strip();
+        # Extrahiere Begriffe, die in Anführungszeichen stehen
+        quoted_pattern = r'"([^"]+)"'
+        quoted_matches = re.findall(quoted_pattern, text)
+            
+        # Entferne die extrahierten Begriffe aus dem ursprünglichen Text
+        text = re.sub(quoted_pattern, '', text)
+            
+            # Teile den verbleibenden Text nach Kommas auf
+        remaining_terms = [term.strip() for term in text.split(',') if term.strip()]
+        search_terms = quoted_matches + remaining_terms
+        self.progressBar.setValue(0)
+        extractor = SubjectExtractor(max_results=self.num_results.value())
+        self.progressBar.setMaximum(len(search_terms)*2)
+        self.progressBar.setValue(0)
+        for keyword in search_terms:
+            self.status_label.setText(f"Suche nach Schlagwort: {keyword}")
+            self.progressBar.setValue(self.progressBar.value() + 1)
+            QApplication.processEvents()
+            extractor.search_term = keyword
+            self.subjects = extractor.run(keyword)
+            self.logger.info(f"Schlagwort: {keyword}, Ergebnisse: {self.subjects}")
+                #self.content_display.append(f"Schlagwort: {keyword}, Ergebnisse: {self.subjects}")
+            for subject in self.subjects:
+                if len(subject) < 3:
+                    continue
+                if self.cache_manager.gnd_keyword_exists(subject) == True:
+                    gnd_entry = self.cache_manager.get_gnd_keyword(subject)
+                    #self.logger.info(gnd_entry)
+                    self.katalog_keywords.append(f"{gnd_entry['title']} ({gnd_entry['gnd_id']})")
+            self.content_display.clear()
+            self.katalog_keywords = list(set(self.katalog_keywords))
+            self.content_display.append("; ".join(self.katalog_keywords))
+            self.progressBar.setValue(self.progressBar.value() + 1)
+
+        self.generate_prompt_katalog()
+        self.search_button.setEnabled(True)
+
+    def generate_prompt_katalog(self):
+        initial_prompt = self.content_display.toPlainText().split("\n")
+        self.keywords_found.emit(", ".join(initial_prompt))
 
     def prepare_results(self, results):
         """Bereitet die Ergebnisse für die KI-Abfrage vor"""
@@ -831,21 +721,10 @@ class SearchTab(QWidget):
 
     def load_settings(self, settings: QSettings):
         """Lädt die gespeicherten Einstellungen"""
-        self.threshold_spin.setValue(
-            settings.value('search/threshold', 1.0, type=float)
-        )
-        self.sort_combo.setCurrentText(
-            settings.value('search/sort_criterion', "Häufigkeit")
-        )
-        self.exact_match_check.setChecked(
-            settings.value('search/exact_match_only', False, type=bool)
-        )
+
 
     def save_settings(self, settings: QSettings):
         """Speichert die aktuellen Einstellungen"""
-        settings.setValue('search/threshold', self.threshold_spin.value())
-        settings.setValue('search/sort_criterion', self.sort_combo.currentText())
-        settings.setValue('search/exact_match_only', self.exact_match_check.isChecked())
 
     def update_settings(self):
         """Aktualisiert die UI nach Änderungen in den Einstellungen"""

@@ -1,14 +1,15 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
     QPushButton, QLabel, QMessageBox, QProgressBar,
-    QSlider, QSpinBox, QCheckBox, QComboBox
+    QSlider, QSpinBox, QCheckBox, QComboBox, QSplitter, QListWidget,
+    QListWidgetItem
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from ..core.ai_processor import AIProcessor
 from ..core.llm_interface import LLMInterface
 from ..utils.config import Config, ConfigSection, AIConfig
-
+from ..core.prompt_manager import PromptManager
 from pathlib import Path
 import json
 import logging
@@ -24,18 +25,20 @@ class AbstractTab(QWidget):
         self.need_keywords = False
         self.logger = logging.getLogger(__name__)
         self.template_name = ""
-        
         # Initialisiere leere Empfehlungen
-        self.recommended_models = {}
+        self.recommended_models = []
+        self.current_template = ""
         self.model_descriptions = {}
         self.recommendations_file = recommendations_file
-        
+        self.propmpt_file = Path(__file__).parent.parent.parent / "prompts.json"
+        self.promptmanager = PromptManager(self.propmpt_file)
+        self.task = ""
         # Lade Empfehlungen aus JSON
         self.load_recommendations()
         
         # Setze Standard-Empfehlungen
-        self.set_model_recommendations("abstract")
-        
+        self.set_model_recommendations("default")
+        self.required = []
         self.setup_ui()
 
     def load_recommendations(self):
@@ -55,16 +58,43 @@ class AbstractTab(QWidget):
             self.logger.error(f"Error loading recommendations: {e}")
             self.create_default_recommendations()
 
+    def load_prompts(self):
+        """Lädt die Prompt-Templates aus der JSON-Datei"""
+        try:
+            if not self.propmpt_file.exists():
+                self.logger.warning(f"Prompt file not found: {self.propmpt_file}")
+                self.create_default_prompts()
+                return
+
+            with open(self.propmpt_file, 'r', encoding='utf-8') as f:
+                self.prompts = json.load(f)
+                
+            self.logger.info(f"Successfully loaded prompts from {self.propmpt_file}")
+            #self.logger.info(self.prompts)
+        except Exception as e:
+            self.logger.error(f"Error loading prompts: {e}")
+
+    def set_task(self, task: str):
+        """Setzt den Anwendungsfall für die Modell-Empfehlungen"""
+        # self.set_model_recommendations(task)
+        self.task = task
+        self.logger.info(f"Set task to {task}")
+        self.logger.info(self.promptmanager.get_available_models(task))
+        self.logger.info(self.promptmanager.get_required_fields(task))
+        self.recommended_models = self.promptmanager.get_available_models(task)
+        self.update_models(self.provider_combo.currentText())
+
+
     def set_model_recommendations(self, use_case: str):
         """Setzt die Modell-Empfehlungen basierend auf dem Anwendungsfall"""
-        if use_case in self.recommendations:
-            self.recommended_models = self.recommendations[use_case]["recommended"]
-            self.model_descriptions = self.recommendations[use_case]["descriptions"]
-            # Update Modell-Liste wenn bereits initialisiert
-            if hasattr(self, 'provider_combo'):
-                self.update_models(self.provider_combo.currentText())
-        else:
-            self.logger.warning(f"Unknown use case: {use_case}")
+        #if use_case in self.recommendations:
+        #    self.recommended_models = self.recommendations[use_case]["recommended"]
+        #    self.model_descriptions = self.recommendations[use_case]["descriptions"]
+        #    # Update Modell-Liste wenn bereits initialisiert
+        #    if hasattr(self, 'provider_combo'):
+        #        self.update_models(self.provider_combo.currentText())
+        #else:
+        #    self.logger.warning(f"Unknown use case: {use_case}")
     
     def update_models(self, provider: str):
         """Update available models when provider changes"""
@@ -75,13 +105,13 @@ class AbstractTab(QWidget):
         recommended_available = False
 
         # Hole empfohlene Modelle für diesen Provider
-        recommended = self.recommended_models.get(provider, [])
-        self.logger.info(f"Empfohlene Modelle für {provider}: {recommended}")
-        if recommended:
+        #recommended = self.recommended_models.get(provider, [])
+        self.logger.info(f"Empfohlene Modelle für {provider}: {self.recommended_models}")
+        if self.recommended_models:
             # Füge empfohlene Modelle zuerst hinzu
             recommended_group = "↳ Empfohlene Modelle"
             self.model_combo.addItem(recommended_group)
-            recommended_available = [model for model in recommended if model in all_models]
+            recommended_available = [model for model in self.recommended_models if model in all_models]
             
             for model in recommended_available:
                 self.model_combo.addItem(f"  {model}")
@@ -152,7 +182,7 @@ class AbstractTab(QWidget):
         self.model_combo = QComboBox()
         config_layout.addWidget(QLabel("Model:"))
         config_layout.addWidget(self.model_combo)
-        
+        self.model_combo.currentTextChanged.connect(self.setModel)
         # Temperatur Slider
         self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
         self.ki_temperature.setRange(0, 100)
@@ -197,19 +227,28 @@ class AbstractTab(QWidget):
         results_label = QLabel("Analyseergebnis:")
         layout.addWidget(results_label)
         
+        self.result_splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(self.result_splitter)
         self.results_edit = QTextEdit()
         self.results_edit.setReadOnly(True)
         self.results_edit.setPlaceholderText("Hier erscheinen die Analyseergebnisse...")
-        layout.addWidget(self.results_edit)
+        self.result_splitter.addWidget(self.results_edit)
+
+        self.results_list = QListWidget()
+        self.results_list.setFixedWidth(200)
+        self.result_splitter.addWidget(self.results_list)
+
+        self.results_list.itemClicked.connect(self.show_result)
 
         # Initial models update
         self.update_models(self.provider_combo.currentText())
 
-    #def update_models(self, provider: str):
-    #    """Update available models when provider changes"""
-    #    self.model_combo.clear()
-    #    models = self.llm.get_available_models(provider)
-    #    self.model_combo.addItems(models)
+    def setModel(self, model):
+        config = self.promptmanager.get_prompt_config(self.task, model)
+        self.ki_temperature.setValue(int(config["temp"]*100))
+        self.current_template = config["prompt"]
+        self.logger.info(self.current_template)
+        self.set_input()
 
     def update_temperature_label(self, value):
         """Update temperature label to show actual value"""
@@ -242,6 +281,10 @@ class AbstractTab(QWidget):
             )
             
             self.results_edit.setPlainText(response)
+            item = QListWidgetItem(self.model_combo.currentText())
+            item.setToolTip(self.prompt.toPlainText())
+            item.setData(Qt.ItemDataRole.UserRole, response)
+            self.results_list.addItem(item)
             keywords = self.extract_keywords(response)
             self.keywords_extracted.emit(keywords)
             
@@ -253,11 +296,7 @@ class AbstractTab(QWidget):
 
     def update_input(self):
         #self.logger.info(self.template_name)
-        self.prompt.setPlainText(self.ai_processor.set_input(
-            self.abstract_edit.toPlainText().strip(),
-            self.keywords_edit.toPlainText().strip(),
-            template_name=self.template_name
-        ))
+        self.prompt.setPlainText(self.set_input())
         self.logger.info(self.prompt.toPlainText())
         self.abstract_changed.emit(self.abstract_edit.toPlainText().strip())
 
@@ -272,10 +311,37 @@ class AbstractTab(QWidget):
         self.abstract_edit.setPlainText(abstract)
         self.update_input()
 
+    def set_input(self):
+        """
+        Setzt die Eingabedaten für die AI-Verarbeitung.
+        
+        Args:
+            abstract: Der zu analysierende Abstract
+            keywords: Vorhandene Keywords (optional)
+            template_name: Name des Prompt-Templates
+        """
+        template = self.current_template
+        self.logger.info("Bereit prompt vor")
+        self.logger.info(template)
+        self.logger.info(self.abstract_edit.toPlainText().strip(), self.keywords_edit.toPlainText().strip())
+          # Bereite die Variablen vor
+        variables = {
+            "abstract": self.abstract_edit.toPlainText().strip(),
+            "keywords": self.keywords_edit.toPlainText().strip() if self.keywords_edit.toPlainText().strip() else "Keine Keywords vorhanden"
+        }
+        self.logger.info(variables)
+        try:
+            # Erstelle den Prompt
+            prompt = template.format(**variables)
+        except KeyError as e:
+            raise ValueError(f"Fehlende Variable im Template: {e}")
+        self.logger.info(prompt, variables)
+        self.generated_prompt = prompt
+        return prompt    
 
     def extract_keywords(self, response_text):
         # Extrahiere die Schlagworte aus dem Antworttext
-        keywords = response_text.replace("*","").split('\n')
+        keywords = response_text.replace("*","").replace(",","\n").split('\n')
         quoted_keywords = [f'"{keyword.strip()}"' for keyword in keywords if keyword.strip()]
         return ', '.join(quoted_keywords)
     
@@ -306,3 +372,11 @@ class AbstractTab(QWidget):
                 self.abstract_edit.clear()
                 self.keywords_edit.clear()
                 self.results_edit.clear()
+
+    def show_result(self):
+        """Zeigt das Ergebnis an"""
+        item = self.results_list.currentItem()
+        if item:   
+            keywords = self.extract_keywords(item.data(Qt.ItemDataRole.UserRole))
+            self.keywords_extracted.emit(keywords)
+            self.results_edit.setPlainText(keywords)

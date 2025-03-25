@@ -111,6 +111,30 @@ class CacheManager:
             self.logger.error(f"Fehler beim Überprüfen des GND-Eintrags: {e}")
             return False
 
+    def gnd_keyword_exists(self, keyword: str) -> bool:
+        """
+        Überprüft, ob ein GND-Eintrag mit einem bestimmten Schlagwort in der Datenbank existiert.
+
+        Args:
+            keyword: Schlagwort
+        """
+        try:
+            with self.conn:
+                cursor = self.conn.execute(
+                    '''
+                    SELECT COUNT(*) FROM gnd_entry 
+                    WHERE title LIKE ?
+                    ''',
+                    (f"%{keyword}%",)
+                )
+                result = cursor.fetchone()
+                
+                return result[0] > 0
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Überprüfen des GND-Eintrags: {e}")
+            return False
+        
     def insert_gnd_entry(self, gnd_id: str, title: str, description: str = "", ddcs: str = "", dks: str = "", gnd_systems : str = "", synonyms: str = "", classification: str = "", ppn : str = "") -> None:
         """
         Speichert einen GND-Eintrag in der Datenbank.
@@ -181,6 +205,38 @@ class CacheManager:
                     return entry
                 else:
                     self.logger.info(f"GND-Eintrag '{gnd_id}' nicht gefunden")
+                    return None
+                
+        except Exception as e:
+            self.logger.error(f"Fehler beim Abrufen des GND-Eintrags: {e}")
+            return None
+        
+    def get_gnd_keyword(self, keyword: str) -> Optional[Dict]:
+        """
+        Holt einen GND-Eintrag aus der Datenbank.
+        
+        Args:
+            keyword: Schlagwort
+        """
+        try:
+            with self.conn:
+                cursor = self.conn.execute(
+                    '''
+                    SELECT * FROM gnd_entry 
+                    WHERE title LIKE ?
+                    ''',
+                    (f"%{keyword}%",)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    # Spaltennamen abrufen
+                    column_names = [description[0] for description in cursor.description]
+                    # Dictionary erstellen
+                    entry = dict(zip(column_names, result))
+                    return entry
+                else:
+                    self.logger.info(f"GND-Eintrag mit Schlagwort '{keyword}' nicht gefunden")
                     return None
                 
         except Exception as e:

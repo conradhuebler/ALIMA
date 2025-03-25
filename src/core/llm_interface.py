@@ -36,7 +36,13 @@ class LLMInterface:
             "openai": {
                 "module": "openai",
                 "class": "OpenAI",
-                "api_key": "OPENAI_API_KEY"
+                "api_key": "OPENAI_API_KEY",
+            },
+            "comet": {
+                "module": "openai",
+                "class": "OpenAI",
+                "api_key": "COMET_API_KEY",
+                "base_url" : "https://api.cometapi.com/v1"
             },
             "anthropic": {
                 "module": "anthropic",
@@ -133,6 +139,10 @@ class LLMInterface:
                 module.configure(api_key=api_key)
                 self.clients[provider] = module
                 
+            elif provider == "comet" and api_key:
+                self.clients[provider] = module.OpenAI(api_key=api_key, base_url="https://api.cometapi.com/v1")
+                self.clients[provider] = module.ChatCompletion.create(api_key=api_key)
+            
             elif provider == "ollama":
                 # Test if Ollama is running
                 import requests
@@ -225,9 +235,9 @@ class LLMInterface:
                 response = self.clients[provider].get("http://localhost:11434/api/tags")
                 return [model["name"] for model in response.json()["models"]]
                 
-            elif provider == "openai":
+            elif provider == "openai" or provider == "comet":
                 return [model.id for model in self.clients[provider].models.list()]
-                
+
             elif provider == "anthropic":
                 final_list = []
                 list = self.clients[provider].models.list()
@@ -242,7 +252,7 @@ class LLMInterface:
             elif provider == "github":
                 # GitHub Copilot Modelle über Azure Inference
                 return ["DeepSeek-V3", 
-                        "Llama-3-70b-instruct", 
+                        "Meta-Llama-3-70B-Instruct", 
                         "Mistral-small", 
                         "Mistral-large", 
                         "DeepSeek-R1", 

@@ -17,17 +17,21 @@ def analyze_keywords(keywords):
     """
     # Entferne Duplikate, aber behalte die ursprüngliche Liste für späteren Vergleich
     original_unique = list(dict.fromkeys(keywords))
-    
+    print(original_unique)
     # Sortiere nach Länge (Anzahl der Wörter), vom längsten zum kürzesten
-    sorted_keywords = sorted(original_unique, key=lambda x: len(x.split()), reverse=True)
-    
+    sorted_keywords = sorted(original_unique, key=lambda x: len(x.split()), reverse=False)
+    print(sorted_keywords)
     # Identifiziere Schlagworte, die in anderen enthalten sind
     contained_in_others = set()
     for i, keyword in enumerate(sorted_keywords):
         for j, other in enumerate(sorted_keywords):
-            if i != j and is_complete_substring(keyword, other):
-                contained_in_others.add(keyword)
-    
+            if i != j: 
+                tmp = other.replace(keyword, "").strip()
+                tmp2 = keyword.replace(other, "").strip()
+                contained_in_others.add(tmp)
+                contained_in_others.add(tmp2)
+
+    print(sorted(contained_in_others, key=lambda x: len(x.split()), reverse=False))
     # Ein Schlagwort ist eigenständig, wenn es als individueller Eintrag vorkommt
     standalone_keywords = original_unique.copy()
     

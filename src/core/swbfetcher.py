@@ -398,10 +398,10 @@ class SWBSubjectExtractor(QObject):
                 content = html.unescape(response.text)
                 
                 # Debug: Seite speichern
-                debug_filename = f"swb_page_{search_term.replace(' ', '_')}_{page_count}.html"
-                with open(debug_filename, "w", encoding="utf-8") as f:
-                    f.write(content)
-                print(f"Saved page content to {debug_filename} for debugging")
+                #debug_filename = f"swb_page_{search_term.replace(' ', '_')}_{page_count}.html"
+                #with open(debug_filename, "w", encoding="utf-8") as f:
+                #    f.write(content)
+                #print(f"Saved page content to {debug_filename} for debugging")
                 
                 # Prüfe, ob es sich um eine Einzelergebnisseite handelt
                 is_single_result = self._is_single_result_page(content)
