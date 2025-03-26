@@ -61,11 +61,14 @@ class PromptManager:
 
         # Try to find the exact model
         if model in self.models_by_task[task]:
+            print("Found Model")
             prompt_config = self.models_by_task[task][model]
         # If not found, try to use the 'default' model if it exists
         elif 'default' in self.models_by_task[task]:
+            print("Using Default Model")
             prompt_config = self.models_by_task[task]['default']
         else:
+            print("Using First Model")
             # If no default and no exact match, use the first available config
             first_model = next(iter(self.models_by_task[task]))
             prompt_config = self.models_by_task[task][first_model]
@@ -114,7 +117,7 @@ class PromptManager:
 # Example usage
 if __name__ == "__main__":
     # Initialize the PromptManager with the config file
-    manager = PromptManager('prompts.json')
+    manager = PromptManager('../../prompts.json')
 
     # Get available tasks
     print("Available tasks:", manager.get_available_tasks())
@@ -127,13 +130,13 @@ if __name__ == "__main__":
     print(f"Required fields for '{task}':", manager.get_required_fields(task))
 
     # Get prompt configuration for a specific model
-    model = 'gemini-1.5-pro'
+    model = 'llama3:70b-instruct-q2_K'
     config = manager.get_prompt_config(task, model)
     print(f"Prompt config for {model}:", {
         'temp': config['temp'],
         'p-value': config['p-value'],
-        'prompt': config['prompt'][:50] + '...',  # Showing just the beginning for brevity
-        'system': config['system'][:50] + '...'
+        'prompt': config['prompt'],  # Showing just the beginning for brevity
+        'system': config['system']
     })
 
     # Format a prompt with variables

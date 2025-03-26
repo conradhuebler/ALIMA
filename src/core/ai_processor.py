@@ -1,3 +1,6 @@
+# remove soon
+
+
 from PyQt6.QtNetwork import QNetworkRequest, QNetworkAccessManager
 from PyQt6.QtCore import QUrl, QByteArray, pyqtSignal, pyqtSlot, QObject
 import json

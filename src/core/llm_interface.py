@@ -6,6 +6,7 @@ import logging
 import base64
 import asyncio
 import json
+import sys
 
 class LLMInterface:
     def __init__(self, 
@@ -282,7 +283,8 @@ class LLMInterface:
                         prompt: str,
                         temperature: float = 0.7,
                         seed: Optional[int] = None,
-                        image: Optional[Union[str, bytes]] = None) -> str:
+                        image: Optional[Union[str, bytes]] = None,
+                        system: Optional[str] = "") -> str:
         """
         Generate response with specified parameters
         
@@ -299,9 +301,9 @@ class LLMInterface:
             
         try:
             if provider == "gemini":
-                return self._generate_gemini(model.strip(), prompt, temperature, seed, image)
+                return self._generate_gemini(model.strip(), prompt, temperature, seed, image, system)
             elif provider == "ollama": 
-                return self._generate_ollama(model.strip(), prompt, temperature, seed, image)
+                return self._generate_ollama(model.strip(), prompt, temperature, seed, image, system)
             elif provider == "openai":
                 return self._generate_openai(model.strip(), prompt, temperature, seed, image)
             elif provider == "anthropic":
@@ -317,14 +319,15 @@ class LLMInterface:
             
         return "Provider not supported"
 
-    def _generate_gemini(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+    def _generate_gemini(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None, system: Optional[str] = "") -> str:
         try:
             generation_config = {
                 "temperature": temperature,
             }
+            
             if seed is not None:
                 generation_config["seed"] = seed
-                
+
             if image:
                 model_instance = self.clients["gemini"].GenerativeModel(model)
                 img_bytes = self.process_image(image)
@@ -333,18 +336,19 @@ class LLMInterface:
                     generation_config=generation_config
                 )
             else:
-                model_instance = self.clients["gemini"].GenerativeModel(model)
+                model_instance = self.clients["gemini"].GenerativeModel(model, system_instruction=system)
                 response = model_instance.generate_content(
                     prompt,
                     generation_config=generation_config
                 )
+
             response.resolve()
             return response.text
         except Exception as e:
             self.logger.error(f"Gemini error: {str(e)}")
             return f"Error with Gemini: {str(e)}"
 
-    def _generate_ollama(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+    def _generate_ollama(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None, system: Optional[str] = "") -> str:
         try:
             data = {
                 "model": model,
@@ -360,6 +364,9 @@ class LLMInterface:
                 img_bytes = self.process_image(image)
                 data["images"] = [base64.b64encode(img_bytes).decode()]
             
+            if system:
+                data["system"] = system
+            self.logger.info(data)
             response = self.clients["ollama"].post("http://localhost:11434/api/generate", json=data, stream=True)
             
             full_response = ""
@@ -367,14 +374,18 @@ class LLMInterface:
                 if line:
                     json_response = json.loads(line)
                     if 'response' in json_response:
-                        full_response += json_response['response']
-                        
+                        chunk = json_response['response']
+                        full_response += chunk
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()  # Stellt sicher, dass der Text sofort angezeigt wird
+            
+            print()  # Neue Zeile am Ende des Streams
             return full_response
         except Exception as e:
             self.logger.error(f"Ollama error: {str(e)}")
             return f"Error with Ollama: {str(e)}"
 
-    def _generate_openai(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+    def _generate_openai(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None, system: Optional[str] = "") -> str:
         try:
             params = {
                 "model": model,
@@ -402,7 +413,7 @@ class LLMInterface:
             self.logger.error(f"OpenAI error: {str(e)}")
             return f"Error with OpenAI: {str(e)}"
 
-    def _generate_anthropic(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+    def _generate_anthropic(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None, system: Optional[str] = "") -> str:
         try:
             params = {
                 "model": model,
@@ -419,7 +430,7 @@ class LLMInterface:
             self.logger.error(f"Anthropic error: {str(e)}")
             return f"Error with Anthropic: {str(e)}"
 
-    def _generate_azure(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+    def _generate_azure(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None, system: Optional[str] = "") -> str:
         """Generate response from Azure OpenAI via Azure Inference API"""
         try:
             # Zugriff auf die Klassen für Nachrichten
@@ -476,7 +487,7 @@ class LLMInterface:
             self.logger.error(f"Azure OpenAI error: {str(e)}")
             return f"Error with Azure OpenAI: {str(e)}"
 
-    def _generate_github(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None) -> str:
+    def _generate_github(self, model: str, prompt: str, temperature: float, seed: Optional[int], image: Optional[Union[str, bytes]] = None, system: Optional[str] = "") -> str:
         """Generate response from GitHub Copilot via Azure Inference"""
         try:
             # Zugriff auf die Klassen für Nachrichten

@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
-from ..core.ai_processor import AIProcessor
+#from ..core.ai_processor import AIProcessor
 from ..core.llm_interface import LLMInterface
 from ..utils.config import Config, ConfigSection, AIConfig
 from ..core.prompt_manager import PromptManager
@@ -20,7 +20,7 @@ class AbstractTab(QWidget):
 
     def __init__(self, parent=None, recommendations_file: Path = Path(__file__).parent.parent.parent / "model_recommendations.json"):
         super().__init__(parent)
-        self.ai_processor = AIProcessor()
+        #self.ai_processor = AIProcessor()
         self.llm = LLMInterface()
         self.need_keywords = False
         self.logger = logging.getLogger(__name__)
@@ -135,7 +135,8 @@ class AbstractTab(QWidget):
         # Wähle das erste empfohlene Modell aus, falls verfügbar
         if recommended_available:
             self.model_combo.setCurrentText(f"  {recommended_available[0]}")
-
+            self.setModel(recommended_available[0])
+        
 
     def setup_ui(self):
         """Erstellt die UI-Komponenten"""
@@ -149,7 +150,6 @@ class AbstractTab(QWidget):
         self.abstract_edit = QTextEdit()
         self.abstract_edit.setPlaceholderText("Fügen Sie hier den Abstract ein...")
         self.abstract_edit.textChanged.connect(self.update_input)
-        #self.abstract_edit.textEdited.connect(self.update_input)
         layout.addWidget(self.abstract_edit)
 
         # Keywords-Eingabe
@@ -245,9 +245,16 @@ class AbstractTab(QWidget):
 
     def setModel(self, model):
         config = self.promptmanager.get_prompt_config(self.task, model)
+        print(f"Prompt config for {model}:", {
+        'temp': config['temp'],
+        'p-value': config['p-value'],
+        'prompt': config['prompt'],  # Showing just the beginning for brevity
+        'system': config['system']
+        })
         self.ki_temperature.setValue(int(config["temp"]*100))
         self.current_template = config["prompt"]
-        self.logger.info(self.current_template)
+        self.system = config["system"]
+        self.logger.info(self.system)
         self.set_input()
 
     def update_temperature_label(self, value):
@@ -256,17 +263,6 @@ class AbstractTab(QWidget):
 
     def start_analysis(self):
         """Startet die Analyse des Abstracts"""
-        #abstract = self.abstract_edit.toPlainText().strip()
-        #keywords = self.keywords_edit.toPlainText().strip()
-
-        #if not abstract:
-        #    QMessageBox.warning(self, "Warnung", "Bitte geben Sie einen Abstract ein.")
-        #    return
-
-        #if not keywords and self.need_keywords:
-        #    QMessageBox.warning(self, "Warnung", "Ohne GND-Keywords läuft hier nix.")
-        #    return
-
         self.set_ui_enabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
@@ -277,7 +273,8 @@ class AbstractTab(QWidget):
                 model=self.model_combo.currentText(),
                 prompt=self.prompt.toPlainText(),
                 temperature=self.ki_temperature.value() / 100,
-                seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None
+                seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
+                system=self.system
             )
             
             self.results_edit.setPlainText(response)
@@ -348,7 +345,7 @@ class AbstractTab(QWidget):
     def handle_error(self, title: str, message: str):
         """Zeigt eine Fehlermeldung an"""
         QMessageBox.critical(self, title, message)
-        self.ai_processor.logger.error(f"{title}: {message}")
+        #self.ai_processor.logger.error(f"{title}: {message}")
 
     def set_ui_enabled(self, enabled: bool):
         """Aktiviert/Deaktiviert UI-Elemente"""

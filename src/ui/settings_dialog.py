@@ -349,11 +349,11 @@ class SettingsDialog(QDialog):
         button_layout = QHBoxLayout()
         self.edit_template_button = QPushButton("Bearbeiten")
         self.edit_template_button.clicked.connect(self.edit_template)
-        self.reset_template_button = QPushButton("Zurücksetzen")
-        self.reset_template_button.clicked.connect(self.reset_template)
+        #self.reset_template_button = QPushButton("Zurücksetzen")
+        #self.reset_template_button.clicked.connect(self.reset_template)
         
         button_layout.addWidget(self.edit_template_button)
-        button_layout.addWidget(self.reset_template_button)
+        #button_layout.addWidget(self.reset_template_button)
         templates_layout.addLayout(button_layout)
         
         templates_group.setLayout(templates_layout)
@@ -394,30 +394,6 @@ class SettingsDialog(QDialog):
                 updated_template = dialog.get_updated_template()
                 prompt_config.templates[template_name] = updated_template
                 self.update_templates_table()
-
-    def reset_template(self):
-        """Setzt ein Template auf den Standardwert zurück"""
-        current_row = self.templates_table.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Template aus.")
-            return
-
-        template_name = self.templates_table.item(current_row, 0).text()
-        
-        if QMessageBox.question(
-            self,
-            "Template zurücksetzen",
-            f"Möchten Sie das Template '{template_name}' wirklich auf die Standardwerte zurücksetzen?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        ) == QMessageBox.StandardButton.Yes:
-            # Erstelle neue PromptConfig mit Standardwerten
-            default_config = PromptConfig()
-            
-            # Aktualisiere nur das ausgewählte Template
-            prompt_config = self.config.get_section(ConfigSection.PROMPTS)
-            prompt_config.templates[template_name] = default_config.templates[template_name]
-            
-            self.update_templates_table()
 
     def update_model_list(self):
         """Aktualisiert die Liste der verfügbaren Modelle basierend auf dem ausgewählten Provider"""
