@@ -13,7 +13,7 @@ from .abstract_tab import AbstractTab
 from .settings_dialog import SettingsDialog
 from ..core.search_engine import SearchEngine
 from ..core.cache_manager import CacheManager
-from ..core.ai_processor import AIProcessor
+#from ..core.ai_processor import AIProcessor
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
 from .ubsearch_tab import UBSearchTab
@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
         # Initialisiere Core-Komponenten
         self.cache_manager = CacheManager()
         self.search_engine = SearchEngine(self.cache_manager)
-        self.ai_processor = AIProcessor()
+        #self.ai_processor = AIProcessor()
         self.logger = logging.getLogger(__name__)
 
         self.init_ui()
@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
 
         self.abstract_tab = AbstractTab()
         self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
-        self.abstract_tab.keywords_extracted.connect(self.update_search_field)
+        #self.abstract_tab.final_list.connect(self.update_search_field)
         self.abstract_tab.template_name = "abstract_analysis"
         self.abstract_tab.set_model_recommendations("abstract")
         self.abstract_tab.set_task("abstract")
@@ -72,13 +72,16 @@ class MainWindow(QMainWindow):
         self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
         self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
-        self.analyse_keywords.keywords_extracted.connect(self.update_gnd_keywords)
+        self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
         self.ub_search_tab = UBSearchTab()
                 
+        self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
+        self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
+
         self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
         self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
-        self.abstract_tab.keywords_extracted.connect(self.ub_search_tab.update_keywords)
+        #self.abstract_tab.keywords_extracted.connect(self.ub_search_tab.update_keywords)
 
         #self.table_widget = TableWidget(
         #    db_path=self.cache_manager.db_path,
@@ -115,6 +118,7 @@ class MainWindow(QMainWindow):
         Returns:
             list: Liste der GND-Schlagworte ohne IDs
         """
+        self.logger.info(keywords)
         try:
             # Suche den Abschnitt mit den GND-Einträgen
             if "Schlagworte OGND Eintrage:" not in keywords:
@@ -133,7 +137,7 @@ class MainWindow(QMainWindow):
                     if term:
                         gnd_terms.append(term)
             self.logger.info(gnd_terms)
-            self.ub_search_tab.update_keywords(gnd_terms)       
+            self.ub_search_tab.update_keywords(keywords)       
             return gnd_terms
             
         except Exception as e:

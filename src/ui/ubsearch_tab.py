@@ -286,8 +286,7 @@ class UBSearchTab(QWidget):
 
     def update_keywords(self, keywords):
         self.logger.info(keywords)
-
-        self.keywords_input.append(", ".join(keywords))
+        self.keywords_input.append(keywords)
 
     def start_search(self):
         """Startet die Suche"""

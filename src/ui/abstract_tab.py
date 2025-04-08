@@ -13,10 +13,13 @@ from ..core.prompt_manager import PromptManager
 from pathlib import Path
 import json
 import logging
+import re
+
 
 class AbstractTab(QWidget):
     keywords_extracted = pyqtSignal(str)
     abstract_changed = pyqtSignal(str)
+    final_list = pyqtSignal(str)
 
     def __init__(self, parent=None, recommendations_file: Path = Path(__file__).parent.parent.parent / "model_recommendations.json"):
         super().__init__(parent)
@@ -336,10 +339,13 @@ class AbstractTab(QWidget):
         self.generated_prompt = prompt
         return prompt    
 
-    def extract_keywords(self, response_text):
+    def extract_keywords(self, text):
         # Extrahiere die Schlagworte aus dem Antworttext
-        keywords = response_text.replace("*","").replace(",","\n").split('\n')
+        match = re.search(r'<final_list>(.*?)</final_list>', text, re.DOTALL)
+        keywords = match.group(1).split("|")
+        self.logger.info(keywords)
         quoted_keywords = [f'"{keyword.strip()}"' for keyword in keywords if keyword.strip()]
+        self.final_list.emit(', '.join(quoted_keywords))
         return ', '.join(quoted_keywords)
     
     def handle_error(self, title: str, message: str):
