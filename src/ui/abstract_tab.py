@@ -234,6 +234,7 @@ class AbstractTab(QWidget):
         layout.addWidget(self.result_splitter)
         self.results_edit = QTextEdit()
         self.results_edit.setReadOnly(True)
+        self.results_edit.setFixedHeight(400)
         self.results_edit.setPlaceholderText("Hier erscheinen die Analyseergebnisse...")
         self.result_splitter.addWidget(self.results_edit)
 
