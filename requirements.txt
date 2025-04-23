@@ -6,3 +6,5 @@ pyyaml>=6.0
 rdflib>=6.0.0
 PILO>=8.3.2
 google-generativeai>=0.8
+#frontend>=0.1.0
+#fitz>=1.0.0

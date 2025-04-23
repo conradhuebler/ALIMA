@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Optional, Dict
 
-from .search_tab import SearchTab
+from .find_keywords import SearchTab
 from .abstract_tab import AbstractTab
 from .settings_dialog import SettingsDialog
 from ..core.search_engine import SearchEngine
@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
-        self.setWindowTitle('fAchreferentIn')
+        self.setWindowTitle('AlIma')
         self.setGeometry(100, 100, 1200, 800)
 
         # Zentrales Widget

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+## obsolete 
+
 def analyze_keywords(keywords):
     """
     Analysiert eine Liste von Schlagworten und identifiziert eigenständige

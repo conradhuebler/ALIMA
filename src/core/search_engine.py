@@ -1,3 +1,5 @@
+## obsolete
+
 from PyQt6.QtCore import QObject, QUrl, QEventLoop
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from collections import Counter

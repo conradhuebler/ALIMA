@@ -1,39 +1,46 @@
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QPushButton, QTextEdit, QComboBox, QLabel, QFileDialog,
-                           QHBoxLayout, QSplitter, QListWidget, QSlider)
+                           QHBoxLayout, QSplitter, QListWidget, QSlider, 
+                           QSpinBox, QFormLayout, QDialog, QDialogButtonBox,
+                           QListWidgetItem)
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QPixmap
 
 import sys
-import asyncio
+import time
 from pathlib import Path
 from typing import Optional, Union
-from src.core.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
+from src.llm.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
 
-class GenerateThread(QThread):
-    finished = pyqtSignal(str)
-    
-    def __init__(self, llm_interface, provider, model, prompt, temperature, system_prompt, image=None):
-        super().__init__()
-        self.llm_interface = llm_interface
-        self.provider = provider
-        self.model = model
-        self.prompt = prompt
-        self.temperature = temperature
-        self.system_prompt = system_prompt
-        self.image = image
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None, timeout=120):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.timeout = timeout
         
-    def run(self):
-        response = self.llm_interface.generate_response(
-            self.provider, 
-            self.model, 
-            self.prompt, 
-            temperature=self.temperature,
-            system=self.system_prompt,
-            image=self.image
-        )
-        self.finished.emit(response)
-
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        
+        # Timeout settings
+        self.timeout_spinbox = QSpinBox()
+        self.timeout_spinbox.setRange(10, 300)  # 10 seconds to 5 minutes
+        self.timeout_spinbox.setValue(self.timeout)
+        self.timeout_spinbox.setSuffix(" seconds")
+        self.timeout_spinbox.setToolTip("How long to wait before cancelling a request that appears to be stuck")
+        form.addRow("Request Timeout:", self.timeout_spinbox)
+        
+        layout.addLayout(form)
+        
+        # Standard dialog buttons
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | 
+                                          QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+    
+    def get_timeout(self):
+        return self.timeout_spinbox.value()
 
 class ChatbotApp(QMainWindow):
     def __init__(self):
@@ -41,6 +48,19 @@ class ChatbotApp(QMainWindow):
         self.llm_interface = LLMInterface()
         self.current_image = None
         self.chat_history = []
+        self.generating = False
+        self.current_bot_response = ""  # Sammelt die aktuelle Bot-Antwort
+        self.request_timeout = 120  # Default timeout in seconds
+        
+        # Verbinde die Signale der LLMInterface mit unseren Slots
+        self.llm_interface.text_received.connect(self.on_text_received)
+        self.llm_interface.generation_finished.connect(self.on_generation_finished)
+        self.llm_interface.generation_error.connect(self.on_generation_error) 
+        self.llm_interface.generation_cancelled.connect(self.on_generation_cancelled)
+        
+        # Setze den Timeout für hängengebliebene Anfragen
+        self.llm_interface.set_timeout(self.request_timeout)
+        
         self.init_ui()
         
     def init_ui(self):
@@ -107,6 +127,11 @@ class ChatbotApp(QMainWindow):
         self.image.setFixedSize(200, 200)
         settings_layout.addWidget(self.image)
         
+        # Settings button
+        settings_btn = QPushButton("Advanced Settings")
+        settings_btn.clicked.connect(self.show_settings_dialog)
+        settings_layout.addWidget(settings_btn)
+        
         # Clear Chat Button
         clear_chat_btn = QPushButton("Clear Chat History")
         clear_chat_btn.clicked.connect(self.clear_chat)
@@ -132,10 +157,21 @@ class ChatbotApp(QMainWindow):
         self.user_input.setMaximumHeight(120)
         chat_layout.addWidget(self.user_input)
         
+        # Send/Stop Button Container
+        button_layout = QHBoxLayout()
+        
         # Send Button
-        send_btn = QPushButton("Send Message")
-        send_btn.clicked.connect(self.send_message)
-        chat_layout.addWidget(send_btn)
+        self.send_btn = QPushButton("Send Message")
+        self.send_btn.clicked.connect(self.send_message)
+        button_layout.addWidget(self.send_btn)
+        
+        # Stop Button (initially disabled)
+        self.stop_btn = QPushButton("Stop Generation")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self.stop_generation)
+        button_layout.addWidget(self.stop_btn)
+        
+        chat_layout.addLayout(button_layout)
         
         splitter.addWidget(chat_widget)
         
@@ -143,7 +179,14 @@ class ChatbotApp(QMainWindow):
         splitter.setSizes([300, 700])
         
         self.update_models()
-        
+    
+    def show_settings_dialog(self):
+        dialog = SettingsDialog(self, self.request_timeout)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Update with new settings
+            self.request_timeout = dialog.get_timeout()
+            self.llm_interface.set_timeout(self.request_timeout)
+    
     def update_temperature_label(self):
         temperature = self.temp_slider.value() / 10
         self.temp_label.setText(f"{temperature:.1f}")
@@ -175,24 +218,108 @@ class ChatbotApp(QMainWindow):
     def clear_image(self):
         self.current_image = None
         self.image_label.setText("No image selected")
-        self.image.setPixmap(None)
+        self.image.clear()
         
     def clear_chat(self):
         self.chat_history = []
         self.chat_display.clear()
+    
+    def on_text_received(self, text):
+        """Wird aufgerufen, wenn ein neuer Textabschnitt empfangen wird"""
+        # Aktualisiere den gespeicherten Bot-Response
+        self.current_bot_response += text
         
+        # Aktualisiere den Chat-Eintrag
+        if hasattr(self, 'bot_response_index') and self.bot_response_index is not None:
+            # Aktualisiere den Text im Chat-Display
+            self.chat_display.item(self.bot_response_index).setText(f"Bot: {self.current_bot_response}")
+            self.chat_display.scrollToBottom()
+            
+            # Force the UI to update immediately
+            QApplication.processEvents()
+    
+    def on_generation_finished(self, message):
+        """Wird aufgerufen, wenn die Generierung abgeschlossen ist"""
+        print(f"Generation finished: {message}")  # Debug
+        self.generating = False
+        self.send_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        
+        # Füge die vollständige Antwort zur Chat-Historie hinzu
+        self.chat_history.append({"role": "assistant", "content": self.current_bot_response})
+        self.current_bot_response = ""  # Reset für nächste Antwort
+        
+        # Force UI update
+        QApplication.processEvents()
+    
+    def on_generation_error(self, error_message):
+        """Wird aufgerufen bei Generierungsfehlern"""
+        print(f"Generation error: {error_message}")  # Debug
+        self.generating = False
+        self.send_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        
+        # Füge die Fehlermeldung zum Chat hinzu
+        if hasattr(self, 'bot_response_index') and self.bot_response_index is not None:
+            error_text = f"Bot: Error: {error_message}"
+            self.chat_display.item(self.bot_response_index).setText(error_text)
+        
+        # Reset für nächste Antwort
+        self.current_bot_response = ""
+        
+        # Force UI update
+        QApplication.processEvents()
+    
+    def on_generation_cancelled(self):
+        """Wird aufgerufen, wenn die Generierung abgebrochen wurde"""
+        print("Generation cancelled")  # Debug
+        self.generating = False
+        self.send_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        
+        # Markiere die Antwort als abgebrochen
+        if hasattr(self, 'bot_response_index') and self.bot_response_index is not None:
+            cancelled_text = f"Bot: {self.current_bot_response} [CANCELLED]"
+            self.chat_display.item(self.bot_response_index).setText(cancelled_text)
+            
+            # Füge den abgebrochenen Teil zur Chat-Historie hinzu
+            self.chat_history.append({
+                "role": "assistant", 
+                "content": self.current_bot_response + " [CANCELLED]"
+            })
+        
+        # Reset für nächste Antwort
+        self.current_bot_response = ""
+        
+        # Force UI update
+        QApplication.processEvents()
+    
+    def stop_generation(self):
+        """Benutzer hat auf den Stop-Button geklickt"""
+        if self.generating:
+            print("User requested cancellation")  # Debug
+            self.llm_interface.cancel_generation(reason="user_requested")
+            # Die Callbacks (on_generation_cancelled etc.) kümmern sich um den Rest
+    
     def send_message(self):
+        """Sendet die Nachricht und startet die Generierung"""
+        # Wenn bereits eine Generierung läuft, ignorieren
+        if self.generating:
+            return
+            
         user_message = self.user_input.toPlainText()
         if not user_message.strip():
             return
-            
+        
+        print(f"Sending message: {user_message[:30]}...")  # Debug
+        
         # Add user message to chat
         self.chat_display.addItem(f"You: {user_message}")
         self.chat_history.append({"role": "user", "content": user_message})
         
-        # Add "Bot is typing..." message
-        typing_index = self.chat_display.count()
-        self.chat_display.addItem("Bot is typing...")
+        # Add bot response placeholder
+        self.bot_response_index = self.chat_display.count()
+        self.chat_display.addItem("Bot: ")
         
         # Prepare for response generation
         provider = self.provider_combo.currentText()
@@ -214,29 +341,27 @@ class ChatbotApp(QMainWindow):
         # Clear input field
         self.user_input.clear()
         
-        # Start generation in separate thread
-        self.thread = GenerateThread(
-            self.llm_interface, 
+        # UI-Status aktualisieren
+        self.generating = True
+        self.current_bot_response = ""  # Reset für neue Antwort
+        self.send_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        
+        # Force the UI to update before starting the generation
+        QApplication.processEvents()
+        
+        print(f"Starting generation with {provider}/{model}")  # Debug
+        
+        # Direkt die LLM-Interface-Klasse verwenden
+        self.llm_interface.generate_response(
             provider, 
             model, 
             prompt, 
-            temperature,
-            system_prompt,
-            self.current_image
+            temperature=temperature,
+            system=system_prompt,
+            image=self.current_image,
+            stream=True  # Immer Streaming verwenden
         )
-        self.thread.finished.connect(lambda response: self.update_chat(response, typing_index))
-        self.thread.start()
-        
-    def update_chat(self, response, typing_index):
-        # Remove "Bot is typing..." message
-        self.chat_display.takeItem(typing_index)
-        
-        # Add bot response to chat
-        self.chat_display.addItem(f"Bot: {response}")
-        self.chat_history.append({"role": "assistant", "content": response})
-        
-        # Scroll to the bottom of the chat
-        self.chat_display.scrollToBottom()
 
 def main():
     app = QApplication(sys.argv)

@@ -28,7 +28,7 @@ class BiblioExtractor:
         '0902', '0907', '0912', '0917', '0922', '0927'
     ]
     
-    def __init__(self, token: str = "", debug: bool = False):
+    def __init__(self, token: str = "PCXBE6tJgV5428", debug: bool = False):
         """
         Initialize the extractor with the given token.
         
@@ -75,7 +75,7 @@ class BiblioExtractor:
                 self.SEARCH_URL, 
                 headers=self.headers, 
                 data=search_envelope,
-                timeout=30
+                timeout=300
             )
             
             logger.debug(f"Search response status: {response.status_code}")
@@ -182,7 +182,7 @@ class BiblioExtractor:
                 self.DETAILS_URL, 
                 headers=self.headers, 
                 data=details_envelope,
-                timeout=30
+                timeout=300
             )
             
             logger.debug(f"Details response status: {response.status_code}")
@@ -505,8 +505,8 @@ def main():
                         help="Search type code (default: ku - anyword)")
     parser.add_argument("--max-items", "-m", type=int, default=100, 
                         help="Maximum number of items to process (default: 100)")
-    parser.add_argument("--token", default="", 
-                        help="API token (default: )")
+    parser.add_argument("--token", default="PCXBE6tJgV5428", 
+                        help="API token (default: PCXBE6tJgV5428)")
     parser.add_argument("--debug", "-d", action="store_true",
                         help="Enable detailed debug output")
     

@@ -1,4 +1,5 @@
 # remove soon
+## obsolete
 
 
 from PyQt6.QtNetwork import QNetworkRequest, QNetworkAccessManager
