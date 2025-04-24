@@ -30,7 +30,7 @@ class LLMInterface(QObject):
 
     def __init__(self, 
                  providers: List[str] = None,
-                 config_file: Path = Path.home() / '.llm_config.json',
+                 config_file: Path = Path.home() / '.alima_config.json',
                  api_keys: Dict[str, str] = None):
         """
         Initialize LLM interface with specified providers and API keys.

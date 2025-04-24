@@ -25,14 +25,12 @@ class CatalogSuggester(BaseSuggester):
     """
     
     # Base URLs for API requests
-    SEARCH_URL = "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.CatalogueSearcher.cls"
-    DETAILS_URL = "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.LibraryAPI.cls"
-    
+ 
     # MAB-Tags for subjects
     MAB_SUBJECT_TAGS = ['0902', '0907', '0912', '0917', '0922', '0927']
     
     def __init__(self, data_dir: Optional[Union[str, Path]] = None, 
-                 token: str = "", debug: bool = False):
+                 token: str = "", debug: bool = False, catalog_search_url: str = "", catalog_details: str = ""):
         """
         Initialize the catalog suggester.
         
@@ -50,7 +48,8 @@ class CatalogSuggester(BaseSuggester):
         }
         self.cache_filename = "catalog_cache.json"
         self.cache = self._load_cache()
-        
+        self.SEARCH_URL = catalog_search_url 
+        self.DETAILS_URL = catalog_details
         # Configure logging
         self.logger = logging.getLogger("catalog_suggester")
         if not self.logger.handlers:

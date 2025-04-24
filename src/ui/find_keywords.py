@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 import logging
 import re
 import sys
+import json
 from pathlib import Path
 
 # Importiere den Meta-Suggester, der alle anderen Suggester vereinheitlicht
@@ -29,7 +30,7 @@ class SearchTab(QWidget):
     keywords_exact = pyqtSignal(str)
 
     def __init__(self, search_engine, cache_manager, parent=None,
-                config_file: Path = Path.home() / '.llm_config.json'):
+                config_file: Path = Path.home() / '.alima_config.json'):
         super().__init__(parent)
         self.search_engine = search_engine
         self.cache_manager = cache_manager
@@ -41,9 +42,13 @@ class SearchTab(QWidget):
         self.gnd_ids = []  # Liste der gefundenen GND-IDs
         self.unkown_terms = []
         
+        self.catalog_token = ""
+        self.catalog_search_url = ""
+        self.catalog_details = ""
+
         # Lade den Katalog-Token aus der Konfigurationsdatei
         self.config_file = config_file
-        self.catalog_token = self._load_catalog_token()
+        self._load_catalog_token()
         
         self.init_ui()
 
@@ -176,7 +181,8 @@ class SearchTab(QWidget):
         self.catalog_button = QCheckBox("Katalog")
         self.catalog_button.setChecked(False)
         self.catalog_button.setToolTip("Suche im lokalen Katalog (falls verfügbar)")
-        options_layout.addWidget(self.catalog_button)
+        if self.catalog_token != "":
+            options_layout.addWidget(self.catalog_button)
         
         options_layout.addStretch(1)
         
@@ -419,7 +425,7 @@ class SearchTab(QWidget):
         # Verbinde Signals
         self.results_table.itemSelectionChanged.connect(self.show_details)
 
-    def _load_catalog_token(self) -> str:
+    def _load_catalog_token(self):
         """
         Lädt den Katalog-Token aus der Konfigurationsdatei.
         
@@ -439,20 +445,14 @@ class SearchTab(QWidget):
             # Versuche, den Katalog-Token aus verschiedenen möglichen Stellen zu laden
             # Option 1: Direkt im Hauptbereich
             if "catalog_token" in config:
-                return config["catalog_token"]
-                
-            # Option 2: Im catalog oder api Unterobjekt
-            if "catalog" in config and "token" in config["catalog"]:
-                return config["catalog"]["token"]
-                
-            # Option 3: In einer api_keys Sektion
-            if "api_keys" in config and "catalog" in config["api_keys"]:
-                return config["api_keys"]["catalog"]
+                self.catalog_token = config["catalog_token"]
             
-            # Wenn nicht gefunden, Warnung loggen und Fallback verwenden
-            self.logger.warning("Kein Katalog-Token in der Konfigurationsdatei gefunden.")
-            return default_token
-                
+            if "catalog_search_url" in config:
+                self.catalog_search_url = config["catalog_search_url"]
+            
+            if "catalog_details" in config:
+                self.catalog_details = config["catalog_details"]
+
         except Exception as e:
             self.logger.error(f"Fehler beim Laden des Katalog-Tokens: {str(e)}")
             return default_token
@@ -532,7 +532,9 @@ class SearchTab(QWidget):
                 suggester = MetaSuggester(
                     suggester_type=suggester_type,
                     debug=False,  # Debug-Modus für ausführliche Logs
-                    catalog_token=self.catalog_token  # Leer, da nicht benötigt oder später hinzufügen
+                    catalog_token=self.catalog_token,
+                    catalog_search_url=self.catalog_search_url,
+                    catalog_details=self.catalog_details
                 )
                 
                 # Verbinde Signal für Fortschrittsanzeige

@@ -34,15 +34,18 @@ class MetaSuggester(BaseSuggester):
     
     def __init__(self, suggester_type: SuggesterType = SuggesterType.ALL, 
                 data_dir: Optional[Union[str, Path]] = None,
-                catalog_token: str = "", debug: bool = False):
+                catalog_token: str = "", debug: bool = False, 
+                catalog_search_url: str = "", catalog_details: str = ""):
         """
         Initialize the meta suggester.
         
         Args:
-            suggester_type: Type of suggester to use (default: ALL)
-            data_dir: Directory to store data files
-            catalog_token: Token for catalog API access (only needed for CATALOG suggester)
+            suggester_type: Type of suggester to use (ALL, LOBID, SWB, CATALOG)
+            data_dir: Directory for data storage (optional)
+            catalog_token: API token for catalog access (optional)
             debug: Whether to enable debug output
+            catalog_search_url: URL for catalog search API (optional)
+            catalog_details: URL for catalog details API (optional)
         """
         super().__init__(data_dir, debug)
         
@@ -76,7 +79,9 @@ class MetaSuggester(BaseSuggester):
             self.suggesters[SuggesterType.CATALOG] = CatalogSuggester(
                 data_dir=(self.data_dir / "catalog") if data_dir else None,
                 token=catalog_token,
-                debug=debug
+                debug=debug,
+                catalog_search_url=catalog_search_url,
+                catalog_details=catalog_details
             )
         
         # Neu: Fallback-Suggester hinzufügen

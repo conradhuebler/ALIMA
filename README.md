@@ -57,7 +57,7 @@ pip install -r requirements.txt
 ```
 ### Konfigurationsdatei erstellen:
 
-Erstelle eine Datei ~/.llm_config.json mit folgendem Inhalt:
+Erstelle eine Datei ~/.alima_config.json mit folgendem Inhalt:
 ```json
 {
     "providers": ["openai", "chatai", "gemini", "anthropic"],
@@ -66,14 +66,13 @@ Erstelle eine Datei ~/.llm_config.json mit folgendem Inhalt:
         "chatai": "YOUR_CHATAI_API_KEY",
         "gemini": "YOUR_GEMINI_API_KEY",
         "anthropic": "YOUR_ANTHROPIC_API_KEY",
-        "catalog": "YOUR_CATALOG_API_TOKEN"
-    },
-    "settings": {
-        "temperature": 0.7,
-        "streaming": true
+        "catalog_token": "YOUR_CATALOG_API_TOKEN",
+        "catalog_search_url": "https://liberoserver/libero/LiberoWebServices.CatalogueSearcher.cls",
+        "catalog_details" : "https://liberoserver/libero/LiberoWebServices.LibraryAPI.cls"
     }
 }
 ```
+Für die Katalogsuche wird libero verwendet, zum Beispiel als liberoserver: ***libero.unibib.tu-edoras.rohan:443***
 ### Anwendung starten:
 ```bash
 python main.py
@@ -110,7 +109,12 @@ python main.py
     - Klicke auf den "Abbrechen"-Button während einer laufenden KI-Anfrage
     - Die Anwendung wird die Anfrage sofort beenden und den bereits generierten Text anzeigen
 
+## Hinweise und Probleme
 
+    - Gemini-Modelle müssen mit einem Seed von 0 gestartet werden
+    - Praktisch getestet wurden Gemini, Ollama und Chatai (GWDG) als LLM-Server
+    - Diverse Konfigurationen und Dialoge sind noch nicht eingebaut
+    - Das kleinste Modell, das auch im letzten Schritt gute Ergebnisse erzielt, ist Gemma 3 27B
 
 # Lizenz
 Muss noch entscheiden werden
