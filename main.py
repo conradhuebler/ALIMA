@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import sys
-from PyQt6.QtWidgets import QApplication
+import os
+from PyQt6.QtWidgets import QApplication, QSplashScreen
+from PyQt6.QtGui import QPixmap
 from src.ui.main_window import MainWindow
 import logging
 from src.core.ai_processor import AIProcessor  # Korrigierter Import
@@ -20,14 +22,30 @@ def setup_logging():
 def main():
     setup_logging()
     app = QApplication(sys.argv)
+    app.setOrganizationName("TU Bergakademie Freiberg")
+    app.setApplicationName("AlIma")
+    app.setApplicationVersion("0.1")
+    app.setStyle("Fusion")
 
-    # Debug: Zeige verfügbare Templates
-    #ai_processor = AIProcessor()
-    #templates = ai_processor.get_available_templates()
-    #logging.debug(f"Verfügbare Templates: {templates}")
+    # Use direct file path instead of resource path
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    pixmap = QPixmap(os.path.join(current_dir, "alima.png"))
+
+    # Check if the image was loaded successfully
+    if pixmap.isNull():
+        logging.error("Failed to load splash screen image")
+    else:
+        splash = QSplashScreen(pixmap)
+        splash.show()
+        app.processEvents()
 
     window = MainWindow()
     window.show()
+
+    # Hide splash screen after main window is shown
+    if 'splash' in locals():
+        splash.finish(window)
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":
