@@ -43,8 +43,8 @@ Flexibles KI-System
 
 Repository klonen:
 ```bash
-git clone https://github.com/username/ai-research-assistant.git
-cd ai-research-assistant
+git clone https://github.com/conradhuebler/ALIMA.git
+cd ALIMA
 ```
 ### Virtuelle Umgebung erstellen und aktivieren:
 ```bash
@@ -72,7 +72,11 @@ Erstelle eine Datei ~/.alima_config.json mit folgendem Inhalt:
     }
 }
 ```
-Für die Katalogsuche wird libero verwendet, zum Beispiel als liberoserver: ***libero.unibib.tu-edoras.rohan:443***
+Für die Katalogsuche wird libero verwendet, zum Beispiel als liberoserver: ***libero.unibib.tu-edoras.rohan:443***. Die ollama-URL ist aktuell ***http://localhost:11434***, kann aber unter 
+```bash
+src/llm/llm_interface.py
+```
+angepasst werden.
 ### Anwendung starten:
 ```bash
 python main.py
