@@ -1,11 +1,11 @@
-# AlIma
+# ALIMA
 
-Ein leistungsstarkes Werkzeug für Forscher und Bibliothekare zur automatisierten Schlagwortgenerierung, Textanalyse und Metadatenextraktion mit KI-Unterstützung.
+Ein leistungsstarkes Werkzeug zur automatisierten Schlagwortgenerierung und Klassifikation mit KI-Unterstützung entwickelt an der Universitätsbibliothek "Georgius Agricola" der TU Bergakademie Freiberg.
 
 ## Überblick
 
-Der AlIma ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Technologien mit bibliothekarischen Informationssystemen verbindet. Die Anwendung unterstützt Forscher und Bibliothekare bei der effizienten Analyse von wissenschaftlichen Texten, der Generierung von präzisen GND konformen Schlagwörtern.
-AlIma wurde mit Hilfe von Claude Sonnet (3.5 und 3.7) entwickelt.
+Der ALIMA ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Technologien mit bibliothekarischen Informationssystemen verbindet. Die Anwendung unterstützt bei der Generierung von präzisen GND konformen Schlagwörtern.
+ALIMA wurde mit Hilfe von Claude Sonnet (3.5 und 3.7) entwickelt.
 
 ## Funktionen
 Textanalyse
@@ -121,10 +121,13 @@ python main.py
     - Das kleinste Modell, das auch im letzten Schritt gute Ergebnisse erzielt, ist Gemma 3 27B
 
 # Lizenz
-Muss noch entscheiden werden
+LGPL v3
 
 # Mitwirkende
 Conrad Hübler
+
+# Danksagung
+Besten Dank an das Fachreferats- und IT-Team der Universitätsbibliothek. Besonderer Dank an Patrick Reichel für die effiziente Lobid-Abfrage.
 
 # Kontakt
 Conrad Hübler
