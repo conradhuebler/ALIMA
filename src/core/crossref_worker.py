@@ -4,6 +4,7 @@ import json
 import requests
 from PyQt6.QtCore import pyqtSignal, QThread
 
+
 class CrossrefWorker(QThread):
     # Signale zur Kommunikation mit dem GUI
     result_ready = pyqtSignal(dict)
@@ -19,12 +20,16 @@ class CrossrefWorker(QThread):
         try:
             response = requests.get(url, timeout=10)
             if response.status_code != 200:
-                self.error_occurred.emit(f"API-Anfrage fehlgeschlagen: Statuscode {response.status_code}")
+                self.error_occurred.emit(
+                    f"API-Anfrage fehlgeschlagen: Statuscode {response.status_code}"
+                )
                 return
 
             data = response.json()
             if data.get("status") != "ok":
-                self.error_occurred.emit(f"API-Anfrage nicht erfolgreich: {data.get('status')}")
+                self.error_occurred.emit(
+                    f"API-Anfrage nicht erfolgreich: {data.get('status')}"
+                )
                 return
 
             message = data.get("message", {})
@@ -32,10 +37,14 @@ class CrossrefWorker(QThread):
             result = {
                 "Title": " | ".join(message.get("title", [])),
                 "DOI": message.get("DOI", "Nicht verfügbar"),
-                "Abstract": self._clean_jats(message.get("abstract", "Kein Abstract verfügbar")),
+                "Abstract": self._clean_jats(
+                    message.get("abstract", "Kein Abstract verfügbar")
+                ),
                 "Authors": self._format_authors(message.get("author", [])),
                 "Publisher": message.get("publisher", "Nicht verfügbar"),
-                "Published": self._format_date(message.get("published-print", message.get("published-online", {}))),
+                "Published": self._format_date(
+                    message.get("published-print", message.get("published-online", {}))
+                ),
                 "Container-Title": " | ".join(message.get("container-title", [])),
                 "URL": message.get("URL", "Nicht verfügbar"),
             }
@@ -73,6 +82,7 @@ class CrossrefWorker(QThread):
     def _clean_jats(self, abstract: str) -> str:
         """Entfernt JATS-Tags aus dem Abstract."""
         import re
+
         if not abstract:
             return "Kein Abstract verfügbar"
         # Entferne einfache Tags

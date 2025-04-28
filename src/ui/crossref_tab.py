@@ -1,14 +1,20 @@
 # crossref_tab.py
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton,
-    QTextEdit, QMessageBox
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 import logging
 
 from ..core.crossref_worker import CrossrefWorker
+
 
 class CrossrefTab(QWidget):
     result_abstract = pyqtSignal(str)
@@ -25,7 +31,9 @@ class CrossrefTab(QWidget):
         # Eingabefeld und Button
         input_layout = QHBoxLayout()
         self.doi_input = QLineEdit()
-        self.doi_input.setPlaceholderText("Gib die DOI ein, z.B. 10.1007/s42452-023-05466-w")
+        self.doi_input.setPlaceholderText(
+            "Gib die DOI ein, z.B. 10.1007/s42452-023-05466-w"
+        )
         self.fetch_button = QPushButton("Abfrage starten")
         self.fetch_button.clicked.connect(self.perform_search)
         input_layout.addWidget(QLabel("DOI:"))
@@ -35,7 +43,9 @@ class CrossrefTab(QWidget):
         # Ergebnisanzeige
         self.result_display = QTextEdit()
         self.result_display.setReadOnly(True)
-        self.result_display.setPlaceholderText("Hier werden die Ergebnisse angezeigt...")
+        self.result_display.setPlaceholderText(
+            "Hier werden die Ergebnisse angezeigt..."
+        )
 
         layout.addLayout(input_layout)
         layout.addWidget(self.result_display)
@@ -46,7 +56,9 @@ class CrossrefTab(QWidget):
         """Startet die API-Abfrage."""
         doi = self.doi_input.text().strip()
         if not doi:
-            QMessageBox.warning(self, "Eingabefehler", "Bitte gib eine gültige DOI ein.")
+            QMessageBox.warning(
+                self, "Eingabefehler", "Bitte gib eine gültige DOI ein."
+            )
             return
 
         # Starte den Worker
@@ -74,7 +86,7 @@ class CrossrefTab(QWidget):
             f"<b>URL:</b> <a href='{results.get('URL')}'>{results.get('URL')}</a>"
         )
         self.result_display.setHtml(formatted_result)
-        self.result_abstract.emit(results.get('Abstract'))
+        self.result_abstract.emit(results.get("Abstract"))
 
     def handle_error(self, error_message: str):
         """Behandelt Fehler während der API-Abfrage."""

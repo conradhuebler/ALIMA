@@ -13,6 +13,7 @@ from pprint import pprint
 
 from .base_suggester import BaseSuggester, BaseSuggesterError
 
+
 def ex_to_str(ex):
     """Converts an exception to a human readable string containing relevant informations."""
     # get type and message of risen exception
@@ -29,34 +30,39 @@ def ex_to_str(ex):
     nice_ex = f"{ex_type} ({ex_args}) raised executing '{ex_cmd}' in {ex_file}, line {ex_line}"
     return nice_ex
 
+
 class LobidSuggesterError(BaseSuggesterError):
     """Exception raised for errors in the LobidSuggester."""
+
     pass
+
 
 class LobidSuggester(BaseSuggester):
     """
     Subject suggester that uses the lobid.org API to find relevant keywords.
     Downloads and uses a GND (Gemeinsame Normdatei) dump for subject data.
     """
-    
+
     # URL for the GND subjects file
     GND_URL = "https://data.dnb.de/opendata/authorities-gnd-sachbegriff_lds.jsonld.gz"
-    
-    def __init__(self, data_dir: Optional[Union[str, Path]] = None, debug: bool = False):
+
+    def __init__(
+        self, data_dir: Optional[Union[str, Path]] = None, debug: bool = False
+    ):
         """
         Initialize the LobidSuggester.
-        
+
         Args:
             data_dir: Directory to store GND data files (default: script_dir/data/lobidsuggestor)
             debug: Whether to enable debug output
         """
         super().__init__(data_dir, debug)
-        
+
         # File paths for the GND data
         self.subjects_file_gz = self.data_dir / self.GND_URL.split("/")[-1]
         self.subjects_file_json = self.data_dir / "subjects.json"
         self.gnd_subjects = None
-        
+
         # Prepare the suggester
         self.prepare(False)
 
@@ -66,7 +72,7 @@ class LobidSuggester(BaseSuggester):
 
         if self.debug:
             print(f"Downloading {self.subjects_file_gz}")
-            
+
         try:
             urllib.request.urlretrieve(self.GND_URL, self.subjects_file_gz)
         except Exception as ex:
@@ -74,7 +80,7 @@ class LobidSuggester(BaseSuggester):
 
         if self.debug:
             print(f"Extracting subjects from {self.subjects_file_gz}")
-            
+
         try:
             with open(self.subjects_file_gz, "rb") as fh:
                 data = json.loads(gzip.decompress(fh.read()).decode("utf-8"))
@@ -98,7 +104,7 @@ class LobidSuggester(BaseSuggester):
 
         if self.debug:
             print(f"Writing subjects to {self.subjects_file_json}")
-            
+
         try:
             with open(self.subjects_file_json, "w", encoding="utf-8") as fh:
                 json.dump(gnd_subjects, fh)
@@ -118,10 +124,10 @@ class LobidSuggester(BaseSuggester):
     def _get_search_url(self, query: str) -> str:
         """
         Get the URL for the lobid.org API search.
-        
+
         Args:
             query: URL-encoded search term
-            
+
         Returns:
             Complete search URL
         """
@@ -130,10 +136,10 @@ class LobidSuggester(BaseSuggester):
     def _get_results(self, searches: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Get search results from lobid.org.
-        
+
         Args:
             searches: List of search terms
-            
+
         Returns:
             Dictionary with structure:
             {
@@ -146,11 +152,11 @@ class LobidSuggester(BaseSuggester):
             }
         """
         result_subjects = dict()
-        
+
         for search in searches:
             query = urllib.parse.quote(search)
             url = self._get_search_url(query)
-            
+
             try:
                 with urllib.request.urlopen(url) as response:
                     result = json.load(response)
@@ -158,23 +164,27 @@ class LobidSuggester(BaseSuggester):
                 if self.debug:
                     print(f"Error searching for '{search}': {ex}")
                 continue
-                
+
             result_subjects[search] = dict()
-            
-            for entry in result.get("aggregation", {}).get("subject.componentList.id", []):
+
+            for entry in result.get("aggregation", {}).get(
+                "subject.componentList.id", []
+            ):
                 key = entry["key"].split("/")[-1]
                 try:
                     subject = self.gnd_subjects[key]
                 except KeyError:
                     if self.debug:
-                        print(f"No subject found for GND ID '{key}', will use '{entry['key']}'")
+                        print(
+                            f"No subject found for GND ID '{key}', will use '{entry['key']}'"
+                        )
                     subject = entry["key"].removeprefix("https://d-nb.info/gnd/")
                 except Exception as ex:
                     raise LobidSuggesterError(ex_to_str(ex))
-                    
+
                 count = entry["doc_count"]
                 gnd_id = entry["key"].removeprefix("https://d-nb.info/gnd/")
-                
+
                 # Add to results, creating a new entry or updating an existing one
                 if subject in result_subjects[search]:
                     result_subjects[search][subject]["gndid"].add(gnd_id)
@@ -186,9 +196,9 @@ class LobidSuggester(BaseSuggester):
                         "count": count,
                         "gndid": {gnd_id},
                         "ddc": set(),
-                        "dk": set()
+                        "dk": set(),
                     }
-            
+
             # Signal that we've processed this term
             self.currentTerm.emit(search)
 
@@ -197,7 +207,7 @@ class LobidSuggester(BaseSuggester):
     def prepare(self, force_gnd_download: bool = False) -> None:
         """
         Prepare the suggester by downloading and loading GND data.
-        
+
         Args:
             force_gnd_download: Whether to force download of GND data even if already available
         """
@@ -207,16 +217,16 @@ class LobidSuggester(BaseSuggester):
             or not self.subjects_file_json.exists()
         ):
             self._create_subjects_file_from_gnd()
-            
+
         self.gnd_subjects = self._get_gnd_subjects()
 
     def search(self, searches: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Search for subjects related to the given search terms.
-        
+
         Args:
             searches: List of search terms
-            
+
         Returns:
             Dictionary with structure:
             {

@@ -2,17 +2,29 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from PyQt6.QtWidgets import (
-    QTreeWidget, QTreeWidgetItem, QSplitter,
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QTextEdit, QPushButton, QProgressBar, QMessageBox,
-    QSlider, QTabWidget
+    QTreeWidget,
+    QTreeWidgetItem,
+    QSplitter,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTextEdit,
+    QPushButton,
+    QProgressBar,
+    QMessageBox,
+    QSlider,
+    QTabWidget,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 import logging
 from .abstract_tab import AbstractTab
 from ..core.katalog_subject import SubjectExtractor
+
+
 class AdditionalTitlesWorker(QThread):
     """Worker für das Laden zusätzlicher Titel"""
+
     titles_ready = pyqtSignal(list)
     error_occurred = pyqtSignal(str)
 
@@ -27,43 +39,48 @@ class AdditionalTitlesWorker(QThread):
     def run(self):
         try:
             # Entferne den Typ (DK/Q) vom Klassifikationscode
-            search_term = self.classification.split(' ', 1)[1]
+            search_term = self.classification.split(" ", 1)[1]
             url = "https://katalog.ub.tu-freiberg.de/Search/Results"
             params = {
-                'lookfor': self.classification,
-                'type': 'udk_raw_de105',
-                'limit': self.num_results
+                "lookfor": self.classification,
+                "type": "udk_raw_de105",
+                "limit": self.num_results,
             }
             response = requests.get(url, params=params)
             self.logger.info(f"Generated URL: {response.url}")
             if response.status_code != 200:
                 raise Exception(f"HTTP Error {response.status_code}")
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(response.text, "html.parser")
             titles = []
-            
-            for title_link in soup.find_all('a', class_='title getFull'):
-                record_id = title_link.get('id', '').split('|')[-1]
+
+            for title_link in soup.find_all("a", class_="title getFull"):
+                record_id = title_link.get("id", "").split("|")[-1]
                 title_text = title_link.text.strip()
-                year_span = title_link.find('span', class_='year')
-                year = year_span.text.strip('()') if year_span else ''
-                
+                year_span = title_link.find("span", class_="year")
+                year = year_span.text.strip("()") if year_span else ""
+
                 if record_id and title_text:
-                    titles.append({
-                        'id': record_id,
-                        'title': title_text,
-                        'year': year,
-                        'url': f"https://katalog.ub.tu-freiberg.de/Record/{record_id}"
-                    })
-            
+                    titles.append(
+                        {
+                            "id": record_id,
+                            "title": title_text,
+                            "year": year,
+                            "url": f"https://katalog.ub.tu-freiberg.de/Record/{record_id}",
+                        }
+                    )
+
             self.titles_ready.emit(titles)
-            
+
         except Exception as e:
-            self.logger.error(f"Fehler beim Laden zusätzlicher Titel: {str(e)}", exc_info=True)
+            self.logger.error(
+                f"Fehler beim Laden zusätzlicher Titel: {str(e)}", exc_info=True
+            )
             self.error_occurred.emit(str(e))
 
 
 class UBSearchWorker(QThread):
     """Worker-Thread für die UB-Suche"""
+
     progress_updated = pyqtSignal(int, int)  # current, total
     result_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
@@ -84,14 +101,14 @@ class UBSearchWorker(QThread):
         try:
             results = {}
             total = len(self.keywords)
-            
+
             for i, keyword in enumerate(self.keywords, 1):
                 self.status_updated.emit(f"Verarbeite Schlagwort: {keyword}")
                 results[keyword] = self.process_keyword(keyword)
                 self.progress_updated.emit(i, total)
-            
+
             self.result_ready.emit(results)
-            
+
         except Exception as e:
             self.logger.error(f"Fehler im Worker-Thread: {str(e)}", exc_info=True)
             self.error_occurred.emit(f"Fehler bei der Suche: {str(e)}")
@@ -99,13 +116,13 @@ class UBSearchWorker(QThread):
     def extract_record_ids(self, soup):
         """Extrahiert Record-IDs aus der Suchergebnisseite"""
         record_ids = set()
-        save_links = soup.find_all('a', class_='save-record')
-        
+        save_links = soup.find_all("a", class_="save-record")
+
         for link in save_links:
-            record_id = link.get('data-id')
+            record_id = link.get("data-id")
             if record_id:
                 record_ids.add(record_id)
-                
+
         return list(record_ids)
 
     def get_classification_numbers(self, record_id):
@@ -115,77 +132,92 @@ class UBSearchWorker(QThread):
             if response.status_code != 200:
                 return None
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(response.text, "html.parser")
             numbers = []
-            
+
             # Hole den Titel
             title = "Kein Titel verfügbar"
-            title_element = soup.find('h1', attrs={'property': 'name'})
+            title_element = soup.find("h1", attrs={"property": "name"})
             if title_element:
                 title = title_element.text.strip()
-                
+
             # Suche nach DK-Nummern
-            dk_links = soup.find_all('a', href=re.compile(r'lookfor=DK.*?&type=udk_raw_de105'))
+            dk_links = soup.find_all(
+                "a", href=re.compile(r"lookfor=DK.*?&type=udk_raw_de105")
+            )
             for dk_link in dk_links:
-                dk_match = re.search(r'DK\s+([\d\.:]+)', dk_link.text)
+                dk_match = re.search(r"DK\s+([\d\.:]+)", dk_link.text)
                 if dk_match:
-                    numbers.append(('DK', dk_match.group(1), title))
+                    numbers.append(("DK", dk_match.group(1), title))
 
             # Suche nach Q-Nummern
-            q_links = soup.find_all('a', href=re.compile(r'lookfor=Q[A-Z]?\s*\d+.*?&type=udk_raw_de105'))
+            q_links = soup.find_all(
+                "a", href=re.compile(r"lookfor=Q[A-Z]?\s*\d+.*?&type=udk_raw_de105")
+            )
             for q_link in q_links:
-                q_match = re.search(r'Q[A-Z]?\s*[\d\s]+', q_link.text)
+                q_match = re.search(r"Q[A-Z]?\s*[\d\s]+", q_link.text)
                 if q_match:
-                    numbers.append(('Q', q_match.group().strip(), title))
+                    numbers.append(("Q", q_match.group().strip(), title))
 
             return numbers if numbers else None
 
         except Exception as e:
-            self.logger.error(f"Fehler beim Abrufen der Nummern für {record_id}: {str(e)}", exc_info=True)
+            self.logger.error(
+                f"Fehler beim Abrufen der Nummern für {record_id}: {str(e)}",
+                exc_info=True,
+            )
             return None
 
     def process_keyword(self, keyword):
         """Verarbeitet ein einzelnes Schlagwort"""
         try:
             params = {
-                'hiddenFilters[]': [
+                "hiddenFilters[]": [
                     'institution:"DE-105"',
                     '-format:"Article"',
-                    '-format:"ElectronicArticle"'
+                    '-format:"ElectronicArticle"',
                 ],
-                'join': 'AND',
-                'bool0[]': 'AND',
-                'lookfor0[]': keyword,
-                'type0[]': 'AllFields',
-                'filter[]': 'facet_avail:"Local"',
-                'limit': self.num_results
+                "join": "AND",
+                "bool0[]": "AND",
+                "lookfor0[]": keyword,
+                "type0[]": "AllFields",
+                "filter[]": 'facet_avail:"Local"',
+                "limit": self.num_results,
             }
 
             self.logger.debug(f"Suche nach Schlagwort: {keyword}")
             response = requests.get(self.base_search_url, params=params)
             if response.status_code != 200:
-                self.logger.warning(f"HTTP {response.status_code} für Schlagwort {keyword}")
+                self.logger.warning(
+                    f"HTTP {response.status_code} für Schlagwort {keyword}"
+                )
                 return []
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(response.text, "html.parser")
             record_ids = self.extract_record_ids(soup)
-            
+
             results = []
             for record_id in record_ids:
                 numbers = self.get_classification_numbers(record_id)
                 if numbers:
                     for number_type, number, title in numbers:
                         results.append((number_type, number, record_id, title))
-                
+
             return results
 
         except Exception as e:
-            self.logger.error(f"Fehler bei Schlagwort {keyword}: {str(e)}", exc_info=True)
-            self.error_occurred.emit(f"Fehler bei der Verarbeitung von '{keyword}': {str(e)}")
+            self.logger.error(
+                f"Fehler bei Schlagwort {keyword}: {str(e)}", exc_info=True
+            )
+            self.error_occurred.emit(
+                f"Fehler bei der Verarbeitung von '{keyword}': {str(e)}"
+            )
             return []
+
 
 class UBSearchTab(QWidget):
     """Tab für die UB-Suche"""
+
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger(__name__)
@@ -236,14 +268,14 @@ class UBSearchTab(QWidget):
 
         # Splitter für geteilte Ansicht
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        
+
         # TreeView für die Klassifikationen
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels(["Klassifikation", "Anzahl"])
         self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
         self.tree_widget.setSortingEnabled(True)  # Sortierung aktivieren
         splitter.addWidget(self.tree_widget)
-        
+
         # Detailansicht
         self.detail_view = QTextEdit()
         self.detail_view.setReadOnly(True)
@@ -274,7 +306,7 @@ class UBSearchTab(QWidget):
         self.mainsplitter.addWidget(splitter)
         layout.addWidget(self.mainsplitter)
         self.setLayout(layout)
-        
+
     def set_abstract(self, abstract):
         """Setzt den Abstract für die AI-Verarbeitung"""
         self.abstract = abstract
@@ -292,10 +324,12 @@ class UBSearchTab(QWidget):
         """Startet die Suche"""
         keywords_text = self.keywords_input.toPlainText().strip()
         if not keywords_text:
-            QMessageBox.warning(self, "Eingabefehler", "Bitte geben Sie mindestens ein Schlagwort ein.")
+            QMessageBox.warning(
+                self, "Eingabefehler", "Bitte geben Sie mindestens ein Schlagwort ein."
+            )
             return
 
-        keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
+        keywords = [k.strip() for k in keywords_text.split(",") if k.strip()]
         unique_keywords = list(dict.fromkeys(keywords))
 
         self.search_button.setEnabled(False)
@@ -328,14 +362,14 @@ class UBSearchTab(QWidget):
         """Zeigt die Ergebnisse gruppiert nach DK/Q-Nummern an"""
         self.detail_view.clear()
         html_results = ["<h3>Suchergebnisse:</h3>"]
-        
+
         # Sammle Statistiken für Keywords
         keyword_stats = {}
         classification_counts = {}  # Zählt Häufigkeit pro Klassifikation pro Keyword
         for keyword, entries in results.items():
             if not entries:
                 continue
-            
+
             # Sammle Klassifikationen und zähle ihre Häufigkeit
             classifications = {}  # Dict für Klassifikation -> Anzahl
             for entry in entries:
@@ -343,7 +377,7 @@ class UBSearchTab(QWidget):
                     number_type, number, _, _ = entry
                     class_key = f"{number_type} {number}"
                     classifications[class_key] = classifications.get(class_key, 0) + 1
-            
+
             if classifications:
                 keyword_stats[keyword] = classifications
                 classification_counts[keyword] = len(entries)  # Gesamtzahl der Einträge
@@ -352,24 +386,32 @@ class UBSearchTab(QWidget):
         if keyword_stats:
             html_results.append("<h4>Gefundene Klassifikationen pro Schlagwort:</h4>")
             # Sortiere Keywords nach Anzahl der gefundenen Klassifikationen (absteigend)
-            sorted_keywords = sorted(keyword_stats.items(), 
-                                key=lambda x: len(x[1]), 
-                                reverse=True)
-            
+            sorted_keywords = sorted(
+                keyword_stats.items(), key=lambda x: len(x[1]), reverse=True
+            )
+
             html_results.append("<ul>")
             for keyword, classifications in sorted_keywords:
                 # Sortiere Klassifikationen nach Häufigkeit (absteigend)
                 sorted_classifications = sorted(
                     classifications.items(),
-                    key=lambda x: (-x[1],  # Primär nach Häufigkeit (absteigend)
-                                x[0].split()[0],  # Sekundär nach Typ (DK/Q)
-                                [float(n) if n.replace('.','').isdigit() else n  # Tertiär nach Nummer
-                                for n in re.split(r'([^0-9]+)', x[0].split()[1])])
+                    key=lambda x: (
+                        -x[1],  # Primär nach Häufigkeit (absteigend)
+                        x[0].split()[0],  # Sekundär nach Typ (DK/Q)
+                        [
+                            (
+                                float(n) if n.replace(".", "").isdigit() else n
+                            )  # Tertiär nach Nummer
+                            for n in re.split(r"([^0-9]+)", x[0].split()[1])
+                        ],
+                    ),
                 )
-                
-                class_strings = [f"{class_key} ({count})" 
-                            for class_key, count in sorted_classifications]
-                
+
+                class_strings = [
+                    f"{class_key} ({count})"
+                    for class_key, count in sorted_classifications
+                ]
+
                 html_results.append(
                     f"<li><b>{keyword}</b> ({len(classifications)} Klassifikationen, "
                     f"{classification_counts[keyword]} Treffer): "
@@ -382,11 +424,11 @@ class UBSearchTab(QWidget):
         for keyword, entries in results.items():
             if not entries:
                 continue
-                
+
             for entry in entries:
                 if not entry:
                     continue
-                    
+
                 number_type, number, record_id, title = entry
                 key = f"{number_type} {number}"
                 if key not in number_mapping:
@@ -394,10 +436,16 @@ class UBSearchTab(QWidget):
                 record_url = f"https://katalog.ub.tu-freiberg.de/Record/{record_id}"
                 number_mapping[key].append((keyword, record_id, record_url, title))
 
-        sorted_numbers = sorted(number_mapping.keys(), 
-                            key=lambda x: (x.split()[0],
-                                        [float(n) if n.replace('.','').isdigit() else n 
-                                            for n in re.split(r'([^0-9]+)', x.split()[1])]))
+        sorted_numbers = sorted(
+            number_mapping.keys(),
+            key=lambda x: (
+                x.split()[0],
+                [
+                    float(n) if n.replace(".", "").isdigit() else n
+                    for n in re.split(r"([^0-9]+)", x.split()[1])
+                ],
+            ),
+        )
 
         if not sorted_numbers:
             html_results.append("<p>Keine Ergebnisse gefunden.</p>")
@@ -408,20 +456,22 @@ class UBSearchTab(QWidget):
                 total_titles = len(set(record_id for _, record_id, _, _ in entries))
                 html_results.append(f"<p><b>{number}</b> ({total_titles} Titel)</p>")
                 html_results.append("<ul>")
-                
+
                 keyword_groups = {}
                 for keyword, record_id, record_url, title in entries:
                     if keyword not in keyword_groups:
                         keyword_groups[keyword] = []
                     keyword_groups[keyword].append((record_id, record_url, title))
-                
+
                 for keyword, records in sorted(keyword_groups.items()):
                     html_results.append(f"<li>{keyword}:")
                     links = []
                     for record_id, record_url, title in records:
-                        links.append(f'<a href="{record_url}" title="{title}">{record_id}</a> ({title})')
+                        links.append(
+                            f'<a href="{record_url}" title="{title}">{record_id}</a> ({title})'
+                        )
                     html_results.append(f" {', '.join(links)}</li>")
-                    
+
                 html_results.append("</ul>")
 
         self.results_view.setHtml("".join(html_results))
@@ -444,17 +494,17 @@ class UBSearchTab(QWidget):
     def update_tree_view(self, results):
         """Aktualisiert die TreeView mit den Suchergebnissen"""
         self.tree_widget.clear()
-        
+
         # Sammle und gruppiere die Ergebnisse
         number_mapping = {}
         for keyword, entries in results.items():
             if not entries:
                 continue
-                
+
             for entry in entries:
                 if not entry:
                     continue
-                    
+
                 number_type, number, record_id, title = entry
                 key = f"{number_type} {number}"
                 if key not in number_mapping:
@@ -462,13 +512,21 @@ class UBSearchTab(QWidget):
                 number_mapping[key].add((record_id, title))
 
         # Erstelle TreeView-Einträge
-        for key in sorted(number_mapping.keys(),
-                         key=lambda x: (x.split()[0],
-                                      [float(n) if n.replace('.','').isdigit() else n 
-                                       for n in re.split(r'([^0-9]+)', x.split()[1])])):
+        for key in sorted(
+            number_mapping.keys(),
+            key=lambda x: (
+                x.split()[0],
+                [
+                    float(n) if n.replace(".", "").isdigit() else n
+                    for n in re.split(r"([^0-9]+)", x.split()[1])
+                ],
+            ),
+        ):
             count = len(number_mapping[key])
             item = QTreeWidgetItem([key, str(count)])
-            item.setData(0, Qt.ItemDataRole.UserRole, key)  # Speichere den key für später
+            item.setData(
+                0, Qt.ItemDataRole.UserRole, key
+            )  # Speichere den key für später
             self.tree_widget.addTopLevelItem(item)
 
     def on_tree_item_clicked(self, item, column):
@@ -481,7 +539,7 @@ class UBSearchTab(QWidget):
         """Holt weitere Titel für die gewählte Klassifikation"""
         self.detail_view.clear()
         self.detail_view.append(f"Lade weitere Titel für {classification}...")
-        
+
         # Starte einen neuen Worker für die Suche
         self.additional_worker = AdditionalTitlesWorker(classification)
         self.additional_worker.titles_ready.connect(self.display_additional_titles)
@@ -505,6 +563,6 @@ class UBSearchTab(QWidget):
             )
             abstract.append(title["title"])
         html.append("</ul>")
-        
+
         self.detail_view.setHtml("".join(html))
         self.ai_search.set_abstract(" ".join(abstract))

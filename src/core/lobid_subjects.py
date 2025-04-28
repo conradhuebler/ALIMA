@@ -61,6 +61,7 @@ class SubjectSuggester(QObject):
     data_dir = None
     gnd_subjects = None
     currentTerm = pyqtSignal(str)
+
     ############################################################################
     def __init__(self, data_dir: str | Path = "") -> None:
         super().__init__()
@@ -203,7 +204,9 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Usage {sys.argv[0]} SEARCH_PHRASES, e.g.")
         print(f"    {sys.argv[0]} Differentialgleichung")
-        print(f'    {sys.argv[0]} "Orbitmethode, Lie-Gruppe, glatte Mannigfaltigkeiten"')
+        print(
+            f'    {sys.argv[0]} "Orbitmethode, Lie-Gruppe, glatte Mannigfaltigkeiten"'
+        )
         print()
         sys.exit(1)
 

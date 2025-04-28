@@ -48,7 +48,7 @@ cd ALIMA
 ```
 ### Virtuelle Umgebung erstellen und aktivieren:
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # Unter Windows: venv\Scripts\activate
 ```
 ### Abhängigkeiten installieren:
@@ -79,7 +79,7 @@ src/llm/llm_interface.py
 angepasst werden.
 ### Anwendung starten:
 ```bash
-python main.py
+python3 main.py
 ```
 
 ## Verwendung

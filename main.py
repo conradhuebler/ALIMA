@@ -8,16 +8,18 @@ from src.ui.main_window import MainWindow
 import logging
 from src.core.ai_processor import AIProcessor  # Korrigierter Import
 
+
 def setup_logging():
     """Konfiguriert das Logging für die Anwendung"""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),  # Ausgabe in die Konsole
-            logging.FileHandler('gnd_fetcher.log')  # Ausgabe in eine Datei
-        ]
+            logging.FileHandler("gnd_fetcher.log"),  # Ausgabe in eine Datei
+        ],
     )
+
 
 def main():
     setup_logging()
@@ -43,10 +45,11 @@ def main():
     window.show()
 
     # Hide splash screen after main window is shown
-    if 'splash' in locals():
+    if "splash" in locals():
         splash.finish(window)
 
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
