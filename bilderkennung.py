@@ -11,7 +11,7 @@ import PIL.Image
 import json
 from pathlib import Path
 
-from src.core.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
+from src.llm.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
 
 DEFAULT_PROMPT = """Bitte analysiere dieses Bild und gib mir folgende Informationen:
 1. Liste allen lesbaren Text im Bild auf

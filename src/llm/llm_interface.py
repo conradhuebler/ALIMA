@@ -1006,7 +1006,7 @@ class LLMInterface(QObject):
             data = {
                 "model": model,
                 "prompt": prompt,
-                "options": {"temperature": temperature},
+                "options": {'num_ctx': 32768, "temperature": temperature},
                 "stream": stream,
             }
 

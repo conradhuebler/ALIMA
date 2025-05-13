@@ -15,7 +15,7 @@ import json
 from typing import List, Dict
 import torch
 
-from src.core.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
+from src.llm.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
 
 
 class ChatHistory:

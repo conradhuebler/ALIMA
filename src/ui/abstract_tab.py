@@ -814,15 +814,15 @@ class AbstractTab(QWidget):
 
                 # Text extrahieren (bis zu maximal 5 Seiten oder 5000 Zeichen)
                 text = ""
-                max_pages = min(5, len(pdf_reader.pages))
+                max_pages = min(50, len(pdf_reader.pages))
 
                 for i in range(max_pages):
                     page_text = pdf_reader.pages[i].extract_text()
                     text += page_text + "\n\n"
 
-                    if len(text) > 5000:
-                        text = text[:5000] + "...[gekürzt]"
-                        break
+                    #if len(text) > 5000:
+                    #    text = text[:5000] + "...[gekürzt]"
+                    #    break
 
             # UI mit extrahiertem Text aktualisieren
             self.handle_pdf_content(text, metadata)
