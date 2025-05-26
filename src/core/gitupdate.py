@@ -2,8 +2,18 @@
 import sys
 import os
 import subprocess
+import datetime
 from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import QProgressDialog
+from PyQt6.QtWidgets import (
+    QProgressDialog,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QComboBox,
+    QTextEdit,
+)
 
 
 # Diese Klasse fügen wir als Worker für den Update-Prozess hinzu
@@ -19,6 +29,16 @@ class GitUpdateWorker(QThread):
         self.target_commit = (
             target_commit  # Spezifischer Commit-Hash oder Branch/Tag-Name
         )
+        # Mindestdatum für Commits: 26. Mai 2025
+        self.min_allowed_date = datetime.datetime(
+            2025,
+            5,
+            26,
+            14,
+            7,
+            16,
+            tzinfo=datetime.timezone(datetime.timedelta(hours=2)),
+        )
 
     def run(self):
         try:
@@ -33,25 +53,10 @@ class GitUpdateWorker(QThread):
                 return
 
             # Prüfe, ob das Verzeichnis ein Git-Repository ist
-            try:
-                # Run 'git rev-parse --is-inside-work-tree' to check if it's a valid git repo
-                result = subprocess.run(
-                    ["git", "rev-parse", "--is-inside-work-tree"],
-                    cwd=self.repo_path,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
-
-                if result.returncode != 0 or result.stdout.strip() != "true":
-                    self.update_finished.emit(
-                        False,
-                        "Das Programm-Verzeichnis ist kein gültiges Git-Repository.",
-                    )
-                    return
-            except Exception as e:
+            self.update_progress.emit("Prüfe Git-Repository...")
+            if not os.path.exists(os.path.join(self.repo_path, ".git")):
                 self.update_finished.emit(
-                    False, f"Fehler bei der Git-Repository-Überprüfung: {str(e)}"
+                    False, "Das Programm-Verzeichnis ist kein Git-Repository."
                 )
                 return
 
@@ -87,7 +92,43 @@ class GitUpdateWorker(QThread):
                     )
                     return
 
-                # Wechsle temporär zum Zielcommit
+                # Überprüfe das Datum des Commits
+                try:
+                    commit_date_str = subprocess.run(
+                        ["git", "show", "-s", "--format=%aD", self.target_commit],
+                        cwd=self.repo_path,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
+
+                    # Konvertiere das Datum-String in ein datetime-Objekt
+                    commit_date = datetime.datetime.strptime(
+                        commit_date_str, "%a, %d %b %Y %H:%M:%S %z"
+                    )
+
+                    # Prüfe, ob das Commit-Datum nach dem Mindestdatum liegt
+                    if commit_date < self.min_allowed_date:
+                        self.update_finished.emit(
+                            False,
+                            f"Der Commit '{self.target_commit}' vom {commit_date.strftime('%d.%m.%Y %H:%M')} "
+                            f"ist zu alt. Aus Sicherheitsgründen sind nur Commits ab dem "
+                            f"{self.min_allowed_date.strftime('%d.%m.%Y %H:%M')} erlaubt.",
+                        )
+                        return
+
+                except subprocess.CalledProcessError as e:
+                    self.update_finished.emit(
+                        False, f"Fehler beim Prüfen des Commit-Datums: {str(e)}"
+                    )
+                    return
+                except ValueError as e:
+                    self.update_finished.emit(
+                        False, f"Fehler beim Verarbeiten des Datums: {str(e)}"
+                    )
+                    return
+
+                # Wechsle zum Zielcommit
                 self.update_progress.emit(f"Wechsle zu Commit: {self.target_commit}...")
 
                 # Status speichern, um zu prüfen, ob es ungespeicherte Änderungen gibt
@@ -114,24 +155,6 @@ class GitUpdateWorker(QThread):
                         check=True,
                         capture_output=True,
                     )
-
-                    # Sicherheitscheck: Stelle sicher, dass kritische Dateien noch existieren
-                    if not self.verify_critical_files():
-                        # Rollback zum ursprünglichen Commit
-                        self.update_progress.emit(
-                            "Kritische Dateien fehlen. Führe Rollback durch..."
-                        )
-                        subprocess.run(
-                            ["git", "checkout", current_commit],
-                            cwd=self.repo_path,
-                            check=True,
-                        )
-                        self.update_finished.emit(
-                            False,
-                            f"Der Ziel-Commit '{self.target_commit}' scheint wichtige Programmdateien zu entfernen. "
-                            f"Die Aktualisierung wurde abgebrochen und zum vorherigen Stand zurückgesetzt.",
-                        )
-                        return
 
                     self.update_finished.emit(
                         True,
@@ -177,31 +200,52 @@ class GitUpdateWorker(QThread):
                     )
                     return
 
-                # Pull der neuesten Änderungen
-                self.update_progress.emit("Installiere Updates...")
+                # Prüfe vor dem Pull, ob die neuen Commits den Datums-Sicherheitscheck bestehen
+                latest_remote_commit = subprocess.run(
+                    ["git", "rev-parse", f"origin/{current_branch}"],
+                    cwd=self.repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
 
-                # Backup des aktuellen Zustands
+                # Überprüfe das Datum des neuesten remote Commits
                 try:
-                    # Pull der neuesten Änderungen
-                    subprocess.run(["git", "pull"], cwd=self.repo_path, check=True)
+                    commit_date_str = subprocess.run(
+                        ["git", "show", "-s", "--format=%aD", latest_remote_commit],
+                        cwd=self.repo_path,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip()
 
-                    # Sicherheitscheck: Stelle sicher, dass kritische Dateien noch existieren
-                    if not self.verify_critical_files():
-                        # Rollback zum ursprünglichen Commit
-                        self.update_progress.emit(
-                            "Kritische Dateien fehlen. Führe Rollback durch..."
-                        )
-                        subprocess.run(
-                            ["git", "reset", "--hard", current_commit],
-                            cwd=self.repo_path,
-                            check=True,
-                        )
+                    # Konvertiere das Datum-String in ein datetime-Objekt
+                    commit_date = datetime.datetime.strptime(
+                        commit_date_str, "%a, %d %b %Y %H:%M:%S %z"
+                    )
+
+                    # Prüfe, ob das Commit-Datum nach dem Mindestdatum liegt
+                    if commit_date < self.min_allowed_date:
                         self.update_finished.emit(
                             False,
-                            "Das Update entfernt wichtige Programmdateien. Die Aktualisierung wurde abgebrochen.",
+                            f"Der neueste Remote-Commit vom {commit_date.strftime('%d.%m.%Y %H:%M')} "
+                            f"ist zu alt. Aus Sicherheitsgründen sind nur Commits ab dem "
+                            f"{self.min_allowed_date.strftime('%d.%m.%Y %H:%M')} erlaubt.",
                         )
                         return
 
+                except Exception as e:
+                    self.update_finished.emit(
+                        False, f"Fehler beim Prüfen des Commit-Datums: {str(e)}"
+                    )
+                    return
+
+                # Pull der neuesten Änderungen
+                self.update_progress.emit("Installiere Updates...")
+
+                try:
+                    # Pull der neuesten Änderungen
+                    subprocess.run(["git", "pull"], cwd=self.repo_path, check=True)
                     self.update_finished.emit(
                         True,
                         f"Update erfolgreich! {commit_count} neue Änderungen wurden installiert.",
@@ -227,23 +271,3 @@ class GitUpdateWorker(QThread):
             self.update_finished.emit(False, error_msg)
         except Exception as e:
             self.update_finished.emit(False, f"Update-Fehler: {str(e)}")
-
-    def verify_critical_files(self):
-        """
-        Überprüft, ob wichtige Programmdateien noch existieren
-        nach dem Update oder Checkout.
-        """
-        # Liste der kritischen Dateien relativ zum Repository-Root
-        critical_files = [
-            os.path.join("alima", "ui", "mainwindow.py"),  # Hauptfenster
-            os.path.join("alima", "__init__.py"),  # Hauptmodul
-            os.path.join("alima", "__main__.py"),  # Einstiegspunkt
-            # Fügen Sie hier weitere kritische Dateien hinzu
-        ]
-
-        for file in critical_files:
-            file_path = os.path.join(self.repo_path, file)
-            if not os.path.exists(file_path):
-                return False
-
-        return True
