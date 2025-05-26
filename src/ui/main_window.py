@@ -17,10 +17,15 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QMessageBox,
     QFileDialog,
+    QProgressDialog,
+    QTextEdit,
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSlot
 from pathlib import Path
 import re
+import os
+import sys
+import subprocess
 from typing import Optional, Dict
 
 from .find_keywords import SearchTab
@@ -29,6 +34,7 @@ from .settings_dialog import SettingsDialog
 from ..core.search_engine import SearchEngine
 from ..core.cache_manager import CacheManager
 from ..core.gndparser import GNDParser
+from ..core.gitupdate import GitUpdateWorker
 from ..llm.llm_interface import LLMInterface
 
 # from ..core.ai_processor import AIProcessor
@@ -37,6 +43,170 @@ from .crossref_tab import CrossrefTab
 from .ubsearch_tab import UBSearchTab
 from .tablewidget import TableWidget
 import logging
+
+
+class CommitSelectorDialog(QDialog):
+    def __init__(self, parent=None, repo_path=None):
+        super().__init__(parent)
+        self.repo_path = repo_path or os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+        self.selected_commit = None
+
+        self.init_ui()
+        self.load_commits()
+
+    def init_ui(self):
+        self.setWindowTitle("Commit auswählen")
+        self.setMinimumWidth(600)
+
+        layout = QVBoxLayout(self)
+
+        # Informationstext
+        info_label = QLabel(
+            "Wählen Sie einen spezifischen Commit oder Branch/Tag aus, zu dem gewechselt werden soll. "
+            "Diese Option ist für erfahrene Benutzer gedacht und sollte mit Vorsicht verwendet werden."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("font-weight: bold; color: #CC0000;")
+        layout.addWidget(info_label)
+
+        # Auswahl zwischen Commit, Branch oder Tag
+        self.selection_type = QComboBox()
+        self.selection_type.addItems(["Branch", "Tag", "Commit"])
+        self.selection_type.currentIndexChanged.connect(self.update_selection_list)
+        layout.addWidget(self.selection_type)
+
+        # Auswahlliste für Branches, Tags oder Commits
+        self.commit_list = QComboBox()
+        self.commit_list.setEditable(True)  # Erlaubt manuelle Eingabe
+        layout.addWidget(self.commit_list)
+
+        # Commit-Details anzeigen
+        self.details_label = QLabel("Commit-Details:")
+        layout.addWidget(self.details_label)
+
+        self.details_text = QTextEdit()
+        self.details_text.setReadOnly(True)
+        self.details_text.setMinimumHeight(200)
+        layout.addWidget(self.details_text)
+
+        self.commit_list.currentTextChanged.connect(self.show_commit_details)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+
+        self.ok_button = QPushButton("Auswählen")
+        self.ok_button.clicked.connect(self.accept)
+
+        cancel_button = QPushButton("Abbrechen")
+        cancel_button.clicked.connect(self.reject)
+
+        button_layout.addWidget(self.ok_button)
+        button_layout.addWidget(cancel_button)
+
+        layout.addLayout(button_layout)
+
+    def load_commits(self):
+        self.update_selection_list()
+
+    def update_selection_list(self):
+        selection_type = self.selection_type.currentText()
+        self.commit_list.clear()
+
+        try:
+            if selection_type == "Branch":
+                # Lokale Branches laden
+                result = subprocess.run(
+                    ["git", "branch", "--format=%(refname:short)"],
+                    cwd=self.repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                branches = result.stdout.strip().split("\n")
+
+                # Remote Branches laden
+                result = subprocess.run(
+                    ["git", "branch", "-r", "--format=%(refname:short)"],
+                    cwd=self.repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                remote_branches = result.stdout.strip().split("\n")
+
+                all_branches = branches + [
+                    branch for branch in remote_branches if branch.strip()
+                ]
+                self.commit_list.addItems(
+                    sorted([branch for branch in all_branches if branch.strip()])
+                )
+
+            elif selection_type == "Tag":
+                # Tags laden
+                result = subprocess.run(
+                    ["git", "tag"],
+                    cwd=self.repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                tags = result.stdout.strip().split("\n")
+                self.commit_list.addItems(sorted([tag for tag in tags if tag.strip()]))
+
+            elif selection_type == "Commit":
+                # Letzte 20 Commits laden
+                result = subprocess.run(
+                    ["git", "log", "-20", "--pretty=format:%h - %s (%an, %ar)"],
+                    cwd=self.repo_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                commits = result.stdout.strip().split("\n")
+                self.commit_list.addItems(
+                    [commit for commit in commits if commit.strip()]
+                )
+
+        except subprocess.CalledProcessError as e:
+            self.details_text.setText(f"Fehler beim Laden der Auswahl: {str(e)}")
+
+    def show_commit_details(self, commit_ref):
+        if not commit_ref:
+            self.details_text.clear()
+            return
+
+        # Bei Commits nur den Hash extrahieren
+        if self.selection_type.currentText() == "Commit" and " - " in commit_ref:
+            commit_ref = commit_ref.split(" - ")[0].strip()
+
+        try:
+            # Commit-Details anzeigen
+            result = subprocess.run(
+                ["git", "show", "--stat", commit_ref],
+                cwd=self.repo_path,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            details = result.stdout.strip()
+            self.details_text.setText(details)
+
+            # Aktiviere den OK-Button, wenn ein gültiger Commit ausgewählt wurde
+            self.ok_button.setEnabled(True)
+        except subprocess.CalledProcessError:
+            self.details_text.setText(f"Ungültige Referenz: {commit_ref}")
+            self.ok_button.setEnabled(False)
+
+    def get_selected_commit(self):
+        commit_ref = self.commit_list.currentText()
+
+        # Bei Commits nur den Hash extrahieren
+        if self.selection_type.currentText() == "Commit" and " - " in commit_ref:
+            return commit_ref.split(" - ")[0].strip()
+
+        return commit_ref
 
 
 class MainWindow(QMainWindow):
@@ -238,48 +408,6 @@ class MainWindow(QMainWindow):
         result = keywords + bracketed_terms
         self.search_tab.update_search_field(", ".join(result))
 
-    def create_menu_bar(self):
-        """Erstellt die Menüleiste"""
-        menubar = self.menuBar()
-
-        # Datei-Menü
-        file_menu = menubar.addMenu("&Datei")
-
-        # Export-Aktion
-        export_action = file_menu.addAction("&Exportieren...")
-        export_action.triggered.connect(self.export_results)
-
-        # Import-Aktion
-        import_action = file_menu.addAction("&Importieren...")
-        import_action.triggered.connect(self.import_gnd_database)
-
-        file_menu.addSeparator()
-
-        # Beenden-Aktion
-        exit_action = file_menu.addAction("&Beenden")
-        exit_action.triggered.connect(self.close)
-
-        # Bearbeiten-Menü
-        edit_menu = menubar.addMenu("&Bearbeiten")
-
-        # Einstellungen-Aktion
-        settings_action = edit_menu.addAction("&Einstellungen")
-        settings_action.triggered.connect(self.show_settings)
-
-        # Cache-Menü
-        cache_menu = menubar.addMenu("&Cache")
-
-        # Hilfe-Menü
-        help_menu = menubar.addMenu("&Hilfe")
-
-        # Über-Dialog
-        about_action = help_menu.addAction("Ü&ber")
-        about_action.triggered.connect(self.show_about)
-
-        # Hilfe-Dialog
-        help_action = help_menu.addAction("&Hilfe")
-        help_action.triggered.connect(self.show_help)
-
     def show_settings(self):
         """Öffnet den Einstellungsdialog"""
         try:
@@ -384,3 +512,133 @@ class MainWindow(QMainWindow):
         parser = GNDParser(self.cache_manager)
         self.logger.info(f"Importiere GND-Datenbank: {filename[0]}")
         parser.process_file(filename[0])
+
+    # In der MainWindow Klasse - füge folgende Methoden hinzu
+
+    def create_menu_bar(self):
+        """Erstellt die Menüleiste"""
+        menubar = self.menuBar()
+
+        # Datei-Menü
+        file_menu = menubar.addMenu("&Datei")
+
+        # Export-Aktion
+        export_action = file_menu.addAction("&Exportieren...")
+        export_action.triggered.connect(self.export_results)
+
+        # Import-Aktion
+        import_action = file_menu.addAction("&Importieren...")
+        import_action.triggered.connect(self.import_gnd_database)
+
+        file_menu.addSeparator()
+
+        # Beenden-Aktion
+        exit_action = file_menu.addAction("&Beenden")
+        exit_action.triggered.connect(self.close)
+
+        # Bearbeiten-Menü
+        edit_menu = menubar.addMenu("&Bearbeiten")
+
+        # Einstellungen-Aktion
+        settings_action = edit_menu.addAction("&Einstellungen")
+        settings_action.triggered.connect(self.show_settings)
+
+        # Cache-Menü
+        cache_menu = menubar.addMenu("&Cache")
+
+        # Update-Menü hinzufügen/aktualisieren
+        update_menu = menubar.addMenu("&Updates")
+
+        # Nach Updates suchen
+        check_update_action = update_menu.addAction("Nach &Updates suchen")
+        check_update_action.triggered.connect(self.check_for_updates)
+
+        # NEUE OPTION: Zu spezifischem Commit wechseln
+        specific_commit_action = update_menu.addAction(
+            "Zu &spezifischem Commit wechseln"
+        )
+        specific_commit_action.triggered.connect(self.checkout_specific_commit)
+
+        # Hilfe-Menü
+        help_menu = menubar.addMenu("&Hilfe")
+
+        # Über-Dialog
+        about_action = help_menu.addAction("Ü&ber")
+        about_action.triggered.connect(self.show_about)
+
+        # Hilfe-Dialog
+        help_action = help_menu.addAction("&Hilfe")
+        help_action.triggered.connect(self.show_help)
+
+    def checkout_specific_commit(self):
+        """Öffnet einen Dialog zur Auswahl eines spezifischen Commits"""
+        dialog = CommitSelectorDialog(self)
+        if dialog.exec():
+            target_commit = dialog.get_selected_commit()
+            if not target_commit:
+                return
+
+            reply = QMessageBox.question(
+                self,
+                "Zu spezifischem Commit wechseln",
+                f"Möchten Sie wirklich zu '{target_commit}' wechseln? Dies kann zu Programminstabilität führen, "
+                "wenn der ausgewählte Commit nicht mit der aktuellen Version kompatibel ist.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                # Starte den Update-Prozess mit spezifischem Commit
+                self._start_update_process(target_commit=target_commit)
+
+    def check_for_updates(self):
+        """Prüft auf Updates und installiert sie bei Bedarf"""
+        self.logger.info("Prüfe auf Updates...")
+        self._start_update_process()
+
+    def _start_update_process(self, target_commit=None):
+        """Startet den Update-Prozess mit optionalem Ziel-Commit"""
+        # Erstelle den Progress-Dialog
+        if target_commit:
+            message = f"Wechsle zu Commit: {target_commit}..."
+        else:
+            message = "Prüfe auf Updates..."
+
+        progress = QProgressDialog(message, "Abbrechen", 0, 0, self)
+        progress.setWindowTitle("Software-Update")
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setCancelButton(None)  # Entferne den Abbrechen-Button
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.show()
+
+        # Erstelle und starte den Worker
+        self.update_worker = GitUpdateWorker(target_commit=target_commit)
+        self.update_worker.update_progress.connect(
+            lambda msg: progress.setLabelText(msg)
+        )
+        self.update_worker.update_finished.connect(
+            lambda success, msg: self.update_completed(success, msg, progress)
+        )
+        self.update_worker.start()
+
+    def update_completed(self, success, message, progress_dialog):
+        """Wird aufgerufen, wenn der Update-Prozess abgeschlossen ist"""
+        progress_dialog.close()
+
+        if success:
+            QMessageBox.information(self, "Update Status", message)
+            if "bereits auf dem neuesten Stand" not in message:
+                reply = QMessageBox.question(
+                    self,
+                    "Neustart erforderlich",
+                    "Für die Anwendung der Updates ist ein Neustart erforderlich. Jetzt neu starten?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.save_settings()
+                    # Starte das Programm neu
+                    python = sys.executable
+                    os.execl(python, python, *sys.argv)
+        else:
+            QMessageBox.warning(self, "Update-Fehler", message)
