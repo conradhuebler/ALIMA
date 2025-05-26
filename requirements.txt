@@ -10,3 +10,5 @@ PyPDF2>=3.0.0
 ollama>=0.4.8
 openai>=1.76
 pillow
+sockets
+subprocess

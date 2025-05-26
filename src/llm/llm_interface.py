@@ -638,26 +638,49 @@ class LLMInterface(QObject):
             clean_url = url.split("://")[-1] if "://" in url else url
             # Remove any path or query params
             clean_url = clean_url.split("/")[0]
+            # Handle IPv6 addresses
+            if clean_url.startswith("[") and "]" in clean_url:
+                clean_url = clean_url.split("]")[0] + "]"
 
             try:
                 # Try simple socket connection first
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(timeout)
-                result = sock.connect_ex((clean_url, int(port)))
-                sock.close()
+                # Get address info to handle both IPv4 and IPv6 properly
+                addr_info = socket.getaddrinfo(
+                    clean_url, int(port), socket.AF_UNSPEC, socket.SOCK_STREAM
+                )
 
-                if result == 0:
-                    self.logger.debug(
-                        f"Socket connection to {clean_url}:{port} successful"
-                    )
-                    return True
+                for family, socktype, proto, _, sockaddr in addr_info:
+                    try:
+                        sock = socket.socket(family, socktype, proto)
+                        sock.settimeout(timeout)
+                        result = sock.connect_ex(sockaddr)
+                        sock.close()
+                        if result == 0:
+                            self.logger.debug(
+                                f"Socket connection to {clean_url}:{port} successful"
+                            )
+                            return True
+                    except socket.error:
+                        continue
 
                 # If socket fails, try HTTP request with full URL
                 full_url = f"http://{clean_url}:{port}"
                 self.logger.debug(f"Trying HTTP request to {full_url}")
-                response = requests.get(full_url, timeout=timeout)
+
+                # Set shorter timeout for request to avoid long hangs
+                response = requests.get(
+                    full_url, timeout=timeout, headers={"Connection": "close"}
+                )
                 return response.status_code < 500
 
+            except socket.gaierror:
+                self.logger.debug(f"Could not resolve hostname: {clean_url}")
+                return False
+            except requests.exceptions.RequestException as e:
+                self.logger.debug(
+                    f"HTTP request failed for {clean_url}:{port} - {str(e)}"
+                )
+                return False
             except Exception as e:
                 self.logger.debug(
                     f"Server check failed for {clean_url}:{port} - {str(e)}"
@@ -671,8 +694,13 @@ class LLMInterface(QObject):
                     url = f"http://{url}"
 
                 self.logger.debug(f"Trying HTTP request to {url}")
-                response = requests.get(url, timeout=timeout)
+                response = requests.get(
+                    url, timeout=timeout, headers={"Connection": "close"}
+                )
                 return response.status_code < 500
+            except requests.exceptions.RequestException as e:
+                self.logger.debug(f"HTTP request failed for {url} - {str(e)}")
+                return False
             except Exception as e:
                 self.logger.debug(f"Server check failed for {url} - {str(e)}")
                 return False
