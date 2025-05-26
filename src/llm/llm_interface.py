@@ -29,6 +29,10 @@ class LLMInterface(QObject):
     # Neues Signal zur Anzeige von Abbrüchen
     generation_cancelled = pyqtSignal()
 
+    # Update Ollama URL and Port
+    ollama_url_updated = pyqtSignal()
+    ollama_port_updated = pyqtSignal()
+
     def __init__(
         self,
         providers: List[str] = None,
@@ -51,6 +55,8 @@ class LLMInterface(QObject):
         self.current_provider = None
         self.current_request_id = None
         self.current_thread_id = None
+        self.ollama_url = "http://localhost"
+        self.ollama_port = 11434
 
         # Timeout für hängengebliebene Anfragen (in Sekunden)
         self.request_timeout = 120  # 2 Minuten
@@ -77,6 +83,16 @@ class LLMInterface(QObject):
 
         # Initialize specified or all providers
         self.initialize_providers(providers)
+
+    def set_ollama_url(self, url: str):
+        self.logger.info(f"Setting Ollama URL to {url}")
+        self.ollama_url = url
+        self.ollama_url_updated.emit()
+
+    def set_ollama_port(self, port: int):
+        self.logger.info(f"Setting Ollama Port to {port}")
+        self.ollama_port = port
+        self.ollama_port_updated.emit()
 
     def _init_provider_configs(self):
         """Initialize the configuration for all supported providers."""
@@ -304,7 +320,7 @@ class LLMInterface(QObject):
             self.logger.info("Cancelling Ollama request")
             # Ollama hat einen speziellen Endpunkt zum Abbrechen
             self.clients["ollama"].post(
-                "http://localhost:11434/api/cancel",
+                f"{self.ollama_url}:{self.ollama_port}/api/cancel",
                 json={},  # Neuere Ollama-Versionen benötigen keine Modellangabe
             )
         except Exception as e:
@@ -411,7 +427,14 @@ class LLMInterface(QObject):
                 ]
 
             elif provider == "ollama":
-                response = self.clients[provider].get("http://localhost:11434/api/tags")
+                if not self._is_server_reachable(self.ollama_url, self.ollama_port):
+                    self.logger.warning(
+                        f"Ollama server not accessible at {self.ollama_url}:{self.ollama_port}"
+                    )
+                    return []
+                response = self.clients[provider].get(
+                    f"{self.ollama_url}:{self.ollama_port}/api/tags"
+                )
                 return [model["name"] for model in response.json()["models"]]
 
             elif provider in ["openai", "comet", "chatai"]:
@@ -592,13 +615,80 @@ class LLMInterface(QObject):
         client_class = getattr(module, provider_info["class"])
         self.clients[provider] = client_class(api_key=api_key)
 
+    def _is_server_reachable(
+        self, url: str, port: Optional[int] = None, timeout: int = 2
+    ) -> bool:
+        """Check if a server at the given URL and port is reachable.
+
+        Args:
+            url: The URL to check (without protocol if port is specified)
+            port: Optional port number
+            timeout: Connection timeout in seconds
+
+        Returns:
+            bool: True if server is reachable, False otherwise
+        """
+        import socket
+        import requests
+        from urllib.parse import urlparse
+
+        # Clean up URL format
+        if port is not None:
+            # Strip any protocol from URL
+            clean_url = url.split("://")[-1] if "://" in url else url
+            # Remove any path or query params
+            clean_url = clean_url.split("/")[0]
+
+            try:
+                # Try simple socket connection first
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout)
+                result = sock.connect_ex((clean_url, int(port)))
+                sock.close()
+
+                if result == 0:
+                    self.logger.debug(
+                        f"Socket connection to {clean_url}:{port} successful"
+                    )
+                    return True
+
+                # If socket fails, try HTTP request with full URL
+                full_url = f"http://{clean_url}:{port}"
+                self.logger.debug(f"Trying HTTP request to {full_url}")
+                response = requests.get(full_url, timeout=timeout)
+                return response.status_code < 500
+
+            except Exception as e:
+                self.logger.debug(
+                    f"Server check failed for {clean_url}:{port} - {str(e)}"
+                )
+                return False
+        else:
+            # Handle full URL case
+            try:
+                # Try GET instead of HEAD
+                if not url.startswith(("http://", "https://")):
+                    url = f"http://{url}"
+
+                self.logger.debug(f"Trying HTTP request to {url}")
+                response = requests.get(url, timeout=timeout)
+                return response.status_code < 500
+            except Exception as e:
+                self.logger.debug(f"Server check failed for {url} - {str(e)}")
+                return False
+
     def _init_ollama(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
     ):
         """Initialize Ollama provider."""
         # Test if Ollama is running
+        if not self._is_server_reachable(self.ollama_url, self.ollama_port):
+            self.logger.warning(
+                f"Ollama server not accessible at {self.ollama_url}:{self.ollama_port}"
+            )
+            return
         try:
-            response = module.get("http://localhost:11434/api/tags")
+            response = module.get(f"{self.ollama_url}:{self.ollama_port}/api/tags")
             if response.ok:
                 self.clients[provider] = module
         except:
@@ -1001,12 +1091,16 @@ class LLMInterface(QObject):
         stream: bool = True,
     ) -> str:
         """Generate response using Ollama."""
+        if not self._is_server_reachable(self.ollama_url, self.ollama_port):
+            self.logger.warning("Ollama server not accessible")
+            return
+
         try:
             # Set up request data
             data = {
                 "model": model,
                 "prompt": prompt,
-                "options": {'num_ctx': 32768, "temperature": temperature},
+                "options": {"num_ctx": 32768, "temperature": temperature},
                 "stream": stream,
             }
 
@@ -1028,7 +1122,9 @@ class LLMInterface(QObject):
             # Make API call with streaming
             if stream:
                 response = self.clients["ollama"].post(
-                    "http://localhost:11434/api/generate", json=data, stream=True
+                    f"{self.ollama_url}:{self.ollama_port}/api/generate",
+                    json=data,
+                    stream=True,
                 )
 
                 # Process streaming response
@@ -1062,7 +1158,7 @@ class LLMInterface(QObject):
                 # Non-streaming option
                 data["stream"] = False
                 response = self.clients["ollama"].post(
-                    "http://localhost:11434/api/generate", json=data
+                    f"{self.ollama_url}:{self.ollama_port}/api/generate", json=data
                 )
                 return response.json()["response"]
 

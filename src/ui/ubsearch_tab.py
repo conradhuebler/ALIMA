@@ -20,6 +20,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 import logging
 from .abstract_tab import AbstractTab
 from ..core.katalog_subject import SubjectExtractor
+from ..llm.llm_interface import LLMInterface
 
 
 class AdditionalTitlesWorker(QThread):
@@ -218,9 +219,10 @@ class UBSearchWorker(QThread):
 class UBSearchTab(QWidget):
     """Tab für die UB-Suche"""
 
-    def __init__(self):
+    def __init__(self, llm: LLMInterface = None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
+        self.llm = llm
         self.init_ui()
 
     def init_ui(self):
@@ -283,12 +285,12 @@ class UBSearchTab(QWidget):
 
         self.ai_tabs = QTabWidget()
 
-        self.ai_search = AbstractTab()
+        self.ai_search = AbstractTab(llm=self.llm)
         self.ai_search.template_name = "ub_search"
         self.ai_search.set_task("dk_list")
         self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
 
-        self.ai_classification = AbstractTab()
+        self.ai_classification = AbstractTab(llm=self.llm)
         self.ai_classification.template_name = "classification"
         self.ai_classification.set_abstract(self.abstract)
         self.ai_classification.set_task("dk_class")

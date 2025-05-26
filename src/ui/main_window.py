@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
     QMessageBox,
+    QFileDialog,
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSlot
 from pathlib import Path
@@ -27,6 +28,8 @@ from .abstract_tab import AbstractTab
 from .settings_dialog import SettingsDialog
 from ..core.search_engine import SearchEngine
 from ..core.cache_manager import CacheManager
+from ..core.gndparser import GNDParser
+from ..llm.llm_interface import LLMInterface
 
 # from ..core.ai_processor import AIProcessor
 from ..utils.config import Config
@@ -39,13 +42,14 @@ import logging
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.settings = QSettings("GNDSearch", "SearchTool")
+        self.settings = QSettings("TUBAF", "Alima")
         self.config = Config.get_instance()
         # Initialisiere Core-Komponenten
         self.cache_manager = CacheManager()
         self.search_engine = SearchEngine(self.cache_manager)
         # self.ai_processor = AIProcessor()
         self.logger = logging.getLogger(__name__)
+        self.llm = LLMInterface()
 
         self.init_ui()
         self.load_settings()
@@ -74,14 +78,14 @@ class MainWindow(QMainWindow):
 
         self.crossref_tab = CrossrefTab()
 
-        self.abstract_tab = AbstractTab()
+        self.abstract_tab = AbstractTab(llm=self.llm)
         self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
         # self.abstract_tab.final_list.connect(self.update_search_field)
         self.abstract_tab.template_name = "abstract_analysis"
         self.abstract_tab.set_model_recommendations("abstract")
         self.abstract_tab.set_task("abstract")
 
-        self.analyse_keywords = AbstractTab()
+        self.analyse_keywords = AbstractTab(llm=self.llm)
         # self.analyse_keywords.keywords_extracted.connect(self.update_search_field)
         self.analyse_keywords.template_name = "results_verification"
         self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
@@ -89,7 +93,7 @@ class MainWindow(QMainWindow):
         self.analyse_keywords.need_keywords = True
         self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
-        self.ub_search_tab = UBSearchTab()
+        self.ub_search_tab = UBSearchTab(llm=self.llm)
 
         self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
         self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
@@ -117,8 +121,27 @@ class MainWindow(QMainWindow):
         self.status_bar.addWidget(self.status_label)
 
         # Cache-Info Widget
-        self.cache_info = QLabel()
-        self.status_bar.addPermanentWidget(self.cache_info)
+        self.ollama_url = QLineEdit()  # Eingabefeld für Ollama URL
+        self.ollama_url.setText("http://localhost")
+        self.ollama_url.textChanged.connect(
+            lambda: self.llm.set_ollama_url(self.ollama_url.text())
+        )
+        self.ollama_port = QLineEdit()  # Eingabefeld für Ollama Port
+        self.ollama_port.setText("11434")
+        self.ollama_port.textChanged.connect(
+            lambda: self.llm.set_ollama_port(self.ollama_port.text())
+        )
+
+        # Layout für Ollama-Einstellungen
+        ollama_layout = QHBoxLayout()
+        ollama_layout.addWidget(QLabel("Ollama URL:"))
+        ollama_layout.addWidget(self.ollama_url)
+        ollama_layout.addWidget(QLabel("Ollama Port:"))
+        ollama_layout.addWidget(self.ollama_port)
+        ollama_widget = QWidget()
+        ollama_widget.setLayout(ollama_layout)
+        # self.cache_info = QLabel()
+        self.status_bar.addPermanentWidget(ollama_widget)
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):
@@ -228,7 +251,7 @@ class MainWindow(QMainWindow):
 
         # Import-Aktion
         import_action = file_menu.addAction("&Importieren...")
-        import_action.triggered.connect(self.import_results)
+        import_action.triggered.connect(self.import_gnd_database)
 
         file_menu.addSeparator()
 
@@ -284,13 +307,18 @@ class MainWindow(QMainWindow):
 
         # Update der Tab-Einstellungen
         self.search_tab.load_settings(self.settings)
+        self.ollama_url.setText(self.settings.value("ollama_url", "http://localhost"))
+        self.llm.set_ollama_url(self.ollama_url.text())
+        self.ollama_port.setText(self.settings.value("ollama_port", "11434"))
+        self.llm.set_ollama_port(self.ollama_port.text())
         # self.abstract_tab.load_settings(self.settings)
 
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("last_tab", self.tabs.currentIndex())
-
+        self.settings.setValue("ollama_url", self.ollama_url.text())
+        self.settings.setValue("ollama_port", self.ollama_port.text())
         # Speichere Tab-Einstellungen
         self.search_tab.save_settings(self.settings)
 
@@ -312,17 +340,29 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         """Zeigt den Über-Dialog"""
-        from .dialogs import AboutDialog
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle("Über AlIma")
+        layout = QVBoxLayout(about_dialog)
 
-        dialog = AboutDialog(self)
-        dialog.exec()
+        # Über-Text
+        about_text = QLabel(
+            "AlIma - Sacherschließung mit LLMs\nVersion 1.0\n\n"
+            "Entwickelt von Conrad Hübler\n"
+            "TU Freiberg\n"
+            "Lizenz: LGPL-3.0 license \n"
+            "GitHub: https://github.com/conradhuebler/ALIMA"
+        )
+        layout.addWidget(about_text)
+
+        # Schließen-Button
+        close_button = QPushButton("Schließen")
+        close_button.clicked.connect(about_dialog.close)
+        layout.addWidget(close_button)
+
+        about_dialog.exec()
 
     def show_help(self):
         """Zeigt den Hilfe-Dialog"""
-        from .dialogs import HelpDialog
-
-        dialog = HelpDialog(self)
-        dialog.exec()
 
     def closeEvent(self, event):
         """Wird beim Schließen des Fensters aufgerufen"""
@@ -335,7 +375,12 @@ class MainWindow(QMainWindow):
 
     def show_error(self, message: str):
         """Zeigt eine Fehlermeldung"""
-        from .dialogs import ErrorDialog
 
-        dialog = ErrorDialog(message, self)
-        dialog.exec()
+    def import_gnd_database(self):
+        """Importiert die GND-Datenbank"""
+        filename = QFileDialog.getOpenFileName(
+            self, "GND-Datenbank auswählen", "", "XML-Dateien (*.xml)"
+        )
+        parser = GNDParser(self.cache_manager)
+        self.logger.info(f"Importiere GND-Datenbank: {filename[0]}")
+        parser.process_file(filename[0])

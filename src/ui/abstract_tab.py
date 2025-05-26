@@ -71,10 +71,11 @@ class AbstractTab(QWidget):
         parent=None,
         recommendations_file: Path = Path(__file__).parent.parent.parent
         / "model_recommendations.json",
+        llm: LLMInterface = None,
     ):
         super().__init__(parent)
         # Initialize components
-        self.llm = LLMInterface()
+        self.llm = llm
         self.need_keywords = False
         self.logger = logging.getLogger(__name__)
         self.template_name = ""
@@ -108,9 +109,34 @@ class AbstractTab(QWidget):
         self.llm.generation_error.connect(self.on_generation_error)
         self.llm.generation_cancelled.connect(self.on_generation_cancelled)
 
+        # Connect Ollama URL and Port signals
+        self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
+        self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
+
         # Set up the UI
         self.setup_ui()
         self.setup_animations()
+
+    def on_ollama_url_updated(self):
+        """Handle Ollama URL update."""
+        current_provider = self.provider_combo.currentText()
+        # self.logger.info(f"Current provider: {current_provider}")
+        self.provider_combo.clear()
+        items = self.llm.get_available_providers()
+        self.provider_combo.addItems(items)
+        if self.provider_combo.count() > 0:
+            if current_provider in items:
+                self.provider_combo.setCurrentText(current_provider)
+
+    def on_ollama_port_updated(self):
+        """Handle Ollama Port update."""
+        current_provider = self.provider_combo.currentText()
+        self.provider_combo.clear()
+        items = self.llm.get_available_providers()
+        self.provider_combo.addItems(items)
+        if self.provider_combo.count() > 0:
+            if current_provider in items:
+                self.provider_combo.setCurrentText(current_provider)
 
     def load_recommendations(self):
         """Load model recommendations from the JSON file."""
@@ -148,14 +174,14 @@ class AbstractTab(QWidget):
             with open(self.propmpt_file, "r", encoding="utf-8") as f:
                 self.prompts = json.load(f)
 
-            self.logger.info(f"Successfully loaded prompts from {self.propmpt_file}")
+            # self.logger.info(f"Successfully loaded prompts from {self.propmpt_file}")
         except Exception as e:
             self.logger.error(f"Error loading prompts: {e}")
 
     def set_task(self, task: str):
         """Set the task type for model recommendations."""
         self.task = task
-        self.logger.info(f"Set task to {task}")
+        # self.logger.info(f"Set task to {task}")
 
         # Hole verfügbare Modelle vom PromptManager
         self.recommended_models = self.promptmanager.get_available_models(task)
@@ -177,9 +203,9 @@ class AbstractTab(QWidget):
         all_models = self.llm.get_available_models(provider)
         recommended_available = []
 
-        self.logger.info(
-            f"Recommended models for {provider}: {self.recommended_models}"
-        )
+        # self.logger.info(
+        #    f"Recommended models for {provider}: {self.recommended_models}"
+        # )
         if self.recommended_models:
             # Add recommended models first
             recommended_group = "↳ Empfohlene Modelle"
@@ -755,7 +781,7 @@ class AbstractTab(QWidget):
 
         try:
             config = self.promptmanager.get_prompt_config(self.task, model)
-            self.logger.info(f"Prompt config for {model}: {config}")
+            # self.logger.info(f"Prompt config for {model}: {config}")
 
             # Update temperature slider
             temp_value = int(config.get("temp", 0.7) * 100)
@@ -820,7 +846,7 @@ class AbstractTab(QWidget):
                     page_text = pdf_reader.pages[i].extract_text()
                     text += page_text + "\n\n"
 
-                    #if len(text) > 5000:
+                    # if len(text) > 5000:
                     #    text = text[:5000] + "...[gekürzt]"
                     #    break
 

@@ -312,9 +312,9 @@ class SearchTab(QWidget):
             if not tmp_entry == None:
                 self.logger.info(tmp_entry)
 
-                if tmp_entry["created_at"] == tmp_entry["updated_at"]:
-                    if relation == 0 or relation == 1:
-                        self.update_entry(gnd_id)
+                # if tmp_entry["created_at"] == tmp_entry["updated_at"]:
+                #    if relation == 0 or relation == 1:
+                #        self.update_entry(gnd_id)
 
                 if not term == gnd_id:
                     list_item = f"{term} ({gnd_id})"
