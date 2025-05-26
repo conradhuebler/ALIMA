@@ -38,6 +38,8 @@ class LLMInterface(QObject):
         providers: List[str] = None,
         config_file: Path = Path.home() / ".alima_config.json",
         api_keys: Dict[str, str] = None,
+        ollama_url: str = "http://localhost",
+        ollama_port: int = 11434,
     ):
         """
         Initialize LLM interface with specified providers and API keys.
@@ -55,8 +57,8 @@ class LLMInterface(QObject):
         self.current_provider = None
         self.current_request_id = None
         self.current_thread_id = None
-        self.ollama_url = "http://localhost"
-        self.ollama_port = 11434
+        self.ollama_url = ollama_url
+        self.ollama_port = ollama_port
 
         # Timeout für hängengebliebene Anfragen (in Sekunden)
         self.request_timeout = 120  # 2 Minuten

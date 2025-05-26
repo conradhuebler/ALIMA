@@ -311,11 +311,16 @@ class MainWindow(QMainWindow):
         self.search_engine = SearchEngine(self.cache_manager)
         # self.ai_processor = AIProcessor()
         self.logger = logging.getLogger(__name__)
-        self.llm = LLMInterface()
+        self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")
+        self.ollama_port_default = self.settings.value("ollama_port", "11434")
 
+        self.llm = LLMInterface(
+            ollama_url=self.ollama_url_default,
+            ollama_port=self.ollama_port_default,
+        )
         self.init_ui()
         self.load_settings()
-
+        
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
         self.setWindowTitle("AlIma")
@@ -384,7 +389,7 @@ class MainWindow(QMainWindow):
 
         # Cache-Info Widget
         self.ollama_url = QLineEdit()  # Eingabefeld für Ollama URL
-        self.ollama_url.setText("http://localhost")
+        self.ollama_url.setText(self.ollama_url_default)
         self.ollama_url.textChanged.connect(
             lambda: self.llm.set_ollama_url(self.ollama_url.text())
         )
