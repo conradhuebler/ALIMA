@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         )
         self.init_ui()
         self.load_settings()
-        
+
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
         self.setWindowTitle("AlIma")

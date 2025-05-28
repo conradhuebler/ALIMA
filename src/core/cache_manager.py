@@ -25,12 +25,65 @@ class CacheManager:
             os.makedirs(db_dir)
 
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+
+        # Create in-memory database
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.row_factory = (
+            sqlite3.Row
+        )  # Ermöglicht dict-ähnlichen Zugriff auf Rows
+
+        # Create tables in memory
         self.create_tables()
+
+        # Load data from file database into memory if file exists
+        if os.path.exists(db_path):
+            self._load_from_file_to_memory()
 
         # Logging konfigurieren
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(__name__)
+
+    def _load_from_file_to_memory(self):
+        """Lädt die komplette Datenbank aus der Datei in den Speicher."""
+        try:
+            # Connect to file database
+            file_conn = sqlite3.connect(self.db_path)
+
+            # Get all table names
+            cursor = file_conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table';"
+            )
+            tables = cursor.fetchall()
+
+            for table in tables:
+                table_name = table[0]
+
+                # Copy table structure and data
+                file_conn.execute(f"ATTACH DATABASE ':memory:' AS mem")
+                file_conn.execute(
+                    f"CREATE TABLE mem.{table_name} AS SELECT * FROM main.{table_name}"
+                )
+
+            file_conn.close()
+            self.logger.info(f"Database loaded from {self.db_path} into memory")
+
+        except Exception as e:
+            self.logger.error(f"Error loading database into memory: {str(e)}")
+
+    def save_to_file(self):
+        """Speichert die In-Memory-Datenbank zurück in die Datei."""
+        try:
+            # Connect to file database
+            file_conn = sqlite3.connect(self.db_path)
+
+            # Backup memory database to file
+            self.conn.backup(file_conn)
+
+            file_conn.close()
+            self.logger.info(f"In-memory database saved to {self.db_path}")
+
+        except Exception as e:
+            self.logger.error(f"Error saving database to file: {str(e)}")
 
     def _initialize_connection(self) -> sqlite3.Connection:
         """

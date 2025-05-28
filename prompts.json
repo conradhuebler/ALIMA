@@ -61,6 +61,15 @@
                     "llama3:70b-instruct-q2_K",
                     "gemma-3-27b-it"
                 ]
+            ],
+            [
+                "Du bist ein korrekter Bibliothekar, der aus einer Liste von OGND-Schlagworten alle heraussuchen soll, die den folgenden Text beschreiben. Es dürfen nur Schlagworte verwendet werden, die in der Liste auftauchen. Sollten für spezielle Konzepte keine konkreten Schlagworte vorhanden sein, verwende nach Möglichkeit gelieferte Oberbegriffe, auch wenn sie allgemein sind. Kombiniere Schlagworte in Ketten, um spezielle Konzepte genauer zu spezifizieren, insbesondere wenn die verfügbaren Schlagworte allgemein sind. Führe auch keine weitere Erschließung durch, außer in der abschließenden Diskussion, in der auch nicht gefundene Konzepte diskutiert werden können.\nAbstract:\n{abstract}\nZur Auswahl stehende GND-Schlagworte:\n{keywords}\nBitte gib deine Antwort in folgendem Format:\nANALYSE:\n[Deine qualitative Analyse der Verschlagwortung]\nSchlagworte:\n[Liste der passende Schlagwort aus dem Prompt - bitte kommagetrennt. ***Nutze keine Synonyme oder alternative Schreibweisen/Formulierungen***]\nSchlagworte OGND Eintrage:\n[Liste der passende Konzepte mit der zugehörigen OGND-ID aus dem Prompt  - bitte kommagetrennt]\nSchlagwortketten:\n[Nutze Kombinationen von OGND-Schlagworten um bestimmte Themenbereiche konkret zu beschreiben oder um Konzepte, die durch ein Schlagwort nicht korrekt abgedeckt sind. Trenne die Schlagworte (mit GND-ID) in den Ketten mit Komma. Nimm für jede Schlagwortkette eine neue Zeile - Kommentiere zu jeder Schlagwortkette kurz, wieso diese passend ist]\nFEHLENDE KONZEPTE:\n[Liste von Konzepten, die noch nicht durch GND abgedeckt sind]\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:\n[Kommatagetrennte Liste von Oberbegriffen, die die fehlenden Konzepte abdecken könnten]",
+                "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Give the final matching keywords as last line, each seperated by |, between the tags <final_list> and </final_list>. Now, try to solve the following question through the above guidelines:",
+                "0.4",
+                "0.1",
+                [
+                    "cogito:32b"
+                ]
             ]
         ]
     },
@@ -98,6 +107,15 @@
                     "openthinker:32b",
                     "llama3:70b-instruct-q2_K",
                     "gemma-3-27b-it"
+                ]
+            ],
+            [
+                "Du bist ein korrekter und fachlich versierter Bibliothekar. Basierend auf folgendem Abstract und Keywords, schlage passende vollständig deutsche Schlagworte vor. Diese Schlagworte sollen als Suchbegriffe dienen, um in kontrolliertem Vokabular zu suchen. Daher sollen für spezielle Begriffe zusätlich noch die Oberbegriffe geliefert werden. Zerlege weiterhin bei komplexen Themen, zerlege die Schlagworte in einzelene und verhindere damit unnötig zusammengesetzte Schlagworte. Als Beispiel Dampfschifffahrtkaptitän -> Dampfschifffahrt, Kapitän und Thermodynamischer Template-Effekt -> Thermodynamik, Template-Effekt.\nAbstract:\n{abstract}\nVorhandene Keywords:\n{keywords}\nBitte gib nur eine Liste deutscher Schlagworte zurück, die für eine bibliothekarische Erschließung geeignet sind.\nDie Schlagworte sollten möglichst präzise und spezifisch sein.",
+                "Your role as a librarians involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. Give the final keywords as last line, each seperated by |, between the tags <final_list> and </final_list> . Now, try to solve the following question through the above guidelines:",
+                "0.25",
+                "0.1",
+                [
+                    "cogito:32b"
                 ]
             ]
         ]

@@ -597,6 +597,7 @@ class SearchTab(QWidget):
 
                 # Verbinde Signal für Fortschrittsanzeige
                 suggester.currentTerm.connect(self.current_term_update)
+                QApplication.processEvents()
 
                 # Führe Suche durch
                 results = suggester.search(search_terms)
@@ -673,7 +674,9 @@ class SearchTab(QWidget):
         self.logger.info(f"Verarbeite Ergebnisse: {len(results)} Suchbegriffe gefunden")
 
         for search_term, term_results in results.items():
+            self.logger.info(f"Verarbeite Suchbegriff: {search_term}")
             for keyword, data in term_results.items():
+                self.logger.info(f"Verarbeite Schlagwort: {keyword}")
                 # Bestimme die Beziehung zum Suchbegriff
                 relation = self.determine_relation(keyword, search_term)
 
@@ -690,10 +693,12 @@ class SearchTab(QWidget):
                     # Aktualisiere oder erstelle Datenbankeintrag
                     if self.cache_manager.gnd_keyword_exists(keyword):
                         # GND-ID existiert bereits in der Datenbank
-                        self.logger.debug(f"GND-ID existiert bereits: {gnd_id}")
+                        self.logger.info(f"GND-ID existiert bereits: {gnd_id}")
                     else:
                         self.update_database_entry(gnd_id, keyword, data)
+                        self.logger.info(f"Neue GND-ID gefunden: {gnd_id}")
                 else:
+                    self.logger.info(f"Get from DB: {keyword}")
                     entry = self.cache_manager.get_gnd_keyword(keyword)
                     if entry:
                         # Verwende GND-ID aus Cache
@@ -761,13 +766,15 @@ class SearchTab(QWidget):
             self.cache_manager.insert_gnd_entry(gnd_id, title=title)
 
         # Bei neuen Einträgen oder relevanten Einträgen aktualisiere die Daten
-        entry = self.cache_manager.get_gnd_entry(gnd_id)
-        if entry and entry["created_at"] == entry["updated_at"]:
-            # Dieser Eintrag wurde noch nicht aktualisiert
-            if (
-                title != gnd_id
-            ):  # Ignoriere Einträge, bei denen der Titel die GND-ID ist
-                self.update_entry(gnd_id)
+
+        # vorübergehend nicht durchführend
+        # entry = self.cache_manager.get_gnd_entry(gnd_id)
+        # if entry and entry["created_at"] == entry["updated_at"]:
+        # Dieser Eintrag wurde noch nicht aktualisiert
+        #    if (
+        #        title != gnd_id
+        #    ):  # Ignoriere Einträge, bei denen der Titel die GND-ID ist
+        #        self.update_entry(gnd_id)
 
     def display_results(self, sorted_results):
         """Zeigt die Suchergebnisse in der Tabelle an"""
