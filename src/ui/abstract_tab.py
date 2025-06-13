@@ -65,6 +65,7 @@ class AbstractTab(QWidget):
     keywords_extracted = pyqtSignal(str)
     abstract_changed = pyqtSignal(str)
     final_list = pyqtSignal(str)
+    gnd_systematic = pyqtSignal(str)
 
     def __init__(
         self,
@@ -1137,7 +1138,8 @@ class AbstractTab(QWidget):
             str: Komma-getrennte Keywords in Anführungszeichen
         """
         # Versuche, Keywords zwischen <final_list> Tags zu finden
-        match = re.search(r"<final_list>(.*?)</final_list>", text, re.DOTALL)
+        cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        match = re.search(r"<final_list>(.*?)</final_list>", cleaned_text, re.DOTALL)
         if not match:
             self.logger.warning("No <final_list> tags found in response")
             return ""
@@ -1154,6 +1156,36 @@ class AbstractTab(QWidget):
         # Sende Signal mit Ergebnis
         self.final_list.emit(result)
         return result
+
+    def extract_gnd_system(self, text: str) -> str:
+        """
+        Removes <think> content and extracts <class> content from LLM response.
+
+        Args:
+            text: Raw response text from LLM
+
+        Returns:
+            Extracted class content or empty string if not found
+        """
+        try:
+            # First remove everything between <think> tags
+            cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+            self.logger.debug(f"Text after removing think tags: {cleaned_text}")
+
+            # Then extract content between <class> tags
+            match = re.search(r"<class>(.*?)</class>", cleaned_text, re.DOTALL)
+            if not match:
+                self.logger.warning("No <class> tags found in cleaned response")
+                return ""
+
+            ognd_system = match.group(1).strip()
+            self.logger.info(f"Extracted OGND system: {ognd_system}")
+            self.gnd_systematic.emit(ognd_system)
+            return ognd_system
+
+        except Exception as e:
+            self.logger.error(f"Error extracting class content: {str(e)}")
+            return ""
 
     def handle_error(self, title: str, message: str):
         """Zeigt einen Fehlerdialog an."""
@@ -1213,6 +1245,12 @@ class AbstractTab(QWidget):
         except:
             text_to_copy = response
 
+        try:
+            # Versuche, OGND-System zu extrahieren
+            ognd_system = self.extract_gnd_system(response)
+
+        except Exception as e:
+            self.logger.error(f"Error extracting OGND system: {e}")
         # In Zwischenablage kopieren
         clipboard = QApplication.clipboard()
         clipboard.setText(text_to_copy)
@@ -1266,7 +1304,10 @@ class AbstractTab(QWidget):
 
             try:
                 keywords = self.extract_keywords(response)
+                ognd_system = self.extract_gnd_system(response)
+
                 self.keywords_extracted.emit(keywords)
+                self.gnd_systematic.emit(ognd_system)
             except Exception as e:
                 self.logger.error(f"Error extracting keywords from history: {e}")
 

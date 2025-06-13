@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QGridLayout,
+    QTabWidget,
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QIcon
@@ -29,6 +30,128 @@ from pathlib import Path
 
 # Importiere den Meta-Suggester, der alle anderen Suggester vereinheitlicht
 from ..core.suggesters.meta_suggester import MetaSuggester, SuggesterType
+
+
+class GNDSystemFilterWidget(QGroupBox):
+    """
+    Widget zum Filtern nach GND-Systematiken.
+    Erlaubt das manuelle Hinzufügen/Entfernen von GND-Systematiken für die Filterung.
+    """
+
+    def __init__(self, parent=None, cache_manager=None):
+        super().__init__("GND-Systematik-Filter", parent)
+        self.cache_manager = cache_manager
+        self.selected_systems = set()  # Aktuell ausgewählte GND-Systematiken
+
+        self.init_ui()
+
+    def init_ui(self):
+        """Initialisiert die Benutzeroberfläche des GND-Systematik-Filters"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(10, 20, 10, 10)
+
+        # Suchbereich für GND-Systematiken
+        search_layout = QHBoxLayout()
+
+        self.system_input = QTextEdit()
+        self.system_input.setPlaceholderText(
+            "GND-Systematik eingeben (z.B. '7.12' für Musik)"
+        )
+        self.system_input.setMaximumHeight(60)
+        search_layout.addWidget(self.system_input)
+
+        buttons_layout = QVBoxLayout()
+
+        self.add_button = QPushButton("Hinzufügen")
+        self.add_button.clicked.connect(self.add_system)
+        buttons_layout.addWidget(self.add_button)
+
+        self.clear_button = QPushButton("Zurücksetzen")
+        self.clear_button.clicked.connect(self.clear_systems)
+        buttons_layout.addWidget(self.clear_button)
+
+        search_layout.addLayout(buttons_layout)
+        layout.addLayout(search_layout)
+
+        # Tabelle für ausgewählte GND-Systematiken
+        self.systems_table = QTableWidget()
+        self.systems_table.setColumnCount(3)
+        self.systems_table.setHorizontalHeaderLabels(
+            ["GND-Systematik", "Beschreibung", "Aktion"]
+        )
+        self.systems_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.systems_table.setAlternatingRowColors(True)
+        self.systems_table.verticalHeader().setVisible(False)
+
+        layout.addWidget(self.systems_table)
+
+        # Knopf zur Anwendung der Filter
+        self.apply_button = QPushButton("Filter anwenden")
+        self.apply_button.clicked.connect(self.apply_filter)
+        layout.addWidget(self.apply_button)
+
+    def add_system(self):
+        """Fügt eine GND-Systematik zur Filterliste hinzu"""
+        system = self.system_input.toPlainText().strip()
+        if not system:
+            return
+        self.add_system(system)
+
+    def add_system(self, system):
+        # Prüfe, ob diese Systematik bereits hinzugefügt wurde
+        if system in self.selected_systems:
+            return
+
+        # Füge zur Menge hinzu
+        self.selected_systems.add(system)
+
+        # Füge zur Tabelle hinzu
+        row = self.systems_table.rowCount()
+        self.systems_table.insertRow(row)
+
+        # Erstelle Items für die Tabelle
+        system_item = QTableWidgetItem(system)
+        self.systems_table.setItem(row, 0, system_item)
+
+        # Beschreibung (könnte aus einer Datenbank kommen)
+        description = "empty"  # self.get_system_description(system)
+        desc_item = QTableWidgetItem(description)
+        self.systems_table.setItem(row, 1, desc_item)
+
+        # Lösch-Button
+        delete_btn = QPushButton("Entfernen")
+        delete_btn.clicked.connect(lambda _, r=row, s=system: self.remove_system(r, s))
+        self.systems_table.setCellWidget(row, 2, delete_btn)
+
+        # Leere das Eingabefeld
+        self.system_input.clear()
+
+    def remove_system(self, row, system):
+        """Entfernt eine GND-Systematik aus der Filterliste"""
+        self.systems_table.removeRow(row)
+        self.selected_systems.remove(system)
+
+    def clear_systems(self):
+        """Entfernt alle GND-Systematiken aus der Filterliste"""
+        self.systems_table.setRowCount(0)
+        self.selected_systems.clear()
+
+    def apply_filter(self):
+        """Wendet die GND-Systematik-Filter an und generiert eine gefilterte Liste von Schlagwörtern"""
+        # Implementierung der Filterlogik hier
+        if not self.selected_systems:
+            return
+
+        # Diese Methode sollte die Hauptsuche informieren, nach welchen GND-Systematiken gefiltert werden soll
+        # Signal könnte hier emittiert werden
+        pass
+
+    def get_selected_systems(self):
+        """Gibt die aktuell ausgewählten GND-Systematiken zurück"""
+        return list(self.selected_systems)
 
 
 class SearchTab(QWidget):
@@ -267,9 +390,9 @@ class SearchTab(QWidget):
         table_layout.addWidget(table_header)
 
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(4)
+        self.results_table.setColumnCount(5)
         self.results_table.setHorizontalHeaderLabels(
-            ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit"]
+            ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit", "GND-Systematik"]
         )
         self.results_table.setStyleSheet(
             """
@@ -331,11 +454,21 @@ class SearchTab(QWidget):
 
         results_box_layout.addWidget(upper_splitter)
 
-        # ========= DDC-Filter-Bereich =========
-        filter_group = QGroupBox("DDC-Filter für Schlagwortgenerierung")
+        # Wo vorher der DDC-Filter-Bereich war, fügen wir ein Tab-Widget ein
+        # ========= Filter-Bereich mit Tabs =========
+        filter_group = QGroupBox("Filteroptionen für Schlagwortgenerierung")
         filter_layout = QVBoxLayout(filter_group)
         filter_layout.setSpacing(8)
         filter_layout.setContentsMargins(10, 20, 10, 10)
+
+        # Tab-Widget für DDC und GND-Systematik
+        self.filter_tabs = QTabWidget()
+
+        # DDC-Tab (bestehender Code)
+        ddc_widget = QWidget()
+        ddc_layout = QVBoxLayout(ddc_widget)
+        ddc_layout.setSpacing(8)
+        ddc_layout.setContentsMargins(10, 10, 10, 10)
 
         # DDC-Checkboxen in einem schönen Grid-Layout
         ddc_frame = QFrame()
@@ -391,7 +524,45 @@ class SearchTab(QWidget):
         self.ddcX_check.setChecked(True)
         ddc_grid.addWidget(self.ddcX_check, 2, 4)
 
-        filter_layout.addWidget(ddc_frame)
+        ddc_layout.addWidget(ddc_frame)
+
+        # Button zur DDC-Schlagwortgenerierung
+        self.ddc_regenerate_button = QPushButton(
+            "Nach DDC gefilterte Schlagwörter generieren"
+        )
+        self.ddc_regenerate_button.setToolTip(
+            "Erzeugt eine gefilterte Liste von Schlagwörtern basierend auf DDC-Klassen"
+        )
+        self.ddc_regenerate_button.setMinimumHeight(40)
+        self.ddc_regenerate_button.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {accent_color};
+                color: black;
+            }}
+            QPushButton:hover {{
+                background-color: #e1b222;
+            }}
+        """
+        )
+        self.ddc_regenerate_button.clicked.connect(self.generate_ddc_prompt)
+        ddc_layout.addWidget(self.ddc_regenerate_button)
+
+        # Zum Tab hinzufügen
+        self.filter_tabs.addTab(ddc_widget, "DDC-Filter")
+
+        # GND-Systematik-Tab (neu)
+        self.gnd_filter_widget = GNDSystemFilterWidget(self, self.cache_manager)
+        self.filter_tabs.addTab(self.gnd_filter_widget, "GND-Systematik-Filter")
+
+        # Verbinde Button mit Funktion
+        self.gnd_filter_widget.apply_button.clicked.connect(self.generate_gnd_prompt)
+
+        # Tab-Widget zum Layout hinzufügen
+        filter_layout.addWidget(self.filter_tabs)
+
+        # Füge die gesamte Filter-Gruppe zum Layout hinzu
+        results_box_layout.addWidget(filter_group)
 
         # Button zur Schlagwortgenerierung
         self.regenerate_button = QPushButton("Gefilterte Schlagwörter generieren")
@@ -410,66 +581,11 @@ class SearchTab(QWidget):
             }}
         """
         )
-        self.regenerate_button.clicked.connect(self.generate_prompt)
+        self.regenerate_button.clicked.connect(self.generate_ddc_prompt)
         filter_layout.addWidget(self.regenerate_button)
 
         # Füge Filter-Bereich zur Ergebnisgruppe hinzu
         results_box_layout.addWidget(filter_group)
-
-        # ========= Katalogbasierter Bereich =========
-        # Fügt einen visuellen Kommentar hinzu, dass dieser Bereich bald entfernt wird
-        obsolete_note = QLabel(
-            "⚠️ HINWEIS: Dieser Bereich ist veraltet und wird in einer zukünftigen Version entfernt"
-        )
-        obsolete_note.setStyleSheet(
-            f"color: {error_color}; background-color: #FFEEEE; padding: 6px; border-radius: 4px; border: 1px solid {error_color};"
-        )
-        results_box_layout.addWidget(obsolete_note)
-
-        catalog_group = QGroupBox("Katalogbasierte Schlagwörter (VERALTET)")
-        catalog_group.setStyleSheet(
-            """
-            QGroupBox { 
-                border: 1px dashed #e74c3c; 
-                color: #e74c3c;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                color: #e74c3c;
-            }
-        """
-        )
-        catalog_layout = QVBoxLayout(catalog_group)
-        catalog_layout.setSpacing(8)
-
-        self.content_display = QTextEdit()
-        self.content_display.setReadOnly(True)
-        self.content_display.setPlaceholderText(
-            "Hier erscheinen katalogbasierte Schlagwörter (veraltet)"
-        )
-        self.content_display.setStyleSheet("border: 1px solid #ffcccc;")
-        catalog_layout.addWidget(self.content_display)
-
-        self.use_catalog_button = QPushButton("Katalog-Schlagwörter verwenden")
-        self.use_catalog_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                opacity: 0.7;
-            }
-            QPushButton:hover {
-                background-color: #c0392b;
-            }
-        """
-        )
-        self.use_catalog_button.clicked.connect(self.generate_prompt_katalog)
-        catalog_layout.addWidget(self.use_catalog_button)
-
-        # Füge katalogbasierten Bereich zur Ergebnisgruppe hinzu
-        results_box_layout.addWidget(catalog_group)
 
         # Füge die gesamte Ergebnisgruppe zum Layout hinzu
         layout.addWidget(results_group)
@@ -691,12 +807,12 @@ class SearchTab(QWidget):
                     self.gnd_ids.append(gnd_id)
 
                     # Aktualisiere oder erstelle Datenbankeintrag
-                    if self.cache_manager.gnd_keyword_exists(keyword):
-                        # GND-ID existiert bereits in der Datenbank
-                        self.logger.info(f"GND-ID existiert bereits: {gnd_id}")
-                    else:
-                        self.update_database_entry(gnd_id, keyword, data)
-                        self.logger.info(f"Neue GND-ID gefunden: {gnd_id}")
+                    # if self.cache_manager.gnd_keyword_exists(keyword):
+                    #    # GND-ID existiert bereits in der Datenbank
+                    #    self.logger.info(f"GND-ID existiert bereits: {gnd_id}")
+                    # else:
+                    #    self.update_database_entry(gnd_id, keyword, data)
+                    #    self.logger.info(f"Neue GND-ID gefunden: {gnd_id}")
                 else:
                     self.logger.info(f"Get from DB: {keyword}")
                     entry = self.cache_manager.get_gnd_keyword(keyword)
@@ -808,6 +924,11 @@ class SearchTab(QWidget):
             self.results_table.setItem(row, 2, count_item)
             self.results_table.setItem(row, 3, rel_item)
 
+            entry = self.cache_manager.get_gnd_entry(gnd_id)
+            if entry:
+                gnd_system_item = QTableWidgetItem(entry.get("gnd_systems"))
+                self.results_table.setItem(row, 4, gnd_system_item)
+
     def generate_initial_prompt(self, sorted_results):
         """Generiert einen initialen Prompt basierend auf den Suchergebnissen"""
         initial_prompt = []
@@ -823,7 +944,7 @@ class SearchTab(QWidget):
         if initial_prompt:
             self.keywords_found.emit(", ".join(initial_prompt))
 
-    def generate_prompt(self):
+    def generate_ddc_prompt(self):
         """Generiert einen Prompt basierend auf DDC-Filterung"""
         filtered_items = []
 
@@ -880,96 +1001,56 @@ class SearchTab(QWidget):
         else:
             self.status_label.setText("Keine Schlagwörter entsprechen den DDC-Filtern")
 
-    # VERALTET: Diese Methode ist obsolet und wird in einer zukünftigen Version entfernt
-    def search_katalog(self):
-        """
-        VERALTET: Führt eine Suche im Katalog durch ohne Datenbankanreicherung
-        (Einbindung der alten Katalogsuche)
-        """
-        self.logger.warning(
-            "VERALTET: Die Methode search_katalog ist veraltet und wird bald entfernt"
-        )
+    # Neue Funktion für GND-Systematik-Filterung hinzufügen
+    def generate_gnd_prompt(self):
+        """Generiert einen Prompt basierend auf GND-Systematik-Filterung"""
+        selected_systems = self.gnd_filter_widget.get_selected_systems()
 
-        # Für Abwärtskompatibilität mit der alten Katalogsuche
-        # UI-Updates vor der Suche
-        self.search_button.setEnabled(False)
-        self.status_label.setText("Katalogsuche wird durchgeführt...")
-        self.katalog_keywords.clear()
-        QApplication.processEvents()
-
-        # Extrahiere Suchbegriffe
-        text = self.search_input.toPlainText().strip()
-        search_terms = self.extract_search_terms(text)
-
-        try:
-            # Verwende MetaSuggester mit CATALOG_FALLBACK
-            from ..core.suggesters.meta_suggester import SuggesterType
-
-            suggester = MetaSuggester(
-                suggester_type=SuggesterType.CATALOG_FALLBACK, debug=True
-            )
-
-            # Verbinde Signal für Fortschrittsanzeige
-            suggester.currentTerm.connect(self.current_term_update)
-
-            # Setze Progress-Bar
-            self.progressBar.setValue(0)
-            self.progressBar.setMaximum(len(search_terms))
-
-            # Führe Suche durch
-            results = suggester.search(search_terms)
-
-            # Zeige Ergebnisse im Content-Display an
-            self.content_display.clear()
-
-            # Sammle alle gefundenen Schlagwörter
-            all_keywords = []
-
-            for search_term, term_results in results.items():
-                for keyword, data in term_results.items():
-                    # Suche nach passender GND-ID in der Datenbank
-                    gnd_id = next(iter(data.get("gndid", [])), "")
-                    if gnd_id:
-                        if self.cache_manager.gnd_keyword_exists(keyword):
-                            gnd_entry = self.cache_manager.get_gnd_keyword(keyword)
-                            all_keywords.append(
-                                f"{gnd_entry['title']} ({gnd_entry['gnd_id']})"
-                            )
-                        else:
-                            all_keywords.append(f"{keyword} ({gnd_id})")
-
-            # Entferne Duplikate
-            self.katalog_keywords = list(set(all_keywords))
-
-            # Zeige Ergebnisse an
-            self.content_display.append("; ".join(self.katalog_keywords))
-
-            # Generiere Prompt mit Katalogschlagwörtern
-            self.generate_prompt_katalog()
-
-        except Exception as e:
-            self.logger.error(f"Fehler bei der Katalogsuche: {str(e)}")
-            self.error_occurred.emit(f"Fehler bei der Katalogsuche: {str(e)}")
-
-        finally:
-            self.search_button.setEnabled(True)
-            self.status_label.setText("Katalogsuche abgeschlossen")
-
-    # VERALTET: Diese Methode ist obsolet und wird in einer zukünftigen Version entfernt
-    def generate_prompt_katalog(self):
-        """
-        VERALTET: Generiert einen Prompt basierend auf Katalogschlagwörtern
-        """
-        self.logger.warning(
-            "VERALTET: Die Methode generate_prompt_katalog ist veraltet und wird bald entfernt"
-        )
-
-        if not self.katalog_keywords:
-            self.status_label.setText("Keine Katalog-Schlagwörter verfügbar.")
+        if not selected_systems:
+            self.status_label.setText("Keine GND-Systematiken ausgewählt.")
             return
 
-        # Sende Signal mit den Katalog-Schlagwörtern
-        self.keywords_found.emit(", ".join(self.katalog_keywords))
+        filtered_items = []
+
+        for gnd_id in self.gnd_ids:
+            gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
+            if not gnd_entry:
+                continue
+
+            # GND-Systematiken sind mit | getrennt
+            gnd_systems = gnd_entry.get("gnd_systems", "").split("|")
+            include = False
+
+            # Prüfe, ob mindestens eine der GND-Systematiken den Filterkriterien entspricht
+            for system in gnd_systems:
+                system = system.strip()
+                if not system:
+                    continue
+
+                # Vergleiche mit ausgewählten Systemen (Präfixvergleich)
+                for selected in selected_systems:
+                    if system.startswith(selected):
+                        include = True
+                        break
+
+                if include:
+                    break
+
+            # Wenn mindestens eine GND-Systematik den Kriterien entspricht, füge den Begriff hinzu
+            if include:
+                list_item = f"{gnd_entry['title']} ({gnd_id})"
+                filtered_items.append(list_item)
+
+        # Sende Signal mit den gefilterten Schlagwörtern
+        if filtered_items:
+            self.keywords_found.emit(", ".join(filtered_items))
+            self.status_label.setText(
+                f"{len(filtered_items)} nach GND-Systematik gefilterte Schlagwörter generiert"
+            )
+        else:
+            self.status_label.setText(
+                "Keine Schlagwörter entsprechen den GND-Systematik-Filtern"
+            )
 
     def update_selected_entry(self):
         """Aktualisiert den aktuell ausgewählten Eintrag"""
@@ -1143,21 +1224,25 @@ class SearchTab(QWidget):
         """Aktualisiert das Suchfeld mit den gegebenen Schlüsselwörtern"""
         self.search_input.setText(keywords)
 
-    # VERALTET: Diese Methoden sind obsolet und werden in einer zukünftigen Version entfernt
-    def load_settings(self, settings: QSettings):
+    def set_gnd_systematic(self, systematic: str):
         """
-        VERALTET: Lädt gespeicherte Einstellungen
-        """
-        self.logger.warning(
-            "VERALTET: Die Methode load_settings ist veraltet und wird bald entfernt"
-        )
-        pass
+        Setzt die GND-Systematik für die Filterung.
 
-    def save_settings(self, settings: QSettings):
+        Args:
+            systematic: String mit '|'-separierten GND-Systematiken
         """
-        VERALTET: Speichert aktuelle Einstellungen
-        """
-        self.logger.warning(
-            "VERALTET: Die Methode save_settings ist veraltet und wird bald entfernt"
-        )
-        pass
+        if systematic:
+            # Split by | and filter out empty strings
+            systematics = [sys.strip() for sys in systematic.split("|") if sys.strip()]
+
+            # Clear existing filters first
+            self.gnd_filter_widget.clear_systems()
+
+            # Add each systematic to filter
+            for sys in systematics:
+                self.gnd_filter_widget.add_system(sys)
+
+            # Apply the filter
+            self.gnd_filter_widget.apply_filter()
+        else:
+            self.gnd_filter_widget.clear_systems()

@@ -363,6 +363,8 @@ class MainWindow(QMainWindow):
         self.ub_search_tab = UBSearchTab(llm=self.llm)
 
         self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
+        self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
+
         self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
 
         self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
@@ -531,7 +533,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(last_tab)
 
         # Update der Tab-Einstellungen
-        self.search_tab.load_settings(self.settings)
+        # self.search_tab.load_settings(self.settings)
         self.ollama_url.setText(self.settings.value("ollama_url", "http://localhost"))
         self.llm.set_ollama_url(self.ollama_url.text())
         self.ollama_port.setText(self.settings.value("ollama_port", "11434"))
@@ -545,7 +547,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("ollama_url", self.ollama_url.text())
         self.settings.setValue("ollama_port", self.ollama_port.text())
         # Speichere Tab-Einstellungen
-        self.search_tab.save_settings(self.settings)
+        # self.search_tab.save_settings(self.settings)
 
     def export_results(self):
         """Exportiert die aktuellen Suchergebnisse"""
