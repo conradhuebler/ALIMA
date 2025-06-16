@@ -12,3 +12,4 @@ openai>=1.76
 pillow
 sockets
 subprocess
+crawl4ai

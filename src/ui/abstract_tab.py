@@ -114,6 +114,9 @@ class AbstractTab(QWidget):
         self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
         self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
 
+        self.keywords = ""
+        self.abstract = ""
+
         # Set up the UI
         self.setup_ui()
         self.setup_animations()
@@ -606,6 +609,7 @@ class AbstractTab(QWidget):
         self.analyze_button = QPushButton("Analyse starten")
         self.analyze_button.setToolTip("Startet die KI-gestützte Analyse des Textes")
         self.analyze_button.setMinimumHeight(40)
+        self.analyze_button.setShortcut("Ctrl+Return")
         self.analyze_button.clicked.connect(self.start_analysis)
         button_layout.addWidget(self.analyze_button)
 
@@ -791,7 +795,8 @@ class AbstractTab(QWidget):
             # Save template and system prompt
             self.current_template = config.get("prompt", "")
             self.system = config.get("system", "")
-
+            self.logger.info(self.current_template)
+            self.logger.info(self.system)
             # Update UI
             self.set_input()
         except Exception as e:
@@ -1313,12 +1318,18 @@ class AbstractTab(QWidget):
 
     def set_keywords(self, keywords):
         """Setzt die Keywords im Eingabefeld."""
-        self.keywords_edit.setPlainText(keywords)
+        self.logger.info(f"Setting keywords: {keywords}")
+        self.keywords = keywords
+        self.keywords_edit.setPlainText(self.keywords)
+        self.abstract_edit.setPlainText(self.abstract)
+
         self.update_input()
 
     def set_abstract(self, abstract):
         """Setzt den Abstract im Eingabefeld."""
-        self.abstract_edit.setPlainText(abstract)
+        self.abstract = abstract
+        self.abstract_edit.setPlainText(self.abstract)
+        self.keywords_edit.setPlainText(self.keywords)
         self.update_input()
 
     def prompt_generated(self, prompt):

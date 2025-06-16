@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import (
+    QApplication,
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -20,8 +21,13 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QTextEdit,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSlot
+import requests
+import gzip
+import os
+import tempfile
 from pathlib import Path
+from PyQt6.QtCore import Qt, QSettings, pyqtSlot, QThread, pyqtSignal
+from PyQt6.QtGui import QCursor
 import re
 import os
 import sys
@@ -347,6 +353,7 @@ class MainWindow(QMainWindow):
 
         self.abstract_tab = AbstractTab(llm=self.llm)
         self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
+        self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
         # self.abstract_tab.final_list.connect(self.update_search_field)
         self.abstract_tab.template_name = "abstract_analysis"
         self.abstract_tab.set_model_recommendations("abstract")
@@ -604,13 +611,237 @@ class MainWindow(QMainWindow):
         """Zeigt eine Fehlermeldung"""
 
     def import_gnd_database(self):
-        """Importiert die GND-Datenbank"""
-        filename = QFileDialog.getOpenFileName(
-            self, "GND-Datenbank auswählen", "", "XML-Dateien (*.xml)"
+        """Importiert die GND-Datenbank aus einer lokalen Datei oder lädt sie von DNB herunter"""
+        from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QFileDialog
+        from PyQt6.QtCore import Qt, QThread, pyqtSignal
+        from PyQt6.QtGui import QCursor
+        import os
+
+        # Ask user for source
+        reply = QMessageBox.question(
+            self,
+            "GND-Datenbank Import",
+            "Möchten Sie eine lokale Datei auswählen oder die aktuelle GND-Datenbank von DNB herunterladen und speichern?",
+            QMessageBox.StandardButton.Open
+            | QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
         )
-        parser = GNDParser(self.cache_manager)
-        self.logger.info(f"Importiere GND-Datenbank: {filename[0]}")
-        parser.process_file(filename[0])
+
+        xml_file_path = None
+
+        # Set wait cursor
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+
+        try:
+            if reply == QMessageBox.StandardButton.Open:
+                # Restore cursor for file dialog
+                QApplication.restoreOverrideCursor()
+
+                # Select local file
+                filename, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "GND-Datenbank auswählen",
+                    "",
+                    "XML/GZ-Dateien (*.xml *.xml.gz *.gz)",
+                )
+
+                if filename:
+                    # Set wait cursor again
+                    QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+                    xml_file_path = self._handle_file_extraction(filename)
+
+            elif reply == QMessageBox.StandardButton.Save:
+                # Download from DNB
+                xml_file_path = self._download_and_extract_gnd()
+
+            else:
+                # Cancel
+                QApplication.restoreOverrideCursor()
+                return
+
+            if xml_file_path and os.path.exists(xml_file_path):
+                try:
+                    # Create progress dialog for parsing
+                    progress = QProgressDialog(
+                        "Importiere GND-Datenbank...", "Abbrechen", 0, 0, self
+                    )
+                    progress.setWindowModality(Qt.WindowModality.WindowModal)
+                    progress.setMinimumDuration(0)
+                    progress.show()
+
+                    # Process events to show progress dialog
+                    QApplication.processEvents()
+
+                    parser = GNDParser(self.cache_manager)
+                    self.logger.info(f"Importiere GND-Datenbank: {xml_file_path}")
+
+                    # Connect parser progress signals if available
+                    if hasattr(parser, "progress_updated"):
+                        parser.progress_updated.connect(progress.setValue)
+                        parser.status_updated.connect(progress.setLabelText)
+
+                    parser.process_file(xml_file_path)
+
+                    progress.close()
+                    QMessageBox.information(
+                        self, "Erfolg", "GND-Datenbank erfolgreich importiert!"
+                    )
+
+                except Exception as e:
+                    progress.close()
+                    QMessageBox.critical(
+                        self, "Fehler", f"Fehler beim Importieren: {str(e)}"
+                    )
+            else:
+                QMessageBox.warning(
+                    self, "Fehler", "Keine gültige Datei zum Importieren gefunden."
+                )
+
+        finally:
+            # Always restore cursor
+            QApplication.restoreOverrideCursor()
+
+    def _handle_file_extraction(self, filename: str) -> str:
+        """Behandelt die Extraktion von gz-Dateien"""
+        import gzip
+        import tempfile
+        from pathlib import Path
+        from PyQt6.QtWidgets import QProgressDialog
+        from PyQt6.QtCore import Qt
+
+        if filename.endswith(".gz"):
+            # Extract gz file
+            try:
+                # Create progress dialog for extraction
+                progress = QProgressDialog("Entpacke Datei...", "Abbrechen", 0, 0, self)
+                progress.setWindowModality(Qt.WindowModality.WindowModal)
+                progress.setMinimumDuration(0)
+                progress.show()
+                QApplication.processEvents()
+
+                # Create temporary file for extracted content
+                temp_dir = tempfile.mkdtemp()
+                extracted_filename = Path(filename).stem  # Remove .gz extension
+                temp_xml_path = os.path.join(temp_dir, extracted_filename)
+
+                self.logger.info(f"Extrahiere {filename} nach {temp_xml_path}")
+
+                with gzip.open(filename, "rb") as gz_file:
+                    with open(temp_xml_path, "wb") as xml_file:
+                        # Read in chunks to allow for progress updates
+                        chunk_size = 1024 * 1024  # 1MB chunks
+                        while True:
+                            if progress.wasCanceled():
+                                progress.close()
+                                return None
+
+                            chunk = gz_file.read(chunk_size)
+                            if not chunk:
+                                break
+                            xml_file.write(chunk)
+                            QApplication.processEvents()
+
+                progress.close()
+                return temp_xml_path
+
+            except Exception as e:
+                if "progress" in locals():
+                    progress.close()
+                self.logger.error(f"Fehler beim Extrahieren der gz-Datei: {str(e)}")
+                QMessageBox.critical(
+                    self, "Fehler", f"Fehler beim Extrahieren: {str(e)}"
+                )
+                return None
+        else:
+            # File is already XML
+            return filename
+
+    def _download_and_extract_gnd(self) -> str:
+        """Lädt die GND-Datenbank von DNB herunter und extrahiert sie"""
+        import requests
+        import gzip
+        import tempfile
+        from PyQt6.QtWidgets import QProgressDialog
+        from PyQt6.QtCore import Qt
+
+        url = "https://data.dnb.de/GND/authorities-gnd-sachbegriff_dnbmarc.mrc.xml.gz"
+
+        try:
+            # Create progress dialog
+            progress = QProgressDialog(
+                "Lade GND-Datenbank herunter...", "Abbrechen", 0, 100, self
+            )
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.show()
+
+            # Download file
+            self.logger.info(f"Lade GND-Datenbank herunter von: {url}")
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+
+            # Get file size if available
+            total_size = int(response.headers.get("content-length", 0))
+
+            # Create temporary files
+            temp_dir = tempfile.mkdtemp()
+            temp_gz_path = os.path.join(temp_dir, "gnd_data.xml.gz")
+            temp_xml_path = os.path.join(temp_dir, "gnd_data.xml")
+
+            # Download with progress
+            downloaded = 0
+            with open(temp_gz_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if progress.wasCanceled():
+                        progress.close()
+                        return None
+
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+                    if total_size > 0:
+                        progress.setValue(
+                            int((downloaded / total_size) * 50)
+                        )  # 50% for download
+
+                    QApplication.processEvents()
+
+            progress.setLabelText("Entpacke Datenbank...")
+            progress.setValue(50)
+            QApplication.processEvents()
+
+            # Extract gz file
+            self.logger.info(f"Entpacke {temp_gz_path} nach {temp_xml_path}")
+            with gzip.open(temp_gz_path, "rb") as gz_file:
+                with open(temp_xml_path, "wb") as xml_file:
+                    xml_file.write(gz_file.read())
+
+            progress.setValue(100)
+            progress.close()
+
+            # Clean up gz file
+            os.remove(temp_gz_path)
+
+            self.logger.info(
+                f"GND-Datenbank erfolgreich heruntergeladen und entpackt: {temp_xml_path}"
+            )
+            return temp_xml_path
+
+        except requests.RequestException as e:
+            if "progress" in locals():
+                progress.close()
+            self.logger.error(f"Fehler beim Herunterladen: {str(e)}")
+            QMessageBox.critical(
+                self, "Download-Fehler", f"Fehler beim Herunterladen: {str(e)}"
+            )
+            return None
+        except Exception as e:
+            if "progress" in locals():
+                progress.close()
+            self.logger.error(f"Fehler beim Verarbeiten der Datei: {str(e)}")
+            QMessageBox.critical(self, "Fehler", f"Fehler beim Verarbeiten: {str(e)}")
+            return None
 
     # In der MainWindow Klasse - füge folgende Methoden hinzu
 

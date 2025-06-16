@@ -174,6 +174,7 @@ class GNDParser:
             self.logger.info(
                 f"Verarbeitung von {file_path} abgeschlossen. {count} Einträge importiert."
             )
+            self.db.save_to_file()
             return count
 
         except Exception as e:

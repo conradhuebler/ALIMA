@@ -357,6 +357,7 @@ class SearchTab(QWidget):
         # self.search_button.setIcon(QIcon("search.png") if QIcon("search.png").isNull() == False else None)
         self.search_button.setMinimumHeight(40)
         self.search_button.clicked.connect(self.perform_search)
+        self.search_button.setShortcut("Ctrl+Return")
         search_layout.addWidget(self.search_button)
 
         layout.addWidget(search_group)
