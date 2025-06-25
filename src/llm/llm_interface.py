@@ -1148,7 +1148,7 @@ class LLMInterface(QObject):
                 data["system"] = system
 
             self.logger.info(f"Sending Ollama request with model: {model}")
-
+            self.logger.info(f"Ollama request data: {data}")
             # Make API call with streaming
             if stream:
                 response = self.clients["ollama"].post(
