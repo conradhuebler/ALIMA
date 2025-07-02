@@ -536,8 +536,8 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geometry)
 
         # Letzter aktiver Tab
-        last_tab = self.settings.value("last_tab", 0, type=int)
-        self.tabs.setCurrentIndex(last_tab)
+        # last_tab = self.settings.value("last_tab", 0, type=int)
+        self.tabs.setCurrentIndex(1)
 
         # Update der Tab-Einstellungen
         # self.search_tab.load_settings(self.settings)
@@ -550,7 +550,7 @@ class MainWindow(QMainWindow):
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("last_tab", self.tabs.currentIndex())
+        # self.settings.setValue("last_tab", self.tabs.currentIndex())
         self.settings.setValue("ollama_url", self.ollama_url.text())
         self.settings.setValue("ollama_port", self.ollama_port.text())
         # Speichere Tab-Einstellungen

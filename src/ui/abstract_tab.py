@@ -190,7 +190,7 @@ class AbstractTab(QWidget):
         self.pdf_metadata = {}
         self.pdf_path = None
         self.chosen_model = "default"
-        self.matched_keywords = []
+        self.matched_keywords = {}
 
         # Load configurations
         self.load_recommendations()
@@ -205,11 +205,7 @@ class AbstractTab(QWidget):
         self.combined_result = ""
 
         # Legacy chunking attributes (keep for compatibility)
-        self.current_chunk = 0
         self.total_chunks = 0
-        self.chunk_mode = "single"
-        self.abstract_chunks = []
-        self.keyword_chunks = []
 
         # UI state
         self.is_compact_mode = False
@@ -688,19 +684,39 @@ class AbstractTab(QWidget):
             QPushButton:checked { background-color: #e0e0e0; }
         """
         )
+        self.run_prompt_btn = QPushButton("Prompt ausführen")
+        self.run_prompt_btn.setToolTip("Führt den Prompt aus")
+        self.run_prompt_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background-color: {secondary_color};
+                color: white;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{ background-color: #5a9840; }}
+        """
+        )
+        self.run_prompt_btn.setMaximumWidth(140)
+        self.run_prompt_btn.setVisible(False)
+        self.run_prompt_btn.clicked.connect(self.run_prompt)
+
         prompt_header.addWidget(self.show_prompt_btn)
         prompt_header.addStretch(1)
-        prompt_layout.addLayout(prompt_header)
+        prompt_header.addWidget(self.run_prompt_btn)
 
         self.prompt = QTextEdit()
         self.prompt.setPlaceholderText("Generierter Prompt wird hier angezeigt...")
-        self.prompt.setReadOnly(True)
+        self.prompt.setReadOnly(False)
         self.prompt.setMaximumHeight(150)
         self.prompt.setVisible(False)
         prompt_layout.addWidget(self.prompt)
+        prompt_layout.addLayout(prompt_header)
 
         self.show_prompt_btn.toggled.connect(
-            lambda checked: self.prompt.setVisible(checked)
+            lambda checked: (
+                self.prompt.setVisible(checked),
+                self.run_prompt_btn.setVisible(checked),
+            )
         )
         self.show_prompt_btn.toggled.connect(
             lambda checked: self.show_prompt_btn.setText(
@@ -967,9 +983,59 @@ class AbstractTab(QWidget):
         else:
             self.start_single_analysis()
 
+    def run_prompt(self):
+        """Start analysis with new chunk workflow."""
+
+        self.toggle_compact_mode(force_state=True)
+        self.set_ui_enabled(False)
+        self.progress_bar.setVisible(True)
+
+        # Reset states
+        self.chunk_results.clear()
+        self.results_list.clear()
+        self.prompt_display.clear()
+        self.results_edit.clear()
+        self.generated_response = ""
+
+        # Activate cancel button
+        self.cancel_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+            }
+            QPushButton:hover { background-color: #c0392b; }
+        """
+        )
+        model = self.model_combo.currentText().strip()
+        provider = self.provider_combo.currentText()
+        prompt = self.prompt.toMarkdown().strip()
+        self.prompt_display.setPlainText(prompt)
+        # Create single chunk item for tracking
+        self.current_single_chunk = ChunkResultItem(
+            chunk_id=0,
+            prompt=prompt,
+            result="",
+            chunk_type="single",
+            chunk_info="Einzelanalyse",
+        )
+
+        try:
+            self.llm.generate_response(
+                provider=provider,
+                model=model,
+                prompt=prompt,
+                temperature=self.ki_temperature.value() / 100,
+                seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
+                system=self.system,
+                stream=True,
+            )
+        except Exception as e:
+            self.handle_error("Fehler bei der Anfrage", str(e))
+            self.analysis_completed()
+
     def start_single_analysis(self):
         """Start normal single analysis with new result handling."""
-        self.chunk_mode = "single"
         self.is_processing_chunks = False
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setFormat("Generiere Antwort...")
@@ -1107,7 +1173,7 @@ class AbstractTab(QWidget):
         model = self.model_combo.currentText().strip()
         provider = self.provider_combo.currentText()
         self.prompt_display.setPlainText(chunk_prompt)
-
+        self.logger.info(self.matched_keywords)
         try:
             self.llm.generate_response(
                 provider=provider,
@@ -1162,7 +1228,7 @@ class AbstractTab(QWidget):
         template = self.current_template
         variables = {
             "abstract": self.abstract,
-            "keywords": ", ".join(self.matched_keywords),
+            "keywords": ", ".join(self.extract_and_match_keywords_from_results()),
         }
 
         try:
@@ -1170,8 +1236,6 @@ class AbstractTab(QWidget):
         except KeyError as e:
             self.logger.error(f"Missing variable in template: {e}")
             return f"Fehler im Template: Variable {e} fehlt"
-
-        # chunk_prompt = self.create_chunk_prompt_from_data(self.matched_keywords)
 
         # Create combined result item
         combined_item = ChunkResultItem(
@@ -1279,7 +1343,6 @@ class AbstractTab(QWidget):
                             break
 
         self.logger.info(f"Total matched keywords: {len(matched_keywords)}")
-        self.matched_keywords = matched_keywords
         return matched_keywords
 
     def get_matched_keywords_formatted(self) -> str:
@@ -1334,7 +1397,7 @@ class AbstractTab(QWidget):
 
             # Extract and match keywords from results
             self.update_matched_keywords_display()
-
+            self.logger.info(self.matched_keywords)
             self.analysis_completed()
 
         elif self.is_processing_chunks and hasattr(self, "current_chunk_item"):
@@ -1348,13 +1411,17 @@ class AbstractTab(QWidget):
 
             if self.current_chunk_index < len(self.current_processing_chunks):
                 self.process_next_chunk()
+                self.update_matched_keywords_display()
+                self.logger.info(self.matched_keywords)
+
             else:
                 if self.tmp_task == "keywords":
                     self.task = "keywords"
 
                 # Extract and match keywords from all results
-
+                self.update_matched_keywords_display()
                 self.create_combined_result()
+                self.logger.info(self.matched_keywords)
 
     # ======== MODIFIED RESPONSE HANDLING ========
     def on_text_received(self, text_chunk):
