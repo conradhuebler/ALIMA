@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import QApplication, QSplashScreen
 from PyQt6.QtGui import QPixmap
 from src.ui.main_window import MainWindow
 import logging
-from src.core.ai_processor import AIProcessor  # Korrigierter Import
 
 
 def setup_logging():

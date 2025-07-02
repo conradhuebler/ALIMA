@@ -152,27 +152,3 @@ def get_dnb_classification(gnd_id):
             {"status": "error", "error_message": f"Unerwarteter Fehler: {str(e)}"}
         )
         return result
-
-
-# Beispielverwendung:
-# def safe_print_result(gnd_id):
-#    result = get_dnb_classification(gnd_id)
-#    if result:
-#        print(f"\nGND-ID: {gnd_id}")
-#        print(f"Status: {result['status']}")
-#        if result['error_message']:
-#            print(f"Fehler: {result['error_message']}")
-#        else:
-#            print(f"Name: {result['preferred_name']}")
-#            print(f"Typen: {result['types']}")
-#            print(f"Kategorie: {result['category']}")
-#            print(f"DDC: {result['ddc']}")
-#            print(f"GND-Sachgruppen: {result['gnd_subject_categories']}")
-#    else:
-#        print(f"\nKeine Daten für GND-ID: {gnd_id}")
-
-# Test
-# gnd_ids = ["118548018", "4064784-5", "4027833-5", "4099365-6", "2006134-1", "4031483-2"]
-# gnd_ids = ["4031483-2"]
-# for gnd_id in gnd_ids:
-#    safe_print_result(gnd_id)

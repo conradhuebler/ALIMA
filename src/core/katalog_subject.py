@@ -66,8 +66,6 @@ class SubjectExtractor(QThread):
         self.subjects = {}  # Zurücksetzen bei jedem neuen Suchvorgang
 
         try:
-            # self.status_updated.emit(f"Starte Suche nach: {self.search_term}")
-            # self.logger.info(f"Starte Suche nach: {self.search_term}")
             self.extract_subjects()
             self.result_ready.emit(self.subjects)
             return self.subjects.keys()
@@ -127,7 +125,6 @@ class SubjectExtractor(QThread):
 
         # Finde alle save-record Links und extrahiere die Record-IDs
         save_links = soup.find_all("a", class_="save-record")
-        # self.logger.debug(f"Gefundene save-record Links auf der Seite: {len(save_links)}")
 
         if not save_links:
             self.logger.warning("Keine save-record Links auf der Seite gefunden!")
@@ -167,10 +164,8 @@ class SubjectExtractor(QThread):
             else:
                 # Fallback: Verwende einen generischen Titel mit der Record-ID
                 title = f"Record {record_id}"
-                # self.logger.debug(f"Kein Titel für Record-ID {record_id} gefunden")
 
             record_links.append((record_id, record_url, title))
-            # self.logger.debug(f"Gefundener Record {idx+1}: ID={record_id}, Titel={title}")
 
         return record_links
 
@@ -178,8 +173,6 @@ class SubjectExtractor(QThread):
         """
         Öffnet eine Record-Detailseite und extrahiert alle Schlagwörter
         """
-        # self.logger.info(f"Extrahiere Schlagwörter von Record: {record_id} - {title}")
-        # self.logger.debug(f"Öffne URL: {record_url}")
 
         try:
             # Hole die Record-Detailseite
@@ -195,14 +188,12 @@ class SubjectExtractor(QThread):
 
             # Finde alle Schlagwort-Links
             subject_links = soup.select('a[href*="type=Subject"]')
-            # self.logger.debug(f"Gefundene Schlagwort-Links: {len(subject_links)}")
 
             extracted_subjects = []
 
             # Verarbeite jeden Schlagwort-Link
             for link in subject_links:
                 href = link.get("href", "")
-                # self.logger.debug(f"Schlagwort-Link: {href}")
 
                 # Extrahiere das Schlagwort aus der URL
                 match = re.search(r"lookfor=([^&]+)&type=Subject", href)
@@ -223,7 +214,6 @@ class SubjectExtractor(QThread):
 
             # Entferne Duplikate
             extracted_subjects = list(set(extracted_subjects))
-            # self.logger.info(f"Extrahierte Schlagwörter aus Record {record_id}: {', '.join(extracted_subjects)}")
             keywords = self.filter_keywords(extracted_subjects)
 
             return keywords

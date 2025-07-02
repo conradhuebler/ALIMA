@@ -114,6 +114,94 @@ class PromptManager:
             "p-value": config["p-value"],
         }
 
+    def update_prompt_config(self, task: str, old_model: str, new_prompt_data: dict):
+        """
+        Update an existing prompt configuration.
+        new_prompt_data should contain 'prompt', 'system', 'temp', 'p-value', 'models', 'seed'.
+        """
+        if task not in self.config:
+            raise ValueError(f"Task '{task}' not found.")
+
+        prompts_list = self.config[task]["prompts"]
+        found = False
+        for i, prompt_config in enumerate(prompts_list):
+            if old_model in prompt_config[4]:  # Check if old_model is in the models list
+                # Update the existing entry
+                prompts_list[i][0] = new_prompt_data["prompt"]
+                prompts_list[i][1] = new_prompt_data["system"]
+                prompts_list[i][2] = str(new_prompt_data["temp"])
+                prompts_list[i][3] = str(new_prompt_data["p-value"])
+                prompts_list[i][4] = new_prompt_data["models"]
+                prompts_list[i][5] = str(new_prompt_data["seed"])
+                found = True
+                break
+        
+        if not found:
+            raise ValueError(f"Model '{old_model}' not found for task '{task}'.")
+        
+        self._build_model_index() # Rebuild index after update
+
+    def add_prompt_config(self, task: str, new_prompt_data: dict):
+        """
+        Add a new prompt configuration.
+        new_prompt_data should contain 'prompt', 'system', 'temp', 'p-value', 'models', 'seed'.
+        """
+        if task not in self.config:
+            self.config[task] = {"fields": ["prompt", "system", "temp", "p-value", "model", "seed"], "required": [], "prompts": []}
+        
+        # Ensure models is a list
+        models = new_prompt_data.get("models", [])
+        if not isinstance(models, list):
+            models = [models]
+
+        new_entry = [
+            new_prompt_data["prompt"],
+            new_prompt_data["system"],
+            str(new_prompt_data["temp"]),
+            str(new_prompt_data["p-value"]),
+            models,
+            str(new_prompt_data["seed"])
+        ]
+        self.config[task]["prompts"].append(new_entry)
+        self._build_model_index() # Rebuild index after adding
+
+    def delete_prompt_config(self, task: str, model: str):
+        """
+        Delete a prompt configuration by task and model name.
+        If the model is the only one in its prompt entry, the entire entry is removed.
+        Otherwise, only the model is removed from the list.
+        """
+        if task not in self.config:
+            raise ValueError(f"Task '{task}' not found.")
+
+        prompts_list = self.config[task]["prompts"]
+        new_prompts_list = []
+        deleted = False
+        for prompt_config in prompts_list:
+            models = prompt_config[4]
+            if model in models:
+                if len(models) == 1:
+                    # Remove the entire prompt entry if it's the only model
+                    deleted = True
+                else:
+                    # Remove only the model from the list
+                    prompt_config[4].remove(model)
+                    new_prompts_list.append(prompt_config)
+                    deleted = True
+            else:
+                new_prompts_list.append(prompt_config)
+        
+        if not deleted:
+            raise ValueError(f"Model '{model}' not found for task '{task}'.")
+        
+        self.config[task]["prompts"] = new_prompts_list
+        self._build_model_index() # Rebuild index after deletion
+
+    def save_config(self):
+        """Save the current configuration back to the file"""
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(self.config, f, ensure_ascii=False, indent=4)
+
 
 # Example usage
 if __name__ == "__main__":

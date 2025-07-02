@@ -1,0 +1,1207 @@
+
+
+000 Informatik, Information & Wissen, allgemeine Werke
+001 Wissen
+002 Das Buch
+003 Systeme
+004 Informatik
+005 Computerprogrammierung, Computerprogramme & Daten
+006 Spezielle Computerverfahren
+007 [Unbesetzt]
+008 [Unbesetzt]
+009 [Unbesetzt]
+
+010
+010 Bibliografie
+011 Bibliografien & Kataloge
+012 Bibliografien & Kataloge von Einzelpersonen
+013 [Unbesetzt]
+014 Anonymer & pseudonymer Werke
+015 Von Werken aus einzelnen Orten
+016 Von Werken über einzelne Themen
+017 Allgemeinbibliografien
+018 [Unbesetzt]
+019 [Unbesetzt]
+
+020
+020 Bibliotheks- & Informationswissenschaften
+021 Beziehungen von Bibliotheken
+022 Verwaltung von Bibliotheksgebäuden und Bibliotheksstandorten
+023 Personalmanagement
+024 [Unbesetzt]
+025 Tätigkeiten in Bibliotheken
+026 Fachgebiets- & themenspezifische Bibliotheken
+027 Allgemeinbibliotheken
+028 Lesen & Nutzung anderer Informationsmedien
+029 [Unbesetzt]
+
+030
+030 Allgemeinenzyklopädien
+031 Enzyklopädien in amerikanischem Englisch
+032 Enzyklopädien in Englisch
+033 In anderen germanischen Sprachen
+034 Enzyklopädien in Französisch, Okzitanisch & Katalanisch
+035 In Italienisch, Rumänisch & verwandten Sprachen
+036 Enzyklopädien in Spanisch, Portugiesisch & Galicisch
+037 Enzyklopädien in slawischen Sprachen
+038 Enzyklopädien in skandinavischen Sprachen
+039 Enzyklopädien in anderen Sprachen
+
+040
+040 [Unbesetzt]
+041 [Unbesetzt]
+042 [Unbesetzt]
+043 [Unbesetzt]
+044 [Unbesetzt]
+045 [Unbesetzt]
+046 [Unbesetzt]
+047 [Unbesetzt]
+048 [Unbesetzt]
+049 [Unbesetzt]
+
+050
+050 Magazine, Zeitschriften & fortlaufende Sammelwerke
+051 Fortlaufende Sammelwerke in amerikanischem Englisch
+052 Fortlaufende Sammelwerke in Englisch
+053 Fortlaufende Sammelwerke in anderen germanischen Sprachen
+054 Sammelwerke in Französisch, Okzitanisch & Katalanisch
+055 In Italienisch, Rumänisch & verwandten Sprachen
+056 Fortlaufende Sammelwerke in Spanisch, Portugiesisch & Galicisch
+057 Fortlaufende Sammelwerke in slawischen Sprachen
+058 Fortlaufende Sammelwerke in skandinavischen Sprachen
+059 Fortlaufende Sammelwerke in anderen Sprachen
+
+060
+060 Allgemeine Organisationen & Museumswissenschaft
+061 Organisationen in Nordamerika
+062 Organisationen auf den Britischen Inseln
+063 Organisationen in Deutschland; in Mitteleuropa
+064 Organisationen in Frankreich & Monaco
+065 In Italien, San Marino, Vatikanstadt, Malta
+066 In Spanien, Andorra, Gibraltar, Portugal
+067 Organisationen in Russland; in Osteuropa
+068 Organisationen in anderen geografischen Gebieten
+069 Museumswissenschaft
+
+070
+070 Publizistische Medien, Journalismus & Verlagswesen
+071 Zeitungen in Nordamerika
+072 Zeitungen auf den Britischen Inseln
+073 Zeitungen in Deutschland; in Mitteleuropa
+074 Zeitungen in Frankreich & Monaco
+075 In Italien, San Marino, Vatikanstadt, Malta
+076 In Spanien, Andorra, Gibraltar, Portugal
+077 Zeitungen in Russland; in Osteuropa
+078 Zeitungen in Skandinavien
+079 Zeitungen in anderen geografischen Gebieten
+
+080
+080 Allgemeine Sammelwerke
+081 Sammelwerke in amerikanischem Englisch
+082 Sammelwerke in Englisch
+083 Sammelwerke in anderen germanischen Sprachen
+084 Sammelwerke in Französisch, Okzitanisch & Katalanisch
+085 In Italienisch, Rumänisch & verwandten Sprachen
+086 Sammelwerke in Spanisch, Portugiesisch & Galicisch
+087 Sammelwerke in slawischen Sprachen
+088 Sammelwerke in skandinavischen Sprachen
+089 Sammelwerke in anderen Sprachen
+
+090
+090 Handschriften & seltene Bücher
+091 Handschriften
+092 Blockbücher
+093 Inkunabeln
+094 Gedruckte Bücher
+095 Bücher mit besonderem Einband
+096 Bücher mit besonderen Illustrationen
+097 Bücher aus besonderem Besitz oder besonderer Herkunft
+098 Verbotene Werke, Fälschungen & Scherzdrucke
+099 Bücher mit besonderem Format
+
+
+
+100 Philosophie und Psychologie
+101 Theorie der Philosophie
+102 Verschiedenes
+103 Wörterbücher, Enzyklopädien
+104 [Unbesetzt]
+105 Fortlaufende Sammelwerke
+106 Organisationen, Management
+107 Ausbildung, Forschung, verwandte Themen
+108 Behandlung nach Personengruppen
+109 Historische Behandlung, Behandlung mehrerer Einzelpersonen
+
+110
+110 Metaphysik
+111 Ontologie
+112 [Unbesetzt]
+113 Kosmologie
+114 Raum
+115 Zeit
+116 Veränderung
+117 Struktur
+118 Kraft und Energie
+119 Zahl und Quantität
+
+120
+120 Epistemologie, Kausalität, Menschheit
+121 Epistemologie
+122 Kausalität
+123 Determinismus, Indeterminismus
+124 Teleologie
+125 [Unbesetzt]
+126 Das Selbst
+127 Das Unbewusste, das Unterbewusste
+128 Menschheit
+129 Ursprung und Schicksal individueller Seelen
+
+130
+130 Parapsychologie und Okkultismus
+131 Parapsychologische und okkulte Techniken
+132 [Unbesetzt]
+133 Einzelne Themen der Parapsychologie und des Okkultismus
+134 [Unbesetzt]
+135 Träume, Mysterien
+136 [Unbesetzt]
+137 Divinatorische Graphologie
+138 Physiognomie
+139 Phrenologie
+
+140
+140 Einzelne philosophische Schulen
+141 Idealismus und verwandte Systeme
+142 Kritizismus
+143 Bergsonismus, Intuitionismus
+144 Humanismus und verwandte Systeme
+145 Sensualismus
+146 Naturalismus und verwandte Systeme
+147 Pantheismus und verwandte Systeme
+148 Eklektizismus, Liberalismus, Traditionalismus
+149 Andere philosophische Systeme
+
+150
+150 Psychologie
+151 [Unbesetzt]
+152 Sinneswahrnehmung, Bewegung, Emotionen, Triebe
+153 Kognitive Prozesse, Intelligenz
+154 Unterbewusste und bewusstseinsveränderte Zustände
+155 Differentielle Psychologie, Entwicklungspsychologie
+156 Vergleichende Psychologie
+157 [Unbesetzt]
+158 Angewandte Psychologie
+159 [Unbesetzt]
+
+160
+160 Logik
+161 Induktion
+162 Deduktion
+163 [Unbesetzt]
+164 [Unbesetzt]
+165 Fehlschlüsse, Fehlerquellen
+166 Syllogismen
+167 Hypothesen
+168 Argument, Überzeugungung
+169 Analogie
+
+170
+170 Ethik
+171 Ethische Systeme
+172 Politische Ethik
+173 Familienethik
+174 Berufsethik
+175 Ethik von Freizeit und Erholung
+176 Sexual- und Reproduktionsethik
+177 Ethik sozialer Beziehungen
+178 Konsumethik
+179 Andere ethische Normen
+
+180
+180 Antike, mittelalterliche und östliche Philosophie
+181 Östliche Philosophie
+182 Vorsokratische griechische Philosophien
+183 Sokratische und verwandte Philosophien
+184 Platonische Philosophie
+185 Aristotelische Philosophie
+186 Skeptische und neuplatonische Philosophien
+187 Epikureische Philosophie
+188 Stoische Philosophie
+189 Mittelalterliche westliche Philosophie
+
+190
+190 Neuzeitliche westliche Philosophie
+191 Philosophie in den USA und Kanada
+192 Philosophie auf den Britischen Inseln
+193 Philosophie in Deutschland und Österreich
+194 Philosophie in Frankreich
+195 Philosophie in Italien
+196 Philosophie in Spanien und Portugal
+197 Philosophie in Russland und der früheren Sowjetunion
+198 Philosophie in Skandinavien
+199 Philosophie in anderen geografischen Gebieten
+
+200 Religion
+201 Religiöse Mythologie, Soziallehre
+202 Lehren
+203 Gottesdienst und andere Formen der öffentlichen Religionsausübung
+204 Religiöse Erfahrung, religiöses Leben, religiöse Praxis
+205 Religiöse Ethik
+206 Religiöse Führer und Organisation
+207 Mission, religiöse Erziehung
+208 Quellen
+209 Sekten, Reformbewegungen
+
+210
+210 Religionsphilosophie, Religionstheorie
+211 Gottesvorstellungen
+212 Gottesfrage, Gotteserkenntnis, Eigenschaften Gottes
+213 Schöpfung
+214 Theodizee
+215 Naturwissenschaft und Religion
+216 [Unbesetzt]
+217 [Unbesetzt]
+218 Der Mensch
+219 [Unbesetzt]
+
+220
+220 Bibel
+221 Altes Testament (Tenach)
+222 Geschichtsbücher des Alten Testaments
+223 Poetische Bücher des Alten Testaments
+224 Prophetische Bücher des Alten Testaments
+225 Neues Testament
+226 Evangelien, Apostelgeschichte
+227 Briefe
+228 Johannes-Apokalypse (Offenbarung des Johannes)
+229 Apokryphen, Pseudepigraphen
+
+230
+230 Christentum, Christliche Theologie
+231 Gott
+232 Jesus Christus und seine Familie
+233 Der Mensch
+234 Erlösung, Gnade
+235 Geistliche Wesen
+236 Eschatologie
+237 [Unbesetzt]
+238 Glaubensbekenntnisse, Katechismen
+239 Apologetik, Polemik
+
+240
+240 Christliche Ethik, spirituelle Theologie
+241 Christliche Ethik
+242 Erbauungsliteratur
+243 Evangelistisches Schrifttum für Einzelpersonen
+244 [Unbesetzt]
+245 [Unbesetzt]
+246 Kunst im Christentum
+247 Kirchenausstattung, liturgisches Gerät
+248 Christliche Erfahrung, christliche Praxis, christliches Leben
+249 Christliches Leben in der Familie
+
+250
+250 Christliche Orden und Ortskirchen
+251 Homiletik
+252 Predigttexte
+253 Pastoraltheologie
+254 Gemeindeverwaltung
+255 Religiöse Kongregationen und Orden
+256 [Unbesetzt]
+257 [Unbesetzt]
+258 [Unbesetzt]
+259 Familienseelsorge, Kategorialseelsorge
+
+260
+260 Soziallehre, Ekklesiologie
+261 Soziallehre
+262 Ekklesiologie
+263 Heilige Tage, Zeiten und Orte
+264 Öffentliche Religionsausübung
+265 Sakramente, andere Riten und Handlungen
+266 Mission
+267 Religiöse Verbände
+268 Religiöse Erziehung
+269 Geistliche Erneuerung
+
+270
+270 Geschichte des Christentums, Kirchengeschichte
+271 Religiöse Orden in der Kirchengeschichte
+272 Verfolgung in der Kirchengeschichte
+273 Dogmatische Kontroversen, Häresie
+274 Geschichte des Christentums in Europa
+275 Geschichte des Christentums in Asien
+276 Geschichte des Christentums in Afrika
+277 Geschichte des Christentums in Nordamerika
+278 Geschichte des Christentums in Südamerika
+279 Geschichte des Christentums in anderen Gebieten
+
+280
+280 Christliche Konfessionen und Sekten
+281 Alte Kirche, Ostkirchen
+282 Römisch-Katholische Kirche
+283 Anglikanische Kirchen
+284 Protestanten kontinentaleuropäischen Ursprungs
+285 Presbyterianer, Reformierte, Kongregationalisten
+286 Baptisten, Disciples of Christ, Adventisten
+287 Methodisten und verwandte Kirchen
+288 [Unbesetzt]
+289 Andere Konfessionen und Sekten
+
+290
+290 Andere Religionen
+291 [Unbesetzt]
+292 Griechische und römische Religion
+293 Germanische Religion
+294 Religionen indischen Ursprungs
+295 Parsismus
+296 Judentum
+297 Islam, Babismus, Bahaismus
+298 (Optionale Notation)
+299 An anderer Stelle nicht vorgesehene Religionen
+
+
+
+300 Sozialwissenschaften
+301 Soziologie, Anthropologie
+302 Soziale Interaktion
+303 Gesellschaftliche Prozesse
+304 Das Sozialverhalten beeinflussende Faktoren
+305 Soziale Gruppen
+306 Kultur und Institutionen
+307 Gemeinschaften
+308 [Unbesetzt]
+309 [Unbesetzt]
+
+310
+310 Sammlungen allgemeiner Statistiken
+311 [Unbesetzt]
+312 [Unbesetzt]
+313 [Unbesetzt]
+314 Allgemeine Statistiken zu Europa
+315 Allgemeine Statistiken zu Asien
+316 Allgemeine Statistiken zu Afrika
+317 Allgemeine Statistiken zu Nordamerika
+318 Allgemeine Statistiken zu Südamerika
+319 Allgemeine Statistiken zu anderen Gebieten
+
+320
+320 Politikwissenschaft
+321 Staatsformen und Regierungssysteme
+322 Beziehungen des Staats zu organisierten Gruppen
+323 Grundrechte und politische Rechte
+324 Der politische Prozess
+325 Internationale Migration, Kolonisation
+326 Sklaverei und Sklavenbefreiung
+327 Internationale Beziehungen
+328 Der Gesetzgebungsprozess
+329 [Unbesetzt]
+
+330
+330 Wirtschaft
+331 Arbeitsökonomie
+332 Finanzwirtschaft
+333 Boden- und Energiewirtschaft
+334 Genossenschaften
+335 Sozialismus und verwandte Systeme
+336 Öffentliche Finanzen
+337 Weltwirtschaft
+338 Produktion
+339 Makroökonomie und verwandte Themen
+
+340
+340 Recht
+341 Völkerrecht
+342 Verfassungs- und Verwaltungsrecht
+343 Wehrrecht, Steuerrecht, Wirtschaftsrecht
+344 Arbeitsrecht, Sozialrecht, Bildungsrecht, Kulturrecht
+345 Strafrecht
+346 Privatrecht
+347 Zivilprozessrecht, Zivilgerichte
+348 Gesetze, Verordnungen, Rechtsfälle
+349 Recht einzelner Gebietskörperschaften und Gebiete
+
+350
+350 Öffentliche Verwaltung, Militärwissenschaft
+351 Öffentliche Verwaltung
+352 Allgemeines zur öffentlichen Verwaltung
+353 Einzelne Bereiche der öffentlichen Verwaltung
+354 Verwaltung von Wirtschaft und Umwelt
+355 Militärwissenschaft
+356 Infanterie und Kampfführung
+357 Kavalleriestreitkräfte und Kampfführung
+358 Luftstreitkräfte und andere spezialisierte Streitkräfte
+359 Seestreitkräfte und Kampfführung
+
+360
+360 Soziale Probleme und Sozialdienste; Verbände
+361 Soziale Probleme und Sozialhilfe im Allgemeinen
+362 Probleme und Dienste der Sozialhilfe
+363 Andere soziale Probleme und Sozialdienste
+364 Kriminologie
+365 Justizvollzugsanstalten und verwandte Einrichtungen
+366 Verbände
+367 Allgemeine Klubs
+368 Versicherungen
+369 Verschiedene Arten von Verbänden
+
+370
+370 Bildung und Erziehung
+371 Schulen, schulische Tätigkeiten; Sonderpädagogik
+372 Primar- und Elementarbildung
+373 Sekundarbildung
+374 Erwachsenenbildung
+375 Curricula
+376 [Unbesetzt]
+377 [Unbesetzt]
+378 Hochschulbildung
+379 Bildungspolitik
+
+380
+380 Handel, Kommunikation, Verkehr
+381 Handel
+382 Internationaler Handel
+383 Postverkehr
+384 Kommunikation; Telekommunikation
+385 Schienenverkehr
+386 Binnenschifffahrt, Fährverkehr
+387 Schifffahrt, Luft-, Weltraumverkehr
+388 Verkehr; Landverkehr
+389 Metrologie, Normung
+
+390
+390 Bräuche, Etikette, Folklore
+391 Kleidung, äußeres Erscheinungsbild
+392 Bräuche im Lebenslauf und im häuslichen Leben
+393 Sterbe- und Bestattungsriten
+394 Allgemeine Bräuche
+395 Etikette (Manieren)
+396 [Unbesetzt]
+397 [Unbesetzt]
+398 Folklore
+399 Bräuche des Krieges und der Diplomatie
+
+
+
+400 Sprache
+401 Sprachphilosophie, Sprachtheorie
+402 Verschiedenes
+403 Wörterbücher, Enzyklopädien
+404 Spezielle Themen
+405 Fortlaufende Sammelwerke
+406 Organisationen, Management
+407 Ausbildung, Forschung, verwandte Themen
+408 Behandlung nach Personengruppen
+409 Geografische, personenbezogene Behandlung
+
+410
+410 Linguistik
+411 Schriftsysteme
+412 Etymologie
+413 Wörterbücher
+414 Phonologie, Phonetik
+415 Grammatik
+416 [Unbesetzt]
+417 Dialektologie, historische Linguistik
+418 Standardsprache; Angewandte Linguistik
+419 Gebärdensprachen
+
+420
+420 Englisch, Altenglisch
+421 Schriftsystem und Phonologie des Englischen
+422 Etymologie des Englischen
+423 Englische Wörterbücher
+424 [Unbesetzt]
+425 Englische Grammatik
+426 [Unbesetzt]
+427 Varianten des Englischen, Mittelenglisch
+428 Gebrauch des Standard-Englisch
+429 Altenglisch (Angelsächsisch)
+
+430
+430 Germanische Sprachen; Deutsch
+431 Schriftsysteme und Phonologie des Deutschen
+432 Etymologie des Deutschen
+433 Deutsche Wörterbücher
+434 [Unbesetzt]
+435 Deutsche Grammatik
+436 [Unbesetzt]
+437 Varianten des Deutschen
+438 Gebrauch des Standard-Deutsch
+439 Andere germanische Sprachen
+
+440
+440 Romanische Sprachen; Französisch
+441 Schriftsysteme und Phonologie des Französischen
+442 Etymologie des Französischen
+443 Französische Wörterbücher
+444 [Unbesetzt]
+445 Französische Grammatik
+446 [Unbesetzt]
+447 Varianten des Französischen
+448 Gebrauch des Standard-Französisch
+449 Okzitanisch, Katalanisch
+
+450
+450 Italienisch, Rumänisch, Rätoromanisch
+451 Schriftsysteme und Phonologie des Italienischen
+452 Etymologie des Italienischen
+453 Italienische Wörterbücher
+454 [Unbesetzt]
+455 Italienische Grammatik
+456 [Unbesetzt]
+457 Varianten des Italienischen
+458 Gebrauch des Standard-Italienisch
+459 Rumänisch, Rätoromanisch
+
+460
+460 Spanisch, Portugiesisch
+461 Schriftsysteme und Phonologie des Spanischen
+462 Etymologie des Spanischen
+463 Spanische Wörterbücher
+464 [Unbesetzt]
+465 Spanische Grammatik
+466 [Unbesetzt]
+467 Varianten des Spanischen
+468 Gebrauch des Standard-Spanisch
+469 Portugiesisch
+
+470
+470 Italische Sprachen; Latein
+471 Schriftsysteme und Phonologie des klassischen Latein
+472 Etymologie des klassischen Latein
+473 Wörterbücher des klassischen Latein
+474 [Unbesetzt]
+475 Grammatik des klassischen Latein
+476 [Unbesetzt]
+477 Altlatein, Mittellatein, Neulatein, Kirchenlatein, Vulgärlatein
+478 Gebrauch des klassischen Latein
+479 Andere italische Sprachen
+
+480
+480 Hellenische Sprachen; klassisches Griechisch
+481 Schriftsysteme und Phonologie des klassischen Griechisch
+482 Etymologie des klassischen Griechisch
+483 Wörterbücher des klassischen Griechisch
+484 [Unbesetzt]
+485 Grammatik des klassischen Griechisch
+486 [Unbesetzt]
+487 Vorklassisches Griechisch, Mittelgriechisch
+488 Gebrauch des klassischen Griechisch
+489 Andere hellenische Sprachen, Neugriechisch
+
+490
+490 Andere Sprachen
+491 Ostindoeuropäische und keltische Sprachen
+492 Afroasiatische Sprachen; semitische Sprachen
+493 Nichtsemitische afroasiatische Sprachen
+494 Altaische, uralische, paläosibirische, drawidische Sprachen
+495 Ost- und südostasiatische Sprachen
+496 Afrikanische Sprachen
+497 Nordamerikanische Indianersprachen
+498 Südamerikanische Indianersprachen
+499 Austronesische und andere Sprachen
+
+
+
+500 Naturwissenschaften und Mathematik
+501 Philosophie, Theorie
+502 Verschiedenes
+503 Wörterbücher, Enzyklopädien
+504 [Unbesetzt]
+505 Fortlaufende Sammelwerke
+506 Organisationen, Management
+507 Ausbildung, Forschung, verwandte Themen
+508 Naturgeschichte
+509 Historische, geografische, personenbezogene Behandlung
+
+510
+510 Mathematik
+511 Allgemeine mathematische Prinzipien
+512 Algebra
+513 Arithmetik
+514 Topologie
+515 Analysis
+516 Geometrie
+517 [Unbesetzt]
+518 Numerische Analysis
+519 Wahrscheinlichkeiten, angewandte Mathematik
+
+520
+520 Astronomie und zugeordnete Wissenschaften
+521 Himmelsmechanik
+522 Techniken, Ausstattung, Materialien
+523 Einzelne Himmelskörper und Himmelsphänomene
+524 [Unbesetzt]
+525 Erde (Astronomische Geografie)
+526 Mathematische Geografie
+527 Astronavigation
+528 Ephemeriden
+529 Chronologie
+
+530
+530 Physik
+531 Klassische Mechanik; Festkörpermechanik
+532 Mechanik der Fluide; Mechanik der Flüssigkeiten
+533 Gasmechanik
+534 Schall und verwandte Schwingungen
+535 Licht, Infrarot- und Ultraviolettphänomene
+536 Wärme
+537 Elektrizität, Elektronik
+538 Magnetismus
+539 Moderne Physik
+
+540
+540 Chemie und zugeordnete Wissenschaften
+541 Physikalische Chemie
+542 Techniken, Ausstattung, Materialien
+543 Analytische Chemie
+544 [Unbesetzt]
+545 [Unbesetzt]
+546 Anorganische Chemie
+547 Organische Chemie
+548 Kristallografie
+549 Mineralogie
+
+550
+550 Geowissenschaften
+551 Geologie, Hydrologie, Meteorologie
+552 Petrologie
+553 Lagerstättenkunde
+554 Geowissenschaften Europas
+555 Geowissenschaften Asiens
+556 Geowissenschaften Afrikas
+557 Geowissenschaften Nordamerikas
+558 Geowissenschaften Südamerikas
+559 Geowissenschaften anderer Gebiete
+
+560
+560 Paläontologie; Paläozoologie
+561 Paläobotanik; fossile Mikroorganismen
+562 Fossile Evertebrata (Wirbellose)
+563 Fossile Wirbellose des Meeres und der Meeresküste
+564 Fossile Mollusca (Weichtiere), Tentaculata (Kranzfühler)
+565 Fossile Arthropoden (Gliederfüßer)
+566 Fossile Chordata (Chordatiere)
+567 Fossile wechselwarme Wirbeltiere; fossile Pisces (Fische)
+568 Fossile Aves (Vögel)
+569 Fossile Mammalia (Säugetiere)
+
+570
+570 Biowissenschaften; Biologie
+571 Physiologie und verwandte Themen
+572 Biochemie
+573 Einzelne physiologische Systeme bei Tieren
+574 [Unbesetzt]
+575 Einzelne Teile von und physiologische Systeme bei Pflanzen
+576 Genetik und Evolution
+577 Ökologie
+578 Naturgeschichte von Organismen
+579 Mikroorganismen, Pilze, Algen
+
+580
+580 Pflanzen (Botanik)
+581 Einzelne Themen in der Naturgeschichte
+582 Pflanzen mit spezifischen Merkmalen und Blüten
+583 Magnoliopsida (Zweikeimblättrige)
+584 Liliopsida (Einkeimblättrige)
+585 Gymnospermae (Nacktsamer); Coniferae (Nadelgehölze)
+586 Cryptogamia (Blütenlose Pflanzen)
+587 Pteridophyta (Farnpflanzen)
+588 Bryophyta (Moose)
+589 [Unbesetzt]
+
+590
+590 Tiere (Zoologie)
+591 Einzelne Themen in der Naturgeschichte
+592 Evertebrata (Wirbellose)
+593 Wirbellose des Meeres und der Meeresküste
+594 Mollusca (Weichtiere), Tentaculata (Kranzfühler)
+595 Arthropoden (Gliederfüßer)
+596 Chordata (Chordatiere)
+597 Wechselwarme Wirbeltiere; Pisces (Fische)
+598 Aves (Vögel)
+599 Mammalia (Säugetiere)
+
+
+
+600 Technik, Technologie
+601 Philosophie, Theorie
+602 Verschiedenes
+603 Wörterbücher, Enzyklopädien
+604 Spezielle Themen
+605 Fortlaufende Sammelwerke
+606 Organisationen
+607 Ausbildung, Forschung, verwandte Themen
+608 Erfindungen, Patente
+609 Historische, geografische, personenbezogene Behandlung
+
+610
+610 Medizin und Gesundheit
+611 Menschliche Anatomie, Zytologie, Histologie
+612 Humanphysiologie
+613 Persönliche Gesundheit und Sicherheit
+614 Inzidenz und Prävention von Krankheiten
+615 Pharmakologie, Therapeutik
+616 Krankheiten
+617 Chirurgie und verwandte medizinische Fachrichtungen
+618 Gynäkologie, Geburtsmedizin, Pädiatrie, Geriatrie
+619 [Unbesetzt]
+
+620
+620 Ingenieurwissenschaften und zugeordnete Bereiche
+621 Angewandte Physik
+622 Bergbau und verwandte Tätigkeiten
+623 Militär- und Schiffstechnik
+624 Ingenieurbau
+625 Eisenbahn- und Straßenbau
+626 [Unbesetzt]
+627 Wasserbau
+628 Sanitär- und Kommunaltechnik; Umwelttechnik
+629 Andere Fachrichtungen der Ingenieurwissenschaften
+
+630
+630 Landwirtschaft und verwandte Bereiche
+631 Techniken, Ausstattung, Materialien
+632 Schäden, Krankheiten, Schädlinge an Pflanzen
+633 Feld- und Plantagenfrüchte
+634 Obstanlagen, Früchte, Forstwirtschaft
+635 Gartenpflanzen (Gartenbau)
+636 Viehwirtschaft
+637 Milchverarbeitung und verwandte Produkte
+638 Insektenzucht
+639 Jagd, Fischfang, Naturschutz
+
+640
+640 Hauswirtschaft und Familie
+641 Essen und Trinken
+642 Mahlzeiten, Tischkultur
+643 Wohnen, Haushaltsausstattung
+644 Gebäudeversorgung für Haushalte
+645 Einrichtungsgegenstände
+646 Nähen, Kleidung, persönliches Leben, Familienleben
+647 Großhaushaltsführung
+648 Haushaltsführung
+649 Kindererziehung, häusliche Betreuung
+
+650
+650 Management und unterstützende Tätigkeiten
+651 Büroarbeit
+652 Techniken der schriftlichen Kommunikation
+653 Stenografie
+654 [Unbesetzt]
+655 [Unbesetzt]
+656 [Unbesetzt]
+657 Rechnungslegung
+658 Allgemeines Management
+659 Werbung, Öffentlichkeitsarbeit
+
+660
+660 Chemische Verfahrenstechnik
+661 Industriechemikalien
+662 Explosivstoffe, Brennstoffe und verwandte Produkte
+663 Getränketechnologie
+664 Lebensmitteltechnologie
+665 Industrielle Öle, Fette, Wachse, technische Gase
+666 Keramiktechnologie und zugeordnete Technologien
+667 Reinigungs-, Färbe-, Beschichtungstechniken
+668 Technik anderer organischer Produkte
+669 Metallurgie
+
+670
+670 Industrielle Fertigung
+671 Metallverarbeitung und Rohprodukte aus Metall
+672 Eisen, Stahl, andere Eisenlegierungen
+673 Nichteisenmetalle
+674 Holzverarbeitung, Holzprodukte, Kork
+675 Leder- und Pelzverarbeitung
+676 Zellstoff und Papierherstellung
+677 Textilien
+678 Elastomere, Elastomerprodukte
+679 Andere Produkte aus einzelnen Werkstoffen
+
+680
+680 Industrielle Fertigung für einzelne Verwendungszwecke
+681 Präzisionsinstrumente und andere Geräte
+682 Schmiedehandwerk
+683 Eisenwaren, Haushaltsgeräte
+684 Wohnungseinrichtung, Heimwerkstätten
+685 Leder- und Pelzwaren und verwandte Produkte
+686 Drucken und verwandte Tätigkeiten
+687 Kleidung, Accessoires
+688 Andere Endprodukte, Verpackungstechnik
+689 [Unbesetzt]
+
+690
+690 Hausbau, Bauhandwerk
+691 Baustoffe
+692 Bauhilfstechniken
+693 Einzelne Baustoffarten und Zwecke
+694 Holzbau, Zimmerhandwerk
+695 Dachdeckung
+696 Versorgungseinrichtungen
+697 Heizungs-, Lüftungs-, Klimatechnik
+698 Ausbau
+699 [Unbesetzt]
+
+
+
+700 Künste; Bildende und angewandte Kunst
+701 Kunstphilosophie, Kunsttheorie der bildenden und angewandten Kunst
+702 Verschiedenes zur bildenden und angewandten Kunst
+703 Wörterbücher, Enzyklopädien zur bildenden und angewandten Kunst
+704 Spezielle Themen zur bildenden und angewandten Kunst
+705 Fortlaufende Sammelwerke zur bildenden und angewandten Kunst
+706 Organisationen, Management der bildenden und angewandten Kunst
+707 Ausbildung, Forschung, verwandte Themen zur bildenden und angewandten Kunst
+708 Galerien, Museen, Privatsammlungen zur bildenden und angewandten Kunst
+709 Historische, geografische, personenbezogene Behandlung der bildenden und angewandten Kunst
+
+710
+710 Städtebau, Raumplanung, Landschaftsgestaltung
+711 Raumplanung
+712 Landschaftsgestaltung
+713 Landschaftsgestaltung von Verkehrswegen
+714 Wasser als Gestaltungselement
+715 Gehölze als Gestaltungselemente
+716 Krautige Pflanzen als Gestaltungselemente
+717 Andere Gestaltungselemente
+718 Landschaftsgestaltung von Friedhöfen
+719 Naturlandschaften
+
+720
+720 Architektur
+721 Architektonische Struktur
+722 Architektur bis ca. 300
+723 Architektur von ca. 300 bis 1399
+724 Architektur ab 1400
+725 Öffentliche Bauwerke
+726 Gebäude für religiöse und verwandte Zwecke
+727 Gebäude für Lehr- und Forschungszwecke
+728 Wohnbauten und verwandte Gebäude
+729 Entwurf und Gestaltung, Innenarchitektur
+
+730
+730 Plastische Künste; Bildhauerkunst
+731 Verfahren, Formen und Motive in der Bildhauerkunst
+732 Bildhauerei bis ca. 500
+733 Griechische, etruskische, römische Bildhauerkunst
+734 Bildhauerkunst von ca. 500 bis 1399
+735 Bildhauerkunst ab 1400
+736 Schnitzen, Schnitzereien
+737 Numismatik, Siegelkunde
+738 Keramikkunst
+739 Metallkunst
+
+740
+740 Zeichnung, angewandte Kunst
+741 Zeichnung, Zeichnungen
+742 Perspektive
+743 Zeichnung und Zeichnungen nach Motiv
+744 [Unbesetzt]
+745 Angewandte Kunst
+746 Textilkunst
+747 Innendekoration
+748 Glas
+749 Möbel, Möbelzubehör
+
+750
+750 Malerei, Gemälde
+751 Techniken, Ausstattung, Materialien, Formen
+752 Farbe
+753 Symbolik, Allegorie, Mythologie, Legende
+754 Genremalerei
+755 Religion
+756 [Unbesetzt]
+757 Menschliche Figuren
+758 Andere Motive
+759 Histor., geogr., personenbezogene Behandlung
+
+760
+760 Grafik; Druckgrafik, Drucke
+761 Hochdruckverfahren (Blockdruck)
+762 [Unbesetzt]
+763 Lithografische Druckverfahren
+764 Farblithografie, Serigrafie
+765 Metallgravur
+766 Mezzotinto, Aquatinta und verwandte Techniken
+767 Radierung, Kaltnadelarbeit
+768 Unbesetzt]
+769 Drucke
+
+770
+770 Fotografie, Fotografien, Computerkunst
+771 Techniken, Ausstattung, Materialien
+772 Entwicklungsverfahren mit Metallsalzen
+773 Pigmentdruckverfahren
+774 Holografie
+775 Digitale Fotografie
+776 Computerkunst (Digitale Kunst)
+777 [Unbesetzt]
+778 Bereiche und Arten der Fotografie
+779 Fotografien
+
+780
+780 Musik
+781 Allgemeine Prinzipien, musikalische Formen
+782 Vokalmusik
+783 Musik für Einzelstimmen; die Stimme
+784 Instrumente, Instrumentalensembles
+785 Ensembles mit einem Instrument pro Stimme
+786 Tasteninstrumente, andere Instrumente
+787 Saiteninstrumente
+788 Blasinstrumente
+789 (Optionale Notation)
+
+790
+790 Freizeitgestaltung, darstellende Künste, Sport
+791 Öffentliche Darbietungen, Film, Rundfunk
+792 Bühnenkunst
+793 Spiele und Freizeitaktivitäten für drinnen
+794 Unterhaltungsspiele für drinnen
+795 Glücksspiele
+796 Sportarten, Sportspiele
+797 Wasser- und Luftsport
+798 Pferdesport, Tierrennen
+799 Fischfang, Jagd, Schießen
+
+
+
+800 Literatur und Rhetorik
+801 Literaturtheorie
+802 Verschiedenes
+803 Wörterbücher, Enzyklopädien
+804 [Unbesetzt]
+805 Fortlaufende Sammelwerke
+806 Organisationen, Management
+807 Ausbildung, Forschung, verwandte Themen
+808 Rhetorik, Sammlungen von Literatur
+809 Geschichte, Darstellung, Literaturwissenschaft und –kritik
+
+810
+810 Amerikanische Literatur in Englisch
+811 Amerikanische Versdichtung
+812 Amerikanische Dramen
+813 Amerikanische Erzählprosa
+814 Amerikanische Essays
+815 Amerikanische Reden
+816 Amerikanische Briefe
+817 Amerikanischer Humor, amerikanische Satire
+818 Amerikanische vermischte Schriften
+819 (Optionale Notation)
+
+820
+820 Englische, altenglische Literaturen
+821 Englische Versdichtung
+822 Englische Dramen
+823 Englische Erzählprosa
+824 Englische Essays
+825 Englische Reden
+826 Englische Briefe
+827 Englischer Humor, englische Satire
+828 Englische vermischte Schriften
+829 Altenglische (Angelsächsische) Literatur
+
+830
+830 Literaturen germanischer Sprachen; Deutsche Literatur
+831 Deutsche Versdichtung
+832 Deutsche Dramen
+833 Deutsche Erzählprosa
+834 Deutsche Essays
+835 Deutsche Reden
+836 Deutsche Briefe
+837 Deutscher Humor, deutsche Satire
+838 Deutsche vermischte Schriften
+839 Andere germanische Literaturen
+
+840
+840 Literaturen romanischer Sprachen; Französische Literatur
+841 Französische Versdichtung
+842 Französische Dramen
+843 Französische Erzählprosa
+844 Französische Essays
+845 Französische Reden
+846 Französische Briefe
+847 Französischer Humor, französische Satire
+848 Französische vermischte Schriften
+849 Okzitanische, katalanische Literaturen
+
+850
+850 Italienische, rumänische, rätoromanische Literaturen
+851 Italienische Versdichtung
+852 Italienische Dramen
+853 Italienische Erzählprosa
+854 Italienische Essays
+855 Italienische Reden
+856 Italienische Briefe
+857 Italienischer Humor, italienische Satire
+858 Italienische vermischte Schriften
+859 Rumänische, rätoromanische Literaturen
+
+860
+860 Spanische, portugiesische Literaturen
+861 Spanische Versdichtung
+862 Spanische Dramen
+863 Spanische Erzählprosa
+864 Spanische Essays
+865 Spanische Reden
+866 Spanische Briefe
+867 Spanischer Humor, spanische Satire
+868 Spanische vermischte Schriften
+869 Portugiesische Literatur
+
+870
+870 Italische Literaturen; Lateinische Literatur
+871 Lateinische Versdichtung
+872 Lateinische dramatische Versdichtung, Dramen
+873 Lateinische erzählende Versdichtung, Erzählprosa
+874 Lateinische lyrische Versdichtung
+875 Lateinische Reden
+876 Lateinische Briefe
+877 Lateinischer Humor, lateinische Satire
+878 Lateinische vermischte Schriften
+879 Literaturen anderer italischer Sprachen
+
+880
+880 Hellenische Literaturen; Klassische griechische Literatur
+881 Klassische griechische Versdichtung
+882 Klassische griechische dramatische Versdichtung, Dramen
+883 Klassische griechische erzählende Versdichtung, Erzählprosa
+884 Klassische griechische lyrische Versdichtung
+885 Klassische griechische Reden
+886 Klassische griechische Briefe
+887 Humor und Satire in klassischem Griechisch
+888 Klassische griechische vermischte Schriften
+889 Neugriechische Literatur
+
+890
+890 Literaturen anderer Sprachen
+891 Ostindoeuropäische, keltische Literaturen
+892 Afroasiatische Literaturen; Semitische Literaturen
+893 Nichtsemitische afroasiatische Literaturen
+894 Altaische, uralische, paläosibirische, drawidische Literaturen
+895 Ost- und südostasiatische Literaturen
+896 Afrikanische Literaturen
+897 Literaturen nordamerikanischer Indianersprachen
+898 Literaturen südamerikanischer Indianersprachen
+899 Austronesische und andere Literaturen
+
+
+
+900 Geschichte und Geografie
+901 Geschichtsphilosophie, Geschichtstheorie
+902 Verschiedenes
+903 Wörterbücher, Enzyklopädien
+904 Allgemeine Darstellungen von Ereignissen
+905 Fortlaufende Sammelwerke
+906 Organisationen, Management
+907 Ausbildung, Forschung, verwandte Themen
+908 Behandlung nach Personengruppen
+909 Weltgeschichte
+
+910
+910 Geografie, Reisen
+911 Historische Geografie
+912 Atlanten, Karten, Grafiken, Pläne
+913 Geografie der und Reisen in der Alten Welt
+914 Geografie Europas und Reisen in Europa
+915 Geografie Asiens und Reisen in Asien
+916 Geografie Afrikas und Reisen in Afrika
+917 Geografie Nordamerikas und Reisen in Nordamerika
+918 Geografie Südamerikas und Reisen in Südamerika
+919 Geografie anderer Gebiete und Reisen in anderen Gebieten
+
+920
+920 Biografien, Genealogie, Insignien
+921 (Optionale Notation)
+922 (Optionale Notation)
+923 (Optionale Notation)
+924 (Optionale Notation)
+925 (Optionale Notation)
+926 (Optionale Notation)
+927 (Optionale Notation)
+928 (Optionale Notation)
+929 Genealogie, Namenkunde, Insignien
+
+930
+930 Geschichte des Altertums bis ca. 499, Archäologie
+931 Geschichte Chinas bis 420
+932 Geschichte Ägyptens bis 640
+933 Geschichte Palästinas bis 70
+934 Geschichte Indiens bis 647
+935 Geschichte Mesopotamiens und der iranischen Hochebene bis 637
+936 Geschichte Europas nördlich und westlich von Italien bis ca. 499
+937 Geschichte Italiens und benachbarter Gebiete bis 476
+938 Geschichte Griechenlands bis 323
+939 Geschichte anderer Teile der Welt bis ca. 640
+
+940
+940 Geschichte Europas
+941 Geschichte der Britischen Inseln
+942 Geschichte Englands und Wales’
+943 Geschichte Mitteleuropas; Deutschlands
+944 Geschichte Frankreichs und Monacos
+945 Geschichte der italienische Halbinsel und benachbarter Inseln
+946 Geschichte der iberischen Halbinsel und benachbarter Inseln
+947 Geschichte Osteuropas; Russlands
+948 Geschichte Skandinaviens
+949 Geschichte anderer Teile Europas
+
+950
+950 Geschichte Asiens; des Fernen Ostens
+951 Geschichte Chinas und benachbarter Gebiete
+952 Geschichte Japans
+953 Geschichte der arabischen Halbinsel und benachbarter Gebiete
+954 Geschichte Südasiens; Indiens
+955 Geschichte Irans
+956 Geschichte des Nahen Ostens (Mittleren Ostens)
+957 Geschichte Sibiriens (des Asiatischen Russlands)
+958 Geschichte Zentralasiens
+959 Geschichte Südostasiens
+
+960
+960 Geschichte Afrikas
+961 Geschichte Tunesiens und Libyens
+962 Geschichte Ägyptens und Sudans
+963 Geschichte Äthiopiens und Eritreas
+964 Geschichte der nordwestafrikanischen Küste und vorgelagerter Inseln
+965 Geschichte Algeriens
+966 Geschichte Westafrikas und vorgelagerter Inseln
+967 Geschichte Zentralafrikas und vorgelagerter Inseln
+968 Geschichte Südafrikas; der Republik Südafrika
+969 Geschichte der Inseln im südlichen Indischen Ozean
+
+970
+970 Geschichte Nordamerikas
+971 Geschichte Kanadas
+972 Geschichte Mittelamerikas; Mexikos
+973 Geschichte der USA
+974 Geschichte der nordöstlichen Staaten der USA
+975 Geschichte der südöstlichen Staaten der USA
+976 Geschichte der südlichen zentralen Staaten der USA
+977 Geschichte der nördlichen zentralen Staaten der USA
+978 Geschichte der westlichen Staaten der USA
+979 Geschichte der Staaten des Großen Beckens und der pazifischen Gebirgsketten
+
+980
+980 Geschichte Südamerikas
+981 Geschichte Brasiliens
+982 Geschichte Argentiniens
+983 Geschichte Chiles
+984 Geschichte Boliviens
+985 Geschichte Perus
+986 Geschichte Kolumbiens und Ecuadors
+987 Geschichte Venezuelas
+988 Geschichte Guayanas
+989 Geschichte Paraguays und Uruguays
+
+990
+990 Geschichte anderer Gebiete
+991 [Unbesetzt]
+992 [Unbesetzt]
+993 Geschichte Neuseelands
+994 Geschichte Australiens
+995 Geschichte Melanesiens; Neuguineas
+996 Geschichte anderer Teile des Pazifischen Ozeans; Polynesiens
+997 Geschichte der atlantischen Inseln
+998 Geschichte der arktischen Inseln und der Antarktis
+999 Geschichte der außerirdischen Welten

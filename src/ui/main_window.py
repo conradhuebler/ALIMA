@@ -44,7 +44,6 @@ from ..core.gndparser import GNDParser
 from ..core.gitupdate import GitUpdateWorker
 from ..llm.llm_interface import LLMInterface
 
-# from ..core.ai_processor import AIProcessor
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
 from .ubsearch_tab import UBSearchTab
@@ -315,7 +314,6 @@ class MainWindow(QMainWindow):
         # Initialisiere Core-Komponenten
         self.cache_manager = CacheManager()
         self.search_engine = SearchEngine(self.cache_manager)
-        # self.ai_processor = AIProcessor()
         self.logger = logging.getLogger(__name__)
         self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")
         self.ollama_port_default = self.settings.value("ollama_port", "11434")
@@ -354,13 +352,11 @@ class MainWindow(QMainWindow):
         self.abstract_tab = AbstractTab(llm=self.llm)
         self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
         self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
-        # self.abstract_tab.final_list.connect(self.update_search_field)
         self.abstract_tab.template_name = "abstract_analysis"
         self.abstract_tab.set_model_recommendations("abstract")
         self.abstract_tab.set_task("abstract")
 
         self.analyse_keywords = AbstractTab(llm=self.llm)
-        # self.analyse_keywords.keywords_extracted.connect(self.update_search_field)
         self.analyse_keywords.template_name = "results_verification"
         self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
         self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
@@ -376,19 +372,13 @@ class MainWindow(QMainWindow):
 
         self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
         self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
-        # self.abstract_tab.keywords_extracted.connect(self.ub_search_tab.update_keywords)
 
-        # self.table_widget = TableWidget(
-        #    db_path=self.cache_manager.db_path,
-        #    table_name="gnd_entry"
-        # )
 
         self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
         self.tabs.addTab(self.search_tab, "GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "Verifikation")
         self.tabs.addTab(self.ub_search_tab, "UB Suche")
-        # self.tabs.addTab(self.table_widget, "GND Einträge")
 
         # Statusleiste
         self.status_bar = QStatusBar()
@@ -535,26 +525,18 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
-        # Letzter aktiver Tab
-        # last_tab = self.settings.value("last_tab", 0, type=int)
         self.tabs.setCurrentIndex(1)
 
-        # Update der Tab-Einstellungen
-        # self.search_tab.load_settings(self.settings)
         self.ollama_url.setText(self.settings.value("ollama_url", "http://localhost"))
         self.llm.set_ollama_url(self.ollama_url.text())
         self.ollama_port.setText(self.settings.value("ollama_port", "11434"))
         self.llm.set_ollama_port(self.ollama_port.text())
-        # self.abstract_tab.load_settings(self.settings)
 
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
-        # self.settings.setValue("last_tab", self.tabs.currentIndex())
         self.settings.setValue("ollama_url", self.ollama_url.text())
         self.settings.setValue("ollama_port", self.ollama_port.text())
-        # Speichere Tab-Einstellungen
-        # self.search_tab.save_settings(self.settings)
 
     def export_results(self):
         """Exportiert die aktuellen Suchergebnisse"""

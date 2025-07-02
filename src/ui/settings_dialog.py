@@ -19,79 +19,10 @@ from PyQt6.QtWidgets import (
     QTextEdit,
 )
 from PyQt6.QtCore import Qt, QSettings
+from ..llm.prompt_manager import PromptManager
 from ..utils.config import Config, ConfigSection, AIProvider
-from ..utils.prompt_templates import PromptTemplate, PromptConfig
-from typing import Dict, Any
-import os
 import logging
-
-
-class PromptEditDialog(QDialog):
-    """Dialog zum Bearbeiten eines einzelnen Prompts"""
-
-    def __init__(self, template: PromptTemplate, parent=None):
-        super().__init__(parent)
-        self.template = template
-        self.init_ui()
-
-    def init_ui(self):
-        self.setWindowTitle(f"Prompt bearbeiten: {self.template.name}")
-        self.setModal(True)
-        self.resize(800, 600)
-
-        layout = QVBoxLayout(self)
-
-        # Beschreibung
-        desc_layout = QFormLayout()
-        self.desc_input = QLineEdit(self.template.description)
-        desc_layout.addRow("Beschreibung:", self.desc_input)
-        layout.addLayout(desc_layout)
-
-        # Modell
-        model_layout = QFormLayout()
-        self.model_combo = QComboBox()
-        self.model_combo.addItems(
-            ["gemini-1.5-flash", "gemini-pro", "gemini-ultra"]
-        )  # Hier könnten wir die verfügbaren Modelle dynamisch laden
-        self.model_combo.setCurrentText(self.template.model)
-        model_layout.addRow("Modell:", self.model_combo)
-        layout.addLayout(model_layout)
-
-        # Template
-        template_group = QGroupBox("Template")
-        template_layout = QVBoxLayout()
-        self.template_edit = QTextEdit(self.template.template)
-        template_layout.addWidget(self.template_edit)
-
-        # Variablen-Info
-        variables_label = QLabel(
-            "Verfügbare Variablen: "
-            + ", ".join([f"{{{var}}}" for var in self.template.required_variables])
-        )
-        template_layout.addWidget(variables_label)
-
-        template_group.setLayout(template_layout)
-        layout.addWidget(template_group)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        save_button = QPushButton("Speichern")
-        save_button.clicked.connect(self.accept)
-        cancel_button = QPushButton("Abbrechen")
-        cancel_button.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_button)
-        button_layout.addWidget(save_button)
-        layout.addLayout(button_layout)
-
-    def get_updated_template(self) -> PromptTemplate:
-        """Gibt das aktualisierte Template zurück"""
-        return PromptTemplate(
-            name=self.template.name,
-            description=self.desc_input.text(),
-            template=self.template_edit.toPlainText(),
-            required_variables=self.template.required_variables,
-            model=self.model_combo.currentText(),
-        )
+from typing import Dict, Any
 
 
 class SettingsDialog(QDialog):
@@ -108,6 +39,7 @@ class SettingsDialog(QDialog):
         self.ui_settings = ui_settings  # Für UI-Einstellungen (Fenstergröße etc.)
         self.config = Config.get_instance()  # Für unsere eigenen Konfigurationen
         self.logger = logging.getLogger(__name__)
+        self.prompt_manager = PromptManager("/home/conrad/src/ALIMA/prompts.json")
         self.setWindowTitle("Einstellungen")
         self.init_ui()
         self.load_settings()
@@ -195,12 +127,6 @@ class SettingsDialog(QDialog):
         self.temperature_spin.setRange(0.0, 2.0)
         self.temperature_spin.setSingleStep(0.1)
         model_layout.addRow("Temperature:", self.temperature_spin)
-
-        self.top_p_spin = QDoubleSpinBox()
-        self.top_p_spin.setRange(0.0, 1.0)
-        self.top_p_spin.setSingleStep(0.1)
-        model_layout.addRow("Top-P:", self.top_p_spin)
-
         model_group.setLayout(model_layout)
         layout.addWidget(model_group)
 
@@ -219,10 +145,7 @@ class SettingsDialog(QDialog):
         search_group = QGroupBox("Sucheinstellungen")
         search_layout = QFormLayout()
 
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.1, 100.0)
-        self.threshold_spin.setSingleStep(0.1)
-        search_layout.addRow("Standard-Schwellenwert (%):", self.threshold_spin)
+        
 
         self.max_results_spin = QSpinBox()
         self.max_results_spin.setRange(10, 10000)
@@ -235,20 +158,6 @@ class SettingsDialog(QDialog):
 
         search_group.setLayout(search_layout)
         layout.addWidget(search_group)
-
-        # API-Einstellungen
-        api_group = QGroupBox("API-Einstellungen")
-        api_layout = QFormLayout()
-
-        self.api_url_input = QLineEdit()
-        api_layout.addRow("API-URL:", self.api_url_input)
-
-        self.batch_size_spin = QSpinBox()
-        self.batch_size_spin.setRange(10, 1000)
-        api_layout.addRow("Batch-Größe:", self.batch_size_spin)
-
-        api_group.setLayout(api_layout)
-        layout.addWidget(api_group)
 
         layout.addStretch()
         return tab
@@ -264,40 +173,6 @@ class SettingsDialog(QDialog):
 
         self.cache_enabled_check = QCheckBox()
         cache_layout.addRow("Cache aktiviert:", self.cache_enabled_check)
-
-        self.cache_age_spin = QSpinBox()
-        self.cache_age_spin.setRange(1, 168)  # 1 Stunde bis 1 Woche
-        cache_layout.addRow("Maximales Alter (Stunden):", self.cache_age_spin)
-
-        self.cache_path_input = QLineEdit()
-        cache_layout.addRow("Cache-Pfad:", self.cache_path_input)
-
-        self.max_entries_spin = QSpinBox()
-        self.max_entries_spin.setRange(100, 100000)
-        cache_layout.addRow("Maximale Einträge:", self.max_entries_spin)
-
-        self.compression_check = QCheckBox()
-        cache_layout.addRow("Komprimierung:", self.compression_check)
-
-        cache_group.setLayout(cache_layout)
-        layout.addWidget(cache_group)
-
-        # Cache-Statistiken
-        stats_group = QGroupBox("Cache-Statistiken")
-        stats_layout = QFormLayout()
-
-        self.stats_label = QLabel()
-        stats_layout.addRow("Aktuelle Nutzung:", self.stats_label)
-
-        self.clear_cache_button = QPushButton("Cache leeren")
-        self.clear_cache_button.clicked.connect(self.clear_cache)
-        stats_layout.addRow("", self.clear_cache_button)
-
-        stats_group.setLayout(stats_layout)
-        layout.addWidget(stats_group)
-
-        layout.addStretch()
-        return tab
 
     def create_ui_tab(self) -> QWidget:
         """Erstellt den Tab für UI-Einstellungen"""
@@ -322,24 +197,6 @@ class SettingsDialog(QDialog):
         display_group.setLayout(display_layout)
         layout.addWidget(display_group)
 
-        # Verhalten
-        behavior_group = QGroupBox("Verhalten")
-        behavior_layout = QFormLayout()
-
-        self.save_position_check = QCheckBox()
-        behavior_layout.addRow("Fensterposition speichern:", self.save_position_check)
-
-        self.autosave_spin = QSpinBox()
-        self.autosave_spin.setRange(1, 60)
-        behavior_layout.addRow("Automatisch speichern (Min.):", self.autosave_spin)
-
-        self.recent_searches_spin = QSpinBox()
-        self.recent_searches_spin.setRange(5, 50)
-        behavior_layout.addRow("Anzahl letzter Suchen:", self.recent_searches_spin)
-
-        behavior_group.setLayout(behavior_layout)
-        layout.addWidget(behavior_group)
-
         layout.addStretch()
         return tab
 
@@ -355,7 +212,7 @@ class SettingsDialog(QDialog):
         self.templates_table = QTableWidget()
         self.templates_table.setColumnCount(3)
         self.templates_table.setHorizontalHeaderLabels(
-            ["Name", "Beschreibung", "Modell"]
+            ["Task", "Modell", "Beschreibung"]
         )
         self.templates_table.horizontalHeader().setStretchLastSection(True)
         templates_layout.addWidget(self.templates_table)
@@ -364,15 +221,63 @@ class SettingsDialog(QDialog):
         button_layout = QHBoxLayout()
         self.edit_template_button = QPushButton("Bearbeiten")
         self.edit_template_button.clicked.connect(self.edit_template)
-        # self.reset_template_button = QPushButton("Zurücksetzen")
-        # self.reset_template_button.clicked.connect(self.reset_template)
+        self.add_template_button = QPushButton("Hinzufügen")
+        self.add_template_button.clicked.connect(self.add_template)
+        self.delete_template_button = QPushButton("Löschen")
+        self.delete_template_button.clicked.connect(self.delete_template)
 
         button_layout.addWidget(self.edit_template_button)
-        # button_layout.addWidget(self.reset_template_button)
+        button_layout.addWidget(self.add_template_button)
+        button_layout.addWidget(self.delete_template_button)
         templates_layout.addLayout(button_layout)
 
         templates_group.setLayout(templates_layout)
         layout.addWidget(templates_group)
+
+        # Prompt-Bearbeitungsbereich
+        self.prompt_edit_group = QGroupBox("Prompt bearbeiten")
+        self.prompt_edit_group.setVisible(False)  # Zunächst versteckt
+        prompt_edit_layout = QVBoxLayout(self.prompt_edit_group)
+
+        form_layout = QFormLayout()
+        self.edit_task_combo = QComboBox()
+        form_layout.addRow("Task:", self.edit_task_combo)
+        self.edit_model_combo = QComboBox()
+        form_layout.addRow("Modell:", self.edit_model_combo)
+        self.edit_description_input = QLineEdit()
+        form_layout.addRow("Beschreibung:", self.edit_description_input)
+        self.edit_temperature_spin = QDoubleSpinBox()
+        self.edit_temperature_spin.setRange(0.0, 2.0)
+        self.edit_temperature_spin.setSingleStep(0.1)
+        form_layout.addRow("Temperatur:", self.edit_temperature_spin)
+        self.edit_p_value_spin = QDoubleSpinBox()
+        self.edit_p_value_spin.setRange(0.0, 1.0)
+        self.edit_p_value_spin.setSingleStep(0.1)
+        form_layout.addRow("P-Wert:", self.edit_p_value_spin)
+        self.edit_seed_spin = QSpinBox()
+        self.edit_seed_spin.setRange(0, 1000000000)
+        form_layout.addRow("Seed:", self.edit_seed_spin)
+
+        prompt_edit_layout.addLayout(form_layout)
+
+        self.edit_prompt_text = QTextEdit()
+        self.edit_prompt_text.setPlaceholderText("Prompt-Text hier eingeben...")
+        prompt_edit_layout.addWidget(self.edit_prompt_text)
+
+        self.edit_system_text = QTextEdit()
+        self.edit_system_text.setPlaceholderText("System-Prompt hier eingeben...")
+        prompt_edit_layout.addWidget(self.edit_system_text)
+
+        save_cancel_layout = QHBoxLayout()
+        self.save_prompt_button = QPushButton("Speichern")
+        self.save_prompt_button.clicked.connect(self.save_template)
+        self.cancel_prompt_button = QPushButton("Abbrechen")
+        self.cancel_prompt_button.clicked.connect(self.cancel_edit)
+        save_cancel_layout.addWidget(self.save_prompt_button)
+        save_cancel_layout.addWidget(self.cancel_prompt_button)
+        prompt_edit_layout.addLayout(save_cancel_layout)
+
+        layout.addWidget(self.prompt_edit_group)
 
         self.update_templates_table()
         return tab
@@ -380,35 +285,133 @@ class SettingsDialog(QDialog):
     def update_templates_table(self):
         """Aktualisiert die Template-Tabelle"""
         self.templates_table.setRowCount(0)
-        prompt_config = self.config.get_section(ConfigSection.PROMPTS)
-
-        if not prompt_config:
-            return
-
-        for template in prompt_config.templates.values():
-            row = self.templates_table.rowCount()
-            self.templates_table.insertRow(row)
-            self.templates_table.setItem(row, 0, QTableWidgetItem(template.name))
-            self.templates_table.setItem(row, 1, QTableWidgetItem(template.description))
-            self.templates_table.setItem(row, 2, QTableWidgetItem(template.model))
+        for task in self.prompt_manager.get_available_tasks():
+            for model in self.prompt_manager.get_available_models(task):
+                row = self.templates_table.rowCount()
+                self.templates_table.insertRow(row)
+                self.templates_table.setItem(row, 0, QTableWidgetItem(task))
+                self.templates_table.setItem(row, 1, QTableWidgetItem(model))
+                # Description is not directly available in prompt_manager, so leave empty or derive if possible
+                self.templates_table.setItem(row, 2, QTableWidgetItem(""))
 
     def edit_template(self):
-        """Öffnet den Dialog zum Bearbeiten eines Templates"""
+        """Öffnet den Bereich zum Bearbeiten eines Templates"""
         current_row = self.templates_table.currentRow()
         if current_row < 0:
             QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Template aus.")
             return
 
-        template_name = self.templates_table.item(current_row, 0).text()
-        prompt_config = self.config.get_section(ConfigSection.PROMPTS)
-        template = prompt_config.templates.get(template_name)
+        self.current_edit_mode = "edit"
+        self.current_edit_task = self.templates_table.item(current_row, 0).text()
+        self.current_edit_model = self.templates_table.item(current_row, 1).text()
 
-        if template:
-            dialog = PromptEditDialog(template, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                updated_template = dialog.get_updated_template()
-                prompt_config.templates[template_name] = updated_template
+        config = self.prompt_manager.get_prompt_config(self.current_edit_task, self.current_edit_model)
+
+        self.edit_task_combo.clear()
+        self.edit_task_combo.addItem(self.current_edit_task)
+        self.edit_task_combo.setEnabled(False)
+
+        self.edit_model_combo.clear()
+        self.edit_model_combo.addItem(self.current_edit_model)
+        self.edit_model_combo.setEnabled(False)
+
+        self.edit_prompt_text.setPlainText(config["prompt"])
+        self.edit_system_text.setPlainText(config["system"])
+        self.edit_temperature_spin.setValue(config["temp"])
+        self.edit_p_value_spin.setValue(config["p-value"])
+        # Seed is not directly in get_prompt_config, need to adjust PromptManager or add it
+        # For now, set a default or retrieve if possible
+        self.edit_seed_spin.setValue(0) # Placeholder
+
+        self.prompt_edit_group.setVisible(True)
+
+    def add_template(self):
+        """Öffnet den Bereich zum Hinzufügen eines neuen Templates"""
+        self.current_edit_mode = "add"
+        self.current_edit_task = ""
+        self.current_edit_model = ""
+
+        self.edit_task_combo.clear()
+        self.edit_task_combo.addItems(self.prompt_manager.get_available_tasks())
+        self.edit_task_combo.setEnabled(True)
+
+        self.edit_model_combo.clear()
+        self.edit_model_combo.setEditable(True)
+        self.edit_model_combo.setEnabled(True)
+
+        self.edit_prompt_text.clear()
+        self.edit_system_text.clear()
+        self.edit_temperature_spin.setValue(0.7)
+        self.edit_p_value_spin.setValue(0.9)
+        self.edit_seed_spin.setValue(0)
+
+        self.prompt_edit_group.setVisible(True)
+
+    def delete_template(self):
+        """Löscht das ausgewählte Template"""
+        current_row = self.templates_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Template aus.")
+            return
+
+        task = self.templates_table.item(current_row, 0).text()
+        model = self.templates_table.item(current_row, 1).text()
+
+        reply = QMessageBox.question(
+            self,
+            "Bestätigung",
+            f"Möchten Sie das Template für Task '{task}' und Modell '{model}' wirklich löschen?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.prompt_manager.delete_prompt_config(task, model)
+                self.prompt_manager.save_config()
                 self.update_templates_table()
+                QMessageBox.information(self, "Erfolg", "Template erfolgreich gelöscht.")
+            except Exception as e:
+                QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen des Templates: {e}")
+
+    def save_template(self):
+        """Speichert das bearbeitete/neue Template"""
+        task = self.edit_task_combo.currentText()
+        model = self.edit_model_combo.currentText()
+        prompt_text = self.edit_prompt_text.toPlainText()
+        system_text = self.edit_system_text.toPlainText()
+        temperature = self.edit_temperature_spin.value()
+        p_value = self.edit_p_value_spin.value()
+        seed = self.edit_seed_spin.value()
+
+        if not task or not model or not prompt_text:
+            QMessageBox.warning(self, "Warnung", "Bitte füllen Sie alle erforderlichen Felder aus (Task, Modell, Prompt-Text).")
+            return
+
+        new_prompt_data = {
+            "prompt": prompt_text,
+            "system": system_text,
+            "temp": temperature,
+            "p-value": p_value,
+            "models": [model], # Always save as a list
+            "seed": seed
+        }
+
+        try:
+            if self.current_edit_mode == "edit":
+                self.prompt_manager.update_prompt_config(task, self.current_edit_model, new_prompt_data)
+            elif self.current_edit_mode == "add":
+                self.prompt_manager.add_prompt_config(task, new_prompt_data)
+            
+            self.prompt_manager.save_config()
+            self.update_templates_table()
+            self.prompt_edit_group.setVisible(False)
+            QMessageBox.information(self, "Erfolg", "Template erfolgreich gespeichert.")
+        except Exception as e:
+            QMessageBox.critical(self, "Fehler", f"Fehler beim Speichern des Templates: {e}")
+
+    def cancel_edit(self):
+        """Bricht die Bearbeitung ab und versteckt den Bearbeitungsbereich"""
+        self.prompt_edit_group.setVisible(False)
 
     def update_model_list(self):
         """Aktualisiert die Liste der verfügbaren Modelle basierend auf dem ausgewählten Provider"""
@@ -443,14 +446,11 @@ class SettingsDialog(QDialog):
             cache_config = self.config.get_section(ConfigSection.CACHE)
             if cache_config:
                 self.cache_enabled_check.setChecked(cache_config.enabled)
-            #    self.cache_max_age_spin.setValue(cache_config.max_age)
-            #    self.cache_max_size_spin.setValue(cache_config.max_size)
 
             # Such-Einstellungen
             search_config = self.config.get_section(ConfigSection.SEARCH)
             if search_config:
                 self.max_results_spin.setValue(search_config.max_results)
-                #    self.min_score_spin.setValue(search_config.min_score)
                 self.timeout_spin.setValue(search_config.timeout)
 
             # UI-Einstellungen
@@ -461,8 +461,6 @@ class SettingsDialog(QDialog):
 
             # Debug-Einstellungen
             general_config = self.config.get_section(ConfigSection.GENERAL)
-            # if general_config:
-            #    self.debug_mode_check.setChecked(general_config.debug)
 
         except Exception as e:
             self.logger.error(f"Fehler beim Laden der Einstellungen: {e}")
@@ -486,14 +484,11 @@ class SettingsDialog(QDialog):
             cache_config = self.config.get_section(ConfigSection.CACHE)
             if cache_config:
                 cache_config.enabled = self.cache_enabled_check.isChecked()
-            #    cache_config.max_age = self.cache_max_age_spin.value()
-            #    cache_config.max_size = self.cache_max_size_spin.value()
 
             # Such-Einstellungen
             search_config = self.config.get_section(ConfigSection.SEARCH)
             if search_config:
                 search_config.max_results = self.max_results_spin.value()
-                #    search_config.min_score = self.min_score_spin.value()
                 search_config.timeout = self.timeout_spin.value()
 
             # UI-Einstellungen
@@ -504,8 +499,6 @@ class SettingsDialog(QDialog):
 
             # Debug-Einstellungen
             general_config = self.config.get_section(ConfigSection.GENERAL)
-            # if general_config:
-            #    general_config.debug = self.debug_mode_check.isChecked()
 
             # Speichere die Konfiguration
             self.logger.debug("Versuche Konfiguration zu speichern...")

@@ -1,0 +1,109 @@
+000 Informatik, Wissen & Systeme
+010 Bibliografien
+020 Bibliotheks- & Informationswissenschaften
+030 Enzyklopädien & Faktenbücher
+040 [Unbesetzt]
+050 Magazine, Zeitschriften & fortlaufende Sammelwerke
+060 Verbände, Organisationen & Museen
+070 Publizistische Medien, Journalismus & Verlagswesen
+080 Zitate
+090 Handschriften & seltene Bücher
+
+100 Philosophie
+110 Metaphysik
+120 Epistemologie
+130 Parapsychologie & Okkultismus
+140 Philosophische Schulen
+150 Psychologie
+160 Philosophische Logik
+170 Ethik
+180 Antike, mittelalterliche & östliche Philosophie
+190 Neuzeitliche westliche Philosophie
+
+200 Religion
+210 Religionsphilosophie, Religionstheorie
+220 Bibel
+230 Christentum, christliche Theologie
+240 Christliche Erfahrung, christliches Leben
+250 Christliche Pastoraltheologie, Ordensgemeinschaften
+260 Kirchenorganisation, Sozialarbeit, Religionsausübung
+270 Geschichte des Christentums
+280 Christliche Konfessionen
+290 Andere Religionen
+
+300 Sozialwissenschaften, Soziologie
+310 Statistiken
+320 Politikwissenschaft
+330 Wirtschaft
+340 Recht
+350 Öffentliche Verwaltung, Militärwissenschaft
+360 Soziale Probleme, Sozialdienste
+370 Bildung und Erziehung
+380 Handel, Kommunikation, Verkehr
+390 Bräuche, Etikette, Folklore
+
+400 Sprache
+410 Linguistik
+420 Englisch, Altenglisch
+430 Deutsch, germanische Sprachen allgemein
+440 Französisch, romanische Sprachen allgemein
+450 Italienisch, Rumänisch, Rätoromanisch
+460 Spanisch, Portugiesisch
+470 Latein, italische Sprachen
+480 Griechisch
+490 Andere Sprachen
+
+500 Naturwissenschaften
+510 Mathematik
+520 Astronomie
+530 Physik
+540 Chemie
+550 Geowissenschaften, Geologie
+560 Fossilien, Paläontologie
+570 Biowissenschaften; Biologie
+580 Pflanzen (Botanik)
+590 Tiere (Zoologie)
+
+600 Technik
+610 Medizin und Gesundheit
+620 Ingenieurwissenschaften
+630 Landwirtschaft
+640 Hauswirtschaft und Familie
+650 Management, Öffentlichkeitsarbeit
+660 Chemische Verfahrenstechnik
+670 Industrielle Fertigung
+680 Industrielle Fertigung für einzelne Verwendungszwecke
+690 Hausbau, Bauhandwerk
+
+700 Künste
+710 Landschaftsgestaltung, Raumplanung
+720 Architektur
+730 Bildhauerkunst, Keramik, Metallkunst
+740 Zeichnung, angewandte Kunst
+750 Malerei
+760 Grafik
+770 Fotografie, Computerkunst
+780 Musik
+790 Sport, Spiele, Unterhaltung
+
+800 Literatur, Rhetorik, Literaturwissenschaft
+810 Amerikanische Literatur in Englisch
+820 Englische, altenglische Literaturen
+830 Deutsche und verwandte Literaturen
+840 Französische und verwandte Literaturen
+850 Italienische, rumänische, rätoromanische Literaturen
+860 Spanische, portugiesische Literaturen
+870 Lateinische, italische Literaturen
+880 Griechische Literaturen
+890 Andere Literaturen
+
+900 Geschichte
+910 Geografie, Reisen
+920 Biografie, Genealogie
+930 Geschichte des Altertums (bis ca. 499), Archäologie
+940 Geschichte Europas
+950 Geschichte Asiens
+960 Geschichte Afrikas
+970 Geschichte Nordamerikas
+980 Geschichte Südamerikas
+990 Geschichte anderer Gebiete

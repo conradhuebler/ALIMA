@@ -835,8 +835,6 @@ class AbstractTab(QWidget):
 
         result_display_layout.addWidget(self.results_edit)
 
-        result_display_layout.addWidget(self.results_edit)
-
         self.content_splitter.addWidget(result_display_widget)
 
         # Set content splitter proportions (30% prompt, 70% result)

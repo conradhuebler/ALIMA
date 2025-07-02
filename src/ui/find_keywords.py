@@ -28,7 +28,6 @@ import sys
 import json
 from pathlib import Path
 
-# Importiere den Meta-Suggester, der alle anderen Suggester vereinheitlicht
 from ..core.suggesters.meta_suggester import MetaSuggester, SuggesterType
 
 
@@ -117,7 +116,7 @@ class GNDSystemFilterWidget(QGroupBox):
         self.systems_table.setItem(row, 0, system_item)
 
         # Beschreibung (könnte aus einer Datenbank kommen)
-        description = "empty"  # self.get_system_description(system)
+        description = "empty"
         desc_item = QTableWidgetItem(description)
         self.systems_table.setItem(row, 1, desc_item)
 
@@ -354,7 +353,6 @@ class SearchTab(QWidget):
 
         # Suchbutton (hervorgehoben)
         self.search_button = QPushButton("Suche starten")
-        # self.search_button.setIcon(QIcon("search.png") if QIcon("search.png").isNull() == False else None)
         self.search_button.setMinimumHeight(40)
         self.search_button.clicked.connect(self.perform_search)
         self.search_button.setShortcut("Ctrl+Return")
@@ -806,14 +804,6 @@ class SearchTab(QWidget):
                 # Speichere die GND-ID für spätere Verwendung
                 if gnd_id:
                     self.gnd_ids.append(gnd_id)
-
-                    # Aktualisiere oder erstelle Datenbankeintrag
-                    # if self.cache_manager.gnd_keyword_exists(keyword):
-                    #    # GND-ID existiert bereits in der Datenbank
-                    #    self.logger.info(f"GND-ID existiert bereits: {gnd_id}")
-                    # else:
-                    #    self.update_database_entry(gnd_id, keyword, data)
-                    #    self.logger.info(f"Neue GND-ID gefunden: {gnd_id}")
                 else:
                     self.logger.info(f"Get from DB: {keyword}")
                     entry = self.cache_manager.get_gnd_keyword(keyword)

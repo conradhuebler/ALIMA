@@ -512,8 +512,6 @@ class CacheManager:
             self.logger.error(f"Fehler beim Aktualisieren des GND-Eintrags: {e}")
             raise
 
-    # self.cache_manager.update_gnd_entry(gnd_id, title = term, ddcs = ddc, gnd_systems = gdn_category, classification = category)
-
     def update_gnd_entry(
         self, gnd_id: str, title: str, ddcs: str, gnd_systems: str, classification: str
     ) -> None:

@@ -1,0 +1,10 @@
+000 Informatik, Information & Wissen, allgemeine Werke
+100 Philosophie & Psychologie
+200 Religion
+300 Sozialwissenschaften
+400 Sprache
+500 Naturwissenschaften
+600 Technik
+700 Künste & Freizeit und Erholung
+800 Literatur
+900 Geschichte & Geografie

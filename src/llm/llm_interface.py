@@ -22,12 +22,12 @@ class LLMInterface(QObject):
     """
 
     # Define PyQt signals for text streaming
-    text_received = pyqtSignal(str)
-    generation_finished = pyqtSignal(str)
-    generation_error = pyqtSignal(str)
+    text_received = pyqtSignal(str, str) # request_id, text_chunk
+    generation_finished = pyqtSignal(str, str) # request_id, message
+    generation_error = pyqtSignal(str, str) # request_id, error_message
 
     # Neues Signal zur Anzeige von Abbrüchen
-    generation_cancelled = pyqtSignal()
+    generation_cancelled = pyqtSignal(str) # request_id
 
     # Update Ollama URL and Port
     ollama_url_updated = pyqtSignal()
@@ -480,6 +480,7 @@ class LLMInterface(QObject):
         provider: str,
         model: str,
         prompt: str,
+        request_id: str,
         temperature: float = 0.7,
         seed: Optional[int] = None,
         image: Optional[Union[str, bytes]] = None,
@@ -506,7 +507,7 @@ class LLMInterface(QObject):
         self.cancel_requested = False
         self.stream_running = True
         self.current_provider = provider
-        self.current_request_id = None
+        self.current_request_id = request_id
         self.last_chunk_time = time.time()  # Setze den Timer für den ersten Chunk
 
         # Starte den Watchdog
@@ -514,7 +515,7 @@ class LLMInterface(QObject):
 
         if provider not in self.clients:
             error_msg = f"Provider {provider} not initialized"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(request_id, error_msg)
             self.stream_running = False
             return error_msg
 
@@ -838,7 +839,7 @@ class LLMInterface(QObject):
 
                         if chunk_text:
                             full_response += chunk_text
-                            self.text_received.emit(chunk_text)
+                            self.text_received.emit(self.current_request_id, chunk_text)
 
                     return full_response
 
@@ -855,7 +856,7 @@ class LLMInterface(QObject):
                         if hasattr(response, "text")
                         else response.parts[0].text
                     )
-                    self.text_received.emit(response_text)
+                    self.text_received.emit(self.current_request_id, response_text)
                     return response_text
             else:
                 # Nicht-Streaming-Variante
@@ -934,7 +935,7 @@ class LLMInterface(QObject):
                             chunk_text = chunk.choices[0].delta.content
                             if chunk_text:
                                 full_response += chunk_text
-                                self.text_received.emit(chunk_text)
+                                self.text_received.emit(self.current_request_id, chunk_text)
 
                     return full_response
 
@@ -965,7 +966,7 @@ class LLMInterface(QObject):
                                 if hasattr(delta, "content") and delta.content:
                                     chunk_text = delta.content
                                     full_response += chunk_text
-                                    self.text_received.emit(chunk_text)
+                                    self.text_received.emit(self.current_request_id, chunk_text)
 
                         return full_response
 
@@ -988,7 +989,7 @@ class LLMInterface(QObject):
                             and hasattr(response.choices[0], "message")
                         ):
                             response_text = response.choices[0].message.content
-                            self.text_received.emit(response_text)
+                            self.text_received.emit(self.current_request_id, response_text)
                             return response_text
                         else:
                             raise ValueError("Unerwartetes Antwortformat")

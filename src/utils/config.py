@@ -291,7 +291,6 @@ class Config:
 
         # Erstelle Standardkonfiguration mit Default-Prompts
         self._create_default_config()
-        # self.logger.info(f"Verfügbare Konfigurationsbereiche: {self.sections}")
         # Lade bestehende Konfiguration, falls vorhanden
         self.load_config()
 
@@ -320,7 +319,6 @@ class Config:
             ConfigSection.EXPORT: ExportConfig(),
             ConfigSection.PROMPTS: PromptConfig(),
         }
-        # self.logger.info("Konfig {self.sections}")
 
     def save_config(self):
         """Speichert die Konfiguration in der Datei"""
@@ -331,9 +329,7 @@ class Config:
 
             # Konvertiere Konfiguration in dict
             config_dict = {}
-            # self.logger.info(f"self.sections: {self.sections}")
             for section, config in self.sections.items():
-                # self.logger.info(f"Verarbeite Section {section}")
                 section_dict = {}
                 for key, value in vars(config).items():
                     self.logger.info(f"Verarbeite Key {key} and Value {value}")
@@ -386,7 +382,6 @@ class Config:
                             }
                             self.logger.info(f"Verarbeite AI-Konfiguration: {value}")
                         elif key == "templates" and isinstance(value, dict):
-                            # self.logger.info(f"Verarbeite Templates: {value}")
                             templates_dict = {}
                             for template_name, template in value.items():
                                 self.logger.info(f"Verarbeite Template {template_name}")
@@ -475,11 +470,7 @@ class Config:
 
                 elif section == ConfigSection.CACHE:
                     # Verarbeite Cache-Konfiguration
-                    self.sections[section] = CacheConfig(
-                        #    enabled=section_data.get('enabled', True),
-                        #    max_age=section_data.get('max_age', 7),
-                        #    max_size=section_data.get('max_size', 1000)
-                    )
+                    self.sections[section] = CacheConfig()
 
                 elif section == ConfigSection.SEARCH:
                     # Verarbeite Such-Konfiguration
