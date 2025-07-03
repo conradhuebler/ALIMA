@@ -68,6 +68,7 @@ import PyPDF2
 import threading
 import time
 from typing import List, Tuple, Dict
+import uuid
 
 
 class KeywordHighlighter(QSyntaxHighlighter):
@@ -191,6 +192,7 @@ class AbstractTab(QWidget):
         self.pdf_path = None
         self.chosen_model = "default"
         self.matched_keywords = {}
+        self.current_request_id = None
 
         # Load configurations
         self.load_recommendations()
@@ -1018,11 +1020,13 @@ class AbstractTab(QWidget):
             chunk_info="Einzelanalyse",
         )
 
+        self.current_request_id = str(uuid.uuid4())
         try:
             self.llm.generate_response(
                 provider=provider,
                 model=model,
                 prompt=prompt,
+                request_id=self.current_request_id,
                 temperature=self.ki_temperature.value() / 100,
                 seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
                 system=self.system,
@@ -1050,12 +1054,14 @@ class AbstractTab(QWidget):
             chunk_type="single",
             chunk_info="Einzelanalyse",
         )
+        self.current_request_id = str(uuid.uuid4())
 
         try:
             self.llm.generate_response(
                 provider=provider,
                 model=model,
                 prompt=prompt,
+                request_id=self.current_request_id,
                 temperature=self.ki_temperature.value() / 100,
                 seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
                 system=self.system,
@@ -1172,11 +1178,13 @@ class AbstractTab(QWidget):
         provider = self.provider_combo.currentText()
         self.prompt_display.setPlainText(chunk_prompt)
         self.logger.info(self.matched_keywords)
+        self.current_request_id = str(uuid.uuid4())
         try:
             self.llm.generate_response(
                 provider=provider,
                 model=model,
                 prompt=chunk_prompt,
+                request_id=self.current_request_id,
                 temperature=self.ki_temperature.value() / 100,
                 seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
                 system=self.system,
@@ -1250,11 +1258,13 @@ class AbstractTab(QWidget):
         provider = self.provider_combo.currentText()
         self.prompt_display.setPlainText(prompt)
 
+        self.current_request_id = str(uuid.uuid4())
         try:
             self.llm.generate_response(
                 provider=provider,
                 model=model,
                 prompt=prompt,
+                request_id=self.current_request_id,
                 temperature=self.ki_temperature.value() / 100,
                 seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
                 system=self.system,
@@ -1380,8 +1390,10 @@ class AbstractTab(QWidget):
             self.matched_keywords_from_results = {}
             return {}
 
-    def on_generation_finished(self, message):
+    def on_generation_finished(self, request_id: str, message: str):
         """Handle completion with keyword matching."""
+        if request_id != self.current_request_id:
+            return
         self.logger.info(f"Generation finished: {message}")
 
         if hasattr(self, "current_single_chunk") and not self.is_processing_chunks:
@@ -1422,8 +1434,10 @@ class AbstractTab(QWidget):
                 self.logger.info(self.matched_keywords)
 
     # ======== MODIFIED RESPONSE HANDLING ========
-    def on_text_received(self, text_chunk):
+    def on_text_received(self, request_id: str, text_chunk: str):
         """Handle streaming text with new display system."""
+        if request_id != self.current_request_id:
+            return
         # Display in current result area
         cursor = self.results_edit.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
@@ -1683,16 +1697,20 @@ class AbstractTab(QWidget):
                 self.logger.error(f"Error canceling generation: {e}")
                 self.analysis_completed()
 
-    def on_generation_error(self, error_message):
+    def on_generation_error(self, request_id: str, error_message: str):
         """Handle generation errors."""
+        if request_id != self.current_request_id:
+            return
         self.handle_error("Generierungsfehler", error_message)
         self.analysis_completed()
 
-    def on_generation_cancelled(self):
+    def on_generation_cancelled(self, request_id: str):
         """Handle generation cancellation."""
+        if request_id != self.current_request_id:
+            return
         if self.generated_response:
             self.results_edit.setPlainText(
-                f"{self.generated_response}\\n\\n[ABGEBROCHEN]"
+                f"{self.generated_response}\n\n[ABGEBROCHEN]"
             )
         else:
             self.results_edit.setPlainText("[ABGEBROCHEN]")

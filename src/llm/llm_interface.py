@@ -559,13 +559,13 @@ class LLMInterface(QObject):
             else:
                 error_msg = f"Generation not implemented for provider: {provider}"
                 self.logger.error(error_msg)
-                self.generation_error.emit(error_msg)
+                self.generation_error.emit(self.current_request_id, error_msg)
                 self.stream_running = False
                 return error_msg
 
             # Nur Finish-Signal emittieren wenn keine Abbruch angefordert wurde
             if not self.cancel_requested:
-                self.generation_finished.emit("Generation finished")
+                self.generation_finished.emit(self.current_request_id, "Generation finished")
             self.stream_running = False
             self.current_provider = None
             self.current_request_id = None
@@ -575,7 +575,7 @@ class LLMInterface(QObject):
             error_msg = f"Error in generate_response: {str(e)}"
             self.logger.error(error_msg)
             self.logger.debug(traceback.format_exc())
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             self.stream_running = False
             self.current_provider = None
             self.current_request_id = None
@@ -877,7 +877,7 @@ class LLMInterface(QObject):
             self.logger.error(f"Gemini error: {str(e)}")
             self.logger.debug(traceback.format_exc())
             error_msg = f"Error with Gemini: {str(e)}"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
     def _generate_github(
@@ -1006,7 +1006,7 @@ class LLMInterface(QObject):
             self.logger.error(f"Github error: {str(e)}")
             self.logger.debug(traceback.format_exc())
             error_msg = f"Error with Github: {str(e)}"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
     def _generate_openai_compatible(
@@ -1097,7 +1097,7 @@ class LLMInterface(QObject):
                     ):
                         chunk_text = chunk.choices[0].delta.content
                         full_response += chunk_text
-                        self.text_received.emit(chunk_text)
+                        self.text_received.emit(self.current_request_id, chunk_text)
 
                 return full_response
             else:
@@ -1108,7 +1108,7 @@ class LLMInterface(QObject):
         except Exception as e:
             self.logger.error(f"{provider.capitalize()} error: {str(e)}")
             error_msg = f"Error with {provider.capitalize()}: {str(e)}"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
     def _generate_ollama(
@@ -1182,7 +1182,7 @@ class LLMInterface(QObject):
                         if "response" in json_response:
                             chunk = json_response["response"]
                             full_response += chunk
-                            self.text_received.emit(chunk)
+                            self.text_received.emit(self.current_request_id, chunk)
 
                 return full_response
             else:
@@ -1196,7 +1196,7 @@ class LLMInterface(QObject):
         except Exception as e:
             self.logger.error(f"Ollama error: {str(e)}")
             error_msg = f"Error with Ollama: {str(e)}"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
     def _generate_anthropic(
@@ -1283,7 +1283,7 @@ class LLMInterface(QObject):
                     if hasattr(chunk, "delta") and chunk.delta.text:
                         chunk_text = chunk.delta.text
                         full_response += chunk_text
-                        self.text_received.emit(chunk_text)
+                        self.text_received.emit(self.current_request_id, chunk_text)
 
                 return full_response
             else:
@@ -1294,7 +1294,7 @@ class LLMInterface(QObject):
         except Exception as e:
             self.logger.error(f"Anthropic error: {str(e)}")
             error_msg = f"Error with Anthropic: {str(e)}"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
     # Auch die anderen _generate_* Methoden müssten ähnlich angepasst werden,
@@ -1406,7 +1406,7 @@ class LLMInterface(QObject):
                     ):
                         chunk_text = chunk.choices[0].delta.content
                         full_response += chunk_text
-                        self.text_received.emit(chunk_text)
+                        self.text_received.emit(self.current_request_id, chunk_text)
 
                 return full_response
             else:
@@ -1417,7 +1417,7 @@ class LLMInterface(QObject):
         except Exception as e:
             self.logger.error(f"{provider.capitalize()} error: {str(e)}")
             error_msg = f"Error with {provider.capitalize()}: {str(e)}"
-            self.generation_error.emit(error_msg)
+            self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
     # Zusätzlich brauchen wir eine Methode, um Provider-spezifische System-Prompts zu konfigurieren
