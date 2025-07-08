@@ -958,7 +958,8 @@ class AbstractTab(QWidget):
 
         # Reset states
         self.chunk_results.clear()
-        self.results_list.clear()
+        # We want all results be stored for the runtime
+        #self.results_list.clear()
         self.prompt_display.clear()
         self.results_edit.clear()
         self.generated_response = ""
@@ -992,7 +993,8 @@ class AbstractTab(QWidget):
 
         # Reset states
         self.chunk_results.clear()
-        self.results_list.clear()
+        # We want all results be stored for the runtime
+        #self.results_list.clear()
         self.prompt_display.clear()
         self.results_edit.clear()
         self.generated_response = ""
@@ -1758,7 +1760,7 @@ class AbstractTab(QWidget):
                 self.keywords_edit.clear()
                 self.results_edit.clear()
                 self.prompt_display.clear()
-                self.results_list.clear()
+                #self.results_list.clear()
                 self.chunk_results.clear()
                 self.pdf_info_frame.setVisible(False)
                 self.pdf_path = None
