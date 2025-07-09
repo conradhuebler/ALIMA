@@ -302,5 +302,29 @@
                 "0"
             ]
         ]
+    },
+    "rephrase": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model"
+        ],
+        "required": [
+            "abstract",
+            "keywords"
+        ],
+        "prompts": [
+            [
+                "Enter your prompt here...",
+                "Enter your system prompt here...",
+                "0.25",
+                "0.1",
+                [
+                    "default"
+                ]
+            ]
+        ]
     }
 }

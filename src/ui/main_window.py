@@ -373,7 +373,6 @@ class MainWindow(QMainWindow):
         self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
         self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
 
-
         self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
         self.tabs.addTab(self.search_tab, "GND-Suche")
@@ -579,6 +578,13 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         """Zeigt den Hilfe-Dialog"""
+
+    def show_prompt_editor(self):
+        """Öffnet den Prompt-Editor-Dialog"""
+        from .prompt_editor_dialog import PromptEditorDialog
+
+        editor = PromptEditorDialog(self)
+        editor.exec()
 
     def closeEvent(self, event):
         """Wird beim Schließen des Fensters aufgerufen"""
@@ -854,6 +860,10 @@ class MainWindow(QMainWindow):
         # Einstellungen-Aktion
         settings_action = edit_menu.addAction("&Einstellungen")
         settings_action.triggered.connect(self.show_settings)
+
+        # Prompt-Konfiguration-Aktion
+        prompt_config_action = edit_menu.addAction("&Prompt-Konfiguration")
+        prompt_config_action.triggered.connect(self.show_prompt_editor)
 
         # Cache-Menü
         cache_menu = menubar.addMenu("&Cache")

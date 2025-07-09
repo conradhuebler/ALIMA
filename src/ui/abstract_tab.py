@@ -181,23 +181,19 @@ class AbstractTab(QWidget):
         self.recommended_models = []
         self.current_template = ""
         self.model_descriptions = {}
-        self.recommendations_file = recommendations_file
-        self.propmpt_file = Path(__file__).parent.parent.parent / "prompts.json"
-        self.promptmanager = PromptManager(self.propmpt_file)
-        self.task = ""
-        self.tmp_task = ""
-        self.system = ""
-        self.generated_response = ""
-        self.pdf_metadata = {}
-        self.pdf_path = None
-        self.chosen_model = "default"
-        self.matched_keywords = {}
-        self.current_request_id = None
+        self.prompt_manager = PromptManager("prompts.json")
+        self.task: Optional[str] = None
+        self.tmp_task: Optional[str] = None
+        self.system: str = ""
+        self.generated_response: str = ""
+        self.pdf_metadata: Dict = {}
+        self.pdf_path: Optional[Path] = None
+        self.chosen_model: str = "default"
+        self.matched_keywords: Dict = {}
+        self.current_request_id: Optional[str] = None
 
         # Load configurations
-        self.load_recommendations()
-        self.set_model_recommendations("default")
-        self.required = []
+        self.required: List[str] = []
 
         # New chunking workflow attributes
         self.chunk_results: List[ChunkResultItem] = []
@@ -248,38 +244,23 @@ class AbstractTab(QWidget):
             if current_provider in items:
                 self.provider_combo.setCurrentText(current_provider)
 
-    def load_recommendations(self):
-        """Load model recommendations from the JSON file."""
-        try:
-            if not self.recommendations_file.exists():
-                self.logger.warning(
-                    f"Recommendations file not found: {self.recommendations_file}"
-                )
-                self.create_default_recommendations()
-                return
-
-            with open(self.recommendations_file, "r", encoding="utf-8") as f:
-                self.recommendations = json.load(f)
-
-            self.logger.info(
-                f"Successfully loaded recommendations from {self.recommendations_file}"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error loading recommendations: {e}")
-            self.create_default_recommendations()
-
-    def create_default_recommendations(self):
-        """Create default recommendations if file is missing."""
-        self.recommendations = {"default": {"recommended": {}, "descriptions": {}}}
-        self.logger.info("Created default recommendations")
-
     def set_task(self, task: str):
-        """Set the task type for model recommendations."""
+        """Set the task type for model recommendations and update UI."""
         self.task = task
-        self.recommended_models = self.promptmanager.get_available_models(task)
-        self.logger.info(f"Available models for {task}: {self.recommended_models}")
-        self.update_models(self.provider_combo.currentText())
+        self.logger.info(f"Task set to: {self.task}")
+        # Update the task selector combo box to reflect the initial task
+        index = self.task_selector_combo.findText(task)
+        if index >= 0:
+            self.task_selector_combo.setCurrentIndex(index)
+        else:
+            # If the task is not in the combo box (e.g., initial load), add it and select
+            # This will trigger on_task_selected, which then populates prompts and models
+            self.task_selector_combo.addItem(task)
+            self.task_selector_combo.setCurrentText(task)
+            # If it's a new task and no prompts are loaded, ensure populate_prompt_selector is called
+            if self.task_selector_combo.count() == 1:  # First item added
+                self.populate_prompt_selector()
+
         self.pdf_button.setVisible(self.task == "abstract")
 
     def set_model_recommendations(self, use_case: str):
@@ -290,40 +271,13 @@ class AbstractTab(QWidget):
         """Update available models when provider changes."""
         self.model_combo.clear()
         all_models = self.llm.get_available_models(provider)
-        recommended_available = []
 
-        if self.recommended_models:
-            recommended_group = "↳ Empfohlene Modelle"
-            self.model_combo.addItem(recommended_group)
-            recommended_available = [
-                model for model in self.recommended_models if model in all_models
-            ]
+        # Add all models directly, without "recommended" grouping for now
+        # The prompt selection will determine the actual model used.
+        self.model_combo.addItems(all_models)
 
-            for model in recommended_available:
-                self.model_combo.addItem(f"  {model}")
-                idx = self.model_combo.count() - 1
-                description = self.model_descriptions.get(provider, {}).get(model, "")
-                self.model_combo.setItemData(
-                    idx, description, Qt.ItemDataRole.ToolTipRole
-                )
-
-            if recommended_available and len(all_models) > len(recommended_available):
-                self.model_combo.addItem("↳ Weitere verfügbare Modelle")
-
-            other_models = [
-                model for model in all_models if model not in recommended_available
-            ]
-            for model in other_models:
-                self.model_combo.addItem(f"  {model}")
-        else:
-            self.model_combo.addItems(all_models)
-
-        if recommended_available:
-            self.model_combo.setCurrentText(f"  {recommended_available[0]}")
-            self.set_model(recommended_available[0])
-        elif all_models:
-            self.model_combo.setCurrentText(all_models[0])
-            self.set_model(all_models[0])
+        # No need to set current text or call set_model here.
+        # on_prompt_selected will handle setting the model based on the chosen prompt.
 
     def setup_ui(self):
         """Set up the user interface with restructured layout."""
@@ -566,40 +520,56 @@ class AbstractTab(QWidget):
         config_grid.setSpacing(8)
         config_grid.setContentsMargins(10, 20, 10, 10)
 
-        # Provider and Model
-        config_grid.addWidget(QLabel("Provider:"), 0, 0)
+        # Prompt Selection Group (MOVED HERE)
+        prompt_selection_group = QGroupBox("Prompt-Auswahl")
+        prompt_selection_layout = QHBoxLayout(prompt_selection_group)
+
+        prompt_selection_layout.addWidget(QLabel("Task:"))
+        self.task_selector_combo = QComboBox()
+        self.task_selector_combo.currentIndexChanged.connect(self.on_task_selected)
+        prompt_selection_layout.addWidget(self.task_selector_combo)
+
+        prompt_selection_layout.addWidget(QLabel("Prompt:"))
+        self.prompt_selector_combo = QComboBox()
+        self.prompt_selector_combo.currentIndexChanged.connect(self.on_prompt_selected)
+        prompt_selection_layout.addWidget(self.prompt_selector_combo)
+
+        config_grid.addWidget(
+            prompt_selection_group, 0, 0, 1, 2
+        )  # Span 1 row, 2 columns
+
+        # Provider and Model (adjusted row numbers)
+        config_grid.addWidget(QLabel("Provider:"), 1, 0)
         self.provider_combo = QComboBox()
         self.provider_combo.addItems(self.llm.get_available_providers())
         self.provider_combo.currentTextChanged.connect(self.update_models)
-        config_grid.addWidget(self.provider_combo, 0, 1)
+        config_grid.addWidget(self.provider_combo, 1, 1)
 
-        config_grid.addWidget(QLabel("Modell:"), 1, 0)
+        config_grid.addWidget(QLabel("Modell:"), 2, 0)
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(200)
         self.model_combo.currentTextChanged.connect(self.set_model)
-        config_grid.addWidget(self.model_combo, 1, 1)
+        config_grid.addWidget(self.model_combo, 2, 1)
 
-        # Temperature
-        self.temperature_label = QLabel("Temperatur: 0.00")
-        config_grid.addWidget(self.temperature_label, 2, 0)
-
+        # Temperature (adjusted row numbers)
+        config_grid.addWidget(QLabel("Temperatur:"), 3, 0)
         self.ki_temperature = QSlider(Qt.Orientation.Horizontal)
         self.ki_temperature.setRange(0, 100)
         self.ki_temperature.setValue(0)
         self.ki_temperature.setTickInterval(10)
         self.ki_temperature.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.ki_temperature.valueChanged.connect(self.update_temperature_label)
-        config_grid.addWidget(self.ki_temperature, 2, 1)
+        config_grid.addWidget(self.ki_temperature, 3, 1)
 
-        # Seed
-        config_grid.addWidget(QLabel("Seed:"), 3, 0)
+        # Seed (adjusted row numbers)
+        config_grid.addWidget(QLabel("Seed:"), 4, 0)
         self.ki_seed = QSpinBox()
         self.ki_seed.setRange(0, 1000000000)
         self.ki_seed.setValue(1)
         self.ki_seed.setToolTip(
             "0 = zufällig, andere Werte für reproduzierbare Ergebnisse"
         )
-        config_grid.addWidget(self.ki_seed, 3, 1)
+        config_grid.addWidget(self.ki_seed, 4, 1)
 
         config_main_layout.addWidget(self.config_group)
 
@@ -905,6 +875,97 @@ class AbstractTab(QWidget):
 
         # Initialize models
         self.update_models(self.provider_combo.currentText())
+        self.populate_task_selector()
+
+    def populate_task_selector(self):
+        """Populate the task selector combo box."""
+        self.task_selector_combo.clear()
+        tasks = self.prompt_manager.get_available_tasks()
+        self.task_selector_combo.addItems(tasks)
+
+    def on_task_selected(self, index):
+        """Handle task selection change."""
+        if index < 0:
+            return
+        selected_task = self.task_selector_combo.currentText()
+        self.task = selected_task
+        self.logger.info(f"Task selected: {self.task}")
+        self.populate_prompt_selector()
+        self.update_models(
+            self.provider_combo.currentText()
+        )  # Update models based on new task
+
+    def populate_prompt_selector(self):
+        """Populate the prompt selector combo box based on the selected task."""
+        self.prompt_selector_combo.clear()
+        if not self.task:
+            return
+
+        prompts = self.prompt_manager.get_prompts_for_task(self.task)
+        for i, prompt_set in enumerate(prompts):
+            models = (
+                prompt_set[4]
+                if len(prompt_set) > 4 and isinstance(prompt_set[4], list)
+                else []
+            )
+            models_str = ", ".join(models) if models else "No models"
+            display_text = f"Prompt Set {i+1} ({models_str})"
+            self.prompt_selector_combo.addItem(
+                display_text, userData=i
+            )  # Store index as user data
+
+        # Select the first prompt by default if available
+        if self.prompt_selector_combo.count() > 0:
+            self.prompt_selector_combo.setCurrentIndex(0)
+            self.on_prompt_selected(0)  # Manually trigger selection for initial load
+
+    def on_prompt_selected(self, index):
+        """Handle prompt selection change."""
+        if index < 0:
+            return
+
+        prompt_set_index = self.prompt_selector_combo.itemData(index)
+        if prompt_set_index is None:
+            return
+
+        try:
+            # Get the full prompt set data from PromptManager
+            prompt_set = self.prompt_manager.get_prompts_for_task(self.task)[
+                prompt_set_index
+            ]
+
+            # Update internal state based on selected prompt set
+            self.current_template = prompt_set[0]  # Prompt
+            self.system = prompt_set[1]  # System prompt
+
+            temp_value = float(prompt_set[2])  # Temperature
+            self.ki_temperature.setValue(int(temp_value * 100))
+
+            # Update chosen model if available in the prompt set
+            if (
+                len(prompt_set) > 4
+                and isinstance(prompt_set[4], list)
+                and prompt_set[4]
+            ):
+                self.chosen_model = prompt_set[4][0]  # Use the first model in the list
+                # Find and set the model in the model_combo if it exists
+                model_index = self.model_combo.findText(self.chosen_model)
+                if model_index >= 0:
+                    self.model_combo.setCurrentIndex(model_index)
+                else:
+                    self.logger.warning(
+                        f"Chosen model '{self.chosen_model}' not found in model_combo."
+                    )
+            else:
+                self.chosen_model = "default"  # Fallback
+
+            self.logger.info(
+                f"Prompt selected: Task={self.task}, Index={prompt_set_index}, Model={self.chosen_model}"
+            )
+            self.set_input()  # Refresh the displayed prompt
+        except Exception as e:
+            self.logger.error(f"Error loading selected prompt: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load selected prompt: {e}")
 
     # ======== NEW CHUNK NAVIGATION METHODS ========
     def show_chunk_result(self, item):
@@ -959,7 +1020,7 @@ class AbstractTab(QWidget):
         # Reset states
         self.chunk_results.clear()
         # We want all results be stored for the runtime
-        #self.results_list.clear()
+        # self.results_list.clear()
         self.prompt_display.clear()
         self.results_edit.clear()
         self.generated_response = ""
@@ -994,7 +1055,7 @@ class AbstractTab(QWidget):
         # Reset states
         self.chunk_results.clear()
         # We want all results be stored for the runtime
-        #self.results_list.clear()
+        # self.results_list.clear()
         self.prompt_display.clear()
         self.results_edit.clear()
         self.generated_response = ""
@@ -1514,25 +1575,66 @@ class AbstractTab(QWidget):
         self.collapsible_container.setVisible(not self.is_compact_mode)
 
     def set_model(self, model_text):
-        """Set the current model and update configuration."""
+        """Set the current model and update configuration based on selected model."""
         model = model_text.strip()
-        if model.startswith("↳"):
+        if not model or model.startswith("↳"):  # Ignore empty or group headers
             return
+
+        # Temporarily disconnect to prevent recursive calls
+        self.model_combo.currentTextChanged.disconnect(self.set_model)
+
         self.chosen_model = model
-        self.logger.info(f"Setting model to: '{model}'")
+        self.logger.info(f"Manually chosen model: '{model}'")
+
         try:
-            config = self.promptmanager.get_prompt_config(self.task, self.chosen_model)
-            temp_value = int(config.get("temp", 0.7) * 100)
-            self.ki_temperature.setValue(temp_value)
-            self.current_template = config.get("prompt", "")
-            self.system = config.get("system", "")
-            self.set_input()
+            # Find a prompt config that matches the current task and the manually chosen model
+            # Iterate through all prompts for the current task
+            found_config = None
+            prompts_for_task = self.prompt_manager.get_prompts_for_task(self.task)
+            for prompt_set in prompts_for_task:
+                # Check if the chosen model is in the list of models for this prompt set
+                if (
+                    len(prompt_set) > 4
+                    and isinstance(prompt_set[4], list)
+                    and model in prompt_set[4]
+                ):
+                    found_config = prompt_set
+                    break
+
+            if found_config:
+                self.current_template = found_config[0]  # Prompt
+                self.system = found_config[1]  # System prompt
+                temp_value = float(found_config[2])  # Temperature
+                self.ki_temperature.setValue(int(temp_value * 100))
+                self.logger.info(
+                    f"Updated prompt parameters for manually chosen model '{model}'."
+                )
+            else:
+                # If no matching prompt config found, revert to defaults or clear
+                self.logger.warning(
+                    f"No specific prompt config found for task '{self.task}' and model '{model}'. Using default parameters."
+                )
+                self.current_template = ""
+                self.system = ""
+                self.ki_temperature.setValue(int(0.7 * 100))  # Default temperature
+
+            self.set_input()  # Refresh the displayed prompt
+
         except Exception as e:
-            self.logger.error(f"Error setting model config: {e}")
+            self.logger.error(f"Error setting model config for manual selection: {e}")
+            # Revert to defaults on error
+            self.current_template = ""
+            self.system = ""
+            self.ki_temperature.setValue(int(0.7 * 100))  # Default temperature
+
+        finally:
+            # Reconnect the signal
+            self.model_combo.currentTextChanged.connect(self.set_model)
 
     def update_temperature_label(self, value):
         """Update temperature label to show actual value."""
-        self.temperature_label.setText(f"Temperatur: {value/100:.2f}")
+        if hasattr(self, "temperature_label") and self.temperature_label is not None:
+            self.temperature_label.setText(f"Temperatur: {value/100:.2f}")
 
     def parse_keywords_from_list(self, keywords_string: str) -> Dict[str, str]:
         """Parse keywords from formatted string like 'Keyword (GND-Number), ...'"""
@@ -1574,9 +1676,9 @@ class AbstractTab(QWidget):
 
     def set_input(self):
         """Prepare prompt using template and current input values."""
-        config = self.promptmanager.get_prompt_config(self.task, self.chosen_model)
-        temp_value = int(config.get("temp", 0.7) * 100)
-        self.ki_temperature.setValue(temp_value)
+        config = self.prompt_manager.get_prompt_config(self.task, self.chosen_model)
+        temp_value = float(config.get("temp", 0.7))
+        self.ki_temperature.setValue(int(temp_value * 100))
         self.current_template = config.get("prompt", "")
         self.system = config.get("system", "")
         template = self.current_template
@@ -1760,7 +1862,7 @@ class AbstractTab(QWidget):
                 self.keywords_edit.clear()
                 self.results_edit.clear()
                 self.prompt_display.clear()
-                #self.results_list.clear()
+                # self.results_list.clear()
                 self.chunk_results.clear()
                 self.pdf_info_frame.setVisible(False)
                 self.pdf_path = None

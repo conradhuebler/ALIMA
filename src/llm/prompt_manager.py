@@ -47,6 +47,15 @@ class PromptManager:
             return []
         return self.config[task]["required"]
 
+    def get_prompts_for_task(self, task_name: str) -> list:
+        """
+        Return the list of all prompt configurations for a given task.
+        Each prompt configuration is a list: [prompt, system, temp, p-value, models, seed]
+        """
+        if task_name in self.config and "prompts" in self.config[task_name]:
+            return self.config[task_name]["prompts"]
+        return []
+
     def get_prompt_config(self, task, model):
         """
         Get the prompt configuration for a specific task and model
@@ -125,7 +134,9 @@ class PromptManager:
         prompts_list = self.config[task]["prompts"]
         found = False
         for i, prompt_config in enumerate(prompts_list):
-            if old_model in prompt_config[4]:  # Check if old_model is in the models list
+            if (
+                old_model in prompt_config[4]
+            ):  # Check if old_model is in the models list
                 # Update the existing entry
                 prompts_list[i][0] = new_prompt_data["prompt"]
                 prompts_list[i][1] = new_prompt_data["system"]
@@ -135,11 +146,11 @@ class PromptManager:
                 prompts_list[i][5] = str(new_prompt_data["seed"])
                 found = True
                 break
-        
+
         if not found:
             raise ValueError(f"Model '{old_model}' not found for task '{task}'.")
-        
-        self._build_model_index() # Rebuild index after update
+
+        self._build_model_index()  # Rebuild index after update
 
     def add_prompt_config(self, task: str, new_prompt_data: dict):
         """
@@ -147,8 +158,12 @@ class PromptManager:
         new_prompt_data should contain 'prompt', 'system', 'temp', 'p-value', 'models', 'seed'.
         """
         if task not in self.config:
-            self.config[task] = {"fields": ["prompt", "system", "temp", "p-value", "model", "seed"], "required": [], "prompts": []}
-        
+            self.config[task] = {
+                "fields": ["prompt", "system", "temp", "p-value", "model", "seed"],
+                "required": [],
+                "prompts": [],
+            }
+
         # Ensure models is a list
         models = new_prompt_data.get("models", [])
         if not isinstance(models, list):
@@ -160,10 +175,10 @@ class PromptManager:
             str(new_prompt_data["temp"]),
             str(new_prompt_data["p-value"]),
             models,
-            str(new_prompt_data["seed"])
+            str(new_prompt_data["seed"]),
         ]
         self.config[task]["prompts"].append(new_entry)
-        self._build_model_index() # Rebuild index after adding
+        self._build_model_index()  # Rebuild index after adding
 
     def delete_prompt_config(self, task: str, model: str):
         """
@@ -190,12 +205,12 @@ class PromptManager:
                     deleted = True
             else:
                 new_prompts_list.append(prompt_config)
-        
+
         if not deleted:
             raise ValueError(f"Model '{model}' not found for task '{task}'.")
-        
+
         self.config[task]["prompts"] = new_prompts_list
-        self._build_model_index() # Rebuild index after deletion
+        self._build_model_index()  # Rebuild index after deletion
 
     def save_config(self):
         """Save the current configuration back to the file"""

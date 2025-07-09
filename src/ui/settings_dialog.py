@@ -17,7 +17,15 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QSplitter,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QScrollArea,
+    QListWidget,
+    QInputDialog,
 )
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, QSettings
 from ..llm.prompt_manager import PromptManager
 from ..utils.config import Config, ConfigSection, AIProvider
@@ -145,8 +153,6 @@ class SettingsDialog(QDialog):
         search_group = QGroupBox("Sucheinstellungen")
         search_layout = QFormLayout()
 
-        
-
         self.max_results_spin = QSpinBox()
         self.max_results_spin.setRange(10, 10000)
         self.max_results_spin.setSingleStep(10)
@@ -205,213 +211,25 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # Template-Liste
-        templates_group = QGroupBox("Verfügbare Templates")
-        templates_layout = QVBoxLayout()
+        prompt_editor_group = QGroupBox("Prompt-Konfiguration")
+        prompt_editor_layout = QVBoxLayout(prompt_editor_group)
 
-        self.templates_table = QTableWidget()
-        self.templates_table.setColumnCount(3)
-        self.templates_table.setHorizontalHeaderLabels(
-            ["Task", "Modell", "Beschreibung"]
-        )
-        self.templates_table.horizontalHeader().setStretchLastSection(True)
-        templates_layout.addWidget(self.templates_table)
+        open_editor_button = QPushButton("Prompt-Editor öffnen")
+        open_editor_button.clicked.connect(self.open_prompt_editor)
+        prompt_editor_layout.addWidget(open_editor_button)
 
-        # Buttons
-        button_layout = QHBoxLayout()
-        self.edit_template_button = QPushButton("Bearbeiten")
-        self.edit_template_button.clicked.connect(self.edit_template)
-        self.add_template_button = QPushButton("Hinzufügen")
-        self.add_template_button.clicked.connect(self.add_template)
-        self.delete_template_button = QPushButton("Löschen")
-        self.delete_template_button.clicked.connect(self.delete_template)
-
-        button_layout.addWidget(self.edit_template_button)
-        button_layout.addWidget(self.add_template_button)
-        button_layout.addWidget(self.delete_template_button)
-        templates_layout.addLayout(button_layout)
-
-        templates_group.setLayout(templates_layout)
-        layout.addWidget(templates_group)
-
-        # Prompt-Bearbeitungsbereich
-        self.prompt_edit_group = QGroupBox("Prompt bearbeiten")
-        self.prompt_edit_group.setVisible(False)  # Zunächst versteckt
-        prompt_edit_layout = QVBoxLayout(self.prompt_edit_group)
-
-        form_layout = QFormLayout()
-        self.edit_task_combo = QComboBox()
-        form_layout.addRow("Task:", self.edit_task_combo)
-        self.edit_model_combo = QComboBox()
-        form_layout.addRow("Modell:", self.edit_model_combo)
-        self.edit_description_input = QLineEdit()
-        form_layout.addRow("Beschreibung:", self.edit_description_input)
-        self.edit_temperature_spin = QDoubleSpinBox()
-        self.edit_temperature_spin.setRange(0.0, 2.0)
-        self.edit_temperature_spin.setSingleStep(0.1)
-        form_layout.addRow("Temperatur:", self.edit_temperature_spin)
-        self.edit_p_value_spin = QDoubleSpinBox()
-        self.edit_p_value_spin.setRange(0.0, 1.0)
-        self.edit_p_value_spin.setSingleStep(0.1)
-        form_layout.addRow("P-Wert:", self.edit_p_value_spin)
-        self.edit_seed_spin = QSpinBox()
-        self.edit_seed_spin.setRange(0, 1000000000)
-        form_layout.addRow("Seed:", self.edit_seed_spin)
-
-        prompt_edit_layout.addLayout(form_layout)
-
-        self.edit_prompt_text = QTextEdit()
-        self.edit_prompt_text.setPlaceholderText("Prompt-Text hier eingeben...")
-        prompt_edit_layout.addWidget(self.edit_prompt_text)
-
-        self.edit_system_text = QTextEdit()
-        self.edit_system_text.setPlaceholderText("System-Prompt hier eingeben...")
-        prompt_edit_layout.addWidget(self.edit_system_text)
-
-        save_cancel_layout = QHBoxLayout()
-        self.save_prompt_button = QPushButton("Speichern")
-        self.save_prompt_button.clicked.connect(self.save_template)
-        self.cancel_prompt_button = QPushButton("Abbrechen")
-        self.cancel_prompt_button.clicked.connect(self.cancel_edit)
-        save_cancel_layout.addWidget(self.save_prompt_button)
-        save_cancel_layout.addWidget(self.cancel_prompt_button)
-        prompt_edit_layout.addLayout(save_cancel_layout)
-
-        layout.addWidget(self.prompt_edit_group)
-
-        self.update_templates_table()
+        layout.addWidget(prompt_editor_group)
+        layout.addStretch()
         return tab
 
-    def update_templates_table(self):
-        """Aktualisiert die Template-Tabelle"""
-        self.templates_table.setRowCount(0)
-        for task in self.prompt_manager.get_available_tasks():
-            for model in self.prompt_manager.get_available_models(task):
-                row = self.templates_table.rowCount()
-                self.templates_table.insertRow(row)
-                self.templates_table.setItem(row, 0, QTableWidgetItem(task))
-                self.templates_table.setItem(row, 1, QTableWidgetItem(model))
-                # Description is not directly available in prompt_manager, so leave empty or derive if possible
-                self.templates_table.setItem(row, 2, QTableWidgetItem(""))
+    def open_prompt_editor(self):
+        """Öffnet den Prompt-Editor-Dialog"""
+        from .prompt_editor_dialog import PromptEditorDialog
 
-    def edit_template(self):
-        """Öffnet den Bereich zum Bearbeiten eines Templates"""
-        current_row = self.templates_table.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Template aus.")
-            return
-
-        self.current_edit_mode = "edit"
-        self.current_edit_task = self.templates_table.item(current_row, 0).text()
-        self.current_edit_model = self.templates_table.item(current_row, 1).text()
-
-        config = self.prompt_manager.get_prompt_config(self.current_edit_task, self.current_edit_model)
-
-        self.edit_task_combo.clear()
-        self.edit_task_combo.addItem(self.current_edit_task)
-        self.edit_task_combo.setEnabled(False)
-
-        self.edit_model_combo.clear()
-        self.edit_model_combo.addItem(self.current_edit_model)
-        self.edit_model_combo.setEnabled(False)
-
-        self.edit_prompt_text.setPlainText(config["prompt"])
-        self.edit_system_text.setPlainText(config["system"])
-        self.edit_temperature_spin.setValue(config["temp"])
-        self.edit_p_value_spin.setValue(config["p-value"])
-        # Seed is not directly in get_prompt_config, need to adjust PromptManager or add it
-        # For now, set a default or retrieve if possible
-        self.edit_seed_spin.setValue(0) # Placeholder
-
-        self.prompt_edit_group.setVisible(True)
-
-    def add_template(self):
-        """Öffnet den Bereich zum Hinzufügen eines neuen Templates"""
-        self.current_edit_mode = "add"
-        self.current_edit_task = ""
-        self.current_edit_model = ""
-
-        self.edit_task_combo.clear()
-        self.edit_task_combo.addItems(self.prompt_manager.get_available_tasks())
-        self.edit_task_combo.setEnabled(True)
-
-        self.edit_model_combo.clear()
-        self.edit_model_combo.setEditable(True)
-        self.edit_model_combo.setEnabled(True)
-
-        self.edit_prompt_text.clear()
-        self.edit_system_text.clear()
-        self.edit_temperature_spin.setValue(0.7)
-        self.edit_p_value_spin.setValue(0.9)
-        self.edit_seed_spin.setValue(0)
-
-        self.prompt_edit_group.setVisible(True)
-
-    def delete_template(self):
-        """Löscht das ausgewählte Template"""
-        current_row = self.templates_table.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "Warnung", "Bitte wählen Sie ein Template aus.")
-            return
-
-        task = self.templates_table.item(current_row, 0).text()
-        model = self.templates_table.item(current_row, 1).text()
-
-        reply = QMessageBox.question(
-            self,
-            "Bestätigung",
-            f"Möchten Sie das Template für Task '{task}' und Modell '{model}' wirklich löschen?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                self.prompt_manager.delete_prompt_config(task, model)
-                self.prompt_manager.save_config()
-                self.update_templates_table()
-                QMessageBox.information(self, "Erfolg", "Template erfolgreich gelöscht.")
-            except Exception as e:
-                QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen des Templates: {e}")
-
-    def save_template(self):
-        """Speichert das bearbeitete/neue Template"""
-        task = self.edit_task_combo.currentText()
-        model = self.edit_model_combo.currentText()
-        prompt_text = self.edit_prompt_text.toPlainText()
-        system_text = self.edit_system_text.toPlainText()
-        temperature = self.edit_temperature_spin.value()
-        p_value = self.edit_p_value_spin.value()
-        seed = self.edit_seed_spin.value()
-
-        if not task or not model or not prompt_text:
-            QMessageBox.warning(self, "Warnung", "Bitte füllen Sie alle erforderlichen Felder aus (Task, Modell, Prompt-Text).")
-            return
-
-        new_prompt_data = {
-            "prompt": prompt_text,
-            "system": system_text,
-            "temp": temperature,
-            "p-value": p_value,
-            "models": [model], # Always save as a list
-            "seed": seed
-        }
-
-        try:
-            if self.current_edit_mode == "edit":
-                self.prompt_manager.update_prompt_config(task, self.current_edit_model, new_prompt_data)
-            elif self.current_edit_mode == "add":
-                self.prompt_manager.add_prompt_config(task, new_prompt_data)
-            
-            self.prompt_manager.save_config()
-            self.update_templates_table()
-            self.prompt_edit_group.setVisible(False)
-            QMessageBox.information(self, "Erfolg", "Template erfolgreich gespeichert.")
-        except Exception as e:
-            QMessageBox.critical(self, "Fehler", f"Fehler beim Speichern des Templates: {e}")
-
-    def cancel_edit(self):
-        """Bricht die Bearbeitung ab und versteckt den Bearbeitungsbereich"""
-        self.prompt_edit_group.setVisible(False)
+        editor = PromptEditorDialog(self)
+        editor.exec()
+        # After closing the editor, reload settings if necessary
+        self.load_settings()
 
     def update_model_list(self):
         """Aktualisiert die Liste der verfügbaren Modelle basierend auf dem ausgewählten Provider"""

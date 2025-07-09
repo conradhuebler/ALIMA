@@ -22,12 +22,12 @@ class LLMInterface(QObject):
     """
 
     # Define PyQt signals for text streaming
-    text_received = pyqtSignal(str, str) # request_id, text_chunk
-    generation_finished = pyqtSignal(str, str) # request_id, message
-    generation_error = pyqtSignal(str, str) # request_id, error_message
+    text_received = pyqtSignal(str, str)  # request_id, text_chunk
+    generation_finished = pyqtSignal(str, str)  # request_id, message
+    generation_error = pyqtSignal(str, str)  # request_id, error_message
 
     # Neues Signal zur Anzeige von Abbrüchen
-    generation_cancelled = pyqtSignal(str) # request_id
+    generation_cancelled = pyqtSignal(str)  # request_id
 
     # Update Ollama URL and Port
     ollama_url_updated = pyqtSignal()
@@ -419,13 +419,16 @@ class LLMInterface(QObject):
             List of model names.
         """
         if provider not in self.clients:
+            self.logger.warning(f"Provider {provider} not initialized in clients.")
             return []
 
         try:
             if provider == "gemini":
+                # Ensure model.name is handled correctly, it's usually "models/model-name"
                 return [
                     model.name.split("/")[-1]
                     for model in self.clients[provider].list_models()
+                    if hasattr(model, "name")  # Ensure 'name' attribute exists
                 ]
 
             elif provider == "ollama":
@@ -437,14 +440,31 @@ class LLMInterface(QObject):
                 response = self.clients[provider].get(
                     f"{self.ollama_url}:{self.ollama_port}/api/tags"
                 )
+                response.raise_for_status()  # Raise an exception for HTTP errors
                 return [model["name"] for model in response.json()["models"]]
 
             elif provider in ["openai", "comet", "chatai"]:
-                return [model.id for model in self.clients[provider].models.list()]
+                # Use a more robust way to get model IDs, handling potential missing 'id'
+                models = []
+                for model_obj in self.clients[provider].models.list():
+                    if hasattr(model_obj, "id"):
+                        models.append(model_obj.id)
+                    else:
+                        self.logger.warning(
+                            f"Model object from {provider} has no 'id' attribute: {model_obj}"
+                        )
+                return models
 
             elif provider == "anthropic":
-                model_list = self.clients[provider].models.list()
-                return [model.id for model in model_list]
+                models = []
+                for model_obj in self.clients[provider].models.list():
+                    if hasattr(model_obj, "id"):
+                        models.append(model_obj.id)
+                    else:
+                        self.logger.warning(
+                            f"Model object from {provider} has no 'id' attribute: {model_obj}"
+                        )
+                return models
 
             elif provider == "azure":
                 return self.supported_providers[provider]["params"]["supported_models"]
@@ -565,7 +585,9 @@ class LLMInterface(QObject):
 
             # Nur Finish-Signal emittieren wenn keine Abbruch angefordert wurde
             if not self.cancel_requested:
-                self.generation_finished.emit(self.current_request_id, "Generation finished")
+                self.generation_finished.emit(
+                    self.current_request_id, "Generation finished"
+                )
             self.stream_running = False
             self.current_provider = None
             self.current_request_id = None
@@ -935,7 +957,9 @@ class LLMInterface(QObject):
                             chunk_text = chunk.choices[0].delta.content
                             if chunk_text:
                                 full_response += chunk_text
-                                self.text_received.emit(self.current_request_id, chunk_text)
+                                self.text_received.emit(
+                                    self.current_request_id, chunk_text
+                                )
 
                     return full_response
 
@@ -966,7 +990,9 @@ class LLMInterface(QObject):
                                 if hasattr(delta, "content") and delta.content:
                                     chunk_text = delta.content
                                     full_response += chunk_text
-                                    self.text_received.emit(self.current_request_id, chunk_text)
+                                    self.text_received.emit(
+                                        self.current_request_id, chunk_text
+                                    )
 
                         return full_response
 
@@ -989,7 +1015,9 @@ class LLMInterface(QObject):
                             and hasattr(response.choices[0], "message")
                         ):
                             response_text = response.choices[0].message.content
-                            self.text_received.emit(self.current_request_id, response_text)
+                            self.text_received.emit(
+                                self.current_request_id, response_text
+                            )
                             return response_text
                         else:
                             raise ValueError("Unerwartetes Antwortformat")
