@@ -269,8 +269,7 @@
                     "gemini-2.0-flash",
                     "DeepSeek-V3",
                     "Meta-Llama-3-70B-Instruct"
-                ],
-                "0"
+                ]
             ]
         ]
     },
@@ -298,8 +297,7 @@
                     "gemini-2.0-flash",
                     "DeepSeek-V3",
                     "Meta-Llama-3-70B-Instruct"
-                ],
-                "0"
+                ]
             ]
         ]
     },
@@ -317,8 +315,8 @@
         ],
         "prompts": [
             [
-                "Enter your prompt here...",
-                "Enter your system prompt here...",
+                "Du bist ein korrekter und fachlich versierter Bibliothekar. Nutze die folgenden GND-konformeren Schlagworte um den vorliegenden Text kurz und knapp umzuformlieren. Nutze die gegebenen Schlagworte, um\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
+                "Your role as an assistant involves thoroughly precise answer of the question.",
                 "0.25",
                 "0.1",
                 [

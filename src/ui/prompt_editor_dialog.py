@@ -42,6 +42,7 @@ class PromptEditorDialog(QDialog):
         self.current_file = "prompts.json"
         self.current_task = None
         self.current_prompt_set_index = None
+        self._dirty = False  # Track unsaved changes
         self.load_config()
 
     def initUI(self):
@@ -148,8 +149,36 @@ class PromptEditorDialog(QDialog):
             config_loaded and self.current_prompt_set_index is not None
         )
 
+    def _prompt_to_save_on_action(self) -> bool:
+        """
+        Prompts the user to save changes if the editor is dirty.
+        Returns True if the action can proceed (changes saved/discarded or no changes),
+        False if the action is cancelled.
+        """
+        if not self._dirty:
+            return True
+
+        reply = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "You have unsaved changes. Do you want to save them?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+
+        if reply == QMessageBox.StandardButton.Save:
+            self.save_config()
+            return not self._dirty  # Return True only if save was successful
+        elif reply == QMessageBox.StandardButton.Discard:
+            return True
+        else:
+            return False
+
     def new_config(self):
         """Create a new empty configuration"""
+        if not self._prompt_to_save_on_action():
+            return
         self.config_data = {
             "abstract": {
                 "fields": ["prompt", "system", "temp", "p-value", "model"],
@@ -164,9 +193,12 @@ class PromptEditorDialog(QDialog):
         self.refresh_task_tree()
         self.update_ui_state(True)
         self.setWindowTitle("Prompt Configuration Editor - New Config")
+        self._dirty = False
 
     def open_config(self):
         """Open a configuration file"""
+        if not self._prompt_to_save_on_action():
+            return
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open Configuration File", "", "JSON Files (*.json);;All Files (*)"
         )
@@ -186,6 +218,7 @@ class PromptEditorDialog(QDialog):
                 self.setWindowTitle(
                     f"Prompt Configuration Editor - {os.path.basename(self.current_file)}"
                 )
+                self._dirty = False
             except Exception as e:
                 QMessageBox.critical(
                     self, "Error", f"Failed to open configuration file: {str(e)}"
@@ -202,6 +235,7 @@ class PromptEditorDialog(QDialog):
 
     def save_config_as(self):
         """Save the configuration to a new file"""
+        # No need to prompt for saving here, as save_to_file will handle it
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Save Configuration File", "", "JSON Files (*.json);;All Files (*)"
         )
@@ -221,9 +255,7 @@ class PromptEditorDialog(QDialog):
         try:
             with open(file_path, "w", encoding="utf-8") as file:
                 json.dump(self.config_data, file, indent=4, ensure_ascii=False)
-            QMessageBox.information(
-                self, "Success", "Configuration saved successfully!"
-            )
+            self._dirty = False
         except Exception as e:
             QMessageBox.critical(
                 self, "Error", f"Failed to save configuration file: {str(e)}"
@@ -317,6 +349,7 @@ class PromptEditorDialog(QDialog):
                     self.task_tree.setCurrentItem(item)
                     self.on_tree_item_clicked(item, 0)
                     break
+            self._dirty = True
 
     def remove_task(self):
         """Remove the current task from the configuration"""
@@ -337,6 +370,7 @@ class PromptEditorDialog(QDialog):
             self.refresh_task_tree()
             self.clear_editor()
             self.update_ui_state(True)
+            self._dirty = True
 
     def add_prompt_set(self):
         """Add a new prompt set to the current task"""
@@ -374,6 +408,7 @@ class PromptEditorDialog(QDialog):
                 new_item = task_item.child(self.current_prompt_set_index)
                 self.task_tree.setCurrentItem(new_item)
                 self.on_tree_item_clicked(new_item, 0)
+        self._dirty = True
 
     def remove_prompt_set(self):
         """Remove the current prompt set from the current task"""
@@ -398,6 +433,7 @@ class PromptEditorDialog(QDialog):
             self.refresh_task_tree()
             self.clear_editor()
             self.update_ui_state(True)
+            self._dirty = True
 
     def clear_editor(self):
         """Clear the editor panel"""
@@ -474,7 +510,7 @@ class PromptEditorDialog(QDialog):
         self.config_data[self.current_task]["fields"] = fields
         self.config_data[self.current_task]["required"] = required
 
-        QMessageBox.information(self, "Success", "Task data saved successfully!")
+        self._dirty = True
 
     def load_prompt_set_editor(self, task_name, prompt_idx):
         """Load the editor for a prompt set"""
@@ -620,7 +656,7 @@ class PromptEditorDialog(QDialog):
                 0, f"Prompt Set {self.current_prompt_set_index + 1} ({models_str})"
             )
 
-        QMessageBox.information(self, "Success", "Prompt set saved successfully!")
+        self._dirty = True
 
     def collect_current_editor_data(self):
         """Collect data from the current editor if it's open"""
@@ -643,3 +679,28 @@ class PromptEditorDialog(QDialog):
             and self.prompt_edit.parent() is not None
         ):
             self.save_prompt_set_data()
+
+    def closeEvent(self, event):
+        """Handle close event, prompting to save if changes are unsaved."""
+        if self._dirty:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to save them before closing?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+            )
+
+            if reply == QMessageBox.StandardButton.Save:
+                self.save_config()
+                if self._dirty:  # If save failed, don't close
+                    event.ignore()
+                else:
+                    event.accept()
+            elif reply == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()

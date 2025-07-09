@@ -951,7 +951,10 @@ class AbstractTab(QWidget):
                 # Find and set the model in the model_combo if it exists
                 model_index = self.model_combo.findText(self.chosen_model)
                 if model_index >= 0:
+                    # Temporarily disconnect to prevent recursive calls to set_model
+                    self.model_combo.currentTextChanged.disconnect(self.set_model)
                     self.model_combo.setCurrentIndex(model_index)
+                    self.model_combo.currentTextChanged.connect(self.set_model)
                 else:
                     self.logger.warning(
                         f"Chosen model '{self.chosen_model}' not found in model_combo."
@@ -962,7 +965,10 @@ class AbstractTab(QWidget):
             self.logger.info(
                 f"Prompt selected: Task={self.task}, Index={prompt_set_index}, Model={self.chosen_model}"
             )
-            self.set_input()  # Refresh the displayed prompt
+
+            # Explicitly update the prompt display
+            self.prompt.setPlainText(self.set_input())
+
         except Exception as e:
             self.logger.error(f"Error loading selected prompt: {e}")
             QMessageBox.critical(self, "Error", f"Failed to load selected prompt: {e}")
