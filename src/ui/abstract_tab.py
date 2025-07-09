@@ -1397,27 +1397,38 @@ class AbstractTab(QWidget):
                     if term.lower() == keyword.lower():
                         matched_keywords[keyword] = gnd_id
                         self.logger.info(
-                            f"Direct match: '{term}' -> {keyword} ({gnd_id})"
+                            f"Direct match from final_list: '{term}' -> {keyword} ({gnd_id})"
                         )
                         break
-                    # Partial match (term contains keyword or vice versa)
+                    # Partial match (term contains keyword or vice versa) - keep existing logic
                     elif (
                         keyword.lower() in term.lower()
                         or term.lower() in keyword.lower()
                     ) and len(term) > 3:
                         matched_keywords[keyword] = gnd_id
                         self.logger.info(
-                            f"Partial match: '{term}' -> {keyword} ({gnd_id})"
+                            f"Partial match from final_list: '{term}' -> {keyword} ({gnd_id})"
                         )
                         break
 
-                # Check if term is a GND ID
+                # Check if term is a GND ID - keep existing logic
                 if re.match(r"\d{7}-\d", term):
                     for keyword, gnd_id in keywords_dict.items():
                         if gnd_id == term:
                             matched_keywords[keyword] = gnd_id
-                            self.logger.info(f"GND match: '{term}' -> {keyword}")
+                            self.logger.info(f"GND match from final_list: '{term}' -> {keyword}")
                             break
+
+        # --- NEW: Exact matching against the entire AI response text ---
+        self.logger.info("Performing exact matching against full AI response text.")
+        for keyword, gnd_id in keywords_dict.items():
+            # Create a regex for whole word, case-insensitive match
+            # re.escape handles special characters in the keyword
+            exact_match_pattern = r"\\b" + re.escape(keyword) + r"\\b"
+            if re.search(exact_match_pattern, all_results_text, re.IGNORECASE):
+                if keyword not in matched_keywords: # Avoid re-adding if already matched by final_list
+                    matched_keywords[keyword] = gnd_id
+                    self.logger.info(f"Exact match from full text: '{keyword}' -> {gnd_id}")
 
         self.logger.info(f"Total matched keywords: {len(matched_keywords)}")
         return matched_keywords
@@ -1645,22 +1656,34 @@ class AbstractTab(QWidget):
     def parse_keywords_from_list(self, keywords_string: str) -> Dict[str, str]:
         """Parse keywords from formatted string like 'Keyword (GND-Number), ...'"""
         keywords_dict = {}
+        self.logger.debug(f"Parsing keywords from string: '{keywords_string}'")
 
         if not keywords_string.strip():
+            self.logger.debug("Keywords string is empty or whitespace only.")
             return keywords_dict
 
         # Split by comma and process each entry
         entries = [entry.strip() for entry in keywords_string.split(",")]
+        self.logger.debug(f"Split into entries: {entries}")
 
         for entry in entries:
             if "(" in entry and ")" in entry:
                 # Extract keyword and GND number
-                keyword = entry.split("(")[0].strip()
-                gnd_match = entry.split("(")[1].split(")")[0].strip()
+                try:
+                    keyword = entry.split("(")[0].strip()
+                    gnd_match = entry.split("(")[1].split(")")[0].strip()
 
-                if keyword and gnd_match:
-                    keywords_dict[keyword] = gnd_match
+                    if keyword and gnd_match:
+                        keywords_dict[keyword] = gnd_match
+                        self.logger.debug(f"Parsed: Keyword='{keyword}', GND='{gnd_match}'")
+                    else:
+                        self.logger.debug(f"Skipped entry (empty keyword or GND): '{entry}'")
+                except IndexError:
+                    self.logger.warning(f"Failed to parse entry (IndexError): '{entry}'")
+            else:
+                self.logger.debug(f"Skipped entry (no parentheses): '{entry}'")
 
+        self.logger.debug(f"Final parsed keywords_dict: {keywords_dict}")
         return keywords_dict
 
     def update_highlighter_from_keywords(self):
