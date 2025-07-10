@@ -16,7 +16,6 @@ class AnalysisResult:
     full_text: str
     matched_keywords: Dict[str, str] = field(default_factory=dict)
     gnd_systematic: Optional[str] = None
-    # Add other relevant fields as needed
 
 @dataclass
 class PromptConfigData:
@@ -27,4 +26,16 @@ class PromptConfigData:
     models: List[str]
     seed: Optional[int]
 
-# Add other data models as needed for different parts of the application
+@dataclass
+class TaskState:
+    abstract_data: AbstractData
+    analysis_result: AnalysisResult
+    prompt_config: Optional[PromptConfigData] = None
+    status: str = "pending" # e.g., pending, completed, failed
+    task_name: Optional[str] = None
+    model_used: Optional[str] = None
+    provider_used: Optional[str] = None
+    use_chunking_abstract: Optional[bool] = False
+    abstract_chunk_size: Optional[int] = None
+    use_chunking_keywords: Optional[bool] = False
+    keyword_chunk_size: Optional[int] = None

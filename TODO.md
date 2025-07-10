@@ -14,17 +14,7 @@ The primary objective is to re-architect ALIMA to operate seamlessly across both
 ### 2.1. Define a Standardized JSON Schema for Task States
 
 *   **Purpose:** To represent the input, output, and configuration of each processing step in a machine-readable and interchangeable format.
-*   **Details:**
-    *   Each task (e.g., `abstract_analysis`, `keywords_verification`, `dk_classification`) will have its own section.
-    *   Include fields for:
-        *   `task_name`: Unique identifier for the task.
-        *   `status`: (e.g., `pending`, `in_progress`, `completed`, `failed`).
-        *   `input_data`: References to or inline content of input (e.g., abstract text, initial keywords).
-        *   `output_data`: Results of the task (e.g., extracted keywords, GND IDs, DK classifications).
-        *   `configuration`: Parameters used for the task (e.g., selected prompt, model, temperature, chunking settings).
-        *   `timestamp`: When the step was last processed.
-        *   `log`: Relevant log messages for the step.
-    *   Consider a top-level structure for a "project" or "session" that contains a sequence of tasks.
+*   **Details:** A basic JSON schema for `TaskState` and `AnalysisResult` has been defined in `src/core/data_models.py` to capture input, output, and configuration. This includes fields for `task_name`, `status`, `abstract_data`, `analysis_result` (containing `full_text`, `matched_keywords`, `gnd_systematic`), `prompt_config`, and various chunking parameters.
 
 ### 2.2. Refactor Core Logic into Modular, Reusable Components
 
@@ -37,22 +27,12 @@ The primary objective is to re-architect ALIMA to operate seamlessly across both
 ### 2.3. Develop a CLI Interface
 
 *   **Purpose:** Enable execution and management of tasks from the command line.
-*   **Details:**
-    *   Implement a main CLI script (`alima_cli.py` or similar).
-    *   Commands for:
-        *   `alima_cli.py run <json_workflow_file>`: Execute a predefined workflow.
-        *   `alima_cli.py start <task_name> --input <file> --config <file>`: Start a specific task.
-        *   `alima_cli.py continue <json_state_file>`: Resume a workflow from a saved state.
-        *   `alima_cli.py list-tasks`: List available tasks.
-        *   `alima_cli.py show-config <task_name>`: Display default/current config for a task.
-    *   Input/output handling for CLI (reading from files, printing to console).
+*   **Details:** The main CLI script (`alima_cli.py`) has been refactored to use sub-commands. The `run` command is implemented for executing analysis tasks, and the `load-state` command is implemented for loading and displaying saved task states. Argument parsing for these commands is in place.
 
 ### 2.4. Implement Save/Load State Mechanism
 
 *   **Purpose:** Persist and restore the state of a processing session.
-*   **Details:**
-    *   Functions to serialize the current task/workflow state into the defined JSON schema.
-    *   Functions to deserialize a JSON state file back into the application's data structures, allowing the GUI or CLI to pick up where it left off.
+*   **Details:** Functions to serialize the current task/workflow state into the defined JSON schema (`_task_state_to_dict` in `alima_cli.py`) and deserialize a JSON state file back into the application's data structures are implemented. The `run` command supports `--output-json` for saving, and a `load-state` command is available for loading.
 
 ## 3. Current Status (What Works So Far)
 
@@ -66,20 +46,19 @@ The primary objective is to re-architect ALIMA to operate seamlessly across both
     *   Provider and model selection within the GUI.
     *   Basic chunking for large inputs.
 *   **Git Update:** Functionality to update the application from Git.
+*   **CLI Functionality:**
+    *   `run` command for executing analysis tasks with various options.
+    *   `load-state` command for loading and displaying saved task states from JSON files.
+    *   JSON serialization and deserialization of `TaskState` objects.
 
 ## 4. Remaining Tasks (What's Still Needed)
 
 *   **Core Logic Decoupling:**
     *   Extract the core processing logic from `AbstractTab` and other UI-specific classes into a separate, UI-agnostic layer.
     *   Define clear interfaces for these core functions (inputs, outputs).
-*   **JSON Schema Definition:**
-    *   Formalize the JSON schema for representing task states and workflows.
 *   **CLI Implementation:**
-    *   Develop the `alima_cli.py` script with the commands outlined in section 2.3.
-    *   Implement argument parsing for CLI commands.
-*   **State Management:**
-    *   Implement the JSON serialization/deserialization for saving and loading task states.
-    *   Integrate this save/load mechanism into both the GUI and the future CLI.
+    *   Implement `start` and `continue` commands for the CLI.
+    *   Implement `list-tasks` and `show-config` commands for the CLI.
 *   **Error Handling & Robustness:**
     *   Further refine error handling across the application, especially for API calls and file operations.
     *   Address the reported issue of keywords not being found in `AbstractTab`'s exact match, despite being present in the `keywords_edit` field. This indicates a potential bug in `parse_keywords_from_list` or the exact matching regex.
@@ -87,3 +66,5 @@ The primary objective is to re-architect ALIMA to operate seamlessly across both
     *   Develop comprehensive unit and integration tests for both core logic and CLI functionality.
 *   **Documentation:**
     *   Update `README.md` and other documentation to reflect the new architecture and usage.
+*   **GUI Integration:**
+    *   Integrate the new JSON-based state management into the GUI to enable saving and loading tasks from the GUI.

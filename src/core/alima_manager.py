@@ -4,7 +4,7 @@ import uuid
 
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
-from .data_models import AbstractData, AnalysisResult, PromptConfigData
+from .data_models import AbstractData, AnalysisResult, PromptConfigData, TaskState
 from .processing_utils import chunk_abstract_by_lines, chunk_keywords_by_comma, parse_keywords_from_list, extract_keywords_from_response, extract_gnd_system_from_response, match_keywords_against_text
 
 class AlimaManager:
@@ -28,33 +28,70 @@ class AlimaManager:
         use_chunking_keywords: bool = False,
         keyword_chunk_size: int = 500,
         provider: Optional[str] = None,
-    ) -> AnalysisResult:
+    ) -> TaskState:
         self.logger.info(f"Starting analysis for task: {task}, model: {model}")
         request_id = str(uuid.uuid4())
 
         prompt_config = self.prompt_service.get_prompt_config(task, model)
         if not prompt_config:
-            return AnalysisResult(full_text=f"Error: No prompt configuration found for task '{task}' and model '{model}'")
+            analysis_result = AnalysisResult(full_text=f"Error: No prompt configuration found for task '{task}' and model '{model}'")
+            return TaskState(abstract_data=abstract_data, analysis_result=analysis_result, status="failed")
 
         if use_chunking_abstract or use_chunking_keywords:
-            return self._perform_chunked_analysis(
-                request_id, prompt_config, abstract_data, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, provider
+            analysis_result = self._perform_chunked_analysis(
+                request_id, prompt_config, abstract_data, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, provider, task, model
             )
         else:
             variables = {
                 "abstract": abstract_data.abstract,
                 "keywords": abstract_data.keywords if abstract_data.keywords else "Keine Keywords vorhanden",
             }
-            return self._perform_single_analysis(request_id, prompt_config, variables, provider)
+            analysis_result = self._perform_single_analysis(request_id, prompt_config, variables, task, model, provider, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size)
+        
+        status = "completed" if "Error" not in analysis_result.full_text else "failed"
+
+        return TaskState(
+            abstract_data=abstract_data,
+            analysis_result=analysis_result,
+            prompt_config=prompt_config,
+            status=status,
+            task_name=task,
+            model_used=model,
+            provider_used=provider,
+            use_chunking_abstract=use_chunking_abstract,
+            abstract_chunk_size=abstract_chunk_size,
+            use_chunking_keywords=use_chunking_keywords,
+            keyword_chunk_size=keyword_chunk_size
+        )
 
     def _perform_single_analysis(
-        self, request_id: str, prompt_config: PromptConfigData, variables: Dict[str, str], provider: Optional[str] = None
+        self,
+        request_id: str,
+        prompt_config: PromptConfigData,
+        variables: Dict[str, str],
+        task: str,
+        model: str,
+        provider: Optional[str] = None,
+        use_chunking_abstract: bool = False,
+        abstract_chunk_size: Optional[int] = None,
+        use_chunking_keywords: bool = False,
+        keyword_chunk_size: Optional[int] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
         response_text = self._generate_response(request_id, prompt_config, formatted_prompt, provider)
         if response_text is None:
             return AnalysisResult(full_text="Error: LLM call failed.")
-        return self._create_analysis_result(response_text, variables.get("keywords", ""))
+        return self._create_analysis_result(
+            response_text,
+            variables.get("keywords", ""),
+            task,
+            model,
+            provider,
+            use_chunking_abstract,
+            abstract_chunk_size,
+            use_chunking_keywords,
+            keyword_chunk_size,
+        )
 
     def _perform_chunked_analysis(
         self,
@@ -66,6 +103,8 @@ class AlimaManager:
         use_chunking_keywords: bool,
         keyword_chunk_size: int,
         provider: Optional[str] = None,
+        task: str = "",
+        model: str = "",
     ) -> AnalysisResult:
         chunk_results = []
 
@@ -88,7 +127,17 @@ class AlimaManager:
         combined_text = self._combine_chunk_results(request_id, chunk_results, prompt_config, provider)
         if combined_text is None:
             return AnalysisResult(full_text="Error: LLM call failed during chunk combination.")
-        return self._create_analysis_result(combined_text, abstract_data.keywords)
+        return self._create_analysis_result(
+            combined_text,
+            abstract_data.keywords,
+            task,
+            model,
+            provider,
+            use_chunking_abstract,
+            abstract_chunk_size,
+            use_chunking_keywords,
+            keyword_chunk_size,
+        )
 
     def _combine_chunk_results(self, request_id: str, chunk_results: List[str], prompt_config: PromptConfigData, provider: Optional[str] = None) -> Optional[str]:
         if len(chunk_results) == 1:
@@ -130,8 +179,6 @@ class AlimaManager:
                     if text_chunk is None:
                         continue # Skip None chunks
                     full_response_text += text_chunk
-                    print(text_chunk, end="") # Print to stdout for CLI streaming effect
-                print() # Newline after streaming is complete
             except Exception as e:
                 self.logger.error(f"Error during streaming LLM response for request_id {request_id}: {e}")
                 return None
@@ -141,7 +188,18 @@ class AlimaManager:
             self.logger.error(f"Error during LLM call: {e}")
             return None
 
-    def _create_analysis_result(self, response_text: Optional[str], keywords_input: str) -> AnalysisResult:
+    def _create_analysis_result(
+        self,
+        response_text: Optional[str],
+        keywords_input: str,
+        task: str,
+        model: str,
+        provider: Optional[str],
+        use_chunking_abstract: bool,
+        abstract_chunk_size: Optional[int],
+        use_chunking_keywords: bool,
+        keyword_chunk_size: Optional[int],
+    ) -> AnalysisResult:
         if response_text is None:
             return AnalysisResult(full_text="Error: No response from LLM.")
         
