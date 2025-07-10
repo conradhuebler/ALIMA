@@ -107,9 +107,9 @@ class AlimaManager:
 
     def _generate_response(self, request_id: str, prompt_config: PromptConfigData, formatted_prompt: str, provider: Optional[str] = None) -> Optional[str]:
         try:
-            actual_provider = provider if provider else self._get_provider_for_model(prompt_config.models[0]) if prompt_config.models else "default"
+            actual_provider = provider if provider else self._get_provider_for_model(prompt_config.models[0], provider) if prompt_config.models else "default"
             
-            response_text = self.llm_service.generate_response(
+            response_generator = self.llm_service.generate_response(
                 provider=actual_provider,
                 model=prompt_config.models[0] if prompt_config.models else "default",
                 prompt=formatted_prompt,
@@ -117,9 +117,26 @@ class AlimaManager:
                 temperature=prompt_config.temp,
                 seed=prompt_config.seed,
                 system=prompt_config.system,
-                stream=False,
+                stream=True, # Enable streaming
             )
-            return response_text
+
+            full_response_text = ""
+            if response_generator is None:
+                self.logger.error(f"LLM service returned None for request_id: {request_id}")
+                return None
+
+            try:
+                for text_chunk in response_generator:
+                    if text_chunk is None:
+                        continue # Skip None chunks
+                    full_response_text += text_chunk
+                    print(text_chunk, end="") # Print to stdout for CLI streaming effect
+                print() # Newline after streaming is complete
+            except Exception as e:
+                self.logger.error(f"Error during streaming LLM response for request_id {request_id}: {e}")
+                return None
+
+            return full_response_text
         except Exception as e:
             self.logger.error(f"Error during LLM call: {e}")
             return None
@@ -127,8 +144,19 @@ class AlimaManager:
     def _create_analysis_result(self, response_text: Optional[str], keywords_input: str) -> AnalysisResult:
         if response_text is None:
             return AnalysisResult(full_text="Error: No response from LLM.")
-        matched_keywords = self._extract_and_match_keywords(response_text, keywords_input)
-        gnd_systematic = extract_gnd_system_from_response(response_text)
+        
+        # Ensure response_text is a string before passing to extraction functions
+        response_text_str = str(response_text)
+
+        matched_keywords = self._extract_and_match_keywords(response_text_str, keywords_input)
+        gnd_systematic = extract_gnd_system_from_response(response_text_str)
+        
+        # Handle cases where extraction functions might return None or empty string
+        if not matched_keywords:
+            matched_keywords = {}
+        if gnd_systematic is None:
+            gnd_systematic = ""
+
         return AnalysisResult(
             full_text=response_text,
             matched_keywords=matched_keywords,
@@ -136,7 +164,11 @@ class AlimaManager:
         )
 
     def _extract_and_match_keywords(self, response_text: str, keywords_input: str) -> Dict[str, str]:
+        if keywords_input is None:
+            self.logger.warning("No keywords input provided, skipping keyword extraction.")
+            return {}
         matched_keywords = {}
+
         keywords_dict = parse_keywords_from_list(keywords_input)
 
         final_list_extracted = extract_keywords_from_response(response_text)
@@ -147,7 +179,9 @@ class AlimaManager:
         matched_keywords.update(match_keywords_against_text(keywords_dict, response_text))
         return matched_keywords
 
-    def _get_provider_for_model(self, model_name: str) -> str:
+    def _get_provider_for_model(self, model_name: str, explicit_provider: Optional[str] = None) -> str:
+        if explicit_provider:
+            return explicit_provider
         if "gemini" in model_name.lower():
             return "gemini"
         elif "gpt" in model_name.lower():

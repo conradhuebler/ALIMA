@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 def chunk_abstract_by_lines(text: str, lines_per_chunk: int) -> List[str]:
-    """Split abstract text into chunks by line count."""
+    logger.info(f"chunk_abstract_by_lines called with text length {len(text)} and {lines_per_chunk} lines per chunk")
     lines = text.split("\n")
     chunks = []
 
@@ -21,7 +21,7 @@ def chunk_abstract_by_lines(text: str, lines_per_chunk: int) -> List[str]:
 def chunk_keywords_by_comma(
     keywords_text: str, keywords_per_chunk: int
 ) -> List[str]:
-    """Split keywords into chunks by comma-separated count."""
+    logger.info(f"chunk_keywords_by_comma called with keywords_text length {len(keywords_text)} and {keywords_per_chunk} keywords per chunk")
     keywords = [kw.strip() for kw in keywords_text.split(",") if kw.strip()]
     chunks = []
 
@@ -35,9 +35,9 @@ def chunk_keywords_by_comma(
     return chunks
 
 def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
-    """Parse keywords from formatted string like 'Keyword (GND-Number), ...'"""
+    logger.info(f"parse_keywords_from_list called with keywords_string: '{keywords_string}'")
     keywords_dict = {}
-    logger.debug(f"Parsing keywords from string: '{keywords_string}'")
+    logger.info(f"Parsing keywords from string: '{keywords_string}'")
 
     if not keywords_string.strip():
         logger.debug("Keywords string is empty or whitespace only.")
@@ -45,7 +45,7 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
 
     # Split by comma and process each entry
     entries = [entry.strip() for entry in keywords_string.split(",")]
-    logger.debug(f"Split into entries: {entries}")
+    logger.info(f"Split into entries: {entries}")
 
     for entry in entries:
         if "(" in entry and ")" in entry:
@@ -68,42 +68,37 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
     return keywords_dict
 
 def extract_keywords_from_response(text: str) -> str:
-    """Extract keywords from response text (content within <final_list> tags)."""
+    logger.info(f"extract_keywords_from_response called with text length {len(text)}")
     cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     match = re.search(r"<final_list>(.*?)</final_list>", cleaned_text, re.DOTALL)
-    if not match:
-        return ""
-
-    keywords = match.group(1).split("|")
-    quoted_keywords = [
-        f'"{keyword.strip()}"' for keyword in keywords if keyword.strip()
-    ]
-    result = ", ".join(quoted_keywords)
-    return result
+    if match:
+        keywords = match.group(1).split("|")
+        quoted_keywords = [
+            f'"{keyword.strip()}"' for keyword in keywords if keyword.strip()
+        ]
+        result = ", ".join(quoted_keywords)
+        logger.debug(f"Extracted keywords: {result}")
+        return result
+    logger.debug("No <final_list> tag found.")
+    return ""
 
 def extract_gnd_system_from_response(text: str) -> Optional[str]:
-    """Extract GND system from response (content within <class> tags)."""
+    logger.info(f"extract_gnd_system_from_response called with text length {len(text)}")
     try:
         cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
         match = re.search(r"<class>(.*?)</class>", cleaned_text, re.DOTALL)
-        if not match:
-            return None
-        ognd_system = match.group(1).strip()
-        return ognd_system
+        if match:
+            ognd_system = match.group(1).strip()
+            logger.debug(f"Extracted GND system: {ognd_system}")
+            return ognd_system
+        logger.debug("No <class> tag found.")
+        return None
     except Exception as e:
         logger.error(f"Error extracting class content: {str(e)}")
         return None
 
 def match_keywords_against_text(keywords_dict: Dict[str, str], text: str) -> Dict[str, str]:
-    """Performs exact matching of keywords from keywords_dict against the given text.
-
-    Args:
-        keywords_dict: A dictionary of keywords and their associated GND IDs.
-        text: The text to search within.
-
-    Returns:
-        A dictionary of matched keywords and their GND IDs.
-    """
+    logger.info(f"match_keywords_against_text called with {len(keywords_dict)} keywords and text length {len(text)}")
     matched_keywords = {}
     for keyword, gnd_id in keywords_dict.items():
         # Create a regex for whole word, case-insensitive match
@@ -111,4 +106,6 @@ def match_keywords_against_text(keywords_dict: Dict[str, str], text: str) -> Dic
         if re.search(exact_match_pattern, text, re.IGNORECASE):
             matched_keywords[keyword] = gnd_id
             logger.debug(f"Exact match found: '{keyword}' -> {gnd_id}")
+    logger.debug(f"Final matched keywords: {matched_keywords}")
     return matched_keywords
+

@@ -1,3 +1,4 @@
+import requests
 from typing import Optional, Union, List, Dict, Any, Callable
 import os
 import threading
@@ -57,6 +58,11 @@ class LlmService(QObject):
         self.current_provider = None
         self.current_request_id = None
         self.current_thread_id = None
+        
+        # Ensure ollama_url has a scheme
+        if not ollama_url.startswith(("http://", "https://")):
+            ollama_url = "http://" + ollama_url
+
         self.ollama_url = ollama_url
         self.ollama_port = ollama_port
 
@@ -88,6 +94,8 @@ class LlmService(QObject):
 
     def set_ollama_url(self, url: str):
         self.logger.info(f"Setting Ollama URL to {url}")
+        if not url.startswith(("http://", "https://")):
+            url = "http://" + url
         self.ollama_url = url
         self.ollama_url_updated.emit()
 
@@ -506,7 +514,7 @@ class LlmService(QObject):
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
-    ) -> str:
+    ) -> Union[str, Any]: # Return type can be str or a generator
         """
         Generate a response from the specified provider using the given parameters.
 
@@ -521,7 +529,7 @@ class LlmService(QObject):
             stream: Whether to stream the response
 
         Returns:
-            Generated text response.
+            Generated text response (str) or a generator if streaming.
         """
         # Reset cancellation state
         self.cancel_requested = False
@@ -545,35 +553,35 @@ class LlmService(QObject):
 
             # Generate based on provider
             if provider == "openai":
-                text = self._generate_openai(
+                response = self._generate_openai(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "gemini":
-                text = self._generate_gemini(
+                response = self._generate_gemini(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "anthropic":
-                text = self._generate_anthropic(
+                response = self._generate_anthropic(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "ollama":
-                text = self._generate_ollama(
+                response = self._generate_ollama(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "github":
-                text = self._generate_github(
+                response = self._generate_github(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "chatai":
-                text = self._generate_openai_compatible(
+                response = self._generate_openai_compatible(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "comet":
-                text = self._generate_openai_compatible(
+                response = self._generate_openai_compatible(
                     model, prompt, temperature, seed, image, system, stream
                 )
             elif provider == "azure":
-                text = self._generate_azure_inference(
+                response = self._generate_azure_inference(
                     model, prompt, temperature, seed, image, system, stream
                 )
             else:
@@ -581,17 +589,20 @@ class LlmService(QObject):
                 self.logger.error(error_msg)
                 self.generation_error.emit(self.current_request_id, error_msg)
                 self.stream_running = False
-                return error_msg
+                raise ValueError(error_msg)
 
-            # Nur Finish-Signal emittieren wenn keine Abbruch angefordert wurde
-            if not self.cancel_requested:
-                self.generation_finished.emit(
-                    self.current_request_id, "Generation finished"
-                )
-            self.stream_running = False
-            self.current_provider = None
-            self.current_request_id = None
-            return text
+            if stream:
+                return response # Return the generator directly
+            else:
+                # Nur Finish-Signal emittieren wenn keine Abbruch angefordert wurde
+                if not self.cancel_requested:
+                    self.generation_finished.emit(
+                        self.current_request_id, "Generation finished"
+                    )
+                self.stream_running = False
+                self.current_provider = None
+                self.current_request_id = None
+                return response
 
         except Exception as e:
             error_msg = f"Error in generate_response: {str(e)}"
@@ -734,18 +745,18 @@ class LlmService(QObject):
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
     ):
         """Initialize Ollama provider."""
-        # Test if Ollama is running
-        if not self._is_server_reachable(self.ollama_url, self.ollama_port):
-            self.logger.warning(
-                f"Ollama server not accessible at {self.ollama_url}:{self.ollama_port}"
-            )
-            return
+        full_ollama_url = f"{self.ollama_url}:{self.ollama_port}"
+        self.logger.info(f"Attempting to initialize Ollama at {full_ollama_url}")
         try:
-            response = module.get(f"{self.ollama_url}:{self.ollama_port}/api/tags")
-            if response.ok:
-                self.clients[provider] = module
-        except:
-            self.logger.warning("Ollama server not accessible")
+            response = module.get(f"{full_ollama_url}/api/tags")
+            response.raise_for_status()  # Raise an exception for HTTP errors
+            self.clients[provider] = module
+            self.logger.info(f"Ollama client initialized successfully. Models: {[m['name'] for m in response.json()['models']]}")
+        except requests.exceptions.ConnectionError as ce:
+            self.logger.error(f"Ollama connection error: {ce}")
+            self.logger.warning(f"Ollama server not accessible at {full_ollama_url}")
+        except Exception as e:
+            self.logger.error(f"Error initializing Ollama: {e}")
 
     def _init_azure_inference(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
@@ -1145,12 +1156,9 @@ class LlmService(QObject):
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
-    ) -> str:
+    ) -> Union[str, Any]: # Changed return type to Union[str, Generator]
         """Generate response using Ollama."""
-        if not self._is_server_reachable(self.ollama_url, self.ollama_port):
-            self.logger.warning("Ollama server not accessible")
-            return
-
+        full_ollama_url = f"{self.ollama_url}:{self.ollama_port}"
         try:
             # Set up request data
             data = {
@@ -1178,13 +1186,12 @@ class LlmService(QObject):
             # Make API call with streaming
             if stream:
                 response = self.clients["ollama"].post(
-                    f"{self.ollama_url}:{self.ollama_port}/api/generate",
+                    f"{full_ollama_url}/api/generate",
                     json=data,
                     stream=True,
                 )
 
                 # Process streaming response
-                full_response = ""
                 for line in response.iter_lines():
                     # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
                     self.last_chunk_time = time.time()
@@ -1206,15 +1213,12 @@ class LlmService(QObject):
                         json_response = json.loads(line)
                         if "response" in json_response:
                             chunk = json_response["response"]
-                            full_response += chunk
-                            self.text_received.emit(self.current_request_id, chunk)
-
-                return full_response
+                            yield chunk # Yield the chunk
             else:
                 # Non-streaming option
                 data["stream"] = False
                 response = self.clients["ollama"].post(
-                    f"{self.ollama_url}:{self.ollama_port}/api/generate", json=data
+                    f"{full_ollama_url}/api/generate", json=data
                 )
                 return response.json()["response"]
 
@@ -1222,7 +1226,7 @@ class LlmService(QObject):
             self.logger.error(f"Ollama error: {str(e)}")
             error_msg = f"Error with Ollama: {str(e)}"
             self.generation_error.emit(self.current_request_id, error_msg)
-            return error_msg
+            raise e
 
     def _generate_anthropic(
         self,
