@@ -48,21 +48,21 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
     logger.info(f"Split into entries: {entries}")
 
     for entry in entries:
+        keyword = entry
+        gnd_match = None
         if "(" in entry and ")" in entry:
             # Extract keyword and GND number
             try:
                 keyword = entry.split("(")[0].strip()
                 gnd_match = entry.split("(")[1].split(")")[0].strip()
-
-                if keyword and gnd_match:
-                    keywords_dict[keyword] = gnd_match
-                    logger.debug(f"Parsed: Keyword='{keyword}', GND='{gnd_match}'")
-                else:
-                    logger.debug(f"Skipped entry (empty keyword or GND): '{entry}'")
             except IndexError:
                 logger.warning(f"Failed to parse entry (IndexError): '{entry}'")
+        
+        if keyword:
+            keywords_dict[keyword] = gnd_match
+            logger.debug(f"Parsed: Keyword='{keyword}', GND='{gnd_match}'")
         else:
-            logger.debug(f"Skipped entry (no parentheses): '{entry}'")
+            logger.debug(f"Skipped entry (empty keyword): '{entry}'")
 
     logger.debug(f"Final parsed keywords_dict: {keywords_dict}")
     return keywords_dict
@@ -73,10 +73,7 @@ def extract_keywords_from_response(text: str) -> str:
     match = re.search(r"<final_list>(.*?)</final_list>", cleaned_text, re.DOTALL)
     if match:
         keywords = match.group(1).split("|")
-        quoted_keywords = [
-            f'"{keyword.strip()}"' for keyword in keywords if keyword.strip()
-        ]
-        result = ", ".join(quoted_keywords)
+        result = ", ".join([keyword.strip() for keyword in keywords if keyword.strip()])
         logger.debug(f"Extracted keywords: {result}")
         return result
     logger.debug("No <final_list> tag found.")
@@ -85,16 +82,34 @@ def extract_keywords_from_response(text: str) -> str:
 def extract_gnd_system_from_response(text: str) -> Optional[str]:
     logger.info(f"extract_gnd_system_from_response called with text length {len(text)}")
     try:
+        # Remove <think> tags first
         cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-        match = re.search(r"<class>(.*?)</class>", cleaned_text, re.DOTALL)
-        if match:
-            ognd_system = match.group(1).strip()
-            logger.debug(f"Extracted GND system: {ognd_system}")
+
+        # Try to find the <class> tag first (if the prompt is updated to include it)
+        match_class_tag = re.search(r"<class>(.*?)</class>", cleaned_text, re.DOTALL)
+        if match_class_tag:
+            ognd_system = match_class_tag.group(1).strip()
+            logger.debug(f"Extracted GND system from <class> tag: {ognd_system}")
             return ognd_system
-        logger.debug("No <class> tag found.")
+
+        # If <class> tag not found, try to extract from 'GND-Systematik:' section
+        match_gnd_section = re.search(r"GND-Systematik:\s*(.*?)(?:\n\nSchlagworte:|\n\nZerlegte Schlagworte:|\n\nFEHLENDE KONZEPTE:|\n\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:|<final_list>|\Z)", cleaned_text, re.DOTALL)
+        if match_gnd_section:
+            ognd_system = match_gnd_section.group(1).strip()
+            # Remove any lines that are section headers
+            lines = ognd_system.splitlines()
+            filtered_lines = []
+            for line in lines:
+                if not re.match(r"^(Schlagworte:|Zerlegte Schlagworte:|FEHLENDE KONZEPTE:|KONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:)", line.strip()):
+                    filtered_lines.append(line.strip())
+            ognd_system = "\n".join([line for line in filtered_lines if line])
+            logger.debug(f"Extracted GND system from 'GND-Systematik:' section: {ognd_system}")
+            return ognd_system
+
+        logger.debug("No <class> tag or 'GND-Systematik:' section found.")
         return None
     except Exception as e:
-        logger.error(f"Error extracting class content: {str(e)}")
+        logger.error(f"Error extracting GND system: {str(e)}")
         return None
 
 def match_keywords_against_text(keywords_dict: Dict[str, str], text: str) -> Dict[str, str]:

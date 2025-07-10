@@ -148,7 +148,11 @@ class AlimaManager:
         # Ensure response_text is a string before passing to extraction functions
         response_text_str = str(response_text)
 
-        matched_keywords = self._extract_and_match_keywords(response_text_str, keywords_input)
+        if keywords_input:
+            matched_keywords = self._extract_and_match_keywords(response_text_str, keywords_input)
+        else:
+            extracted_keywords_str = extract_keywords_from_response(response_text_str)
+            matched_keywords = parse_keywords_from_list(extracted_keywords_str)
         gnd_systematic = extract_gnd_system_from_response(response_text_str)
         
         # Handle cases where extraction functions might return None or empty string
