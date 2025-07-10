@@ -12,7 +12,7 @@ import traceback
 from PyQt6.QtCore import QObject, pyqtSignal
 
 
-class LLMInterface(QObject):
+class LlmService(QObject):
     """
     A unified interface for interacting with various Large Language Models.
 
@@ -537,7 +537,7 @@ class LLMInterface(QObject):
             error_msg = f"Provider {provider} not initialized"
             self.generation_error.emit(request_id, error_msg)
             self.stream_running = False
-            return error_msg
+            raise ValueError(error_msg)
 
         try:
             # Log the request
@@ -601,7 +601,7 @@ class LLMInterface(QObject):
             self.stream_running = False
             self.current_provider = None
             self.current_request_id = None
-            return error_msg
+            raise e
 
     # Provider-specific initialization methods
 
@@ -800,9 +800,6 @@ class LLMInterface(QObject):
                 "temperature": temperature,
             }
 
-            if seed is not None:
-                generation_config["seed"] = seed
-
             # Fix für model_version Problem
             if not model.startswith("models/"):
                 model_name = model
@@ -900,7 +897,7 @@ class LLMInterface(QObject):
             self.logger.debug(traceback.format_exc())
             error_msg = f"Error with Gemini: {str(e)}"
             self.generation_error.emit(self.current_request_id, error_msg)
-            return error_msg
+            raise e
 
     def _generate_github(
         self,

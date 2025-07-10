@@ -20,7 +20,9 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 import logging
 from .abstract_tab import AbstractTab
 from ..core.katalog_subject import SubjectExtractor
-from ..llm.llm_interface import LLMInterface
+from ..llm.llm_service import LlmService
+from ..core.alima_manager import AlimaManager
+from ..core.alima_manager import AlimaManager
 
 
 class AdditionalTitlesWorker(QThread):
@@ -219,10 +221,11 @@ class UBSearchWorker(QThread):
 class UBSearchTab(QWidget):
     """Tab für die UB-Suche"""
 
-    def __init__(self, llm: LLMInterface = None):
+    def __init__(self, alima_manager: AlimaManager, llm_service: LlmService = None):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.llm = llm
+        self.llm = llm_service
+        self.alima_manager = alima_manager # Add this line to initialize alima_manager
         self.init_ui()
 
     def init_ui(self):
@@ -285,12 +288,12 @@ class UBSearchTab(QWidget):
 
         self.ai_tabs = QTabWidget()
 
-        self.ai_search = AbstractTab(llm=self.llm)
+        self.ai_search = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
         self.ai_search.template_name = "ub_search"
         self.ai_search.set_task("dk_list")
         self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
 
-        self.ai_classification = AbstractTab(llm=self.llm)
+        self.ai_classification = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
         self.ai_classification.template_name = "classification"
         self.ai_classification.set_abstract(self.abstract)
         self.ai_classification.set_task("dk_class")

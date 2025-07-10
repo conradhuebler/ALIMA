@@ -42,7 +42,9 @@ from ..core.search_engine import SearchEngine
 from ..core.cache_manager import CacheManager
 from ..core.gndparser import GNDParser
 from ..core.gitupdate import GitUpdateWorker
-from ..llm.llm_interface import LLMInterface
+from ..llm.llm_service import LlmService
+from ..llm.prompt_service import PromptService
+from ..core.alima_manager import AlimaManager
 
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
@@ -318,10 +320,19 @@ class MainWindow(QMainWindow):
         self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")
         self.ollama_port_default = self.settings.value("ollama_port", "11434")
 
-        self.llm = LLMInterface(
+        # Instantiate core services
+        self.llm_service = LlmService(
             ollama_url=self.ollama_url_default,
             ollama_port=self.ollama_port_default,
         )
+        self.llm = self.llm_service # Assign llm here
+        self.prompt_service = PromptService("prompts.json") # Pass the path to prompts.json
+        self.alima_manager = AlimaManager(
+            llm_service=self.llm_service,
+            prompt_service=self.prompt_service,
+            logger=self.logger # Pass logger to manager
+        )
+
         self.init_ui()
         self.load_settings()
 
@@ -349,21 +360,24 @@ class MainWindow(QMainWindow):
 
         self.crossref_tab = CrossrefTab()
 
-        self.abstract_tab = AbstractTab(llm=self.llm)
-        self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
-        self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
-        self.abstract_tab.template_name = "abstract_analysis"
-        self.abstract_tab.set_model_recommendations("abstract")
-        self.abstract_tab.set_task("abstract")
+        # Pass alima_manager and llm_service to AbstractTab
+        # Pass alima_manager and llm_service to AbstractTab
+        self.abstract_tab = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
+        #self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
+        #self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
+        self.abstract_tab.template_name = "abstract_analysis" # This might be removed later if task selection is fully dynamic
+        self.abstract_tab.set_task("abstract") # Set initial task
 
-        self.analyse_keywords = AbstractTab(llm=self.llm)
-        self.analyse_keywords.template_name = "results_verification"
-        self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
-        self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
+        # Pass alima_manager and llm_service to AbstractTab
+        self.analyse_keywords = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
+        self.analyse_keywords.template_name = "results_verification" # This might be removed later
+        #self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
+        #self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
         self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
-        self.ub_search_tab = UBSearchTab(llm=self.llm)
+
+        self.ub_search_tab = UBSearchTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
 
         self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
         self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)

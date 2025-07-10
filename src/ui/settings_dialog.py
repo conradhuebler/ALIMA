@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, QSettings
-from ..llm.prompt_manager import PromptManager
+from ..llm.prompt_service import PromptService
 from ..utils.config import Config, ConfigSection, AIProvider
 import logging
 from typing import Dict, Any
@@ -47,7 +47,7 @@ class SettingsDialog(QDialog):
         self.ui_settings = ui_settings  # Für UI-Einstellungen (Fenstergröße etc.)
         self.config = Config.get_instance()  # Für unsere eigenen Konfigurationen
         self.logger = logging.getLogger(__name__)
-        self.prompt_manager = PromptManager("/home/conrad/src/ALIMA/prompts.json")
+        self.prompt_manager = PromptService("/home/conrad/src/ALIMA/prompts.json")
         self.setWindowTitle("Einstellungen")
         self.init_ui()
         self.load_settings()
