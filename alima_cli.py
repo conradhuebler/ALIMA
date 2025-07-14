@@ -13,7 +13,7 @@ from src.core.search_cli import SearchCLI
 from src.core.cache_manager import CacheManager
 from src.core.suggesters.meta_suggester import SuggesterType
 from src.core.processing_utils import extract_keywords_from_response, extract_gnd_system_from_response
-from typing import List
+from typing import List, Tuple
 
 PROMPTS_FILE = "prompts.json"
 
@@ -28,6 +28,15 @@ def _task_state_to_dict(task_state: TaskState) -> dict:
     if task_state_dict.get('prompt_config'):
         task_state_dict['prompt_config'] = asdict(task_state.prompt_config)
     return task_state_dict
+
+def _convert_sets_to_lists(obj):
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, dict):
+        return {k: _convert_sets_to_lists(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_sets_to_lists(elem) for elem in obj]
+    return obj
 
 def main():
     """Main function for the ALIMA CLI.
@@ -99,14 +108,26 @@ def main():
     def stream_callback(text_chunk):
         print(text_chunk, end="", flush=True)
 
-    def _extract_keywords_from_descriptive_text(text: str) -> List[str]:
+    def _extract_keywords_from_descriptive_text(text: str) -> Tuple[List[str], List[str]]:
         import re
-        pattern = re.compile(r'([A-Za-zäöüÄÖÜß\s-]+)\s+\((\d{7}-\d|\d{7}-\d{1,2})\)')
+        pattern = re.compile(r'\b([A-Za-zäöüÄÖÜß\s-]+?)\s*\((\d{7}-\d|\d{7}-\d{1,2})\)')
         matches = pattern.findall(text)
-        extracted_keywords = []
+        
+        all_extracted_keywords = []
+        exact_matches = []
+
         for keyword, gnd_id in matches:
-            extracted_keywords.append(f"{keyword.strip()} ({gnd_id})")
-        return extracted_keywords
+            formatted_keyword = f"{keyword.strip()} ({gnd_id})"
+            all_extracted_keywords.append(formatted_keyword)
+
+            # Check for exact match of keyword part and GND ID part in the text
+            keyword_part_found = re.search(r'\b' + re.escape(keyword.strip()) + r'\b', text)
+            gnd_id_part_found = re.search(r'\b' + re.escape(gnd_id) + r'\b', text)
+
+            if keyword_part_found and gnd_id_part_found:
+                exact_matches.append(keyword_part_found)
+        print(exact_matches)        
+        return all_extracted_keywords, exact_matches
 
     def _extract_classes_from_descriptive_text(text: str) -> List[str]:
         import re
@@ -193,10 +214,16 @@ def main():
         alima_manager = AlimaManager(llm_service, prompt_service, logger)
 
         initial_keywords = []
+        original_abstract_for_llm = None # Initialize outside the if/else
+        initial_gnd_classes = [] # Initialize outside the if/else
+        analysis_state = None # Initialize analysis_state here
+
         if args.input_json:
             with open(args.input_json, 'r') as f:
                 analysis_state = KeywordAnalysisState(**json.load(f))
             initial_keywords = analysis_state.initial_keywords
+            original_abstract_for_llm = analysis_state.original_abstract
+            initial_gnd_classes = analysis_state.initial_gnd_classes
         else:
             if not args.keywords and not args.abstract:
                 logger.error("Either keywords or an abstract must be provided for analysis.")
@@ -206,36 +233,59 @@ def main():
                 logger.info("Generating initial keywords from abstract using LLM...")
                 abstract_data = AbstractData(abstract=args.abstract)
                 original_abstract_for_llm = args.abstract # Store the original abstract
+
+                # Get prompt config for initial keyword extraction
+                initial_prompt_config = prompt_service.get_prompt_config("abstract", args.model)
+                if not initial_prompt_config:
+                    logger.error(f"Prompt configuration for 'abstract' not found for model {args.model}")
+                    return
+
                 # Use the 'abstract' task to extract keywords from the abstract
                 task_state = alima_manager.analyze_abstract(
                     abstract_data,
-                    "abstract", 
+                    "abstract", # Correct task name
                     args.model,
                     provider=args.provider,
                     stream_callback=stream_callback
                 )
-                if task_state.analysis_result.full_text:
-                    # Extract keywords and GND classes from the LLM's response
-                    extracted_keywords_str = extract_keywords_from_response(task_state.analysis_result.full_text)
-                    initial_keywords = [kw.strip() for kw in extracted_keywords_str.split(',') if kw.strip()]
-                    
-                    extracted_gnd_classes_str = extract_gnd_system_from_response(task_state.analysis_result.full_text)
-                    initial_gnd_classes = [cls.strip() for cls in extracted_gnd_classes_str.split('|') if cls.strip()] if extracted_gnd_classes_str else []
+                
+                # Extract keywords and GND classes from the LLM's response
+                extracted_keywords_str = extract_keywords_from_response(task_state.analysis_result.full_text)
+                initial_keywords = [kw.strip() for kw in extracted_keywords_str.split(',') if kw.strip()]
+                
+                extracted_gnd_classes_str = extract_gnd_system_from_response(task_state.analysis_result.full_text)
+                initial_gnd_classes = [cls.strip() for cls in extracted_gnd_classes_str.split('|') if cls.strip()] if extracted_gnd_classes_str else []
 
-                    logger.info(f"Generated keywords: {initial_keywords}")
-                    logger.info(f"Generated GND classes: {initial_gnd_classes}")
-                else:
+                logger.info(f"Generated keywords: {initial_keywords}")
+                logger.info(f"Generated GND classes: {initial_gnd_classes}")
+
+                # Populate initial_llm_call_details
+                analysis_state = KeywordAnalysisState(original_abstract=original_abstract_for_llm, initial_keywords=initial_keywords, search_suggesters_used=args.suggesters, initial_gnd_classes=initial_gnd_classes)
+                analysis_state.initial_llm_call_details = LlmKeywordAnalysis(
+                    task_name="abstract",
+                    model_used=args.model,
+                    provider_used=args.provider,
+                    prompt_template=initial_prompt_config.prompt,
+                    filled_prompt=initial_prompt_config.prompt.format(abstract=args.abstract, keywords=""), # Pass empty keywords for initial abstract task
+                    temperature=initial_prompt_config.temp,
+                    seed=initial_prompt_config.seed,
+                    response_full_text=task_state.analysis_result.full_text,
+                    extracted_gnd_keywords=initial_keywords,
+                    extracted_gnd_classes=initial_gnd_classes
+                )
+
+                if not initial_keywords:
                     logger.error("Failed to generate keywords from abstract.")
                     return
             elif args.keywords:
                 initial_keywords = args.keywords
                 original_abstract_for_llm = None # No original abstract if keywords are provided directly
+                initial_gnd_classes = [] # No initial GND classes if keywords are provided directly
+                analysis_state = KeywordAnalysisState(original_abstract=original_abstract_for_llm, initial_keywords=initial_keywords, search_suggesters_used=args.suggesters, initial_gnd_classes=initial_gnd_classes)
             else:
                 logger.error("Either keywords or an abstract must be provided for analysis.")
                 return
             
-            analysis_state = KeywordAnalysisState(initial_keywords=initial_keywords, search_suggesters_used=args.suggesters, initial_gnd_classes=initial_gnd_classes)
-
             cache_manager = CacheManager()
             search_cli = SearchCLI(cache_manager)
 
@@ -276,25 +326,36 @@ def main():
         )
 
         # Extract keywords and classes from the full_text response
-        extracted_keywords = _extract_keywords_from_descriptive_text(task_state.analysis_result.full_text)
+        extracted_keywords_all, extracted_keywords_exact = _extract_keywords_from_descriptive_text(task_state.analysis_result.full_text)
         extracted_gnd_classes = _extract_classes_from_descriptive_text(task_state.analysis_result.full_text)
 
-        analysis_state.llm_analysis = LlmKeywordAnalysis(
+        final_prompt_config = prompt_service.get_prompt_config(args.final_llm_task, args.model)
+        if not final_prompt_config:
+            logger.error(f"Prompt configuration for '{args.final_llm_task}' not found for model {args.model}")
+            return
+
+        analysis_state.final_llm_analysis = LlmKeywordAnalysis(
+            task_name=args.final_llm_task,
             model_used=args.model,
             provider_used=args.provider,
-            extracted_gnd_keywords=extracted_keywords,
-            prompt=prompt_service.get_prompt_config(args.final_llm_task, args.model).prompt
+            prompt_template=final_prompt_config.prompt,
+            filled_prompt=final_prompt_config.prompt.format(abstract=final_llm_abstract_content, keywords=", ".join(gnd_compliant_keywords_for_llm)),
+            temperature=final_prompt_config.temp,
+            seed=final_prompt_config.seed,
+            response_full_text=task_state.analysis_result.full_text,
+            extracted_gnd_keywords=extracted_keywords_exact, # Use exact matches for final output
+            extracted_gnd_classes=extracted_gnd_classes
         )
 
-        print("--- Extracted GND Keywords ---")
-        print(analysis_state.llm_analysis.extracted_gnd_keywords)
+        print("--- Extracted GND Keywords (Exact Matches) ---")
+        print(analysis_state.final_llm_analysis.extracted_gnd_keywords)
         print("--- Extracted GND Classes ---")
-        print(extracted_gnd_classes)
+        print(analysis_state.final_llm_analysis.extracted_gnd_classes)
 
         if args.output_json:
             try:
                 with open(args.output_json, 'w', encoding='utf-8') as f:
-                    json.dump(asdict(analysis_state), f, ensure_ascii=False, indent=4)
+                    json.dump(_convert_sets_to_lists(asdict(analysis_state)), f, ensure_ascii=False, indent=4)
                 logger.info(f"Task state saved to {args.output_json}")
             except Exception as e:
                 logger.error(f"Error saving task state to JSON: {e}")

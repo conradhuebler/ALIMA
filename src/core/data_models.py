@@ -49,18 +49,26 @@ class SearchResult:
 
 @dataclass
 class LlmKeywordAnalysis:
-    """Strukturierte Darstellung der LLM-Analyseergebnisse."""
+    """Strukturierte Darstellung der LLM-Analyseergebnisse mit Details zum Aufruf."""
+    task_name: str
     model_used: str
     provider_used: str
+    prompt_template: str
+    filled_prompt: str
+    temperature: float
+    seed: Optional[int]
+    response_full_text: str
     extracted_gnd_keywords: List[str] = field(default_factory=list)
-    prompt: str = ""
+    extracted_gnd_classes: List[str] = field(default_factory=list)
 
 @dataclass
 class KeywordAnalysisState:
     """Kapselt den gesamten Zustand des Keyword-Analyse-Workflows."""
+    original_abstract: Optional[str]
     initial_keywords: List[str]
     search_suggesters_used: List[str]
     initial_gnd_classes: List[str] = field(default_factory=list)
     search_results: List[SearchResult] = field(default_factory=list)
-    llm_analysis: Optional[LlmKeywordAnalysis] = None
+    initial_llm_call_details: Optional[LlmKeywordAnalysis] = None
+    final_llm_analysis: Optional[LlmKeywordAnalysis] = None
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
