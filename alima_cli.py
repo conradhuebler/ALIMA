@@ -8,6 +8,9 @@ from src.core.alima_manager import AlimaManager
 from src.llm.llm_service import LlmService
 from src.llm.prompt_service import PromptService
 from src.core.data_models import AbstractData, TaskState, AnalysisResult, PromptConfigData
+from src.core.search_cli import SearchCLI
+from src.core.cache_manager import CacheManager
+from src.core.suggesters.meta_suggester import SuggesterType
 
 PROMPTS_FILE = "prompts.json"
 
@@ -66,6 +69,11 @@ def main():
     list_parser.add_argument("--ollama-host", default="http://localhost", help="Ollama host URL.")
     list_parser.add_argument("--ollama-port", type=int, default=11434, help="Ollama port.")
 
+    # Search command
+    search_parser = subparsers.add_parser("search", help="Search for keywords using various suggesters.")
+    search_parser.add_argument("search_terms", nargs='+', help="The search terms to use.")
+    search_parser.add_argument("--suggesters", nargs='+', default=["lobid"], help="The suggesters to use (e.g., 'lobid', 'swb', 'catalog').")
+
     args = parser.parse_args()
 
     # Setup logging
@@ -114,6 +122,35 @@ def main():
 
         except Exception as e:
             logger.error(f"An error occurred during analysis: {e}")
+    elif args.command == "search":
+        cache_manager = CacheManager()
+        search_cli = SearchCLI(cache_manager)
+
+        suggester_types = []
+        for suggester in args.suggesters:
+            try:
+                suggester_types.append(SuggesterType[suggester.upper()])
+            except KeyError:
+                logger.warning(f"Unknown suggester: {suggester}")
+
+        if not suggester_types:
+            logger.error("No valid suggesters specified.")
+            return
+
+        results = search_cli.search(args.search_terms, suggester_types)
+
+        for search_term, term_results in results.items():
+            print(f"--- Results for: {search_term} ---")
+            if cache_manager.gnd_keyword_exists(search_term):
+                print("  (Results found in cache)")
+            else:
+                print("  (Results not found in cache)")
+
+            for keyword, data in term_results.items():
+                print(f"  - {keyword}:")
+                print(f"    GND IDs: {data.get('gndid')}")
+                print(f"    Count: {data.get('count')}")
+
     elif args.command == "list-models":
         # Setup services
         llm_service = LlmService(ollama_url=args.ollama_host, ollama_port=args.ollama_port)
