@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 @dataclass
 class AbstractData:
@@ -39,3 +40,27 @@ class TaskState:
     abstract_chunk_size: Optional[int] = None
     use_chunking_keywords: Optional[bool] = False
     keyword_chunk_size: Optional[int] = None
+
+@dataclass
+class SearchResult:
+    """Strukturierte Darstellung der Suchergebnisse für einen Suchbegriff."""
+    search_term: str
+    results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+@dataclass
+class LlmKeywordAnalysis:
+    """Strukturierte Darstellung der LLM-Analyseergebnisse."""
+    model_used: str
+    provider_used: str
+    extracted_gnd_keywords: List[str] = field(default_factory=list)
+    prompt: str = ""
+
+@dataclass
+class KeywordAnalysisState:
+    """Kapselt den gesamten Zustand des Keyword-Analyse-Workflows."""
+    initial_keywords: List[str]
+    search_suggesters_used: List[str]
+    initial_gnd_classes: List[str] = field(default_factory=list)
+    search_results: List[SearchResult] = field(default_factory=list)
+    llm_analysis: Optional[LlmKeywordAnalysis] = None
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())

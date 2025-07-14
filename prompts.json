@@ -183,6 +183,31 @@
             ]
         ]
     },
+    "extract_initial_keywords": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
+        ],
+        "required": [
+            "abstract"
+        ],
+        "prompts": [
+            [
+                "Du bist ein erfahrener Bibliothekar. Extrahiere aus dem folgenden Abstract die wichtigsten Schlagworte, die den Inhalt des Textes am besten beschreiben. Gib eine kommagetrennte Liste der Schlagworte zurück.\n\nAbstract:\n{abstract}\n\nSchlagworte:",
+                "Du bist ein hilfreicher Assistent, der Keywords aus Texten extrahiert.",
+                "0.2",
+                "0.1",
+                [
+                    "default"
+                ],
+                "0"
+            ]
+        ]
+    },
     "abstract": {
         "fields": [
             "prompt",

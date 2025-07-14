@@ -7,10 +7,13 @@ from dataclasses import asdict
 from src.core.alima_manager import AlimaManager
 from src.llm.llm_service import LlmService
 from src.llm.prompt_service import PromptService
-from src.core.data_models import AbstractData, TaskState, AnalysisResult, PromptConfigData
+from src.core.data_models import (AbstractData, TaskState, AnalysisResult, 
+                                PromptConfigData, KeywordAnalysisState, SearchResult, LlmKeywordAnalysis)
 from src.core.search_cli import SearchCLI
 from src.core.cache_manager import CacheManager
 from src.core.suggesters.meta_suggester import SuggesterType
+from src.core.processing_utils import extract_keywords_from_response, extract_gnd_system_from_response
+from typing import List
 
 PROMPTS_FILE = "prompts.json"
 
@@ -74,11 +77,44 @@ def main():
     search_parser.add_argument("search_terms", nargs='+', help="The search terms to use.")
     search_parser.add_argument("--suggesters", nargs='+', default=["lobid"], help="The suggesters to use (e.g., 'lobid', 'swb', 'catalog').")
 
+    # Analyze keywords command
+    analyze_parser = subparsers.add_parser("analyze-keywords", help="Analyze keywords by searching and using an LLM.")
+    analyze_parser.add_argument("keywords", nargs='*', help="The keywords to analyze.")
+    analyze_parser.add_argument("--abstract", help="An abstract to generate keywords from if no keywords are provided.")
+    analyze_parser.add_argument("--suggesters", nargs='+', default=["lobid"], help="The suggesters to use for the search.")
+    analyze_parser.add_argument("--model", required=True, help="The model to use for the analysis.")
+    analyze_parser.add_argument("--provider", default="ollama", help="The LLM provider to use.")
+    analyze_parser.add_argument("--ollama-host", default="http://localhost", help="Ollama host URL.")
+    analyze_parser.add_argument("--ollama-port", type=int, default=11434, help="Ollama port.")
+    analyze_parser.add_argument("--output-json", help="Path to save the KeywordAnalysisState JSON output.")
+    analyze_parser.add_argument("--input-json", help="Path to a KeywordAnalysisState JSON file to resume analysis.")
+    analyze_parser.add_argument("--final-llm-task", default="keywords", choices=["keywords", "rephrase"], help="The final LLM task to perform (keywords or rephrase).")
+
     args = parser.parse_args()
 
     # Setup logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
+
+    def stream_callback(text_chunk):
+        print(text_chunk, end="", flush=True)
+
+    def _extract_keywords_from_descriptive_text(text: str) -> List[str]:
+        import re
+        pattern = re.compile(r'([A-Za-zäöüÄÖÜß\s-]+)\s+\((\d{7}-\d|\d{7}-\d{1,2})\)')
+        matches = pattern.findall(text)
+        extracted_keywords = []
+        for keyword, gnd_id in matches:
+            extracted_keywords.append(f"{keyword.strip()} ({gnd_id})")
+        return extracted_keywords
+
+    def _extract_classes_from_descriptive_text(text: str) -> List[str]:
+        import re
+        match = re.search(r'<class>(.*?)</class>', text)
+        if match:
+            classes_str = match.group(1)
+            return [cls.strip() for cls in classes_str.split('|') if cls.strip()]
+        return []
 
     # Check if prompts file exists
     if not os.path.exists(PROMPTS_FILE) and args.command not in ["list-models"]:
@@ -150,6 +186,118 @@ def main():
                 print(f"  - {keyword}:")
                 print(f"    GND IDs: {data.get('gndid')}")
                 print(f"    Count: {data.get('count')}")
+
+    elif args.command == "analyze-keywords":
+        llm_service = LlmService(providers=[args.provider], ollama_url=args.ollama_host, ollama_port=args.ollama_port)
+        prompt_service = PromptService(PROMPTS_FILE, logger)
+        alima_manager = AlimaManager(llm_service, prompt_service, logger)
+
+        initial_keywords = []
+        if args.input_json:
+            with open(args.input_json, 'r') as f:
+                analysis_state = KeywordAnalysisState(**json.load(f))
+            initial_keywords = analysis_state.initial_keywords
+        else:
+            if not args.keywords and not args.abstract:
+                logger.error("Either keywords or an abstract must be provided for analysis.")
+                return
+
+            if args.abstract and not args.keywords:
+                logger.info("Generating initial keywords from abstract using LLM...")
+                abstract_data = AbstractData(abstract=args.abstract)
+                original_abstract_for_llm = args.abstract # Store the original abstract
+                # Use the 'abstract' task to extract keywords from the abstract
+                task_state = alima_manager.analyze_abstract(
+                    abstract_data,
+                    "abstract", 
+                    args.model,
+                    provider=args.provider,
+                    stream_callback=stream_callback
+                )
+                if task_state.analysis_result.full_text:
+                    # Extract keywords and GND classes from the LLM's response
+                    extracted_keywords_str = extract_keywords_from_response(task_state.analysis_result.full_text)
+                    initial_keywords = [kw.strip() for kw in extracted_keywords_str.split(',') if kw.strip()]
+                    
+                    extracted_gnd_classes_str = extract_gnd_system_from_response(task_state.analysis_result.full_text)
+                    initial_gnd_classes = [cls.strip() for cls in extracted_gnd_classes_str.split('|') if cls.strip()] if extracted_gnd_classes_str else []
+
+                    logger.info(f"Generated keywords: {initial_keywords}")
+                    logger.info(f"Generated GND classes: {initial_gnd_classes}")
+                else:
+                    logger.error("Failed to generate keywords from abstract.")
+                    return
+            elif args.keywords:
+                initial_keywords = args.keywords
+                original_abstract_for_llm = None # No original abstract if keywords are provided directly
+            else:
+                logger.error("Either keywords or an abstract must be provided for analysis.")
+                return
+            
+            analysis_state = KeywordAnalysisState(initial_keywords=initial_keywords, search_suggesters_used=args.suggesters, initial_gnd_classes=initial_gnd_classes)
+
+            cache_manager = CacheManager()
+            search_cli = SearchCLI(cache_manager)
+
+            suggester_types = []
+            for suggester in args.suggesters:
+                try:
+                    suggester_types.append(SuggesterType[suggester.upper()])
+                except KeyError:
+                    logger.warning(f"Unknown suggester: {suggester}")
+
+            if suggester_types:
+                search_results_dict = search_cli.search(initial_keywords, suggester_types)
+                analysis_state.search_results = [SearchResult(search_term=k, results=v) for k, v in search_results_dict.items()]
+
+        # Format search results for LLM and collect all GND-compliant keywords
+        search_results_text = ""
+        gnd_compliant_keywords_for_llm = [] # New list to collect keywords with GND IDs
+        for search_result in analysis_state.search_results:
+            search_results_text += f"Search Term: {search_result.search_term}\n"
+            for keyword, data in search_result.results.items():
+                gnd_ids = ', '.join(data.get('gndid')) if data.get('gndid') else ''
+                formatted_keyword = f"{keyword} ({gnd_ids})" if gnd_ids else keyword
+                search_results_text += f"  - {formatted_keyword}\n"
+                gnd_compliant_keywords_for_llm.append(formatted_keyword) # Collect keyword with GND ID
+
+        # Determine the abstract content for the final LLM call
+        final_llm_abstract_content = original_abstract_for_llm if original_abstract_for_llm else search_results_text
+
+        # LLM analysis (using the selected final LLM task)
+        # Pass the collected GND-compliant keywords with IDs to the AbstractData
+        abstract_data = AbstractData(abstract=final_llm_abstract_content, keywords=", ".join(gnd_compliant_keywords_for_llm))
+        task_state = alima_manager.analyze_abstract(
+            abstract_data,
+            args.final_llm_task, # Use the selected final LLM task
+            args.model,
+            provider=args.provider,
+            stream_callback=stream_callback
+        )
+
+        # Extract keywords and classes from the full_text response
+        extracted_keywords = _extract_keywords_from_descriptive_text(task_state.analysis_result.full_text)
+        extracted_gnd_classes = _extract_classes_from_descriptive_text(task_state.analysis_result.full_text)
+
+        analysis_state.llm_analysis = LlmKeywordAnalysis(
+            model_used=args.model,
+            provider_used=args.provider,
+            extracted_gnd_keywords=extracted_keywords,
+            prompt=prompt_service.get_prompt_config(args.final_llm_task, args.model).prompt
+        )
+
+        print("--- Extracted GND Keywords ---")
+        print(analysis_state.llm_analysis.extracted_gnd_keywords)
+        print("--- Extracted GND Classes ---")
+        print(extracted_gnd_classes)
+
+        if args.output_json:
+            try:
+                with open(args.output_json, 'w', encoding='utf-8') as f:
+                    json.dump(asdict(analysis_state), f, ensure_ascii=False, indent=4)
+                logger.info(f"Task state saved to {args.output_json}")
+            except Exception as e:
+                logger.error(f"Error saving task state to JSON: {e}")
 
     elif args.command == "list-models":
         # Setup services
