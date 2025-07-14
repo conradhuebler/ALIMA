@@ -108,7 +108,7 @@ def main():
     def stream_callback(text_chunk):
         print(text_chunk, end="", flush=True)
 
-    def _extract_keywords_from_descriptive_text(text: str) -> Tuple[List[str], List[str]]:
+    def _extract_keywords_from_descriptive_text(text: str, gnd_compliant_keywords: List[str]) -> Tuple[List[str], List[str]]:
         import re
         pattern = re.compile(r'\b([A-Za-zäöüÄÖÜß\s-]+?)\s*\((\d{7}-\d|\d{7}-\d{1,2})\)')
         matches = pattern.findall(text)
@@ -116,19 +116,41 @@ def main():
         all_extracted_keywords = []
         exact_matches = []
 
-        for keyword, gnd_id in matches:
-            formatted_keyword = f"{keyword.strip()} ({gnd_id})"
+        # Convert gnd_compliant_keywords to a set for faster lookup
+        gnd_compliant_set = set(gnd_compliant_keywords)
+
+        for keyword_part, gnd_id_part in matches:
+            formatted_keyword = f"{keyword_part.strip()} ({gnd_id_part})"
             all_extracted_keywords.append(formatted_keyword)
 
-            # Check for exact match of keyword part and GND ID part in the text
-            keyword_part_found = re.search(r'\b' + re.escape(keyword.strip()) + r'\b', text)
-            gnd_id_part_found = re.search(r'\b' + re.escape(gnd_id) + r'\b', text)
+            # Check if the formatted keyword from LLM output is in the gnd_compliant_keywords list
+            if formatted_keyword in gnd_compliant_set:
+                exact_matches.append(formatted_keyword)
 
-            if keyword_part_found and gnd_id_part_found:
-                exact_matches.append(keyword_part_found)
-        print(exact_matches)        
         return all_extracted_keywords, exact_matches
 
+    def _extract_keywords_from_descriptive_text_simple(text: str, gnd_compliant_keywords: List[str]) -> List[str]:
+        """
+        Simplified version using basic string containment (faster but less precise).
+        """
+        if not text or not gnd_compliant_keywords:
+            return []
+        
+        matched_keywords = []
+        text_lower = text.lower()
+        
+        for gnd_keyword in gnd_compliant_keywords:
+            if '(' in gnd_keyword and ')' in gnd_keyword:
+                # Extract clean keyword
+                clean_keyword = gnd_keyword.split('(')[0].strip().lower()
+                
+                # Simple containment check
+                if clean_keyword in text_lower:
+                    matched_keywords.append(gnd_keyword)
+                    self.logger.info(f"Simple match found: '{clean_keyword}' -> {gnd_keyword}")
+        
+        return matched_keywords
+    
     def _extract_classes_from_descriptive_text(text: str) -> List[str]:
         import re
         match = re.search(r'<class>(.*?)</class>', text)
@@ -326,7 +348,7 @@ def main():
         )
 
         # Extract keywords and classes from the full_text response
-        extracted_keywords_all, extracted_keywords_exact = _extract_keywords_from_descriptive_text(task_state.analysis_result.full_text)
+        extracted_keywords_all, extracted_keywords_exact = _extract_keywords_from_descriptive_text(task_state.analysis_result.full_text, gnd_compliant_keywords_for_llm)
         extracted_gnd_classes = _extract_classes_from_descriptive_text(task_state.analysis_result.full_text)
 
         final_prompt_config = prompt_service.get_prompt_config(args.final_llm_task, args.model)
