@@ -28,6 +28,7 @@ class AlimaManager:
         use_chunking_keywords: bool = False,
         keyword_chunk_size: int = 500,
         provider: Optional[str] = None,
+        stream_callback: Optional[callable] = None,
     ) -> TaskState:
         self.logger.info(f"Starting analysis for task: {task}, model: {model}")
         request_id = str(uuid.uuid4())
@@ -39,14 +40,14 @@ class AlimaManager:
 
         if use_chunking_abstract or use_chunking_keywords:
             analysis_result = self._perform_chunked_analysis(
-                request_id, prompt_config, abstract_data, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, provider, task, model
+                request_id, prompt_config, abstract_data, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, provider, task, model, stream_callback
             )
         else:
             variables = {
                 "abstract": abstract_data.abstract,
                 "keywords": abstract_data.keywords if abstract_data.keywords else "Keine Keywords vorhanden",
             }
-            analysis_result = self._perform_single_analysis(request_id, prompt_config, variables, task, model, provider, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size)
+            analysis_result = self._perform_single_analysis(request_id, prompt_config, variables, task, model, provider, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, stream_callback)
         
         status = "completed" if "Error" not in analysis_result.full_text else "failed"
 
@@ -76,9 +77,10 @@ class AlimaManager:
         abstract_chunk_size: Optional[int] = None,
         use_chunking_keywords: bool = False,
         keyword_chunk_size: Optional[int] = None,
+        stream_callback: Optional[callable] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
-        response_text = self._generate_response(request_id, prompt_config, formatted_prompt, provider)
+        response_text = self._generate_response(request_id, prompt_config, formatted_prompt, provider, stream_callback)
         if response_text is None:
             return AnalysisResult(full_text="Error: LLM call failed.")
         return self._create_analysis_result(
@@ -105,6 +107,7 @@ class AlimaManager:
         provider: Optional[str] = None,
         task: str = "",
         model: str = "",
+        stream_callback: Optional[callable] = None,
     ) -> AnalysisResult:
         chunk_results = []
 
@@ -154,7 +157,7 @@ class AlimaManager:
         
         return self._generate_response(request_id, prompt_config, formatted_prompt, provider)
 
-    def _generate_response(self, request_id: str, prompt_config: PromptConfigData, formatted_prompt: str, provider: Optional[str] = None) -> Optional[str]:
+    def _generate_response(self, request_id: str, prompt_config: PromptConfigData, formatted_prompt: str, provider: Optional[str] = None, stream_callback: Optional[callable] = None) -> Optional[str]:
         try:
             actual_provider = provider if provider else self._get_provider_for_model(prompt_config.models[0], provider) if prompt_config.models else "default"
             
@@ -179,6 +182,8 @@ class AlimaManager:
                     if text_chunk is None:
                         continue # Skip None chunks
                     full_response_text += text_chunk
+                    if stream_callback:
+                        stream_callback(text_chunk)
             except Exception as e:
                 self.logger.error(f"Error during streaming LLM response for request_id {request_id}: {e}")
                 return None

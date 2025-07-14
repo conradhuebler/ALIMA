@@ -24,7 +24,16 @@ def _task_state_to_dict(task_state: TaskState) -> dict:
     return task_state_dict
 
 def main():
-    """Main function for the ALIMA CLI."""
+    """Main function for the ALIMA CLI.
+
+    This function parses command-line arguments and executes the appropriate command.
+
+    Commands:
+        run: Run an analysis task.
+        save-state: Save the last analysis state to a JSON file.
+        load-state: Load and resume an analysis from a JSON file.
+        list-models: List all available models from all providers.
+    """
     parser = argparse.ArgumentParser(description="ALIMA CLI - AI-powered abstract analysis.")
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -52,6 +61,11 @@ def main():
     load_parser = subparsers.add_parser("load-state", help="Load and resume an analysis from a JSON file.")
     load_parser.add_argument("input_file", help="Path to the TaskState JSON input file.")
 
+    # List models command
+    list_parser = subparsers.add_parser("list-models", help="List all available models from all providers.")
+    list_parser.add_argument("--ollama-host", default="http://localhost", help="Ollama host URL.")
+    list_parser.add_argument("--ollama-port", type=int, default=11434, help="Ollama port.")
+
     args = parser.parse_args()
 
     # Setup logging
@@ -59,15 +73,18 @@ def main():
     logger = logging.getLogger(__name__)
 
     # Check if prompts file exists
-    if not os.path.exists(PROMPTS_FILE):
+    if not os.path.exists(PROMPTS_FILE) and args.command not in ["list-models"]:
         logger.error(f"Prompts file not found at: {PROMPTS_FILE}")
         return
 
     if args.command == "run":
         # Setup services
-        llm_service = LlmService(ollama_url=args.ollama_host, ollama_port=args.ollama_port)
+        llm_service = LlmService(providers=[args.provider], ollama_url=args.ollama_host, ollama_port=args.ollama_port)
         prompt_service = PromptService(PROMPTS_FILE, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, logger)
+
+        def stream_callback(text_chunk):
+            print(text_chunk, end="", flush=True)
 
         abstract_data = AbstractData(abstract=args.abstract, keywords=args.keywords)
         try:
@@ -79,11 +96,10 @@ def main():
                 args.abstract_chunk_size,
                 args.use_chunking_keywords,
                 args.keyword_chunk_size,
-                provider=args.provider
+                provider=args.provider,
+                stream_callback=stream_callback
             )
-            print("--- Analysis Result ---")
-            print(task_state.analysis_result.full_text)
-            print("--- Matched Keywords ---")
+            print("\n--- Matched Keywords ---")
             print(task_state.analysis_result.matched_keywords)
             print("--- GND Systematic ---")
             print(task_state.analysis_result.gnd_systematic)
@@ -98,6 +114,18 @@ def main():
 
         except Exception as e:
             logger.error(f"An error occurred during analysis: {e}")
+    elif args.command == "list-models":
+        # Setup services
+        llm_service = LlmService(ollama_url=args.ollama_host, ollama_port=args.ollama_port)
+        providers = llm_service.get_available_providers()
+        for provider in providers:
+            print(f"--- {provider} ---")
+            models = llm_service.get_available_models(provider)
+            if models:
+                for model in models:
+                    print(model)
+            else:
+                print("No models found.")
     elif args.command == "save-state":
         logger.error("The 'save-state' command is not yet fully implemented as a standalone command. Use 'run --output-json' instead.")
     elif args.command == "load-state":

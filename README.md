@@ -8,29 +8,95 @@ Der ALIMA ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Te
 ALIMA wurde mit Hilfe von Claude Sonnet (3.5 und 3.7) entwickelt.
 
 ## Funktionen
-Textanalyse
 
-    - KI-gestützte Inhaltsanalyse: Automatische Zusammenfassung und thematische Analyse von wissenschaftlichen Texten
-    - Zeitlich begrenzbare Anfragen: Abbruchmöglichkeit für langläufige KI-Anfragen
-    - Streaming-Verarbeitung: Echtzeit-Anzeige der KI-Ausgabe während der Verarbeitung
+### 1. CLI-Nutzung
 
-Schlagwortsuche und -generierung
+ALIMA kann über die Kommandozeile für die Analyse von Texten und die Verwaltung von Analyseergebnissen verwendet werden. Die CLI unterstützt das Speichern und Laden von Aufgabenstatus als JSON-Dateien, was die Automatisierung und Wiederaufnahme von Aufgaben ermöglicht.
 
-    - Integrierte Schlagwortsuche: Anbindung an verschiedene Datenquellen (Lobid, SWB, lokaler Katalog (aktuell der - Universitätsbibliothek der TU Freiberg))
-    - GND-Schlagwort-Integration: Automatische Verknüpfung mit der Gemeinsamen Normdatei
-    - DDC-Filterung: Filtermöglichkeiten nach DDC-Klassifikationen
-    - Caching-System: Lokale Speicherung von GND-Einträgen für schnelleren Zugriff
+**1. Analyseaufgabe ausführen (`run` Befehl)**
 
-PDF-Verarbeitung
+Um eine Analyseaufgabe auszuführen und optional den Status in einer JSON-Datei zu speichern, verwenden Sie den `run`-Befehl:
 
-    - PDF-Import: Direkte Extraktion von Text aus PDF-Dokumenten
-    - Metadaten-Extraktion: Automatisches Auslesen von Titeln, Autoren und Keywords aus PDF-Metadaten
+```bash
+python3 alima_cli.py run <task_name> --abstract "<ihr_abstract_text>" --model <model_name> [OPTIONEN]
+```
 
-Flexibles KI-System
+**Argumente:**
 
-    - Multi-Anbieter-Unterstützung: Kompatibilität mit verschiedenen KI-Diensten (OpenAI, Gemini, Anthropic, ChatAI)
-    - Anpassbare KI-Parameter: Konfigurierbare Temperatur und Seed-Werte für die KI-Generierung
-    - Prompt-Management: Verwaltung von Vorlagen für unterschiedliche Aufgabentypen
+*   `<task_name>`: Die auszuführende Analyseaufgabe (z.B. `abstract`, `keywords`).
+*   `--abstract "<ihr_abstract_text>"`: Der zu analysierende Abstract oder Text. In doppelten Anführungszeichen einschließen.
+*   `--model <model_name>`: Das für die Analyse zu verwendende LLM-Modell (z.B. `cogito:8b`, `gemini-1.5-flash`).
+
+**Optionen:**
+
+*   `--keywords "<optionale_schlagworte>"`: Optionale Schlagworte, die in die Analyse einbezogen werden sollen. In doppelten Anführungszeichen einschließen.
+*   `--provider <provider_name>`: Der zu verwendende LLM-Anbieter (z.B. `ollama`, `gemini`). Standard ist `ollama`.
+*   `--ollama-host <host_url>`: Ollama Host-URL. Standard ist `http://localhost`.
+*   `--ollama-port <port_number>`: Ollama Port. Standard ist `11434`.
+*   `--use-chunking-abstract`: Chunking für den Abstract aktivieren (Flag).
+*   `--abstract-chunk-size <größe>`: Chunk-Größe für den Abstract (Ganzzahl). Standard ist `100`.
+*   `--use-chunking-keywords`: Chunking für Schlagworte aktivieren (Flag).
+*   `--keyword-chunk-size <größe>`: Chunk-Größe für Schlagworte (Ganzzahl). Standard ist `500`.
+*   `--output-json <dateipfad>`: Pfad zum Speichern der `TaskState`-JSON-Ausgabe. Wenn angegeben, wird der vollständige Status der Analyse in dieser Datei gespeichert.
+
+**Beispiel:**
+
+```bash
+python3 alima_cli.py run abstract \
+    --abstract "Dieses Buch behandelt die Kadmiumkontamination von Böden und Pflanzen..." \
+    --model cogito:8b \
+    --provider ollama \
+    --ollama-host http://139.20.140.163 \
+    --ollama-port 11434 \
+    --use-chunking-abstract \
+    --abstract-chunk-size 10 \
+    --output-json meine_analyse.json
+```
+
+**2. Gespeicherten Analyse-Status laden (`load-state` Befehl)**
+
+Um einen zuvor gespeicherten Analyse-Status aus einer JSON-Datei zu laden und anzuzeigen, verwenden Sie den `load-state`-Befehl:
+
+```bash
+python3 alima_cli.py load-state <eingabe_dateipfad>
+```
+
+**Argumente:**
+
+*   `<eingabe_dateipfad>`: Pfad zur `TaskState`-JSON-Eingabedatei.
+
+**Beispiel:**
+
+```bash
+python3 alima_cli.py load-state meine_analyse.json
+```
+
+Dies gibt den `full_text`, `matched_keywords` und `gnd_systematic` aus der geladenen JSON-Datei aus.
+
+**3. Wichtige extrahierte und gespeicherte Informationen**
+
+Wenn `--output-json` verwendet wird, werden die folgenden Informationen in der JSON-Datei gespeichert:
+
+*   `abstract_data`: Der ursprünglich bereitgestellte Abstract und die Schlagworte.
+*   `analysis_result`: Enthält die `full_text`-Antwort vom LLM, `matched_keywords` (aus der LLM-Ausgabe extrahiert) und `gnd_systematic` (aus der LLM-Ausgabe extrahiert).
+*   `prompt_config`: Die Konfiguration des für die Analyse verwendeten Prompts.
+*   `status`: Der Status der Aufgabe (z.B. `completed`, `failed`).
+*   `task_name`: Der Name der ausgeführten Aufgabe.
+*   `model_used`: Das verwendete LLM-Modell.
+*   `provider_used`: Der verwendete LLM-Anbieter.
+*   `use_chunking_abstract`, `abstract_chunk_size`, `use_chunking_keywords`, `keyword_chunk_size`: Verwendete Chunking-Einstellungen.
+
+Dies ermöglicht eine reproduzierbare Analyse und die Möglichkeit, Ergebnisse programmgesteuert fortzusetzen oder weiterzuverarbeiten.
+
+
+
+
+
+
+
+
+
+
 
 ## Installation
 ### Voraussetzungen
@@ -83,35 +149,99 @@ python3 main.py
 ```
 
 ## Verwendung
-### Generierung freier Schlagworte
 
-    - Öffne den "Abstract-Analyse"-Tab
-    - Füge Text ein oder importiere eine PDF-Datei
-    - Wähle den KI-Provider und das Modell
-    - Klicke auf "Analyse starten"
-    - Die Ergebnisse werden im unteren Bereich angezeigt
+Die ALIMA-Anwendung kann auf zwei Arten verwendet werden:
 
-### Suche nach GND-Schlagworten auf der Basis der freien Schlagworte
+### 1. CLI-Nutzung
 
-    - Öffne den "GND-Suche"-Tab
-    - Gib Suchbegriffe ein (durch Komma getrennt oder in Anführungszeichen für exakte Phrasen)
-    - Wähle die gewünschten Suchquellen (Lobid, SWB, Katalog)
-    - Klicke auf "Suche starten"
-    - Filtere die Ergebnisse mit den DDC-Filtern nach Bedarf
-    - Verwende "Gefilterte Schlagwörter generieren" für eine optimierte Liste
+ALIMA kann über die Kommandozeile für die Analyse von Texten und die Verwaltung von Analyseergebnissen verwendet werden. Die CLI unterstützt das Speichern und Laden von Aufgabenstatus als JSON-Dateien, was die Automatisierung und Wiederaufnahme von Aufgaben ermöglicht.
 
-### Vergabe von GND-Schlagworten
+**1.1. Analyseaufgabe ausführen (`run` Befehl)**
 
-    - Öffne den "Verifkation"-Tab
-    - Abstrakt/Text und Liste mit GND-Schlagworten sind gefüllt
-    - Wähle den KI-Provider und das Modell
-    - Klicke auf "Analyse starten"
-    - Die Ergebnisse werden im unteren Bereich angezeigt
+Um eine Analyseaufgabe auszuführen und optional den Status in einer JSON-Datei zu speichern, verwenden Sie den `run`-Befehl:
 
-### Abbrechen laufender Anfragen
+```bash
+python3 alima_cli.py run <task_name> --abstract "<ihr_abstract_text>" --model <model_name> [OPTIONEN]
+```
 
-    - Klicke auf den "Abbrechen"-Button während einer laufenden KI-Anfrage
-    - Die Anwendung wird die Anfrage sofort beenden und den bereits generierten Text anzeigen
+**Argumente:**
+
+*   `<task_name>`: Die auszuführende Analyseaufgabe (z.B. `abstract`, `keywords`).
+*   `--abstract "<ihr_abstract_text>"`: Der zu analysierende Abstract oder Text. In doppelten Anführungszeichen einschließen.
+*   `--model <model_name>`: Das für die Analyse zu verwendende LLM-Modell (z.B. `cogito:8b`, `gemini-1.5-flash`).
+
+**Optionen:**
+
+*   `--keywords "<optionale_schlagworte>"`: Optionale Schlagworte, die in die Analyse einbezogen werden sollen. In doppelten Anführungszeichen einschließen.
+*   `--provider <provider_name>`: Der zu verwendende LLM-Anbieter (z.B. `ollama`, `gemini`). Standard ist `ollama`.
+*   `--ollama-host <host_url>`: Ollama Host-URL. Standard ist `http://localhost`.
+*   `--ollama-port <port_number>`: Ollama Port. Standard ist `11434`.
+*   `--use-chunking-abstract`: Chunking für den Abstract aktivieren (Flag).
+*   `--abstract-chunk-size <größe>`: Chunk-Größe für den Abstract (Ganzzahl). Standard ist `100`.
+*   `--use-chunking-keywords`: Chunking für Schlagworte aktivieren (Flag).
+*   `--keyword-chunk-size <größe>`: Chunk-Größe für Schlagworte (Ganzzahl). Standard ist `500`.
+*   `--output-json <dateipfad>`: Pfad zum Speichern der `TaskState`-JSON-Ausgabe. Wenn angegeben, wird der vollständige Status der Analyse in dieser Datei gespeichert.
+
+**Beispiel:**
+
+```bash
+python3 alima_cli.py run abstract \
+    --abstract "Dieses Buch behandelt die Kadmiumkontamination von Böden und Pflanzen..." \
+    --model cogito:8b \
+    --provider ollama \
+    --ollama-host http://139.20.140.163 \
+    --ollama-port 11434 \
+    --use-chunking-abstract \
+    --abstract-chunk-size 10 \
+    --output-json meine_analyse.json
+```
+
+**1.2. Gespeicherten Analyse-Status laden (`load-state` Befehl)**
+
+Um einen zuvor gespeicherten Analyse-Status aus einer JSON-Datei zu laden und anzuzeigen, verwenden Sie den `load-state`-Befehl:
+
+```bash
+python3 alima_cli.py load-state <eingabe_dateipfad>
+```
+
+**Argumente:**
+
+*   `<eingabe_dateipfad>`: Pfad zur `TaskState`-JSON-Eingabedatei.
+
+**Beispiel:**
+
+```bash
+python3 alima_cli.py load-state meine_analyse.json
+```
+
+Dies gibt den `full_text`, `matched_keywords` und `gnd_systematic` aus der geladenen JSON-Datei aus.
+
+**1.3. Wichtige extrahierte und gespeicherte Informationen**
+
+Wenn `--output-json` verwendet wird, werden die folgenden Informationen in der JSON-Datei gespeichert:
+
+*   `abstract_data`: Der ursprünglich bereitgestellte Abstract und die Schlagworte.
+*   `analysis_result`: Enthält die `full_text`-Antwort vom LLM, `matched_keywords` (aus der LLM-Ausgabe extrahiert) und `gnd_systematic` (aus der LLM-Ausgabe extrahiert).
+*   `prompt_config`: Die Konfiguration des für die Analyse verwendeten Prompts.
+*   `status`: Der Status der Aufgabe (z.B. `completed`, `failed`).
+*   `task_name`: Der Name der ausgeführten Aufgabe.
+*   `model_used`: Das verwendete LLM-Modell.
+*   `provider_used`: Der verwendete LLM-Anbieter.
+*   `use_chunking_abstract`, `abstract_chunk_size`, `use_chunking_keywords`, `keyword_chunk_size`: Verwendete Chunking-Einstellungen.
+
+Dies ermöglicht eine reproduzierbare Analyse und die Möglichkeit, Ergebnisse programmgesteuert fortzusetzen oder weiterzuverarbeiten.
+
+### 2. GUI-Nutzung
+
+Die GUI-Anwendung bietet eine interaktive Oberfläche für die Analyse von Texten und die Verwaltung von Schlagworten. Starten Sie die GUI mit `python3 main.py`.
+
+
+
+
+
+
+
+
 
 ## Hinweise und Probleme
 

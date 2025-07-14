@@ -87,7 +87,7 @@ class PromptService:
             system=prompt_config_list[1],
             temp=float(prompt_config_list[2]),
             p_value=float(prompt_config_list[3]),
-            models=prompt_config_list[4],
+            models=[model],
             seed=seed_value,
         )
 
