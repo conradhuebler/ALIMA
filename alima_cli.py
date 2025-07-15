@@ -67,6 +67,7 @@ def main():
     run_parser.add_argument("--use-chunking-keywords", action="store_true", help="Enable chunking for keywords.")
     run_parser.add_argument("--keyword-chunk-size", type=int, default=500, help="Chunk size for keywords.")
     run_parser.add_argument("--output-json", help="Path to save the TaskState JSON output.")
+    run_parser.add_argument("--prompt-template", help="The prompt template to use for the analysis.")
 
     # Save-state command (placeholder for now, will be implemented after run)
     save_parser = subparsers.add_parser("save-state", help="Save the last analysis state to a JSON file.")
@@ -98,6 +99,7 @@ def main():
     analyze_parser.add_argument("--output-json", help="Path to save the KeywordAnalysisState JSON output.")
     analyze_parser.add_argument("--input-json", help="Path to a KeywordAnalysisState JSON file to resume analysis.")
     analyze_parser.add_argument("--final-llm-task", default="keywords", choices=["keywords", "rephrase"], help="The final LLM task to perform (keywords or rephrase).")
+    analyze_parser.add_argument("--final-llm-prompt-template", help="The prompt template to use for the final LLM analysis.")
 
     args = parser.parse_args()
 
@@ -170,9 +172,6 @@ def main():
         prompt_service = PromptService(PROMPTS_FILE, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, logger)
 
-        def stream_callback(text_chunk):
-            print(text_chunk, end="", flush=True)
-
         abstract_data = AbstractData(abstract=args.abstract, keywords=args.keywords)
         try:
             task_state = alima_manager.analyze_abstract(
@@ -184,12 +183,10 @@ def main():
                 args.use_chunking_keywords,
                 args.keyword_chunk_size,
                 provider=args.provider,
-                stream_callback=stream_callback
+                stream_callback=stream_callback,
+                prompt_template=args.prompt_template
             )
-            print("\n--- Matched Keywords ---")
-            print(task_state.analysis_result.matched_keywords)
-            print("--- GND Systematic ---")
-            print(task_state.analysis_result.gnd_systematic)
+            print(json.dumps(_task_state_to_dict(task_state), ensure_ascii=False, indent=4))
 
             if args.output_json:
                 try:
@@ -344,7 +341,8 @@ def main():
             args.final_llm_task, # Use the selected final LLM task
             args.model,
             provider=args.provider,
-            stream_callback=stream_callback
+            stream_callback=stream_callback,
+            prompt_template=args.final_llm_prompt_template
         )
 
         # Extract keywords and classes from the full_text response

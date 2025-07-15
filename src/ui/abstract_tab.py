@@ -74,34 +74,37 @@ import uuid
 
 
 class AnalysisWorker(QThread):
-    finished = pyqtSignal(AnalysisResult)
+    finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, alima_manager: AlimaManager, abstract_data: AbstractData, task: str, model: str,
-                 use_chunking_abstract: bool, abstract_chunk_size: int,
-                 use_chunking_keywords: bool, keyword_chunk_size: int):
+    def __init__(self, command: list):
         super().__init__()
-        self.alima_manager = alima_manager
-        self.abstract_data = abstract_data
-        self.task = task
-        self.model = model
-        self.use_chunking_abstract = use_chunking_abstract
-        self.abstract_chunk_size = abstract_chunk_size
-        self.use_chunking_keywords = use_chunking_keywords
-        self.keyword_chunk_size = keyword_chunk_size
+        self.command = command
 
     def run(self):
         try:
-            result = self.alima_manager.analyze_abstract(
-                self.abstract_data,
-                self.task,
-                self.model,
-                self.use_chunking_abstract,
-                self.abstract_chunk_size,
-                self.use_chunking_keywords,
-                self.keyword_chunk_size
+            import subprocess
+            import json
+
+            print(f"Executing command: {' '.join(self.command)}")
+            process = subprocess.Popen(
+                self.command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8'
             )
-            self.finished.emit(result)
+            stdout, stderr = process.communicate()
+
+            print(f"STDOUT: {stdout}")
+            print(f"STDERR: {stderr}")
+
+            if process.returncode != 0:
+                self.error.emit(stderr)
+                return
+
+            self.finished.emit(stdout)
+
         except Exception as e:
             self.error.emit(str(e))
 
@@ -125,6 +128,7 @@ class AbstractTab(QWidget):
         self,
         alima_manager: AlimaManager,
         llm_service: LlmService,
+        main_window: Optional[QWidget] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -132,11 +136,13 @@ class AbstractTab(QWidget):
         self.alima_manager = alima_manager
         self.llm = llm_service # Renamed from self.llm_service to self.llm for consistency with existing code
         self.prompt_manager = self.alima_manager.prompt_service # Access prompt_service via alima_manager
+        self.main_window = main_window
 
         self.need_keywords = False
         self.logger = logging.getLogger(__name__)
         self.task: Optional[str] = None
         self.chosen_model: str = "default"
+        self.available_models: Dict[str, List[str]] = {}
 
         self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
         self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
@@ -147,23 +153,13 @@ class AbstractTab(QWidget):
     # ======== UNCHANGED METHODS - Keep existing functionality ========
     def on_ollama_url_updated(self):
         """Handle Ollama URL update."""
-        current_provider = self.provider_combo.currentText()
-        self.provider_combo.clear()
-        items = self.llm.get_available_providers()
-        self.provider_combo.addItems(items)
-        if self.provider_combo.count() > 0:
-            if current_provider in items:
-                self.provider_combo.setCurrentText(current_provider)
+        if self.main_window:
+            self.main_window.load_models_and_providers()
 
     def on_ollama_port_updated(self):
         """Handle Ollama Port update."""
-        current_provider = self.provider_combo.currentText()
-        self.provider_combo.clear()
-        items = self.llm.get_available_providers()
-        self.provider_combo.addItems(items)
-        if self.provider_combo.count() > 0:
-            if current_provider in items:
-                self.provider_combo.setCurrentText(current_provider)
+        if self.main_window:
+            self.main_window.load_models_and_providers()
 
     def set_task(self, task: str):
         """Set the task type for model recommendations and update UI."""
@@ -183,8 +179,8 @@ class AbstractTab(QWidget):
     def update_models(self, provider: str):
         """Update available models when provider changes."""
         self.model_combo.clear()
-        all_models = self.llm.get_available_models(provider)
-        self.model_combo.addItems(all_models)
+        if provider in self.available_models:
+            self.model_combo.addItems(self.available_models[provider])
 
     def setup_ui(self):
         """Set up the user interface with restructured layout."""
@@ -341,25 +337,59 @@ class AbstractTab(QWidget):
         self.progress_bar.setVisible(True)
         self.results_edit.clear()
 
-        abstract_data = AbstractData(abstract=abstract_text, keywords=keywords_text)
-        use_chunking_abstract = self.enable_chunk_abstract.isChecked()
-        abstract_chunk_size = self.abstract_chunk_slider.value()
-        use_chunking_keywords = self.enable_chunk_keywords.isChecked()
-        keyword_chunk_size = self.keyword_chunk_slider.value()
+        # Get the prompt from the prompt manager
+        prompt_set_index = self.prompt_selector_combo.itemData(self.prompt_selector_combo.currentIndex())
+        prompt_set = self.prompt_manager.get_prompts_for_task(self.task)[prompt_set_index]
+        self.logger.info(f"Using prompt set: {prompt_set}")
+        prompt_template = prompt_set[1]
 
-        self.analysis_worker = AnalysisWorker(
-            self.alima_manager, abstract_data, self.task, self.chosen_model,
-            use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size
-        )
+        command = [
+            "python",
+            "alima_cli.py",
+            "run",
+            self.task,
+            "--model", self.chosen_model,
+            "--provider", self.provider_combo.currentText(),
+            "--abstract", abstract_text,
+            "--prompt-template", prompt_template,
+        ]
+
+        if keywords_text:
+            command.extend(["--keywords", keywords_text])
+
+        if self.enable_chunk_abstract.isChecked():
+            command.append("--use-chunking-abstract")
+            command.extend(["--abstract-chunk-size", str(self.abstract_chunk_slider.value())])
+
+        if self.enable_chunk_keywords.isChecked():
+            command.append("--use-chunking-keywords")
+            command.extend(["--keyword-chunk-size", str(self.keyword_chunk_slider.value())])
+
+        if self.provider_combo.currentText() == "ollama":
+            # If using Ollama, include the host and port
+            command.extend([
+                "--ollama-host", self.llm.ollama_url,
+                "--ollama-port", str(self.llm.ollama_port),
+            ])
+
+        self.analysis_worker = AnalysisWorker(command)
         self.analysis_worker.finished.connect(self.on_analysis_completed)
         self.analysis_worker.error.connect(self.on_analysis_error)
         self.analysis_worker.start()
 
-    def on_analysis_completed(self, result: AnalysisResult):
+    def on_analysis_completed(self, result: str):
         self.progress_bar.setVisible(False)
-        self.results_edit.setPlainText(result.full_text)
-        self.final_list.emit(str(result.matched_keywords))
-        self.gnd_systematic.emit(result.gnd_systematic)
+        try:
+            # The result is the full stdout, so we need to find the JSON part.
+            # It's not ideal, but for now we'll assume the JSON is the last part.
+            json_part = result[result.rfind('{'):]
+            data = json.loads(json_part)
+            self.results_edit.setPlainText(data["analysis_result"]["full_text"])
+            self.final_list.emit(str(data["analysis_result"]["matched_keywords"]))
+            self.gnd_systematic.emit(data["analysis_result"]["gnd_systematic"])
+        except json.JSONDecodeError:
+            # If JSON parsing fails, just display the raw text.
+            self.results_edit.setPlainText(result)
 
     def on_analysis_error(self, error_message: str):
         self.progress_bar.setVisible(False)
@@ -383,6 +413,13 @@ class AbstractTab(QWidget):
     def set_keywords(self, keywords: str):
         """Sets the keywords text in the keywords_edit QTextEdit."""
         self.keywords_edit.setPlainText(keywords)
+
+    def set_models_and_providers(self, models: Dict[str, List[str]], providers: List[str]):
+        """Sets the available models and providers."""
+        self.available_models = models
+        self.provider_combo.clear()
+        self.provider_combo.addItems(providers)
+        self.update_models(self.provider_combo.currentText())
 
     
 

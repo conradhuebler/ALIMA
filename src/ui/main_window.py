@@ -312,7 +312,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("TUBAF", "Alima")
-        self.config = Config.get_instance()
+        #self.config = Config.get_instance()
         # Initialisiere Core-Komponenten
         self.cache_manager = CacheManager()
         self.search_engine = SearchEngine(self.cache_manager)
@@ -333,8 +333,12 @@ class MainWindow(QMainWindow):
             logger=self.logger # Pass logger to manager
         )
 
+        self.available_models = {}
+        self.available_providers = []
+
         self.init_ui()
         self.load_settings()
+        self.load_models_and_providers()
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
@@ -362,14 +366,14 @@ class MainWindow(QMainWindow):
 
         # Pass alima_manager and llm_service to AbstractTab
         # Pass alima_manager and llm_service to AbstractTab
-        self.abstract_tab = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
+        self.abstract_tab = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service, main_window=self)
         #self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
         #self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
         self.abstract_tab.template_name = "abstract_analysis" # This might be removed later if task selection is fully dynamic
         self.abstract_tab.set_task("abstract") # Set initial task
 
         # Pass alima_manager and llm_service to AbstractTab
-        self.analyse_keywords = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
+        self.analyse_keywords = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service, main_window=self)
         self.analyse_keywords.template_name = "results_verification" # This might be removed later
         #self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
         #self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
@@ -377,7 +381,7 @@ class MainWindow(QMainWindow):
         self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
 
-        self.ub_search_tab = UBSearchTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
+        self.ub_search_tab = UBSearchTab(alima_manager=self.alima_manager, llm_service=self.llm_service, main_window=self)
 
         self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
         self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
@@ -421,6 +425,17 @@ class MainWindow(QMainWindow):
         ollama_widget.setLayout(ollama_layout)
         # self.cache_info = QLabel()
         self.status_bar.addPermanentWidget(ollama_widget)
+
+    def load_models_and_providers(self):
+        """Loads all available models and providers."""
+        self.available_providers = self.llm_service.get_available_providers()
+        for provider in self.available_providers:
+            self.available_models[provider] = self.llm_service.get_available_models(provider)
+        
+        # Pass the loaded models and providers to the tabs
+        self.abstract_tab.set_models_and_providers(self.available_models, self.available_providers)
+        self.analyse_keywords.set_models_and_providers(self.available_models, self.available_providers)
+        self.ub_search_tab.set_models_and_providers(self.available_models, self.available_providers)
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):

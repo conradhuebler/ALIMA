@@ -13,10 +13,27 @@ class AlimaManager:
         llm_service: LlmService,
         prompt_service: PromptService,
         logger: logging.Logger = None,
-    ):
+    ):   
+        self.ollama_url = "http://localhost"  # Default Ollama URL, can be overridden
+        self.ollama_port = 11434  # Default Ollama port, can be overridden
+
         self.llm_service = llm_service
         self.prompt_service = prompt_service
         self.logger = logger or logging.getLogger(__name__)
+
+
+    def set_ollama_url(self, url: str):
+        """Set the Ollama URL for LLM requests."""
+        self.ollama_url = url
+        self.llm_service.set_ollama_url(url)  # Update the LLM service with the new URL
+        self.logger.info(f"Ollama URL set to: {self.ollama_url}")
+
+    def set_ollama_port(self, port: int):
+        """Set the Ollama port for LLM requests."""
+        self.ollama_port = port
+        self.llm_service.set_ollama_port(port)  # Update the LLM service with the new port
+        self.logger.info(f"Ollama port set to: {self.ollama_port}")
+
 
     def analyze_abstract(
         self,
@@ -29,11 +46,25 @@ class AlimaManager:
         keyword_chunk_size: int = 500,
         provider: Optional[str] = None,
         stream_callback: Optional[callable] = None,
+        prompt_template: Optional[str] = None,
     ) -> TaskState:
         self.logger.info(f"Starting analysis for task: {task}, model: {model}")
         request_id = str(uuid.uuid4())
 
-        prompt_config = self.prompt_service.get_prompt_config(task, model)
+        if prompt_template:
+            # If a prompt template is provided directly, use it.
+            prompt_config = PromptConfigData(
+                prompt=prompt_template,
+                models=[model],
+                temp=0.5,  # Using a default temperature
+                p_value=0.5, # Using a default p_value
+                seed=None,
+                system=None
+            )
+        else:
+            # Otherwise, get the prompt from the prompt service.
+            prompt_config = self.prompt_service.get_prompt_config(task, model)
+
         if not prompt_config:
             analysis_result = AnalysisResult(full_text=f"Error: No prompt configuration found for task '{task}' and model '{model}'")
             return TaskState(abstract_data=abstract_data, analysis_result=analysis_result, status="failed")
@@ -187,6 +218,12 @@ class AlimaManager:
             except Exception as e:
                 self.logger.error(f"Error during streaming LLM response for request_id {request_id}: {e}")
                 return None
+
+            # Write raw LLM response to a temporary file for debugging
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp_file:
+                tmp_file.write(full_response_text)
+                self.logger.info(f"Raw LLM response written to: {tmp_file.name}")
 
             return full_response_text
         except Exception as e:

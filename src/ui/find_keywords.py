@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QColor, QIcon
 from typing import Dict, List, Optional
 import logging
@@ -29,6 +29,39 @@ import json
 from pathlib import Path
 
 from ..core.suggesters.meta_suggester import MetaSuggester, SuggesterType
+
+
+class SearchWorker(QThread):
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, command: list):
+        super().__init__()
+        self.command = command
+
+    def run(self):
+        try:
+            import subprocess
+            import json
+
+            process = subprocess.Popen(
+                self.command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8'
+            )
+            stdout, stderr = process.communicate()
+
+            if process.returncode != 0:
+                self.error.emit(stderr)
+                return
+
+            # The output is not JSON, so we just pass it on.
+            self.finished.emit(stdout)
+
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class GNDSystemFilterWidget(QGroupBox):
@@ -626,15 +659,6 @@ class SearchTab(QWidget):
             self.logger.error(f"Fehler beim Laden des Katalog-Tokens: {str(e)}")
             return default_token
 
-    def current_term_update(self, term):
-        """Aktualisiert die Fortschrittsanzeige bei Verarbeitung eines Terms"""
-        if not self.progressBar.isVisible():
-            self.progressBar.setVisible(True)
-
-        self.progressBar.setValue(self.progressBar.value() + 1)
-        self.status_label.setText(f"Verarbeite: {term}")
-        QApplication.processEvents()  # UI aktualisieren
-
     def perform_search(self):
         """Führt die Suche mit den ausgewählten Quellen durch"""
         # UI-Updates vor der Suche
@@ -647,10 +671,6 @@ class SearchTab(QWidget):
         self.progressBar.setVisible(True)
         self.progressBar.setValue(0)
         QApplication.processEvents()
-
-        # Umwandlung der Ergebnisse in ein Format für die Anzeige
-        self.flat_results = []
-        self.unkown_terms = []
 
         # Eingabetext verarbeiten
         text = self.search_input.toPlainText().strip()
@@ -675,60 +695,60 @@ class SearchTab(QWidget):
             return
 
         # Bestimme die zu verwendenden Suggester-Typen
-        suggester_types = []
+        suggesters = []
         if self.lobid_button.isChecked():
-            suggester_types.append(SuggesterType.LOBID)
+            suggesters.append("lobid")
         if self.swb_button.isChecked():
-            suggester_types.append(SuggesterType.SWB)
+            suggesters.append("swb")
         if self.catalog_button.isChecked():
-            suggester_types.append(SuggesterType.CATALOG)
+            suggesters.append("catalog")
 
         # Wenn keine Quelle ausgewählt wurde, Lobid als Standard verwenden
-        if not suggester_types:
+        if not suggesters:
             self.logger.warning(
                 "Keine Suchquelle ausgewählt, verwende Lobid als Standard."
             )
-            suggester_types.append(SuggesterType.LOBID)
+            suggesters.append("lobid")
 
-        # Setze Progress-Bar
-        total_steps = len(search_terms) * len(suggester_types)
-        self.progressBar.setMaximum(total_steps)
+        command = [
+            "python",
+            "alima_cli.py",
+            "search",
+        ]
+        command.extend(search_terms)
+        command.append("--suggesters")
+        command.extend(suggesters)
 
-        # Sammle Ergebnisse von allen ausgewählten Quellen
-        combined_results = {}
 
-        for suggester_type in suggester_types:
-            self.status_label.setText(f"Suche mit {suggester_type.value}...")
+        self.search_worker = SearchWorker(command)
+        self.search_worker.finished.connect(self.process_search_results)
+        self.search_worker.error.connect(self.handle_error)
+        self.search_worker.start()
 
-            try:
-                # Initialisiere den entsprechenden Suggester
-                suggester = MetaSuggester(
-                    suggester_type=suggester_type,
-                    debug=False,  # Debug-Modus für ausführliche Logs
-                    catalog_token=self.catalog_token,
-                    catalog_search_url=self.catalog_search_url,
-                    catalog_details=self.catalog_details,
-                )
+    def process_search_results(self, results_str: str):
+        """Processes the search results from the CLI and displays them."""
+        # The output from the CLI is a string, so we need to parse it.
+        # This is a bit brittle, but it's the best we can do without JSON output.
+        results = {}
+        current_search_term = None
+        for line in results_str.splitlines():
+            if line.startswith("--- Results for:"):
+                current_search_term = line.split(":")[1].strip()
+                results[current_search_term] = {}
+            elif line.startswith("  - "):
+                parts = line.split(":")
+                keyword = parts[0].replace("  - ", "").strip()
+                results[current_search_term][keyword] = {}
+            elif line.startswith("    GND IDs:"):
+                gnd_ids_str = line.split(":")[1].strip()
+                if gnd_ids_str:
+                    gnd_ids = [gnd_id.strip() for gnd_id in gnd_ids_str.replace("'", "").strip("[]").split(",")]
+                    results[current_search_term][keyword]['gndid'] = gnd_ids
+            elif line.startswith("    Count:"):
+                count = line.split(":")[1].strip()
+                results[current_search_term][keyword]['count'] = int(count)
 
-                # Verbinde Signal für Fortschrittsanzeige
-                suggester.currentTerm.connect(self.current_term_update)
-                QApplication.processEvents()
-
-                # Führe Suche durch
-                results = suggester.search(search_terms)
-                # Füge Ergebnisse zur Gesamtmenge hinzu
-                self.merge_results(combined_results, results)
-
-            except Exception as e:
-                self.logger.error(
-                    f"Fehler bei Suche mit {suggester_type.value}: {str(e)}"
-                )
-                self.error_occurred.emit(
-                    f"Fehler bei Suche mit {suggester_type.value}: {str(e)}"
-                )
-
-        # Verarbeite die gesammelten Ergebnisse
-        self.process_results(combined_results)
+        self.process_results(results)
         self.finalise_catalog_search(self.unkown_terms)
 
         # UI-Updates nach der Suche
@@ -739,7 +759,24 @@ class SearchTab(QWidget):
         self.progressBar.setVisible(False)
         QApplication.processEvents()
 
+    def handle_error(self, error_message: str):
+        """Handles errors from the search worker."""
+        self.logger.error(f"Search error: {error_message}")
+        self.status_label.setText(f"Fehler: {error_message}")
+        self.search_button.setEnabled(True)
+        self.progressBar.setVisible(False)
+
+    def current_term_update(self, term):
+        """Aktualisiert die Fortschrittsanzeige bei Verarbeitung eines Terms"""
+        if not self.progressBar.isVisible():
+            self.progressBar.setVisible(True)
+
+        self.progressBar.setValue(self.progressBar.value() + 1)
+        self.status_label.setText(f"Verarbeite: {term}")
+        QApplication.processEvents()  # UI aktualisieren
+
     def extract_search_terms(self, text):
+        """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
         """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
         # Extrahiere Begriffe, die in Anführungszeichen stehen
         quoted_pattern = r'"([^"]+)"'
