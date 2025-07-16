@@ -296,7 +296,7 @@ class LlmService(QObject):
         except Exception as e:
             self.logger.error(f"Error during server-side cancellation: {str(e)}")
 
-        self.generation_cancelled.emit()
+        self.generation_cancelled.emit(reason)
         return True
 
     def _cancel_openai_request(self):
@@ -510,6 +510,7 @@ class LlmService(QObject):
         prompt: str,
         request_id: str,
         temperature: float = 0.7,
+        p_value: float = 0.1,
         seed: Optional[int] = None,
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -554,35 +555,35 @@ class LlmService(QObject):
             # Generate based on provider
             if provider == "openai":
                 response = self._generate_openai(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "gemini":
                 response = self._generate_gemini(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "anthropic":
                 response = self._generate_anthropic(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "ollama":
                 response = self._generate_ollama(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "github":
                 response = self._generate_github(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "chatai":
                 response = self._generate_openai_compatible(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "comet":
                 response = self._generate_openai_compatible(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "azure":
                 response = self._generate_azure_inference(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             else:
                 error_msg = f"Generation not implemented for provider: {provider}"
@@ -800,6 +801,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -809,6 +811,7 @@ class LlmService(QObject):
         try:
             generation_config = {
                 "temperature": temperature,
+                "top_p": p_value,
             }
 
             # Fix für model_version Problem
@@ -915,6 +918,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -954,6 +958,7 @@ class LlmService(QObject):
                         model=model,
                         messages=messages,
                         temperature=temperature,
+                        top_p=p_value,
                         stream=True,
                     )
 
@@ -1050,6 +1055,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1096,6 +1102,7 @@ class LlmService(QObject):
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
+                "top_p": p_value,
                 "stream": stream,
             }
 
@@ -1152,6 +1159,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1164,7 +1172,7 @@ class LlmService(QObject):
             data = {
                 "model": model,
                 "prompt": prompt,
-                "options": {"num_ctx": 32768, "temperature": temperature},
+                "options": {"num_ctx": 32768, "temperature": temperature, "top_p": p_value},
                 "stream": stream,
             }
 
@@ -1238,6 +1246,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1250,6 +1259,7 @@ class LlmService(QObject):
                 "model": model,
                 "max_tokens": 1024,
                 "temperature": temperature,
+                "top_p": p_value,
                 "messages": [],
                 "stream": stream,
             }
@@ -1349,6 +1359,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1414,6 +1425,7 @@ class LlmService(QObject):
                 "model": model,
                 "max_tokens": 1024,
                 "temperature": temperature,
+                "top_p": p_value,
                 "stream": stream,
             }
 

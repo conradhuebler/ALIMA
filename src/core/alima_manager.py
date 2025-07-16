@@ -47,6 +47,10 @@ class AlimaManager:
         provider: Optional[str] = None,
         stream_callback: Optional[callable] = None,
         prompt_template: Optional[str] = None,
+        temperature: float = 0.7,
+        p_value: float = 0.1,
+        seed: int = 0,
+        system: Optional[str] = None,
     ) -> TaskState:
         self.logger.info(f"Starting analysis for task: {task}, model: {model}")
         request_id = str(uuid.uuid4())
@@ -56,10 +60,10 @@ class AlimaManager:
             prompt_config = PromptConfigData(
                 prompt=prompt_template,
                 models=[model],
-                temp=0.5,  # Using a default temperature
-                p_value=0.5, # Using a default p_value
-                seed=None,
-                system=None
+                temp=temperature,
+                p_value=p_value,
+                seed=seed,
+                system=system
             )
         else:
             # Otherwise, get the prompt from the prompt service.
@@ -78,7 +82,7 @@ class AlimaManager:
                 "abstract": abstract_data.abstract,
                 "keywords": abstract_data.keywords if abstract_data.keywords else "Keine Keywords vorhanden",
             }
-            analysis_result = self._perform_single_analysis(request_id, prompt_config, variables, task, model, provider, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, stream_callback)
+            analysis_result = self._perform_single_analysis(request_id, prompt_config, variables, task, model, provider, use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size, stream_callback, temperature, p_value, seed)
         
         status = "completed" if "Error" not in analysis_result.full_text else "failed"
 
@@ -109,9 +113,12 @@ class AlimaManager:
         use_chunking_keywords: bool = False,
         keyword_chunk_size: Optional[int] = None,
         stream_callback: Optional[callable] = None,
+        temperature: float = 0.7,
+        p_value: float = 0.1,
+        seed: int = 0,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
-        response_text = self._generate_response(request_id, prompt_config, formatted_prompt, provider, stream_callback)
+        response_text = self._generate_response(request_id, prompt_config, formatted_prompt, provider, stream_callback, temperature, p_value, seed)
         if response_text is None:
             return AnalysisResult(full_text="Error: LLM call failed.")
         return self._create_analysis_result(
@@ -188,7 +195,7 @@ class AlimaManager:
         
         return self._generate_response(request_id, prompt_config, formatted_prompt, provider)
 
-    def _generate_response(self, request_id: str, prompt_config: PromptConfigData, formatted_prompt: str, provider: Optional[str] = None, stream_callback: Optional[callable] = None) -> Optional[str]:
+    def _generate_response(self, request_id: str, prompt_config: PromptConfigData, formatted_prompt: str, provider: Optional[str] = None, stream_callback: Optional[callable] = None, temperature: float = 0.7, p_value: float = 0.1, seed: int = 0) -> Optional[str]:
         try:
             actual_provider = provider if provider else self._get_provider_for_model(prompt_config.models[0], provider) if prompt_config.models else "default"
             
@@ -197,8 +204,9 @@ class AlimaManager:
                 model=prompt_config.models[0] if prompt_config.models else "default",
                 prompt=formatted_prompt,
                 request_id=request_id,
-                temperature=prompt_config.temp,
-                seed=prompt_config.seed,
+                temperature=temperature,
+                p_value=p_value,
+                seed=seed,
                 system=prompt_config.system,
                 stream=True, # Enable streaming
             )
