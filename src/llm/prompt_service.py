@@ -5,6 +5,7 @@ from typing import Optional, List, Dict
 
 from ..core.data_models import PromptConfigData
 
+
 class PromptService:
     def __init__(self, config_path: str, logger: logging.Logger = None):
         """Initialize the PromptService with the configuration file path"""
@@ -62,11 +63,15 @@ class PromptService:
             self.logger.info(f"Found exact model '{model}' for task '{task}'.")
             prompt_config_list = self.models_by_task[task][model]
         elif "default" in self.models_by_task[task]:
-            self.logger.info(f"Model '{model}' not found, using 'default' model for task '{task}'.")
+            self.logger.info(
+                f"Model '{model}' not found, using 'default' model for task '{task}'."
+            )
             prompt_config_list = self.models_by_task[task]["default"]
         elif self.models_by_task[task]:
             first_model = next(iter(self.models_by_task[task]))
-            self.logger.info(f"Model '{model}' and 'default' not found, using first available model '{first_model}' for task '{task}'.")
+            self.logger.info(
+                f"Model '{model}' and 'default' not found, using first available model '{first_model}' for task '{task}'."
+            )
             prompt_config_list = self.models_by_task[task][first_model]
         else:
             self.logger.warning(f"No models configured for task '{task}'.")
@@ -80,7 +85,9 @@ class PromptService:
             try:
                 seed_value = int(prompt_config_list[5])
             except (ValueError, TypeError):
-                self.logger.warning(f"Could not parse seed value '{prompt_config_list[5]}'. Using None.")
+                self.logger.warning(
+                    f"Could not parse seed value '{prompt_config_list[5]}'. Using None."
+                )
 
         return PromptConfigData(
             prompt=prompt_config_list[0],

@@ -2,21 +2,25 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+
 @dataclass
 class AbstractData:
     abstract: str
     keywords: str = ""
+
 
 @dataclass
 class KeywordResult:
     keyword: str
     gnd_id: str
 
+
 @dataclass
 class AnalysisResult:
     full_text: str
     matched_keywords: Dict[str, str] = field(default_factory=dict)
     gnd_systematic: Optional[str] = None
+
 
 @dataclass
 class PromptConfigData:
@@ -27,12 +31,13 @@ class PromptConfigData:
     models: List[str]
     seed: Optional[int]
 
+
 @dataclass
 class TaskState:
     abstract_data: AbstractData
     analysis_result: AnalysisResult
     prompt_config: Optional[PromptConfigData] = None
-    status: str = "pending" # e.g., pending, completed, failed
+    status: str = "pending"  # e.g., pending, completed, failed
     task_name: Optional[str] = None
     model_used: Optional[str] = None
     provider_used: Optional[str] = None
@@ -41,15 +46,19 @@ class TaskState:
     use_chunking_keywords: Optional[bool] = False
     keyword_chunk_size: Optional[int] = None
 
+
 @dataclass
 class SearchResult:
     """Strukturierte Darstellung der Suchergebnisse für einen Suchbegriff."""
+
     search_term: str
     results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
 
 @dataclass
 class LlmKeywordAnalysis:
     """Strukturierte Darstellung der LLM-Analyseergebnisse mit Details zum Aufruf."""
+
     task_name: str
     model_used: str
     provider_used: str
@@ -61,9 +70,11 @@ class LlmKeywordAnalysis:
     extracted_gnd_keywords: List[str] = field(default_factory=list)
     extracted_gnd_classes: List[str] = field(default_factory=list)
 
+
 @dataclass
 class KeywordAnalysisState:
     """Kapselt den gesamten Zustand des Keyword-Analyse-Workflows."""
+
     original_abstract: Optional[str]
     initial_keywords: List[str]
     search_suggesters_used: List[str]

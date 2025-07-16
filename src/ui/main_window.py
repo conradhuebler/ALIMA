@@ -48,6 +48,7 @@ from ..core.alima_manager import AlimaManager
 
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
+from .analysis_review_tab import AnalysisReviewTab
 from .ubsearch_tab import UBSearchTab
 from .tablewidget import TableWidget
 import logging
@@ -312,7 +313,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("TUBAF", "Alima")
-        self.config = Config.get_instance()
+        # self.config = Config.get_instance()
         # Initialisiere Core-Komponenten
         self.cache_manager = CacheManager()
         self.search_engine = SearchEngine(self.cache_manager)
@@ -325,16 +326,22 @@ class MainWindow(QMainWindow):
             ollama_url=self.ollama_url_default,
             ollama_port=self.ollama_port_default,
         )
-        self.llm = self.llm_service # Assign llm here
-        self.prompt_service = PromptService("prompts.json") # Pass the path to prompts.json
+        self.llm = self.llm_service  # Assign llm here
+        self.prompt_service = PromptService(
+            "prompts.json"
+        )  # Pass the path to prompts.json
         self.alima_manager = AlimaManager(
             llm_service=self.llm_service,
             prompt_service=self.prompt_service,
-            logger=self.logger # Pass logger to manager
+            logger=self.logger,  # Pass logger to manager
         )
+
+        self.available_models = {}
+        self.available_providers = []
 
         self.init_ui()
         self.load_settings()
+        self.load_models_and_providers()
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
@@ -354,30 +361,42 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tabs)
 
         # Tabs erstellen
-        self.search_tab = SearchTab(
-            search_engine=self.search_engine, cache_manager=self.cache_manager
-        )
+        self.search_tab = SearchTab(cache_manager=self.cache_manager)
 
         self.crossref_tab = CrossrefTab()
 
         # Pass alima_manager and llm_service to AbstractTab
         # Pass alima_manager and llm_service to AbstractTab
-        self.abstract_tab = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
-        #self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
-        #self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
-        self.abstract_tab.template_name = "abstract_analysis" # This might be removed later if task selection is fully dynamic
-        self.abstract_tab.set_task("abstract") # Set initial task
+        self.abstract_tab = AbstractTab(
+            alima_manager=self.alima_manager,
+            llm_service=self.llm_service,
+            main_window=self,
+        )
+        # self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
+        # self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
+        self.abstract_tab.template_name = "abstract_analysis"  # This might be removed later if task selection is fully dynamic
+        self.abstract_tab.set_task("abstract")  # Set initial task
 
         # Pass alima_manager and llm_service to AbstractTab
-        self.analyse_keywords = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
-        self.analyse_keywords.template_name = "results_verification" # This might be removed later
-        #self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
-        #self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
+        self.analyse_keywords = AbstractTab(
+            alima_manager=self.alima_manager,
+            llm_service=self.llm_service,
+            main_window=self,
+        )
+        self.analyse_keywords.template_name = (
+            "results_verification"  # This might be removed later
+        )
+        self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
+        self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
         self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
 
-        self.ub_search_tab = UBSearchTab(alima_manager=self.alima_manager, llm_service=self.llm_service)
+        self.ub_search_tab = UBSearchTab(
+            alima_manager=self.alima_manager,
+            llm_service=self.llm_service,
+            main_window=self,
+        )
 
         self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
         self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
@@ -387,11 +406,21 @@ class MainWindow(QMainWindow):
         self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
         self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
 
+        # Analysis Review Tab
+        self.analysis_review_tab = AnalysisReviewTab()
+        self.analysis_review_tab.keywords_selected.connect(
+            self.search_tab.update_search_field
+        )
+        self.analysis_review_tab.abstract_selected.connect(
+            self.abstract_tab.set_abstract
+        )
+
         self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
         self.tabs.addTab(self.search_tab, "GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "Verifikation")
         self.tabs.addTab(self.ub_search_tab, "UB Suche")
+        self.tabs.addTab(self.analysis_review_tab, "Analyse-Review")
 
         # Statusleiste
         self.status_bar = QStatusBar()
@@ -421,6 +450,25 @@ class MainWindow(QMainWindow):
         ollama_widget.setLayout(ollama_layout)
         # self.cache_info = QLabel()
         self.status_bar.addPermanentWidget(ollama_widget)
+
+    def load_models_and_providers(self):
+        """Loads all available models and providers."""
+        self.available_providers = self.llm_service.get_available_providers()
+        for provider in self.available_providers:
+            self.available_models[provider] = self.llm_service.get_available_models(
+                provider
+            )
+
+        # Pass the loaded models and providers to the tabs
+        self.abstract_tab.set_models_and_providers(
+            self.available_models, self.available_providers
+        )
+        self.analyse_keywords.set_models_and_providers(
+            self.available_models, self.available_providers
+        )
+        self.ub_search_tab.set_models_and_providers(
+            self.available_models, self.available_providers
+        )
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):
@@ -558,6 +606,53 @@ class MainWindow(QMainWindow):
             current_tab.export_results()
         else:
             self.status_label.setText("Export nicht verfügbar für diesen Tab")
+
+    def export_current_analysis(self):
+        """Export current analysis state from GUI"""
+        try:
+            # Get abstract from abstract tab
+            abstract = self.abstract_tab.abstract_edit.toPlainText()
+
+            # Get keywords from keywords tab
+            keywords = self.analyse_keywords.keywords_edit.toPlainText()
+
+            # Get search results from search tab
+            search_results = {}
+            if hasattr(self.search_tab, "flat_results"):
+                for (
+                    gnd_id,
+                    term,
+                    count,
+                    relation,
+                    search_term,
+                ) in self.search_tab.flat_results:
+                    if search_term not in search_results:
+                        search_results[search_term] = {}
+                    search_results[search_term][term] = {
+                        "count": count,
+                        "gndid": [gnd_id],
+                        "ddc": [],
+                        "dk": [],
+                    }
+
+            # Get final keywords from verification tab
+            final_keywords = self.analyse_keywords.keywords_edit.toPlainText()
+
+            # Get GND classes if available
+            gnd_classes = ""
+            if hasattr(self.analyse_keywords, "gnd_systematic"):
+                gnd_classes = getattr(self.analyse_keywords, "gnd_systematic", "")
+
+            # Export using analysis review tab
+            self.analysis_review_tab.export_current_gui_state(
+                abstract, keywords, search_results, final_keywords, gnd_classes
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Export Error", f"Error exporting analysis: {str(e)}"
+            )
+            self.logger.error(f"Export error: {e}")
 
     def import_results(self):
         """Importiert gespeicherte Suchergebnisse"""
@@ -857,6 +952,12 @@ class MainWindow(QMainWindow):
         # Export-Aktion
         export_action = file_menu.addAction("&Exportieren...")
         export_action.triggered.connect(self.export_results)
+
+        # Export Analysis
+        export_analysis_action = file_menu.addAction(
+            "&Aktuelle Verschlagwortung als JSON..."
+        )
+        export_analysis_action.triggered.connect(self.export_current_analysis)
 
         # Import-Aktion
         import_action = file_menu.addAction("&Importieren...")

@@ -221,11 +221,17 @@ class UBSearchWorker(QThread):
 class UBSearchTab(QWidget):
     """Tab für die UB-Suche"""
 
-    def __init__(self, alima_manager: AlimaManager, llm_service: LlmService = None):
+    def __init__(
+        self,
+        alima_manager: AlimaManager,
+        llm_service: LlmService = None,
+        main_window: QWidget = None,
+    ):
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.llm = llm_service
-        self.alima_manager = alima_manager # Add this line to initialize alima_manager
+        self.alima_manager = alima_manager  # Add this line to initialize alima_manager
+        self.main_window = main_window
         self.init_ui()
 
     def init_ui(self):
@@ -286,20 +292,18 @@ class UBSearchTab(QWidget):
         self.detail_view.setReadOnly(True)
         splitter.addWidget(self.detail_view)
 
-        self.ai_tabs = QTabWidget()
-
-        self.ai_search = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
-        self.ai_search.template_name = "ub_search"
-        self.ai_search.set_task("dk_list")
-        self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
-
-        self.ai_classification = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
-        self.ai_classification.template_name = "classification"
-        self.ai_classification.set_abstract(self.abstract)
-        self.ai_classification.set_task("dk_class")
-        self.ai_tabs.addTab(self.ai_classification, "DK-Klassifizierung")
-
-        splitter.addWidget(self.ai_tabs)
+        # Remove AI tabs and replace with direct calls
+        # self.ai_tabs = QTabWidget()
+        # self.ai_search = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
+        # self.ai_search.template_name = "ub_search"
+        # self.ai_search.set_task("dk_list")
+        # self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
+        # self.ai_classification = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
+        # self.ai_classification.template_name = "classification"
+        # self.ai_classification.set_abstract(self.abstract)
+        # self.ai_classification.set_task("dk_class")
+        # self.ai_tabs.addTab(self.ai_classification, "DK-Klassifizierung")
+        # splitter.addWidget(self.ai_tabs)
 
         # Setze die Stretchfaktoren für den Splitter
         splitter.setStretchFactor(0, 1)
@@ -312,11 +316,16 @@ class UBSearchTab(QWidget):
         layout.addWidget(self.mainsplitter)
         self.setLayout(layout)
 
+    def set_models_and_providers(self, models: dict, providers: list):
+        """Sets the available models and providers for the AI tabs."""
+        # self.ai_search.set_models_and_providers(models, providers)
+        # self.ai_classification.set_models_and_providers(models, providers)
+
     def set_abstract(self, abstract):
         """Setzt den Abstract für die AI-Verarbeitung"""
         self.abstract = abstract
         self.logger.info(f"Setze Abstract: {abstract}")
-        self.ai_classification.set_abstract(self.abstract)
+        # self.ai_classification.set_abstract(self.abstract)
 
     def update_num_results(self, value):
         self.num_label.setText(f"Anzahl Treffer: {value}")

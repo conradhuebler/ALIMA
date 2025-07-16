@@ -4,8 +4,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def chunk_abstract_by_lines(text: str, lines_per_chunk: int) -> List[str]:
-    logger.info(f"chunk_abstract_by_lines called with text length {len(text)} and {lines_per_chunk} lines per chunk")
+    logger.info(
+        f"chunk_abstract_by_lines called with text length {len(text)} and {lines_per_chunk} lines per chunk"
+    )
     lines = text.split("\n")
     chunks = []
 
@@ -18,10 +21,11 @@ def chunk_abstract_by_lines(text: str, lines_per_chunk: int) -> List[str]:
     )
     return chunks
 
-def chunk_keywords_by_comma(
-    keywords_text: str, keywords_per_chunk: int
-) -> List[str]:
-    logger.info(f"chunk_keywords_by_comma called with keywords_text length {len(keywords_text)} and {keywords_per_chunk} keywords per chunk")
+
+def chunk_keywords_by_comma(keywords_text: str, keywords_per_chunk: int) -> List[str]:
+    logger.info(
+        f"chunk_keywords_by_comma called with keywords_text length {len(keywords_text)} and {keywords_per_chunk} keywords per chunk"
+    )
     keywords = [kw.strip() for kw in keywords_text.split(",") if kw.strip()]
     chunks = []
 
@@ -34,8 +38,11 @@ def chunk_keywords_by_comma(
     )
     return chunks
 
+
 def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
-    logger.info(f"parse_keywords_from_list called with keywords_string: '{keywords_string}'")
+    logger.info(
+        f"parse_keywords_from_list called with keywords_string: '{keywords_string}'"
+    )
     keywords_dict = {}
     logger.info(f"Parsing keywords from string: '{keywords_string}'")
 
@@ -57,7 +64,7 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
                 gnd_match = entry.split("(")[1].split(")")[0].strip()
             except IndexError:
                 logger.warning(f"Failed to parse entry (IndexError): '{entry}'")
-        
+
         if keyword:
             keywords_dict[keyword] = gnd_match
             logger.debug(f"Parsed: Keyword='{keyword}', GND='{gnd_match}'")
@@ -66,6 +73,7 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
 
     logger.debug(f"Final parsed keywords_dict: {keywords_dict}")
     return keywords_dict
+
 
 def extract_keywords_from_response(text: str) -> str:
     logger.info(f"extract_keywords_from_response called with text length {len(text)}")
@@ -78,6 +86,7 @@ def extract_keywords_from_response(text: str) -> str:
         return result
     logger.debug("No <final_list> tag found.")
     return ""
+
 
 def extract_gnd_system_from_response(text: str) -> Optional[str]:
     logger.info(f"extract_gnd_system_from_response called with text length {len(text)}")
@@ -93,17 +102,26 @@ def extract_gnd_system_from_response(text: str) -> Optional[str]:
             return ognd_system
 
         # If <class> tag not found, try to extract from 'GND-Systematik:' section
-        match_gnd_section = re.search(r"GND-Systematik:\s*(.*?)(?:\n\nSchlagworte:|\n\nZerlegte Schlagworte:|\n\nFEHLENDE KONZEPTE:|\n\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:|<final_list>|\Z)", cleaned_text, re.DOTALL)
+        match_gnd_section = re.search(
+            r"GND-Systematik:\s*(.*?)(?:\n\nSchlagworte:|\n\nZerlegte Schlagworte:|\n\nFEHLENDE KONZEPTE:|\n\nKONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:|<final_list>|\Z)",
+            cleaned_text,
+            re.DOTALL,
+        )
         if match_gnd_section:
             ognd_system = match_gnd_section.group(1).strip()
             # Remove any lines that are section headers
             lines = ognd_system.splitlines()
             filtered_lines = []
             for line in lines:
-                if not re.match(r"^(Schlagworte:|Zerlegte Schlagworte:|FEHLENDE KONZEPTE:|KONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:)", line.strip()):
+                if not re.match(
+                    r"^(Schlagworte:|Zerlegte Schlagworte:|FEHLENDE KONZEPTE:|KONKRETE FEHLENDE OBERBEGRIFFE BZW. SCHLAGWORTE:)",
+                    line.strip(),
+                ):
                     filtered_lines.append(line.strip())
             ognd_system = "\n".join([line for line in filtered_lines if line])
-            logger.debug(f"Extracted GND system from 'GND-Systematik:' section: {ognd_system}")
+            logger.debug(
+                f"Extracted GND system from 'GND-Systematik:' section: {ognd_system}"
+            )
             return ognd_system
 
         logger.debug("No <class> tag or 'GND-Systematik:' section found.")
@@ -112,8 +130,13 @@ def extract_gnd_system_from_response(text: str) -> Optional[str]:
         logger.error(f"Error extracting GND system: {str(e)}")
         return None
 
-def match_keywords_against_text(keywords_dict: Dict[str, str], text: str) -> Dict[str, str]:
-    logger.info(f"match_keywords_against_text called with {len(keywords_dict)} keywords and text length {len(text)}")
+
+def match_keywords_against_text(
+    keywords_dict: Dict[str, str], text: str
+) -> Dict[str, str]:
+    logger.info(
+        f"match_keywords_against_text called with {len(keywords_dict)} keywords and text length {len(text)}"
+    )
     matched_keywords = {}
     for keyword, gnd_id in keywords_dict.items():
         # Create a regex for whole word, case-insensitive match
@@ -123,4 +146,3 @@ def match_keywords_against_text(keywords_dict: Dict[str, str], text: str) -> Dic
             logger.debug(f"Exact match found: '{keyword}' -> {gnd_id}")
     logger.debug(f"Final matched keywords: {matched_keywords}")
     return matched_keywords
-

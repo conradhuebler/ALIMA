@@ -10,7 +10,9 @@ class SearchCLI:
         self.logger = logging.getLogger(__name__)
         self.cache_manager = cache_manager
 
-    def search(self, search_terms: List[str], suggester_types: List[SuggesterType]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def search(
+        self, search_terms: List[str], suggester_types: List[SuggesterType]
+    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         combined_results = {}
 
         for suggester_type in suggester_types:

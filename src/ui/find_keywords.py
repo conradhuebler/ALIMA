@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QColor, QIcon
 from typing import Dict, List, Optional
 import logging
@@ -29,6 +29,108 @@ import json
 from pathlib import Path
 
 from ..core.suggesters.meta_suggester import MetaSuggester, SuggesterType
+
+
+class SearchWorker(QThread):
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        cache_manager,
+        search_terms: List[str],
+        suggester_types: List[SuggesterType],
+    ):
+        super().__init__()
+        self.cache_manager = cache_manager
+        self.search_terms = search_terms
+        self.suggester_types = suggester_types
+        self.results = {}
+        self.errors = []
+        self.completed_terms = 0
+
+    def run(self):
+        from ..core.search_cli import SearchCLI
+        from ..core.suggesters.meta_suggester import MetaSuggester
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"SearchWorker starting with terms: {self.search_terms}")
+
+        try:
+            # Use SearchCLI instead of SearchEngine for thread safety
+            search_cli = SearchCLI(self.cache_manager)
+            results = {}
+
+            for suggester_type in self.suggester_types:
+                logger.info(f"Using suggester type: {suggester_type}")
+                suggester = MetaSuggester(suggester_type=suggester_type)
+                logger.info(f"Searching for terms: {self.search_terms}")
+                # Use the search method which takes a list of terms
+                search_results = suggester.search(self.search_terms)
+
+                # Convert the results to the expected format
+                for term, term_data in search_results.items():
+                    if term not in results:
+                        results[term] = (
+                            term_data  # Use the dictionary structure directly
+                        )
+                    else:
+                        # Merge with existing results
+                        for keyword, data in term_data.items():
+                            if keyword not in results[term]:
+                                results[term][keyword] = data
+                            else:
+                                # Merge data if keyword already exists
+                                existing_data = results[term][keyword]
+                                existing_data["count"] += data.get("count", 1)
+                                existing_data["gndid"].update(data.get("gndid", set()))
+                                existing_data["ddc"].update(data.get("ddc", set()))
+                                existing_data["dk"].update(data.get("dk", set()))
+
+            logger.info(f"SearchWorker completed with {len(results)} terms")
+            self.finished.emit(results)
+
+        except Exception as e:
+            logger.error(f"SearchWorker error: {str(e)}")
+            self.error.emit(str(e))
+
+    def _handle_term_completed(self, term: str, results: dict):
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"SearchWorker received term_completed for: {term}")
+        self.results[term] = results
+        self.completed_terms += 1
+        self._check_completion()
+
+    def _handle_term_error(self, term: str, error_message: str):
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error(f"SearchWorker received term_error for: {term} - {error_message}")
+        self.errors.append(f"Error for term {term}: {error_message}")
+        self.completed_terms += 1
+        self._check_completion()
+
+    def _handle_search_finished(self, final_results: dict):
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f"SearchWorker received search_finished with results: {len(final_results) if final_results else 0}"
+        )
+        # This signal is emitted by SearchEngine when all its internal processing is done
+        # We can now emit our own finished signal
+        if self.errors:
+            self.error.emit("\n".join(self.errors))
+        else:
+            self.finished.emit(final_results)
+
+    def _check_completion():
+        # This method is primarily for internal tracking if search_finished wasn't reliable
+        # With search_finished signal, this might be redundant for final emission
+        pass
 
 
 class GNDSystemFilterWidget(QGroupBox):
@@ -168,13 +270,11 @@ class SearchTab(QWidget):
 
     def __init__(
         self,
-        search_engine,
         cache_manager,
         parent=None,
         config_file: Path = Path.home() / ".alima_config.json",
     ):
         super().__init__(parent)
-        self.search_engine = search_engine
         self.cache_manager = cache_manager
         self.current_results = None
         self.current_gnd_id = None
@@ -626,15 +726,6 @@ class SearchTab(QWidget):
             self.logger.error(f"Fehler beim Laden des Katalog-Tokens: {str(e)}")
             return default_token
 
-    def current_term_update(self, term):
-        """Aktualisiert die Fortschrittsanzeige bei Verarbeitung eines Terms"""
-        if not self.progressBar.isVisible():
-            self.progressBar.setVisible(True)
-
-        self.progressBar.setValue(self.progressBar.value() + 1)
-        self.status_label.setText(f"Verarbeite: {term}")
-        QApplication.processEvents()  # UI aktualisieren
-
     def perform_search(self):
         """Führt die Suche mit den ausgewählten Quellen durch"""
         # UI-Updates vor der Suche
@@ -647,10 +738,6 @@ class SearchTab(QWidget):
         self.progressBar.setVisible(True)
         self.progressBar.setValue(0)
         QApplication.processEvents()
-
-        # Umwandlung der Ergebnisse in ein Format für die Anzeige
-        self.flat_results = []
-        self.unkown_terms = []
 
         # Eingabetext verarbeiten
         text = self.search_input.toPlainText().strip()
@@ -690,45 +777,16 @@ class SearchTab(QWidget):
             )
             suggester_types.append(SuggesterType.LOBID)
 
-        # Setze Progress-Bar
-        total_steps = len(search_terms) * len(suggester_types)
-        self.progressBar.setMaximum(total_steps)
+        self.search_worker = SearchWorker(
+            self.cache_manager, search_terms, suggester_types
+        )
+        self.search_worker.finished.connect(self.process_search_results)
+        self.search_worker.error.connect(self.handle_error)
+        self.search_worker.start()
 
-        # Sammle Ergebnisse von allen ausgewählten Quellen
-        combined_results = {}
-
-        for suggester_type in suggester_types:
-            self.status_label.setText(f"Suche mit {suggester_type.value}...")
-
-            try:
-                # Initialisiere den entsprechenden Suggester
-                suggester = MetaSuggester(
-                    suggester_type=suggester_type,
-                    debug=False,  # Debug-Modus für ausführliche Logs
-                    catalog_token=self.catalog_token,
-                    catalog_search_url=self.catalog_search_url,
-                    catalog_details=self.catalog_details,
-                )
-
-                # Verbinde Signal für Fortschrittsanzeige
-                suggester.currentTerm.connect(self.current_term_update)
-                QApplication.processEvents()
-
-                # Führe Suche durch
-                results = suggester.search(search_terms)
-                # Füge Ergebnisse zur Gesamtmenge hinzu
-                self.merge_results(combined_results, results)
-
-            except Exception as e:
-                self.logger.error(
-                    f"Fehler bei Suche mit {suggester_type.value}: {str(e)}"
-                )
-                self.error_occurred.emit(
-                    f"Fehler bei Suche mit {suggester_type.value}: {str(e)}"
-                )
-
-        # Verarbeite die gesammelten Ergebnisse
-        self.process_results(combined_results)
+    def process_search_results(self, results: dict):
+        """Processes the search results from the CLI and displays them."""
+        self.process_results(results)
         self.finalise_catalog_search(self.unkown_terms)
 
         # UI-Updates nach der Suche
@@ -739,7 +797,24 @@ class SearchTab(QWidget):
         self.progressBar.setVisible(False)
         QApplication.processEvents()
 
+    def handle_error(self, error_message: str):
+        """Handles errors from the search worker."""
+        self.logger.error(f"Search error: {error_message}")
+        self.status_label.setText(f"Fehler: {error_message}")
+        self.search_button.setEnabled(True)
+        self.progressBar.setVisible(False)
+
+    def current_term_update(self, term):
+        """Aktualisiert die Fortschrittsanzeige bei Verarbeitung eines Terms"""
+        if not self.progressBar.isVisible():
+            self.progressBar.setVisible(True)
+
+        self.progressBar.setValue(self.progressBar.value() + 1)
+        self.status_label.setText(f"Verarbeite: {term}")
+        QApplication.processEvents()  # UI aktualisieren
+
     def extract_search_terms(self, text):
+        """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
         """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
         # Extrahiere Begriffe, die in Anführungszeichen stehen
         quoted_pattern = r'"([^"]+)"'
@@ -788,44 +863,105 @@ class SearchTab(QWidget):
         """Verarbeitet die Suchergebnisse und stellt sie dar"""
         self.logger.info(f"Verarbeite Ergebnisse: {len(results)} Suchbegriffe gefunden")
 
+        # Initialize flat_results if not exists
+        if not hasattr(self, "flat_results"):
+            self.flat_results = []
+        else:
+            self.flat_results.clear()
+
         for search_term, term_results in results.items():
             self.logger.info(f"Verarbeite Suchbegriff: {search_term}")
-            for keyword, data in term_results.items():
-                self.logger.info(f"Verarbeite Schlagwort: {keyword}")
-                # Bestimme die Beziehung zum Suchbegriff
-                relation = self.determine_relation(keyword, search_term)
 
-                # Ermittle GND-ID (erste aus dem Set oder leer)
-                gnd_id = next(iter(data.get("gndid", [])), "")
+            # Handle case where term_results is a list instead of dict
+            if isinstance(term_results, list):
+                self.logger.info(
+                    f"term_results is a list with {len(term_results)} items"
+                )
+                for i, item in enumerate(term_results[:5]):  # Debug first 5 items
+                    self.logger.info(f"Item {i}: {item}")
+                    if isinstance(item, dict):
+                        # Extract keyword and data from the item
+                        keyword = item.get("label", item.get("title", ""))
+                        gnd_id = item.get("gnd_id", item.get("gndid", ""))
+                        count = item.get("count", 1)
 
-                # Anzahl der Treffer
-                count = data.get("count", 1)
+                        self.logger.info(
+                            f"Extracted: keyword='{keyword}', gnd_id='{gnd_id}', count={count}"
+                        )
 
-                # Speichere die GND-ID für spätere Verwendung
-                if gnd_id:
-                    self.gnd_ids.append(gnd_id)
-                else:
-                    self.logger.info(f"Get from DB: {keyword}")
-                    entry = self.cache_manager.get_gnd_keyword(keyword)
-                    if entry:
-                        # Verwende GND-ID aus Cache
-                        gnd_id = entry["gnd_id"]
-                    else:
-                        self.unkown_terms.append(keyword)
+                        if keyword:
+                            self.logger.info(f"Verarbeite Schlagwort: {keyword}")
+                            # Bestimme die Beziehung zum Suchbegriff
+                            relation = self.determine_relation(keyword, search_term)
 
-                    self.logger.debug(f"Verwende GND-ID aus Cache: {gnd_id}")
+                            # Speichere die GND-ID für spätere Verwendung
+                            if gnd_id:
+                                self.gnd_ids.append(gnd_id)
+                            else:
+                                self.logger.info(f"Get from DB: {keyword}")
+                                entry = self.cache_manager.get_gnd_keyword(keyword)
+                                if entry:
+                                    # Verwende GND-ID aus Cache
+                                    gnd_id = entry["gnd_id"]
+                                else:
+                                    self.unkown_terms.append(keyword)
+
+                                self.logger.debug(
+                                    f"Verwende GND-ID aus Cache: {gnd_id}"
+                                )
+                                if gnd_id:
+                                    self.gnd_ids.append(gnd_id)
+
+                            # Füge zur flachen Liste hinzu
+                            if gnd_id:
+                                self.flat_results.append(
+                                    (gnd_id, keyword, count, relation, search_term)
+                                )
+                            else:
+                                # Wenn keine GND-ID vorhanden ist, aber ein Schlagwort gefunden wurde
+                                # Füge es trotzdem zur Liste hinzu
+                                self.logger.debug(
+                                    f"Keine GND-ID gefunden für: {keyword}"
+                                )
+
+            else:
+                # Original dict handling code
+                for keyword, data in term_results.items():
+                    self.logger.info(f"Verarbeite Schlagwort: {keyword}")
+                    # Bestimme die Beziehung zum Suchbegriff
+                    relation = self.determine_relation(keyword, search_term)
+
+                    # Ermittle GND-ID (erste aus dem Set oder leer)
+                    gnd_id = next(iter(data.get("gndid", [])), "")
+
+                    # Anzahl der Treffer
+                    count = data.get("count", 1)
+
+                    # Speichere die GND-ID für spätere Verwendung
                     if gnd_id:
                         self.gnd_ids.append(gnd_id)
+                    else:
+                        self.logger.info(f"Get from DB: {keyword}")
+                        entry = self.cache_manager.get_gnd_keyword(keyword)
+                        if entry:
+                            # Verwende GND-ID aus Cache
+                            gnd_id = entry["gnd_id"]
+                        else:
+                            self.unkown_terms.append(keyword)
 
-                # Füge zur flachen Liste hinzu
-                if gnd_id:
-                    self.flat_results.append(
-                        (gnd_id, keyword, count, relation, search_term)
-                    )
-                else:
-                    # Wenn keine GND-ID vorhanden ist, aber ein Schlagwort gefunden wurde
-                    # Füge es trotzdem zur Liste hinzu
-                    self.logger.debug(f"Keine GND-ID gefunden für: {keyword}")
+                        self.logger.debug(f"Verwende GND-ID aus Cache: {gnd_id}")
+                        if gnd_id:
+                            self.gnd_ids.append(gnd_id)
+
+                    # Füge zur flachen Liste hinzu
+                    if gnd_id:
+                        self.flat_results.append(
+                            (gnd_id, keyword, count, relation, search_term)
+                        )
+                    else:
+                        # Wenn keine GND-ID vorhanden ist, aber ein Schlagwort gefunden wurde
+                        # Füge es trotzdem zur Liste hinzu
+                        self.logger.debug(f"Keine GND-ID gefunden für: {keyword}")
 
         # Sortiere Ergebnisse nach Relation und dann nach Count
         sorted_results = sorted(self.flat_results, key=lambda x: (x[3], -x[2]))

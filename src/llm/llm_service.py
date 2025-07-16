@@ -58,7 +58,7 @@ class LlmService(QObject):
         self.current_provider = None
         self.current_request_id = None
         self.current_thread_id = None
-        
+
         # Ensure ollama_url has a scheme
         if not ollama_url.startswith(("http://", "https://")):
             ollama_url = "http://" + ollama_url
@@ -114,38 +114,38 @@ class LlmService(QObject):
                 "initializer": self._init_gemini,
                 "generator": self._generate_gemini,
             },
-            "chatai": {
-                "module": "openai",
-                "class": "OpenAI",
-                "api_key": "GWDG_API_KEY",
-                "base_url": "https://chat-ai.academiccloud.de/v1",
-                "initializer": self._init_openai_compatible,
-                "generator": self._generate_openai_compatible,
-                "params": {"base_url": "https://chat-ai.academiccloud.de/v1"},
-            },
-            "openai": {
-                "module": "openai",
-                "class": "OpenAI",
-                "api_key": "OPENAI_API_KEY",
-                "initializer": self._init_openai_compatible,
-                "generator": self._generate_openai_compatible,
-            },
-            "comet": {
-                "module": "openai",
-                "class": "OpenAI",
-                "api_key": "COMET_API_KEY",
-                "base_url": "https://api.cometapi.com/v1",
-                "initializer": self._init_openai_compatible,
-                "generator": self._generate_openai_compatible,
-                "params": {"base_url": "https://api.cometapi.com/v1"},
-            },
-            "anthropic": {
-                "module": "anthropic",
-                "class": "Anthropic",
-                "api_key": "ANTHROPIC_API_KEY",
-                "initializer": self._init_anthropic,
-                "generator": self._generate_anthropic,
-            },
+            # "chatai": {
+            #     "module": "openai",
+            #     "class": "OpenAI",
+            #     "api_key": "GWDG_API_KEY",
+            #     "base_url": "https://chat-ai.academiccloud.de/v1",
+            #     "initializer": self._init_openai_compatible,
+            #     "generator": self._generate_openai_compatible,
+            #     "params": {"base_url": "https://chat-ai.academiccloud.de/v1"},
+            # },
+            # "openai": {
+            #     "module": "openai",
+            #     "class": "OpenAI",
+            #     "api_key": "OPENAI_API_KEY",
+            #     "initializer": self._init_openai_compatible,
+            #     "generator": self._generate_openai_compatible,
+            # },
+            # "comet": {
+            #     "module": "openai",
+            #     "class": "OpenAI",
+            #     "api_key": "COMET_API_KEY",
+            #     "base_url": "https://api.cometapi.com/v1",
+            #     "initializer": self._init_openai_compatible,
+            #     "generator": self._generate_openai_compatible,
+            #     "params": {"base_url": "https://api.cometapi.com/v1"},
+            # },
+            # "anthropic": {
+            #     "module": "anthropic",
+            #     "class": "Anthropic",
+            #     "api_key": "ANTHROPIC_API_KEY",
+            #     "initializer": self._init_anthropic,
+            #     "generator": self._generate_anthropic,
+            # },
             "ollama": {
                 "module": "requests",
                 "class": None,
@@ -153,46 +153,46 @@ class LlmService(QObject):
                 "initializer": self._init_ollama,
                 "generator": self._generate_ollama,
             },
-            "github": {
-                "module": "azure.ai.inference",
-                "class": "ChatCompletionsClient",
-                "api_key": "GITHUB_TOKEN",
-                "initializer": self._init_azure_inference,
-                "generator": self._generate_azure_inference,
-                "params": {
-                    "endpoint": "github_endpoint",
-                    "default_model": "DeepSeek-V3",
-                    "supported_models": [
-                        "DeepSeek-V3",
-                        "Meta-Llama-3-70B-Instruct",
-                        "Mistral-small",
-                        "Mistral-large",
-                        "DeepSeek-R1",
-                        "Llama-3.2-90B-Vision-Instruct",
-                        "Phi-4-multimodal-instruct",
-                        "Phi-4-mini-instruct",
-                        "Phi-4",
-                        "o3-mini",
-                    ],
-                },
-            },
-            "azure": {
-                "module": "azure.ai.inference",
-                "class": "ChatCompletionsClient",
-                "api_key": "AZURE_API_KEY",
-                "initializer": self._init_azure_inference,
-                "generator": self._generate_azure_inference,
-                "params": {
-                    "endpoint": "azure_endpoint",
-                    "default_model": "gpt-4",
-                    "supported_models": [
-                        "gpt-4",
-                        "gpt-35-turbo",
-                        "gpt-4-vision",
-                        "gpt-4-turbo",
-                    ],
-                },
-            },
+            # "github": {
+            #     "module": "azure.ai.inference",
+            #     "class": "ChatCompletionsClient",
+            #     "api_key": "GITHUB_TOKEN",
+            #     "initializer": self._init_azure_inference,
+            #     "generator": self._generate_azure_inference,
+            #     "params": {
+            #         "endpoint": "github_endpoint",
+            #         "default_model": "DeepSeek-V3",
+            #         "supported_models": [
+            #             "DeepSeek-V3",
+            #             "Meta-Llama-3-70B-Instruct",
+            #             "Mistral-small",
+            #             "Mistral-large",
+            #             "DeepSeek-R1",
+            #             "Llama-3.2-90B-Vision-Instruct",
+            #             "Phi-4-multimodal-instruct",
+            #             "Phi-4-mini-instruct",
+            #             "Phi-4",
+            #             "o3-mini",
+            #         ],
+            #     },
+            # },
+            # "azure": {
+            #     "module": "azure.ai.inference",
+            #     "class": "ChatCompletionsClient",
+            #     "api_key": "AZURE_API_KEY",
+            #     "initializer": self._init_azure_inference,
+            #     "generator": self._generate_azure_inference,
+            #     "params": {
+            #         "endpoint": "azure_endpoint",
+            #         "default_model": "gpt-4",
+            #         "supported_models": [
+            #             "gpt-4",
+            #             "gpt-35-turbo",
+            #             "gpt-4-vision",
+            #             "gpt-4-turbo",
+            #         ],
+            #     },
+            # },
         }
 
     def _load_config(self) -> Dict[str, str]:
@@ -296,7 +296,7 @@ class LlmService(QObject):
         except Exception as e:
             self.logger.error(f"Error during server-side cancellation: {str(e)}")
 
-        self.generation_cancelled.emit()
+        self.generation_cancelled.emit(reason)
         return True
 
     def _cancel_openai_request(self):
@@ -510,11 +510,12 @@ class LlmService(QObject):
         prompt: str,
         request_id: str,
         temperature: float = 0.7,
+        p_value: float = 0.1,
         seed: Optional[int] = None,
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
-    ) -> Union[str, Any]: # Return type can be str or a generator
+    ) -> Union[str, Any]:  # Return type can be str or a generator
         """
         Generate a response from the specified provider using the given parameters.
 
@@ -554,35 +555,35 @@ class LlmService(QObject):
             # Generate based on provider
             if provider == "openai":
                 response = self._generate_openai(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "gemini":
                 response = self._generate_gemini(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "anthropic":
                 response = self._generate_anthropic(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "ollama":
                 response = self._generate_ollama(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "github":
                 response = self._generate_github(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "chatai":
                 response = self._generate_openai_compatible(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "comet":
                 response = self._generate_openai_compatible(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "azure":
                 response = self._generate_azure_inference(
-                    model, prompt, temperature, seed, image, system, stream
+                    model, prompt, temperature, p_value, seed, image, system, stream
                 )
             else:
                 error_msg = f"Generation not implemented for provider: {provider}"
@@ -592,7 +593,7 @@ class LlmService(QObject):
                 raise ValueError(error_msg)
 
             if stream:
-                return response # Return the generator directly
+                return response  # Return the generator directly
             else:
                 # Nur Finish-Signal emittieren wenn keine Abbruch angefordert wurde
                 if not self.cancel_requested:
@@ -751,7 +752,9 @@ class LlmService(QObject):
             response = module.get(f"{full_ollama_url}/api/tags")
             response.raise_for_status()  # Raise an exception for HTTP errors
             self.clients[provider] = module
-            self.logger.info(f"Ollama client initialized successfully. Models: {[m['name'] for m in response.json()['models']]}")
+            self.logger.info(
+                f"Ollama client initialized successfully. Models: {[m['name'] for m in response.json()['models']]}"
+            )
         except requests.exceptions.ConnectionError as ce:
             self.logger.error(f"Ollama connection error: {ce}")
             self.logger.warning(f"Ollama server not accessible at {full_ollama_url}")
@@ -800,6 +803,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -809,6 +813,7 @@ class LlmService(QObject):
         try:
             generation_config = {
                 "temperature": temperature,
+                "top_p": p_value,
             }
 
             # Fix für model_version Problem
@@ -915,6 +920,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -954,6 +960,7 @@ class LlmService(QObject):
                         model=model,
                         messages=messages,
                         temperature=temperature,
+                        top_p=p_value,
                         stream=True,
                     )
 
@@ -1050,6 +1057,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1096,6 +1104,7 @@ class LlmService(QObject):
                 "model": model,
                 "messages": messages,
                 "temperature": temperature,
+                "top_p": p_value,
                 "stream": stream,
             }
 
@@ -1152,11 +1161,12 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
-    ) -> Union[str, Any]: # Changed return type to Union[str, Generator]
+    ) -> Union[str, Any]:  # Changed return type to Union[str, Generator]
         """Generate response using Ollama."""
         full_ollama_url = f"{self.ollama_url}:{self.ollama_port}"
         try:
@@ -1164,7 +1174,11 @@ class LlmService(QObject):
             data = {
                 "model": model,
                 "prompt": prompt,
-                "options": {"num_ctx": 32768, "temperature": temperature},
+                "options": {
+                    "num_ctx": 32768,
+                    "temperature": temperature,
+                    "top_p": p_value,
+                },
                 "stream": stream,
             }
 
@@ -1192,28 +1206,33 @@ class LlmService(QObject):
                 )
 
                 # Process streaming response
-                for line in response.iter_lines():
-                    # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
-                    self.last_chunk_time = time.time()
+                try:
+                    for line in response.iter_lines():
+                        # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
+                        self.last_chunk_time = time.time()
 
-                    # Prüfen auf Abbruchsignal
-                    if self.cancel_requested:
-                        # Bei Ollama können wir die Anfrage serverseitig abbrechen
-                        try:
-                            self._cancel_ollama_request()
-                        except Exception as cancel_error:
-                            self.logger.warning(
-                                f"Could not cancel Ollama request: {cancel_error}"
-                            )
+                        # Prüfen auf Abbruchsignal
+                        if self.cancel_requested:
+                            # Bei Ollama können wir die Anfrage serverseitig abbrechen
+                            try:
+                                self._cancel_ollama_request()
+                            except Exception as cancel_error:
+                                self.logger.warning(
+                                    f"Could not cancel Ollama request: {cancel_error}"
+                                )
 
-                        self.logger.info("Ollama generation cancelled")
-                        break
+                            self.logger.info("Ollama generation cancelled")
+                            break
 
-                    if line:
-                        json_response = json.loads(line)
-                        if "response" in json_response:
-                            chunk = json_response["response"]
-                            yield chunk # Yield the chunk
+                        if line:
+                            json_response = json.loads(line)
+                            if "response" in json_response:
+                                chunk = json_response["response"]
+                                yield chunk  # Yield the chunk
+                except Exception as stream_e:
+                    self.logger.error(f"Error during Ollama streaming: {stream_e}")
+                    self.logger.debug(traceback.format_exc())  # Log full traceback
+                    raise stream_e  # Re-raise to be caught by outer try-except
             else:
                 # Non-streaming option
                 data["stream"] = False
@@ -1233,6 +1252,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1245,6 +1265,7 @@ class LlmService(QObject):
                 "model": model,
                 "max_tokens": 1024,
                 "temperature": temperature,
+                "top_p": p_value,
                 "messages": [],
                 "stream": stream,
             }
@@ -1344,6 +1365,7 @@ class LlmService(QObject):
         model: str,
         prompt: str,
         temperature: float,
+        p_value: float,
         seed: Optional[int],
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
@@ -1409,6 +1431,7 @@ class LlmService(QObject):
                 "model": model,
                 "max_tokens": 1024,
                 "temperature": temperature,
+                "top_p": p_value,
                 "stream": stream,
             }
 
