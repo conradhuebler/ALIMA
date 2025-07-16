@@ -107,9 +107,6 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
 
-    def stream_callback(text_chunk):
-        print(text_chunk, end="", flush=True)
-
     def _extract_keywords_from_descriptive_text(text: str, gnd_compliant_keywords: List[str]) -> Tuple[List[str], List[str]]:
         import re
         pattern = re.compile(r'\b([A-Za-zäöüÄÖÜß\s-]+?)\s*\((\d{7}-\d|\d{7}-\d{1,2})\)')
@@ -183,7 +180,6 @@ def main():
                 args.use_chunking_keywords,
                 args.keyword_chunk_size,
                 provider=args.provider,
-                stream_callback=stream_callback,
                 prompt_template=args.prompt_template
             )
             print(json.dumps(_task_state_to_dict(task_state), ensure_ascii=False, indent=4))

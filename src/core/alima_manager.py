@@ -219,12 +219,6 @@ class AlimaManager:
                 self.logger.error(f"Error during streaming LLM response for request_id {request_id}: {e}")
                 return None
 
-            # Write raw LLM response to a temporary file for debugging
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as tmp_file:
-                tmp_file.write(full_response_text)
-                self.logger.info(f"Raw LLM response written to: {tmp_file.name}")
-
             return full_response_text
         except Exception as e:
             self.logger.error(f"Error during LLM call: {e}")

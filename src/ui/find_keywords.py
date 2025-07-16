@@ -35,31 +35,16 @@ class SearchWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, command: list):
+    def __init__(self, search_cli, search_terms: List[str], suggester_types: List[SuggesterType]):
         super().__init__()
-        self.command = command
+        self.search_cli = search_cli
+        self.search_terms = search_terms
+        self.suggester_types = suggester_types
 
     def run(self):
         try:
-            import subprocess
-            import json
-
-            process = subprocess.Popen(
-                self.command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8'
-            )
-            stdout, stderr = process.communicate()
-
-            if process.returncode != 0:
-                self.error.emit(stderr)
-                return
-
-            # The output is not JSON, so we just pass it on.
-            self.finished.emit(stdout)
-
+            results = self.search_cli.search(self.search_terms, self.suggester_types)
+            self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -695,59 +680,28 @@ class SearchTab(QWidget):
             return
 
         # Bestimme die zu verwendenden Suggester-Typen
-        suggesters = []
+        suggester_types = []
         if self.lobid_button.isChecked():
-            suggesters.append("lobid")
+            suggester_types.append(SuggesterType.LOBID)
         if self.swb_button.isChecked():
-            suggesters.append("swb")
+            suggester_types.append(SuggesterType.SWB)
         if self.catalog_button.isChecked():
-            suggesters.append("catalog")
+            suggester_types.append(SuggesterType.CATALOG)
 
         # Wenn keine Quelle ausgewählt wurde, Lobid als Standard verwenden
-        if not suggesters:
+        if not suggester_types:
             self.logger.warning(
                 "Keine Suchquelle ausgewählt, verwende Lobid als Standard."
             )
-            suggesters.append("lobid")
+            suggester_types.append(SuggesterType.LOBID)
 
-        command = [
-            "python",
-            "alima_cli.py",
-            "search",
-        ]
-        command.extend(search_terms)
-        command.append("--suggesters")
-        command.extend(suggesters)
-
-
-        self.search_worker = SearchWorker(command)
+        self.search_worker = SearchWorker(self.search_engine.search_cli, search_terms, suggester_types)
         self.search_worker.finished.connect(self.process_search_results)
         self.search_worker.error.connect(self.handle_error)
         self.search_worker.start()
 
-    def process_search_results(self, results_str: str):
+    def process_search_results(self, results: dict):
         """Processes the search results from the CLI and displays them."""
-        # The output from the CLI is a string, so we need to parse it.
-        # This is a bit brittle, but it's the best we can do without JSON output.
-        results = {}
-        current_search_term = None
-        for line in results_str.splitlines():
-            if line.startswith("--- Results for:"):
-                current_search_term = line.split(":")[1].strip()
-                results[current_search_term] = {}
-            elif line.startswith("  - "):
-                parts = line.split(":")
-                keyword = parts[0].replace("  - ", "").strip()
-                results[current_search_term][keyword] = {}
-            elif line.startswith("    GND IDs:"):
-                gnd_ids_str = line.split(":")[1].strip()
-                if gnd_ids_str:
-                    gnd_ids = [gnd_id.strip() for gnd_id in gnd_ids_str.replace("'", "").strip("[]").split(",")]
-                    results[current_search_term][keyword]['gndid'] = gnd_ids
-            elif line.startswith("    Count:"):
-                count = line.split(":")[1].strip()
-                results[current_search_term][keyword]['count'] = int(count)
-
         self.process_results(results)
         self.finalise_catalog_search(self.unkown_terms)
 

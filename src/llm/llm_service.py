@@ -1192,28 +1192,33 @@ class LlmService(QObject):
                 )
 
                 # Process streaming response
-                for line in response.iter_lines():
-                    # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
-                    self.last_chunk_time = time.time()
+                try:
+                    for line in response.iter_lines():
+                        # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
+                        self.last_chunk_time = time.time()
 
-                    # Prüfen auf Abbruchsignal
-                    if self.cancel_requested:
-                        # Bei Ollama können wir die Anfrage serverseitig abbrechen
-                        try:
-                            self._cancel_ollama_request()
-                        except Exception as cancel_error:
-                            self.logger.warning(
-                                f"Could not cancel Ollama request: {cancel_error}"
-                            )
+                        # Prüfen auf Abbruchsignal
+                        if self.cancel_requested:
+                            # Bei Ollama können wir die Anfrage serverseitig abbrechen
+                            try:
+                                self._cancel_ollama_request()
+                            except Exception as cancel_error:
+                                self.logger.warning(
+                                    f"Could not cancel Ollama request: {cancel_error}"
+                                )
 
-                        self.logger.info("Ollama generation cancelled")
-                        break
+                            self.logger.info("Ollama generation cancelled")
+                            break
 
-                    if line:
-                        json_response = json.loads(line)
-                        if "response" in json_response:
-                            chunk = json_response["response"]
-                            yield chunk # Yield the chunk
+                        if line:
+                            json_response = json.loads(line)
+                            if "response" in json_response:
+                                chunk = json_response["response"]
+                                yield chunk # Yield the chunk
+                except Exception as stream_e:
+                    self.logger.error(f"Error during Ollama streaming: {stream_e}")
+                    self.logger.debug(traceback.format_exc()) # Log full traceback
+                    raise stream_e # Re-raise to be caught by outer try-except
             else:
                 # Non-streaming option
                 data["stream"] = False
