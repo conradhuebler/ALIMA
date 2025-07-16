@@ -11,7 +11,7 @@ import PIL.Image
 import json
 from pathlib import Path
 
-from src.llm.llm_interface import LLMInterface  # Ihre LLM Interface Klasse
+from src.llm.llm_service import LlmService  # Ihre LLM Service Klasse
 
 DEFAULT_PROMPT = """Bitte analysiere dieses Bild und gib mir folgende Informationen:
 1. Liste allen lesbaren Text im Bild auf
@@ -30,8 +30,8 @@ class ImageAnalyzer(QMainWindow):
         # Logging konfigurieren
         logging.basicConfig(level=logging.INFO)
         
-        # LLM Interface initialisieren
-        self.llm = LLMInterface()
+        # LLM Service initialisieren
+        self.llm = LlmService()
         
         self.image_path = None
         self.initUI()
@@ -194,38 +194,13 @@ class ImageAnalyzer(QMainWindow):
         # Initial Provider und Modell-Liste aktualisieren
         if self.provider_combo.count() > 0:
             self.update_model_list()
-        self.recommendations_file = Path("model_recommendations.json")
-        self.load_recommendations()
-        self.set_model_recommendations("vision")
+        # Initialize empty recommendations
+        self.recommendations = {}
+        self.recommended_models = {}
+        self.model_descriptions = {}
 
         
 
-    def load_recommendations(self):
-        """Lädt die Modell-Empfehlungen aus der JSON-Datei"""
-        try:
-            if not self.recommendations_file.exists():
-                logging.warning(f"Recommendations file not found: {self.recommendations_file}")
-                self.create_default_recommendations()
-                return
-
-            with open(self.recommendations_file, 'r', encoding='utf-8') as f:
-                self.recommendations = json.load(f)
-                
-            logging.info(f"Successfully loaded recommendations from {self.recommendations_file}")
-            
-        except Exception as e:
-            logging.error(f"Error loading recommendations: {e}")
-
-    def set_model_recommendations(self, use_case: str):
-        """Setzt die Modell-Empfehlungen basierend auf dem Anwendungsfall"""
-        if use_case in self.recommendations:
-            self.recommended_models = self.recommendations[use_case]["recommended"]
-            self.model_descriptions = self.recommendations[use_case]["descriptions"]
-            # Update Modell-Liste wenn bereits initialisiert
-            if hasattr(self, 'provider_combo'):
-                self.update_models(self.provider_combo.currentText())
-        else:
-            logging.warning(f"Unknown use case: {use_case}")
 
     def update_models(self, provider: str):
         """Update available models when provider changes"""
@@ -234,38 +209,12 @@ class ImageAnalyzer(QMainWindow):
         # Hole alle verfügbaren Modelle
         all_models = self.llm.get_available_models(provider)
         
-        # Hole empfohlene Modelle für diesen Provider
-        recommended_available = False
-        recommended = self.recommended_models.get(provider, [])
-        logging.info(f"Empfohlene Modelle für {provider}: {recommended}")
-        if recommended:
-            # Füge empfohlene Modelle zuerst hinzu
-            recommended_group = "↳ Empfohlene Modelle"
-            self.model_combo.addItem(recommended_group)
-            recommended_available = [model for model in recommended if model in all_models]
-            
-            for model in recommended_available:
-                self.model_combo.addItem(f"  {model}")
-                # Setze Tooltip mit Beschreibung
-                idx = self.model_combo.count() - 1
-                description = self.model_descriptions.get(provider, {}).get(model, "")
-                self.model_combo.setItemData(idx, description, Qt.ItemDataRole.ToolTipRole)
-            
-            if recommended_available and len(all_models) > len(recommended_available):
-                self.model_combo.addItem("↳ Weitere verfügbare Modelle")
-            
-            # Füge restliche Modelle hinzu
-            other_models = [model for model in all_models if model not in recommended_available]
-            for model in other_models:
-                self.model_combo.addItem(f"  {model}")
-
-        else:
-            # Wenn keine Empfehlungen, füge alle Modelle hinzu
-            self.model_combo.addItems(all_models)
-
-        # Wähle das erste empfohlene Modell aus, falls verfügbar
-        if recommended_available:
-            self.model_combo.setCurrentText(f"  {recommended_available[0]}")
+        # Füge alle verfügbaren Modelle hinzu
+        self.model_combo.addItems(all_models)
+        
+        # Wähle das erste Modell aus, falls verfügbar
+        if all_models:
+            self.model_combo.setCurrentIndex(0)
 
 
     def load_prompt(self):
@@ -364,14 +313,18 @@ class ImageAnalyzer(QMainWindow):
             self.status_label.setText(f"Verarbeite Anfrage mit {provider} ({model})...")
             QApplication.processEvents()  # UI aktualisieren
             logging.info(f"Analyzing image with {provider} ({model})")
-            # Generiere Antwort über das LLM Interface
+            # Generiere Antwort über das LLM Service
+            import uuid
+            request_id = str(uuid.uuid4())
             response = self.llm.generate_response(
                 provider=provider,
                 model=model,
                 prompt=prompt,
+                request_id=request_id,
                 temperature=self.ki_temperature.value() / 100,
-                seed=self.ki_seed.value() if self.ki_seed.value()> 0 else None,
-                image=self.image_path
+                seed=self.ki_seed.value() if self.ki_seed.value() > 0 else None,
+                image=self.image_path,
+                stream=False  # Disable streaming for simplicity
             )
             logging.info(f"Response: {response}")
             self.result = response
