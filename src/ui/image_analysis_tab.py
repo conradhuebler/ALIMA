@@ -3,13 +3,15 @@ import os
 import logging
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, 
                             QFileDialog, QMessageBox, QLabel, QComboBox, QGroupBox, 
-                            QSizePolicy, QSlider, QSpinBox, QSplitter, QProgressBar)
+                            QSizePolicy, QSlider, QSpinBox, QSplitter, QProgressBar,
+                            QFrame)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QPixmap, QFont
 import PIL.Image
 import json
 from pathlib import Path
 import uuid
+from .styles import get_main_stylesheet, get_button_styles, get_status_label_styles, get_image_preview_style
 
 # Simple text recognition prompt
 DEFAULT_PROMPT = """Bitte extrahiere den gesamten lesbaren Text aus diesem Bild. 
@@ -84,9 +86,32 @@ class ImageAnalysisTab(QWidget):
         
     def setup_ui(self):
         """Setup the user interface"""
+        # Apply main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+        
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(12)
         main_layout.setContentsMargins(15, 15, 15, 15)
+        
+        # Control bar at the top
+        control_bar = QHBoxLayout()
+        control_bar.setContentsMargins(0, 0, 0, 10)
+        
+        # Status label
+        self.status_label = QLabel("Status: Bereit")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        control_bar.addWidget(self.status_label)
+        
+        control_bar.addStretch()
+        
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setFixedWidth(200)
+        self.progress_bar.setFormat("Analysiere... %p%")
+        control_bar.addWidget(self.progress_bar)
+        
+        main_layout.addLayout(control_bar)
         
         # Create splitter for main layout
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -94,44 +119,52 @@ class ImageAnalysisTab(QWidget):
         # Left panel for image and settings
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setSpacing(15)
         
-        # File selection
-        self.file_button = QPushButton('Bild auswählen')
+        # File selection group
+        file_group = QGroupBox("Bildauswahl")
+        file_layout = QVBoxLayout(file_group)
+        file_layout.setContentsMargins(10, 20, 10, 10)
+        
+        self.file_button = QPushButton('📁 Bild auswählen')
         self.file_button.clicked.connect(self.select_file)
-        left_layout.addWidget(self.file_button)
+        file_layout.addWidget(self.file_button)
         
         # Image preview
         self.image_preview = QLabel()
-        self.image_preview.setMinimumSize(400, 300)
+        self.image_preview.setMinimumSize(350, 250)
         self.image_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_preview.setStyleSheet("""
-            QLabel {
-                border: 1px solid #cccccc;
-                background-color: #f0f0f0;
-                color: #666666;
-            }
-        """)
-        self.image_preview.setText("Kein Bild ausgewählt")
+        self.image_preview.setStyleSheet(get_image_preview_style())
+        self.image_preview.setText("📷\n\nKein Bild ausgewählt\n\nKlicken Sie auf 'Bild auswählen'")
         self.image_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        left_layout.addWidget(self.image_preview)
+        file_layout.addWidget(self.image_preview)
+        
+        left_layout.addWidget(file_group)
         
         # Provider settings
         provider_group = QGroupBox("LLM Provider Einstellungen")
-        provider_layout = QVBoxLayout()
+        provider_layout = QVBoxLayout(provider_group)
+        provider_layout.setContentsMargins(10, 20, 10, 10)
+        provider_layout.setSpacing(12)
         
         # Provider selection
-        provider_layout.addWidget(QLabel("Provider:"))
+        provider_label = QLabel("Provider:")
+        provider_label.setStyleSheet("font-weight: bold;")
+        provider_layout.addWidget(provider_label)
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.update_models)
         provider_layout.addWidget(self.provider_combo)
         
         # Model selection
-        provider_layout.addWidget(QLabel("Modell:"))
+        model_label = QLabel("Modell:")
+        model_label.setStyleSheet("font-weight: bold;")
+        provider_layout.addWidget(model_label)
         self.model_combo = QComboBox()
         provider_layout.addWidget(self.model_combo)
         
         # Temperature slider
         self.temperature_label = QLabel("Temperatur: 0.70")
+        self.temperature_label.setStyleSheet("font-weight: bold;")
         provider_layout.addWidget(self.temperature_label)
         self.temperature_slider = QSlider(Qt.Orientation.Horizontal)
         self.temperature_slider.setRange(0, 100)
@@ -140,7 +173,9 @@ class ImageAnalysisTab(QWidget):
         provider_layout.addWidget(self.temperature_slider)
         
         # Seed input
-        provider_layout.addWidget(QLabel("Seed:"))
+        seed_label = QLabel("Seed:")
+        seed_label.setStyleSheet("font-weight: bold;")
+        provider_layout.addWidget(seed_label)
         self.seed_input = QSpinBox()
         self.seed_input.setRange(0, 1000000000)
         self.seed_input.setValue(0)
@@ -149,72 +184,60 @@ class ImageAnalysisTab(QWidget):
         provider_group.setLayout(provider_layout)
         left_layout.addWidget(provider_group)
         
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        left_layout.addWidget(self.progress_bar)
-        
+        left_layout.addStretch()
         main_splitter.addWidget(left_panel)
         
         # Right panel for prompt and results
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+        right_layout.setSpacing(15)
         
-        # Prompt input
-        right_layout.addWidget(QLabel("Prompt:"))
+        # Prompt group
+        prompt_group = QGroupBox("Prompt Konfiguration")
+        prompt_layout = QVBoxLayout(prompt_group)
+        prompt_layout.setContentsMargins(10, 20, 10, 10)
+        
+        prompt_label = QLabel("Prompt für Textextraktion:")
+        prompt_label.setStyleSheet("font-weight: bold;")
+        prompt_layout.addWidget(prompt_label)
+        
         self.prompt_input = QTextEdit()
         self.prompt_input.setPlaceholderText('Prompt für die Bildanalyse...')
         self.prompt_input.setText(DEFAULT_PROMPT)
         self.prompt_input.setMaximumHeight(120)
-        font = self.prompt_input.font()
-        font.setPointSize(10)
-        self.prompt_input.setFont(font)
-        right_layout.addWidget(self.prompt_input)
+        prompt_layout.addWidget(self.prompt_input)
+        
+        right_layout.addWidget(prompt_group)
         
         # Action buttons
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
         
-        self.analyze_button = QPushButton('Text extrahieren')
+        self.analyze_button = QPushButton('🔍 Text extrahieren')
         self.analyze_button.clicked.connect(self.analyze_image)
-        self.analyze_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
+        self.analyze_button.setStyleSheet(get_button_styles()["primary"])
         button_layout.addWidget(self.analyze_button)
         
-        self.send_to_abstract_button = QPushButton('An Abstract-Tab senden')
+        self.send_to_abstract_button = QPushButton('📤 An Abstract-Tab senden')
         self.send_to_abstract_button.clicked.connect(self.send_to_abstract_tab)
         self.send_to_abstract_button.setEnabled(False)
+        self.send_to_abstract_button.setStyleSheet(get_button_styles()["success"])
         button_layout.addWidget(self.send_to_abstract_button)
         
         button_layout.addStretch()
         right_layout.addLayout(button_layout)
         
-        # Status label
-        self.status_label = QLabel()
-        self.status_label.setStyleSheet("color: #666666;")
-        right_layout.addWidget(self.status_label)
+        # Results group
+        results_group = QGroupBox("Extrahierter Text")
+        results_layout = QVBoxLayout(results_group)
+        results_layout.setContentsMargins(10, 20, 10, 10)
         
-        # Results output
-        right_layout.addWidget(QLabel("Extrahierter Text:"))
         self.output_field = QTextEdit()
         self.output_field.setReadOnly(True)
-        font = self.output_field.font()
-        font.setPointSize(11)
-        self.output_field.setFont(font)
-        right_layout.addWidget(self.output_field)
+        self.output_field.setPlaceholderText("Der extrahierte Text wird hier angezeigt...")
+        results_layout.addWidget(self.output_field)
+        
+        right_layout.addWidget(results_group)
         
         main_splitter.addWidget(right_panel)
         
@@ -231,13 +254,16 @@ class ImageAnalysisTab(QWidget):
             
             if providers:
                 self.update_models(providers[0])
-                self.status_label.setText(f"Bereit - {len(providers)} Provider verfügbar")
+                self.status_label.setText(f"Status: Bereit - {len(providers)} Provider verfügbar")
+                self.status_label.setStyleSheet(get_status_label_styles()["success"])
             else:
-                self.status_label.setText("Keine Provider verfügbar")
+                self.status_label.setText("Status: Keine Provider verfügbar")
+                self.status_label.setStyleSheet(get_status_label_styles()["error"])
                 
         except Exception as e:
             self.logger.error(f"Error loading providers: {e}")
-            self.status_label.setText(f"Fehler beim Laden der Provider: {str(e)}")
+            self.status_label.setText(f"Status: Fehler beim Laden der Provider")
+            self.status_label.setStyleSheet(get_status_label_styles()["error"])
             
     def update_models(self, provider):
         """Update available models when provider changes"""
@@ -249,13 +275,16 @@ class ImageAnalysisTab(QWidget):
             
             if models:
                 self.model_combo.setCurrentIndex(0)
-                self.status_label.setText(f"Provider {provider} bereit - {len(models)} Modelle verfügbar")
+                self.status_label.setText(f"Status: {provider} bereit - {len(models)} Modelle verfügbar")
+                self.status_label.setStyleSheet(get_status_label_styles()["success"])
             else:
-                self.status_label.setText(f"Keine Modelle für Provider {provider} verfügbar")
+                self.status_label.setText(f"Status: Keine Modelle für {provider} verfügbar")
+                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
                 
         except Exception as e:
             self.logger.error(f"Error loading models for {provider}: {e}")
-            self.status_label.setText(f"Fehler beim Laden der Modelle: {str(e)}")
+            self.status_label.setText(f"Status: Fehler beim Laden der Modelle")
+            self.status_label.setStyleSheet(get_status_label_styles()["error"])
             
     def update_temperature_label(self, value):
         """Update temperature label"""
@@ -272,9 +301,10 @@ class ImageAnalysisTab(QWidget):
         
         if file_path:
             self.image_path = file_path
-            self.file_button.setText(f'Datei: {Path(file_path).name}')
+            self.file_button.setText(f'📁 {Path(file_path).name}')
             self.update_image_preview()
-            self.status_label.setText(f"Bild ausgewählt: {Path(file_path).name}")
+            self.status_label.setText(f"Status: Bild ausgewählt - {Path(file_path).name}")
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
             
     def update_image_preview(self):
         """Update image preview"""
@@ -322,7 +352,8 @@ class ImageAnalysisTab(QWidget):
         self.analyze_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
-        self.status_label.setText(f"Analysiere Bild mit {provider} ({model})...")
+        self.status_label.setText(f"Status: Analysiere Bild mit {provider} ({model})...")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
         
         # Start analysis in worker thread
         self.current_worker = ImageAnalysisWorker(
@@ -348,19 +379,21 @@ class ImageAnalysisTab(QWidget):
         # Re-enable UI
         self.analyze_button.setEnabled(True)
         self.progress_bar.setVisible(False)
-        self.status_label.setText("Analyse abgeschlossen")
+        self.status_label.setText("Status: Analyse erfolgreich abgeschlossen")
+        self.status_label.setStyleSheet(get_status_label_styles()["success"])
         
         self.logger.info(f"Image analysis completed successfully")
         
     @pyqtSlot(str)
     def on_analysis_error(self, error):
         """Handle analysis error"""
-        self.output_field.setText(f"Fehler bei der Analyse: {error}")
+        self.output_field.setText(f"❌ Fehler bei der Analyse:\n\n{error}")
         
         # Re-enable UI
         self.analyze_button.setEnabled(True)
         self.progress_bar.setVisible(False)
-        self.status_label.setText("Fehler bei der Analyse")
+        self.status_label.setText("Status: Fehler bei der Analyse")
+        self.status_label.setStyleSheet(get_status_label_styles()["error"])
         
         self.logger.error(f"Image analysis error: {error}")
         QMessageBox.critical(self, "Fehler", f"Fehler bei der Bildanalyse:\n{error}")
@@ -381,10 +414,11 @@ class ImageAnalysisTab(QWidget):
         
         # Switch to abstract tab if main window is available
         if self.main_window and hasattr(self.main_window, 'tabs'):
-            # Find abstract tab (usually index 1)
+            # Find abstract tab (usually index 2 after Crossref and Bilderkennung)
             for i in range(self.main_window.tabs.count()):
                 if "Abstract" in self.main_window.tabs.tabText(i):
                     self.main_window.tabs.setCurrentIndex(i)
                     break
                     
-        self.status_label.setText("Text an Abstract-Tab gesendet")
+        self.status_label.setText("Status: Text an Abstract-Tab gesendet")
+        self.status_label.setStyleSheet(get_status_label_styles()["success"])

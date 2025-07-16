@@ -52,6 +52,7 @@ from .analysis_review_tab import AnalysisReviewTab
 from .ubsearch_tab import UBSearchTab
 from .tablewidget import TableWidget
 from .image_analysis_tab import ImageAnalysisTab
+from .styles import get_main_stylesheet
 import logging
 
 
@@ -346,8 +347,11 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
-        self.setWindowTitle("AlIma")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowTitle("ALIMA - Automatisierte Schlagwortgenerierung")
+        self.setGeometry(100, 100, 1400, 900)
+
+        # Apply main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
 
         # Zentrales Widget
         central_widget = QWidget()
