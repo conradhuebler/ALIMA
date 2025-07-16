@@ -58,7 +58,7 @@ class LlmService(QObject):
         self.current_provider = None
         self.current_request_id = None
         self.current_thread_id = None
-        
+
         # Ensure ollama_url has a scheme
         if not ollama_url.startswith(("http://", "https://")):
             ollama_url = "http://" + ollama_url
@@ -515,7 +515,7 @@ class LlmService(QObject):
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
-    ) -> Union[str, Any]: # Return type can be str or a generator
+    ) -> Union[str, Any]:  # Return type can be str or a generator
         """
         Generate a response from the specified provider using the given parameters.
 
@@ -593,7 +593,7 @@ class LlmService(QObject):
                 raise ValueError(error_msg)
 
             if stream:
-                return response # Return the generator directly
+                return response  # Return the generator directly
             else:
                 # Nur Finish-Signal emittieren wenn keine Abbruch angefordert wurde
                 if not self.cancel_requested:
@@ -752,7 +752,9 @@ class LlmService(QObject):
             response = module.get(f"{full_ollama_url}/api/tags")
             response.raise_for_status()  # Raise an exception for HTTP errors
             self.clients[provider] = module
-            self.logger.info(f"Ollama client initialized successfully. Models: {[m['name'] for m in response.json()['models']]}")
+            self.logger.info(
+                f"Ollama client initialized successfully. Models: {[m['name'] for m in response.json()['models']]}"
+            )
         except requests.exceptions.ConnectionError as ce:
             self.logger.error(f"Ollama connection error: {ce}")
             self.logger.warning(f"Ollama server not accessible at {full_ollama_url}")
@@ -1164,7 +1166,7 @@ class LlmService(QObject):
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
-    ) -> Union[str, Any]: # Changed return type to Union[str, Generator]
+    ) -> Union[str, Any]:  # Changed return type to Union[str, Generator]
         """Generate response using Ollama."""
         full_ollama_url = f"{self.ollama_url}:{self.ollama_port}"
         try:
@@ -1172,7 +1174,11 @@ class LlmService(QObject):
             data = {
                 "model": model,
                 "prompt": prompt,
-                "options": {"num_ctx": 32768, "temperature": temperature, "top_p": p_value},
+                "options": {
+                    "num_ctx": 32768,
+                    "temperature": temperature,
+                    "top_p": p_value,
+                },
                 "stream": stream,
             }
 
@@ -1222,11 +1228,11 @@ class LlmService(QObject):
                             json_response = json.loads(line)
                             if "response" in json_response:
                                 chunk = json_response["response"]
-                                yield chunk # Yield the chunk
+                                yield chunk  # Yield the chunk
                 except Exception as stream_e:
                     self.logger.error(f"Error during Ollama streaming: {stream_e}")
-                    self.logger.debug(traceback.format_exc()) # Log full traceback
-                    raise stream_e # Re-raise to be caught by outer try-except
+                    self.logger.debug(traceback.format_exc())  # Log full traceback
+                    raise stream_e  # Re-raise to be caught by outer try-except
             else:
                 # Non-streaming option
                 data["stream"] = False

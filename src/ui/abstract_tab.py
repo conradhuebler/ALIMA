@@ -79,10 +79,22 @@ class AnalysisWorker(QThread):
     error = pyqtSignal(str)
     new_token = pyqtSignal(str)
 
-    def __init__(self, alima_manager: AlimaManager, abstract_data: AbstractData, task: str, model: str,
-                 use_chunking_abstract: bool, abstract_chunk_size: int,
-                 use_chunking_keywords: bool, keyword_chunk_size: int,
-                 prompt_template: Optional[str] = None, temperature: float = 0.7, p_value: float = 0.1, seed: int = 0, system_prompt: Optional[str] = ""):
+    def __init__(
+        self,
+        alima_manager: AlimaManager,
+        abstract_data: AbstractData,
+        task: str,
+        model: str,
+        use_chunking_abstract: bool,
+        abstract_chunk_size: int,
+        use_chunking_keywords: bool,
+        keyword_chunk_size: int,
+        prompt_template: Optional[str] = None,
+        temperature: float = 0.7,
+        p_value: float = 0.1,
+        seed: int = 0,
+        system_prompt: Optional[str] = "",
+    ):
         super().__init__()
         self.alima_manager = alima_manager
         self.abstract_data = abstract_data
@@ -100,6 +112,7 @@ class AnalysisWorker(QThread):
 
     def run(self):
         try:
+
             def stream_callback(token):
                 self.new_token.emit(token)
 
@@ -116,7 +129,7 @@ class AnalysisWorker(QThread):
                 temperature=self.temperature,
                 p_value=self.p_value,
                 seed=self.seed,
-                system=self.system_prompt
+                system=self.system_prompt,
             )
             self.finished.emit(result.analysis_result)
         except Exception as e:
@@ -148,8 +161,10 @@ class AbstractTab(QWidget):
         super().__init__(parent)
         # Inject dependencies
         self.alima_manager = alima_manager
-        self.llm = llm_service # Renamed from self.llm_service to self.llm for consistency with existing code
-        self.prompt_manager = self.alima_manager.prompt_service # Access prompt_service via alima_manager
+        self.llm = llm_service  # Renamed from self.llm_service to self.llm for consistency with existing code
+        self.prompt_manager = (
+            self.alima_manager.prompt_service
+        )  # Access prompt_service via alima_manager
         self.main_window = main_window
 
         self.need_keywords = False
@@ -157,6 +172,7 @@ class AbstractTab(QWidget):
         self.task: Optional[str] = None
         self.chosen_model: str = "default"
         self.available_models: Dict[str, List[str]] = {}
+        self.results_history = []  # Store results history
 
         self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
         self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
@@ -227,11 +243,19 @@ class AbstractTab(QWidget):
         input_layout.addLayout(header_layout)
 
         self.abstract_edit = QTextEdit()
+        # Increase font size
+        font = self.abstract_edit.font()
+        font.setPointSize(11)
+        self.abstract_edit.setFont(font)
         input_layout.addWidget(self.abstract_edit)
 
         input_layout.addWidget(QLabel("Vorhandene Keywords (optional):"))
         self.keywords_edit = QTextEdit()
         self.keywords_edit.setMaximumHeight(80)
+        # Increase font size
+        font = self.keywords_edit.font()
+        font.setPointSize(11)
+        self.keywords_edit.setFont(font)
         input_layout.addWidget(self.keywords_edit)
 
         input_config_splitter.addWidget(self.input_group)
@@ -249,7 +273,7 @@ class AbstractTab(QWidget):
         # -- Prompt Tab --
         prompt_tab = QWidget()
         prompt_layout = QVBoxLayout(prompt_tab)
-        
+
         prompt_selection_group = QGroupBox("Prompt-Auswahl")
         prompt_selection_layout = QGridLayout(prompt_selection_group)
         prompt_selection_layout.addWidget(QLabel("Task:"), 0, 0)
@@ -271,7 +295,7 @@ class AbstractTab(QWidget):
         self.system_prompt_edit = QTextEdit()
         self.system_prompt_edit.setMinimumHeight(80)
         prompt_layout.addWidget(self.system_prompt_edit)
-        
+
         self.config_tabs.addTab(prompt_tab, "Prompt")
 
         # -- Parameters Tab --
@@ -282,26 +306,34 @@ class AbstractTab(QWidget):
         params_layout.addWidget(QLabel("Temperatur:"), 0, 0)
         self.temp_slider = QSlider(Qt.Orientation.Horizontal)
         self.temp_slider.setRange(0, 100)
-        self.temp_slider.valueChanged.connect(lambda v: self.temp_spinbox.setValue(v / 100.0))
+        self.temp_slider.valueChanged.connect(
+            lambda v: self.temp_spinbox.setValue(v / 100.0)
+        )
         params_layout.addWidget(self.temp_slider, 0, 1)
         self.temp_spinbox = QDoubleSpinBox()
         self.temp_spinbox.setDecimals(2)
         self.temp_spinbox.setRange(0.0, 1.0)
         self.temp_spinbox.setSingleStep(0.01)
-        self.temp_spinbox.valueChanged.connect(lambda v: self.temp_slider.setValue(int(v * 100)))
+        self.temp_spinbox.valueChanged.connect(
+            lambda v: self.temp_slider.setValue(int(v * 100))
+        )
         params_layout.addWidget(self.temp_spinbox, 0, 2)
 
         # Top-P
         params_layout.addWidget(QLabel("Top-P:"), 1, 0)
         self.p_value_slider = QSlider(Qt.Orientation.Horizontal)
         self.p_value_slider.setRange(0, 100)
-        self.p_value_slider.valueChanged.connect(lambda v: self.p_value_spinbox.setValue(v / 100.0))
+        self.p_value_slider.valueChanged.connect(
+            lambda v: self.p_value_spinbox.setValue(v / 100.0)
+        )
         params_layout.addWidget(self.p_value_slider, 1, 1)
         self.p_value_spinbox = QDoubleSpinBox()
         self.p_value_spinbox.setDecimals(2)
         self.p_value_spinbox.setRange(0.0, 1.0)
         self.p_value_spinbox.setSingleStep(0.01)
-        self.p_value_spinbox.valueChanged.connect(lambda v: self.p_value_slider.setValue(int(v * 100)))
+        self.p_value_spinbox.valueChanged.connect(
+            lambda v: self.p_value_slider.setValue(int(v * 100))
+        )
         params_layout.addWidget(self.p_value_spinbox, 1, 2)
 
         # Seed
@@ -312,7 +344,7 @@ class AbstractTab(QWidget):
         params_layout.addWidget(self.seed_spinbox, 2, 1, 1, 2)
 
         self.config_tabs.addTab(params_tab, "Parameter")
-        
+
         config_layout.addWidget(self.config_tabs)
 
         # Provider/Model Selection
@@ -336,7 +368,9 @@ class AbstractTab(QWidget):
         self.enable_chunk_abstract = QCheckBox("Abstract-Chunking")
         self.abstract_chunk_slider = QSlider(Qt.Orientation.Horizontal)
         self.abstract_chunk_slider.setEnabled(False)
-        self.enable_chunk_abstract.toggled.connect(self.abstract_chunk_slider.setEnabled)
+        self.enable_chunk_abstract.toggled.connect(
+            self.abstract_chunk_slider.setEnabled
+        )
         chunk_layout.addWidget(self.enable_chunk_abstract)
         chunk_layout.addWidget(self.abstract_chunk_slider)
 
@@ -349,25 +383,110 @@ class AbstractTab(QWidget):
         config_main_layout.addWidget(chunk_group)
 
         input_config_splitter.addWidget(config_widget)
-        main_layout.addWidget(input_config_splitter)
 
         # ======== Button Area ========
         button_layout = QHBoxLayout()
         self.analyze_button = QPushButton("Analyse starten")
         self.analyze_button.clicked.connect(self.start_analysis)
         button_layout.addWidget(self.analyze_button)
-        main_layout.addLayout(button_layout)
+
+        # Create input widget that includes input/config and button
+        input_widget = QWidget()
+        input_widget_layout = QVBoxLayout(input_widget)
+        input_widget_layout.addWidget(input_config_splitter)
+        input_widget_layout.addLayout(button_layout)
+
+        # ======== Main Content Splitter ========
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Add input widget to splitter
+        self.main_splitter.addWidget(input_widget)
 
         # ======== Results Area ========
+        results_widget = QWidget()
+        results_main_layout = QVBoxLayout(results_widget)
+
         self.results_group = QGroupBox("Analyseergebnis")
-        results_layout = QVBoxLayout(self.results_group)
+        results_layout = QHBoxLayout(self.results_group)
+
+        # Results text area
         self.results_edit = QTextEdit()
         self.results_edit.setReadOnly(True)
+        # Increase font size
+        font = self.results_edit.font()
+        font.setPointSize(11)
+        self.results_edit.setFont(font)
         results_layout.addWidget(self.results_edit)
-        main_layout.addWidget(self.results_group)
+
+        # Results navigation sidebar
+        nav_widget = QWidget()
+        nav_widget.setMaximumWidth(250)
+        nav_layout = QVBoxLayout(nav_widget)
+        nav_layout.addWidget(QLabel("Ausgaben-Historie:"))
+
+        self.results_list = QListWidget()
+        self.results_list.itemClicked.connect(self.load_result_from_history)
+        nav_layout.addWidget(self.results_list)
+
+        clear_button = QPushButton("Historie löschen")
+        clear_button.clicked.connect(self.clear_results_history)
+        nav_layout.addWidget(clear_button)
+
+        results_layout.addWidget(nav_widget)
+
+        results_main_layout.addWidget(self.results_group)
+        self.main_splitter.addWidget(results_widget)
+
+        # Set initial splitter sizes (input area smaller)
+        self.main_splitter.setSizes([300, 700])
+
+        main_layout.addWidget(self.main_splitter)
 
         self.update_models(self.provider_combo.currentText())
         self.populate_task_selector()
+
+    def load_result_from_history(self, item):
+        """Load a result from the history list."""
+        try:
+            index = self.results_list.row(item)
+            if 0 <= index < len(self.results_history):
+                result_data = self.results_history[index]
+                self.results_edit.setPlainText(result_data["result"])
+        except Exception as e:
+            self.logger.error(f"Error loading result from history: {e}")
+
+    def clear_results_history(self):
+        """Clear the results history."""
+        self.results_history.clear()
+        self.results_list.clear()
+        self.results_edit.clear()
+
+    def add_result_to_history(self, result_text, prompt_info=""):
+        """Add a result to the history."""
+        import datetime
+
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+
+        # Create history entry
+        history_entry = {
+            "timestamp": timestamp,
+            "result": result_text,
+            "prompt": prompt_info,
+        }
+
+        self.results_history.append(history_entry)
+
+        # Add to UI list
+        display_text = f"{timestamp} - {len(result_text)} chars"
+        if prompt_info:
+            display_text += f" ({prompt_info[:30]}...)"
+
+        self.results_list.addItem(display_text)
+
+        # Keep only last 10 results
+        if len(self.results_history) > 10:
+            self.results_history.pop(0)
+            self.results_list.takeItem(0)
 
     def populate_task_selector(self):
         self.task_selector_combo.clear()
@@ -375,13 +494,15 @@ class AbstractTab(QWidget):
         self.task_selector_combo.addItems(tasks)
 
     def on_task_selected(self, index):
-        if index < 0: return
+        if index < 0:
+            return
         self.task = self.task_selector_combo.currentText()
         self.populate_prompt_selector()
 
     def populate_prompt_selector(self):
         self.prompt_selector_combo.clear()
-        if not self.task: return
+        if not self.task:
+            return
         prompts = self.prompt_manager.get_prompts_for_task(self.task)
         for i, prompt_set in enumerate(prompts):
             self.prompt_selector_combo.addItem(f"Prompt Set {i+1}", userData=i)
@@ -390,11 +511,15 @@ class AbstractTab(QWidget):
             self.on_prompt_selected(0)
 
     def on_prompt_selected(self, index):
-        if index < 0: return
+        if index < 0:
+            return
         prompt_set_index = self.prompt_selector_combo.itemData(index)
-        if prompt_set_index is None: return
-        prompt_set = self.prompt_manager.get_prompts_for_task(self.task)[prompt_set_index]
-        
+        if prompt_set_index is None:
+            return
+        prompt_set = self.prompt_manager.get_prompts_for_task(self.task)[
+            prompt_set_index
+        ]
+
         # Safely get prompt template (index 0)
         prompt_template_text = prompt_set[0] if len(prompt_set) > 0 else ""
         self.prompt_edit.setPlainText(prompt_template_text)
@@ -405,17 +530,19 @@ class AbstractTab(QWidget):
 
         # Safely get and set parameters
         # Temperature (index 2)
-        temperature_value = float(prompt_set[2]) if len(prompt_set) > 2 else 0.7 # Default to 0.7
+        temperature_value = (
+            float(prompt_set[2]) if len(prompt_set) > 2 else 0.7
+        )  # Default to 0.7
         self.temp_slider.setValue(int(temperature_value * 100))
         self.temp_spinbox.setValue(temperature_value)
 
         # P-value (index 3)
-        p_value = float(prompt_set[3]) if len(prompt_set) > 3 else 0.1 # Default to 0.1
+        p_value = float(prompt_set[3]) if len(prompt_set) > 3 else 0.1  # Default to 0.1
         self.p_value_slider.setValue(int(p_value * 100))
         self.p_value_spinbox.setValue(p_value)
 
         # Seed (index 5)
-        seed_value = int(prompt_set[5]) if len(prompt_set) > 5 else 0 # Default to 0
+        seed_value = int(prompt_set[5]) if len(prompt_set) > 5 else 0  # Default to 0
         self.seed_spinbox.setValue(seed_value)
 
         # Model (index 4)
@@ -433,11 +560,16 @@ class AbstractTab(QWidget):
         keywords_text = self.keywords_edit.toPlainText().strip()
 
         if not abstract_text:
-            QMessageBox.warning(self, "Fehlende Eingabe", "Bitte geben Sie einen Text ein.")
+            QMessageBox.warning(
+                self, "Fehlende Eingabe", "Bitte geben Sie einen Text ein."
+            )
             return
 
         self.progress_bar.setVisible(True)
         self.results_edit.clear()
+
+        # Minimize input area when streaming starts
+        self.main_splitter.setSizes([150, 850])
 
         abstract_data = AbstractData(abstract=abstract_text, keywords=keywords_text)
         use_chunking_abstract = self.enable_chunk_abstract.isChecked()
@@ -456,9 +588,19 @@ class AbstractTab(QWidget):
         seed = self.seed_spinbox.value()
 
         self.analysis_worker = AnalysisWorker(
-            self.alima_manager, abstract_data, self.task, self.chosen_model,
-            use_chunking_abstract, abstract_chunk_size, use_chunking_keywords, keyword_chunk_size,
-            prompt_template=prompt_template, temperature=temperature, p_value=p_value, seed=seed, system_prompt=system_prompt
+            self.alima_manager,
+            abstract_data,
+            self.task,
+            self.chosen_model,
+            use_chunking_abstract,
+            abstract_chunk_size,
+            use_chunking_keywords,
+            keyword_chunk_size,
+            prompt_template=prompt_template,
+            temperature=temperature,
+            p_value=p_value,
+            seed=seed,
+            system_prompt=system_prompt,
         )
         self.analysis_worker.new_token.connect(self._update_results_text)
         self.analysis_worker.finished.connect(self.on_analysis_completed)
@@ -467,8 +609,16 @@ class AbstractTab(QWidget):
 
     def on_analysis_completed(self, result: AnalysisResult):
         self.progress_bar.setVisible(False)
+
+        # Restore input area size
+        self.main_splitter.setSizes([300, 700])
+
+        # Add result to history
+        self.add_result_to_history(result.full_text, self.task or "Analysis")
         self.results_edit.setPlainText(result.full_text)
-        self.final_list.emit(str(result.matched_keywords))
+        # Extract only the keywords from the dictionary and join them into a comma-separated string
+        keywords_only = ", ".join(result.matched_keywords.keys())
+        self.final_list.emit(keywords_only)
         self.gnd_systematic.emit(result.gnd_systematic)
 
     def on_analysis_error(self, error_message: str):
@@ -476,10 +626,12 @@ class AbstractTab(QWidget):
         QMessageBox.critical(self, "Analyse-Fehler", error_message)
 
     def import_pdf(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "PDF importieren", "", "PDF Files (*.pdf)")
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "PDF importieren", "", "PDF Files (*.pdf)"
+        )
         if file_name:
             try:
-                with open(file_name, 'rb') as f:
+                with open(file_name, "rb") as f:
                     reader = PyPDF2.PdfReader(f)
                     text = "".join(page.extract_text() for page in reader.pages)
                     self.abstract_edit.setPlainText(text)
@@ -498,17 +650,11 @@ class AbstractTab(QWidget):
         """Appends text chunks to the results_edit QTextEdit."""
         self.results_edit.insertPlainText(text_chunk)
 
-    def set_models_and_providers(self, models: Dict[str, List[str]], providers: List[str]):
+    def set_models_and_providers(
+        self, models: Dict[str, List[str]], providers: List[str]
+    ):
         """Sets the available models and providers."""
         self.available_models = models
         self.provider_combo.clear()
         self.provider_combo.addItems(providers)
         self.update_models(self.provider_combo.currentText())
-
-    
-
-    
-
-    
-
-    

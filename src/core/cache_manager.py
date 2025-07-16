@@ -25,179 +25,7 @@ class CacheManager:
             os.makedirs(db_dir)
 
         self.db_path = db_path
-
-        # Create in-memory database
-        self.conn = sqlite3.connect(":memory:")
-        self.conn.row_factory = sqlite3.Row
-
-        # Create tables in memory
-        self.create_tables()
-
-        # Load data from file database into memory if file exists
-        if os.path.exists(db_path):
-            self._load_from_file_to_memory()
-            # Verify data integrity
-            self.verify_data_integrity()
-
-        # Show database statistics
-        self.get_memory_database_stats()
-
-    def _load_from_file_to_memory(self):
-        """Lädt die komplette Datenbank aus der Datei in den Speicher."""
-        try:
-            # Connect to file database
-            file_conn = sqlite3.connect(self.db_path)
-            file_conn.row_factory = sqlite3.Row
-
-            # Get all table names from file database
-            cursor = file_conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table';"
-            )
-            tables = [row[0] for row in cursor.fetchall()]
-
-            total_records = 0
-
-            for table_name in tables:
-                try:
-                    # Get table schema from file database
-                    schema_cursor = file_conn.execute(
-                        f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'"
-                    )
-                    schema_result = schema_cursor.fetchone()
-
-                    if schema_result:
-                        # Drop table if exists in memory and recreate with correct schema
-                        self.conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-                        self.conn.execute(schema_result[0])
-
-                    # Copy all data from file table to memory table
-                    data_cursor = file_conn.execute(f"SELECT * FROM {table_name}")
-                    rows = data_cursor.fetchall()
-
-                    if rows:
-                        # Get column names
-                        columns = [
-                            description[0] for description in data_cursor.description
-                        ]
-                        placeholders = ",".join(["?" for _ in columns])
-
-                        # Insert all rows into memory database
-                        insert_sql = f"INSERT INTO {table_name} ({','.join(columns)}) VALUES ({placeholders})"
-
-                        for row in rows:
-                            self.conn.execute(insert_sql, tuple(row))
-
-                        self.conn.commit()
-                        total_records += len(rows)
-                        self.logger.info(
-                            f"Loaded {len(rows)} records from table {table_name}"
-                        )
-
-                except Exception as table_error:
-                    self.logger.error(
-                        f"Error loading table {table_name}: {str(table_error)}"
-                    )
-
-            file_conn.close()
-            self.logger.info(
-                f"Successfully loaded {total_records} total records from {self.db_path} into memory"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error loading database into memory: {str(e)}")
-
-    def save_to_file(self):
-        """Speichert die In-Memory-Datenbank zurück in die Datei."""
-        try:
-            # Connect to file database
-            file_conn = sqlite3.connect(self.db_path)
-
-            # Backup memory database to file
-            self.conn.backup(file_conn)
-
-            file_conn.close()
-            self.logger.info(f"In-memory database saved to {self.db_path}")
-
-        except Exception as e:
-            self.logger.error(f"Error saving database to file: {str(e)}")
-
-    def verify_data_integrity(self) -> bool:
-        """
-        Überprüft, ob alle Daten aus der Datei-Datenbank in der In-Memory-Datenbank vorhanden sind.
-
-        Returns:
-            bool: True wenn alle Daten vorhanden sind, False sonst
-        """
-        if not os.path.exists(self.db_path):
-            self.logger.info("File database does not exist, skipping verification")
-            return True
-
-        try:
-            # Connect to file database
-            file_conn = sqlite3.connect(self.db_path)
-            file_conn.row_factory = sqlite3.Row
-
-            # Get all table names from file database
-            file_cursor = file_conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table';"
-            )
-            tables = [row[0] for row in file_cursor.fetchall()]
-
-            verification_passed = True
-
-            for table_name in tables:
-                # Count entries in file database
-                file_cursor = file_conn.execute(f"SELECT COUNT(*) FROM {table_name}")
-                file_count = file_cursor.fetchone()[0]
-
-                # Count entries in memory database
-                mem_cursor = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}")
-                mem_count = mem_cursor.fetchone()[0]
-
-                self.logger.info(
-                    f"Table {table_name}: File={file_count}, Memory={mem_count}"
-                )
-
-                if file_count != mem_count:
-                    self.logger.error(
-                        f"Entry count mismatch in table {table_name}: File={file_count}, Memory={mem_count}"
-                    )
-                    verification_passed = False
-
-                # For detailed verification, check specific entries (example for gnd_entry table)
-                if table_name == "gnd_entry" and file_count > 0:
-                    file_cursor = file_conn.execute("SELECT gnd_id FROM gnd_entry")
-                    file_gnd_ids = set(row[0] for row in file_cursor.fetchall())
-
-                    mem_cursor = self.conn.execute("SELECT gnd_id FROM gnd_entry")
-                    mem_gnd_ids = set(row[0] for row in mem_cursor.fetchall())
-
-                    missing_in_memory = file_gnd_ids - mem_gnd_ids
-                    extra_in_memory = mem_gnd_ids - file_gnd_ids
-
-                    if missing_in_memory:
-                        self.logger.error(
-                            f"Missing GND entries in memory: {missing_in_memory}"
-                        )
-                        verification_passed = False
-
-                    if extra_in_memory:
-                        self.logger.warning(
-                            f"Extra GND entries in memory: {extra_in_memory}"
-                        )
-
-            file_conn.close()
-
-            if verification_passed:
-                self.logger.info("Data integrity verification passed")
-            else:
-                self.logger.error("Data integrity verification failed")
-
-            return verification_passed
-
-        except Exception as e:
-            self.logger.error(f"Error during data integrity verification: {str(e)}")
-            return False
+        self.create_tables()  # Ensure tables are created when CacheManager is initialized
 
     def get_memory_database_stats(self) -> Dict[str, int]:
         """
@@ -208,19 +36,21 @@ class CacheManager:
         """
         stats = {}
         try:
-            # Get all table names
-            cursor = self.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table';"
-            )
-            tables = [row[0] for row in cursor.fetchall()]
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                # Get all table names
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table';"
+                )
+                tables = [row[0] for row in cursor.fetchall()]
 
-            for table_name in tables:
-                cursor = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}")
-                count = cursor.fetchone()[0]
-                stats[table_name] = count
+                for table_name in tables:
+                    cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    count = cursor.fetchone()[0]
+                    stats[table_name] = count
 
-            self.logger.info(f"Memory database stats: {stats}")
-            return stats
+                self.logger.info(f"Memory database stats: {stats}")
+                return stats
 
         except Exception as e:
             self.logger.error(f"Error getting database stats: {str(e)}")
@@ -240,8 +70,8 @@ class CacheManager:
     def create_tables(self) -> None:
         """Erstellt die notwendigen Tabellen in der Datenbank."""
         try:
-            with self.conn:
-                self.conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS gnd_entry (
                         gnd_id TEXT PRIMARY KEY,
@@ -255,6 +85,16 @@ class CacheManager:
                         ppn TEXT,
                         created_at DATETIME,
                         updated_at DATETIME
+                    )
+                """
+                )
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS search_cache (
+                        term TEXT PRIMARY KEY,
+                        results TEXT,
+                        timestamp DATETIME
                     )
                 """
                 )
@@ -274,8 +114,9 @@ class CacheManager:
             Dictionary mit GND-Einträgen
         """
         try:
-            with self.conn:
-                cursor = self.conn.execute("SELECT * FROM gnd_entry")
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("SELECT * FROM gnd_entry")
                 results = cursor.fetchall()
 
                 return {row["gnd_id"]: dict(row) for row in results}
@@ -294,8 +135,9 @@ class CacheManager:
             True, wenn der Eintrag existiert, sonst False
         """
         try:
-            with self.conn:
-                cursor = self.conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
                     """
                     SELECT COUNT(*) FROM gnd_entry 
                     WHERE gnd_id = ?
@@ -318,8 +160,9 @@ class CacheManager:
             keyword: Schlagwort
         """
         try:
-            with self.conn:
-                cursor = self.conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
                     """
                     SELECT COUNT(*) FROM gnd_entry 
                     WHERE title LIKE ?
@@ -359,9 +202,9 @@ class CacheManager:
             synonyms: Synonyme
         """
         try:
-            with self.conn:
+            with sqlite3.connect(self.db_path) as conn:
                 time = datetime.now().isoformat()
-                self.conn.execute(
+                conn.execute(
                     """
                     INSERT OR REPLACE INTO gnd_entry 
                     (gnd_id, title, description, ddcs, dks, gnd_systems, synonyms, classification, ppn, created_at, updated_at)
@@ -396,22 +239,24 @@ class CacheManager:
             gnd_id: GND-ID
         """
         try:
-            cursor = self.conn.execute(
-                """
-                SELECT * FROM gnd_entry 
-                WHERE gnd_id = ?
-                """,
-                (gnd_id,),
-            )
-            result = cursor.fetchone()
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM gnd_entry 
+                    WHERE gnd_id = ?
+                    """,
+                    (gnd_id,),
+                )
+                result = cursor.fetchone()
 
-            if result:
-                # Convert Row object to dictionary
-                entry = dict(result)
-                return entry
-            else:
-                self.logger.info(f"GND-Eintrag '{gnd_id}' nicht gefunden")
-                return None
+                if result:
+                    # Convert Row object to dictionary
+                    entry = dict(result)
+                    return entry
+                else:
+                    self.logger.info(f"GND-Eintrag '{gnd_id}' nicht gefunden")
+                    return None
 
         except Exception as e:
             self.logger.error(f"Fehler beim Abrufen des GND-Eintrags: {e}")
@@ -425,8 +270,9 @@ class CacheManager:
             keyword: Schlagwort
         """
         try:
-            with self.conn:
-                cursor = self.conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
                     """
                     SELECT * FROM gnd_entry 
                     WHERE title LIKE ?
@@ -477,15 +323,15 @@ class CacheManager:
             synonyms: Synonyme
         """
         try:
-            with self.conn:
-                self.conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
                     """
                     UPDATE gnd_entry 
                     SET title = ?,
                         description = ?,
                         ddcs = ?,
                         dks = ?,
-                        gn_systems = ?,
+                        gnd_systems = ?,
                         synonyms = ?,
                         classification = ?,
                         ppn = ?,
@@ -528,8 +374,8 @@ class CacheManager:
         """
         self.logger.info(f"Update GND-Eintrag '{ddcs}'")
         try:
-            with self.conn:
-                self.conn.execute(
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
                     """
                         UPDATE gnd_entry 
                         SET title = ?,
@@ -554,3 +400,56 @@ class CacheManager:
         except Exception as e:
             self.logger.error(f"Fehler beim Aktualisieren des GND-Eintrags: {e}")
             raise
+
+    def cache_results(self, term: str, results: Dict) -> None:
+        """
+        Speichert Suchergebnisse im Cache.
+
+        Args:
+            term: Der Suchbegriff.
+            results: Die Suchergebnisse als Dictionary.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO search_cache (term, results, timestamp)
+                    VALUES (?, ?, ?)
+                    """,
+                    (term, json.dumps(results), datetime.now().isoformat()),
+                )
+            self.logger.debug(f"Cached results for term: {term}")
+        except Exception as e:
+            self.logger.error(f"Error caching results for {term}: {e}")
+
+    def get_cached_results(self, term: str) -> Optional[Dict]:
+        """
+        Ruft Suchergebnisse aus dem Cache ab.
+
+        Args:
+            term: Der Suchbegriff.
+
+        Returns:
+            Die gecachten Ergebnisse als Dictionary, oder None wenn nicht gefunden oder abgelaufen.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    "SELECT results, timestamp FROM search_cache WHERE term = ?",
+                    (term,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    cached_time = datetime.fromisoformat(row["timestamp"])
+                    # Cache-Gültigkeit: 1 Stunde
+                    if datetime.now() - cached_time < timedelta(hours=1):
+                        return json.loads(row["results"])
+                    else:
+                        self.logger.debug(f"Cache expired for term: {term}")
+                        conn.execute("DELETE FROM search_cache WHERE term = ?", (term,))
+                        return None
+                return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving cached results for {term}: {e}")
+            return None

@@ -42,7 +42,7 @@ class PromptEditorDialog(QDialog):
         self.current_file = "prompts.json"
         self.current_task = None
         self.current_prompt_set_index = None
-        self._dirty = False # Track unsaved changes
+        self._dirty = False  # Track unsaved changes
         self.load_config()
 
     def initUI(self):

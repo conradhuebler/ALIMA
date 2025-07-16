@@ -1,6 +1,4 @@
-## obsolete
-
-from PyQt6.QtCore import QObject, QUrl, QEventLoop
+from PyQt6.QtCore import QObject, QUrl, pyqtSignal
 from PyQt6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from collections import Counter
 from typing import Dict, Set, List, Tuple, Optional
@@ -10,6 +8,10 @@ import logging
 
 
 class SearchEngine(QObject):
+    term_search_completed = pyqtSignal(str, dict)
+    term_search_error = pyqtSignal(str, str)
+    search_finished = pyqtSignal(dict)
+
     def __init__(self, cache_manager):
         """
         Initialisiert die Suchmaschine.
@@ -65,139 +67,122 @@ class SearchEngine(QObject):
 
         return subject_headings
 
-    async def search(self, terms: List[str], threshold: float = 1.0) -> Dict:
+    def search(self, terms: List[str], threshold: float = 1.0):
         """
         Führt die Suche für mehrere Begriffe durch.
 
         Args:
             terms: Liste der Suchbegriffe
             threshold: Schwellenwert für die Relevanz in Prozent
-
-        Returns:
-            Dictionary mit Suchergebnissen
         """
-        term_results = {}
-        total_counter = Counter()
+        self.logger.info(f"SearchEngine starting search for terms: {terms}")
+        self.term_results = {}
+        self.total_counter = Counter()
+        self.pending_requests = len(terms)
+        self.threshold = threshold
 
+        if not terms:
+            self.logger.info("No terms provided, emitting empty results")
+            self.search_finished.emit(self.process_results(self.threshold))
+            return
+
+        self.logger.info(f"Starting search for {len(terms)} terms")
         for term in terms:
-            results = await self.search_term(term)
-            if results:
-                term_results[term] = results
-                total_counter.update(results["counter"])
+            self.search_term(term)
 
-        # Speichere aktuelle Ergebnisse
-        self.current_results = {
-            "term_results": term_results,
-            "total_counter": total_counter,
-        }
-
-        return self.process_results(threshold)
-
-    async def search_term(self, term: str) -> Optional[Dict]:
+    def search_term(self, term: str):
         """
         Führt die Suche für einen einzelnen Begriff durch.
 
         Args:
             term: Suchbegriff
-
-        Returns:
-            Dictionary mit Ergebnissen oder None bei Fehler
         """
         # Prüfe Cache
         cached_results = self.cache.get_cached_results(term)
         if cached_results:
-            return cached_results
+            # Store cached results in the engine for processing
+            self.term_results[term] = cached_results
+            self.total_counter.update(cached_results["counter"])
+
+            self.term_search_completed.emit(term, cached_results)
+
+            # Decrease pending requests and check if all are complete
+            self.pending_requests -= 1
+            self.logger.info(
+                f"Cache hit for {term}, pending requests: {self.pending_requests}"
+            )
+            if self.pending_requests == 0:
+                self.logger.info("All requests complete, emitting search_finished")
+                self.search_finished.emit(self.process_results(self.threshold))
+            return
 
         self.logger.info(f"Suche nach Begriff: {term}")
         if len(term) < 3:
-            return None
+            self.term_search_error.emit(term, "Suchbegriff zu kurz")
+            # Decrease pending requests and check if all are complete
+            self.pending_requests -= 1
+            self.logger.info(
+                f"Error for {term}, pending requests: {self.pending_requests}"
+            )
+            if self.pending_requests == 0:
+                self.logger.info("All requests complete, emitting search_finished")
+                self.search_finished.emit(self.process_results(self.threshold))
+            return
 
         # Erstelle URL mit Parametern
         url = QUrl(self.base_url)
         url.setQuery(f"q={term}&format=jsonl")
 
         request = QNetworkRequest(url)
+        reply = self.network_manager.get(request)
+        reply.finished.connect(lambda: self._handle_network_reply(reply, term))
 
-        try:
-            reply = await self._make_network_request(request)
-
-            if not reply:
-                return None
-
+    def _handle_network_reply(self, reply: QNetworkReply, term: str):
+        if reply.error() == QNetworkReply.NetworkError.NoError:
             data = reply.readAll().data().decode("utf-8")
             subject_headings = []
             total_items = 0
 
-            # Verarbeite JSONL-Antwort
             for line in data.splitlines():
                 if not line:
                     continue
-
                 try:
                     item = json.loads(line)
                     headings = self.extract_subject_headings(item)
                     subject_headings.extend(headings)
                     total_items += 1
                 except json.JSONDecodeError as e:
-                    self.logger.error(f"JSON Decode Error: {e}")
+                    self.logger.error(f"JSON Decode Error for term {term}: {e}")
                     continue
 
-            # Erstelle Ergebnisse
             results = {
                 "headings": set(subject_headings),
                 "counter": Counter(subject_headings),
                 "total": total_items,
                 "timestamp": datetime.now().isoformat(),
             }
+            # Store results in the engine for processing
+            self.term_results[term] = results
+            self.total_counter.update(results["counter"])
 
-            # Cache die Ergebnisse
             self.cache.cache_results(term, results)
+            self.term_search_completed.emit(term, results)
+        else:
+            self.logger.error(f"Network error for term {term}: {reply.errorString()}")
+            self.term_search_error.emit(term, reply.errorString())
 
-            return results
+        # Decrease pending requests and check if all are complete
+        self.pending_requests -= 1
+        self.logger.info(
+            f"Network request completed for {term}, pending requests: {self.pending_requests}"
+        )
+        if self.pending_requests == 0:
+            self.logger.info("All requests complete, emitting search_finished")
+            self.search_finished.emit(self.process_results(self.threshold))
 
-        except Exception as e:
-            self.logger.error(f"Fehler bei der Netzwerkanfrage: {e}")
-            return None
+        reply.deleteLater()
 
-    async def _make_network_request(
-        self, request: QNetworkRequest
-    ) -> Optional[QNetworkReply]:
-        """
-        Führt eine Netzwerkanfrage aus und wartet auf die Antwort.
-
-        Args:
-            request: Die QNetworkRequest
-
-        Returns:
-            QNetworkReply oder None bei Fehler
-        """
-
-        loop = QEventLoop()
-        reply = self.network_manager.get(request)
-
-        # Verbinde Signale
-        reply.finished.connect(loop.quit)
-        reply.errorOccurred.connect(lambda: self._handle_network_error(reply, loop))
-
-        # Warte auf Antwort
-        loop.exec()
-
-        if reply.error() == QNetworkReply.NetworkError.NoError:
-            return reply
-        return None
-
-    def _handle_network_error(self, reply: QNetworkReply, loop: QEventLoop):
-        """
-        Behandelt Netzwerkfehler.
-
-        Args:
-            reply: Die QNetworkReply
-            loop: Der QEventLoop
-        """
-        self.logger.error(f"Netzwerkfehler: {reply.errorString()}")
-        loop.quit()
-
-    def process_results(self, current_results, threshold: float) -> Dict:
+    def process_results(self, threshold: float) -> Dict:
         """
         Verarbeitet die Suchergebnisse und wendet den Threshold an.
 
@@ -207,20 +192,17 @@ class SearchEngine(QObject):
         Returns:
             Aufbereitete Suchergebnisse
         """
-        self.current_results = current_results
-        if not self.current_results["total_counter"]:
+        if not self.total_counter:
             return {"exact_matches": [], "frequent_matches": []}
 
-        most_common_count = self.current_results["total_counter"].most_common(1)[0][1]
+        most_common_count = self.total_counter.most_common(1)[0][1]
         threshold_count = max(3, int(most_common_count * (threshold / 100.0)))
 
         exact_matches = []
         frequent_matches = []
-        search_terms = [
-            term.strip().lower() for term in self.current_results["term_results"].keys()
-        ]
+        search_terms = [term.strip().lower() for term in self.term_results.keys()]
 
-        for item, count in self.current_results["total_counter"].most_common():
+        for item, count in self.total_counter.most_common():
             if isinstance(item, tuple) and len(item) >= 2:
                 label = item[0].strip("'").lower()
 
@@ -246,4 +228,4 @@ class SearchEngine(QObject):
         Returns:
             Dictionary mit aktuellen Ergebnissen
         """
-        return self.current_results
+        return {"term_results": self.term_results, "total_counter": self.total_counter}
