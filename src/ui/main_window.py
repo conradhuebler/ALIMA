@@ -48,6 +48,7 @@ from ..core.alima_manager import AlimaManager
 
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
+from .analysis_review_tab import AnalysisReviewTab
 from .ubsearch_tab import UBSearchTab
 from .tablewidget import TableWidget
 import logging
@@ -405,11 +406,21 @@ class MainWindow(QMainWindow):
         self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
         self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
 
+        # Analysis Review Tab
+        self.analysis_review_tab = AnalysisReviewTab()
+        self.analysis_review_tab.keywords_selected.connect(
+            self.search_tab.update_search_field
+        )
+        self.analysis_review_tab.abstract_selected.connect(
+            self.abstract_tab.set_abstract
+        )
+
         self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
         self.tabs.addTab(self.search_tab, "GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "Verifikation")
         self.tabs.addTab(self.ub_search_tab, "UB Suche")
+        self.tabs.addTab(self.analysis_review_tab, "Analyse-Review")
 
         # Statusleiste
         self.status_bar = QStatusBar()
@@ -595,6 +606,53 @@ class MainWindow(QMainWindow):
             current_tab.export_results()
         else:
             self.status_label.setText("Export nicht verfügbar für diesen Tab")
+
+    def export_current_analysis(self):
+        """Export current analysis state from GUI"""
+        try:
+            # Get abstract from abstract tab
+            abstract = self.abstract_tab.abstract_edit.toPlainText()
+
+            # Get keywords from keywords tab
+            keywords = self.analyse_keywords.keywords_edit.toPlainText()
+
+            # Get search results from search tab
+            search_results = {}
+            if hasattr(self.search_tab, "flat_results"):
+                for (
+                    gnd_id,
+                    term,
+                    count,
+                    relation,
+                    search_term,
+                ) in self.search_tab.flat_results:
+                    if search_term not in search_results:
+                        search_results[search_term] = {}
+                    search_results[search_term][term] = {
+                        "count": count,
+                        "gndid": [gnd_id],
+                        "ddc": [],
+                        "dk": [],
+                    }
+
+            # Get final keywords from verification tab
+            final_keywords = self.analyse_keywords.keywords_edit.toPlainText()
+
+            # Get GND classes if available
+            gnd_classes = ""
+            if hasattr(self.analyse_keywords, "gnd_systematic"):
+                gnd_classes = getattr(self.analyse_keywords, "gnd_systematic", "")
+
+            # Export using analysis review tab
+            self.analysis_review_tab.export_current_gui_state(
+                abstract, keywords, search_results, final_keywords, gnd_classes
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Export Error", f"Error exporting analysis: {str(e)}"
+            )
+            self.logger.error(f"Export error: {e}")
 
     def import_results(self):
         """Importiert gespeicherte Suchergebnisse"""
@@ -894,6 +952,12 @@ class MainWindow(QMainWindow):
         # Export-Aktion
         export_action = file_menu.addAction("&Exportieren...")
         export_action.triggered.connect(self.export_results)
+
+        # Export Analysis
+        export_analysis_action = file_menu.addAction(
+            "&Aktuelle Verschlagwortung als JSON..."
+        )
+        export_analysis_action.triggered.connect(self.export_current_analysis)
 
         # Import-Aktion
         import_action = file_menu.addAction("&Importieren...")
