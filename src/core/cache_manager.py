@@ -56,6 +56,34 @@ class CacheManager:
             self.logger.error(f"Error getting database stats: {str(e)}")
             return {}
 
+    def get_cache_stats(self) -> Optional[Dict[str, Any]]:
+        """
+        Get comprehensive cache statistics - Claude Generated
+
+        Returns:
+            Dict with cache statistics including total entries and size
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT COUNT(*) FROM search_cache")
+                total_entries = cursor.fetchone()[0]
+
+                # Get database file size
+                if os.path.exists(self.db_path):
+                    size_bytes = os.path.getsize(self.db_path)
+                    size_mb = size_bytes / (1024 * 1024)
+                else:
+                    size_mb = 0
+
+                return {
+                    "total_entries": total_entries,
+                    "size_mb": size_mb,
+                    "db_path": self.db_path,
+                }
+        except Exception as e:
+            self.logger.error(f"Error getting cache stats: {e}")
+            return None
+
     def _initialize_connection(self) -> sqlite3.Connection:
         """
         Initialisiert die Datenbankverbindung mit praktischen Defaults.

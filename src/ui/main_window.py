@@ -53,6 +53,8 @@ from .ubsearch_tab import UBSearchTab
 from .tablewidget import TableWidget
 from .image_analysis_tab import ImageAnalysisTab
 from .styles import get_main_stylesheet
+from .global_status_bar import GlobalStatusBar
+from .pipeline_tab import PipelineTab
 import logging
 
 
@@ -420,15 +422,39 @@ class MainWindow(QMainWindow):
             self.abstract_tab.set_abstract
         )
 
-        # Image Analysis Tab
-        self.image_analysis_tab = ImageAnalysisTab(
-            llm_service=self.llm_service,
-            main_window=self
-        )
-        self.image_analysis_tab.text_extracted.connect(
-            self.abstract_tab.set_abstract
+        # Connect AbstractTab analysis completion to AnalysisReviewTab - Claude Generated
+        self.abstract_tab.analysis_completed.connect(
+            self.analysis_review_tab.receive_analysis_data
         )
 
+        # Image Analysis Tab
+        self.image_analysis_tab = ImageAnalysisTab(
+            llm_service=self.llm_service, main_window=self
+        )
+        self.image_analysis_tab.text_extracted.connect(self.abstract_tab.set_abstract)
+
+        # Pipeline Tab - Claude Generated
+        self.pipeline_tab = PipelineTab(
+            alima_manager=self.alima_manager,
+            llm_service=self.llm_service,
+            cache_manager=self.cache_manager,
+            main_window=self,
+        )
+
+        # Connect pipeline events to global status bar
+        self.pipeline_tab.pipeline_started.connect(
+            lambda: self.global_status_bar.update_pipeline_status("Pipeline", "running")
+        )
+        self.pipeline_tab.pipeline_completed.connect(
+            lambda: self.global_status_bar.update_pipeline_status(
+                "Pipeline", "completed"
+            )
+        )
+
+        # Add Pipeline tab first
+        self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")
+
+        # Individual tabs
         self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
         self.tabs.addTab(self.image_analysis_tab, "Bilderkennung")
         self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
@@ -437,11 +463,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.ub_search_tab, "UB Suche")
         self.tabs.addTab(self.analysis_review_tab, "Analyse-Review")
 
-        # Statusleiste
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_label = QLabel()
-        self.status_bar.addWidget(self.status_label)
+        # Globale Statusleiste
+        self.global_status_bar = GlobalStatusBar()
+        self.setStatusBar(self.global_status_bar)
+
+        # Initialize status bar with services
+        self.global_status_bar.set_services(self.llm_service, self.cache_manager)
 
         # Cache-Info Widget
         self.ollama_url = QLineEdit()  # Eingabefeld für Ollama URL
@@ -464,7 +491,7 @@ class MainWindow(QMainWindow):
         ollama_widget = QWidget()
         ollama_widget.setLayout(ollama_layout)
         # self.cache_info = QLabel()
-        self.status_bar.addPermanentWidget(ollama_widget)
+        self.global_status_bar.addPermanentWidget(ollama_widget)
 
     def load_models_and_providers(self):
         """Loads all available models and providers."""
@@ -601,7 +628,7 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
-        self.tabs.setCurrentIndex(1)
+        self.tabs.setCurrentIndex(0)
 
         self.ollama_url.setText(self.settings.value("ollama_url", "http://localhost"))
         self.llm.set_ollama_url(self.ollama_url.text())

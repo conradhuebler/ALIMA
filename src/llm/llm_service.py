@@ -67,7 +67,7 @@ class LlmService(QObject):
         self.ollama_port = ollama_port
 
         # Timeout für hängengebliebene Anfragen (in Sekunden)
-        self.request_timeout = 120  # 2 Minuten
+        self.request_timeout = 300  # 5 Minuten
         self.watchdog_thread = None
         self.last_chunk_time = 0
 
@@ -332,6 +332,7 @@ class LlmService(QObject):
             self.clients["ollama"].post(
                 f"{self.ollama_url}:{self.ollama_port}/api/cancel",
                 json={},  # Neuere Ollama-Versionen benötigen keine Modellangabe
+                timeout=5,  # 5 second timeout to prevent UI blocking
             )
         except Exception as e:
             self.logger.warning(f"Ollama cancellation failed: {str(e)}")
@@ -749,7 +750,9 @@ class LlmService(QObject):
         full_ollama_url = f"{self.ollama_url}:{self.ollama_port}"
         self.logger.info(f"Attempting to initialize Ollama at {full_ollama_url}")
         try:
-            response = module.get(f"{full_ollama_url}/api/tags")
+            response = module.get(
+                f"{full_ollama_url}/api/tags", timeout=5
+            )  # 5 second timeout to prevent UI blocking
             response.raise_for_status()  # Raise an exception for HTTP errors
             self.clients[provider] = module
             self.logger.info(
@@ -1203,6 +1206,7 @@ class LlmService(QObject):
                     f"{full_ollama_url}/api/generate",
                     json=data,
                     stream=True,
+                    timeout=120,  # 120 second timeout for initial connection
                 )
 
                 # Process streaming response
@@ -1237,7 +1241,9 @@ class LlmService(QObject):
                 # Non-streaming option
                 data["stream"] = False
                 response = self.clients["ollama"].post(
-                    f"{full_ollama_url}/api/generate", json=data
+                    f"{full_ollama_url}/api/generate",
+                    json=data,
+                    timeout=120,  # 120 second timeout for non-streaming requests
                 )
                 return response.json()["response"]
 

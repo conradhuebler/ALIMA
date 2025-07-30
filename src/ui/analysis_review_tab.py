@@ -39,6 +39,36 @@ class AnalysisReviewTab(QWidget):
         self.current_analysis = None
         self.setup_ui()
 
+    def receive_analysis_data(
+        self, abstract_text: str, keywords: str = "", analysis_result: str = ""
+    ):
+        """Receive analysis data from AbstractTab - Claude Generated"""
+        # Create a simplified analysis structure for display
+        current_time = datetime.now().isoformat()
+
+        self.current_analysis = {
+            "original_abstract": abstract_text,
+            "initial_keywords": keywords.split(", ") if keywords else [],
+            "search_suggesters_used": ["auto_transfer"],
+            "initial_gnd_classes": [],
+            "search_results": [],
+            "gnd_compliant_keywords": [],
+            "analysis_result": analysis_result,
+            "timestamp": current_time,
+            "source": "abstract_tab_transfer",
+        }
+
+        # Update UI
+        self.populate_analysis_data()
+        self.populate_detail_tabs()
+
+        # Enable buttons
+        self.export_button.setEnabled(True)
+        self.use_keywords_button.setEnabled(True)
+        self.use_abstract_button.setEnabled(True)
+
+        self.logger.info("Analysis data received from AbstractTab")
+
     def setup_ui(self):
         """Setup the user interface"""
         main_layout = QVBoxLayout(self)

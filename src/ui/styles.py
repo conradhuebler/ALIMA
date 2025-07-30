@@ -4,13 +4,13 @@ Unified UI styles for ALIMA application
 
 # Color palette
 COLORS = {
-    "primary": "#4a86e8",      # Blue
+    "primary": "#4a86e8",  # Blue
     "primary_hover": "#3a76d8",
     "primary_pressed": "#2a66c8",
-    "secondary": "#6aa84f",    # Green
+    "secondary": "#6aa84f",  # Green
     "secondary_hover": "#5a984f",
     "secondary_pressed": "#4a883f",
-    "accent": "#f1c232",       # Gold
+    "accent": "#f1c232",  # Gold
     "accent_hover": "#e1b222",
     "accent_pressed": "#d1a212",
     "background": "#ffffff",
@@ -27,8 +27,9 @@ COLORS = {
     "warning_hover": "#e0a800",
     "border": "#cccccc",
     "border_light": "#e0e0e0",
-    "border_dark": "#999999"
+    "border_dark": "#999999",
 }
+
 
 def get_main_stylesheet():
     """Get the main application stylesheet"""
@@ -62,8 +63,8 @@ def get_main_stylesheet():
     /* Primary buttons */
     QPushButton {{
         border: none;
-        border-radius: 6px;
-        padding: 10px 20px;
+        border-radius: 2px;
+        padding: 2px 5px;
         background-color: {COLORS['primary']};
         color: white;
         font-weight: bold;
@@ -296,6 +297,7 @@ def get_main_stylesheet():
     }}
     """
 
+
 def get_button_styles():
     """Get button style variations"""
     return {
@@ -321,7 +323,6 @@ def get_button_styles():
                 color: {COLORS['text_muted']};
             }}
         """,
-        
         "secondary": f"""
             QPushButton {{
                 background-color: {COLORS['secondary']};
@@ -344,7 +345,6 @@ def get_button_styles():
                 color: {COLORS['text_muted']};
             }}
         """,
-        
         "accent": f"""
             QPushButton {{
                 background-color: {COLORS['accent']};
@@ -367,7 +367,6 @@ def get_button_styles():
                 color: {COLORS['text_muted']};
             }}
         """,
-        
         "success": f"""
             QPushButton {{
                 background-color: {COLORS['success']};
@@ -390,7 +389,6 @@ def get_button_styles():
                 color: {COLORS['text_muted']};
             }}
         """,
-        
         "warning": f"""
             QPushButton {{
                 background-color: {COLORS['warning']};
@@ -413,7 +411,6 @@ def get_button_styles():
                 color: {COLORS['text_muted']};
             }}
         """,
-        
         "error": f"""
             QPushButton {{
                 background-color: {COLORS['error']};
@@ -435,8 +432,9 @@ def get_button_styles():
                 background-color: {COLORS['background_dark']};
                 color: {COLORS['text_muted']};
             }}
-        """
+        """,
     }
+
 
 def get_status_label_styles():
     """Get status label styles"""
@@ -446,8 +444,9 @@ def get_status_label_styles():
         "warning": f"color: {COLORS['warning']}; font-weight: bold;",
         "error": f"color: {COLORS['error']}; font-weight: bold;",
         "info": f"color: {COLORS['primary']}; font-weight: bold;",
-        "muted": f"color: {COLORS['text_muted']};"
+        "muted": f"color: {COLORS['text_muted']};",
     }
+
 
 def get_image_preview_style():
     """Get image preview container style"""

@@ -208,7 +208,7 @@
             ]
         ]
     },
-    "abstract": {
+    "initialisation": {
         "fields": [
             "prompt",
             "system",

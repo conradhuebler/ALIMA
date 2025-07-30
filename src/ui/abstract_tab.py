@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QToolTip,
     QTabWidget,
+    QStatusBar,
 )
 from PyQt6.QtCore import (
     Qt,
@@ -150,6 +151,9 @@ class AbstractTab(QWidget):
     abstract_changed = pyqtSignal(str)
     final_list = pyqtSignal(str)
     gnd_systematic = pyqtSignal(str)
+    analysis_completed = pyqtSignal(
+        str, str, str
+    )  # abstract, keywords, analysis_result
 
     def __init__(
         self,
@@ -173,6 +177,8 @@ class AbstractTab(QWidget):
         self.chosen_model: str = "default"
         self.available_models: Dict[str, List[str]] = {}
         self.results_history = []  # Store results history
+        self.is_analysis_running = False  # Track analysis state
+        self.input_widget_visible = True  # Track input widget visibility
 
         self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
         self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
@@ -384,23 +390,62 @@ class AbstractTab(QWidget):
 
         input_config_splitter.addWidget(config_widget)
 
-        # ======== Button Area ========
-        button_layout = QHBoxLayout()
+        # ======== Analysis Button Area (inside input widget) ========
+        analysis_button_layout = QHBoxLayout()
         self.analyze_button = QPushButton("Analyse starten")
         self.analyze_button.clicked.connect(self.start_analysis)
-        button_layout.addWidget(self.analyze_button)
+        analysis_button_layout.addWidget(self.analyze_button)
 
-        # Create input widget that includes input/config and button
-        input_widget = QWidget()
-        input_widget_layout = QVBoxLayout(input_widget)
+        # Cancel button (initially hidden)
+        self.cancel_button = QPushButton("Abbrechen")
+        self.cancel_button.setStyleSheet(
+            "QPushButton { background-color: #d32f2f; color: white; }"
+        )
+        self.cancel_button.clicked.connect(self.cancel_analysis)
+        self.cancel_button.setVisible(False)
+        analysis_button_layout.addWidget(self.cancel_button)
+
+        analysis_button_layout.addStretch()
+
+        # Status label for analysis feedback
+        self.status_label = QLabel("Bereit")
+        self.status_label.setStyleSheet("QLabel { color: #4caf50; font-weight: bold; }")
+        analysis_button_layout.addWidget(self.status_label)
+
+        # Create input widget that includes input/config and analysis buttons (this will be hidden/shown)
+        self.input_widget = QWidget()
+        input_widget_layout = QVBoxLayout(self.input_widget)
         input_widget_layout.addWidget(input_config_splitter)
-        input_widget_layout.addLayout(button_layout)
+        input_widget_layout.addLayout(analysis_button_layout)
 
-        # ======== Main Content Splitter ========
+        # ======== Control Button Area (always visible) ========
+        control_button_layout = QHBoxLayout()
+
+        # Toggle view button (always visible)
+        self.toggle_input_button = QPushButton("Eingabe ausblenden")
+        self.toggle_input_button.clicked.connect(self.toggle_input_visibility)
+        control_button_layout.addWidget(self.toggle_input_button)
+
+        # Auto-hide during streaming checkbox
+        self.auto_hide_checkbox = QCheckBox("Auto-Ausblenden beim Streaming")
+        self.auto_hide_checkbox.setChecked(True)
+        control_button_layout.addWidget(self.auto_hide_checkbox)
+
+        control_button_layout.addStretch()
+
+        # ======== Main Content Area ========
+        # Container for control buttons and splitter
+        main_container = QWidget()
+        main_container_layout = QVBoxLayout(main_container)
+
+        # Add control buttons (always visible)
+        main_container_layout.addLayout(control_button_layout)
+
+        # Create main splitter
         self.main_splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Add input widget to splitter
-        self.main_splitter.addWidget(input_widget)
+        self.main_splitter.addWidget(self.input_widget)
 
         # ======== Results Area ========
         results_widget = QWidget()
@@ -409,13 +454,27 @@ class AbstractTab(QWidget):
         self.results_group = QGroupBox("Analyseergebnis")
         results_layout = QHBoxLayout(self.results_group)
 
-        # Results text area
+        # Results text area with enhanced styling
         self.results_edit = QTextEdit()
         self.results_edit.setReadOnly(True)
         # Increase font size
         font = self.results_edit.font()
         font.setPointSize(11)
         self.results_edit.setFont(font)
+        # Add better styling for streaming text
+        self.results_edit.setStyleSheet(
+            """
+            QTextEdit {
+                border: 2px solid #e0e0e0;
+                border-radius: 4px;
+                padding: 8px;
+                background-color: #fafafa;
+            }
+            QTextEdit:focus {
+                border-color: #2196f3;
+            }
+        """
+        )
         results_layout.addWidget(self.results_edit)
 
         # Results navigation sidebar
@@ -440,7 +499,11 @@ class AbstractTab(QWidget):
         # Set initial splitter sizes (input area smaller)
         self.main_splitter.setSizes([300, 700])
 
-        main_layout.addWidget(self.main_splitter)
+        # Add splitter to main container
+        main_container_layout.addWidget(self.main_splitter)
+
+        # Add main container to layout
+        main_layout.addWidget(main_container)
 
         self.update_models(self.provider_combo.currentText())
         self.populate_task_selector()
@@ -556,6 +619,7 @@ class AbstractTab(QWidget):
         self.chosen_model = model_name
 
     def start_analysis(self):
+        """Start analysis with enhanced UI feedback - Claude Generated"""
         abstract_text = self.abstract_edit.toPlainText().strip()
         keywords_text = self.keywords_edit.toPlainText().strip()
 
@@ -565,11 +629,23 @@ class AbstractTab(QWidget):
             )
             return
 
+        # Set analysis running state
+        self.is_analysis_running = True
+
+        # Update UI for analysis state
+        self.analyze_button.setVisible(False)
+        self.cancel_button.setVisible(True)
+        self.status_label.setText("Analyse läuft...")
+        self.status_label.setStyleSheet("QLabel { color: #ff9800; font-weight: bold; }")
         self.progress_bar.setVisible(True)
         self.results_edit.clear()
 
-        # Minimize input area when streaming starts
-        self.main_splitter.setSizes([150, 850])
+        # Auto-hide input area if checkbox is checked
+        if self.auto_hide_checkbox.isChecked():
+            self.hide_input_during_streaming()
+
+        # Add analysis start message to results
+        self.results_edit.setPlainText("🔄 Analyse gestartet...\n\n")
 
         abstract_data = AbstractData(abstract=abstract_text, keywords=keywords_text)
         use_chunking_abstract = self.enable_chunk_abstract.isChecked()
@@ -605,25 +681,87 @@ class AbstractTab(QWidget):
         self.analysis_worker.new_token.connect(self._update_results_text)
         self.analysis_worker.finished.connect(self.on_analysis_completed)
         self.analysis_worker.error.connect(self.on_analysis_error)
+
+        # Update status when analysis actually starts
+        self.status_label.setText("Verbindung zu LLM...")
+
         self.analysis_worker.start()
 
     def on_analysis_completed(self, result: AnalysisResult):
-        self.progress_bar.setVisible(False)
+        """Handle analysis completion with enhanced UI feedback - Claude Generated"""
+        # Reset analysis state
+        self.is_analysis_running = False
 
-        # Restore input area size
-        self.main_splitter.setSizes([300, 700])
+        # Update UI for completion
+        self.progress_bar.setVisible(False)
+        self.analyze_button.setVisible(True)
+        self.cancel_button.setVisible(False)
+        self.status_label.setText("Analyse abgeschlossen ✓")
+        self.status_label.setStyleSheet("QLabel { color: #4caf50; font-weight: bold; }")
+
+        # Restore input area if it was auto-hidden during streaming
+        self.restore_input_after_streaming()
 
         # Add result to history
         self.add_result_to_history(result.full_text, self.task or "Analysis")
         self.results_edit.setPlainText(result.full_text)
+
         # Extract only the keywords from the dictionary and join them into a comma-separated string
         keywords_only = ", ".join(result.matched_keywords.keys())
         self.final_list.emit(keywords_only)
         self.gnd_systematic.emit(result.gnd_systematic)
 
+        # Send analysis data to AnalysisReviewTab - Claude Generated
+        current_abstract = self.abstract_edit.toPlainText().strip()
+        self.analysis_completed.emit(current_abstract, keywords_only, result.full_text)
+
+        # Reset status after 3 seconds
+        QApplication.instance().processEvents()
+        import threading
+
+        def reset_status():
+            time.sleep(3)
+            if not self.is_analysis_running:  # Only reset if no new analysis started
+                self.status_label.setText("Bereit")
+                self.status_label.setStyleSheet(
+                    "QLabel { color: #4caf50; font-weight: bold; }"
+                )
+
+        threading.Thread(target=reset_status, daemon=True).start()
+
     def on_analysis_error(self, error_message: str):
+        """Handle analysis error with enhanced UI feedback - Claude Generated"""
+        # Reset analysis state
+        self.is_analysis_running = False
+
+        # Update UI for error state
         self.progress_bar.setVisible(False)
+        self.analyze_button.setVisible(True)
+        self.cancel_button.setVisible(False)
+        self.status_label.setText("Fehler ✗")
+        self.status_label.setStyleSheet("QLabel { color: #d32f2f; font-weight: bold; }")
+
+        # Restore input area if it was auto-hidden during streaming
+        self.restore_input_after_streaming()
+
+        # Show error in results area
+        self.results_edit.setPlainText(f"❌ Fehler bei der Analyse:\n\n{error_message}")
+
+        # Show error dialog
         QMessageBox.critical(self, "Analyse-Fehler", error_message)
+
+        # Reset status after 5 seconds
+        import threading
+
+        def reset_status():
+            time.sleep(5)
+            if not self.is_analysis_running:
+                self.status_label.setText("Bereit")
+                self.status_label.setStyleSheet(
+                    "QLabel { color: #4caf50; font-weight: bold; }"
+                )
+
+        threading.Thread(target=reset_status, daemon=True).start()
 
     def import_pdf(self):
         file_name, _ = QFileDialog.getOpenFileName(
@@ -647,8 +785,27 @@ class AbstractTab(QWidget):
         self.keywords_edit.setPlainText(keywords)
 
     def _update_results_text(self, text_chunk: str):
-        """Appends text chunks to the results_edit QTextEdit."""
+        """Appends text chunks to the results_edit QTextEdit with enhanced feedback - Claude Generated"""
+        # Update status to show streaming is active
+        if self.is_analysis_running:
+            self.status_label.setText("Streaming...")
+            self.status_label.setStyleSheet(
+                "QLabel { color: #2196f3; font-weight: bold; }"
+            )
+
+        # Clear the initial "Analysis started" message on first token
+        current_text = self.results_edit.toPlainText()
+        if current_text.startswith("🔄 Analyse gestartet..."):
+            self.results_edit.clear()
+
+        # Append new text
         self.results_edit.insertPlainText(text_chunk)
+
+        # Auto-scroll to bottom to follow streaming text
+        cursor = self.results_edit.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.results_edit.setTextCursor(cursor)
+        self.results_edit.ensureCursorVisible()
 
     def set_models_and_providers(
         self, models: Dict[str, List[str]], providers: List[str]
@@ -658,3 +815,82 @@ class AbstractTab(QWidget):
         self.provider_combo.clear()
         self.provider_combo.addItems(providers)
         self.update_models(self.provider_combo.currentText())
+
+    def cancel_analysis(self):
+        """Cancel the running analysis - Claude Generated"""
+        if hasattr(self, "analysis_worker") and self.analysis_worker.isRunning():
+            self.analysis_worker.terminate()
+            self.analysis_worker.wait()
+
+        # Reset UI state
+        self.is_analysis_running = False
+        self.progress_bar.setVisible(False)
+        self.analyze_button.setVisible(True)
+        self.cancel_button.setVisible(False)
+        self.status_label.setText("Abgebrochen")
+        self.status_label.setStyleSheet("QLabel { color: #ff9800; font-weight: bold; }")
+
+        # Restore input area if it was auto-hidden during streaming
+        self.restore_input_after_streaming()
+
+        # Add cancellation message to results
+        self.results_edit.setPlainText("⏹️ Analyse abgebrochen")
+
+        # Reset status after 3 seconds
+        import threading
+
+        def reset_status():
+            time.sleep(3)
+            if not self.is_analysis_running:
+                self.status_label.setText("Bereit")
+                self.status_label.setStyleSheet(
+                    "QLabel { color: #4caf50; font-weight: bold; }"
+                )
+
+        threading.Thread(target=reset_status, daemon=True).start()
+
+    def toggle_input_visibility(self):
+        """Toggle input widget visibility - Claude Generated"""
+        if self.input_widget_visible:
+            # Hide input widget completely
+            self.input_widget.setVisible(False)
+            self.toggle_input_button.setText("Eingabe einblenden")
+            self.input_widget_visible = False
+            # Give all space to results (widget is hidden, so splitter adjusts automatically)
+        else:
+            # Show input widget
+            self.input_widget.setVisible(True)
+            self.toggle_input_button.setText("Eingabe ausblenden")
+            self.input_widget_visible = True
+            # Restore balanced view
+            self.main_splitter.setSizes([300, 700])
+
+    def hide_input_during_streaming(self):
+        """Hide input completely during streaming - Claude Generated"""
+        if self.input_widget_visible:
+            self.input_widget.setVisible(False)
+            self.toggle_input_button.setText("Eingabe einblenden")
+            # Store original state to restore later, but don't change input_widget_visible
+            # so user can still manually toggle
+            self.input_was_visible_before_streaming = True
+        else:
+            self.input_was_visible_before_streaming = False
+
+    def restore_input_after_streaming(self):
+        """Restore input visibility after streaming if auto-hide was used - Claude Generated"""
+        if (
+            hasattr(self, "input_was_visible_before_streaming")
+            and self.input_was_visible_before_streaming
+        ):
+            if self.auto_hide_checkbox.isChecked():
+                # Restore input widget
+                self.input_widget.setVisible(True)
+                self.toggle_input_button.setText("Eingabe ausblenden")
+                self.input_widget_visible = True
+                self.main_splitter.setSizes([300, 700])
+
+    def auto_adjust_layout_for_streaming(self):
+        """Automatically adjust layout for optimal streaming view - Claude Generated"""
+        if self.input_widget_visible:
+            # Minimize input area when streaming starts (fallback if not hidden completely)
+            self.main_splitter.setSizes([150, 850])
