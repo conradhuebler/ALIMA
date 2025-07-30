@@ -73,6 +73,55 @@ The pipeline has been made fully consistent across all components with unified n
 
 ## [Variable Section - Short-term Information]
 
+### 🚀 MAJOR REFACTORING COMPLETED - Pipeline Logic Unification
+
+**Status**: ✅ CLI and GUI now share maximum logic through abstracted utilities
+
+**Abstracted Components** (`src/utils/pipeline_utils.py`):
+- **PipelineStepExecutor**: Unified step execution (initialisation, search, keywords)
+- **PipelineJsonManager**: Complete JSON serialization/deserialization
+- **PipelineResultFormatter**: Consistent result formatting across implementations
+- **execute_complete_pipeline()**: End-to-end pipeline function used by both CLI and GUI
+
+**CLI Enhancements**:
+- **New `pipeline` command**: Unified pipeline execution using shared logic
+- **JSON save/resume**: `--output-json` and `--resume-from` parameters
+- **Refactored utilities**: Uses `PipelineJsonManager` for all JSON operations
+
+**GUI Refactoring**:
+- **PipelineManager**: Now uses `PipelineStepExecutor` eliminating duplication
+- **JSON functionality**: Added save/resume capabilities to GUI pipeline
+- **Fixed display issue**: Final GND keywords now display correctly in pipeline tab
+
+**Benefits Achieved**:
+- **Code reduction**: ~200 lines of duplicate code eliminated
+- **Consistency**: Both CLI and GUI use identical pipeline logic
+- **Maintainability**: Single source of truth for pipeline operations
+- **JSON compatibility**: Unified serialization across both interfaces
+
+### ✅ TESTING COMPLETED - Pipeline Verified Working
+
+**CLI Command (New Pipeline):**
+```bash
+python alima_cli.py pipeline \
+  --input-text "Your analysis text here" \
+  --initial-model "cogito:14b" \
+  --final-model "cogito:32b" \
+  --provider "ollama" \
+  --ollama-host "http://139.20.140.163" \
+  --ollama-port 11434 \
+  --suggesters "lobid" "swb" \
+  --output-json "results.json"
+```
+
+**GUI Pipeline:**
+- ✅ Auto-Pipeline button functional
+- ✅ Real-time streaming display
+- ✅ Final GND keywords correctly displayed
+- ✅ All 5 pipeline steps working (Input → Initialisation → Search → Keywords → Classification)
+
+**Status**: Both CLI and GUI pipelines tested and working with shared logic from `pipeline_utils.py`
+
 ## [Instructions Block - Operator-Defined Tasks]
 ### Future Tasks
 - Task 1: Description

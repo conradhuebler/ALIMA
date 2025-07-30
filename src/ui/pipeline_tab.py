@@ -933,9 +933,15 @@ class PipelineTab(QWidget):
             self.logger.debug(f"Keywords step output_data: {step.output_data}")
             self.logger.debug(f"Final keywords: '{final_keywords}'")
             if hasattr(self, "keywords_result"):
-                # final_keywords is a string, not a list
-                self.keywords_result.setPlainText(final_keywords)
-                self.logger.debug(f"Set keywords_result text to: '{final_keywords}'")
+                # Handle both string and list formats
+                if isinstance(final_keywords, list):
+                    final_keywords_text = "\n".join(final_keywords)
+                else:
+                    final_keywords_text = str(final_keywords)
+                self.keywords_result.setPlainText(final_keywords_text)
+                self.logger.debug(
+                    f"Set keywords_result text to: '{final_keywords_text}'"
+                )
 
         # End any active streaming for this step
         if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:

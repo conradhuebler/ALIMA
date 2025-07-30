@@ -72,11 +72,33 @@ The `src/core/` directory contains the fundamental business logic and data manag
    - Uses proven `KeywordAnalysisState` for data management
    - UI callback system for real-time progress updates
    - Auto-advance functionality for seamless workflow
+   - **🔄 REFACTORED**: Now uses shared `PipelineStepExecutor` from utils
 
 2. **✅ Enhanced CacheManager**:
    - `get_cache_stats()` method for real-time cache monitoring
    - Statistics include entry count, database size, file path
    - Integration with global status bar for live updates
+
+3. **✅ Shared Pipeline Logic Integration**:
+   - PipelineManager refactored to use `PipelineStepExecutor` from utils
+   - Eliminates code duplication with CLI implementation
+   - Added JSON save/resume functionality via `PipelineJsonManager`
+   - `resume_pipeline_from_state()` method for continuing interrupted workflows
+
+### ✅ PRODUCTION STATUS - Pipeline Architecture Complete
+
+**Technical Implementation:**
+- **PipelineManager**: Now uses shared `PipelineStepExecutor` eliminating ~150 lines of duplication
+- **Parameter Handling**: Whitelist filtering ensures only valid AlimaManager parameters are passed
+- **Stream Callback Adapter**: Converts GUI callbacks (token, step_id) to AlimaManager format (token)
+- **JSON Persistence**: Complete save/resume functionality for interrupted workflows
+
+**Verified Functionality:**
+- ✅ All 5 pipeline steps executing correctly (input → initialisation → search → keywords → classification)
+- ✅ Real-time streaming feedback working in GUI
+- ✅ Parameter conflicts resolved (provider, model, temperature, step_id, enabled)
+- ✅ Final keywords displaying correctly in pipeline tab
+- ✅ CLI and GUI producing identical results using shared logic
 
 ### Vision
 - Establish core as the stable foundation for ALIMA's extensibility

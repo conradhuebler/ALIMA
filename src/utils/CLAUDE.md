@@ -66,6 +66,11 @@ The `src/utils/` directory provides essential configuration management and utili
 2. **Provider Configuration**: Improved AI provider management and validation
 3. **Template System**: Enhanced prompt template loading and variable substitution
 4. **Text Processing**: Optimized keyword extraction and language detection
+5. **🚀 MAJOR: Pipeline Utils (`pipeline_utils.py`)**: Shared logic abstraction for CLI and GUI
+   - **PipelineStepExecutor**: Unified pipeline step execution logic
+   - **PipelineJsonManager**: JSON serialization/deserialization utilities
+   - **PipelineResultFormatter**: Result formatting for display/prompts
+   - **execute_complete_pipeline()**: End-to-end pipeline execution function
 
 ### Configuration Status
 - **Config Location**: `~/.config/gnd-fetcher/config.yaml`
@@ -93,6 +98,49 @@ The `src/utils/` directory provides essential configuration management and utili
 2. **ADD - Template Editor**: Advanced template editor with syntax highlighting
 3. **ADD - Profile Management**: Multiple configuration profiles for different use cases
 4. **ADD - Cloud Sync**: Configuration synchronization across multiple installations
+5. **ADDED - Pipeline Abstraction**: Shared CLI/GUI pipeline logic in `pipeline_utils.py`
+
+### Recently ADDED Features
+1. **✅ PipelineStepExecutor**: 
+   - Unified execution logic for initialisation, search, and final keyword analysis
+   - Consistent error handling and logging across CLI and GUI
+   - Stream callback support for real-time feedback
+   - Configurable parameters and model selection
+
+2. **✅ PipelineJsonManager**:
+   - Complete JSON serialization/deserialization for `TaskState` and `KeywordAnalysisState`
+   - Set-to-list conversion for JSON compatibility
+   - Save/load functionality with comprehensive error handling
+
+3. **✅ Complete Pipeline Function**:
+   - `execute_complete_pipeline()` runs full workflow from input to final keywords
+   - Used by both CLI (`pipeline` command) and GUI (PipelineManager)
+   - Eliminates code duplication between implementations
+
+### ✅ PRODUCTION READY - Tested and Verified
+
+**Pipeline Utils Functions:**
+- **PipelineStepExecutor**: Successfully handles all 3 LLM steps (initialisation, keywords, classification)
+- **PipelineJsonManager**: Save/resume functionality working for both CLI and GUI
+- **Stream Callback Compatibility**: Adapts between GUI (token, step_id) and CLI (token) formats
+- **Parameter Filtering**: Correctly filters config parameters for AlimaManager compatibility
+
+**CLI Integration:**
+```bash
+# New unified pipeline command
+python alima_cli.py pipeline --input-text "..." --initial-model "cogito:14b" --final-model "cogito:32b"
+
+# Resume from saved state
+python alima_cli.py pipeline --resume-from "results.json"
+
+# List available models
+python alima_cli.py list-models --ollama-host "http://server" --ollama-port 11434
+```
+
+**GUI Integration:**
+- PipelineManager refactored to use PipelineStepExecutor
+- All pipeline steps working with real-time streaming
+- JSON save/resume capabilities added to GUI
 
 ### Vision
 - Establish comprehensive configuration ecosystem supporting all ALIMA features

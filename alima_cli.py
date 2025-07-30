@@ -23,32 +23,19 @@ from src.core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
 )
+from src.utils.pipeline_utils import (
+    execute_complete_pipeline,
+    PipelineJsonManager,
+    PipelineStepExecutor,
+)
 from typing import List, Tuple
 
 PROMPTS_FILE = "prompts.json"
 
 
-def _task_state_to_dict(task_state: TaskState) -> dict:
-    """Converts a TaskState dataclass instance to a dictionary, handling nested dataclasses."""
-    task_state_dict = asdict(task_state)
-    # Convert nested dataclasses to dicts if they are not None
-    if task_state_dict.get("abstract_data"):
-        task_state_dict["abstract_data"] = asdict(task_state.abstract_data)
-    if task_state_dict.get("analysis_result"):
-        task_state_dict["analysis_result"] = asdict(task_state.analysis_result)
-    if task_state_dict.get("prompt_config"):
-        task_state_dict["prompt_config"] = asdict(task_state.prompt_config)
-    return task_state_dict
-
-
-def _convert_sets_to_lists(obj):
-    if isinstance(obj, set):
-        return list(obj)
-    if isinstance(obj, dict):
-        return {k: _convert_sets_to_lists(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_convert_sets_to_lists(elem) for elem in obj]
-    return obj
+# Use shared JSON utilities from pipeline_utils
+_task_state_to_dict = PipelineJsonManager.task_state_to_dict
+_convert_sets_to_lists = PipelineJsonManager.convert_sets_to_lists
 
 
 def main():
@@ -158,6 +145,41 @@ def main():
         nargs="+",
         default=["lobid"],
         help="The suggesters to use (e.g., 'lobid', 'swb', 'catalog').",
+    )
+
+    # Pipeline command (new unified pipeline)
+    pipeline_parser = subparsers.add_parser(
+        "pipeline", help="Execute complete ALIMA analysis pipeline."
+    )
+    pipeline_parser.add_argument(
+        "--input-text", required=True, help="Input text for analysis."
+    )
+    pipeline_parser.add_argument(
+        "--initial-model", required=True, help="Model for initial keyword extraction."
+    )
+    pipeline_parser.add_argument(
+        "--final-model", required=True, help="Model for final keyword analysis."
+    )
+    pipeline_parser.add_argument(
+        "--provider", default="ollama", help="LLM provider to use."
+    )
+    pipeline_parser.add_argument(
+        "--suggesters",
+        nargs="+",
+        default=["lobid", "swb"],
+        help="Search suggesters to use.",
+    )
+    pipeline_parser.add_argument(
+        "--output-json", help="Path to save the complete pipeline results."
+    )
+    pipeline_parser.add_argument(
+        "--resume-from", help="Path to resume pipeline from previous state."
+    )
+    pipeline_parser.add_argument(
+        "--ollama-host", default="http://localhost", help="Ollama host URL."
+    )
+    pipeline_parser.add_argument(
+        "--ollama-port", type=int, default=11434, help="Ollama port."
     )
 
     # Analyze keywords command
@@ -321,6 +343,77 @@ def main():
 
         except Exception as e:
             logger.error(f"An error occurred during analysis: {e}")
+
+    elif args.command == "pipeline":
+        # Setup services
+        llm_service = LlmService(
+            providers=[args.provider],
+            ollama_url=args.ollama_host,
+            ollama_port=args.ollama_port,
+        )
+        prompt_service = PromptService(PROMPTS_FILE, logger)
+        alima_manager = AlimaManager(llm_service, prompt_service, logger)
+        cache_manager = CacheManager()
+
+        def stream_callback(token, step_id):
+            print(token, end="", flush=True)
+
+        try:
+            if args.resume_from:
+                # Resume from existing state
+                logger.info(f"Resuming pipeline from {args.resume_from}")
+                analysis_state = PipelineJsonManager.load_analysis_state(
+                    args.resume_from
+                )
+
+                # Continue pipeline from where it was left off
+                # For now, we'll just show the loaded state
+                print("--- Resumed Analysis State ---")
+                print(f"Original Abstract: {analysis_state.original_abstract[:200]}...")
+                print(f"Initial Keywords: {analysis_state.initial_keywords}")
+                if analysis_state.final_llm_analysis:
+                    print(
+                        f"Final Keywords: {analysis_state.final_llm_analysis.extracted_gnd_keywords}"
+                    )
+                else:
+                    print("Final analysis not yet completed")
+            else:
+                # Execute complete pipeline
+                logger.info("Starting complete pipeline execution")
+                analysis_state = execute_complete_pipeline(
+                    alima_manager=alima_manager,
+                    cache_manager=cache_manager,
+                    input_text=args.input_text,
+                    initial_model=args.initial_model,
+                    final_model=args.final_model,
+                    provider=args.provider,
+                    suggesters=args.suggesters,
+                    stream_callback=stream_callback,
+                    logger=logger,
+                )
+
+                print("\n--- Pipeline Results ---")
+                print(f"Initial Keywords: {analysis_state.initial_keywords}")
+                print(
+                    f"Final Keywords: {analysis_state.final_llm_analysis.extracted_gnd_keywords}"
+                )
+                print(
+                    f"GND Classes: {analysis_state.final_llm_analysis.extracted_gnd_classes}"
+                )
+
+            # Save results if requested
+            if args.output_json:
+                try:
+                    PipelineJsonManager.save_analysis_state(
+                        analysis_state, args.output_json
+                    )
+                    logger.info(f"Pipeline results saved to {args.output_json}")
+                except Exception as e:
+                    logger.error(f"Error saving pipeline results: {e}")
+
+        except Exception as e:
+            logger.error(f"Pipeline execution failed: {e}")
+
     elif args.command == "search":
         cache_manager = CacheManager()
         search_cli = SearchCLI(cache_manager)

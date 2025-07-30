@@ -27,6 +27,11 @@ from .processing_utils import (
 )
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
+from ..utils.pipeline_utils import (
+    PipelineStepExecutor,
+    PipelineResultFormatter,
+    PipelineJsonManager,
+)
 
 
 @dataclass
@@ -101,6 +106,11 @@ class PipelineManager:
         self.alima_manager = alima_manager
         self.cache_manager = cache_manager
         self.logger = logger or logging.getLogger(__name__)
+
+        # Initialize shared pipeline executor
+        self.pipeline_executor = PipelineStepExecutor(
+            alima_manager, cache_manager, logger
+        )
 
         # Current pipeline state
         self.current_analysis_state: Optional[KeywordAnalysisState] = None
@@ -297,288 +307,168 @@ class PipelineManager:
         return True
 
     def _execute_initialisation_step(self, step: PipelineStep) -> bool:
-        """Execute initialisation step (free keyword generation) - Claude Generated"""
+        """Execute initialisation step using shared pipeline executor - Claude Generated"""
         if (
             not self.current_analysis_state
             or not self.current_analysis_state.original_abstract
         ):
             raise ValueError("No input text available for keyword extraction")
 
-        # Create abstract data
-        abstract_data = AbstractData(
-            abstract=self.current_analysis_state.original_abstract, keywords=""
-        )
-
         # Get configuration for initialisation step
         initialisation_config = self.config.step_configs.get("initialisation", {})
-        task = initialisation_config.get(
-            "task", "initialisation"
-        )  # Use "initialisation" task for free keyword generation
+        task = initialisation_config.get("task", "initialisation")
         temperature = initialisation_config.get("temperature", 0.7)
         top_p = initialisation_config.get("top_p", 0.1)
 
-        # Chunking configuration
-        use_chunking_abstract = initialisation_config.get(
-            "use_chunking_abstract", False
-        )
-        abstract_chunk_size = initialisation_config.get("abstract_chunk_size", 0)
-        use_chunking_keywords = initialisation_config.get(
-            "use_chunking_keywords", False
-        )
-        keyword_chunk_size = initialisation_config.get("keyword_chunk_size", 0)
+        # Create stream callback for UI feedback
+        def stream_callback(token, step_id):
+            if hasattr(self, "stream_callback") and self.stream_callback:
+                self.stream_callback(token, step_id)
 
         self.logger.info(
             f"Starting initialisation with model {step.model} from provider {step.provider}"
         )
-        self.logger.debug(
-            f"Input text for initialisation: {self.current_analysis_state.original_abstract}"
-        )
-        self.logger.debug(
-            f"Using task: {task} with temperature: {temperature}, top_p: {top_p}"
-        )
 
-        # Create stream callback for UI feedback
-        def stream_callback(token):
-            if hasattr(self, "stream_callback") and self.stream_callback:
-                self.logger.debug(
-                    f"Streaming token for step {step.step_id}: '{token[:50]}...'"
+        # Execute using shared pipeline executor
+        try:
+            # Only pass parameters that AlimaManager.analyze_abstract() expects
+            allowed_params = [
+                "use_chunking_abstract",
+                "abstract_chunk_size",
+                "use_chunking_keywords",
+                "keyword_chunk_size",
+                "prompt_template",
+            ]
+            filtered_config = {
+                k: v for k, v in initialisation_config.items() if k in allowed_params
+            }
+
+            keywords, gnd_classes, llm_analysis = (
+                self.pipeline_executor.execute_initial_keyword_extraction(
+                    abstract_text=self.current_analysis_state.original_abstract,
+                    model=step.model,
+                    provider=step.provider,
+                    task=task,
+                    stream_callback=stream_callback,
+                    temperature=temperature,
+                    p_value=top_p,
+                    step_id=step.step_id,  # Pass step_id for proper callback handling
+                    **filtered_config,  # Pass remaining config parameters
                 )
-                self.stream_callback(token, step.step_id)
-
-        # Execute analysis via AlimaManager
-        task_state = self.alima_manager.analyze_abstract(
-            abstract_data=abstract_data,
-            task=task,
-            model=step.model,
-            use_chunking_abstract=use_chunking_abstract,
-            abstract_chunk_size=abstract_chunk_size,
-            use_chunking_keywords=use_chunking_keywords,
-            keyword_chunk_size=keyword_chunk_size,
-            temperature=temperature,
-            p_value=top_p,
-            stream_callback=stream_callback,
-        )
-
-        if task_state.status == "failed":
-            raise ValueError(
-                f"Keyword extraction failed: {task_state.analysis_result.full_text}"
             )
 
-        # Extract keywords from response
-        self.logger.info(
-            f"LLM Response for keyword extraction: {task_state.analysis_result.full_text}"
-        )
-        keywords = extract_keywords_from_response(task_state.analysis_result.full_text)
-        gnd_classes = extract_gnd_system_from_response(
-            task_state.analysis_result.full_text
-        )
+            # Update analysis state
+            self.current_analysis_state.initial_keywords = keywords
+            self.current_analysis_state.initial_gnd_classes = gnd_classes
+            self.current_analysis_state.initial_llm_call_details = llm_analysis
 
-        self.logger.info(f"Extracted keywords: {keywords}")
-        self.logger.info(f"Extracted GND classes: {gnd_classes}")
+            step.output_data = {"keywords": keywords, "gnd_classes": gnd_classes}
+            return True
 
-        # Update analysis state
-        self.current_analysis_state.initial_keywords = keywords
-        self.current_analysis_state.initial_gnd_classes = gnd_classes
-        self.current_analysis_state.initial_llm_call_details = LlmKeywordAnalysis(
-            task_name=task,
-            model_used=step.model,
-            provider_used=step.provider,
-            prompt_template=(
-                task_state.prompt_config.prompt if task_state.prompt_config else ""
-            ),
-            filled_prompt=(
-                task_state.prompt_config.prompt if task_state.prompt_config else ""
-            ),
-            temperature=temperature,
-            seed=0,
-            response_full_text=task_state.analysis_result.full_text,
-            extracted_gnd_keywords=keywords,
-            extracted_gnd_classes=gnd_classes,
-        )
-
-        step.output_data = {"keywords": keywords, "gnd_classes": gnd_classes}
-        return True
+        except ValueError as e:
+            raise ValueError(f"Initialisation step failed: {e}")
 
     def _execute_search_step(self, step: PipelineStep) -> bool:
-        """Execute GND search step - Claude Generated"""
+        """Execute GND search step using shared pipeline executor - Claude Generated"""
         if (
             not self.current_analysis_state
             or not self.current_analysis_state.initial_keywords
         ):
             raise ValueError("No keywords available for search")
 
+        # Create stream callback for UI feedback
+        def stream_callback(token, step_id):
+            if hasattr(self, "stream_callback") and self.stream_callback:
+                self.stream_callback(token, step_id)
+
         self.logger.info(
             f"Starting search with keywords: {self.current_analysis_state.initial_keywords}"
         )
 
-        # Use SearchCLI for search (reuse existing logic)
-        search_cli = SearchCLI(self.cache_manager)
-
-        # Convert suggester names to types
-        suggester_types = []
-        for suggester_name in self.config.search_suggesters:
-            try:
-                suggester_types.append(SuggesterType[suggester_name.upper()])
-            except KeyError:
-                self.logger.warning(f"Unknown suggester: {suggester_name}")
-
-        # Convert keywords string to list for search
-        if isinstance(self.current_analysis_state.initial_keywords, str):
-            keywords_list = [
-                kw.strip()
-                for kw in self.current_analysis_state.initial_keywords.split(",")
-                if kw.strip()
-            ]
-        else:
-            keywords_list = self.current_analysis_state.initial_keywords
-
-        self.logger.info(f"Converted keywords for search: {keywords_list}")
-        self.logger.debug(f"Using suggesters: {[st.value for st in suggester_types]}")
-
-        # Send search info to stream widget
-        if hasattr(self, "stream_callback") and self.stream_callback:
-            self.stream_callback(
-                f"Suche mit {len(keywords_list)} Keywords: {', '.join(keywords_list[:3])}{'...' if len(keywords_list) > 3 else ''}\n",
-                step.step_id,
-            )
-            self.stream_callback(
-                f"Verwende Suggester: {', '.join([st.value for st in suggester_types])}\n",
-                step.step_id,
+        # Execute using shared pipeline executor
+        try:
+            search_results = self.pipeline_executor.execute_gnd_search(
+                keywords=self.current_analysis_state.initial_keywords,
+                suggesters=self.config.search_suggesters,
+                stream_callback=stream_callback,
             )
 
-        # Execute search
-        search_results = search_cli.search(
-            search_terms=keywords_list, suggester_types=suggester_types
-        )
+            # Update analysis state
+            self.current_analysis_state.search_results = search_results
 
-        # Update analysis state
-        self.current_analysis_state.search_results = search_results
-
-        self.logger.info(f"Search completed. Found {len(search_results)} result sets")
-        self.logger.debug(f"Search results keys: {list(search_results.keys())}")
-
-        # Send search completion info to stream widget
-        if hasattr(self, "stream_callback") and self.stream_callback:
-            total_hits = sum(len(results) for results in search_results.values())
-            self.stream_callback(
-                f"Suche abgeschlossen: {total_hits} Treffer in {len(search_results)} Kategorien\n",
-                step.step_id,
+            self.logger.info(
+                f"Search completed. Found {len(search_results)} result sets"
             )
 
-        # Format search results with GND IDs for display
-        gnd_treffer = []
-        for results in search_results.values():
-            for keyword, data in results.items():
-                gnd_ids = data.get("gndid", set())
-                for gnd_id in gnd_ids:
-                    gnd_treffer.append(f"{keyword} (GND: {gnd_id})")
+            # Format results for display using shared formatter
+            gnd_treffer = PipelineResultFormatter.format_search_results_for_display(
+                search_results
+            )
 
-        step.output_data = {"gnd_treffer": gnd_treffer}  # Show all hits
-        return True
+            step.output_data = {"gnd_treffer": gnd_treffer}
+            return True
+
+        except Exception as e:
+            raise ValueError(f"Search step failed: {e}")
 
     def _execute_keywords_step(self, step: PipelineStep) -> bool:
-        """Execute keywords step (Verbale Erschließung) - Claude Generated"""
+        """Execute keywords step using shared pipeline executor - Claude Generated"""
         if not self.current_analysis_state:
             raise ValueError("No analysis state available for keywords step")
 
-        # Prepare the original abstract text for {abstract} placeholder
-        original_abstract = self.current_analysis_state.original_abstract or ""
-
-        # Prepare GND search results for {keywords} placeholder
-        gnd_keywords_text = ""
-        if self.current_analysis_state.search_results:
-            # Format GND search results for the prompt
-            gnd_keywords = []
-            for results in self.current_analysis_state.search_results.values():
-                for keyword, data in results.items():
-                    gnd_ids = data.get("gndid", set())
-                    for gnd_id in gnd_ids:
-                        gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
-            gnd_keywords_text = "\n".join(gnd_keywords)
-
-        # Create abstract data with correct placeholder mapping
-        # The prompt expects {abstract} and {keywords} placeholders
-        # We put the original text in abstract and GND results in keywords
-        abstract_data = AbstractData(
-            abstract=original_abstract,  # This will fill {abstract} placeholder
-            keywords=gnd_keywords_text,  # This will fill {keywords} placeholder
-        )
+        if not self.current_analysis_state.search_results:
+            raise ValueError("No search results available for keywords step")
 
         # Get configuration for keywords step
         keywords_config = self.config.step_configs.get("keywords", {})
-        # Allow both "keywords" and "rephrase" tasks for this step
         task = keywords_config.get("task", "keywords")
-        if task not in ["keywords", "rephrase"]:
-            self.logger.warning(
-                f"Unknown task '{task}' for keywords step, defaulting to 'keywords'"
-            )
-            task = "keywords"
         temperature = keywords_config.get("temperature", 0.7)
         top_p = keywords_config.get("top_p", 0.1)
 
-        # Chunking configuration
-        use_chunking_abstract = keywords_config.get("use_chunking_abstract", False)
-        abstract_chunk_size = keywords_config.get("abstract_chunk_size", 0)
-        use_chunking_keywords = keywords_config.get("use_chunking_keywords", False)
-        keyword_chunk_size = keywords_config.get("keyword_chunk_size", 0)
+        # Create stream callback for UI feedback
+        def stream_callback(token, step_id):
+            if hasattr(self, "stream_callback") and self.stream_callback:
+                self.stream_callback(token, step_id)
 
         self.logger.info(f"Starting keywords step with task '{task}'")
-        self.logger.debug(f"Abstract text length: {len(original_abstract)} chars")
-        self.logger.debug(f"GND keywords text length: {len(gnd_keywords_text)} chars")
-        self.logger.debug(f"Abstract preview: '{original_abstract[:200]}...'")
-        self.logger.debug(f"GND keywords preview: '{gnd_keywords_text[:500]}...'")
 
-        # Create stream callback for UI feedback
-        def stream_callback(token):
-            if hasattr(self, "stream_callback") and self.stream_callback:
-                self.logger.debug(
-                    f"Streaming token for step {step.step_id}: '{token[:50]}...'"
+        # Execute using shared pipeline executor
+        try:
+            # Only pass parameters that AlimaManager.analyze_abstract() expects
+            allowed_params = [
+                "use_chunking_abstract",
+                "abstract_chunk_size",
+                "use_chunking_keywords",
+                "keyword_chunk_size",
+                "prompt_template",
+            ]
+            filtered_config = {
+                k: v for k, v in keywords_config.items() if k in allowed_params
+            }
+
+            final_keywords, _, llm_analysis = (
+                self.pipeline_executor.execute_final_keyword_analysis(
+                    original_abstract=self.current_analysis_state.original_abstract,
+                    search_results=self.current_analysis_state.search_results,
+                    model=step.model,
+                    provider=step.provider,
+                    task=task,
+                    stream_callback=stream_callback,
+                    temperature=temperature,
+                    p_value=top_p,
+                    step_id=step.step_id,  # Pass step_id for proper callback handling
+                    **filtered_config,  # Pass remaining config parameters
                 )
-                self.stream_callback(token, step.step_id)
-
-        # Execute keywords step via AlimaManager
-        task_state = self.alima_manager.analyze_abstract(
-            abstract_data=abstract_data,
-            task=task,
-            model=step.model,
-            use_chunking_abstract=use_chunking_abstract,
-            abstract_chunk_size=abstract_chunk_size,
-            use_chunking_keywords=use_chunking_keywords,
-            keyword_chunk_size=keyword_chunk_size,
-            temperature=temperature,
-            p_value=top_p,
-            stream_callback=stream_callback,
-        )
-
-        if task_state.status == "failed":
-            raise ValueError(
-                f"Keywords step failed: {task_state.analysis_result.full_text}"
             )
 
-        # Update analysis state with final results
-        final_keywords = extract_keywords_from_response(
-            task_state.analysis_result.full_text
-        )
+            # Update analysis state with final results
+            self.current_analysis_state.final_llm_analysis = llm_analysis
 
-        self.current_analysis_state.final_llm_analysis = LlmKeywordAnalysis(
-            task_name=task,
-            model_used=step.model,
-            provider_used=step.provider,
-            prompt_template=(
-                task_state.prompt_config.prompt if task_state.prompt_config else ""
-            ),
-            filled_prompt=(
-                task_state.prompt_config.prompt if task_state.prompt_config else ""
-            ),
-            temperature=temperature,
-            seed=0,
-            response_full_text=task_state.analysis_result.full_text,
-            extracted_gnd_keywords=final_keywords,
-            extracted_gnd_classes=[],
-        )
+            step.output_data = {"final_keywords": final_keywords}
+            return True
 
-        step.output_data = {"final_keywords": final_keywords}
-        return True
+        except ValueError as e:
+            raise ValueError(f"Keywords step failed: {e}")
 
     def _execute_classification_step(self, step: PipelineStep) -> bool:
         """Execute classification step - Claude Generated"""
@@ -663,3 +553,84 @@ class PipelineManager:
         self.pipeline_steps = []
         self.current_step_index = 0
         self.logger.info("Pipeline reset")
+
+    def save_analysis_state(self, file_path: str):
+        """Save current analysis state to JSON file - Claude Generated"""
+        if not self.current_analysis_state:
+            raise ValueError("No analysis state available to save")
+
+        try:
+            PipelineJsonManager.save_analysis_state(
+                self.current_analysis_state, file_path
+            )
+            self.logger.info(f"Analysis state saved to {file_path}")
+        except Exception as e:
+            self.logger.error(f"Error saving analysis state: {e}")
+            raise
+
+    def load_analysis_state(self, file_path: str) -> KeywordAnalysisState:
+        """Load analysis state from JSON file - Claude Generated"""
+        try:
+            analysis_state = PipelineJsonManager.load_analysis_state(file_path)
+            self.current_analysis_state = analysis_state
+            self.logger.info(f"Analysis state loaded from {file_path}")
+            return analysis_state
+        except Exception as e:
+            self.logger.error(f"Error loading analysis state: {e}")
+            raise
+
+    def resume_pipeline_from_state(self, analysis_state: KeywordAnalysisState):
+        """Resume pipeline from existing analysis state - Claude Generated"""
+        self.current_analysis_state = analysis_state
+
+        # Determine which steps are complete based on available data
+        completed_steps = []
+
+        if analysis_state.original_abstract:
+            completed_steps.append("input")
+
+        if analysis_state.initial_keywords and analysis_state.initial_llm_call_details:
+            completed_steps.append("initialisation")
+
+        if analysis_state.search_results:
+            completed_steps.append("search")
+
+        if analysis_state.final_llm_analysis:
+            completed_steps.append("keywords")
+
+        self.logger.info(f"Resuming pipeline with completed steps: {completed_steps}")
+
+        # Create steps and mark completed ones
+        self.pipeline_steps = self._create_pipeline_steps(
+            "text"
+        )  # Default to text input
+
+        for step in self.pipeline_steps:
+            if step.step_id in completed_steps:
+                step.status = "completed"
+                # Set output data based on analysis state
+                if step.step_id == "initialisation":
+                    step.output_data = {
+                        "keywords": analysis_state.initial_keywords,
+                        "gnd_classes": analysis_state.initial_gnd_classes,
+                    }
+                elif step.step_id == "search":
+                    # Format search results for display
+                    search_dict = {}
+                    for search_result in analysis_state.search_results:
+                        search_dict[search_result.search_term] = search_result.results
+                    gnd_treffer = (
+                        PipelineResultFormatter.format_search_results_for_display(
+                            search_dict
+                        )
+                    )
+                    step.output_data = {"gnd_treffer": gnd_treffer}
+                elif step.step_id == "keywords":
+                    step.output_data = {
+                        "final_keywords": analysis_state.final_llm_analysis.extracted_gnd_keywords
+                    }
+
+        # Set current step index to first incomplete step
+        self.current_step_index = len(completed_steps)
+
+        return completed_steps
