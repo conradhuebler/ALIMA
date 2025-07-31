@@ -127,8 +127,30 @@ python alima_cli.py pipeline \
 - Task 1: Description
 - Task 2: Description
 
+### ✅ CRITICAL: Pipeline Development Requirements (IMPLEMENTED)
+**All pipeline changes MUST be usable by both CLI and GUI interfaces:**
+- ✅ **Shared Logic**: All pipeline functionality uses `src/utils/pipeline_utils.py` 
+- ✅ **Task Selection**: Both CLI (--initial-task, --final-task) and GUI (dropdown selections) support prompt task selection
+- ✅ **Configuration Compatibility**: Pipeline configurations work identically in both interfaces
+- ✅ **Parameter Consistency**: All pipeline parameters supported uniformly across CLI and GUI
+- ✅ **Result Format**: Identical output formats and data structures between CLI and GUI
+- ✅ **Stream Callback**: Unified streaming feedback system adapted for both interfaces
+
+**Implemented Prompt Selection Features:**
+- **CLI**: `--initial-task` and `--final-task` parameters for pipeline command
+  ```bash
+  python alima_cli.py pipeline --initial-task "initialisation" --final-task "rephrase"
+  ```
+- **GUI**: Task selection dropdowns in pipeline configuration dialog  
+  - Keywords step: "initialisation", "keywords", "rephrase"
+  - Verification step: "keywords", "rephrase", "keywords_chunked"
+- **Shared**: `execute_complete_pipeline()` function with `initial_task` and `final_task` parameters
+- **Both interfaces** can now use all available prompt tasks for flexible analysis workflows
+
 ### Vision
 - Long-term goals and architectural directions
+- Maintain unified pipeline architecture ensuring CLI and GUI feature parity
+- All future pipeline enhancements must implement both interfaces simultaneously
 ```
 
 ### 1. Code Analysis and Development

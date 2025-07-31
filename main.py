@@ -25,7 +25,7 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("TU Bergakademie Freiberg")
     app.setApplicationName("AlIma")
-    app.setApplicationVersion("0.1")
+    app.setApplicationVersion("0.2")
     app.setStyle("Fusion")
 
     # Use direct file path instead of resource path

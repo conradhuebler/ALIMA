@@ -141,6 +141,12 @@ class PipelineManager:
         self.config = config
         self.logger.info(f"Pipeline configuration updated: {config}")
 
+        # Debug: Log step configurations in detail
+        for step_id, step_config in config.step_configs.items():
+            task = step_config.get("task", "N/A")
+            enabled = step_config.get("enabled", "N/A")
+            self.logger.info(f"Step '{step_id}': task='{task}', enabled={enabled}")
+
     def set_callbacks(
         self,
         step_started: Optional[Callable] = None,
@@ -320,6 +326,20 @@ class PipelineManager:
         temperature = initialisation_config.get("temperature", 0.7)
         top_p = initialisation_config.get("top_p", 0.1)
 
+        # Debug: Log the extracted configuration
+        self.logger.info(
+            f"Initialisation step config: task='{task}', temp={temperature}, top_p={top_p}"
+        )
+
+        # Debug: Check for system prompt
+        system_prompt = initialisation_config.get("system_prompt")
+        if system_prompt:
+            self.logger.info(
+                f"Initialisation step has system_prompt: {len(system_prompt)} chars"
+            )
+        else:
+            self.logger.info("Initialisation step has no system_prompt")
+
         # Create stream callback for UI feedback
         def stream_callback(token, step_id):
             if hasattr(self, "stream_callback") and self.stream_callback:
@@ -342,6 +362,13 @@ class PipelineManager:
             filtered_config = {
                 k: v for k, v in initialisation_config.items() if k in allowed_params
             }
+
+            # Handle system_prompt -> system parameter mapping
+            if "system_prompt" in initialisation_config:
+                filtered_config["system"] = initialisation_config["system_prompt"]
+                self.logger.info(
+                    f"Initialisation: Mapped system_prompt to system parameter"
+                )
 
             keywords, gnd_classes, llm_analysis = (
                 self.pipeline_executor.execute_initial_keyword_extraction(
@@ -425,6 +452,21 @@ class PipelineManager:
         temperature = keywords_config.get("temperature", 0.7)
         top_p = keywords_config.get("top_p", 0.1)
 
+        # Debug: Log the extracted configuration
+        self.logger.info(
+            f"Keywords step config: task='{task}', temp={temperature}, top_p={top_p}"
+        )
+        self.logger.info(f"Full keywords_config: {keywords_config}")
+
+        # Debug: Check for system prompt
+        system_prompt = keywords_config.get("system_prompt")
+        if system_prompt:
+            self.logger.info(
+                f"Keywords step has system_prompt: {len(system_prompt)} chars"
+            )
+        else:
+            self.logger.info("Keywords step has no system_prompt")
+
         # Create stream callback for UI feedback
         def stream_callback(token, step_id):
             if hasattr(self, "stream_callback") and self.stream_callback:
@@ -445,6 +487,11 @@ class PipelineManager:
             filtered_config = {
                 k: v for k, v in keywords_config.items() if k in allowed_params
             }
+
+            # Handle system_prompt -> system parameter mapping
+            if "system_prompt" in keywords_config:
+                filtered_config["system"] = keywords_config["system_prompt"]
+                self.logger.info(f"Keywords: Mapped system_prompt to system parameter")
 
             final_keywords, _, llm_analysis = (
                 self.pipeline_executor.execute_final_keyword_analysis(

@@ -33,6 +33,7 @@ from datetime import datetime
 from ..llm.llm_service import LlmService
 from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
+from ..utils.doi_resolver import resolve_input_to_text
 
 
 class TextExtractionWorker(QThread):
@@ -115,30 +116,47 @@ class TextExtractionWorker(QThread):
             self.error_occurred.emit(f"Bild-Fehler: {str(e)}")
 
     def _extract_from_doi(self):
-        """Extract metadata from DOI - Claude Generated"""
-        self.progress_updated.emit("DOI-Metadaten werden abgerufen...")
+        """Extract metadata from DOI using unified resolver - Claude Generated"""
+        self.progress_updated.emit("DOI wird aufgelöst...")
 
         try:
-            # Implementierung der DOI-Auflösung
-            source_info = f"DOI: {self.source_data}"
-            self.text_extracted.emit("", source_info)
+            success, text_content, error_msg = resolve_input_to_text(
+                self.source_data, self.logger
+            )
+
+            if success:
+                source_info = (
+                    f"DOI: {self.source_data} (Länge: {len(text_content)} Zeichen)"
+                )
+                self.text_extracted.emit(text_content, source_info)
+                self.logger.info(
+                    f"DOI {self.source_data} successfully resolved to {len(text_content)} chars"
+                )
+            else:
+                self.error_occurred.emit(f"DOI-Auflösung fehlgeschlagen: {error_msg}")
 
         except Exception as e:
             self.error_occurred.emit(f"DOI-Fehler: {str(e)}")
 
     def _extract_from_url(self):
-        """Extract text from URL - Claude Generated"""
+        """Extract text from URL using unified resolver - Claude Generated"""
         self.progress_updated.emit("URL wird abgerufen...")
 
         try:
-            response = requests.get(self.source_data, timeout=10)
-            response.raise_for_status()
+            success, text_content, error_msg = resolve_input_to_text(
+                self.source_data, self.logger
+            )
 
-            # Einfache Textextraktion (könnte mit BeautifulSoup verbessert werden)
-            text = response.text
-            source_info = f"URL: {self.source_data}"
-
-            self.text_extracted.emit(text, source_info)
+            if success:
+                source_info = (
+                    f"URL: {self.source_data} (Länge: {len(text_content)} Zeichen)"
+                )
+                self.text_extracted.emit(text_content, source_info)
+                self.logger.info(
+                    f"URL {self.source_data} successfully resolved to {len(text_content)} chars"
+                )
+            else:
+                self.error_occurred.emit(f"URL-Auflösung fehlgeschlagen: {error_msg}")
 
         except Exception as e:
             self.error_occurred.emit(f"URL-Fehler: {str(e)}")

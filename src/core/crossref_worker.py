@@ -7,7 +7,7 @@ import requests
 import asyncio
 from PyQt6.QtCore import pyqtSignal, QThread
 
-# from crawl4ai import AsyncWebCrawler  # Temporarily disabled
+from crawl4ai import AsyncWebCrawler  # Temporarily disabled
 
 
 class CrossrefWorker(QThread):

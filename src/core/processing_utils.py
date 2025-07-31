@@ -40,11 +40,11 @@ def chunk_keywords_by_comma(keywords_text: str, keywords_per_chunk: int) -> List
 
 
 def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
-    logger.info(
-        f"parse_keywords_from_list called with keywords_string: '{keywords_string}'"
-    )
+    # logger.info(
+    #    f"parse_keywords_from_list called with keywords_string: '{keywords_string}'"
+    # )
     keywords_dict = {}
-    logger.info(f"Parsing keywords from string: '{keywords_string}'")
+    # logger.info(f"Parsing keywords from string: '{keywords_string}'")
 
     if not keywords_string.strip():
         logger.debug("Keywords string is empty or whitespace only.")
@@ -52,7 +52,7 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
 
     # Split by comma and process each entry
     entries = [entry.strip() for entry in keywords_string.split(",")]
-    logger.info(f"Split into entries: {entries}")
+    # logger.info(f"Split into entries: {entries}")
 
     for entry in entries:
         keyword = entry

@@ -169,9 +169,11 @@ class PipelineStepExecutor:
         provider: str = "ollama",
         task: str = "keywords",
         stream_callback: Optional[callable] = None,
+        keyword_chunking_threshold: int = 500,
+        chunking_task: str = "keywords_chunked",
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
-        """Execute final keyword analysis step - Claude Generated"""
+        """Execute final keyword analysis step with intelligent chunking - Claude Generated"""
 
         # Prepare GND search results for prompt
         gnd_keywords_text = ""
@@ -184,6 +186,42 @@ class PipelineStepExecutor:
                     formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
                     gnd_keywords_text += formatted_keyword + "\n"
                     gnd_compliant_keywords.append(formatted_keyword)
+
+        # Check if chunking is needed based on keyword count
+        total_keywords = len(gnd_compliant_keywords)
+
+        if total_keywords > keyword_chunking_threshold:
+            if stream_callback:
+                stream_callback(
+                    f"Zu viele Keywords ({total_keywords} > {keyword_chunking_threshold}). Verwende Chunking-Logik.\n",
+                    kwargs.get("step_id", "keywords"),
+                )
+            return self._execute_chunked_keyword_analysis(
+                original_abstract=original_abstract,
+                gnd_compliant_keywords=gnd_compliant_keywords,
+                model=model,
+                provider=provider,
+                task=task,
+                chunking_task=chunking_task,
+                stream_callback=stream_callback,
+                **kwargs,
+            )
+        else:
+            if stream_callback:
+                stream_callback(
+                    f"Keywords unter Schwellenwert ({total_keywords} <= {keyword_chunking_threshold}). Normale Verarbeitung.\n",
+                    kwargs.get("step_id", "keywords"),
+                )
+            return self._execute_single_keyword_analysis(
+                original_abstract=original_abstract,
+                gnd_keywords_text=gnd_keywords_text,
+                gnd_compliant_keywords=gnd_compliant_keywords,
+                model=model,
+                provider=provider,
+                task=task,
+                stream_callback=stream_callback,
+                **kwargs,
+            )
 
         # Create abstract data with correct placeholder mapping
         abstract_data = AbstractData(
@@ -246,6 +284,359 @@ class PipelineStepExecutor:
         )
 
         return extracted_keywords_exact, extracted_gnd_classes, llm_analysis
+
+    def _execute_single_keyword_analysis(
+        self,
+        original_abstract: str,
+        gnd_keywords_text: str,
+        gnd_compliant_keywords: List[str],
+        model: str,
+        provider: str,
+        task: str,
+        stream_callback: Optional[callable] = None,
+        **kwargs,
+    ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
+        """Execute single keyword analysis without chunking - Claude Generated"""
+
+        # Create abstract data with correct placeholder mapping
+        abstract_data = AbstractData(
+            abstract=original_abstract,  # This fills {abstract} placeholder
+            keywords=gnd_keywords_text,  # This fills {keywords} placeholder
+        )
+
+        # Create a compatible stream callback for AlimaManager
+        alima_stream_callback = None
+        if stream_callback:
+
+            def alima_stream_callback(token):
+                # AlimaManager expects callback(token), we have callback(token, step_id)
+                stream_callback(token, kwargs.get("step_id", "keywords"))
+
+        # Filter out our custom parameters that AlimaManager doesn't expect
+        alima_kwargs = {
+            k: v
+            for k, v in kwargs.items()
+            if k not in ["step_id", "keyword_chunking_threshold", "chunking_task"]
+        }
+
+        # Execute final analysis
+        task_state = self.alima_manager.analyze_abstract(
+            abstract_data=abstract_data,
+            task=task,
+            model=model,
+            provider=provider,
+            stream_callback=alima_stream_callback,
+            **alima_kwargs,
+        )
+
+        if task_state.status == "failed":
+            raise ValueError(
+                f"Final keyword analysis failed: {task_state.analysis_result.full_text}"
+            )
+
+        # Extract final keywords and classes
+        extracted_keywords_all, extracted_keywords_exact = (
+            extract_keywords_from_descriptive_text(
+                task_state.analysis_result.full_text, gnd_compliant_keywords
+            )
+        )
+        extracted_gnd_classes = extract_classes_from_descriptive_text(
+            task_state.analysis_result.full_text
+        )
+
+        # Create final analysis details
+        llm_analysis = LlmKeywordAnalysis(
+            task_name=task,
+            model_used=model,
+            provider_used=provider,
+            prompt_template=(
+                task_state.prompt_config.prompt if task_state.prompt_config else ""
+            ),
+            filled_prompt=(
+                task_state.prompt_config.prompt if task_state.prompt_config else ""
+            ),
+            temperature=kwargs.get("temperature", 0.7),
+            seed=kwargs.get("seed", 0),
+            response_full_text=task_state.analysis_result.full_text,
+            extracted_gnd_keywords=extracted_keywords_exact,
+            extracted_gnd_classes=extracted_gnd_classes,
+        )
+
+        return extracted_keywords_exact, extracted_gnd_classes, llm_analysis
+
+    def _execute_chunked_keyword_analysis(
+        self,
+        original_abstract: str,
+        gnd_compliant_keywords: List[str],
+        model: str,
+        provider: str,
+        task: str,
+        chunking_task: str,
+        stream_callback: Optional[callable] = None,
+        **kwargs,
+    ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
+        """Execute keyword analysis with chunking for large keyword sets - Claude Generated"""
+
+        # Calculate optimal chunk size for equal distribution
+        total_keywords = len(gnd_compliant_keywords)
+
+        # Get threshold from kwargs (it's passed from execute_final_keyword_analysis)
+        threshold = kwargs.get("keyword_chunking_threshold", 500)
+
+        # Determine number of chunks needed
+        if total_keywords <= threshold * 1.5:
+            # For moderate oversize: use 2 chunks
+            num_chunks = 2
+        else:
+            # For large oversize: calculate based on threshold
+            num_chunks = max(2, (total_keywords + threshold - 1) // threshold)
+
+        # Calculate equal chunk size
+        chunk_size = total_keywords // num_chunks
+        remainder = total_keywords % num_chunks
+
+        # Create chunks with equal distribution
+        chunks = []
+        start_idx = 0
+        for i in range(num_chunks):
+            # Add one extra keyword to first 'remainder' chunks to distribute remainder
+            current_chunk_size = chunk_size + (1 if i < remainder else 0)
+            chunks.append(
+                gnd_compliant_keywords[start_idx : start_idx + current_chunk_size]
+            )
+            start_idx += current_chunk_size
+
+        if stream_callback:
+            chunk_sizes = [len(chunk) for chunk in chunks]
+            stream_callback(
+                f"Teile {total_keywords} Keywords in {num_chunks} gleichmäßige Chunks auf: {chunk_sizes}\n",
+                kwargs.get("step_id", "keywords"),
+            )
+
+        # Process each chunk
+        all_chunk_results = []
+        combined_responses = []
+
+        for i, chunk in enumerate(chunks):
+            if stream_callback:
+                stream_callback(
+                    f"\n--- Chunk {i+1}/{len(chunks)} ({len(chunk)} Keywords) ---\n",
+                    kwargs.get("step_id", "keywords"),
+                )
+
+            # Create keywords text for this chunk
+            chunk_keywords_text = "\n".join(chunk)
+
+            # Execute analysis for this chunk
+            chunk_result = self._execute_single_keyword_analysis(
+                original_abstract=original_abstract,
+                gnd_keywords_text=chunk_keywords_text,
+                gnd_compliant_keywords=chunk,
+                model=model,
+                provider=provider,
+                task=chunking_task,  # Use chunking task (e.g., "keywords_chunked" or "rephrase")
+                stream_callback=stream_callback,
+                **kwargs,
+            )
+
+            # Extract keywords with enhanced recognition
+            chunk_keywords = self._extract_keywords_enhanced(
+                chunk_result[2].response_full_text,
+                chunk,
+                stream_callback,
+                chunk_id=f"Chunk {i+1}",
+            )
+
+            all_chunk_results.append(
+                (chunk_keywords, chunk_result[1], chunk_result[2])
+            )  # Use enhanced keywords
+            combined_responses.append(
+                chunk_result[2].response_full_text
+            )  # LlmKeywordAnalysis.response_full_text
+
+        # Deduplicate keywords from all chunks
+        deduplicated_keywords = self._deduplicate_keywords(
+            [
+                result[0] for result in all_chunk_results
+            ],  # extracted_keywords_exact from each chunk
+            gnd_compliant_keywords,
+        )
+
+        # Combine GND classes from all chunks (simple concatenation, no deduplication needed)
+        all_gnd_classes = []
+        for result in all_chunk_results:
+            all_gnd_classes.extend(result[1])  # extracted_gnd_classes
+
+        if stream_callback:
+            stream_callback(
+                f"\n--- Finale Konsolidierung ---\n", kwargs.get("step_id", "keywords")
+            )
+            total_chunk_keywords = sum(len(r[0]) for r in all_chunk_results)
+            stream_callback(
+                f"Deduplizierte Keywords: {len(deduplicated_keywords)} aus {total_chunk_keywords} chunk-results\n",
+                kwargs.get("step_id", "keywords"),
+            )
+
+            # Show current deduplicated list for debugging
+            if deduplicated_keywords:
+                preview = deduplicated_keywords[:5]
+                if len(deduplicated_keywords) > 5:
+                    preview_text = f"{', '.join([kw.split(' (GND-ID:')[0] for kw in preview])}... (+{len(deduplicated_keywords)-5} weitere)"
+                else:
+                    preview_text = ", ".join(
+                        [kw.split(" (GND-ID:")[0] for kw in preview]
+                    )
+                stream_callback(
+                    f"Deduplizierte Liste: {preview_text}\n",
+                    kwargs.get("step_id", "keywords"),
+                )
+
+        # Execute final consolidation request with deduplicated results
+        final_keywords_text = "\n".join(deduplicated_keywords)
+        final_single_result = self._execute_single_keyword_analysis(
+            original_abstract=original_abstract,
+            gnd_keywords_text=final_keywords_text,
+            gnd_compliant_keywords=deduplicated_keywords,
+            model=model,
+            provider=provider,
+            task=task,  # Use original task for final analysis
+            stream_callback=stream_callback,
+            **kwargs,
+        )
+
+        # Extract final keywords with enhanced recognition
+        final_keywords = self._extract_keywords_enhanced(
+            final_single_result[2].response_full_text,
+            deduplicated_keywords,
+            stream_callback,
+            chunk_id="Finale Auswahl",
+        )
+
+        # Update the LlmKeywordAnalysis to include chunk information
+        final_llm_analysis = LlmKeywordAnalysis(
+            task_name=f"{task} (chunked)",
+            model_used=model,
+            provider_used=provider,
+            prompt_template=final_single_result[2].prompt_template,
+            filled_prompt=final_single_result[2].filled_prompt,
+            temperature=kwargs.get("temperature", 0.7),
+            seed=kwargs.get("seed", 0),
+            response_full_text=f"CHUNKED ANALYSIS ({len(chunks)} chunks):\n\n"
+            + "\n\n---CHUNK SEPARATOR---\n\n".join(combined_responses)
+            + f"\n\n---FINAL CONSOLIDATION---\n\n{final_single_result[2].response_full_text}",
+            extracted_gnd_keywords=final_keywords,  # Use enhanced extraction results
+            extracted_gnd_classes=final_single_result[1],
+        )
+
+        return final_keywords, final_single_result[1], final_llm_analysis
+
+    def _deduplicate_keywords(
+        self, keyword_lists: List[List[str]], reference_keywords: List[str]
+    ) -> List[str]:
+        """Deduplicate keywords based on exact word or GND-ID matching - Claude Generated"""
+
+        # Parse reference keywords to create lookup dictionaries
+        word_to_gnd = {}  # word -> gnd_id
+        gnd_to_word = {}  # gnd_id -> word
+
+        for keyword in reference_keywords:
+            # Parse format: "Keyword (GND-ID: 123456789)"
+            match = re.match(r"^(.+?)\s*\(GND-ID:\s*([^)]+)\)$", keyword.strip())
+            if match:
+                word = match.group(1).strip()
+                gnd_id = match.group(2).strip()
+                word_to_gnd[word.lower()] = gnd_id
+                gnd_to_word[gnd_id] = keyword  # Store full formatted keyword
+
+        # Collect unique keywords
+        seen_words = set()
+        seen_gnd_ids = set()
+        deduplicated = []
+
+        for keyword_list in keyword_lists:
+            for keyword in keyword_list:
+                # Parse the keyword
+                match = re.match(r"^(.+?)\s*\(GND-ID:\s*([^)]+)\)$", keyword.strip())
+                if match:
+                    word = match.group(1).strip()
+                    gnd_id = match.group(2).strip()
+
+                    # Check for duplicates
+                    word_lower = word.lower()
+                    if word_lower not in seen_words and gnd_id not in seen_gnd_ids:
+                        seen_words.add(word_lower)
+                        seen_gnd_ids.add(gnd_id)
+                        deduplicated.append(keyword)
+                else:
+                    # Fallback for keywords without proper format
+                    word_lower = keyword.strip().lower()
+                    if word_lower not in seen_words:
+                        seen_words.add(word_lower)
+                        deduplicated.append(keyword)
+
+        return deduplicated
+
+    def _extract_keywords_enhanced(
+        self,
+        response_text: str,
+        reference_keywords: List[str],
+        stream_callback: Optional[callable] = None,
+        chunk_id: str = "",
+    ) -> List[str]:
+        """Enhanced keyword extraction with exact string and GND-ID matching - Claude Generated"""
+
+        if not response_text or not reference_keywords:
+            return []
+
+        # Parse reference keywords to create lookup dictionaries
+        word_to_full = {}  # clean_word_lower -> full_formatted_keyword
+        gnd_to_full = {}  # gnd_id -> full_formatted_keyword
+
+        for keyword in reference_keywords:
+            # Parse format: "Keyword (GND-ID: 123456789)"
+            match = re.match(r"^(.+?)\s*\(GND-ID:\s*([^)]+)\)$", keyword.strip())
+            if match:
+                word = match.group(1).strip()
+                gnd_id = match.group(2).strip()
+                word_to_full[word.lower()] = keyword
+                gnd_to_full[gnd_id] = keyword
+
+        # Search for matches in response text
+        found_keywords = []
+        response_lower = response_text.lower()
+
+        # Method 1: Search for exact keyword strings
+        for clean_word, full_keyword in word_to_full.items():
+            if clean_word in response_lower:
+                if full_keyword not in found_keywords:
+                    found_keywords.append(full_keyword)
+
+        # Method 2: Search for GND-IDs
+        for gnd_id, full_keyword in gnd_to_full.items():
+            if gnd_id in response_text:  # GND-IDs are case-sensitive
+                if full_keyword not in found_keywords:
+                    found_keywords.append(full_keyword)
+
+        # Debug output
+        if stream_callback:
+            stream_callback(
+                f"{chunk_id} Keywords gefunden: {len(found_keywords)} aus {len(reference_keywords)} verfügbaren\n",
+                "keywords",
+            )
+            if found_keywords:
+                # Show first few keywords for debugging
+                preview = found_keywords[:5]
+                if len(found_keywords) > 5:
+                    preview_text = f"{', '.join([kw.split(' (GND-ID:')[0] for kw in preview])}... (+{len(found_keywords)-5} weitere)"
+                else:
+                    preview_text = ", ".join(
+                        [kw.split(" (GND-ID:")[0] for kw in preview]
+                    )
+                stream_callback(
+                    f"{chunk_id} Aktuelle Liste: {preview_text}\n", "keywords"
+                )
+
+        return found_keywords
 
     def create_complete_analysis_state(
         self,
@@ -469,6 +860,8 @@ def execute_complete_pipeline(
     suggesters: List[str] = None,
     stream_callback: Optional[callable] = None,
     logger=None,
+    initial_task: str = "initialisation",
+    final_task: str = "keywords",
     **kwargs,
 ) -> KeywordAnalysisState:
     """Execute complete pipeline from start to finish - Claude Generated"""
@@ -477,6 +870,13 @@ def execute_complete_pipeline(
         suggesters = ["lobid", "swb"]
 
     executor = PipelineStepExecutor(alima_manager, cache_manager, logger)
+
+    # Filter out chunking-specific parameters for non-chunking steps
+    filtered_kwargs = {
+        k: v
+        for k, v in kwargs.items()
+        if k not in ["keyword_chunking_threshold", "chunking_task"]
+    }
 
     # Step 1: Initial keyword extraction
     if stream_callback:
@@ -487,9 +887,9 @@ def execute_complete_pipeline(
             abstract_text=input_text,
             model=initial_model,
             provider=provider,
-            task="initialisation",
+            task=initial_task,
             stream_callback=stream_callback,
-            **kwargs,
+            **filtered_kwargs,
         )
     )
 
@@ -513,9 +913,9 @@ def execute_complete_pipeline(
             search_results=search_results,
             model=final_model,
             provider=provider,
-            task="keywords",
+            task=final_task,
             stream_callback=stream_callback,
-            **kwargs,
+            **kwargs,  # Use original kwargs here (chunking parameters needed)
         )
     )
 

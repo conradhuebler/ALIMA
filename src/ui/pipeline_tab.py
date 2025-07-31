@@ -708,8 +708,13 @@ class PipelineTab(QWidget):
 
     def show_pipeline_config(self):
         """Show pipeline configuration dialog - Claude Generated"""
+        prompt_service = None
+        if hasattr(self.alima_manager, "prompt_service"):
+            prompt_service = self.alima_manager.prompt_service
+
         dialog = PipelineConfigDialog(
             llm_service=self.llm_service,
+            prompt_service=prompt_service,
             current_config=self.pipeline_manager.config,
             parent=self,
         )

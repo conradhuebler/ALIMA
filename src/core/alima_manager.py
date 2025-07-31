@@ -110,6 +110,9 @@ class AlimaManager:
                     else "Keine Keywords vorhanden"
                 ),
             }
+
+            if task == "keywords":
+                print(prompt_config.prompt, task, variables)
             analysis_result = self._perform_single_analysis(
                 request_id,
                 prompt_config,
@@ -161,6 +164,9 @@ class AlimaManager:
         seed: int = 0,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
+        self.logger.info(
+            f"Formatted prompt for request {request_id}: {formatted_prompt}"
+        )
         response_text = self._generate_response(
             request_id,
             prompt_config,
