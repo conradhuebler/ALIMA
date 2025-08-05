@@ -118,10 +118,10 @@ class LlmService(QObject):
                 "module": "openai",
                 "class": "OpenAI",
                 "api_key": "GWDG_API_KEY",
-                "base_url": "https://chat-ai.academiccloud.de/v1",
+                "base_url": "http://chat-ai.academiccloud.de/v1",
                 "initializer": self._init_openai_compatible,
                 "generator": self._generate_openai_compatible,
-                "params": {"base_url": "https://chat-ai.academiccloud.de/v1"},
+                "params": {"base_url": "http://chat-ai.academiccloud.de/v1"},
             },
             # "openai": {
             #     "module": "openai",

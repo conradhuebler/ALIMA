@@ -83,3 +83,6 @@ class KeywordAnalysisState:
     initial_llm_call_details: Optional[LlmKeywordAnalysis] = None
     final_llm_analysis: Optional[LlmKeywordAnalysis] = None
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    pipeline_step_completed: Optional[str] = None  # For recovery tracking - Claude Generated
+    dk_search_results: List[Dict[str, Any]] = field(default_factory=list)  # For DK catalog search results - Claude Generated
+    dk_classifications: List[str] = field(default_factory=list)  # For final DK classification codes - Claude Generated

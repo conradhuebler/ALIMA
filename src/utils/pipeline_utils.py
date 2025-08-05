@@ -63,7 +63,7 @@ class PipelineStepExecutor:
                 stream_callback(token, kwargs.get("step_id", "initialisation"))
 
         # Filter out our custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id"]}
+        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results"]}
 
         # Execute analysis via AlimaManager
         task_state = self.alima_manager.analyze_abstract(
@@ -111,14 +111,25 @@ class PipelineStepExecutor:
         keywords: List[str],
         suggesters: List[str] = None,
         stream_callback: Optional[callable] = None,
+        catalog_token: str = None,
+        catalog_search_url: str = None,
+        catalog_details_url: str = None,
     ) -> Dict[str, Dict[str, Any]]:
-        """Execute GND search step - Claude Generated"""
+        """Execute GND search step with automatic catalog detection - Claude Generated"""
 
         if suggesters is None:
             suggesters = ["lobid", "swb"]
+            
+            # Add catalog if available (no auto-detection, explicit configuration)
+            # Catalog will be added via suggesters parameter in pipeline
 
-        # Create SearchCLI instance
-        search_cli = SearchCLI(self.cache_manager)
+        # Create SearchCLI instance with catalog parameters
+        search_cli = SearchCLI(
+            self.cache_manager,
+            catalog_token=catalog_token or "",
+            catalog_search_url=catalog_search_url or "",
+            catalog_details_url=catalog_details_url or ""
+        )
 
         # Convert suggester names to types
         suggester_types = []
@@ -151,6 +162,12 @@ class PipelineStepExecutor:
             search_terms=keywords_list, suggester_types=suggester_types
         )
 
+        # Post-process catalog results: validate subjects against cache and SWB
+        if "catalog" in suggesters:
+            search_results = self._validate_catalog_subjects(
+                search_results, stream_callback
+            )
+
         # Stream completion info if callback provided
         if stream_callback:
             total_hits = sum(len(results) for results in search_results.values())
@@ -160,6 +177,203 @@ class PipelineStepExecutor:
             )
 
         return search_results
+
+    def _validate_catalog_subjects(
+        self, 
+        search_results: Dict[str, Dict[str, Any]], 
+        stream_callback: Optional[callable] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Claude Generated - Validate catalog subjects against cache and SWB fallback.
+        
+        Catalog subjects don't have GND-IDs, so we need to:
+        1. Check local cache for existing GND-IDs
+        2. Use SWB fallback for unknown subjects
+        """
+        if stream_callback:
+            stream_callback("Validiere Katalog-Schlagwörter gegen Cache und SWB...\n", "search")
+        
+        # Collect all catalog subjects without GND-IDs
+        unknown_subjects = []
+        catalog_subjects_found = 0
+        
+        for search_term, term_results in search_results.items():
+            for subject, data in term_results.items():
+                gnd_ids = data.get("gndid", set())
+                if not gnd_ids:  # Subject from catalog without GND-ID
+                    catalog_subjects_found += 1
+                    
+                    # Check cache first - Claude Generated - use new method to get all GND-IDs
+                    cached_gnd_ids = self.cache_manager.get_all_gnd_ids_for_keyword(subject)
+                    if cached_gnd_ids:
+                        # Found in cache - add all GND-IDs
+                        data["gndid"].update(cached_gnd_ids)
+                        if self.logger:
+                            self.logger.debug(f"Cache hit: {subject} -> {len(cached_gnd_ids)} GND-IDs")
+                    else:
+                        # Not in cache - mark for SWB lookup
+                        unknown_subjects.append(subject)
+        
+        if stream_callback:
+            stream_callback(f"Katalog-Subjects gefunden: {catalog_subjects_found}\n", "search")
+            stream_callback(f"Cache-Treffer: {catalog_subjects_found - len(unknown_subjects)}\n", "search")
+            stream_callback(f"SWB-Lookup erforderlich: {len(unknown_subjects)}\n", "search")
+        
+        # SWB fallback for unknown subjects
+        if unknown_subjects:
+            if stream_callback:
+                stream_callback(f"Starte SWB-Fallback für {len(unknown_subjects)} unbekannte Subjects...\n", "search")
+            
+            # Claude Generated - Debug information for SWB fallback
+            if self.logger:
+                self.logger.info(f"SWB-Fallback: Searching for {len(unknown_subjects)} unknown subjects:")
+                for i, subject in enumerate(unknown_subjects[:10]):  # Show first 10
+                    self.logger.info(f"  {i+1}. '{subject}'")
+                if len(unknown_subjects) > 10:
+                    self.logger.info(f"  ... und {len(unknown_subjects) - 10} weitere")
+            
+            try:
+                # Use SWB suggester for validation
+                swb_search_cli = SearchCLI(self.cache_manager)
+                
+                # Search unknown subjects via SWB
+                swb_results = swb_search_cli.search(
+                    search_terms=unknown_subjects,
+                    suggester_types=[SuggesterType.SWB]
+                )
+                
+                # Claude Generated - Debug SWB results before merging
+                if self.logger:
+                    total_swb_subjects = sum(len(term_results) for term_results in swb_results.values())
+                    total_swb_gnd_ids = sum(
+                        len(data.get("gndid", set())) 
+                        for term_results in swb_results.values() 
+                        for data in term_results.values()
+                    )
+                    self.logger.info(f"SWB-Ergebnisse: {total_swb_subjects} Subjects mit {total_swb_gnd_ids} GND-IDs gefunden")
+                    
+                    # Show detailed results for first few terms
+                    for i, (term, term_results) in enumerate(swb_results.items()):
+                        if i >= 5:  # Limit to first 5 terms
+                            break
+                        self.logger.info(f"  SWB '{term}': {len(term_results)} Subjects gefunden")
+                        for j, (subject, data) in enumerate(term_results.items()):
+                            if j >= 3:  # Limit to first 3 subjects per term
+                                break
+                            gnd_count = len(data.get("gndid", set()))
+                            self.logger.info(f"    - '{subject}': {gnd_count} GND-IDs")
+                
+                # Merge SWB results back into original results
+                self._merge_swb_validation_results(search_results, swb_results, stream_callback)
+                
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"SWB fallback failed: {e}")
+                if stream_callback:
+                    stream_callback(f"SWB-Fallback-Fehler: {str(e)}\n", "search")
+        
+        return search_results
+    
+    def _merge_swb_validation_results(
+        self,
+        original_results: Dict[str, Dict[str, Any]],
+        swb_results: Dict[str, Dict[str, Any]],
+        stream_callback: Optional[callable] = None
+    ):
+        """Claude Generated - Merge SWB validation results back into original catalog results"""
+        
+        swb_matches = 0
+        processed_matches = set()  # Track processed combinations to avoid duplicates
+        unmatched_swb_subjects = []  # Track subjects that couldn't be matched
+        
+        # Create lookup map for faster matching
+        original_lookup = {}
+        for search_term, term_results in original_results.items():
+            for orig_keyword in term_results.keys():
+                key = orig_keyword.lower()
+                if key not in original_lookup:
+                    original_lookup[key] = []
+                original_lookup[key].append((search_term, orig_keyword))
+        
+        # Claude Generated - Debug original catalog subjects
+        if self.logger:
+            total_orig_subjects = sum(len(term_results) for term_results in original_results.values())
+            self.logger.info(f"Merge: {total_orig_subjects} original catalog subjects to match against")
+        
+        for swb_term, swb_term_results in swb_results.items():
+            for swb_keyword, swb_data in swb_term_results.items():
+                swb_gnd_ids = swb_data.get("gndid", set())
+                
+                if swb_gnd_ids:
+                    swb_key = swb_keyword.lower()
+                    term_key = swb_term.lower()
+                    
+                    # Find matches in original results
+                    matches = []
+                    if swb_key in original_lookup:
+                        matches.extend(original_lookup[swb_key])
+                    if term_key in original_lookup and term_key != swb_key:
+                        matches.extend(original_lookup[term_key])
+                    
+                    if matches:
+                        # Add SWB subject as new entry instead of merging with catalog subject
+                        for search_term, orig_keyword in matches:
+                            match_id = f"{search_term}:{swb_keyword}"
+                            if match_id not in processed_matches:
+                                processed_matches.add(match_id)
+                                
+                                # Add SWB subject as separate entry with its proper name
+                                if swb_keyword not in original_results[search_term]:
+                                    original_results[search_term][swb_keyword] = {
+                                        "count": swb_data.get("count", 1),
+                                        "gndid": swb_gnd_ids.copy(),
+                                        "ddc": swb_data.get("ddc", set()),
+                                        "dk": swb_data.get("dk", set())
+                                    }
+                                    swb_matches += len(swb_gnd_ids)
+                                    if self.logger:
+                                        self.logger.info(f"SWB add: '{swb_keyword}' (+{len(swb_gnd_ids)} GND-IDs) [matched via '{orig_keyword}']")
+                                else:
+                                    # Update existing SWB subject entry
+                                    existing_data = original_results[search_term][swb_keyword]
+                                    old_count = len(existing_data["gndid"])
+                                    existing_data["gndid"].update(swb_gnd_ids)
+                                    existing_data["ddc"].update(swb_data.get("ddc", set()))
+                                    existing_data["dk"].update(swb_data.get("dk", set()))
+                                    new_count = len(existing_data["gndid"])
+                                    
+                                    if new_count > old_count:
+                                        added_gnd_ids = new_count - old_count
+                                        swb_matches += added_gnd_ids
+                                        if self.logger:
+                                            self.logger.info(f"SWB update: '{swb_keyword}' (+{added_gnd_ids} GND-IDs)")
+                                break  # Only process first match to avoid duplicates
+                    else:
+                        # No match found - add as completely new subject for the search term
+                        # Find the most appropriate search term (the one being searched)
+                        target_term = swb_term if swb_term in original_results else list(original_results.keys())[0]
+                        if swb_keyword not in original_results[target_term]:
+                            original_results[target_term][swb_keyword] = {
+                                "count": swb_data.get("count", 1), 
+                                "gndid": swb_gnd_ids.copy(),
+                                "ddc": swb_data.get("ddc", set()),
+                                "dk": swb_data.get("dk", set())
+                            }
+                            swb_matches += len(swb_gnd_ids)
+                            if self.logger:
+                                self.logger.info(f"SWB new: '{swb_keyword}' (+{len(swb_gnd_ids)} GND-IDs) [no catalog match]")
+                        unmatched_swb_subjects.append(f"{swb_keyword} ({len(swb_gnd_ids)} GND-IDs) -> added as new")
+        
+        # Claude Generated - Debug unmatched subjects
+        if self.logger and unmatched_swb_subjects:
+            self.logger.warning(f"SWB: {len(unmatched_swb_subjects)} subjects couldn't be matched to catalog:")
+            for i, unmatched in enumerate(unmatched_swb_subjects[:5]):  # Show first 5
+                self.logger.warning(f"  {i+1}. {unmatched}")
+            if len(unmatched_swb_subjects) > 5:
+                self.logger.warning(f"  ... und {len(unmatched_swb_subjects) - 5} weitere")
+        
+        if stream_callback:
+            stream_callback(f"SWB-Validierung: {swb_matches} neue GND-IDs zugeordnet\n", "search")
 
     def execute_final_keyword_analysis(
         self,
@@ -171,6 +385,7 @@ class PipelineStepExecutor:
         stream_callback: Optional[callable] = None,
         keyword_chunking_threshold: int = 500,
         chunking_task: str = "keywords_chunked",
+        expand_synonyms: bool = False,
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute final keyword analysis step with intelligent chunking - Claude Generated"""
@@ -183,9 +398,37 @@ class PipelineStepExecutor:
             for keyword, data in results.items():
                 gnd_ids = data.get("gndid", set())
                 for gnd_id in gnd_ids:
-                    formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
-                    gnd_keywords_text += formatted_keyword + "\n"
-                    gnd_compliant_keywords.append(formatted_keyword)
+                    # Claude Generated - Use GND title with optional synonym expansion
+                    gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
+                    if gnd_title:
+                        # Check if we should expand synonyms and if this title is relevant
+                        if expand_synonyms:
+                            # Check if this title already appears in our keyword list
+                            title_in_keywords = any(gnd_title.lower() in kw.lower() for kw in [keyword] + list(results.keys()))
+                            
+                            if title_in_keywords:
+                                synonyms = self.cache_manager.get_gnd_synonyms_by_id(gnd_id)
+                                if synonyms:
+                                    # Format with synonyms: "Limnologie (Seenkunde; Süßwasserbiologie) (GND-ID: 4035769-7)"
+                                    synonym_text = "; ".join(synonyms)
+                                    formatted_keyword = f"{gnd_title} ({synonym_text}) (GND-ID: {gnd_id})"
+                                else:
+                                    # No synonyms available
+                                    formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
+                            else:
+                                # Title not in keywords, don't expand synonyms
+                                formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
+                        else:
+                            # No synonym expansion
+                            formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
+                            
+                        gnd_keywords_text += formatted_keyword + "\n"
+                        gnd_compliant_keywords.append(formatted_keyword)
+                    else:
+                        # Fallback to original keyword if GND title not found
+                        formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
+                        gnd_keywords_text += formatted_keyword + "\n"
+                        gnd_compliant_keywords.append(formatted_keyword)
 
         # Check if chunking is needed based on keyword count
         total_keywords = len(gnd_compliant_keywords)
@@ -316,7 +559,7 @@ class PipelineStepExecutor:
         alima_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in ["step_id", "keyword_chunking_threshold", "chunking_task"]
+            if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results"]
         }
 
         # Execute final analysis
@@ -669,6 +912,241 @@ class PipelineStepExecutor:
             final_llm_analysis=final_llm_analysis,
         )
 
+    def execute_dk_classification(
+        self,
+        original_abstract: str,
+        dk_search_results: List[Dict[str, Any]],
+        model: str = "cogito:32b",
+        provider: str = "ollama",
+        stream_callback: Optional[callable] = None,
+        **kwargs,
+    ) -> List[str]:
+        """Execute LLM-based DK classification using pre-fetched catalog search results - Claude Generated"""
+
+        if not dk_search_results:
+            if stream_callback:
+                stream_callback("Keine DK-Suchergebnisse vorhanden - DK-Klassifikation übersprungen\n", "dk_classification")
+            return []
+
+        if stream_callback:
+            stream_callback(f"Starte DK-Klassifikation mit {len(dk_search_results)} Katalog-Einträgen\n", "dk_classification")
+
+        # Format catalog results for LLM prompt with aggregated data
+        catalog_results = []
+        for result in dk_search_results:
+            # Handle aggregated format from _aggregate_dk_results
+            if "dk" in result and "count" in result and "titles" in result:
+                # Aggregated format with count and titles
+                dk_code = result.get("dk", "")
+                count = result.get("count", 0)
+                titles = result.get("titles", [])
+                keywords = result.get("keywords", [])
+                classification_type = result.get("classification_type", "DK")
+                avg_confidence = result.get("avg_confidence", 0.0)
+                
+                # Format with count and sample titles
+                if dk_code:
+                    # Show up to 3 sample titles to keep prompt manageable
+                    sample_titles = titles # nope lets go with all
+                    title_text = " | ".join(sample_titles)
+                    #if len(titles) > 3:
+                    #    title_text += f" | ... (und {len(titles) - 3} weitere)"
+                    
+                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count}) | Beispieltitel: {title_text} | Keywords: {', '.join(keywords)}"
+                    catalog_results.append(entry)
+            elif "source_title" in result and "dk" in result:
+                # Individual result format from extract_dk_classifications_for_keywords
+                dk_code = result.get("dk", "")
+                title = result.get("source_title", "")
+                keyword = result.get("keyword", "")
+                classification_type = result.get("classification_type", "DK")
+                
+                # Format individual classification
+                if dk_code and title:
+                    entry = f"{classification_type}: {dk_code} | Titel: {title} | Keyword: {keyword}"
+                    catalog_results.append(entry)
+            else:
+                # Legacy format support
+                title = result.get("title", "")
+                subjects = result.get("subjects", [])
+                dk_classifications = result.get("dk", [])
+                rvk_classifications = result.get("rvk", [])
+                
+                # Format legacy results
+                if title:
+                    entry = f"Titel: {title}"
+                    if subjects:
+                        entry += f" | Schlagworte: {', '.join(subjects)}"
+                    if dk_classifications:
+                        if isinstance(dk_classifications, str):
+                            entry += f" | DK: {dk_classifications}"
+                        elif isinstance(dk_classifications, list):
+                            valid_dk = [dk for dk in dk_classifications if len(str(dk)) > 1]
+                            if valid_dk:
+                                entry += f" | DK: {', '.join(map(str, valid_dk))}"
+                    if rvk_classifications:
+                        if isinstance(rvk_classifications, str):
+                            entry += f" | RVK: {rvk_classifications}"
+                        elif isinstance(rvk_classifications, list):
+                            entry += f" | RVK: {', '.join(map(str, rvk_classifications))}"
+                    
+                    catalog_results.append(entry)
+
+        # Prepare data for LLM classification
+        catalog_text = "\n".join(catalog_results)
+        
+        # Create AbstractData for LLM call
+        from ..core.data_models import AbstractData
+        abstract_data = AbstractData(
+            abstract=original_abstract,
+            keywords=catalog_text  # Use catalog results as "keywords" for dk_class prompt
+        )
+
+        if stream_callback:
+            stream_callback("Starte LLM-basierte DK-Klassifikation...\n", "dk_classification")
+
+        # Create a compatible stream callback for AlimaManager
+        alima_stream_callback = None
+        if stream_callback:
+            def alima_stream_callback(token):
+                stream_callback(token, "dk_classification")
+
+        # Filter out custom parameters that AlimaManager doesn't expect
+        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results"]}
+
+        # Execute LLM classification
+        try:
+            task_state = self.alima_manager.analyze_abstract(
+                abstract_data=abstract_data,
+                task="dk_class",
+                model=model,
+                provider=provider,
+                stream_callback=alima_stream_callback,
+                **alima_kwargs,
+            )
+
+            if task_state.status == "failed":
+                if stream_callback:
+                    stream_callback(f"LLM-Klassifikation fehlgeschlagen: {task_state.analysis_result.full_text}\n", "dk_classification")
+                return []
+
+            # Extract DK classifications from LLM response
+            response_text = task_state.analysis_result.full_text
+            dk_classifications = self._extract_dk_from_response(response_text)
+            
+            if stream_callback:
+                stream_callback(f"DK-Klassifikation abgeschlossen: {len(dk_classifications)} DK-Codes extrahiert\n", "dk_classification")
+                
+            return dk_classifications
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"LLM DK classification failed: {e}")
+            if stream_callback:
+                stream_callback(f"LLM-Klassifikation-Fehler: {str(e)}\n", "dk_classification")
+            return []
+
+    def _extract_dk_from_response(self, response_text: str) -> List[str]:
+        """Extract DK and RVK classifications from LLM response - Claude Generated"""
+        import re
+        
+        classification_codes = []
+        
+        # Look for DK patterns like "610.3", "004.5", etc.
+        dk_pattern = r'\b\d{1,3}(?:\.\d+)*\b'
+        dk_matches = re.findall(dk_pattern, response_text)
+        
+        # Filter to keep only valid DK codes (usually have 2-3 digits + optional decimal)
+        for match in dk_matches:
+            if len(match.split('.')[0]) >= 2:  # At least 2 digits before decimal
+                classification_codes.append(f"DK {match}")
+        
+        # Look for RVK patterns like "Q12", "QC 130", "QB 910", etc.
+        rvk_pattern = r'\b[A-Z]{1,2}\s*\d{1,4}(?:\s*[A-Z]*)?'
+        rvk_matches = re.findall(rvk_pattern, response_text)
+        
+        # Filter RVK codes (especially Q* codes for economics)
+        for match in rvk_matches:
+            match_clean = match.strip()
+            # Focus on Q codes for economics, but allow other RVK codes too
+            if match_clean.startswith('Q') or len(match_clean) >= 3:
+                classification_codes.append(f"RVK {match_clean}")
+        
+        # Remove duplicates while preserving order
+        return list(dict.fromkeys(classification_codes))
+
+    def execute_dk_search(
+        self,
+        keywords: List[str],
+        stream_callback: Optional[callable] = None,
+        max_results: int = 20,
+        catalog_token: str = None,
+        catalog_search_url: str = None,
+        catalog_details_url: str = None,
+    ) -> List[Dict[str, Any]]:
+        """Execute catalog search for DK classification data - Claude Generated"""
+
+        # Use provided catalog configuration or skip
+        if not catalog_token or not catalog_token.strip():
+            if stream_callback:
+                stream_callback("Kein Katalog-Token verfügbar - DK-Suche übersprungen\n", "dk_search")
+            return []
+
+        # Initialize BiblioExtractor
+        try:
+            from ..core.biblioextractor import BiblioExtractor
+            
+            extractor = BiblioExtractor(
+                token=catalog_token, 
+                debug=self.logger.level <= 10 if self.logger else False
+            )
+            
+            # Set URLs if available
+            if catalog_search_url:
+                extractor.SEARCH_URL = catalog_search_url
+            if catalog_details_url:
+                extractor.DETAILS_URL = catalog_details_url
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"BiblioExtractor initialization failed: {e}")  
+            if stream_callback:
+                stream_callback(f"BiblioExtractor-Fehler: {str(e)}\n", "dk_search")
+            return []
+
+        # Convert keywords to simple strings if they contain GND-IDs
+        clean_keywords = []
+        for keyword in keywords:
+            if "(GND-ID:" in keyword:
+                # Extract just the keyword part before (GND-ID:...)
+                clean_keyword = keyword.split("(GND-ID:")[0].strip()
+                clean_keywords.append(clean_keyword)
+            else:
+                clean_keywords.append(keyword)
+
+        if stream_callback:
+            stream_callback(f"Suche Katalog-Einträge für {len(clean_keywords)} Keywords (max {max_results})\n", "dk_search")
+
+        # Execute catalog search
+        try:
+            dk_search_results = extractor.extract_dk_classifications_for_keywords(
+                keywords=clean_keywords,
+                max_results=max_results,
+                threshold=10,  # Minimum results per keyword
+            )
+            
+            if stream_callback:
+                stream_callback(f"DK-Suche abgeschlossen: {len(dk_search_results)} Katalog-Einträge gefunden\n", "dk_search")
+                
+            return dk_search_results
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"DK catalog search failed: {e}")
+            if stream_callback:
+                stream_callback(f"DK-Suche-Fehler: {str(e)}\n", "dk_search")
+            return []
+
 
 def extract_keywords_from_descriptive_text(
     text: str, gnd_compliant_keywords: List[str]
@@ -849,7 +1327,6 @@ class PipelineResultFormatter:
 
         return gnd_keywords
 
-
 def execute_complete_pipeline(
     alima_manager,
     cache_manager: CacheManager,
@@ -862,14 +1339,53 @@ def execute_complete_pipeline(
     logger=None,
     initial_task: str = "initialisation",
     final_task: str = "keywords",
+    include_dk_classification: bool = True,
+    catalog_token: str = None,
+    catalog_search_url: str = None,
+    catalog_details_url: str = None,
+    auto_save_path: str = None,
+    resume_from_path: str = None,
     **kwargs,
 ) -> KeywordAnalysisState:
-    """Execute complete pipeline from start to finish - Claude Generated"""
+    """Execute complete pipeline from start to finish with recovery support - Claude Generated"""
+
+    # Check for resume from saved state
+    if resume_from_path:
+        try:
+            if stream_callback:
+                stream_callback(f"Versuche Pipeline-Recovery von {resume_from_path}...\n", "recovery")
+            
+            # Load saved state
+            import os
+            if os.path.exists(resume_from_path):
+                analysis_state = PipelineJsonManager.load_analysis_state(resume_from_path)
+                if stream_callback:
+                    stream_callback("✅ Pipeline-State erfolgreich geladen - Recovery abgeschlossen\n", "recovery")
+                return analysis_state
+            else:
+                if stream_callback:
+                    stream_callback(f"⚠️ Recovery-Datei nicht gefunden: {resume_from_path}\n", "recovery")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Pipeline recovery failed: {e}")
+            if stream_callback:
+                stream_callback(f"⚠️ Recovery fehlgeschlagen: {str(e)} - Starte normale Pipeline\n", "recovery")
 
     if suggesters is None:
         suggesters = ["lobid", "swb"]
+        
+        # Add catalog if token provided
+        if catalog_token and catalog_token.strip():
+            suggesters.append("catalog")
 
     executor = PipelineStepExecutor(alima_manager, cache_manager, logger)
+    
+    # Set up auto-save path if not provided
+    if auto_save_path is None:
+        import tempfile
+        import os
+        temp_dir = tempfile.gettempdir()
+        auto_save_path = os.path.join(temp_dir, "alima_pipeline_recovery.json")
 
     # Filter out chunking-specific parameters for non-chunking steps
     filtered_kwargs = {
@@ -901,12 +1417,38 @@ def execute_complete_pipeline(
         keywords=initial_keywords,
         suggesters=suggesters,
         stream_callback=stream_callback,
+        catalog_token=catalog_token,
+        catalog_search_url=catalog_search_url,
+        catalog_details_url=catalog_details_url,
     )
+    
+    # Auto-save after search step
+    try:
+        if auto_save_path:
+            temp_state = executor.create_complete_analysis_state(
+                original_abstract=input_text,
+                initial_keywords=initial_keywords,
+                initial_gnd_classes=initial_gnd_classes,
+                search_results=search_results,
+                initial_llm_analysis=initial_llm_analysis,
+                final_llm_analysis=None,  # Not completed yet
+                suggesters_used=suggesters,
+            )
+            temp_state.pipeline_step_completed = "search"
+            PipelineJsonManager.save_analysis_state(temp_state, auto_save_path)
+            if stream_callback:
+                stream_callback(f"💾 Zwischenspeicherung nach Search-Schritt: {auto_save_path}\n", "auto_save")
+    except Exception as e:
+        if logger:
+            logger.warning(f"Auto-save after search failed: {e}")
 
     # Step 3: Final keyword analysis
     if stream_callback:
         stream_callback("Starting final keyword analysis...\n", "keywords")
 
+    # Enable synonym expansion only when catalog suggester is used
+    expand_synonyms = "catalog" in suggesters
+    
     final_keywords, final_gnd_classes, final_llm_analysis = (
         executor.execute_final_keyword_analysis(
             original_abstract=input_text,
@@ -915,9 +1457,83 @@ def execute_complete_pipeline(
             provider=provider,
             task=final_task,
             stream_callback=stream_callback,
+            expand_synonyms=expand_synonyms,
             **kwargs,  # Use original kwargs here (chunking parameters needed)
         )
     )
+    
+    # Auto-save after final keywords step
+    try:
+        if auto_save_path:
+            temp_state = executor.create_complete_analysis_state(
+                original_abstract=input_text,
+                initial_keywords=initial_keywords,
+                initial_gnd_classes=initial_gnd_classes,
+                search_results=search_results,
+                initial_llm_analysis=initial_llm_analysis,
+                final_llm_analysis=final_llm_analysis,
+                suggesters_used=suggesters,
+            )
+            temp_state.pipeline_step_completed = "keywords"
+            PipelineJsonManager.save_analysis_state(temp_state, auto_save_path)
+            if stream_callback:
+                stream_callback(f"💾 Zwischenspeicherung nach Keywords-Schritt: {auto_save_path}\n", "auto_save")
+    except Exception as e:
+        if logger:
+            logger.warning(f"Auto-save after keywords failed: {e}")
+
+    # Step 4: Optional DK Classification (Split into two separate steps)
+    dk_search_results = []
+    dk_classifications = []
+    
+    if include_dk_classification:
+        # Step 4a: DK Search (time-intensive catalog search)
+        if stream_callback:
+            stream_callback("Starting DK catalog search...\n", "dk_search")
+        
+        dk_search_results = executor.execute_dk_search(
+            keywords=final_keywords,
+            stream_callback=stream_callback,
+            max_results=kwargs.get("dk_max_results", 20),
+            catalog_token=catalog_token,
+            catalog_search_url=catalog_search_url,
+            catalog_details_url=catalog_details_url,
+        )
+        
+        # Auto-save after DK search step
+        try:
+            if auto_save_path:
+                temp_state = executor.create_complete_analysis_state(
+                    original_abstract=input_text,
+                    initial_keywords=initial_keywords,
+                    initial_gnd_classes=initial_gnd_classes,
+                    search_results=search_results,
+                    initial_llm_analysis=initial_llm_analysis,
+                    final_llm_analysis=final_llm_analysis,
+                    suggesters_used=suggesters,
+                )
+                temp_state.pipeline_step_completed = "dk_search"
+                temp_state.dk_search_results = dk_search_results
+                PipelineJsonManager.save_analysis_state(temp_state, auto_save_path)
+                if stream_callback:
+                    stream_callback(f"💾 Zwischenspeicherung nach DK-Search-Schritt: {auto_save_path}\n", "auto_save")
+        except Exception as e:
+            if logger:
+                logger.warning(f"Auto-save after DK search failed: {e}")
+        
+        # Step 4b: DK Classification (fast LLM analysis)
+        if dk_search_results:
+            if stream_callback:
+                stream_callback("Starting DK LLM classification...\n", "dk_classification")
+            
+            dk_classifications = executor.execute_dk_classification(
+                dk_search_results=dk_search_results,
+                original_abstract=input_text,
+                model=final_model,
+                provider=provider,
+                stream_callback=stream_callback,
+                **kwargs,
+            )
 
     # Create complete analysis state
     analysis_state = executor.create_complete_analysis_state(
@@ -929,8 +1545,28 @@ def execute_complete_pipeline(
         final_llm_analysis=final_llm_analysis,
         suggesters_used=suggesters,
     )
+    
+    # Add DK results to analysis state if available
+    if dk_search_results:
+        analysis_state.dk_search_results = dk_search_results
+    if dk_classifications:
+        analysis_state.dk_classifications = dk_classifications
+    
+    # Mark pipeline as completed
+    analysis_state.pipeline_step_completed = "completed"
+    
+    # Final auto-save
+    try:
+        if auto_save_path:
+            PipelineJsonManager.save_analysis_state(analysis_state, auto_save_path)
+            if stream_callback:
+                stream_callback(f"💾 Pipeline abgeschlossen - Finaler Save: {auto_save_path}\n", "auto_save")
+    except Exception as e:
+        if logger:
+            logger.warning(f"Final auto-save failed: {e}")
 
     if stream_callback:
-        stream_callback("Pipeline completed successfully!\n", "completion")
+        total_steps = 5 if include_dk_classification else 3  # 3 base steps + 2 DK steps (search + classification)
+        stream_callback(f"Pipeline completed successfully! ({total_steps} steps)\n", "completion")
 
     return analysis_state

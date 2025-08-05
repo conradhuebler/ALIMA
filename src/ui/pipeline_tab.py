@@ -266,10 +266,11 @@ class PipelineTab(QWidget):
 
             step_name = {
                 "input": "Input",
-                "initialisation": "Initialisierung",
+                "initialisation": "Initialisierung", 
                 "search": "Suche",
                 "keywords": "Schlagworte",
-                "classification": "Klassifikation",
+                "dk_search": "DK-Katalog-Suche",
+                "dk_classification": "DK-Klassifikation",
             }.get(self.current_running_step, self.current_running_step.title())
 
             # Update the label with live duration
@@ -415,17 +416,29 @@ class PipelineTab(QWidget):
         self.step_widgets["keywords"] = keywords_step_widget
         self.pipeline_tabs.addTab(keywords_step_widget, "✅ SCHLAGWORTE")
 
-        # Step 5: Classification (optional)
-        classification_step = PipelineStep(
-            step_id="classification",
-            name="📚 SCHRITT 5: KLASSIFIKATION (Optional)",
+        # Step 5: DK Search (catalog search)
+        dk_search_step = PipelineStep(
+            step_id="dk_search",
+            name="📊 SCHRITT 5: DK-KATALOG-SUCHE (Optional)",
             status="pending",
         )
-        classification_widget = self.create_classification_step_widget()
-        classification_step_widget = PipelineStepWidget(classification_step)
-        classification_step_widget.set_content(classification_widget)
-        self.step_widgets["classification"] = classification_step_widget
-        self.pipeline_tabs.addTab(classification_step_widget, "📚 KLASSIFIKATION")
+        dk_search_widget = self.create_dk_search_step_widget()
+        dk_search_step_widget = PipelineStepWidget(dk_search_step)
+        dk_search_step_widget.set_content(dk_search_widget)
+        self.step_widgets["dk_search"] = dk_search_step_widget
+        self.pipeline_tabs.addTab(dk_search_step_widget, "📊 DK-SUCHE")
+
+        # Step 6: DK Classification (LLM analysis)
+        dk_classification_step = PipelineStep(
+            step_id="dk_classification",
+            name="📚 SCHRITT 6: DK-KLASSIFIKATION (Optional)",
+            status="pending",
+        )
+        dk_classification_widget = self.create_dk_classification_step_widget()
+        dk_classification_step_widget = PipelineStepWidget(dk_classification_step)
+        dk_classification_step_widget.set_content(dk_classification_widget)
+        self.step_widgets["dk_classification"] = dk_classification_step_widget
+        self.pipeline_tabs.addTab(dk_classification_step_widget, "📚 DK-KLASSIFIKATION")
 
     def create_compact_pipeline_control(self) -> QWidget:
         """Create compact pipeline control with progress and buttons - Claude Generated"""
@@ -503,15 +516,16 @@ class PipelineTab(QWidget):
         progress_layout.setSpacing(10)
 
         self.step_progress_labels = {}
-        steps = ["input", "initialisation", "search", "keywords", "classification"]
+        steps = ["input", "initialisation", "search", "keywords", "dk_search", "dk_classification"]
 
         for i, step_id in enumerate(steps):
             step_name = {
                 "input": "Input",
-                "initialisation": "Initialisierung",
+                "initialisation": "Initialisierung", 
                 "search": "Suche",
                 "keywords": "Schlagworte",
-                "classification": "Klassifikation",
+                "dk_search": "DK-Katalog-Suche",
+                "dk_classification": "DK-Klassifikation",
             }[step_id]
 
             step_label = QLabel(f"{i+1}. {step_name}: ⏳")
@@ -643,20 +657,74 @@ class PipelineTab(QWidget):
 
         return widget
 
-    def create_classification_step_widget(self) -> QWidget:
-        """Create classification step widget - Claude Generated"""
+    def create_dk_search_step_widget(self) -> QWidget:
+        """Create DK search step widget for catalog search results - Claude Generated"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Classification results
-        self.classification_result = QTextEdit()
-        self.classification_result.setReadOnly(True)
-        self.classification_result.setMaximumHeight(100)
-        self.classification_result.setPlaceholderText(
-            "Klassifikationen werden hier angezeigt..."
+        # Search configuration section
+        config_group = QGroupBox("Katalog-Such-Konfiguration")
+        config_layout = QVBoxLayout(config_group)
+        
+        # Max results control
+        max_results_layout = QHBoxLayout()
+        max_results_layout.addWidget(QLabel("Max. Ergebnisse:"))
+        self.dk_search_max_results = QSpinBox()
+        self.dk_search_max_results.setRange(5, 100)
+        self.dk_search_max_results.setValue(20)
+        max_results_layout.addWidget(self.dk_search_max_results)
+        max_results_layout.addStretch()
+        config_layout.addLayout(max_results_layout)
+        
+        layout.addWidget(config_group)
+
+        # Search results display
+        results_group = QGroupBox("Katalog-Suchergebnisse")
+        results_layout = QVBoxLayout(results_group)
+        
+        self.dk_search_results = QTextEdit()
+        self.dk_search_results.setReadOnly(True)
+        self.dk_search_results.setMinimumHeight(200)
+        self.dk_search_results.setPlaceholderText(
+            "Katalog-Suchergebnisse für DK/RVK-Klassifikationen werden hier angezeigt...\n"
+            "Format: DK: 666.76 (Häufigkeit: 3) | Beispieltitel: ... | Keywords: ..."
         )
-        layout.addWidget(QLabel("Klassifikationen:"))
-        layout.addWidget(self.classification_result)
+        results_layout.addWidget(self.dk_search_results)
+        layout.addWidget(results_group)
+
+        return widget
+
+    def create_dk_classification_step_widget(self) -> QWidget:
+        """Create DK classification step widget for LLM analysis - Claude Generated"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Input data summary
+        input_group = QGroupBox("Eingangsdaten für LLM-Klassifikation")
+        input_layout = QVBoxLayout(input_group)
+        
+        self.dk_input_summary = QTextEdit()
+        self.dk_input_summary.setReadOnly(True)
+        self.dk_input_summary.setMaximumHeight(100)
+        self.dk_input_summary.setPlaceholderText(
+            "Zusammenfassung der Katalog-Suchergebnisse für LLM..."
+        )
+        input_layout.addWidget(self.dk_input_summary)
+        layout.addWidget(input_group)
+
+        # Final classification results
+        results_group = QGroupBox("Finale DK/RVK-Klassifikationen")
+        results_layout = QVBoxLayout(results_group)
+        
+        self.dk_classification_results = QTextEdit()
+        self.dk_classification_results.setReadOnly(True)
+        self.dk_classification_results.setMinimumHeight(150)
+        self.dk_classification_results.setPlaceholderText(
+            "Finale DK/RVK-Klassifikationen vom LLM werden hier angezeigt...\n"
+            "Format: DK 666.76, RVK Q12, RVK QC 130, ..."
+        )
+        results_layout.addWidget(self.dk_classification_results)
+        layout.addWidget(results_group)
 
         return widget
 
@@ -780,7 +848,7 @@ class PipelineTab(QWidget):
 
         # Reset progress labels
         if hasattr(self, "step_progress_labels"):
-            steps = ["input", "initialisation", "search", "keywords", "classification"]
+            steps = ["input", "initialisation", "search", "keywords", "dk_search", "dk_classification"]
             for i, step_id in enumerate(steps):
                 if step_id in self.step_progress_labels:
                     step_name = {
@@ -834,10 +902,11 @@ class PipelineTab(QWidget):
         ):
             step_name = {
                 "input": "Input",
-                "initialisation": "Initialisierung",
+                "initialisation": "Initialisierung", 
                 "search": "Suche",
                 "keywords": "Schlagworte",
-                "classification": "Klassifikation",
+                "dk_search": "DK-Katalog-Suche",
+                "dk_classification": "DK-Klassifikation",
             }.get(step.step_id, step.step_id.title())
 
             self.step_progress_labels[step.step_id].setText(f"▶ {step_name} (0.0s)")
@@ -886,10 +955,11 @@ class PipelineTab(QWidget):
         ):
             step_name = {
                 "input": "Input",
-                "initialisation": "Initialisierung",
+                "initialisation": "Initialisierung", 
                 "search": "Suche",
                 "keywords": "Schlagworte",
-                "classification": "Klassifikation",
+                "dk_search": "DK-Katalog-Suche",
+                "dk_classification": "DK-Klassifikation",
             }.get(step.step_id, step.step_id.title())
 
             # Calculate duration
@@ -948,6 +1018,50 @@ class PipelineTab(QWidget):
                     f"Set keywords_result text to: '{final_keywords_text}'"
                 )
 
+        elif step.step_id == "dk_search" and step.output_data:
+            # Display DK search results with counts and titles - Claude Generated
+            dk_search_results = step.output_data.get("dk_search_results", [])
+            if hasattr(self, "dk_search_results") and dk_search_results:
+                # Format aggregated results for display
+                result_lines = []
+                for result in dk_search_results:
+                    dk_code = result.get("dk", "")
+                    count = result.get("count", 0)
+                    titles = result.get("titles", [])
+                    keywords = result.get("keywords", [])
+                    classification_type = result.get("classification_type", "DK")
+                    
+                    # Show titles (up to 3 per entry)
+                    sample_titles = titles[:3]
+                    titles_text = " | ".join(sample_titles)
+                    if len(titles) > 3:
+                        titles_text += f" | ... (und {len(titles) - 3} weitere)"
+                    
+                    result_line = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nBeispieltitel: {titles_text}\nKeywords: {', '.join(keywords)}\n"
+                    result_lines.append(result_line)
+                
+                self.dk_search_results.setPlainText("\n".join(result_lines))
+            elif hasattr(self, "dk_search_results"):
+                self.dk_search_results.setPlainText("Keine DK/RVK-Klassifikationen gefunden")
+
+        elif step.step_id == "dk_classification" and step.output_data:
+            # Display final DK classification results from LLM - Claude Generated
+            dk_classifications = step.output_data.get("dk_classifications", [])
+            if hasattr(self, "dk_classification_results") and dk_classifications:
+                # Format final classifications
+                classifications_text = "\n".join(dk_classifications)
+                self.dk_classification_results.setPlainText(classifications_text)
+                
+                # Also update the input summary with search data from previous step
+                if hasattr(self, "dk_input_summary"):
+                    search_data = step.output_data.get("dk_search_summary", "")
+                    if search_data:
+                        self.dk_input_summary.setPlainText(search_data)
+                    else:
+                        self.dk_input_summary.setPlainText("Katalog-Suchergebnisse für LLM-Analyse")
+            elif hasattr(self, "dk_classification_results"):
+                self.dk_classification_results.setPlainText("Keine DK/RVK-Klassifikationen generiert")
+
         # End any active streaming for this step
         if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:
             self.stream_widget.end_llm_streaming()
@@ -974,10 +1088,11 @@ class PipelineTab(QWidget):
         ):
             step_name = {
                 "input": "Input",
-                "initialisation": "Initialisierung",
+                "initialisation": "Initialisierung", 
                 "search": "Suche",
                 "keywords": "Schlagworte",
-                "classification": "Klassifikation",
+                "dk_search": "DK-Katalog-Suche",
+                "dk_classification": "DK-Klassifikation",
             }.get(step.step_id, step.step_id.title())
 
             # Calculate duration

@@ -6,9 +6,12 @@ from .cache_manager import CacheManager
 
 
 class SearchCLI:
-    def __init__(self, cache_manager: CacheManager):
+    def __init__(self, cache_manager: CacheManager, catalog_token: str = "", catalog_search_url: str = "", catalog_details_url: str = ""):
         self.logger = logging.getLogger(__name__)
         self.cache_manager = cache_manager
+        self.catalog_token = catalog_token
+        self.catalog_search_url = catalog_search_url  
+        self.catalog_details_url = catalog_details_url
 
     def search(
         self, search_terms: List[str], suggester_types: List[SuggesterType]
@@ -22,9 +25,9 @@ class SearchCLI:
                 suggester = MetaSuggester(
                     suggester_type=suggester_type,
                     debug=False,
-                    catalog_token="",
-                    catalog_search_url="",
-                    catalog_details="",
+                    catalog_token=self.catalog_token,
+                    catalog_search_url=self.catalog_search_url,
+                    catalog_details=self.catalog_details_url,
                 )
 
                 results = suggester.search(search_terms)

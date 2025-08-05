@@ -79,13 +79,22 @@ class PipelineConfig:
                 "top_p": 0.1,
                 "task": "keywords",
             },
-            "classification": {
-                "step_id": "classification",
+            "dk_search": {
+                "step_id": "dk_search",
                 "enabled": False,
-                "provider": "gemini",
-                "model": "gemini-1.5-flash",
+                "max_results": 20,
+                "catalog_token": None,
+                "catalog_search_url": None,
+                "catalog_details_url": None,
+            },
+            "dk_classification": {
+                "step_id": "dk_classification",
+                "enabled": False,
+                "provider": "ollama",
+                "model": "cogito:32b",
                 "temperature": 0.7,
                 "top_p": 0.1,
+                "task": "dk_class",
             },
         }
     )
@@ -124,7 +133,8 @@ class PipelineManager:
             "initialisation": {"name": "Keyword Extraction", "order": 2},
             "search": {"name": "GND Search", "order": 3},
             "keywords": {"name": "Result Verification", "order": 4},
-            "classification": {"name": "Classification", "order": 5},
+            "dk_search": {"name": "DK Search", "order": 5},
+            "dk_classification": {"name": "DK Classification", "order": 6},
         }
 
         # Callbacks for UI updates
@@ -241,15 +251,25 @@ class PipelineManager:
                 )
             )
 
-        # Classification step (optional)
-        classification_config = self.config.step_configs.get("classification", {})
-        if classification_config.get("enabled", False):
+        # DK Search step (optional)
+        dk_search_config = self.config.step_configs.get("dk_search", {})
+        if dk_search_config.get("enabled", False):
             steps.append(
                 PipelineStep(
-                    step_id="classification",
-                    name=self.step_definitions["classification"]["name"],
-                    provider=classification_config.get("provider", "gemini"),
-                    model=classification_config.get("model", "gemini-1.5-flash"),
+                    step_id="dk_search",
+                    name=self.step_definitions["dk_search"]["name"],
+                )
+            )
+            
+        # DK Classification step (optional) 
+        dk_classification_config = self.config.step_configs.get("dk_classification", {})
+        if dk_classification_config.get("enabled", False):
+            steps.append(
+                PipelineStep(
+                    step_id="dk_classification",
+                    name=self.step_definitions["dk_classification"]["name"],
+                    provider=dk_classification_config.get("provider", "ollama"),
+                    model=dk_classification_config.get("model", "cogito:32b"),
                 )
             )
 
@@ -274,8 +294,10 @@ class PipelineManager:
                 success = self._execute_search_step(step)
             elif step.step_id == "keywords":
                 success = self._execute_keywords_step(step)
-            elif step.step_id == "classification":
-                success = self._execute_classification_step(step)
+            elif step.step_id == "dk_search":
+                success = self._execute_dk_search_step(step)
+            elif step.step_id == "dk_classification":
+                success = self._execute_dk_classification_step(step)
             else:
                 raise ValueError(f"Unknown step type: {step.step_id}")
 
@@ -517,12 +539,94 @@ class PipelineManager:
         except ValueError as e:
             raise ValueError(f"Keywords step failed: {e}")
 
-    def _execute_classification_step(self, step: PipelineStep) -> bool:
-        """Execute classification step - Claude Generated"""
-        # Placeholder for classification logic
-        # This would integrate with UB-specific classification systems
-        step.output_data = {"classifications": []}
-        return True
+    def _execute_dk_search_step(self, step: PipelineStep) -> bool:
+        """Execute DK search step using catalog search - Claude Generated"""
+        try:
+            # Get the final keywords from previous step
+            previous_step = self._get_previous_step("keywords")
+            if not previous_step or not previous_step.output_data:
+                self.logger.warning("No keywords available for DK search")
+                step.output_data = {"dk_search_results": []}
+                return True
+            
+            final_keywords = previous_step.output_data.get("final_keywords", [])
+            
+            # Use the shared pipeline executor for DK search
+            dk_search_config = self.config.step_configs.get("dk_search", {})
+            dk_search_results = self.executor.execute_dk_search(
+                keywords=final_keywords,
+                stream_callback=self._stream_callback_adapter,
+                max_results=dk_search_config.get("max_results", 20),
+                catalog_token=dk_search_config.get("catalog_token"),
+                catalog_search_url=dk_search_config.get("catalog_search_url"),
+                catalog_details_url=dk_search_config.get("catalog_details_url"),
+            )
+            
+            step.output_data = {"dk_search_results": dk_search_results}
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"DK search step failed: {e}")
+            step.error_message = str(e)
+            step.output_data = {"dk_search_results": []}
+            return False
+
+    def _execute_dk_classification_step(self, step: PipelineStep) -> bool:
+        """Execute DK classification step using LLM analysis - Claude Generated"""
+        try:
+            # Get DK search results from previous step
+            previous_step = self._get_previous_step("dk_search")
+            if not previous_step or not previous_step.output_data:
+                self.logger.warning("No DK search results available for classification")
+                step.output_data = {"dk_classifications": []}
+                return True
+                
+            dk_search_results = previous_step.output_data.get("dk_search_results", [])
+            
+            # Get original abstract text
+            input_step = self._get_previous_step("input")
+            original_abstract = ""
+            if input_step and input_step.output_data:
+                original_abstract = input_step.output_data.get("text", "")
+            
+            # Use the shared pipeline executor for DK classification
+            dk_classification_config = self.config.step_configs.get("dk_classification", {})
+            dk_classifications = self.executor.execute_dk_classification(
+                dk_search_results=dk_search_results,
+                original_abstract=original_abstract,
+                model=step.model or dk_classification_config.get("model", "cogito:32b"),
+                provider=step.provider or dk_classification_config.get("provider", "ollama"),
+                stream_callback=self._stream_callback_adapter,
+                temperature=dk_classification_config.get("temperature", 0.7),
+                top_p=dk_classification_config.get("top_p", 0.1),
+            )
+            
+            # Prepare search summary for display
+            search_summary_lines = []
+            for result in dk_search_results[:5]:  # Show first 5 for summary
+                dk_code = result.get("dk", "")
+                count = result.get("count", 0)  
+                classification_type = result.get("classification_type", "DK")
+                search_summary_lines.append(f"{classification_type}: {dk_code} (Häufigkeit: {count})")
+            
+            step.output_data = {
+                "dk_classifications": dk_classifications,
+                "dk_search_summary": "\n".join(search_summary_lines)
+            }
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"DK classification step failed: {e}")
+            step.error_message = str(e)
+            step.output_data = {"dk_classifications": []}
+            return False
+
+    def _get_previous_step(self, step_id: str) -> Optional[PipelineStep]:
+        """Get the step with the given step_id from completed steps - Claude Generated"""
+        for step in self.steps:
+            if step.step_id == step_id and step.status == "completed":
+                return step
+        return None
 
     def _execute_next_step(self):
         """Execute the next step in the pipeline - Claude Generated"""

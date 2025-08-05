@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import os
 
 
@@ -326,6 +326,110 @@ class CacheManager:
         except Exception as e:
             self.logger.error(f"Fehler beim Abrufen des GND-Eintrags: {e}")
             return None
+
+    def get_all_gnd_ids_for_keyword(self, keyword: str) -> set:
+        """
+        Claude Generated - Holt alle GND-IDs für ein Schlagwort aus der Datenbank.
+        
+        Args:
+            keyword: Schlagwort
+            
+        Returns:
+            Set of GND-IDs found for this keyword
+        """
+        gnd_ids = set()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT DISTINCT gnd_id FROM gnd_entry 
+                    WHERE title = ?
+                    """,
+                    (keyword,),
+                )
+                results = cursor.fetchall()
+                
+                for row in results:
+                    if row[0]:  # gnd_id is not None/empty
+                        gnd_ids.add(row[0])
+                        
+                if gnd_ids:
+                    self.logger.debug(f"Cache: Found {len(gnd_ids)} GND-IDs for '{keyword}': {list(gnd_ids)}")
+                else:
+                    self.logger.debug(f"Cache: No GND-IDs found for '{keyword}'")
+                    
+        except Exception as e:
+            self.logger.error(f"Fehler beim Abrufen der GND-IDs für '{keyword}': {e}")
+            
+        return gnd_ids
+
+    def get_gnd_title_by_id(self, gnd_id: str) -> Optional[str]:
+        """
+        Claude Generated - Holt den vollständigen GND-Titel mit Synonymen für eine GND-ID.
+        
+        Args:
+            gnd_id: GND-ID
+            
+        Returns:
+            Ursprünglicher Titel, falls verfügbar None
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT title, synonyms FROM gnd_entry 
+                    WHERE gnd_id = ?
+                    LIMIT 1
+                    """,
+                    (gnd_id,),
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    title, synonyms = result
+                    # Always return original title - synonyms handled separately
+                    return title
+                else:
+                    self.logger.debug(f"GND-Eintrag für ID '{gnd_id}' nicht gefunden")
+                    return None
+                    
+        except Exception as e:
+            self.logger.error(f"Fehler beim Abrufen des GND-Titels für ID '{gnd_id}': {e}")
+            return None
+
+    def get_gnd_synonyms_by_id(self, gnd_id: str) -> List[str]:
+        """
+        Claude Generated - Holt Synonyme für eine GND-ID als Liste.
+        
+        Args:
+            gnd_id: GND-ID
+            
+        Returns:
+            Liste der Synonyme, leer falls keine vorhanden
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT synonyms FROM gnd_entry 
+                    WHERE gnd_id = ?
+                    LIMIT 1
+                    """,
+                    (gnd_id,),
+                )
+                result = cursor.fetchone()
+                
+                if result and result[0]:
+                    synonyms = result[0]
+                    # Split synonyms by | and clean up
+                    synonym_list = [s.strip() for s in synonyms.split('|') if s.strip()]
+                    return synonym_list
+                else:
+                    return []
+                    
+        except Exception as e:
+            self.logger.error(f"Fehler beim Abrufen der Synonyme für ID '{gnd_id}': {e}")
+            return []
 
     def update_gnd_entry(
         self,

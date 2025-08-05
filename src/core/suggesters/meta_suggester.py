@@ -11,8 +11,7 @@ import logging
 from .base_suggester import BaseSuggester, BaseSuggesterError
 from .lobid_suggester import LobidSuggester
 from .swb_suggester import SWBSuggester
-from .catalog_suggester import CatalogSuggester
-from .catalog_fallback_suggester import CatalogFallbackSuggester
+from .biblio_suggester import BiblioSuggester
 
 
 class SuggesterType(Enum):
@@ -20,8 +19,7 @@ class SuggesterType(Enum):
 
     LOBID = "lobid"
     SWB = "swb"
-    CATALOG = "catalog"
-    CATALOG_FALLBACK = "catalog_fallback"
+    CATALOG = "catalog"  # Now uses BiblioSuggester
     ALL = "all"
 
 
@@ -84,7 +82,7 @@ class MetaSuggester(BaseSuggester):
             )
 
         if suggester_type in [SuggesterType.CATALOG, SuggesterType.ALL]:
-            self.suggesters[SuggesterType.CATALOG] = CatalogSuggester(
+            self.suggesters[SuggesterType.CATALOG] = BiblioSuggester(
                 data_dir=(self.data_dir / "catalog") if data_dir else None,
                 token=catalog_token,
                 debug=debug,
@@ -92,12 +90,7 @@ class MetaSuggester(BaseSuggester):
                 catalog_details=catalog_details,
             )
 
-        # Neu: Fallback-Suggester hinzufügen
-        if suggester_type in [SuggesterType.CATALOG_FALLBACK, SuggesterType.ALL]:
-            self.suggesters[SuggesterType.CATALOG_FALLBACK] = CatalogFallbackSuggester(
-                data_dir=(self.data_dir / "catalog_fallback") if data_dir else None,
-                debug=debug,
-            )
+        # BiblioSuggester handles all catalog operations (unified approach)
 
         # Connect signals from suggesters
         for suggester in self.suggesters.values():
@@ -145,7 +138,10 @@ class MetaSuggester(BaseSuggester):
             self.logger.info(f"Searching with {suggester_type.value} suggester")
             try:
                 suggester_results = suggester.search(terms)
-
+#                self.logger.info(
+#                    f"Results from {suggester_type.value} suggester: {suggester_results}"
+#                )
+                
                 # Merge results for each term
                 for term in terms:
                     if term not in suggester_results:
