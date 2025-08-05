@@ -643,9 +643,9 @@ class BiblioExtractor:
 
         return results
 
-    def extract_dk_classifications_for_keywords(self, keywords: List[str], max_results: int = 50, threshold: int = 10) -> List[Dict[str, Any]]:
+    def extract_dk_classifications_for_keywords(self, keywords: List[str], max_results: int = 50) -> List[Dict[str, Any]]:
         """
-        Claude Generated - Extract DK classifications for given GND keywords.
+        Claude Generated - Extract DK classifications for given GND keywords using intelligent caching.
         
         Args:
             keywords: List of GND keywords to search for
@@ -654,6 +654,32 @@ class BiblioExtractor:
         Returns:
             List of DK classification results with metadata
         """
+        # Use new caching system - Claude Generated
+        from .dk_cache_manager import DKCacheManager
+        
+        dk_cache = DKCacheManager()
+        
+        # First try to get results from cache
+        cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
+        
+        if cached_results:
+            logger.info(f"Found {len(cached_results)} cached DK classifications for keywords: {keywords}")
+            # Convert cached results to expected format
+            cache_results = []
+            for cached_result in cached_results:
+                cache_results.append({
+                    "dk": cached_result.dk,
+                    "classification_type": cached_result.classification_type,
+                    "keywords": cached_result.matched_keywords,
+                    "titles": cached_result.titles,
+                    "count": cached_result.count,
+                    "avg_confidence": cached_result.avg_confidence,
+                    "total_confidence": cached_result.total_confidence
+                })
+            return cache_results
+        
+        # No cache hits - perform live catalog search
+        logger.info(f"No cache hits - performing live catalog search for {len(keywords)} keywords")
         dk_results = []
         
         for keyword in keywords:
@@ -695,8 +721,51 @@ class BiblioExtractor:
                         "confidence": self._calculate_dk_confidence(item, keyword)
                     })
         
-        # Aggregate and deduplicate results
-        return self._aggregate_dk_results(dk_results, threshold=threshold)
+        # Store new results in cache for future use
+        if dk_results:
+            # Convert to format expected by cache manager
+            cache_results = []
+            
+            # Group results by classification for proper caching
+            result_groups = {}
+            for result in dk_results:
+                dk = result["dk"]
+                classification_type = result.get("classification_type", "DK")
+                key = f"{classification_type}:{dk}"
+                
+                if key not in result_groups:
+                    result_groups[key] = {
+                        "dk": dk,
+                        "classification_type": classification_type,
+                        "keywords": set(),
+                        "titles": [],
+                        "total_confidence": 0.0,
+                        "count": 0
+                    }
+                
+                result_groups[key]["keywords"].add(result["keyword"])
+                result_groups[key]["titles"].append(result["source_title"])
+                result_groups[key]["total_confidence"] += result["confidence"]
+                result_groups[key]["count"] += 1
+            
+            # Convert to cache format
+            for group_data in result_groups.values():
+                group_data["keywords"] = list(group_data["keywords"])
+                group_data["avg_confidence"] = group_data["total_confidence"] / group_data["count"]
+                # Remove duplicates from titles
+                group_data["titles"] = list(dict.fromkeys(group_data["titles"]))
+                cache_results.append(group_data)
+            
+            # Store in cache
+            dk_cache.store_classification_results(cache_results)
+            logger.info(f"Stored {len(cache_results)} new DK classifications in cache")
+            
+            # Sort by count and confidence
+            cache_results.sort(key=lambda x: (x["count"], x["avg_confidence"]), reverse=True)
+            
+            return cache_results
+        
+        return []
     
     def _calculate_dk_confidence(self, item: Dict[str, Any], keyword: str) -> float:
         """Claude Generated - Calculate confidence score for DK classification"""
@@ -713,50 +782,6 @@ class BiblioExtractor:
             
         return min(confidence, 1.0)
     
-    def _aggregate_dk_results(self, dk_results: List[Dict[str, Any]], threshold: int =10) -> List[Dict[str, Any]]:
-        """Claude Generated - Aggregate and rank DK classification results with proper title and count handling"""
-        # Group by DK classification and classification type
-        dk_groups = {}
-        
-        for result in dk_results:
-            dk = result["dk"]
-            classification_type = result.get("classification_type", "DK")
-            # Create unique key combining dk code and type
-            group_key = f"{classification_type}:{dk}"
-            
-            if group_key not in dk_groups:
-                dk_groups[group_key] = {
-                    "dk": dk,
-                    "classification_type": classification_type,
-                    "keywords": set(),
-                    "titles": [],
-                    "total_confidence": 0.0,
-                    "count": 0
-                }
-            
-            dk_groups[group_key]["keywords"].add(result["keyword"])
-            # Only add title if it's not empty and unique
-            title = result.get("source_title", "").strip()
-            if title and title not in dk_groups[group_key]["titles"]:
-                dk_groups[group_key]["titles"].append(title)
-            dk_groups[group_key]["total_confidence"] += result["confidence"]
-            dk_groups[group_key]["count"] += 1
-        
-        # Convert to list and calculate final confidence
-        final_results = []
-        for dk_data in dk_groups.values():
-            dk_data["keywords"] = list(dk_data["keywords"])
-            dk_data["avg_confidence"] = dk_data["total_confidence"] / dk_data["count"]
-            # Remove duplicate titles while preserving order
-            dk_data["titles"] = list(dict.fromkeys(dk_data["titles"]))
-            # Only include results with sufficient count
-            if dk_data["count"] >= threshold:
-                final_results.append(dk_data)
-        
-        # Sort by count and confidence (most frequent and confident first)
-        final_results.sort(key=lambda x: (x["count"], x["avg_confidence"]), reverse=True)
-        
-        return final_results
 
     def save_to_csv(self, items: List[Dict[str, Any]], filename: str) -> None:
         """

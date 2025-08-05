@@ -117,6 +117,40 @@ def main():
         default="keywords_chunked",
         help="Task to use for chunked processing (keywords_chunked, rephrase).",
     )
+    # Catalog configuration arguments - Claude Generated
+    pipeline_parser.add_argument(
+        "--catalog-token",
+        help="Catalog authentication token for library API access.",
+    )
+    pipeline_parser.add_argument(
+        "--catalog-search-url",
+        help="SOAP endpoint URL for catalog search operations.",
+    )
+    pipeline_parser.add_argument(
+        "--catalog-details-url",
+        help="SOAP endpoint URL for catalog detail retrieval.",
+    )
+    pipeline_parser.add_argument(
+        "--include-dk-classification",
+        action="store_true",
+        default=True,
+        help="Include DK classification step in pipeline (default: True).",
+    )
+    pipeline_parser.add_argument(
+        "--disable-dk-classification",
+        action="store_true",
+        help="Disable DK classification step in pipeline.",
+    )
+    pipeline_parser.add_argument(
+        "--auto-save-path",
+        help="Path for automatic intermediate state saves (default: temp file).",
+    )
+    pipeline_parser.add_argument(
+        "--dk-max-results",
+        type=int,
+        default=20,
+        help="Maximum results for DK classification search (default: 20).",
+    )
 
     # Run command (individual task)
     run_parser = subparsers.add_parser("run", help="Run an analysis task.")
@@ -211,6 +245,39 @@ def main():
         "--ollama-port", type=int, default=11434, help="Ollama port."
     )
 
+    # Test catalog command - Claude Generated
+    test_catalog_parser = subparsers.add_parser(
+        "test-catalog", help="Test catalog search functionality standalone."
+    )
+    test_catalog_parser.add_argument(
+        "search_terms", 
+        nargs="+", 
+        help="Search terms to test catalog search with."
+    )
+    test_catalog_parser.add_argument(
+        "--max-results", 
+        type=int, 
+        default=5, 
+        help="Maximum number of results to process per term (default: 5)."
+    )
+    test_catalog_parser.add_argument(
+        "--debug", 
+        action="store_true", 
+        help="Enable debug logging for detailed output."
+    )
+    test_catalog_parser.add_argument(
+        "--catalog-token", 
+        help="Override catalog token (default: from config)."
+    )
+    test_catalog_parser.add_argument(
+        "--catalog-search-url", 
+        help="Override catalog search URL (default: from config)."
+    )
+    test_catalog_parser.add_argument(
+        "--catalog-details-url", 
+        help="Override catalog details URL (default: from config)."
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -278,6 +345,9 @@ def main():
 
                 # Execute complete pipeline
                 logger.info("Starting complete pipeline execution")
+                # Handle DK classification flag
+                include_dk = args.include_dk_classification and not args.disable_dk_classification
+                
                 analysis_state = execute_complete_pipeline(
                     alima_manager=alima_manager,
                     cache_manager=cache_manager,
@@ -292,6 +362,15 @@ def main():
                     final_task=args.final_task,
                     keyword_chunking_threshold=args.keyword_chunking_threshold,
                     chunking_task=args.chunking_task,
+                    include_dk_classification=include_dk,
+                    # Catalog configuration - Claude Generated
+                    catalog_token=args.catalog_token,
+                    catalog_search_url=args.catalog_search_url,
+                    catalog_details_url=args.catalog_details_url,
+                    # Recovery configuration - Claude Generated
+                    auto_save_path=args.auto_save_path,
+                    resume_from_path=args.resume_from,
+                    dk_max_results=args.dk_max_results,
                 )
 
                 print("\n--- Pipeline Results ---")
@@ -404,6 +483,99 @@ def main():
                     print(model)
             else:
                 print("No models found.")
+
+    elif args.command == "test-catalog":
+        # Claude Generated - Test catalog search functionality
+        from src.core.biblioextractor import BiblioExtractor
+        
+        # Setup logging level
+        if args.debug:
+            logging.getLogger().setLevel(logging.DEBUG)
+            logging.getLogger("biblio_extractor").setLevel(logging.DEBUG)
+        
+        print(f"🔍 Testing catalog search for terms: {', '.join(args.search_terms)}")
+        print(f"📊 Max results per term: {args.max_results}")
+        print("-" * 60)
+        
+        try:
+            # Get catalog configuration from arguments (all required)
+            catalog_token = args.catalog_token or ""
+            catalog_search_url = args.catalog_search_url or ""
+            catalog_details_url = args.catalog_details_url or ""
+            
+            if not catalog_token:
+                logger.error("❌ No catalog token provided. Use --catalog-token TOKEN")
+                return
+                
+            if not catalog_search_url:
+                logger.error("❌ No catalog search URL provided. Use --catalog-search-url URL")
+                return
+                
+            if not catalog_details_url:
+                logger.error("❌ No catalog details URL provided. Use --catalog-details-url URL")
+                return
+                
+            print(f"🔑 Using catalog token: {catalog_token[:10]}..." if len(catalog_token) > 10 else catalog_token)
+            if catalog_search_url:
+                print(f"🌐 Search URL: {catalog_search_url}")
+            if catalog_details_url:
+                print(f"🌐 Details URL: {catalog_details_url}")
+            print()
+            
+            # Initialize BiblioExtractor
+            extractor = BiblioExtractor(
+                token=catalog_token,
+                debug=args.debug
+            )
+            
+            if catalog_search_url:
+                extractor.SEARCH_URL = catalog_search_url
+            if catalog_details_url:
+                extractor.DETAILS_URL = catalog_details_url
+            
+            # Test search_subjects method
+            print("🚀 Starting catalog subject search...")
+            results = extractor.search_subjects(
+                search_terms=args.search_terms,
+                max_results=args.max_results
+            )
+            
+            print("=" * 60)
+            print("📋 SEARCH RESULTS SUMMARY")
+            print("=" * 60)
+            
+            total_subjects = 0
+            for search_term, term_results in results.items():
+                subject_count = len(term_results)
+                total_subjects += subject_count
+                
+                print(f"\n🔸 Search term: '{search_term}'")
+                print(f"   Found subjects: {subject_count}")
+                
+                if subject_count > 0:
+                    print("   📝 Subjects found:")
+                    for i, (subject, data) in enumerate(term_results.items(), 1):
+                        print(f"      {i}. {subject}")
+                        print(f"         Count: {data.get('count', 0)}")
+                        dk_count = len(data.get('dk', set()))
+                        if dk_count > 0:
+                            print(f"         DK classifications: {dk_count}")
+                else:
+                    print("   ❌ No subjects found")
+            
+            print(f"\n🎯 TOTAL: {total_subjects} subjects found across {len(args.search_terms)} search terms")
+            
+            if total_subjects == 0:
+                print("\n⚠️  TROUBLESHOOTING:")
+                print("   1. Check if catalog token is valid")
+                print("   2. Verify catalog URLs are correct") 
+                print("   3. Try different search terms")
+                print("   4. Run with --debug flag for detailed logs")
+            
+        except Exception as e:
+            logger.error(f"❌ Catalog test failed: {str(e)}")
+            if args.debug:
+                raise
 
     elif args.command == "save-state":
         logger.error(

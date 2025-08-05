@@ -376,7 +376,7 @@ class PipelineTab(QWidget):
         input_step_widget = PipelineStepWidget(input_step)
         input_step_widget.set_content(input_widget)
         self.step_widgets["input"] = input_step_widget
-        self.pipeline_tabs.addTab(input_step_widget, "📥 INPUT")
+        self.pipeline_tabs.addTab(input_step_widget, "📥 Input & Datenquellen")
 
         # Step 2: Initialisation
         initialisation_step = PipelineStep(
@@ -390,7 +390,7 @@ class PipelineTab(QWidget):
         initialisation_step_widget = PipelineStepWidget(initialisation_step)
         initialisation_step_widget.set_content(initialisation_widget)
         self.step_widgets["initialisation"] = initialisation_step_widget
-        self.pipeline_tabs.addTab(initialisation_step_widget, "🔤 INITIALISIERUNG")
+        self.pipeline_tabs.addTab(initialisation_step_widget, "🔤 Schlagwort-Extraktion")
 
         # Step 3: Search
         search_step = PipelineStep(
@@ -400,7 +400,7 @@ class PipelineTab(QWidget):
         search_step_widget = PipelineStepWidget(search_step)
         search_step_widget.set_content(search_widget)
         self.step_widgets["search"] = search_step_widget
-        self.pipeline_tabs.addTab(search_step_widget, "🔍 SUCHE")
+        self.pipeline_tabs.addTab(search_step_widget, "🔍 GND-Recherche")
 
         # Step 4: Keywords (Verbale Erschließung)
         keywords_step = PipelineStep(
@@ -414,7 +414,7 @@ class PipelineTab(QWidget):
         keywords_step_widget = PipelineStepWidget(keywords_step)
         keywords_step_widget.set_content(keywords_widget)
         self.step_widgets["keywords"] = keywords_step_widget
-        self.pipeline_tabs.addTab(keywords_step_widget, "✅ SCHLAGWORTE")
+        self.pipeline_tabs.addTab(keywords_step_widget, "✅ Schlagwort-Verifikation")
 
         # Step 5: DK Search (catalog search)
         dk_search_step = PipelineStep(
@@ -426,7 +426,7 @@ class PipelineTab(QWidget):
         dk_search_step_widget = PipelineStepWidget(dk_search_step)
         dk_search_step_widget.set_content(dk_search_widget)
         self.step_widgets["dk_search"] = dk_search_step_widget
-        self.pipeline_tabs.addTab(dk_search_step_widget, "📊 DK-SUCHE")
+        self.pipeline_tabs.addTab(dk_search_step_widget, "📊 Katalog-Recherche")
 
         # Step 6: DK Classification (LLM analysis)
         dk_classification_step = PipelineStep(
@@ -438,7 +438,7 @@ class PipelineTab(QWidget):
         dk_classification_step_widget = PipelineStepWidget(dk_classification_step)
         dk_classification_step_widget.set_content(dk_classification_widget)
         self.step_widgets["dk_classification"] = dk_classification_step_widget
-        self.pipeline_tabs.addTab(dk_classification_step_widget, "📚 DK-KLASSIFIKATION")
+        self.pipeline_tabs.addTab(dk_classification_step_widget, "📚 DK/RVK-Klassifikation")
 
     def create_compact_pipeline_control(self) -> QWidget:
         """Create compact pipeline control with progress and buttons - Claude Generated"""

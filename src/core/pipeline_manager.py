@@ -81,15 +81,15 @@ class PipelineConfig:
             },
             "dk_search": {
                 "step_id": "dk_search",
-                "enabled": False,
+                "enabled": True,
                 "max_results": 20,
-                "catalog_token": None,
+                "catalog_token": "xxxxx",
                 "catalog_search_url": None,
                 "catalog_details_url": None,
             },
             "dk_classification": {
                 "step_id": "dk_classification",
-                "enabled": False,
+                "enabled": True,
                 "provider": "ollama",
                 "model": "cogito:32b",
                 "temperature": 0.7,
@@ -253,7 +253,7 @@ class PipelineManager:
 
         # DK Search step (optional)
         dk_search_config = self.config.step_configs.get("dk_search", {})
-        if dk_search_config.get("enabled", False):
+        if dk_search_config.get("enabled", True):
             steps.append(
                 PipelineStep(
                     step_id="dk_search",
@@ -263,7 +263,7 @@ class PipelineManager:
             
         # DK Classification step (optional) 
         dk_classification_config = self.config.step_configs.get("dk_classification", {})
-        if dk_classification_config.get("enabled", False):
+        if dk_classification_config.get("enabled", True):
             steps.append(
                 PipelineStep(
                     step_id="dk_classification",
@@ -553,7 +553,7 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK search
             dk_search_config = self.config.step_configs.get("dk_search", {})
-            dk_search_results = self.executor.execute_dk_search(
+            dk_search_results = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
                 stream_callback=self._stream_callback_adapter,
                 max_results=dk_search_config.get("max_results", 20),
@@ -591,7 +591,7 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK classification
             dk_classification_config = self.config.step_configs.get("dk_classification", {})
-            dk_classifications = self.executor.execute_dk_classification(
+            dk_classifications = self.pipeline_executor.execute_dk_classification(
                 dk_search_results=dk_search_results,
                 original_abstract=original_abstract,
                 model=step.model or dk_classification_config.get("model", "cogito:32b"),
@@ -623,10 +623,15 @@ class PipelineManager:
 
     def _get_previous_step(self, step_id: str) -> Optional[PipelineStep]:
         """Get the step with the given step_id from completed steps - Claude Generated"""
-        for step in self.steps:
+        for step in self.pipeline_steps:
             if step.step_id == step_id and step.status == "completed":
                 return step
         return None
+
+    def _stream_callback_adapter(self, token: str, step_id: str):
+        """Adapter for stream callbacks - Claude Generated"""
+        if self.stream_callback:
+            self.stream_callback(token, step_id)
 
     def _execute_next_step(self):
         """Execute the next step in the pipeline - Claude Generated"""

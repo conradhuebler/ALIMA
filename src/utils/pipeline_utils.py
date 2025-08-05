@@ -952,7 +952,7 @@ class PipelineStepExecutor:
                     #if len(titles) > 3:
                     #    title_text += f" | ... (und {len(titles) - 3} weitere)"
                     
-                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count}) | Beispieltitel: {title_text} | Keywords: {', '.join(keywords)}"
+                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count}) | Beispieltitel: {title_text}"
                     catalog_results.append(entry)
             elif "source_title" in result and "dk" in result:
                 # Individual result format from extract_dk_classifications_for_keywords
@@ -963,7 +963,7 @@ class PipelineStepExecutor:
                 
                 # Format individual classification
                 if dk_code and title:
-                    entry = f"{classification_type}: {dk_code} | Titel: {title} | Keyword: {keyword}"
+                    entry = f"{classification_type}: {dk_code} | Titel: {title}"
                     catalog_results.append(entry)
             else:
                 # Legacy format support
@@ -1132,7 +1132,6 @@ class PipelineStepExecutor:
             dk_search_results = extractor.extract_dk_classifications_for_keywords(
                 keywords=clean_keywords,
                 max_results=max_results,
-                threshold=10,  # Minimum results per keyword
             )
             
             if stream_callback:

@@ -31,7 +31,6 @@ As Claude, your AI assistant, I'm here to provide comprehensive support for the 
 - Maintain backward compatibility where possible
 - **Always check and consider instructions blocks** in relevant CLAUDE.md files before implementing 
 - reformulate and clarify task and vision entries if not alredy marked as CLAUDE formatted
-- in case of compiler warning for deprecated suprafit functions, replace the old function call with the new one
 
 ### Add(ed)/Tested/Approved
 - For Task/Features/Function use numeric identifieres (1,2,3,...) to organise the task/features/functions across the documents DURING development
@@ -72,6 +71,23 @@ The pipeline has been made fully consistent across all components with unified n
 - ✅ Consistent error handling and recovery across all steps
 
 ## [Variable Section - Short-term Information]
+
+### ✅ MAJOR ENHANCEMENT COMPLETED - Two-Step DK Classification Architecture
+
+**Status**: ✅ DK Classification split into separate search and analysis steps for optimal performance and recovery
+
+**Implementation Details**:
+- **Step 4a**: `execute_dk_search()` - Time-intensive catalog search (BiblioExtractor SOAP calls)  
+- **Step 4b**: `execute_dk_classification()` - Fast LLM analysis using pre-fetched search results
+- **Auto-save checkpoint**: Intermediate state saved after DK search step for recovery
+- **Enhanced data model**: `KeywordAnalysisState` now stores both `dk_search_results` and `dk_classifications`
+- **Pipeline step count**: Updated to 5 steps (Input → Keywords → Search → Final Keywords → DK Search → DK Classification)
+
+**Performance Benefits**:
+- **Caching**: Expensive catalog search results cached independently from LLM analysis
+- **Recovery**: Pipeline can resume after catalog search without repeating time-intensive operations  
+- **Modularity**: Search and analysis steps can be configured and run independently
+- **Error isolation**: Search failures don't affect LLM analysis step and vice versa
 
 ### 🚀 MAJOR REFACTORING COMPLETED - Pipeline Logic Unification
 
@@ -148,6 +164,8 @@ python alima_cli.py pipeline \
 - **Both interfaces** can now use all available prompt tasks for flexible analysis workflows
 
 ### Vision
+- Restructure Code, many functions and logics is distributed among utlis, core, suggestors
+- Keep Claude.MD compact, don't spam it with short-term informations about minoar implementation bugs, that occur during development
 - Long-term goals and architectural directions
 - Maintain unified pipeline architecture ensuring CLI and GUI feature parity
 - All future pipeline enhancements must implement both interfaces simultaneously
@@ -529,6 +547,108 @@ def on_llm_stream_token(self, token: str, step_id: str):
 - **Automatic transfer**: Analysis results flow to verification tab
 - **Signal-based communication**: `analysis_completed` signal implementation
 - **Immediate display**: Results appear in review tab upon completion
+
+### 🗄️ **GEPLANT: Database Unification & Facts/Mappings Separation**
+
+**Status**: ✅ Konzept fertig, Implementation geplant für später
+
+**Vision**: Self-Learning Knowledge Database mit Facts/Mappings-Trennung
+- **Von**: Separate Caches (`search_cache.db` + `dk_classifications.db`) + Web-APIs
+- **Zu**: Unified Knowledge Database (`alima_knowledge.db`) + Progressive Learning System
+
+#### Unified Database Schema
+
+```sql
+-- === FAKTEN-TABELLEN (Unveränderliche Wahrheiten) ===
+
+-- 1. GND-Einträge (Facts only, keine Suchbegriffe)
+CREATE TABLE gnd_entries (
+    gnd_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    synonyms TEXT,
+    ddcs TEXT,
+    ppn TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. DK/RVK Klassifikationen (Facts only, keine Keywords)
+CREATE TABLE classifications (
+    code TEXT PRIMARY KEY,           -- "530.12" oder "Q175"
+    type TEXT NOT NULL,              -- "DK" oder "RVK"
+    title TEXT,                      -- Offizieller Titel der Klassifikation
+    description TEXT,                
+    parent_code TEXT,                -- Hierarchie (optional)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- === SUCH-MAPPING TABELLEN (Dynamische Zuordnungen) ===
+
+-- 3. Search Mappings (Suchbegriff → gefundene Ergebnisse)
+CREATE TABLE search_mappings (
+    search_term TEXT NOT NULL,
+    normalized_term TEXT NOT NULL,   -- Für Fuzzy-Matching
+    suggester_type TEXT NOT NULL,    -- "lobid", "swb", "catalog", "fuzzy"
+    
+    -- Gefundene GND-IDs (JSON Array)
+    found_gnd_ids TEXT,              -- ["4010435-7", "4156984-3"]
+    
+    -- Gefundene Klassifikationen (JSON Array) 
+    found_classifications TEXT,       -- [{"code":"530.12","type":"DK"}, {"code":"Q175","type":"RVK"}]
+    
+    result_count INTEGER DEFAULT 0,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    PRIMARY KEY (search_term, suggester_type)
+);
+```
+
+#### Implementation Roadmap
+
+**Phase 1: Database Unification (Week 1) ⚡ Critical**
+1. **Unified Schema Migration**
+   - Merge `search_cache.db` + `dk_classifications.db` → `alima_knowledge.db`
+   - Migrate existing GND entries and search cache
+   - Create new classification and search mapping tables
+
+2. **UnifiedKnowledgeManager Class**
+   - Replace `CacheManager` + `DKCacheManager` → `UnifiedKnowledgeManager`
+   - Implement all CRUD operations for unified schema
+   - Separate methods for Facts vs. Mappings
+
+**Phase 2: Smart Search Integration (Week 2) 🔍 High**
+3. **Mapping-basierte Suche**
+   - GND-Suche prüft Mappings first
+   - Live-Suche nur bei Mapping-Miss oder veralteten Mappings
+   - Automatische Mapping-Updates nach jeder Live-Suche
+
+4. **Local-First GND Search**
+   - Priority: Local DB → Web APIs only for unknowns
+   - Progressive cache filling through usage
+   - Fuzzy search with mapping integration
+
+**Phase 3: Testing & Optimization (Week 3) 🔧 Medium**
+5. **Mapping-Qualität Tests**
+   - Mapping-Freshness Logic
+   - Fuzzy-Search Qualität mit verschiedenen Schwellenwerten
+   - Performance-Tests: Mapping vs. Live-Search
+
+6. **Pipeline Integration Tests**
+   - Vollständige Pipeline-Runs mit Mapping-System
+   - JSON-Output Deduplizierung 
+   - Cache-Hit-Rate Monitoring
+
+#### Expected Performance Impact
+
+**Nach 50 Pipeline-Runs:**
+- **GND-Mapping-Hits**: 60-70% Begriffe aus Mappings  
+- **DK-Mapping-Hits**: 40-50% Klassifikationen aus Mappings
+- **Web-Request-Reduktion**: 70-80% weniger API-Calls
+- **Mapping-Qualität**: Umfassende Abdeckung häufiger Begriffe
+
+**Architektur-Prinzip**: Saubere Trennung zwischen unveränderlichen Fakten und dynamischen Such-Zuordnungen für maximale Flexibilität und Performance.
 
 ## Future Development Areas
 
