@@ -17,7 +17,7 @@ from src.core.data_models import (
     LlmKeywordAnalysis,
 )
 from src.core.search_cli import SearchCLI
-from src.core.cache_manager import CacheManager
+from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from src.core.suggesters.meta_suggester import SuggesterType
 from src.core.processing_utils import (
     extract_keywords_from_response,
@@ -300,7 +300,7 @@ def main():
         )
         prompt_service = PromptService(PROMPTS_FILE, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, logger)
-        cache_manager = CacheManager()
+        cache_manager = UnifiedKnowledgeManager()
 
         def stream_callback(token, step_id):
             print(token, end="", flush=True)
@@ -441,7 +441,7 @@ def main():
             logger.error(f"An error occurred during analysis: {e}")
 
     elif args.command == "search":
-        cache_manager = CacheManager()
+        cache_manager = UnifiedKnowledgeManager()
         search_cli = SearchCLI(cache_manager)
 
         suggester_types = []

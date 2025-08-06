@@ -18,7 +18,7 @@ from ..core.data_models import (
     SearchResult,
 )
 from ..core.search_cli import SearchCLI
-from ..core.cache_manager import CacheManager
+from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.suggesters.meta_suggester import SuggesterType
 from ..core.processing_utils import (
     extract_keywords_from_response,
@@ -32,7 +32,7 @@ class PipelineStepExecutor:
     def __init__(
         self,
         alima_manager,
-        cache_manager: CacheManager,
+        cache_manager: UnifiedKnowledgeManager,
         logger=None,
     ):
         self.alima_manager = alima_manager
@@ -504,6 +504,13 @@ class PipelineStepExecutor:
                 task_state.analysis_result.full_text, gnd_compliant_keywords
             )
         )
+        
+        # Apply deduplication to ensure no duplicate keywords - Claude Generated
+        extracted_keywords_exact = self._deduplicate_keywords(
+            [extracted_keywords_exact],  # Wrap in list for consistency with chunked version
+            gnd_compliant_keywords
+        )
+        
         extracted_gnd_classes = extract_classes_from_descriptive_text(
             task_state.analysis_result.full_text
         )
@@ -583,6 +590,13 @@ class PipelineStepExecutor:
                 task_state.analysis_result.full_text, gnd_compliant_keywords
             )
         )
+        
+        # Apply deduplication to ensure no duplicate keywords - Claude Generated
+        extracted_keywords_exact = self._deduplicate_keywords(
+            [extracted_keywords_exact],  # Wrap in list for consistency with chunked version
+            gnd_compliant_keywords
+        )
+        
         extracted_gnd_classes = extract_classes_from_descriptive_text(
             task_state.analysis_result.full_text
         )
@@ -1012,7 +1026,7 @@ class PipelineStepExecutor:
                 stream_callback(token, "dk_classification")
 
         # Filter out custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results"]}
+        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "top_p", "temperature"]}
 
         # Execute LLM classification
         try:
@@ -1328,7 +1342,7 @@ class PipelineResultFormatter:
 
 def execute_complete_pipeline(
     alima_manager,
-    cache_manager: CacheManager,
+    cache_manager: UnifiedKnowledgeManager,
     input_text: str,
     initial_model: str,
     final_model: str,

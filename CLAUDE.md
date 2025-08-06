@@ -138,6 +138,41 @@ python alima_cli.py pipeline \
 
 **Status**: Both CLI and GUI pipelines tested and working with shared logic from `pipeline_utils.py`
 
+### ✅ DATABASE UNIFICATION COMPLETED - Facts/Mappings Architecture  
+
+**Status**: ✅ WEEK 1 IMPLEMENTATION COMPLETED - Unified knowledge database with Facts/Mappings separation
+
+**Database Architecture Implemented**:
+- **`alima_knowledge.db`**: Single unified database replacing separate `search_cache.db` + `dk_classifications.db`
+- **Facts Tables**: Immutable truths (`gnd_entries`, `classifications`)  
+- **Mappings Tables**: Dynamic search associations (`search_mappings`)
+- **Clean separation**: Facts never change; Mappings track search term → results relationships
+
+**Technical Implementation**:
+- **`UnifiedKnowledgeManager`**: New unified manager replacing both `CacheManager` + `DKCacheManager`
+- **Compatibility adapters**: Existing interfaces maintained via adapter methods
+- **Full system integration**: All 15+ files updated to use unified system
+- **Schema migration**: Clean database design with proper relationships and indexing
+
+**Files Updated**:
+- **Core services**: `pipeline_utils.py`, `pipeline_manager.py`, `search_cli.py`, `biblioextractor.py`
+- **UI components**: `main_window.py`, `pipeline_tab.py`, `global_status_bar.py` 
+- **CLI tools**: `alima_cli.py`, test files
+- **New unified manager**: `unified_knowledge_manager.py` with Facts/Mappings architecture
+
+**Verification Results**:
+- ✅ Database schema created and operational
+- ✅ GND fact storage working 
+- ✅ Search mapping storage/retrieval working
+- ✅ Compatibility adapters functional for existing code
+- ✅ All components using unified system successfully
+
+**Performance Benefits Achieved**:
+- **Single database**: Eliminates management complexity of separate databases
+- **Facts/Mappings separation**: Enables progressive learning and advanced caching strategies  
+- **Unified interface**: Simplified development and maintenance
+- **Foundation for Week 2**: Smart search integration with mapping-based optimization ready
+
 ## [Instructions Block - Operator-Defined Tasks]
 ### Future Tasks
 - Task 1: Description
@@ -548,9 +583,9 @@ def on_llm_stream_token(self, token: str, step_id: str):
 - **Signal-based communication**: `analysis_completed` signal implementation
 - **Immediate display**: Results appear in review tab upon completion
 
-### 🗄️ **GEPLANT: Database Unification & Facts/Mappings Separation**
+### 🗄️ **COMPLETED: Database Unification & Facts/Mappings Separation**
 
-**Status**: ✅ Konzept fertig, Implementation geplant für später
+**Status**: ✅ Week 1 COMPLETED - Implementation successfully finished
 
 **Vision**: Self-Learning Knowledge Database mit Facts/Mappings-Trennung
 - **Von**: Separate Caches (`search_cache.db` + `dk_classifications.db`) + Web-APIs

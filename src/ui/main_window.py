@@ -39,7 +39,7 @@ from .find_keywords import SearchTab
 from .abstract_tab import AbstractTab
 from .settings_dialog import SettingsDialog
 from ..core.search_engine import SearchEngine
-from ..core.cache_manager import CacheManager
+from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.gndparser import GNDParser
 from ..core.gitupdate import GitUpdateWorker
 from ..llm.llm_service import LlmService
@@ -319,7 +319,7 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("TUBAF", "Alima")
         # self.config = Config.get_instance()
         # Initialisiere Core-Komponenten
-        self.cache_manager = CacheManager()
+        self.cache_manager = UnifiedKnowledgeManager()
         self.search_engine = SearchEngine(self.cache_manager)
         self.logger = logging.getLogger(__name__)
         self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")

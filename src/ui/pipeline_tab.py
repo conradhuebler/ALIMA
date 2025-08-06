@@ -26,11 +26,13 @@ from PyQt6.QtGui import QFont, QPalette, QPixmap
 from typing import Optional, Dict, Any, List
 import logging
 from datetime import datetime
+import json
+from pathlib import Path
 
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from .pipeline_config_dialog import PipelineConfigDialog
 from ..core.alima_manager import AlimaManager
-from ..core.cache_manager import CacheManager
+from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..llm.llm_service import LlmService
 from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
@@ -209,7 +211,7 @@ class PipelineTab(QWidget):
         self,
         alima_manager: AlimaManager,
         llm_service: LlmService,
-        cache_manager: CacheManager,
+        cache_manager: UnifiedKnowledgeManager,
         main_window=None,
         parent=None,
     ):
@@ -220,10 +222,16 @@ class PipelineTab(QWidget):
         self.main_window = main_window
         self.logger = logging.getLogger(__name__)
 
+        # Load catalog configuration
+        self.catalog_token, self.catalog_search_url, self.catalog_details_url = self._load_catalog_config()
+        
         # Pipeline manager
         self.pipeline_manager = PipelineManager(
             alima_manager=alima_manager, cache_manager=cache_manager, logger=self.logger
         )
+        
+        # Update pipeline config with catalog settings
+        self._update_pipeline_config_with_catalog_settings()
 
         # Pipeline worker for background execution
         self.pipeline_worker: Optional[PipelineWorker] = None
@@ -1181,3 +1189,54 @@ class PipelineTab(QWidget):
 
             # End streaming if we get a final token (this would need refinement based on actual LLM response patterns)
             # For now, we'll leave the line open and let the step completion handle ending
+    
+    def _load_catalog_config(self) -> tuple[str, str, str]:
+        """Load catalog configuration from config file - Claude Generated"""
+        config_file = Path.home() / ".alima_config.json"
+        catalog_token = ""
+        catalog_search_url = ""
+        catalog_details_url = ""
+        
+        try:
+            if config_file.exists():
+                with open(config_file, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                
+                # Load catalog settings
+                catalog_token = config.get("catalog_token", "")
+                catalog_search_url = config.get("catalog_search_url", "")
+                catalog_details_url = config.get("catalog_details", "")
+                
+                if catalog_token:
+                    self.logger.info(f"Loaded catalog token from config (length: {len(catalog_token)})")
+                else:
+                    self.logger.warning("No catalog token found in config")
+            else:
+                self.logger.warning(f"Config file not found: {config_file}")
+                
+        except Exception as e:
+            self.logger.error(f"Error loading catalog config: {e}")
+        
+        return catalog_token, catalog_search_url, catalog_details_url
+    
+    def _update_pipeline_config_with_catalog_settings(self):
+        """Update pipeline config with loaded catalog settings - Claude Generated"""
+        config = self.pipeline_manager.config
+        
+        # Update DK search step configuration
+        if "dk_search" in config.step_configs:
+            config.step_configs["dk_search"].update({
+                "catalog_token": self.catalog_token,
+                "catalog_search_url": self.catalog_search_url,
+                "catalog_details_url": self.catalog_details_url,
+            })
+            
+        # Also update DK classification step if it exists
+        if "dk_classification" in config.step_configs:
+            config.step_configs["dk_classification"].update({
+                "catalog_token": self.catalog_token,
+                "catalog_search_url": self.catalog_search_url,
+                "catalog_details_url": self.catalog_details_url,
+            })
+        
+        self.logger.info(f"Updated pipeline config with catalog settings (token present: {bool(self.catalog_token)})")

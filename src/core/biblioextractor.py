@@ -655,9 +655,9 @@ class BiblioExtractor:
             List of DK classification results with metadata
         """
         # Use new caching system - Claude Generated
-        from .dk_cache_manager import DKCacheManager
+        from .unified_knowledge_manager import UnifiedKnowledgeManager
         
-        dk_cache = DKCacheManager()
+        dk_cache = UnifiedKnowledgeManager()
         
         # First try to get results from cache
         cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)

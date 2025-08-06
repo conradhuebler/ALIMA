@@ -19,7 +19,7 @@ from .data_models import (
     SearchResult,
 )
 from .search_cli import SearchCLI
-from .cache_manager import CacheManager
+from .unified_knowledge_manager import UnifiedKnowledgeManager
 from .suggesters.meta_suggester import SuggesterType
 from .processing_utils import (
     extract_keywords_from_response,
@@ -83,7 +83,7 @@ class PipelineConfig:
                 "step_id": "dk_search",
                 "enabled": True,
                 "max_results": 20,
-                "catalog_token": "xxxxx",
+                "catalog_token": "",  # Will be updated from config
                 "catalog_search_url": None,
                 "catalog_details_url": None,
             },
@@ -109,7 +109,7 @@ class PipelineManager:
     def __init__(
         self,
         alima_manager: AlimaManager,
-        cache_manager: CacheManager,
+        cache_manager: UnifiedKnowledgeManager,
         logger: logging.Logger = None,
     ):
         self.alima_manager = alima_manager

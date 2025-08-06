@@ -40,11 +40,17 @@ class SearchWorker(QThread):
         cache_manager,
         search_terms: List[str],
         suggester_types: List[SuggesterType],
+        catalog_token: str = "",
+        catalog_search_url: str = "",
+        catalog_details: str = "",
     ):
         super().__init__()
         self.cache_manager = cache_manager
         self.search_terms = search_terms
         self.suggester_types = suggester_types
+        self.catalog_token = catalog_token
+        self.catalog_search_url = catalog_search_url
+        self.catalog_details = catalog_details
         self.results = {}
         self.errors = []
         self.completed_terms = 0
@@ -64,7 +70,12 @@ class SearchWorker(QThread):
 
             for suggester_type in self.suggester_types:
                 logger.info(f"Using suggester type: {suggester_type}")
-                suggester = MetaSuggester(suggester_type=suggester_type)
+                suggester = MetaSuggester(
+                    suggester_type=suggester_type, 
+                    catalog_token=self.catalog_token,
+                    catalog_search_url=self.catalog_search_url,
+                    catalog_details=self.catalog_details
+                )
                 logger.info(f"Searching for terms: {self.search_terms}")
                 # Use the search method which takes a list of terms
                 search_results = suggester.search(self.search_terms)
@@ -778,7 +789,12 @@ class SearchTab(QWidget):
             suggester_types.append(SuggesterType.LOBID)
 
         self.search_worker = SearchWorker(
-            self.cache_manager, search_terms, suggester_types
+            self.cache_manager, 
+            search_terms, 
+            suggester_types, 
+            self.catalog_token,
+            self.catalog_search_url,
+            self.catalog_details
         )
         self.search_worker.finished.connect(self.process_search_results)
         self.search_worker.error.connect(self.handle_error)
@@ -981,7 +997,11 @@ class SearchTab(QWidget):
 
         try:
             suggester = MetaSuggester(
-                suggester_type=SuggesterType.SWB, debug=False, catalog_token=""
+                suggester_type=SuggesterType.SWB, 
+                debug=False, 
+                catalog_token=self.catalog_token,
+                catalog_search_url=self.catalog_search_url,
+                catalog_details=self.catalog_details
             )
             suggester.currentTerm.connect(self.current_term_update)
             results = suggester.search(keywords)

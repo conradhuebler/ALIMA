@@ -10,7 +10,7 @@ from typing import Dict, Optional, List
 import logging
 
 from ..llm.llm_service import LlmService
-from ..core.cache_manager import CacheManager
+from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 
 
 class GlobalStatusBar(QStatusBar):
@@ -41,7 +41,7 @@ class GlobalStatusBar(QStatusBar):
         # Current state
         self.current_provider = "Nicht verfügbar"
         self.current_model = ""
-        self.cache_manager: Optional[CacheManager] = None
+        self.cache_manager: Optional[UnifiedKnowledgeManager] = None
         self.llm_service: Optional[LlmService] = None
 
     def setup_ui(self):
@@ -116,7 +116,7 @@ class GlobalStatusBar(QStatusBar):
         # Add to status bar
         self.addPermanentWidget(status_widget)
 
-    def set_services(self, llm_service: LlmService, cache_manager: CacheManager):
+    def set_services(self, llm_service: LlmService, cache_manager: UnifiedKnowledgeManager):
         """Set the services for status monitoring - Claude Generated"""
         self.llm_service = llm_service
         self.cache_manager = cache_manager

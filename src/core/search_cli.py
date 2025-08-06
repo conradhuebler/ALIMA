@@ -2,11 +2,11 @@ import logging
 from typing import List, Dict, Any
 
 from .suggesters.meta_suggester import MetaSuggester, SuggesterType
-from .cache_manager import CacheManager
+from .unified_knowledge_manager import UnifiedKnowledgeManager
 
 
 class SearchCLI:
-    def __init__(self, cache_manager: CacheManager, catalog_token: str = "", catalog_search_url: str = "", catalog_details_url: str = ""):
+    def __init__(self, cache_manager: UnifiedKnowledgeManager, catalog_token: str = "", catalog_search_url: str = "", catalog_details_url: str = ""):
         self.logger = logging.getLogger(__name__)
         self.cache_manager = cache_manager
         self.catalog_token = catalog_token

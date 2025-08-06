@@ -1183,6 +1183,7 @@ class LlmService(QObject):
                     "top_p": p_value,
                 },
                 "stream": stream,
+                "think" : False
             }
 
             # Add seed if provided
