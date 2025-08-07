@@ -366,7 +366,7 @@ class LlmService(QObject):
             api_key = None
             if provider_info["api_key"]:
                 # Try config first, then environment
-                api_key = self.config.get(provider) or os.getenv(
+                api_key = self.config.get("api_keys", {}).get(provider) or os.getenv(
                     provider_info["api_key"]
                 )
                 if not api_key:
