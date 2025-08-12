@@ -35,9 +35,10 @@ class SWBSubjectExtractor(QObject):
 
     currentTerm = pyqtSignal(str)
 
-    def __init__(self, cache_dir: Optional[Union[str, Path]] = None):
+    def __init__(self, cache_dir: Optional[Union[str, Path]] = None, debug: bool = False):
         super().__init__()
         """Initialize the extractor with optional cache directory"""
+        self.debug = debug
         if cache_dir:
             self.cache_dir = Path(cache_dir)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -77,7 +78,8 @@ class SWBSubjectExtractor(QObject):
 
                 return result
         except Exception as e:
-            print(f"Warning: Could not load cache: {e}")
+            if self.debug:
+                print(f"Warning: Could not load cache: {e}")
             return {}
 
     def _save_cache(self):
@@ -100,7 +102,8 @@ class SWBSubjectExtractor(QObject):
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(serializable_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"Warning: Could not save cache: {e}")
+            if self.debug:
+                print(f"Warning: Could not save cache: {e}")
 
     def _is_single_result_page(self, content: str) -> bool:
         """
@@ -207,19 +210,21 @@ class SWBSubjectExtractor(QObject):
                     gnd_id = gnd_link_match.group(1)
 
         # Debug-Ausgaben
-        print(
-            f"Single result extraction - Subject name: '{subject_name}', GND ID: '{gnd_id}'"
-        )
+        if self.debug:
+            print(
+                f"Single result extraction - Subject name: '{subject_name}', GND ID: '{gnd_id}'"
+            )
 
         # Wenn sowohl Titel als auch GND-ID gefunden wurden, erstelle einen Eintrag
         if subject_name and gnd_id:
             return {subject_name: gnd_id}
 
         # Wenn etwas fehlt, gib ein leeres Dictionary zurück
-        if not subject_name:
-            print("Warning: Could not extract subject name from single result page")
-        if not gnd_id:
-            print("Warning: Could not extract GND ID from single result page")
+        if self.debug:
+            if not subject_name:
+                print("Warning: Could not extract subject name from single result page")
+            if not gnd_id:
+                print("Warning: Could not extract GND ID from single result page")
 
         return {}
 
@@ -229,7 +234,8 @@ class SWBSubjectExtractor(QObject):
         """
         # Zuerst prüfen, ob es sich um eine Einzeltrefferseite handelt
         if self._is_single_result_page(content):
-            print("Detected single result page, extracting details...")
+            if self.debug:
+                print("Detected single result page, extracting details...")
             return self._extract_details_from_single_result(content)
 
         # Standardextraktion für Ergebnislisten
@@ -248,7 +254,8 @@ class SWBSubjectExtractor(QObject):
 
             if subject_name and gnd_id:
                 subjects[subject_name] = gnd_id
-                print(f"Found subject: {subject_name} (GND: {gnd_id})")
+                if self.debug:
+                    print(f"Found subject: {subject_name} (GND: {gnd_id})")
 
         # If nothing found, try an alternative approach using BeautifulSoup
         if not subjects:
@@ -291,7 +298,8 @@ class SWBSubjectExtractor(QObject):
                     if link and link.text.strip():
                         subject_name = link.text.strip()
                         subjects[subject_name] = gnd_id
-                        print(f"Found subject via BS4: {subject_name} (GND: {gnd_id})")
+                        if self.debug:
+                            print(f"Found subject via BS4: {subject_name} (GND: {gnd_id})")
 
         # Last resort: direct extraction from HTML with specific pattern
         if not subjects:
@@ -305,9 +313,10 @@ class SWBSubjectExtractor(QObject):
 
                 if subject_name and gnd_id:
                     subjects[subject_name] = gnd_id
-                    print(
-                        f"Found subject via JS pattern: {subject_name} (GND: {gnd_id})"
-                    )
+                    if self.debug:
+                        print(
+                            f"Found subject via JS pattern: {subject_name} (GND: {gnd_id})"
+                        )
 
         return subjects
 
@@ -378,7 +387,8 @@ class SWBSubjectExtractor(QObject):
         """
         # Check cache first
         if search_term in self.cache:
-            print(f"Using cached results for '{search_term}'")
+            if self.debug:
+                print(f"Using cached results for '{search_term}'")
             return self.cache[search_term]
 
         # Korrekte URL für die Sachbegriff-Suche
@@ -401,8 +411,9 @@ class SWBSubjectExtractor(QObject):
         # URL zusammenbauen
         url = f"{base_url}?{urllib.parse.urlencode(params)}"
 
-        print(f"Searching SWB for subject term: {search_term}")
-        print(f"URL: {url}")
+        if self.debug:
+            print(f"Searching SWB for subject term: {search_term}")
+            print(f"URL: {url}")
 
         all_subjects = {}
         current_url = url
@@ -410,7 +421,8 @@ class SWBSubjectExtractor(QObject):
 
         while current_url and page_count < max_pages:
             page_count += 1
-            print(f"\nProcessing page {page_count}: {current_url}")
+            if self.debug:
+                print(f"\nProcessing page {page_count}: {current_url}")
 
             try:
                 response = requests.get(current_url)
@@ -428,13 +440,15 @@ class SWBSubjectExtractor(QObject):
                 # Prüfe, ob es sich um eine Einzelergebnisseite handelt
                 is_single_result = self._is_single_result_page(content)
                 if is_single_result:
-                    print(
-                        "Detected single result page - direct match for the search term"
-                    )
+                    if self.debug:
+                        print(
+                            "Detected single result page - direct match for the search term"
+                        )
 
                 # Sachbegriffe von dieser Seite extrahieren
                 page_subjects = self._extract_subjects_from_page(content)
-                print(f"Found {len(page_subjects)} subjects on page {page_count}")
+                if self.debug:
+                    print(f"Found {len(page_subjects)} subjects on page {page_count}")
 
                 # Zu den Gesamtergebnissen hinzufügen
                 all_subjects.update(page_subjects)
@@ -446,16 +460,19 @@ class SWBSubjectExtractor(QObject):
                 # URL der nächsten Seite suchen
                 next_url = self._get_next_page_url(content, current_url)
                 if next_url:
-                    print(f"Found next page URL: {next_url}")
+                    if self.debug:
+                        print(f"Found next page URL: {next_url}")
                     current_url = next_url
                     # Kleine Pause, um den Server nicht zu überlasten
                     time.sleep(0.5)
                 else:
-                    print(f"No more result pages found after page {page_count}")
+                    if self.debug:
+                        print(f"No more result pages found after page {page_count}")
                     break
 
             except Exception as e:
-                print(f"Error processing page {page_count}: {e}")
+                if self.debug:
+                    print(f"Error processing page {page_count}: {e}")
                 break
 
         # Ergebnisse im gewünschten Format bereitstellen
@@ -498,12 +515,13 @@ class SWBSubjectExtractor(QObject):
             # Emit Signal für Kompatibilität (eigentlich ein No-op, weil kein richtiges Signal)
             self.currentTerm.emit(search_term)
 
-            print(
-                f"\nFound {len(results[search_term])} total subjects for '{search_term}'"
-            )
+            if self.debug:
+                print(
+                    f"\nFound {len(results[search_term])} total subjects for '{search_term}'"
+                )
 
             # Debug: Zeige einige Beispielergebnisse
-            if results[search_term]:
+            if self.debug and results[search_term]:
                 print("Sample results:")
                 sample_count = min(5, len(results[search_term]))
                 for i, (subject, data) in enumerate(

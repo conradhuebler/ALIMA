@@ -590,7 +590,7 @@ class SWBSuggester(BaseSuggester):
                 )
 
                 # Show some sample results
-                if results[search_term]:
+                if self.debug and results[search_term]:
                     print("Sample results:")
                     sample_count = min(5, len(results[search_term]))
                     for i, (subject, data) in enumerate(

@@ -563,3 +563,170 @@ class UnifiedKnowledgeManager:
             self.logger.debug("Database integrity check completed")
         except Exception as e:
             self.logger.warning(f"Database save operation warning: {e}")
+    
+    # === WEEK 2: SMART SEARCH INTEGRATION ===
+    
+    def search_with_mappings_first(self, search_term: str, suggester_type: str, 
+                                 max_age_hours: int = 24, 
+                                 live_search_fallback: callable = None) -> tuple[List[str], bool]:
+        """
+        Week 2: Smart search with mappings-first strategy - Claude Generated
+        
+        Args:
+            search_term: Term to search for
+            suggester_type: Type of suggester (lobid, swb, catalog)
+            max_age_hours: Maximum age of cached mappings in hours
+            live_search_fallback: Function to call for live search if mapping miss
+            
+        Returns:
+            Tuple of (found_gnd_ids, was_from_cache)
+        """
+        from datetime import datetime, timedelta
+        
+        # Step 1: Check for existing mapping
+        mapping = self.get_search_mapping(search_term, suggester_type)
+        
+        if mapping:
+            # Check if mapping is fresh enough
+            try:
+                last_updated = datetime.fromisoformat(mapping.last_updated)
+                max_age = timedelta(hours=max_age_hours)
+                
+                if datetime.now() - last_updated < max_age:
+                    if hasattr(self, 'debug_mapping') and self.debug_mapping:
+                        self.logger.info(f"✅ Mapping hit for '{search_term}' ({suggester_type}): {len(mapping.found_gnd_ids)} results from cache")
+                    return mapping.found_gnd_ids, True
+                else:
+                    self.logger.info(f"⏰ Stale mapping for '{search_term}' ({suggester_type}): {(datetime.now() - last_updated).total_seconds()/3600:.1f}h old")
+            except ValueError:
+                self.logger.warning(f"Invalid last_updated timestamp for mapping: {mapping.last_updated}")
+        else:
+            if hasattr(self, 'debug_mapping') and self.debug_mapping:
+                self.logger.info(f"❌ No mapping found for '{search_term}' ({suggester_type})")
+        
+        # Step 2: Mapping miss or stale - fallback to live search
+        if live_search_fallback:
+            if hasattr(self, 'debug_mapping') and self.debug_mapping:
+                self.logger.info(f"🌐 Performing live search for '{search_term}' ({suggester_type})")
+            try:
+                live_results = live_search_fallback(search_term)
+                
+                # Step 3: Update mapping with fresh results
+                if live_results:
+                    # Extract GND IDs from live results (format depends on suggester)
+                    gnd_ids = self._extract_gnd_ids_from_results(live_results, suggester_type)
+                    
+                    # Store the updated mapping
+                    self.update_search_mapping(
+                        search_term=search_term,
+                        suggester_type=suggester_type, 
+                        found_gnd_ids=gnd_ids
+                    )
+                    
+                    if hasattr(self, 'debug_mapping') and self.debug_mapping:
+                        self.logger.info(f"✅ Updated mapping for '{search_term}' ({suggester_type}): {len(gnd_ids)} results")
+                    return gnd_ids, False
+                else:
+                    # Store empty result to avoid repeated failed searches
+                    self.update_search_mapping(
+                        search_term=search_term,
+                        suggester_type=suggester_type,
+                        found_gnd_ids=[]
+                    )
+                    self.logger.info(f"∅ No results for '{search_term}' ({suggester_type}) - stored empty mapping")
+                    return [], False
+                    
+            except Exception as e:
+                self.logger.error(f"Live search failed for '{search_term}' ({suggester_type}): {e}")
+                return [], False
+        
+        # No live search fallback provided
+        self.logger.warning(f"No live search fallback provided for '{search_term}' ({suggester_type})")
+        return [], False
+    
+    def _extract_gnd_ids_from_results(self, results: Dict[str, Any], suggester_type: str) -> List[str]:
+        """Extract GND IDs from suggester-specific result format - Claude Generated"""
+        gnd_ids = []
+        
+        try:
+            if suggester_type == "lobid":
+                # Lobid results: {term: {keyword: {"gndid": set, ...}}}
+                for term_results in results.values():
+                    for keyword_data in term_results.values():
+                        if "gndid" in keyword_data:
+                            gnd_set = keyword_data["gndid"]
+                            if isinstance(gnd_set, set):
+                                gnd_ids.extend(list(gnd_set))
+                            elif isinstance(gnd_set, list):
+                                gnd_ids.extend(gnd_set)
+                                
+            elif suggester_type == "swb":
+                # SWB results: similar structure to lobid
+                for term_results in results.values():
+                    for keyword_data in term_results.values():
+                        if "gndid" in keyword_data:
+                            gnd_set = keyword_data["gndid"]
+                            if isinstance(gnd_set, set):
+                                gnd_ids.extend(list(gnd_set))
+                            elif isinstance(gnd_set, list):
+                                gnd_ids.extend(gnd_set)
+                                
+            elif suggester_type == "catalog":
+                # Catalog/BiblioSuggester results may have different format
+                # This needs to be adapted based on actual BiblioSuggester output
+                self.logger.warning("GND ID extraction for catalog suggester not yet implemented")
+                
+        except Exception as e:
+            self.logger.error(f"Error extracting GND IDs from {suggester_type} results: {e}")
+            
+        # Remove duplicates and filter out empty/invalid IDs
+        unique_gnd_ids = list(set(gid for gid in gnd_ids if gid and len(str(gid).strip()) > 0))
+        return unique_gnd_ids
+    
+    def get_mapping_statistics(self) -> Dict[str, Any]:
+        """Get statistics about search mappings - Claude Generated"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Total mappings by suggester type
+                cursor.execute("""
+                    SELECT suggester_type, COUNT(*) as count, 
+                           AVG(result_count) as avg_results,
+                           MAX(last_updated) as latest_update
+                    FROM search_mappings 
+                    GROUP BY suggester_type
+                """)
+                by_suggester = cursor.fetchall()
+                
+                # Recent activity (last 24 hours)
+                from datetime import datetime, timedelta
+                cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+                
+                cursor.execute("""
+                    SELECT COUNT(*) as recent_mappings,
+                           AVG(result_count) as recent_avg_results
+                    FROM search_mappings 
+                    WHERE last_updated > ?
+                """, (cutoff,))
+                recent_stats = cursor.fetchone()
+                
+                return {
+                    "by_suggester": [
+                        {
+                            "type": row[0],
+                            "count": row[1], 
+                            "avg_results": round(row[2] or 0, 1),
+                            "latest_update": row[3]
+                        }
+                        for row in by_suggester
+                    ],
+                    "recent_24h": {
+                        "mappings": recent_stats[0] or 0,
+                        "avg_results": round(recent_stats[1] or 0, 1)
+                    }
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Error getting mapping statistics: {e}")
+            return {"error": str(e)}

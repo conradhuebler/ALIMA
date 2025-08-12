@@ -10,7 +10,19 @@ import base64
 import json
 import sys
 import traceback
-from PyQt6.QtCore import QObject, pyqtSignal
+import socket
+import subprocess
+import platform
+from urllib.parse import urlparse
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+from PyQt6.QtNetwork import QTcpSocket, QHostInfo
+
+# Native Ollama client import - Claude Generated
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
 
 
 class LlmService(QObject):
@@ -29,6 +41,9 @@ class LlmService(QObject):
 
     # Neues Signal zur Anzeige von Abbrüchen
     generation_cancelled = pyqtSignal(str)  # request_id
+    
+    # Signals für Provider-Status - Claude Generated
+    provider_status_changed = pyqtSignal(str, bool)  # provider_name, is_reachable
 
     # Update Ollama URL and Port
     ollama_url_updated = pyqtSignal()
@@ -37,10 +52,11 @@ class LlmService(QObject):
     def __init__(
         self,
         providers: List[str] = None,
-        config_file: Path = Path.home() / ".alima_config.json",
+        config_manager = None,
         api_keys: Dict[str, str] = None,
         ollama_url: str = "http://localhost",
         ollama_port: int = 11434,
+        lazy_initialization: bool = False,  # Use direct initialization with ping tests - Claude Generated
     ):
         """
         Initialize LLM interface with specified providers and API keys.
@@ -58,13 +74,27 @@ class LlmService(QObject):
         self.current_provider = None
         self.current_request_id = None
         self.current_thread_id = None
+        
+        # Store lazy initialization flag - Claude Generated
+        self.lazy_initialization = lazy_initialization
+        
+        # Provider reachability cache system - Claude Generated
+        self.provider_status_cache = {}  # provider_name -> {'reachable': bool, 'last_check': timestamp, 'latency_ms': float}
+        self.status_cache_timeout = 300  # 5 minutes cache timeout
+        self.reachability_timer = QTimer()
+        self.reachability_timer.timeout.connect(self._refresh_provider_status)
+        self.reachability_timer.setSingleShot(False)
+        self.reachability_timer.setInterval(60000)  # Check every minute
 
-        # Ensure ollama_url has a scheme
+        # Ensure ollama_url has a scheme (legacy support)
         if not ollama_url.startswith(("http://", "https://")):
             ollama_url = "http://" + ollama_url
 
         self.ollama_url = ollama_url
         self.ollama_port = ollama_port
+        
+        # Initialize native Ollama clients holder - Claude Generated
+        self.ollama_native_clients = {}  # provider_name -> ollama.Client()
 
         # Timeout für hängengebliebene Anfragen (in Sekunden)
         self.request_timeout = 300  # 5 Minuten
@@ -73,23 +103,26 @@ class LlmService(QObject):
 
         # Set up logging
         self.logger = logging.getLogger(__name__)
-        self.config_file = config_file
+        
+        # Initialize configuration manager
+        if config_manager is None:
+            from ..utils.config_manager import get_config_manager
+            config_manager = get_config_manager()
+        self.config_manager = config_manager
+        
+        # Load current configuration
+        self.alima_config = self.config_manager.load_config()
 
         # Dictionary to store provider clients
         self.clients = {}
 
-        # Define provider configurations
-        self._init_provider_configs()
+        # Define static provider configurations (non-OpenAI compatible)
+        self._init_static_provider_configs()
+        
+        # Initialize dynamic OpenAI-compatible providers
+        self._init_dynamic_provider_configs()
 
-        # Load existing config if available
-        self.config = self._load_config()
-
-        # Update config with new API keys if provided
-        if api_keys:
-            self.config.update(api_keys)
-            self._save_config()
-
-        # Initialize specified or all providers
+        # Initialize all providers directly (ping tests prevent blocking) - Claude Generated
         self.initialize_providers(providers)
 
     def set_ollama_url(self, url: str):
@@ -104,137 +137,156 @@ class LlmService(QObject):
         self.ollama_port = port
         self.ollama_port_updated.emit()
 
-    def _init_provider_configs(self):
-        """Initialize the configuration for all supported providers."""
-        self.supported_providers = {
+    def _init_static_provider_configs(self):
+        """Initialize static provider configurations (non-OpenAI compatible) - Claude Generated"""
+        self.static_providers = {
             "gemini": {
                 "module": "google.generativeai",
                 "class": None,
-                "api_key": "GEMINI_API_KEY",
                 "initializer": self._init_gemini,
                 "generator": self._generate_gemini,
             },
-            "chatai": {
-                "module": "openai",
-                "class": "OpenAI",
-                "api_key": "GWDG_API_KEY",
-                "base_url": "http://chat-ai.academiccloud.de/v1",
-                "initializer": self._init_openai_compatible,
-                "generator": self._generate_openai_compatible,
-                "params": {"base_url": "http://chat-ai.academiccloud.de/v1"},
+            "anthropic": {
+                "module": "anthropic", 
+                "class": "Anthropic",
+                "initializer": self._init_anthropic,
+                "generator": self._generate_anthropic,
             },
-            # "openai": {
-            #     "module": "openai",
-            #     "class": "OpenAI",
-            #     "api_key": "OPENAI_API_KEY",
-            #     "initializer": self._init_openai_compatible,
-            #     "generator": self._generate_openai_compatible,
-            # },
-            # "comet": {
-            #     "module": "openai",
-            #     "class": "OpenAI",
-            #     "api_key": "COMET_API_KEY",
-            #     "base_url": "https://api.cometapi.com/v1",
-            #     "initializer": self._init_openai_compatible,
-            #     "generator": self._generate_openai_compatible,
-            #     "params": {"base_url": "https://api.cometapi.com/v1"},
-            # },
-            # "anthropic": {
-            #     "module": "anthropic",
-            #     "class": "Anthropic",
-            #     "api_key": "ANTHROPIC_API_KEY",
-            #     "initializer": self._init_anthropic,
-            #     "generator": self._generate_anthropic,
-            # },
             "ollama": {
                 "module": "requests",
                 "class": None,
-                "api_key": None,
                 "initializer": self._init_ollama,
                 "generator": self._generate_ollama,
             },
-            # "github": {
-            #     "module": "azure.ai.inference",
-            #     "class": "ChatCompletionsClient",
-            #     "api_key": "GITHUB_TOKEN",
-            #     "initializer": self._init_azure_inference,
-            #     "generator": self._generate_azure_inference,
-            #     "params": {
-            #         "endpoint": "github_endpoint",
-            #         "default_model": "DeepSeek-V3",
-            #         "supported_models": [
-            #             "DeepSeek-V3",
-            #             "Meta-Llama-3-70B-Instruct",
-            #             "Mistral-small",
-            #             "Mistral-large",
-            #             "DeepSeek-R1",
-            #             "Llama-3.2-90B-Vision-Instruct",
-            #             "Phi-4-multimodal-instruct",
-            #             "Phi-4-mini-instruct",
-            #             "Phi-4",
-            #             "o3-mini",
-            #         ],
-            #     },
-            # },
-            # "azure": {
-            #     "module": "azure.ai.inference",
-            #     "class": "ChatCompletionsClient",
-            #     "api_key": "AZURE_API_KEY",
-            #     "initializer": self._init_azure_inference,
-            #     "generator": self._generate_azure_inference,
-            #     "params": {
-            #         "endpoint": "azure_endpoint",
-            #         "default_model": "gpt-4",
-            #         "supported_models": [
-            #             "gpt-4",
-            #             "gpt-35-turbo",
-            #             "gpt-4-vision",
-            #             "gpt-4-turbo",
-            #         ],
-            #     },
-            # },
         }
 
-    def _load_config(self) -> Dict[str, str]:
-        """
-        Load configuration from file.
+    def _init_dynamic_provider_configs(self):
+        """Initialize dynamic OpenAI-compatible provider configurations - Claude Generated"""
+        self.openai_providers = {}
+        
+        # Load all enabled OpenAI-compatible providers from configuration
+        for provider in self.alima_config.llm.get_enabled_providers():
+            provider_key = provider.name.lower().replace(" ", "_")
+            self.openai_providers[provider_key] = {
+                "name": provider.name,
+                "module": "openai",
+                "class": "OpenAI",
+                "base_url": provider.base_url,
+                "api_key": provider.api_key,
+                "description": provider.description,
+                "initializer": self._init_openai_compatible,
+                "generator": self._generate_openai_compatible,
+            }
+            self.logger.debug(f"Configured OpenAI-compatible provider: {provider.name} -> {provider.base_url}")
+        
+        # Add Ollama providers as OpenAI-compatible or native clients
+        for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
+            provider_key = ollama_provider.name  # Use the actual provider name directly - Claude Generated
+            
+            if ollama_provider.connection_type == "openai_compatible":
+                # Add as OpenAI-compatible provider
+                self.openai_providers[provider_key] = {
+                    "name": f"Ollama {ollama_provider.name}",
+                    "module": "openai",
+                    "class": "OpenAI", 
+                    "base_url": ollama_provider.base_url,
+                    "api_key": ollama_provider.api_key,
+                    "description": f"Ollama {ollama_provider.name} ({ollama_provider.host}:{ollama_provider.port})",
+                    "initializer": self._init_openai_compatible,
+                    "generator": self._generate_openai_compatible,
+                }
+                self.logger.info(f"Configured Ollama OpenAI-compatible: {ollama_provider.name} -> {ollama_provider.base_url} (API Key: {'Set' if ollama_provider.api_key else 'Not Set'})")
+                
+            elif ollama_provider.connection_type == "native_client":
+                # Add as native Ollama client
+                self.static_providers[provider_key] = {
+                    "name": f"Ollama Native {ollama_provider.name}",
+                    "module": "ollama",
+                    "class": "Client",
+                    "base_url": ollama_provider.base_url,
+                    "api_key": ollama_provider.api_key,
+                    "description": f"Ollama Native {ollama_provider.name} ({ollama_provider.host}:{ollama_provider.port})",
+                    "initializer": self._init_ollama_native_provider,
+                    "generator": self._generate_ollama_native,
+                }
+                self.logger.info(f"Configured Ollama Native: {ollama_provider.name} -> {ollama_provider.base_url} (API Key: {'Set' if ollama_provider.api_key else 'Not Set'})")
+        
+        # Keep legacy Ollama support for backward compatibility
+        primary_ollama = self.alima_config.llm.get_primary_ollama_provider()
+        if primary_ollama and primary_ollama.connection_type == "openai_compatible":
+            self.ollama_url = primary_ollama.base_url.replace('/v1', '')  # Remove /v1 for legacy compatibility
+            self.ollama_port = primary_ollama.port
+        
+        # Add dynamic Ollama providers to supported providers - Claude Generated
+        ollama_providers = {}
+        for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
+            provider_key = ollama_provider.name  # Use the actual provider name directly - Claude Generated
+            
+            if ollama_provider.connection_type == "native_client":
+                ollama_providers[provider_key] = {
+                    "name": f"Ollama Native {ollama_provider.name}",
+                    "type": "ollama_native_provider",
+                    "params": {},
+                    "base_url": ollama_provider.base_url,
+                    "api_key": ollama_provider.api_key,
+                    "description": f"Ollama Native {ollama_provider.name} ({ollama_provider.host}:{ollama_provider.port})",
+                    "initializer": self._init_ollama_native_provider,
+                    "generator": self._generate_ollama_native,
+                }
+        
+        # Merge static and dynamic providers for unified access
+        self.supported_providers = {**self.static_providers, **self.openai_providers, **ollama_providers}
 
-        Returns:
-            Dict containing configuration values.
-        """
-        try:
-            if self.config_file.exists():
-                with open(self.config_file, "r") as f:
-                    return json.load(f)
-        except Exception as e:
-            self.logger.warning(f"Could not load config: {e}")
-        return {}
-
-    def _save_config(self):
-        """Save configuration to file."""
-        try:
-            # Ensure directory exists
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save with pretty formatting
-            with open(self.config_file, "w") as f:
-                json.dump(self.config, f, indent=4)
-        except Exception as e:
-            self.logger.error(f"Could not save config: {e}")
+    def reload_providers(self):
+        """Reload providers from current configuration - Claude Generated"""
+        self.logger.info("Reloading providers from configuration")
+        
+        # Reload configuration
+        self.alima_config = self.config_manager.load_config()
+        
+        # Reinitialize dynamic provider configurations
+        self._init_dynamic_provider_configs()
+        
+        # Reinitialize all providers
+        self.clients.clear()
+        self.initialize_providers()
+        
+        self.logger.info("Provider reload completed")
 
     def set_api_key(self, provider: str, api_key: str):
         """
-        Set API key for provider and save to config.
+        Set API key for provider and update configuration - Claude Generated
 
         Args:
             provider: Provider name
             api_key: API key
         """
-        if provider in self.supported_providers:
-            self.config[provider] = api_key
-            self._save_config()
+        if provider in self.static_providers:
+            # Update static provider API key in configuration
+            if provider == "gemini":
+                self.alima_config.llm.gemini = api_key
+            elif provider == "anthropic":
+                self.alima_config.llm.anthropic = api_key
+            
+            # Save configuration
+            self.config_manager.save_config(self.alima_config)
+            
             # Reinitialize provider with new key
             self._initialize_single_provider(provider)
+            
+        elif provider in self.openai_providers:
+            # Update OpenAI-compatible provider API key
+            provider_obj = self.alima_config.llm.get_provider_by_name(provider)
+            if provider_obj:
+                provider_obj.api_key = api_key
+                
+                # Save configuration
+                self.config_manager.save_config(self.alima_config)
+                
+                # Reload providers to pick up changes
+                self.reload_providers()
+            else:
+                self.logger.warning(f"Provider {provider} not found in configuration")
         else:
             self.logger.warning(f"Unsupported provider: {provider}")
 
@@ -351,27 +403,66 @@ class LlmService(QObject):
 
     def _initialize_single_provider(self, provider: str):
         """
-        Initialize a single provider.
+        Initialize a single provider - Claude Generated
 
         Args:
             provider: The provider name to initialize.
         """
-        provider_info = self.supported_providers[provider]
+        # Find provider info with case-insensitive fallback - Claude Generated
+        provider_info = None
+        if provider in self.supported_providers:
+            provider_info = self.supported_providers[provider]
+        elif provider.lower() in self.supported_providers:
+            provider_info = self.supported_providers[provider.lower()]
+        else:
+            self.logger.warning(f"Unsupported provider: {provider}")
+            return
 
         try:
-            # Try to import the required module
-            module = importlib.import_module(provider_info["module"])
-
-            # Handle API key if required
-            api_key = None
-            if provider_info["api_key"]:
-                # Try config first, then environment
-                api_key = self.config.get(provider) or os.getenv(
-                    provider_info["api_key"]
-                )
-                if not api_key:
-                    self.logger.warning(f"No API key found for {provider}")
+            # Handle different provider types - Claude Generated
+            provider_type = provider_info.get("type", "")
+            
+            if provider_type == "ollama_native_provider":
+                # Special handling for native Ollama providers - don't import module
+                module = None
+                api_key = provider_info.get("api_key")
+            else:
+                # Try to import the required module for other providers
+                module = importlib.import_module(provider_info["module"])
+                
+                # Handle API key based on provider type
+                api_key = None
+                if provider in self.static_providers:
+                    # Static providers: get API key from configuration
+                    if provider == "gemini":
+                        api_key = self.alima_config.llm.gemini
+                    elif provider == "anthropic":
+                        api_key = self.alima_config.llm.anthropic
+                    # Ollama (local) doesn't need API key
+                    elif provider == "ollama":
+                        api_key = None
+                    # Ollama native client uses API key from config
+                    elif provider == "ollama_native":
+                        api_key = self.alima_config.llm.ollama.native_api_key
+                else:
+                    # Dynamic OpenAI-compatible providers: get API key from provider config
+                    api_key = provider_info.get("api_key")
+            
+            # Check if API key is provided - warn if missing but continue for some providers
+            if not api_key:
+                if provider in ["ollama"]:
+                    # Local Ollama doesn't require API key
+                    pass
+                elif provider == "ollama_native" and not self.alima_config.llm.ollama.native_api_key:
+                    # Native Ollama without API key - might be local setup
+                    self.logger.info(f"No API key configured for {provider} - assuming local setup")
+                elif provider in self.static_providers and provider in ["gemini", "anthropic"]:
+                    # Static providers like Gemini and Anthropic require API keys
+                    self.logger.warning(f"No API key found for {provider} - initialization skipped")
                     return
+                else:
+                    # OpenAI-compatible providers: warn but continue (might not need API key)
+                    self.logger.info(f"No API key configured for {provider} - continuing without authentication")
 
             # Call the specific initializer for this provider
             if provider_info["initializer"]:
@@ -389,37 +480,134 @@ class LlmService(QObject):
             self.logger.error(f"Error initializing {provider}: {str(e)}")
             self.logger.debug(traceback.format_exc())
 
+    def _register_providers_lazy(self, providers: List[str] = None):
+        """
+        Register providers without testing connections (lazy initialization) - Claude Generated
+        
+        Args:
+            providers: List of providers to register. If None, registers all providers.
+        """
+        if providers is None:
+            providers = list(self.supported_providers.keys())
+        
+        # Apply Ollama routing logic for backward compatibility
+        filtered_providers = []
+        for provider in providers:
+            if provider == "ollama":
+                # Check if we have any enabled Ollama providers
+                if self.alima_config.llm.get_enabled_ollama_providers():
+                    filtered_providers.append(provider)
+                    continue
+                else:
+                    self.logger.info("No enabled Ollama providers, skipping legacy ollama registration")
+                    continue
+            filtered_providers.append(provider)
+
+        # Register providers in clients dict but don't initialize them
+        for provider in filtered_providers:
+            if provider.lower() not in self.supported_providers:
+                self.logger.warning(f"Unsupported provider: {provider}")
+                continue
+            
+            # Mark provider as registered but not initialized
+            self.clients[provider.lower()] = "lazy_uninitialized"
+            self.logger.debug(f"Registered provider for lazy initialization: {provider.lower()}")
+
+    def _ensure_provider_initialized(self, provider: str) -> bool:
+        """
+        Ensure a provider is actually initialized before use (lazy loading) - Claude Generated
+        
+        Args:
+            provider: Provider name to initialize
+            
+        Returns:
+            True if provider is initialized, False if initialization failed
+        """
+        if provider not in self.clients:
+            return False
+            
+        # If provider is already initialized (not a string), return True
+        if self.clients[provider] != "lazy_uninitialized":
+            return True
+        
+        # Initialize the provider now
+        self.logger.info(f"Lazy-initializing provider: {provider}")
+        try:
+            self._initialize_single_provider(provider)
+            return provider in self.clients and self.clients[provider] != "lazy_uninitialized"
+        except Exception as e:
+            self.logger.error(f"Failed to lazy-initialize provider {provider}: {e}")
+            return False
+
     def initialize_providers(self, providers: List[str] = None):
         """
-        Initialize specified providers or all supported ones.
+        Initialize specified providers or all supported ones with Ollama routing logic - Claude Generated
 
         Args:
             providers: List of providers to initialize. If None, tries to initialize all providers.
         """
         if providers is None:
             providers = list(self.supported_providers.keys())
-
+            
+        # Apply Ollama routing logic for backward compatibility
+        filtered_providers = []
         for provider in providers:
-            if provider.lower() not in self.supported_providers:
+            # For backward compatibility, allow legacy "ollama" provider
+            if provider == "ollama":
+                # Check if we have any enabled Ollama providers
+                if self.alima_config.llm.get_enabled_ollama_providers():
+                    filtered_providers.append(provider)
+                    continue
+                else:
+                    self.logger.info("No enabled Ollama providers, skipping legacy ollama initialization")
+                    continue
+            filtered_providers.append(provider)
+
+        for provider in filtered_providers:
+            # Check both original case and lowercase for backward compatibility - Claude Generated
+            if provider not in self.supported_providers and provider.lower() not in self.supported_providers:
                 self.logger.warning(f"Unsupported provider: {provider}")
                 continue
 
-            self._initialize_single_provider(provider.lower())
+            # Use original case for provider names - Claude Generated
+            self._initialize_single_provider(provider)
 
     def get_available_providers(self) -> List[str]:
         """
-        Get list of successfully initialized providers.
+        Get list of all available providers (both initialized and lazy-loadable) - Claude Generated
 
         Returns:
             List of provider names.
         """
-        return [
-            name for name in self.clients.keys() if not name.endswith("_modules")
-        ]  # Filter out module storage
+        # Get all configured providers, not just initialized ones
+        return list(self.supported_providers.keys())
+
+    def get_preferred_ollama_provider(self) -> Optional[str]:
+        """
+        Get the preferred Ollama provider based on configuration - Claude Generated
+        
+        Returns first available enabled Ollama provider, or legacy 'ollama' if available
+        
+        Returns:
+            Provider name or None if no Ollama provider is available
+        """
+        available = self.get_available_providers()
+        
+        # Check for legacy Ollama provider first (backward compatibility)
+        if "ollama" in available:
+            return "ollama"
+        
+        # Check for configured Ollama providers
+        for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
+            provider_key = ollama_provider.name  # Use the actual provider name directly - Claude Generated
+            if provider_key in available:
+                return provider_key
+        
+        return None
 
     def get_available_models(self, provider: str) -> List[str]:
         """
-        Get available models for specified provider.
+        Get available models for specified provider with reachability check and lazy initialization - Claude Generated
 
         Args:
             provider: The provider name.
@@ -427,8 +615,14 @@ class LlmService(QObject):
         Returns:
             List of model names.
         """
-        if provider not in self.clients:
-            self.logger.warning(f"Provider {provider} not initialized in clients.")
+        # First check if provider is reachable - Claude Generated
+        if not self.is_provider_reachable(provider):
+            self.logger.warning(f"Provider {provider} is not reachable. Skipping model loading.")
+            return []
+            
+        # Ensure provider is initialized if using lazy loading
+        if not self._ensure_provider_initialized(provider):
+            self.logger.warning(f"Provider {provider} could not be initialized.")
             return []
 
         try:
@@ -452,7 +646,19 @@ class LlmService(QObject):
                 response.raise_for_status()  # Raise an exception for HTTP errors
                 return [model["name"] for model in response.json()["models"]]
 
-            elif provider in ["openai", "comet", "chatai"]:
+            elif provider == "ollama_native":
+                # Use native Ollama client to list models
+                try:
+                    models_response = self.clients[provider].list()
+                    if 'models' in models_response:
+                        return [model['name'] for model in models_response['models']]
+                    else:
+                        return []
+                except Exception as e:
+                    self.logger.error(f"Error getting native Ollama models: {e}")
+                    return []
+
+            elif provider in self.openai_providers:
                 # Use a more robust way to get model IDs, handling potential missing 'id'
                 models = []
                 for model_obj in self.clients[provider].models.list():
@@ -480,6 +686,85 @@ class LlmService(QObject):
 
             elif provider == "github":
                 return self.supported_providers[provider]["params"]["supported_models"]
+
+            # Check for flexible Ollama providers (new multi-instance system) - Claude Generated
+            config = self.config_manager.load_config()
+            
+            # Check if it's a configured Ollama provider - Claude Generated
+            for ollama_provider in config.llm.ollama_providers:
+                if ollama_provider.name == provider:
+                    if ollama_provider.connection_type == "native_client":
+                        # Use native Ollama client
+                        try:
+                            if provider not in self.clients:
+                                self.logger.warning(f"Native Ollama client {provider} not initialized")
+                                return []
+                                
+                            client = self.clients[provider]
+                            models_response = client.list()
+                            
+                            # Handle both dict format and ollama.ListResponse object format - Claude Generated
+                            if isinstance(models_response, dict) and 'models' in models_response:
+                                return [model['name'] for model in models_response['models']]
+                            elif hasattr(models_response, 'models'):
+                                # Handle ollama.ListResponse object format
+                                models = []
+                                for model in models_response.models:
+                                    if hasattr(model, 'model'):
+                                        models.append(model.model)  # Use .model attribute for model name
+                                    elif hasattr(model, 'name'):
+                                        models.append(model.name)   # Fallback to .name attribute
+                                    else:
+                                        models.append(str(model))   # Fallback to string representation
+                                return models
+                            else:
+                                self.logger.warning(f"Unexpected response format from {provider}: {type(models_response)}")
+                                self.logger.debug(f"Response content: {models_response}")
+                                return []
+                                
+                        except Exception as e:
+                            self.logger.error(f"Error getting native Ollama models from {provider}: {e}")
+                            self.logger.debug(traceback.format_exc())
+                            return []
+                    
+                    elif ollama_provider.connection_type == "openai_compatible":
+                        # Use OpenAI-compatible client
+                        try:
+                            if provider not in self.clients:
+                                self.logger.warning(f"OpenAI-compatible client {provider} not initialized")
+                                return []
+                            
+                            models = []
+                            for model_obj in self.clients[provider].models.list():
+                                if hasattr(model_obj, "id"):
+                                    models.append(model_obj.id)
+                            return models
+                            
+                        except Exception as e:
+                            self.logger.error(f"Error getting OpenAI-compatible models from {provider}: {e}")
+                            self.logger.debug(traceback.format_exc())
+                            return []
+                    
+                    break
+            
+            # Check for OpenAI-compatible providers
+            for openai_provider in config.llm.openai_compatible_providers:
+                if openai_provider.name == provider:
+                    try:
+                        if provider not in self.clients:
+                            self.logger.warning(f"OpenAI-compatible client {provider} not initialized")
+                            return []
+                        
+                        models = []
+                        for model_obj in self.clients[provider].models.list():
+                            if hasattr(model_obj, "id"):
+                                models.append(model_obj.id)
+                        return models
+                        
+                    except Exception as e:
+                        self.logger.error(f"Error getting OpenAI-compatible models from {provider}: {e}")
+                        self.logger.debug(traceback.format_exc())
+                        return []
 
         except Exception as e:
             self.logger.error(f"Error getting models for {provider}: {str(e)}")
@@ -543,8 +828,9 @@ class LlmService(QObject):
         # Starte den Watchdog
         self._init_watchdog()
 
-        if provider not in self.clients:
-            error_msg = f"Provider {provider} not initialized"
+        # Ensure provider is initialized if using lazy loading - Claude Generated
+        if not self._ensure_provider_initialized(provider):
+            error_msg = f"Provider {provider} not available or failed to initialize"
             self.generation_error.emit(request_id, error_msg)
             self.stream_running = False
             raise ValueError(error_msg)
@@ -553,12 +839,8 @@ class LlmService(QObject):
             # Log the request
             self.logger.info(f"Generating with {provider}/{model} (stream={stream})")
 
-            # Generate based on provider
-            if provider == "openai":
-                response = self._generate_openai(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "gemini":
+            # Generate based on provider with dynamic support - Claude Generated
+            if provider == "gemini":
                 response = self._generate_gemini(
                     model, prompt, temperature, p_value, seed, image, system, stream
                 )
@@ -570,20 +852,21 @@ class LlmService(QObject):
                 response = self._generate_ollama(
                     model, prompt, temperature, p_value, seed, image, system, stream
                 )
+            elif provider == "ollama_native":
+                response = self._generate_ollama_native(
+                    model, prompt, temperature, p_value, seed, image, system, stream
+                )
             elif provider == "github":
                 response = self._generate_github(
                     model, prompt, temperature, p_value, seed, image, system, stream
                 )
-            elif provider == "chatai":
-                response = self._generate_openai_compatible(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "comet":
-                response = self._generate_openai_compatible(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
             elif provider == "azure":
                 response = self._generate_azure_inference(
+                    model, prompt, temperature, p_value, seed, image, system, stream
+                )
+            elif provider in self.openai_providers:
+                # Dynamic OpenAI-compatible provider support
+                response = self._generate_openai_compatible(
                     model, prompt, temperature, p_value, seed, image, system, stream
                 )
             else:
@@ -628,8 +911,16 @@ class LlmService(QObject):
     def _init_openai_compatible(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
     ):
-        """Initialize OpenAI-compatible providers (OpenAI, ChatAI, Comet)."""
-        params = {"api_key": api_key}
+        """Initialize OpenAI-compatible providers (OpenAI, ChatAI, Comet) - Claude Generated"""
+        params = {}
+        
+        # Always provide an API key for OpenAI-compatible clients (required by OpenAI library)
+        # Use provided key or placeholder for providers that don't need authentication
+        if api_key:
+            params["api_key"] = api_key
+        else:
+            params["api_key"] = "no-key-required"  # Placeholder for providers without authentication
+            self.logger.info(f"Initializing {provider} with placeholder API key (no authentication required)")
 
         # Add base_url if specified
         if "base_url" in provider_info:
@@ -763,6 +1054,52 @@ class LlmService(QObject):
             self.logger.warning(f"Ollama server not accessible at {full_ollama_url}")
         except Exception as e:
             self.logger.error(f"Error initializing Ollama: {e}")
+
+    def _init_ollama_native_provider(
+        self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
+    ):
+        """Initialize specific Ollama native client provider - Claude Generated"""
+        try:
+            # Get base_url from provider info
+            base_url = provider_info.get("base_url", "http://localhost:11434")
+            
+            # Use provider name directly (no ollama_ prefix anymore) - Claude Generated
+            provider_name = provider
+            
+            # Find matching Ollama provider in config
+            ollama_provider = self.alima_config.llm.get_ollama_provider_by_name(provider_name)
+            if not ollama_provider:
+                self.logger.warning(f"No Ollama provider configuration found for: {provider_name}")
+                return
+                
+            if not ollama_provider.enabled:
+                self.logger.info(f"Ollama provider {provider_name} disabled in configuration")
+                return
+            
+            # Set up client parameters
+            client_params = {"host": base_url}
+            
+            # Add authorization header if API key is provided
+            if ollama_provider.api_key:
+                client_params["headers"] = {
+                    'Authorization': ollama_provider.api_key
+                }
+                self.logger.info(f"Initializing native Ollama client {provider_name} with authentication at {base_url}")
+            else:
+                self.logger.info(f"Initializing native Ollama client {provider_name} without authentication at {base_url}")
+            
+            # Create native Ollama client
+            if not OLLAMA_AVAILABLE:
+                raise ImportError("ollama library not available. Please install it: pip install ollama")
+            
+            client_instance = ollama.Client(**client_params)
+            self.clients[provider] = client_instance
+            
+            self.logger.info(f"Native Ollama client {provider_name} initialized successfully at {base_url}")
+            
+        except Exception as e:
+            self.logger.error(f"Error initializing native Ollama client: {e}")
+            self.logger.debug(traceback.format_exc())
 
     def _init_azure_inference(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
@@ -1066,13 +1403,11 @@ class LlmService(QObject):
         system: Optional[str] = "",
         stream: bool = True,
     ) -> str:
-        """Generate response using OpenAI-compatible APIs (OpenAI, ChatAI, Comet)."""
-        provider = [
-            p
-            for p, client in self.clients.items()
-            if isinstance(client, self.clients[p].__class__)
-            and p in ["openai", "chatai", "comet"]
-        ][0]
+        """Generate response using OpenAI-compatible APIs - Claude Generated"""
+        # Use the current provider being processed (set in generate_response)
+        provider = self.current_provider
+        if provider not in self.clients:
+            raise ValueError(f"Provider {provider} not initialized in clients")
 
         try:
             # Create messages array
@@ -1251,6 +1586,109 @@ class LlmService(QObject):
         except Exception as e:
             self.logger.error(f"Ollama error: {str(e)}")
             error_msg = f"Error with Ollama: {str(e)}"
+            self.generation_error.emit(self.current_request_id, error_msg)
+            raise e
+
+    def _generate_ollama_native(
+        self,
+        provider: str,
+        model: str,
+        prompt: str,
+        temperature: float,
+        p_value: float,
+        seed: Optional[int],
+        image: Optional[Union[str, bytes]] = None,
+        system: Optional[str] = "",
+        stream: bool = True,
+    ) -> Union[str, Any]:
+        """Generate response using native Ollama client - Claude Generated"""
+        try:
+            # Prepare messages for chat format
+            messages = []
+            
+            # Add system message if provided
+            if system:
+                messages.append({
+                    'role': 'system',
+                    'content': system,
+                })
+            
+            # Add user message
+            if image:
+                img_bytes = self.process_image(image)
+                # Ollama native client expects base64 encoded images
+                import base64
+                img_b64 = base64.b64encode(img_bytes).decode()
+                
+                messages.append({
+                    'role': 'user',
+                    'content': prompt,
+                    'images': [img_b64]  # Native client format for images
+                })
+            else:
+                messages.append({
+                    'role': 'user',
+                    'content': prompt,
+                })
+            
+            # Set up options
+            options = {
+                'temperature': temperature,
+                'top_p': p_value,
+            }
+            
+            if seed is not None:
+                options['seed'] = seed
+            
+            self.logger.info(f"Sending native Ollama request with model: {model}")
+            
+            # Make API call with streaming support
+            if stream:
+                # Use provider-specific native client streaming
+                stream_response = self.clients[provider].chat(
+                    model=model,
+                    messages=messages,
+                    options=options,
+                    stream=True
+                )
+                
+                full_response = ""
+                for chunk in stream_response:
+                    # Update last chunk time
+                    self.last_chunk_time = time.time()
+                    
+                    # Check for cancellation
+                    if self.cancel_requested:
+                        self.logger.info("Native Ollama generation cancelled")
+                        break
+                    
+                    # Extract content from chunk
+                    if 'message' in chunk and 'content' in chunk['message']:
+                        chunk_text = chunk['message']['content']
+                        if chunk_text:
+                            full_response += chunk_text
+                            # Emit token for streaming display
+                            self.text_received.emit(self.current_request_id, chunk_text)
+                
+                return full_response
+            else:
+                # Non-streaming call
+                response = self.clients[provider].chat(
+                    model=model,
+                    messages=messages,
+                    options=options,
+                    stream=False
+                )
+                
+                # Extract response content
+                if 'message' in response and 'content' in response['message']:
+                    return response['message']['content']
+                else:
+                    return str(response)  # Fallback
+        
+        except Exception as e:
+            self.logger.error(f"Native Ollama error: {str(e)}")
+            error_msg = f"Error with Native Ollama: {str(e)}"
             self.generation_error.emit(self.current_request_id, error_msg)
             raise e
 
@@ -1494,3 +1932,301 @@ class LlmService(QObject):
             self.logger.info(f"Set default system prompt for {provider}")
         else:
             self.logger.warning(f"Unsupported provider: {provider}")
+    
+    def ping_test_provider(self, provider_name: str, timeout: float = 3.0) -> Dict[str, Any]:
+        """
+        Simple ping test to check if provider server is reachable - Claude Generated
+        
+        Args:
+            provider_name: Name of the provider to test
+            timeout: Connection timeout in seconds
+            
+        Returns:
+            Dict with test results: {'reachable': bool, 'latency_ms': float, 'error': str}
+        """
+        # Skip ping test for API-based services - Claude Generated
+        api_services = ['gemini', 'anthropic', 'openai', 'comet', 'chatai']
+        if provider_name.lower() in api_services:
+            return {
+                'reachable': True,
+                'latency_ms': 0.0,
+                'error': None,
+                'method': 'api_service'
+            }
+        result = {
+            'reachable': False,
+            'latency_ms': 0.0,
+            'error': None,
+            'method': 'unknown'
+        }
+        
+        try:
+            # Get provider configuration
+            provider_config = None
+            
+            # Check if it's an Ollama provider
+            if hasattr(self.config_manager.config.llm, 'ollama_providers'):
+                for provider in self.config_manager.config.llm.ollama_providers:
+                    if provider.name == provider_name:
+                        provider_config = provider
+                        break
+            
+            # Check if it's an OpenAI-compatible provider
+            if not provider_config and hasattr(self.config_manager.config.llm, 'openai_compatible_providers'):
+                for provider in self.config_manager.config.llm.openai_compatible_providers:
+                    if provider.name == provider_name:
+                        provider_config = provider
+                        break
+            
+            if not provider_config:
+                result['error'] = f"Provider '{provider_name}' not found in configuration"
+                return result
+            
+            # Parse URL to get host and port
+            try:
+                if hasattr(provider_config, 'base_url'):
+                    url = provider_config.base_url
+                else:
+                    # For Ollama providers, construct URL
+                    protocol = "https" if provider_config.host.startswith("https://") else "http"
+                    if "://" in provider_config.host:
+                        url = provider_config.host
+                    else:
+                        url = f"{protocol}://{provider_config.host}:{provider_config.port}"
+                
+                parsed_url = urlparse(url)
+                host = parsed_url.hostname or parsed_url.netloc.split(':')[0]
+                port = parsed_url.port
+                
+                if not port:
+                    port = 443 if parsed_url.scheme == 'https' else 80
+                    
+            except Exception as e:
+                result['error'] = f"Failed to parse provider URL: {str(e)}"
+                return result
+            
+            # Try socket connection first (fastest)
+            start_time = time.time()
+            try:
+                sock = socket.create_connection((host, port), timeout=timeout)
+                sock.close()
+                result['reachable'] = True
+                result['latency_ms'] = (time.time() - start_time) * 1000
+                result['method'] = 'socket'
+                return result
+            except (socket.timeout, socket.error) as e:
+                result['error'] = f"Socket connection failed: {str(e)}"
+            
+            # Fallback to ping if socket fails (for some firewalls)
+            try:
+                start_time = time.time()
+                
+                # Determine ping command based on OS
+                if platform.system().lower() == "windows":
+                    cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
+                else:
+                    cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
+                
+                proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 1)
+                
+                if proc.returncode == 0:
+                    result['reachable'] = True
+                    result['latency_ms'] = (time.time() - start_time) * 1000
+                    result['method'] = 'ping'
+                    result['error'] = None
+                else:
+                    result['error'] = f"Ping failed: {proc.stderr.decode()}"
+                    
+            except subprocess.TimeoutExpired:
+                result['error'] = f"Ping timeout after {timeout} seconds"
+            except Exception as e:
+                result['error'] = f"Ping command failed: {str(e)}"
+                
+        except Exception as e:
+            result['error'] = f"Unexpected error during ping test: {str(e)}"
+            self.logger.error(f"Ping test error for {provider_name}: {e}")
+        
+        return result
+    
+    def _qt_ping_test_provider(self, provider_name: str, timeout_ms: int = 3000) -> Dict[str, Any]:
+        """
+        Qt-based ping test for provider reachability - Claude Generated
+        
+        Args:
+            provider_name: Name of the provider to test
+            timeout_ms: Connection timeout in milliseconds
+            
+        Returns:
+            Dict with test results: {'reachable': bool, 'latency_ms': float, 'error': str}
+        """
+        result = {
+            'reachable': False,
+            'latency_ms': 0.0,
+            'error': None,
+            'method': 'qt_tcp'
+        }
+        
+        try:
+            # Get provider configuration
+            provider_config = None
+            
+            # Load config if not already loaded
+            if not hasattr(self.config_manager, 'config') or self.config_manager.config is None:
+                config = self.config_manager.load_config()
+            else:
+                config = self.config_manager.config
+            
+            # Check if it's an Ollama provider - Claude Generated
+            if hasattr(config.llm, 'ollama_providers'):
+                for provider in config.llm.ollama_providers:
+                    if provider.name == provider_name:
+                        provider_config = provider
+                        break
+            
+            # Check if it's an OpenAI-compatible provider
+            if not provider_config and hasattr(config.llm, 'openai_compatible_providers'):
+                for provider in config.llm.openai_compatible_providers:
+                    if provider.name == provider_name:
+                        provider_config = provider
+                        break
+            
+            if not provider_config:
+                result['error'] = f"Provider '{provider_name}' not found in configuration"
+                return result
+            
+            # Parse URL to get host and port
+            try:
+                if hasattr(provider_config, 'base_url'):
+                    url = provider_config.base_url
+                else:
+                    # For Ollama providers, construct URL
+                    protocol = "https" if provider_config.host.startswith("https://") else "http"
+                    if "://" in provider_config.host:
+                        url = provider_config.host
+                    else:
+                        url = f"{protocol}://{provider_config.host}:{provider_config.port}"
+                
+                parsed_url = urlparse(url)
+                host = parsed_url.hostname or parsed_url.netloc.split(':')[0]
+                port = parsed_url.port
+                
+                if not port:
+                    port = 443 if parsed_url.scheme == 'https' else 80
+                    
+            except Exception as e:
+                result['error'] = f"Failed to parse provider URL: {str(e)}"
+                return result
+            
+            # Use Qt TCP socket for connection test
+            tcp_socket = QTcpSocket()
+            start_time = time.time()
+            
+            # Connect to host
+            tcp_socket.connectToHost(host, port)
+            
+            # Wait for connection with timeout
+            if tcp_socket.waitForConnected(timeout_ms):
+                result['reachable'] = True
+                result['latency_ms'] = (time.time() - start_time) * 1000
+                tcp_socket.disconnectFromHost()
+                tcp_socket.waitForDisconnected(1000)
+            else:
+                result['error'] = f"Qt TCP connection failed: {tcp_socket.errorString()}"
+            
+            tcp_socket.deleteLater()
+            
+        except Exception as e:
+            result['error'] = f"Qt ping test error: {str(e)}"
+            self.logger.error(f"Qt ping test error for {provider_name}: {e}")
+        
+        return result
+    
+    def is_provider_reachable(self, provider_name: str, force_check: bool = False) -> bool:
+        """
+        Check if provider is reachable using cached status - Claude Generated
+        
+        Args:
+            provider_name: Name of provider to check
+            force_check: Force fresh reachability check, ignore cache
+            
+        Returns:
+            True if provider is reachable, False otherwise
+        """
+        # Skip reachability check for API-based services - Claude Generated
+        api_services = ['gemini', 'anthropic', 'openai', 'comet', 'chatai']
+        if provider_name.lower() in api_services:
+            return True  # Assume API services are always reachable
+        current_time = time.time()
+        
+        # Check cache first if not forcing check
+        if not force_check and provider_name in self.provider_status_cache:
+            cache_entry = self.provider_status_cache[provider_name]
+            cache_age = current_time - cache_entry.get('last_check', 0)
+            
+            # Use cached result if not expired
+            if cache_age < self.status_cache_timeout:
+                return cache_entry.get('reachable', False)
+        
+        # Perform fresh reachability check
+        ping_result = self._qt_ping_test_provider(provider_name, timeout_ms=3000)
+        
+        # Update cache
+        self.provider_status_cache[provider_name] = {
+            'reachable': ping_result['reachable'],
+            'last_check': current_time,
+            'latency_ms': ping_result.get('latency_ms', 0.0),
+            'error': ping_result.get('error')
+        }
+        
+        # Emit status change signal
+        self.provider_status_changed.emit(provider_name, ping_result['reachable'])
+        
+        return ping_result['reachable']
+    
+    def get_provider_status(self, provider_name: str) -> Dict[str, Any]:
+        """
+        Get detailed provider status information - Claude Generated
+        
+        Args:
+            provider_name: Name of provider
+            
+        Returns:
+            Dict with status info: {'reachable': bool, 'latency_ms': float, 'last_check': timestamp}
+        """
+        if provider_name in self.provider_status_cache:
+            return self.provider_status_cache[provider_name].copy()
+        else:
+            return {'reachable': False, 'latency_ms': 0.0, 'last_check': 0, 'error': 'Not checked yet'}
+    
+    def refresh_all_provider_status(self) -> Dict[str, bool]:
+        """
+        Refresh reachability status for all configured providers - Claude Generated
+        
+        Returns:
+            Dict mapping provider names to reachability status
+        """
+        results = {}
+        
+        # Load current configuration
+        config = self.config_manager.load_config()
+        
+        # Check Ollama providers
+        if hasattr(config.llm, 'ollama_providers'):
+            for provider in config.llm.ollama_providers:
+                if provider.enabled:
+                    results[provider.name] = self.is_provider_reachable(provider.name, force_check=True)
+        
+        # Check OpenAI-compatible providers
+        if hasattr(config.llm, 'openai_compatible_providers'):
+            for provider in config.llm.openai_compatible_providers:
+                if provider.enabled:
+                    results[provider.name] = self.is_provider_reachable(provider.name, force_check=True)
+        
+        self.logger.info(f"Provider status refresh completed: {results}")
+        return results
+    
+    def _refresh_provider_status(self):
+        """
+        Timer callback to refresh provider status periodically - Claude Generated
+        """
+        self.refresh_all_provider_status()

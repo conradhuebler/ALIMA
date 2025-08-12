@@ -69,6 +69,13 @@ class MetaSuggester(BaseSuggester):
 
         self.suggester_type = suggester_type
         self.suggesters = {}
+        
+        # Week 2: Initialize unified knowledge manager for mapping-first search
+        from ..unified_knowledge_manager import UnifiedKnowledgeManager
+        self.ukm = UnifiedKnowledgeManager()
+        self.enable_mapping_search = True  # Can be disabled for fallback
+        self.mapping_max_age_hours = 24    # Configurable cache age
+        self.debug_mapping = debug         # Debug flag for mapping output
 
         # Initialize the appropriate suggesters
         if suggester_type in [SuggesterType.LOBID, SuggesterType.ALL]:
@@ -109,7 +116,7 @@ class MetaSuggester(BaseSuggester):
 
     def search(self, terms: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
-        Search for keywords using all configured suggesters and combine the results.
+        Week 2: Search with mappings-first strategy, fallback to live search - Claude Generated
 
         Args:
             terms: List of search terms
@@ -133,52 +140,108 @@ class MetaSuggester(BaseSuggester):
         for term in terms:
             combined_results[term] = {}
 
-        # Call each suggester and merge results
+        # Call each suggester with mapping-first logic
         for suggester_type, suggester in self.suggesters.items():
             self.logger.info(f"Searching with {suggester_type.value} suggester")
-            try:
-                suggester_results = suggester.search(terms)
-#                self.logger.info(
-#                    f"Results from {suggester_type.value} suggester: {suggester_results}"
-#                )
+            
+            # Week 2: Try mappings first if enabled
+            if self.enable_mapping_search:
+                mapping_hits = 0
+                live_searches = 0
                 
-                # Merge results for each term
                 for term in terms:
-                    if term not in suggester_results:
-                        continue
-
-                    term_results = suggester_results[term]
-
-                    # For each keyword from this suggester
-                    for keyword, data in term_results.items():
-                        # If keyword not in combined results yet, add it
-                        if keyword not in combined_results[term]:
-                            combined_results[term][keyword] = {
-                                "count": data.get("count", 1),
-                                "gndid": data.get("gndid", set()),
-                                "ddc": data.get("ddc", set()),
-                                "dk": data.get("dk", set()),
-                            }
-                        else:
-                            # Update existing entry
-                            existing = combined_results[term][keyword]
-
-                            # Use max of counts
-                            existing["count"] = max(
-                                existing["count"], data.get("count", 1)
+                    # Check for cached mapping first
+                    cached_gnd_ids, was_cached = self.ukm.search_with_mappings_first(
+                        search_term=term,
+                        suggester_type=suggester_type.value,
+                        max_age_hours=self.mapping_max_age_hours,
+                        live_search_fallback=lambda t: suggester.search([t])
+                    )
+                    
+                    if was_cached:
+                        mapping_hits += 1
+                        # Convert cached GND IDs to results format
+                        if cached_gnd_ids:
+                            self._add_cached_results_to_combined(
+                                combined_results, term, cached_gnd_ids, suggester_type.value
                             )
-
-                            # Update sets by merging
-                            existing["gndid"].update(data.get("gndid", set()))
-                            existing["ddc"].update(data.get("ddc", set()))
-                            existing["dk"].update(data.get("dk", set()))
-
-            except Exception as e:
-                self.logger.error(
-                    f"Error searching with {suggester_type.value} suggester: {e}"
-                )
+                    else:
+                        live_searches += 1
+                        # Fallback already executed by search_with_mappings_first
+                        # Results should have been updated in mapping, now get fresh live results
+                        try:
+                            live_results = suggester.search([term])
+                            self._merge_suggester_results(combined_results, {term: live_results.get(term, {})}, term)
+                        except Exception as e:
+                            self.logger.error(f"Live search fallback failed for {term}: {e}")
+                
+                if self.debug_mapping:
+                    self.logger.info(f"📊 {suggester_type.value}: {mapping_hits} mapping hits, {live_searches} live searches")
+            else:
+                # Traditional search without mappings
+                try:
+                    suggester_results = suggester.search(terms)
+                    for term in terms:
+                        if term in suggester_results:
+                            self._merge_suggester_results(combined_results, suggester_results, term)
+                except Exception as e:
+                    self.logger.error(f"Error searching with {suggester_type.value} suggester: {e}")
 
         return combined_results
+    
+    def _add_cached_results_to_combined(self, combined_results: Dict, term: str, 
+                                      gnd_ids: List[str], suggester_type: str):
+        """Add cached GND results to combined results format - Claude Generated"""
+        try:
+            for gnd_id in gnd_ids:
+                # Get GND entry details from unified knowledge manager
+                gnd_entry = self.ukm.get_gnd_fact(gnd_id)
+                if gnd_entry:
+                    keyword = gnd_entry.title
+                    
+                    if keyword not in combined_results[term]:
+                        combined_results[term][keyword] = {
+                            "count": 1,  # Default count for cached entries
+                            "gndid": {gnd_id},
+                            "ddc": set(),
+                            "dk": set(),
+                        }
+                    else:
+                        combined_results[term][keyword]["gndid"].add(gnd_id)
+                        
+        except Exception as e:
+            self.logger.error(f"Error adding cached results: {e}")
+    
+    def _merge_suggester_results(self, combined_results: Dict, suggester_results: Dict, term: str):
+        """Merge individual suggester results into combined results - Claude Generated"""
+        if term not in suggester_results:
+            return
+            
+        term_results = suggester_results[term]
+
+        # For each keyword from this suggester
+        for keyword, data in term_results.items():
+            # If keyword not in combined results yet, add it
+            if keyword not in combined_results[term]:
+                combined_results[term][keyword] = {
+                    "count": data.get("count", 1),
+                    "gndid": data.get("gndid", set()),
+                    "ddc": data.get("ddc", set()),
+                    "dk": data.get("dk", set()),
+                }
+            else:
+                # Update existing entry
+                existing = combined_results[term][keyword]
+
+                # Use max of counts
+                existing["count"] = max(
+                    existing["count"], data.get("count", 1)
+                )
+
+                # Update sets by merging
+                existing["gndid"].update(data.get("gndid", set()))
+                existing["ddc"].update(data.get("ddc", set()))
+                existing["dk"].update(data.get("dk", set()))
 
     def search_unified(self, terms: List[str]) -> List[List]:
         """

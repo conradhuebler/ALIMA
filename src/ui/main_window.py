@@ -37,7 +37,7 @@ from typing import Optional, Dict
 
 from .find_keywords import SearchTab
 from .abstract_tab import AbstractTab
-from .settings_dialog import SettingsDialog
+from .comprehensive_settings_dialog import ComprehensiveSettingsDialog
 from ..core.search_engine import SearchEngine
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.gndparser import GNDParser
@@ -325,10 +325,11 @@ class MainWindow(QMainWindow):
         self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")
         self.ollama_port_default = self.settings.value("ollama_port", "11434")
 
-        # Instantiate core services
+        # Instantiate core services with lazy initialization for faster GUI startup - Claude Generated
         self.llm_service = LlmService(
             ollama_url=self.ollama_url_default,
             ollama_port=self.ollama_port_default,
+            lazy_initialization=True,  # Don't test providers during GUI startup
         )
         self.llm = self.llm_service  # Assign llm here
         self.prompt_service = PromptService(
@@ -345,7 +346,8 @@ class MainWindow(QMainWindow):
 
         self.init_ui()
         self.load_settings()
-        self.load_models_and_providers()
+        # Don't load models during startup - do it on demand - Claude Generated
+        # self.load_models_and_providers()
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
@@ -493,8 +495,13 @@ class MainWindow(QMainWindow):
         # self.cache_info = QLabel()
         self.global_status_bar.addPermanentWidget(ollama_widget)
 
+    def ensure_models_and_providers_loaded(self):
+        """Ensure models and providers are loaded on-demand - Claude Generated"""
+        if not self.available_providers:
+            self.load_models_and_providers()
+
     def load_models_and_providers(self):
-        """Loads all available models and providers."""
+        """Loads all available models and providers - Claude Generated"""
         self.available_providers = self.llm_service.get_available_providers()
         for provider in self.available_providers:
             self.available_models[provider] = self.llm_service.get_available_models(
@@ -608,13 +615,15 @@ class MainWindow(QMainWindow):
         self.search_tab.update_search_field(", ".join(result))
 
     def show_settings(self):
-        """Öffnet den Einstellungsdialog"""
+        """Öffnet den umfassenden Einstellungsdialog - Claude Generated"""
         try:
-            # Übergebe beide Konfigurationen getrennt
-            dialog = SettingsDialog(ui_settings=self.settings, parent=self)
+            dialog = ComprehensiveSettingsDialog(parent=self)
+            dialog.config_changed.connect(self._on_config_changed)
             if dialog.exec():
                 # Einstellungen wurden gespeichert
                 self.load_settings()
+                # Aktualisiere alle Komponenten mit neuer Konfiguration
+                self._refresh_components()
         except Exception as e:
             self.logger.error(f"Fehler beim Öffnen der Einstellungen: {e}")
             QMessageBox.critical(
@@ -640,6 +649,40 @@ class MainWindow(QMainWindow):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("ollama_url", self.ollama_url.text())
         self.settings.setValue("ollama_port", self.ollama_port.text())
+
+    def _on_config_changed(self):
+        """Handle configuration changes from comprehensive settings dialog - Claude Generated"""
+        self.logger.info("Configuration changed, refreshing components")
+        self._refresh_components()
+
+    def _refresh_components(self):
+        """Refresh all components with new configuration - Claude Generated"""
+        try:
+            # Refresh LLM service configuration
+            if hasattr(self, 'llm'):
+                # LLM service will automatically reload config on next use
+                pass
+            
+            # Refresh cache/database connections  
+            if hasattr(self, 'cache_manager'):
+                # Database connections will be recreated with new config
+                pass
+                
+            # Update global status bar
+            if hasattr(self, 'global_status_bar'):
+                # Status bar will automatically update on next refresh
+                pass
+                
+            # Notify tabs about configuration changes
+            for i in range(self.tabs.count()):
+                tab = self.tabs.widget(i)
+                if hasattr(tab, 'on_config_changed'):
+                    tab.on_config_changed()
+                    
+            self.logger.info("Component refresh completed successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error refreshing components: {e}")
 
     def export_results(self):
         """Exportiert die aktuellen Suchergebnisse"""
@@ -814,13 +857,30 @@ class MainWindow(QMainWindow):
 
                     parser = GNDParser(self.cache_manager)
                     self.logger.info(f"Importiere GND-Datenbank: {xml_file_path}")
+                    
+                    # Console Progress Output - Claude Generated
+                    print("🔄 Starte GND-Datenbank Import...")
+                    print(f"📁 Datei: {xml_file_path}")
 
                     # Connect parser progress signals if available
                     if hasattr(parser, "progress_updated"):
                         parser.progress_updated.connect(progress.setValue)
                         parser.status_updated.connect(progress.setLabelText)
+                        
+                        # Also connect to console output - Claude Generated
+                        def console_progress(value):
+                            if value > 0:
+                                print(f"📊 Fortschritt: {value}%")
+                        
+                        def console_status(status):
+                            print(f"ℹ️ Status: {status}")
+                            
+                        parser.progress_updated.connect(console_progress)
+                        parser.status_updated.connect(console_status)
 
+                    print("⚙️ Verarbeite XML-Daten...")
                     parser.process_file(xml_file_path)
+                    print("✅ GND-Import erfolgreich abgeschlossen!")
 
                     progress.close()
                     QMessageBox.information(
@@ -917,11 +977,18 @@ class MainWindow(QMainWindow):
 
             # Download file
             self.logger.info(f"Lade GND-Datenbank herunter von: {url}")
+            
+            # Console Progress Output - Claude Generated
+            print("🌐 Starte DNB-Download...")
+            print(f"📡 URL: {url}")
+            
             response = requests.get(url, stream=True)
             response.raise_for_status()
 
             # Get file size if available
             total_size = int(response.headers.get("content-length", 0))
+            if total_size > 0:
+                print(f"📦 Dateigröße: {total_size / (1024*1024):.1f} MB")
 
             # Create temporary files
             temp_dir = tempfile.mkdtemp()
@@ -930,9 +997,13 @@ class MainWindow(QMainWindow):
 
             # Download with progress
             downloaded = 0
+            last_console_percent = 0
+            
+            print("⬇️ Download läuft...")
             with open(temp_gz_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if progress.wasCanceled():
+                        print("❌ Download abgebrochen")
                         progress.close()
                         return None
 
@@ -940,9 +1011,14 @@ class MainWindow(QMainWindow):
                     downloaded += len(chunk)
 
                     if total_size > 0:
-                        progress.setValue(
-                            int((downloaded / total_size) * 50)
-                        )  # 50% for download
+                        download_percent = int((downloaded / total_size) * 50)
+                        progress.setValue(download_percent)  # 50% for download
+                        
+                        # Console progress every 10% - Claude Generated
+                        console_percent = (downloaded / total_size) * 100
+                        if console_percent - last_console_percent >= 10:
+                            print(f"📊 Download: {console_percent:.0f}%")
+                            last_console_percent = console_percent
 
                     QApplication.processEvents()
 
@@ -951,11 +1027,13 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
 
             # Extract gz file
+            print("📦 Entpacke GZ-Datei...")
             self.logger.info(f"Entpacke {temp_gz_path} nach {temp_xml_path}")
             with gzip.open(temp_gz_path, "rb") as gz_file:
                 with open(temp_xml_path, "wb") as xml_file:
                     xml_file.write(gz_file.read())
 
+            print("✅ Download und Entpackung abgeschlossen")
             progress.setValue(100)
             progress.close()
 
@@ -981,6 +1059,178 @@ class MainWindow(QMainWindow):
             self.logger.error(f"Fehler beim Verarbeiten der Datei: {str(e)}")
             QMessageBox.critical(self, "Fehler", f"Fehler beim Verarbeiten: {str(e)}")
             return None
+
+    def import_lobid_dnb_data(self):
+        """Importiert DNB/GND-Daten über LobidSuggester mit Progress - Claude Generated"""
+        from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QVBoxLayout, QDialog, QLabel, QTextEdit, QPushButton
+        from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+        from PyQt6.QtGui import QCursor, QFont
+        from ..core.suggesters.lobid_suggester import LobidSuggester
+        from pathlib import Path
+        import time
+        
+        class LobidImportWorker(QThread):
+            """Worker thread for Lobid DNB import - Claude Generated"""
+            progress_updated = pyqtSignal(str)  # Progress message
+            finished_successfully = pyqtSignal(int)  # Number of entries imported
+            error_occurred = pyqtSignal(str)  # Error message
+            
+            def __init__(self, force_download=False, debug=False):
+                super().__init__()
+                self.force_download = force_download
+                self.debug = debug
+                
+            def run(self):
+                try:
+                    self.progress_updated.emit("🔄 Initialisiere Lobid-Suggester...")
+                    
+                    # Create LobidSuggester instance for DNB import
+                    data_dir = Path("data") / "lobid"
+                    lobid_suggester = LobidSuggester(data_dir=data_dir, debug=self.debug)
+                    
+                    self.progress_updated.emit(f"📁 Datenverzeichnis: {data_dir}")
+                    self.progress_updated.emit(f"🔄 Erzwungener Download: {self.force_download}")
+                    
+                    start_time = time.time()
+                    
+                    if self.force_download or not (data_dir / "subjects.json").exists():
+                        self.progress_updated.emit("⬇️ Lade GND-Sachbegriffe von DNB herunter...")
+                        
+                    # Use the prepare method which handles download and processing
+                    lobid_suggester.prepare(force_gnd_download=self.force_download)
+                    
+                    elapsed = time.time() - start_time
+                    self.progress_updated.emit(f"✅ DNB-Import abgeschlossen in {elapsed:.2f} Sekunden")
+                    
+                    # Show some statistics
+                    if lobid_suggester.gnd_subjects:
+                        subject_count = len(lobid_suggester.gnd_subjects)
+                        self.progress_updated.emit(f"📊 Importierte {subject_count:,} GND-Sachbegriff-Einträge")
+                        
+                        # Show sample entries
+                        sample_entries = list(lobid_suggester.gnd_subjects.items())[:3]
+                        self.progress_updated.emit("📋 Beispiel-Einträge:")
+                        for gnd_id, title in sample_entries:
+                            self.progress_updated.emit(f"   {gnd_id}: {title}")
+                        
+                        self.finished_successfully.emit(subject_count)
+                    else:
+                        self.error_occurred.emit("Keine GND-Sachbegriffe gefunden")
+                        
+                except Exception as e:
+                    self.error_occurred.emit(f"Import-Fehler: {str(e)}")
+        
+        # Ask user for import options
+        reply = QMessageBox.question(
+            self,
+            "Lobid DNB Import",
+            "Möchten Sie die GND-Sachbegriffe von DNB herunterladen?\n\n"
+            "Dies kann einige Minuten dauern, da die Daten heruntergeladen und verarbeitet werden müssen.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Check if data already exists
+        data_dir = Path("data") / "lobid" 
+        subjects_file = data_dir / "subjects.json"
+        force_download = False
+        
+        if subjects_file.exists():
+            force_reply = QMessageBox.question(
+                self,
+                "Daten bereits vorhanden",
+                f"GND-Daten wurden bereits gefunden in:\n{subjects_file}\n\n"
+                "Möchten Sie die Daten trotzdem neu herunterladen?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            force_download = (force_reply == QMessageBox.StandardButton.Yes)
+        
+        # Create progress dialog
+        class ImportProgressDialog(QDialog):
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.setWindowTitle("Lobid DNB Import")
+                self.setModal(True)
+                self.resize(600, 400)
+                
+                layout = QVBoxLayout()
+                
+                self.status_label = QLabel("Starte Import...")
+                font = QFont()
+                font.setBold(True)
+                self.status_label.setFont(font)
+                layout.addWidget(self.status_label)
+                
+                self.progress_text = QTextEdit()
+                self.progress_text.setReadOnly(True)
+                self.progress_text.setFont(QFont("Consolas", 9))
+                layout.addWidget(self.progress_text)
+                
+                self.cancel_button = QPushButton("Abbrechen")
+                self.cancel_button.clicked.connect(self.reject)
+                layout.addWidget(self.cancel_button)
+                
+                self.setLayout(layout)
+                
+            def add_progress_message(self, message: str):
+                self.progress_text.append(message)
+                # Auto-scroll to bottom
+                scrollbar = self.progress_text.verticalScrollBar()
+                scrollbar.setValue(scrollbar.maximum())
+                
+            def set_status(self, status: str):
+                self.status_label.setText(status)
+        
+        # Create and show progress dialog
+        progress_dialog = ImportProgressDialog(self)
+        progress_dialog.show()
+        
+        # Create and start worker thread
+        self.import_worker = LobidImportWorker(force_download=force_download, debug=True)
+        
+        # Connect worker signals
+        self.import_worker.progress_updated.connect(progress_dialog.add_progress_message)
+        self.import_worker.progress_updated.connect(progress_dialog.set_status)
+        
+        def on_import_finished(entry_count):
+            progress_dialog.cancel_button.setText("Schließen")
+            progress_dialog.add_progress_message(f"\n🎉 Import erfolgreich abgeschlossen!")
+            progress_dialog.set_status(f"✅ {entry_count:,} Einträge importiert")
+            
+            # Update cache statistics if available
+            if hasattr(self, 'global_status_bar'):
+                self.global_status_bar.update_status()
+                
+        def on_import_error(error_message):
+            progress_dialog.cancel_button.setText("Schließen")
+            progress_dialog.add_progress_message(f"\n❌ Fehler: {error_message}")
+            progress_dialog.set_status("❌ Import fehlgeschlagen")
+            
+            QMessageBox.critical(self, "Import-Fehler", f"Fehler beim Import:\n{error_message}")
+        
+        self.import_worker.finished_successfully.connect(on_import_finished)
+        self.import_worker.error_occurred.connect(on_import_error)
+        
+        # Handle cancel button
+        def on_cancel():
+            if self.import_worker.isRunning():
+                progress_dialog.set_status("🛑 Import wird abgebrochen...")
+                progress_dialog.add_progress_message("🛑 Benutzer hat Import abgebrochen")
+                self.import_worker.terminate()
+                self.import_worker.wait(3000)  # Wait max 3 seconds
+            progress_dialog.accept()
+            
+        progress_dialog.rejected.connect(on_cancel)
+        
+        # Start the import
+        self.import_worker.start()
+        
+        # Show dialog and wait for completion
+        progress_dialog.exec()
 
     # In der MainWindow Klasse - füge folgende Methoden hinzu
 

@@ -125,9 +125,46 @@ class GlobalStatusBar(QStatusBar):
         if hasattr(llm_service, "provider_changed"):
             llm_service.provider_changed.connect(self.update_provider_info)
 
-        # Initial update
-        self.update_provider_info()
+        # Initial update - don't load models during startup - Claude Generated
+        self.update_provider_info_lazy()
         self.update_cache_status()
+
+    def update_provider_info_lazy(self):
+        """Update provider display without initializing providers - Claude Generated"""
+        if self.llm_service:
+            try:
+                # Just show that providers are available without initializing them
+                providers = self.llm_service.get_available_providers()
+                if providers:
+                    provider_count = len(providers)
+                    self.provider_label.setText(f"Provider: {provider_count} verfügbar")
+                    self.provider_label.setStyleSheet(
+                        """
+                        QLabel {
+                            color: #2e7d32;
+                            font-weight: bold;
+                            padding: 2px 8px;
+                            border-radius: 3px;
+                            background-color: rgba(46, 125, 50, 0.1);
+                        }
+                    """
+                    )
+                else:
+                    self.provider_label.setText("Provider: Nicht verfügbar")
+                    self.provider_label.setStyleSheet(
+                        """
+                        QLabel {
+                            color: #d32f2f;
+                            font-weight: bold;
+                            padding: 2px 8px;
+                            border-radius: 3px;
+                            background-color: rgba(211, 47, 47, 0.1);
+                        }
+                    """
+                    )
+            except Exception as e:
+                self.logger.error(f"Error updating provider info lazily: {e}")
+                self.provider_label.setText("Provider: Error")
 
     def update_provider_info(self, provider: str = None, model: str = None):
         """Update provider information display - Claude Generated"""
