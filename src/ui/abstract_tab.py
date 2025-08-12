@@ -267,13 +267,15 @@ class AbstractTab(QWidget):
         input_config_splitter.addWidget(self.input_group)
 
         # RIGHT SIDE: AI Configuration and Chunking
+
         config_widget = QWidget()
         config_main_layout = QVBoxLayout(config_widget)
 
         self.config_group = QGroupBox("KI-Konfiguration")
-        config_layout = QVBoxLayout(self.config_group)
+        config_layout = QHBoxLayout(self.config_group)  # Changed from QVBoxLayout
 
-        # Create Tab Widget
+        # LEFT: Prompt + Parameter Tabs
+        left_config_layout = QVBoxLayout()
         self.config_tabs = QTabWidget()
 
         # -- Prompt Tab --
@@ -299,7 +301,7 @@ class AbstractTab(QWidget):
 
         prompt_layout.addWidget(QLabel("System-Prompt (optional):"))
         self.system_prompt_edit = QTextEdit()
-        self.system_prompt_edit.setMinimumHeight(80)
+        self.system_prompt_edit.setMinimumHeight(120)
         prompt_layout.addWidget(self.system_prompt_edit)
 
         self.config_tabs.addTab(prompt_tab, "Prompt")
@@ -350,10 +352,11 @@ class AbstractTab(QWidget):
         params_layout.addWidget(self.seed_spinbox, 2, 1, 1, 2)
 
         self.config_tabs.addTab(params_tab, "Parameter")
+        left_config_layout.addWidget(self.config_tabs)
 
-        config_layout.addWidget(self.config_tabs)
+        # RIGHT: Provider & Chunking Controls
+        right_config_layout = QVBoxLayout()
 
-        # Provider/Model Selection
         provider_model_group = QGroupBox("Provider & Modell")
         provider_model_layout = QGridLayout(provider_model_group)
         provider_model_layout.addWidget(QLabel("Provider:"), 0, 0)
@@ -365,9 +368,7 @@ class AbstractTab(QWidget):
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self.set_model)
         provider_model_layout.addWidget(self.model_combo, 1, 1)
-        config_layout.addWidget(provider_model_group)
-
-        config_main_layout.addWidget(self.config_group)
+        right_config_layout.addWidget(provider_model_group)
 
         chunk_group = QGroupBox("Chunking-Kontrolle (optional)")
         chunk_layout = QVBoxLayout(chunk_group)
@@ -386,7 +387,14 @@ class AbstractTab(QWidget):
         self.enable_chunk_keywords.toggled.connect(self.keyword_chunk_slider.setEnabled)
         chunk_layout.addWidget(self.enable_chunk_keywords)
         chunk_layout.addWidget(self.keyword_chunk_slider)
-        config_main_layout.addWidget(chunk_group)
+        right_config_layout.addWidget(chunk_group)
+
+        # Combine both columns
+        config_layout.addLayout(left_config_layout, stretch=3)
+        config_layout.addLayout(right_config_layout, stretch=2)
+
+        # Add the group to main layout
+        config_main_layout.addWidget(self.config_group)
 
         input_config_splitter.addWidget(config_widget)
 
