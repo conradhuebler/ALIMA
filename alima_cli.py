@@ -522,15 +522,24 @@ def main():
         return
 
     if args.command == "pipeline":
-        # Setup services
+        # Setup services - provider mapping handled in PipelineStepExecutor - Claude Generated  
+        from src.utils.config_manager import ConfigManager as CM
+        config_manager = CM()
         llm_service = LlmService(
-            providers=[args.provider],
+            providers=None,  # Initialize without specific providers, they'll be resolved dynamically
+            config_manager=config_manager,
             ollama_url=args.ollama_host,
             ollama_port=args.ollama_port,
         )
         prompt_service = PromptService(PROMPTS_FILE, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, logger)
         cache_manager = UnifiedKnowledgeManager()
+        
+        # Get catalog configuration - use args if provided, otherwise from config - Claude Generated
+        catalog_config = config_manager.get_catalog_config()
+        catalog_token = args.catalog_token or catalog_config.get("catalog_token", "")
+        catalog_search_url = args.catalog_search_url or catalog_config.get("catalog_search_url", "")
+        catalog_details_url = args.catalog_details_url or catalog_config.get("catalog_details_url", "")
 
         def stream_callback(token, step_id):
             print(token, end="", flush=True)
@@ -584,7 +593,7 @@ def main():
                     input_text=input_text,
                     initial_model=args.initial_model,
                     final_model=args.final_model,
-                    provider=args.provider,
+                    provider=args.provider,  # Raw provider name, resolved in execute_complete_pipeline - Claude Generated
                     suggesters=args.suggesters,
                     stream_callback=stream_callback,
                     logger=logger,
@@ -594,9 +603,9 @@ def main():
                     chunking_task=args.chunking_task,
                     include_dk_classification=include_dk,
                     # Catalog configuration - Claude Generated
-                    catalog_token=args.catalog_token,
-                    catalog_search_url=args.catalog_search_url,
-                    catalog_details_url=args.catalog_details_url,
+                    catalog_token=catalog_token,
+                    catalog_search_url=catalog_search_url,
+                    catalog_details_url=catalog_details_url,
                     # Recovery configuration - Claude Generated
                     auto_save_path=args.auto_save_path,
                     resume_from_path=args.resume_from,
@@ -991,21 +1000,25 @@ def main():
         print("-" * 60)
         
         try:
-            # Get catalog configuration from arguments (all required)
-            catalog_token = args.catalog_token or ""
-            catalog_search_url = args.catalog_search_url or ""
-            catalog_details_url = args.catalog_details_url or ""
+            # Get catalog configuration - use args if provided, otherwise from config - Claude Generated
+            from src.utils.config_manager import ConfigManager as CM
+            config_manager = CM()
+            catalog_config = config_manager.get_catalog_config()
+            
+            catalog_token = args.catalog_token or catalog_config.get("catalog_token", "")
+            catalog_search_url = args.catalog_search_url or catalog_config.get("catalog_search_url", "")
+            catalog_details_url = args.catalog_details_url or catalog_config.get("catalog_details_url", "")
             
             if not catalog_token:
-                logger.error("❌ No catalog token provided. Use --catalog-token TOKEN")
+                logger.error("❌ No catalog token found in config or arguments. Configure in settings or use --catalog-token TOKEN")
                 return
                 
             if not catalog_search_url:
-                logger.error("❌ No catalog search URL provided. Use --catalog-search-url URL")
+                logger.error("❌ No catalog search URL found in config or arguments. Configure in settings or use --catalog-search-url URL")
                 return
                 
             if not catalog_details_url:
-                logger.error("❌ No catalog details URL provided. Use --catalog-details-url URL")
+                logger.error("❌ No catalog details URL found in config or arguments. Configure in settings or use --catalog-details-url URL")
                 return
                 
             print(f"🔑 Using catalog token: {catalog_token[:10]}..." if len(catalog_token) > 10 else catalog_token)

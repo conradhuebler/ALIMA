@@ -200,10 +200,62 @@ class LLMConfig:
         """Get list of enabled Ollama providers - Claude Generated"""
         return [p for p in self.ollama_providers if p.enabled]
     
+    def get_enabled_openai_providers(self) -> List[OpenAICompatibleProvider]:
+        """Get list of enabled OpenAI-compatible providers - Claude Generated"""
+        return [p for p in self.openai_compatible_providers if p.enabled]
+    
     def get_primary_ollama_provider(self) -> Optional[OllamaProvider]:
         """Get first enabled Ollama provider (primary) - Claude Generated"""
         enabled = self.get_enabled_ollama_providers()
         return enabled[0] if enabled else None
+    
+    def resolve_provider_type(self, config_name: str) -> tuple[str, dict]:
+        """
+        Resolve configuration name to provider type and config - Claude Generated
+        
+        Args:
+            config_name: Configuration name (e.g., "LLMachine", "ChatAI", "Gemini")
+            
+        Returns:
+            Tuple of (provider_type, provider_config)
+            
+        Examples:
+            "LLMachine" → ("ollama", {"host": "139.20.140.163", "port": 11434})
+            "ChatAI" → ("openai", {"base_url": "...", "api_key": "..."})
+            "Gemini" → ("gemini", {"api_key": "..."})
+        """
+        # Check Ollama providers first
+        for ollama_provider in self.get_enabled_ollama_providers():
+            if ollama_provider.name == config_name:
+                config = {
+                    "host": ollama_provider.host,
+                    "port": ollama_provider.port,
+                    "api_key": ollama_provider.api_key,
+                    "use_ssl": ollama_provider.use_ssl,
+                    "connection_type": ollama_provider.connection_type
+                }
+                return ("ollama", config)
+                
+        # Check OpenAI-compatible providers
+        for openai_provider in self.get_enabled_openai_providers():
+            if openai_provider.name == config_name:
+                config = {
+                    "base_url": openai_provider.base_url,
+                    "api_key": openai_provider.api_key
+                }
+                # Return the specific provider name, not generic "openai"
+                return (openai_provider.name.lower(), config)
+                
+        # Check static providers
+        if config_name.lower() == "gemini":
+            config = {"api_key": self.gemini}
+            return ("gemini", config)
+        elif config_name.lower() == "anthropic":
+            config = {"api_key": self.anthropic}
+            return ("anthropic", config)
+            
+        # Unknown provider - return as-is for backward compatibility
+        return (config_name, {})
     
     @classmethod
     def create_default(cls) -> 'LLMConfig':
@@ -713,14 +765,14 @@ class ConfigManager:
         return result
     
     def get_catalog_config(self) -> Dict[str, Any]:
-        """Get catalog configuration in legacy format for compatibility - Claude Generated"""
+        """Get catalog configuration in unified format - Claude Generated"""
         config = self.load_config()
         cat = config.catalog
         
         return {
             "catalog_token": cat.catalog_token,
             "catalog_search_url": cat.catalog_search_url,
-            "catalog_details": cat.catalog_details_url  # Note: legacy key name
+            "catalog_details_url": cat.catalog_details_url  # Unified key name - Claude Generated
         }
     
     def create_sample_configs(self) -> Dict[str, str]:

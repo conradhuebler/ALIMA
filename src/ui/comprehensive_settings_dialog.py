@@ -117,7 +117,16 @@ class OllamaConnectionTestWorker(QThread):
             
             # Try to get models using native client
             models_response = client.list()
-            models = [model["name"] for model in models_response.get("models", [])]
+            # Handle ollama.ListResponse object format - Claude Generated
+            models = []
+            if hasattr(models_response, 'models'):
+                for model in models_response.models:
+                    if hasattr(model, 'model'):
+                        models.append(model.model)  # Use .model attribute
+                    elif hasattr(model, 'name'):
+                        models.append(model.name)   # Fallback to .name
+                    else:
+                        models.append(str(model))   # Final fallback
             
             if self._should_cancel:
                 return
@@ -356,7 +365,16 @@ class OllamaProviderEditorDialog(QDialog):
             
             # Try to get models using native client
             models_response = client.list()
-            models = [model["name"] for model in models_response.get("models", [])]
+            # Handle ollama.ListResponse object format - Claude Generated
+            models = []
+            if hasattr(models_response, 'models'):
+                for model in models_response.models:
+                    if hasattr(model, 'model'):
+                        models.append(model.model)  # Use .model attribute
+                    elif hasattr(model, 'name'):
+                        models.append(model.name)   # Fallback to .name
+                    else:
+                        models.append(str(model))   # Final fallback
             
             progress.close()
             
@@ -868,6 +886,12 @@ class ComprehensiveSettingsDialog(QDialog):
         delete_provider_btn.clicked.connect(self._delete_openai_provider)
         provider_buttons.addWidget(delete_provider_btn)
         
+        # Add test connection button for OpenAI-compatible providers - Claude Generated
+        test_openai_btn = QPushButton("🔧 Test Connection")
+        test_openai_btn.clicked.connect(self._test_openai_connection)
+        provider_buttons.addWidget(test_openai_btn)
+        self.openai_test_btn = test_openai_btn
+        
         # Add provider status refresh button - Claude Generated
         refresh_status_btn = QPushButton("🔄 Refresh All Status")
         refresh_status_btn.clicked.connect(self._refresh_all_providers_status)
@@ -891,7 +915,7 @@ class ComprehensiveSettingsDialog(QDialog):
         # Provider management buttons
         ollama_buttons = QHBoxLayout()
         
-        add_ollama_btn = QPushButton("➕ Add Ollama Provider")
+        add_ollama_btn = QPushButton("➕ Add Provider")
         add_ollama_btn.clicked.connect(self._add_ollama_provider)
         ollama_buttons.addWidget(add_ollama_btn)
         
@@ -903,6 +927,17 @@ class ComprehensiveSettingsDialog(QDialog):
         delete_ollama_btn.clicked.connect(self._delete_ollama_provider)
         ollama_buttons.addWidget(delete_ollama_btn)
         
+        # Add test connection button for Ollama providers - consistent with OpenAI - Claude Generated
+        test_ollama_btn = QPushButton("🔧 Test Connection")
+        test_ollama_btn.clicked.connect(self._test_ollama_connection)
+        ollama_buttons.addWidget(test_ollama_btn)
+        self.ollama_test_btn = test_ollama_btn
+        
+        # Add provider status refresh button - Claude Generated
+        refresh_status_btn = QPushButton("🔄 Refresh All Status")
+        refresh_status_btn.clicked.connect(self._refresh_all_providers_status)
+        ollama_buttons.addWidget(refresh_status_btn)
+        
         ollama_buttons.addStretch()
         ollama_layout.addLayout(ollama_buttons)
         
@@ -910,14 +945,6 @@ class ComprehensiveSettingsDialog(QDialog):
         self.ollama_providers_list = QListWidget()
         self.ollama_providers_list.itemDoubleClicked.connect(self._edit_ollama_provider)
         ollama_layout.addWidget(self.ollama_providers_list)
-        
-        # Test connection button for Ollama
-        ollama_test_layout = QHBoxLayout()
-        self.ollama_test_btn = QPushButton("🔧 Test Selected Provider")
-        self.ollama_test_btn.clicked.connect(self._test_ollama_connection)
-        ollama_test_layout.addWidget(self.ollama_test_btn)
-        ollama_test_layout.addStretch()
-        ollama_layout.addLayout(ollama_test_layout)
         
         ollama_group.setLayout(ollama_layout)
         layout.addWidget(ollama_group)
@@ -1249,6 +1276,89 @@ class ComprehensiveSettingsDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             self.current_config.llm.remove_provider(provider.name)
             self._load_providers_list()
+    
+    def _test_openai_connection(self):
+        """Test connection for selected OpenAI-compatible provider - Claude Generated"""
+        current_item = self.providers_list.currentItem()
+        if not current_item:
+            QMessageBox.information(self, "No Selection", "Please select an OpenAI-compatible provider to test.")
+            return
+            
+        provider = current_item.data(Qt.ItemDataRole.UserRole)
+        
+        # Disable test button to prevent multiple simultaneous tests
+        self.openai_test_btn.setEnabled(False)
+        self.openai_test_btn.setText("Testing...")
+        
+        # Create progress dialog (non-blocking)
+        self.openai_connection_progress = QProgressDialog(f"Testing {provider.name} connection...", "Cancel", 0, 0, self)
+        self.openai_connection_progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self.openai_connection_progress.canceled.connect(self._cancel_openai_connection_test)
+        self.openai_connection_progress.show()
+        
+        # Create and start async worker (reuse OllamaConnectionTestWorker but with openai mode)
+        # Create a fake ollama provider that uses openai_compatible mode
+        fake_ollama_provider = OllamaProvider(
+            name=provider.name,
+            host=provider.base_url.replace('http://', '').replace('https://', '').replace('/v1', ''),
+            port=443 if 'https' in provider.base_url else 80,
+            use_ssl='https' in provider.base_url,
+            connection_type='openai_compatible',
+            api_key=provider.api_key,
+            enabled=provider.enabled
+        )
+        
+        self.openai_connection_worker = OllamaConnectionTestWorker(fake_ollama_provider)
+        self.openai_connection_worker.test_completed.connect(self._on_openai_connection_test_completed)
+        self.openai_connection_worker.progress_updated.connect(self._on_openai_connection_progress_updated)
+        self.openai_connection_worker.start()
+
+    def _cancel_openai_connection_test(self):
+        """Cancel ongoing OpenAI connection test - Claude Generated"""
+        if hasattr(self, 'openai_connection_worker') and self.openai_connection_worker:
+            self.openai_connection_worker.cancel()
+            self.openai_connection_worker.wait(1000)
+            if self.openai_connection_worker.isRunning():
+                self.openai_connection_worker.terminate()
+            self.openai_connection_worker = None
+        self._reset_openai_connection_test_ui()
+
+    def _on_openai_connection_progress_updated(self, message: str):
+        """Update OpenAI connection progress dialog - Claude Generated"""
+        if hasattr(self, 'openai_connection_progress') and self.openai_connection_progress:
+            self.openai_connection_progress.setLabelText(message)
+
+    def _on_openai_connection_test_completed(self, success: bool, message: str, models: list):
+        """Handle OpenAI connection test completion - Claude Generated"""
+        self._reset_openai_connection_test_ui()
+        
+        if success:
+            models_text = ""
+            if models:
+                models_text = f"\n\nAvailable models ({len(models)}):\n" + "\n".join(f"• {model}" for model in models[:10])
+                if len(models) > 10:
+                    models_text += f"\n... and {len(models) - 10} more"
+            
+            QMessageBox.information(
+                self,
+                "Connection Test - Success",
+                f"✅ Connection successful!\n\n{message}{models_text}"
+            )
+        else:
+            QMessageBox.critical(
+                self,
+                "Connection Test - Failed", 
+                f"❌ Connection failed\n\n{message}"
+            )
+
+    def _reset_openai_connection_test_ui(self):
+        """Reset OpenAI connection test UI elements - Claude Generated"""
+        if hasattr(self, 'openai_connection_progress'):
+            self.openai_connection_progress.close()
+            self.openai_connection_progress = None
+        
+        self.openai_test_btn.setEnabled(True)
+        self.openai_test_btn.setText("🔧 Test Connection")
     
     def _refresh_all_providers_status(self):
         """Refresh reachability status for all providers - Claude Generated"""

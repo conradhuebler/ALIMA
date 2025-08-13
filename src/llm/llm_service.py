@@ -853,7 +853,7 @@ class LlmService(QObject):
                     model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "ollama_native":
-                response = self._generate_ollama_native(
+                response = self._generate_ollama(
                     model, prompt, temperature, p_value, seed, image, system, stream
                 )
             elif provider == "github":
@@ -1160,7 +1160,7 @@ class LlmService(QObject):
             if not model.startswith("models/"):
                 model_name = model
                 if not model_name.startswith("gemini-"):
-                    model_name = f"gemini-pro"  # Standardmodell
+                    model_name = f"gemini-1.5-flash"  # Current valid Gemini model - Claude Generated
 
                 model = f"models/{model_name}"
                 self.logger.info(f"Verwende vollqualifiziertes Gemini Modell: {model}")

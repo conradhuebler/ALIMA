@@ -1191,28 +1191,22 @@ class PipelineTab(QWidget):
             # For now, we'll leave the line open and let the step completion handle ending
     
     def _load_catalog_config(self) -> tuple[str, str, str]:
-        """Load catalog configuration from config file - Claude Generated"""
-        config_file = Path.home() / ".alima_config.json"
-        catalog_token = ""
-        catalog_search_url = ""
-        catalog_details_url = ""
-        
+        """Load catalog configuration from ConfigManager - Claude Generated"""
         try:
-            if config_file.exists():
-                with open(config_file, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                
-                # Load catalog settings
-                catalog_token = config.get("catalog_token", "")
-                catalog_search_url = config.get("catalog_search_url", "")
-                catalog_details_url = config.get("catalog_details", "")
-                
-                if catalog_token:
-                    self.logger.info(f"Loaded catalog token from config (length: {len(catalog_token)})")
-                else:
-                    self.logger.warning("No catalog token found in config")
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            catalog_config = config_manager.get_catalog_config()
+            
+            catalog_token = catalog_config.get("catalog_token", "")
+            catalog_search_url = catalog_config.get("catalog_search_url", "")
+            catalog_details_url = catalog_config.get("catalog_details_url", "")
+            
+            if catalog_token:
+                self.logger.info(f"Loaded catalog token from config (length: {len(catalog_token)})")
             else:
-                self.logger.warning(f"Config file not found: {config_file}")
+                self.logger.warning("No catalog token found in config")
+            #else:
+            #    self.logger.warning(f"Config file not found: {config_file}")
                 
         except Exception as e:
             self.logger.error(f"Error loading catalog config: {e}")

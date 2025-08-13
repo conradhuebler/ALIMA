@@ -50,6 +50,23 @@ class PipelineStepExecutor:
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute initial keyword extraction step - Claude Generated"""
 
+        # Resolve provider configuration name to provider type - Claude Generated
+        try:
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            config = config_manager.load_config()
+            resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
+            
+            if self.logger and resolved_provider != provider:
+                self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+                
+            provider = resolved_provider  # Use resolved provider type
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
+            # Continue with original provider name as fallback
+
         # Create abstract data
         abstract_data = AbstractData(abstract=abstract_text, keywords="")
 
@@ -390,6 +407,23 @@ class PipelineStepExecutor:
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute final keyword analysis step with intelligent chunking - Claude Generated"""
 
+        # Resolve provider configuration name to provider type - Claude Generated
+        try:
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            config = config_manager.load_config()
+            resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
+            
+            if self.logger and resolved_provider != provider:
+                self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+                
+            provider = resolved_provider  # Use resolved provider type
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
+            # Continue with original provider name as fallback
+
         # Prepare GND search results for prompt
         gnd_keywords_text = ""
         gnd_compliant_keywords = []
@@ -684,7 +718,7 @@ class PipelineStepExecutor:
             # Create keywords text for this chunk
             chunk_keywords_text = "\n".join(chunk)
 
-            # Execute analysis for this chunk
+            # Execute keyword selection for this chunk
             chunk_result = self._execute_single_keyword_analysis(
                 original_abstract=original_abstract,
                 gnd_keywords_text=chunk_keywords_text,
@@ -1361,6 +1395,7 @@ def execute_complete_pipeline(
     **kwargs,
 ) -> KeywordAnalysisState:
     """Execute complete pipeline from start to finish with recovery support - Claude Generated"""
+    
 
     # Check for resume from saved state
     if resume_from_path:
