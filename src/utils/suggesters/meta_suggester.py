@@ -71,7 +71,7 @@ class MetaSuggester(BaseSuggester):
         self.suggesters = {}
         
         # Week 2: Initialize unified knowledge manager for mapping-first search
-        from ..unified_knowledge_manager import UnifiedKnowledgeManager
+        from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
         self.ukm = UnifiedKnowledgeManager()
         self.enable_mapping_search = True  # Can be disabled for fallback
         self.mapping_max_age_hours = 24    # Configurable cache age

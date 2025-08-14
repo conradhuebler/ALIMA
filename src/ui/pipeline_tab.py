@@ -206,6 +206,11 @@ class PipelineTab(QWidget):
     pipeline_started = pyqtSignal(str)  # pipeline_id
     pipeline_completed = pyqtSignal()
     step_selected = pyqtSignal(str)  # step_id
+    
+    # Signals for pipeline result emission to other tabs - Claude Generated
+    search_results_ready = pyqtSignal(dict)  # For SearchTab.display_search_results()
+    metadata_ready = pyqtSignal(dict)       # For CrossrefTab.display_metadata()
+    analysis_results_ready = pyqtSignal(object)  # For AbstractTab analysis results
 
     def __init__(
         self,
@@ -1077,6 +1082,9 @@ class PipelineTab(QWidget):
         # Notify streaming widget
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_step_completed(step)
+        
+        # Emit results to other tabs based on step type - Claude Generated
+        self._emit_step_results_to_tabs(step)
 
     @pyqtSlot(object, str)
     def on_step_error(self, step: PipelineStep, error_message: str):
@@ -1234,3 +1242,37 @@ class PipelineTab(QWidget):
             })
         
         self.logger.info(f"Updated pipeline config with catalog settings (token present: {bool(self.catalog_token)})")
+
+    def _emit_step_results_to_tabs(self, step: PipelineStep) -> None:
+        """
+        Emit pipeline step results to appropriate tab viewer methods - Claude Generated
+        
+        Args:
+            step: Completed pipeline step with results
+        """
+        if not step.output_data:
+            return
+            
+        try:
+            # Emit search results to SearchTab
+            if step.step_id == "search" and "search_results" in step.output_data:
+                search_results = step.output_data["search_results"]
+                self.logger.info(f"Emitting search results to SearchTab: {len(search_results)} terms")
+                self.search_results_ready.emit(search_results)
+            
+            # Emit DOI resolution results to CrossrefTab
+            elif step.step_id == "input" and step.output_data.get("source_info", "").startswith("DOI"):
+                # If input was from DOI resolution, emit metadata if available
+                if "metadata" in step.output_data:
+                    metadata = step.output_data["metadata"]
+                    self.logger.info("Emitting DOI metadata to CrossrefTab")
+                    self.metadata_ready.emit(metadata)
+            
+            # Emit keyword analysis results to AbstractTab 
+            elif step.step_id in ["initialisation", "keywords"] and "analysis_result" in step.output_data:
+                analysis_result = step.output_data["analysis_result"]
+                self.logger.info(f"Emitting {step.step_id} analysis results to AbstractTab")
+                self.analysis_results_ready.emit(analysis_result)
+                
+        except Exception as e:
+            self.logger.error(f"Error emitting step results to tabs: {e}")

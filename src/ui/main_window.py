@@ -452,6 +452,11 @@ class MainWindow(QMainWindow):
                 "Pipeline", "completed"
             )
         )
+        
+        # Connect pipeline results to specialized tab viewer methods - Claude Generated
+        self.pipeline_tab.search_results_ready.connect(self.search_tab.display_search_results)
+        self.pipeline_tab.metadata_ready.connect(self.crossref_tab.display_metadata)
+        # Note: analysis_results_ready connection would be added when AbstractTab viewer method is implemented
 
         # Add Pipeline tab first
         self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")

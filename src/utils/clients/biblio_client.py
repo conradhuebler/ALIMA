@@ -655,7 +655,7 @@ class BiblioClient:
             List of DK classification results with metadata
         """
         # Use new caching system - Claude Generated
-        from .unified_knowledge_manager import UnifiedKnowledgeManager
+        from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
         
         dk_cache = UnifiedKnowledgeManager()
         

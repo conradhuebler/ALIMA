@@ -95,6 +95,7 @@ class PipelineConfig:
                 "temperature": 0.7,
                 "top_p": 0.1,
                 "task": "dk_class",
+                "dk_frequency_threshold": 10,  # Claude Generated - Default threshold
             },
         }
     )
@@ -599,6 +600,7 @@ class PipelineManager:
                 stream_callback=self._stream_callback_adapter,
                 temperature=dk_classification_config.get("temperature", 0.7),
                 top_p=dk_classification_config.get("top_p", 0.1),
+                dk_frequency_threshold=dk_classification_config.get("dk_frequency_threshold", 10),  # Claude Generated
             )
             
             # Prepare search summary for display

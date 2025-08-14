@@ -233,6 +233,29 @@ class PipelineStepConfigWidget(QWidget):
 
         layout.addWidget(params_group)
 
+        # DK Classification Parameters (only for dk_classification step) - Claude Generated
+        if self.step_id == "dk_classification":
+            dk_group = QGroupBox("DK Klassifikation")
+            dk_layout = QGridLayout(dk_group)
+            
+            # DK Frequency Threshold
+            dk_layout.addWidget(QLabel("Häufigkeits-Schwellenwert:"), 0, 0)
+            self.dk_frequency_spinbox = QSpinBox()
+            self.dk_frequency_spinbox.setMinimum(1)
+            self.dk_frequency_spinbox.setMaximum(100)
+            self.dk_frequency_spinbox.setValue(10)  # Default value
+            self.dk_frequency_spinbox.setSuffix(" Vorkommen")
+            self.dk_frequency_spinbox.setToolTip(
+                "Mindest-Häufigkeit für DK-Klassifikationen.\n"
+                "Nur Klassifikationen mit ≥ N Vorkommen im Katalog\n"
+                "werden an das LLM weitergegeben.\n\n"
+                "Niedrigere Werte = mehr Ergebnisse\n"
+                "Höhere Werte = weniger, aber relevantere Ergebnisse"
+            )
+            dk_layout.addWidget(self.dk_frequency_spinbox, 0, 1)
+            
+            layout.addWidget(dk_group)
+
         # Keyword Chunking Parameters (only for keywords step)
         if self.step_id == "keywords":
             chunking_group = QGroupBox("Keyword Chunking")
@@ -266,7 +289,7 @@ class PipelineStepConfigWidget(QWidget):
             layout.addWidget(test_button)
 
         # Custom Prompt (if applicable)
-        if self.step_id in ["initialisation", "keywords", "classification"]:
+        if self.step_id in ["initialisation", "keywords", "dk_classification"]:
             prompt_group = QGroupBox("Custom Prompts (optional)")
             prompt_layout = QVBoxLayout(prompt_group)
 
@@ -545,6 +568,10 @@ class PipelineStepConfigWidget(QWidget):
             )
         if hasattr(self, "chunking_task_combo"):
             config["chunking_task"] = self.chunking_task_combo.currentText()
+            
+        # Add DK classification parameters if available (dk_classification step only) - Claude Generated
+        if hasattr(self, "dk_frequency_spinbox"):
+            config["dk_frequency_threshold"] = self.dk_frequency_spinbox.value()
 
         return config
 
@@ -600,6 +627,10 @@ class PipelineStepConfigWidget(QWidget):
             index = self.chunking_task_combo.findText(config["chunking_task"])
             if index >= 0:
                 self.chunking_task_combo.setCurrentIndex(index)
+                
+        # Set DK classification parameters if available (dk_classification step only) - Claude Generated
+        if "dk_frequency_threshold" in config and hasattr(self, "dk_frequency_spinbox"):
+            self.dk_frequency_spinbox.setValue(config["dk_frequency_threshold"])
 
         # Load prompt settings after config is set (with delay to ensure UI is updated)
         if hasattr(self, "task_combo") and not (
@@ -661,7 +692,7 @@ class PipelineConfigDialog(QDialog):
             ("initialisation", "🔤 Initialisierung"),
             ("search", "🔍 Suche"),
             ("keywords", "✅ Schlagworte"),
-            ("classification", "📚 Klassifikation"),
+            ("dk_classification", "📚 DK-Klassifikation"),
         ]
 
         # Create tab for each step

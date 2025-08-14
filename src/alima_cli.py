@@ -6,7 +6,11 @@ import time
 import tempfile
 import gzip
 import requests
+import sys
 from dataclasses import asdict
+
+# Add the project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.alima_manager import AlimaManager
 from src.llm.llm_service import LlmService
@@ -158,6 +162,12 @@ def main():
         type=int,
         default=20,
         help="Maximum results for DK classification search (default: 20).",
+    )
+    pipeline_parser.add_argument(
+        "--dk-frequency-threshold",
+        type=int,
+        default=10,
+        help="Minimum occurrence count for DK classifications to be included in LLM analysis (default: 10). Only classifications appearing >= N times in catalog will be passed to LLM.",
     )
 
     # Search command
@@ -558,6 +568,7 @@ def main():
                     auto_save_path=args.auto_save_path,
                     resume_from_path=args.resume_from,
                     dk_max_results=args.dk_max_results,
+                    dk_frequency_threshold=args.dk_frequency_threshold,  # Claude Generated
                 )
 
                 print("\n--- Pipeline Results ---")

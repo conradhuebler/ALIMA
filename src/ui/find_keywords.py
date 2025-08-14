@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QIcon
 from typing import Dict, List, Optional
 import logging
@@ -28,120 +28,11 @@ import sys
 import json
 from pathlib import Path
 
-from ..core.suggesters.meta_suggester import MetaSuggester, SuggesterType
+from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
+from ..core.search_cli import SearchCLI
 
 
-class SearchWorker(QThread):
-    finished = pyqtSignal(dict)
-    error = pyqtSignal(str)
-
-    def __init__(
-        self,
-        cache_manager,
-        search_terms: List[str],
-        suggester_types: List[SuggesterType],
-        catalog_token: str = "",
-        catalog_search_url: str = "",
-        catalog_details: str = "",
-    ):
-        super().__init__()
-        self.cache_manager = cache_manager
-        self.search_terms = search_terms
-        self.suggester_types = suggester_types
-        self.catalog_token = catalog_token
-        self.catalog_search_url = catalog_search_url
-        self.catalog_details = catalog_details
-        self.results = {}
-        self.errors = []
-        self.completed_terms = 0
-
-    def run(self):
-        from ..core.search_cli import SearchCLI
-        from ..core.suggesters.meta_suggester import MetaSuggester
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(f"SearchWorker starting with terms: {self.search_terms}")
-
-        try:
-            # Use SearchCLI instead of SearchEngine for thread safety
-            search_cli = SearchCLI(self.cache_manager)
-            results = {}
-
-            for suggester_type in self.suggester_types:
-                logger.info(f"Using suggester type: {suggester_type}")
-                suggester = MetaSuggester(
-                    suggester_type=suggester_type, 
-                    catalog_token=self.catalog_token,
-                    catalog_search_url=self.catalog_search_url,
-                    catalog_details=self.catalog_details
-                )
-                logger.info(f"Searching for terms: {self.search_terms}")
-                # Use the search method which takes a list of terms
-                search_results = suggester.search(self.search_terms)
-
-                # Convert the results to the expected format
-                for term, term_data in search_results.items():
-                    if term not in results:
-                        results[term] = (
-                            term_data  # Use the dictionary structure directly
-                        )
-                    else:
-                        # Merge with existing results
-                        for keyword, data in term_data.items():
-                            if keyword not in results[term]:
-                                results[term][keyword] = data
-                            else:
-                                # Merge data if keyword already exists
-                                existing_data = results[term][keyword]
-                                existing_data["count"] += data.get("count", 1)
-                                existing_data["gndid"].update(data.get("gndid", set()))
-                                existing_data["ddc"].update(data.get("ddc", set()))
-                                existing_data["dk"].update(data.get("dk", set()))
-
-            logger.info(f"SearchWorker completed with {len(results)} terms")
-            self.finished.emit(results)
-
-        except Exception as e:
-            logger.error(f"SearchWorker error: {str(e)}")
-            self.error.emit(str(e))
-
-    def _handle_term_completed(self, term: str, results: dict):
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(f"SearchWorker received term_completed for: {term}")
-        self.results[term] = results
-        self.completed_terms += 1
-        self._check_completion()
-
-    def _handle_term_error(self, term: str, error_message: str):
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.error(f"SearchWorker received term_error for: {term} - {error_message}")
-        self.errors.append(f"Error for term {term}: {error_message}")
-        self.completed_terms += 1
-        self._check_completion()
-
-    def _handle_search_finished(self, final_results: dict):
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(
-            f"SearchWorker received search_finished with results: {len(final_results) if final_results else 0}"
-        )
-        # This signal is emitted by SearchEngine when all its internal processing is done
-        # We can now emit our own finished signal
-        if self.errors:
-            self.error.emit("\n".join(self.errors))
-        else:
-            self.finished.emit(final_results)
-
-    def _check_completion():
-        # This method is primarily for internal tracking if search_finished wasn't reliable
-        # With search_finished signal, this might be redundant for final emission
-        pass
+# SearchWorker class removed - now using central SearchCLI directly - Claude Generated
 
 
 class GNDSystemFilterWidget(QGroupBox):
@@ -738,7 +629,7 @@ class SearchTab(QWidget):
             return default_token
 
     def perform_search(self):
-        """Führt die Suche mit den ausgewählten Quellen durch"""
+        """Führt die Suche mit den ausgewählten Quellen durch - Claude Generated"""
         # UI-Updates vor der Suche
         self.search_button.setEnabled(False)
         self.status_label.setText("Suche wird durchgeführt...")
@@ -750,55 +641,63 @@ class SearchTab(QWidget):
         self.progressBar.setValue(0)
         QApplication.processEvents()
 
-        # Eingabetext verarbeiten
-        text = self.search_input.toPlainText().strip()
+        try:
+            # Eingabetext verarbeiten
+            text = self.search_input.toPlainText().strip()
 
-        # Keine Suchbegriffe vorhanden
-        if not text:
-            self.status_label.setText(
-                "Bitte geben Sie mindestens einen Suchbegriff ein."
+            # Keine Suchbegriffe vorhanden
+            if not text:
+                self.status_label.setText(
+                    "Bitte geben Sie mindestens einen Suchbegriff ein."
+                )
+                self.search_button.setEnabled(True)
+                self.progressBar.setVisible(False)
+                return
+
+            # Extrahiere Suchbegriffe
+            search_terms = self.extract_search_terms(text)
+
+            # Keine gültigen Suchbegriffe
+            if not search_terms:
+                self.status_label.setText("Keine gültigen Suchbegriffe gefunden.")
+                self.search_button.setEnabled(True)
+                self.progressBar.setVisible(False)
+                return
+
+            # Bestimme die zu verwendenden Suggester-Typen
+            suggester_types = []
+            if self.lobid_button.isChecked():
+                suggester_types.append(SuggesterType.LOBID)
+            if self.swb_button.isChecked():
+                suggester_types.append(SuggesterType.SWB)
+            if self.catalog_button.isChecked():
+                suggester_types.append(SuggesterType.CATALOG)
+
+            # Wenn keine Quelle ausgewählt wurde, Lobid als Standard verwenden
+            if not suggester_types:
+                self.logger.warning(
+                    "Keine Suchquelle ausgewählt, verwende Lobid als Standard."
+                )
+                suggester_types.append(SuggesterType.LOBID)
+
+            # Use central SearchCLI directly instead of worker - Claude Generated
+            search_cli = SearchCLI(
+                self.cache_manager,
+                catalog_token=self.catalog_token,
+                catalog_search_url=self.catalog_search_url,
+                catalog_details_url=self.catalog_details
             )
-            self.search_button.setEnabled(True)
-            self.progressBar.setVisible(False)
-            return
+            
+            self.logger.info(f"Starting search for terms: {search_terms}")
+            results = search_cli.search(search_terms, suggester_types)
+            self.logger.info(f"Search completed with {len(results)} terms")
+            
+            # Process results directly
+            self.process_search_results(results)
 
-        # Extrahiere Suchbegriffe
-        search_terms = self.extract_search_terms(text)
-
-        # Keine gültigen Suchbegriffe
-        if not search_terms:
-            self.status_label.setText("Keine gültigen Suchbegriffe gefunden.")
-            self.search_button.setEnabled(True)
-            self.progressBar.setVisible(False)
-            return
-
-        # Bestimme die zu verwendenden Suggester-Typen
-        suggester_types = []
-        if self.lobid_button.isChecked():
-            suggester_types.append(SuggesterType.LOBID)
-        if self.swb_button.isChecked():
-            suggester_types.append(SuggesterType.SWB)
-        if self.catalog_button.isChecked():
-            suggester_types.append(SuggesterType.CATALOG)
-
-        # Wenn keine Quelle ausgewählt wurde, Lobid als Standard verwenden
-        if not suggester_types:
-            self.logger.warning(
-                "Keine Suchquelle ausgewählt, verwende Lobid als Standard."
-            )
-            suggester_types.append(SuggesterType.LOBID)
-
-        self.search_worker = SearchWorker(
-            self.cache_manager, 
-            search_terms, 
-            suggester_types, 
-            self.catalog_token,
-            self.catalog_search_url,
-            self.catalog_details
-        )
-        self.search_worker.finished.connect(self.process_search_results)
-        self.search_worker.error.connect(self.handle_error)
-        self.search_worker.start()
+        except Exception as e:
+            self.logger.error(f"Search error: {str(e)}")
+            self.handle_error(str(e))
 
     def process_search_results(self, results: dict):
         """Processes the search results from the CLI and displays them."""
@@ -1393,3 +1292,30 @@ class SearchTab(QWidget):
             self.gnd_filter_widget.apply_filter()
         else:
             self.gnd_filter_widget.clear_systems()
+
+    def display_search_results(self, results: Dict) -> None:
+        """
+        Display search results from pipeline - Claude Generated
+        This method allows the SearchTab to act as a viewer for pipeline results
+        
+        Args:
+            results: Dictionary of search results from pipeline search step
+        """
+        self.logger.info(f"Displaying pipeline search results: {len(results)} terms")
+        
+        # Clear existing results and UI state
+        self.results_table.setRowCount(0)
+        self.result_list.clear() 
+        self.gnd_ids.clear()
+        self.details_display.clear()
+        
+        # Process and display the results using existing logic
+        self.process_results(results)
+        self.finalise_catalog_search(self.unkown_terms)
+        
+        # Update status
+        self.status_label.setText(
+            f"Pipeline-Ergebnisse angezeigt - {len(getattr(self, 'flat_results', []))} Ergebnisse"
+        )
+        
+        self.logger.info("Pipeline search results displayed successfully")

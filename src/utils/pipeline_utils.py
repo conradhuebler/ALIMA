@@ -19,7 +19,7 @@ from ..core.data_models import (
 )
 from ..core.search_cli import SearchCLI
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
-from ..core.suggesters.meta_suggester import SuggesterType
+from .suggesters.meta_suggester import SuggesterType
 from ..core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
@@ -967,9 +967,32 @@ class PipelineStepExecutor:
         model: str = "cogito:32b",
         provider: str = "ollama",
         stream_callback: Optional[callable] = None,
+        dk_frequency_threshold: int = 10,  # Claude Generated - Only pass classifications with >= N occurrences
         **kwargs,
     ) -> List[str]:
-        """Execute LLM-based DK classification using pre-fetched catalog search results - Claude Generated"""
+        """
+        Execute LLM-based DK classification using pre-fetched catalog search results - Claude Generated
+        
+        Args:
+            original_abstract: The original abstract text for analysis
+            dk_search_results: List of DK classification results from catalog search
+            model: LLM model to use for classification
+            provider: LLM provider (ollama, gemini, etc.)
+            stream_callback: Optional callback for streaming progress updates
+            dk_frequency_threshold: Minimum occurrence count for DK classifications to be included.
+                                  Only classifications that appear >= this many times in the catalog
+                                  will be passed to the LLM for analysis. Default: 10.
+                                  This reduces prompt size and focuses on most relevant classifications.
+            **kwargs: Additional parameters for LLM (temperature, top_p, etc.)
+            
+        Returns:
+            List of selected DK classification codes
+            
+        Note:
+            The frequency threshold helps manage large result sets by filtering out 
+            classifications that occur infrequently in the catalog, which are typically
+            less relevant for the given abstract.
+        """
 
         if not dk_search_results:
             if stream_callback:
@@ -979,9 +1002,31 @@ class PipelineStepExecutor:
         if stream_callback:
             stream_callback(f"Starte DK-Klassifikation mit {len(dk_search_results)} Katalog-Einträgen\n", "dk_classification")
 
+        # Filter results by frequency threshold - Claude Generated
+        filtered_results = []
+        low_frequency_count = 0
+        
+        for result in dk_search_results:
+            # Check if result has frequency information and meets threshold
+            if "count" in result:
+                count = result.get("count", 0)
+                if count >= dk_frequency_threshold:
+                    filtered_results.append(result)
+                else:
+                    low_frequency_count += 1
+            else:
+                # Include results without count information (legacy format)
+                filtered_results.append(result)
+        
+        if stream_callback:
+            if low_frequency_count > 0:
+                stream_callback(f"Filtere DK-Ergebnisse: {len(filtered_results)} Einträge mit ≥{dk_frequency_threshold} Vorkommen, {low_frequency_count} mit niedrigerer Häufigkeit ausgeschlossen\n", "dk_classification")
+            else:
+                stream_callback(f"Verwende alle {len(filtered_results)} DK-Einträge (keine Häufigkeits-Filterung nötig)\n", "dk_classification")
+
         # Format catalog results for LLM prompt with aggregated data
         catalog_results = []
-        for result in dk_search_results:
+        for result in filtered_results:
             # Handle aggregated format from _aggregate_dk_results
             if "dk" in result and "count" in result and "titles" in result:
                 # Aggregated format with count and titles

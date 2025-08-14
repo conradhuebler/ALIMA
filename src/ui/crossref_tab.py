@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 import logging
 
-from ..core.crossref_worker import CrossrefWorker
+from ..utils.doi_resolver import resolve_input_to_text, UnifiedResolver
 
 
 class CrossrefTab(QWidget):
@@ -85,7 +85,7 @@ class CrossrefTab(QWidget):
         self.setLayout(layout)
 
     def perform_search(self):
-        """Startet die API-Abfrage."""
+        """Startet die API-Abfrage - Claude Generated"""
         doi = self.doi_input.text().strip()
         if not doi:
             QMessageBox.warning(
@@ -93,7 +93,7 @@ class CrossrefTab(QWidget):
             )
             return
 
-        # Starte den Worker
+        # Use central DOI resolver instead of worker - Claude Generated
         self.fetch_button.setEnabled(False)
         self.main_result.clear()
         self.about_result.clear()
@@ -102,11 +102,37 @@ class CrossrefTab(QWidget):
 
         self.main_result.append("Starte Abfrage...")
 
-        self.worker = CrossrefWorker(doi)
-        self.worker.result_ready.connect(self.display_results)
-        self.worker.error_occurred.connect(self.handle_error)
-        self.worker.finished.connect(lambda: self.fetch_button.setEnabled(True))
-        self.worker.run()
+        try:
+            # Use UnifiedResolver for full metadata - Claude Generated
+            resolver = UnifiedResolver(self.logger)
+            success, metadata, text_result = resolver.resolve(doi)
+            
+            if success:
+                # Convert metadata to expected format for display_results
+                if metadata:
+                    self.display_results(metadata)
+                else:
+                    # Fallback: create basic metadata from text result
+                    basic_metadata = {
+                        "Title": "DOI Resolution Result",
+                        "DOI": doi,
+                        "Abstract": text_result or "No content available",
+                        "Authors": "Not available",
+                        "Publisher": "Not available", 
+                        "Published": "Not available",
+                        "Container-Title": "Not available",
+                        "URL": f"https://doi.org/{doi}"
+                    }
+                    self.display_results(basic_metadata)
+            else:
+                self.handle_error(text_result or "DOI resolution failed")
+                
+        except Exception as e:
+            self.logger.error(f"DOI resolution error: {str(e)}")
+            self.handle_error(f"Error resolving DOI: {str(e)}")
+        
+        finally:
+            self.fetch_button.setEnabled(True)
 
     def display_results(self, results: dict):
         """Zeigt die Ergebnisse der API-Abfrage an."""
@@ -155,7 +181,6 @@ class CrossrefTab(QWidget):
         self.result_abstract.emit(main_text)
         self.result_keywords.emit(keywords_text)
         self.logger.info(keywords_text)
-        self.fetch_button.setEnabled(True)
 
     def handle_error(self, error_message: str):
         """Behandelt Fehler während der API-Abfrage."""
@@ -163,3 +188,24 @@ class CrossrefTab(QWidget):
         QMessageBox.critical(self, "API-Fehler", error_message)
         self.main_result.clear()
         self.main_result.append(f"Fehler: {error_message}")
+
+    def display_metadata(self, metadata: dict) -> None:
+        """
+        Display metadata from pipeline - Claude Generated
+        This method allows CrossrefTab to act as a viewer for pipeline DOI resolution results
+        
+        Args:
+            metadata: Dictionary containing DOI resolution metadata
+        """
+        self.logger.info("Displaying pipeline DOI metadata")
+        
+        # Clear existing results
+        self.main_result.clear()
+        self.about_result.clear()
+        self.toc_result.clear()
+        self.keywords_result.clear()
+        
+        # Use existing display_results logic
+        self.display_results(metadata)
+        
+        self.logger.info("Pipeline DOI metadata displayed successfully")
