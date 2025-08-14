@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 
 from .base_suggester import BaseSuggester, BaseSuggesterError
-from ..biblioextractor import BiblioExtractor
+from ..clients.biblio_client import BiblioClient
 
 
 class BiblioSuggesterError(BaseSuggesterError):
@@ -48,7 +48,7 @@ class BiblioSuggester(BaseSuggester):
         super().__init__(data_dir, debug)
         
         # Initialize BiblioExtractor with provided configuration
-        self.extractor = BiblioExtractor(
+        self.extractor = BiblioClient(
             token=token,
             debug=debug
         )

@@ -20,7 +20,7 @@ from .data_models import (
 )
 from .search_cli import SearchCLI
 from .unified_knowledge_manager import UnifiedKnowledgeManager
-from .suggesters.meta_suggester import SuggesterType
+from ..utils.suggesters.meta_suggester import SuggesterType
 from .processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,

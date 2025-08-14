@@ -2,12 +2,12 @@ import unittest
 from unittest.mock import Mock, patch
 import asyncio
 from src.core.search_engine import SearchEngine
-from src.core.cache_manager import CacheManager
+from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 
 class TestSearch(unittest.TestCase):
     def setUp(self):
         """Test-Setup vor jedem Test"""
-        self.cache_manager = Mock(spec=CacheManager)
+        self.cache_manager = Mock(spec=UnifiedKnowledgeManager)
         self.search_engine = SearchEngine(self.cache_manager)
 
     async def async_test(self, coroutine):

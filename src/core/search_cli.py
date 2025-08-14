@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Any
 
-from .suggesters.meta_suggester import MetaSuggester, SuggesterType
+from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
 from .unified_knowledge_manager import UnifiedKnowledgeManager
 
 

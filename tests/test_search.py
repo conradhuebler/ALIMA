@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 import os
 from datetime import datetime, timedelta
-from src.core.cache_manager import CacheManager
+from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from unittest.mock import patch
 
 class TestCache(unittest.TestCase):
@@ -11,7 +11,7 @@ class TestCache(unittest.TestCase):
         """Test-Setup vor jedem Test"""
         # Temporäre Datenbankdatei erstellen
         self.temp_db = tempfile.NamedTemporaryFile(delete=False)
-        self.cache_manager = CacheManager(db_path=self.temp_db.name)
+        self.cache_manager = UnifiedKnowledgeManager(db_path=self.temp_db.name)
 
     def tearDown(self):
         """Aufräumen nach jedem Test"""

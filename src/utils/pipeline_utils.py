@@ -1142,9 +1142,9 @@ class PipelineStepExecutor:
 
         # Initialize BiblioExtractor
         try:
-            from ..core.biblioextractor import BiblioExtractor
+            from .clients.biblio_client import BiblioClient
             
-            extractor = BiblioExtractor(
+            extractor = BiblioClient(
                 token=catalog_token, 
                 debug=self.logger.level <= 10 if self.logger else False
             )

@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger("biblio_extractor")
 
 
-class BiblioExtractor:
+class BiblioClient:
     """
     A tool to extract keywords and decimal classifications from a library catalog.
     """
@@ -880,7 +880,7 @@ def main():
     logger.info(f"Max items: {args.max_items}")
     logger.info(f"Output file: {args.output}")
 
-    extractor = BiblioExtractor(token=args.token, debug=args.debug)
+    extractor = BiblioClient(token=args.token, debug=args.debug)
 
     results = extractor.search(args.search_term, args.search_type)
 

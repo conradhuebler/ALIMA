@@ -22,7 +22,7 @@ from src.core.data_models import (
 )
 from src.core.search_cli import SearchCLI
 from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
-from src.core.suggesters.meta_suggester import SuggesterType
+from src.utils.suggesters.meta_suggester import SuggesterType
 from src.core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
@@ -158,58 +158,6 @@ def main():
         type=int,
         default=20,
         help="Maximum results for DK classification search (default: 20).",
-    )
-
-    # Run command (individual task)
-    run_parser = subparsers.add_parser("run", help="Run an analysis task.")
-    run_parser.add_argument(
-        "task",
-        help="The analysis task to perform (e.g., 'initialisation', 'keywords').",
-    )
-    run_parser.add_argument(
-        "--abstract", required=True, help="The abstract or text to analyze."
-    )
-    run_parser.add_argument(
-        "--keywords", help="Optional keywords to include in the analysis."
-    )
-    run_parser.add_argument(
-        "--model", required=True, help="The model to use for the analysis."
-    )
-    run_parser.add_argument(
-        "--provider",
-        default="ollama",
-        help="The LLM provider to use (e.g., 'ollama', 'gemini').",
-    )
-    run_parser.add_argument(
-        "--ollama-host", default="http://localhost", help="Ollama host URL."
-    )
-    run_parser.add_argument(
-        "--ollama-port", type=int, default=11434, help="Ollama port."
-    )
-    run_parser.add_argument(
-        "--use-chunking-abstract",
-        action="store_true",
-        help="Enable chunking for the abstract.",
-    )
-    run_parser.add_argument(
-        "--abstract-chunk-size",
-        type=int,
-        default=100,
-        help="Chunk size for the abstract.",
-    )
-    run_parser.add_argument(
-        "--use-chunking-keywords",
-        action="store_true",
-        help="Enable chunking for keywords.",
-    )
-    run_parser.add_argument(
-        "--keyword-chunk-size", type=int, default=500, help="Chunk size for keywords."
-    )
-    run_parser.add_argument(
-        "--output-json", help="Path to save the TaskState JSON output."
-    )
-    run_parser.add_argument(
-        "--prompt-template", help="The prompt template to use for the analysis."
     )
 
     # Search command
@@ -634,51 +582,6 @@ def main():
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
 
-    elif args.command == "run":
-        # Setup services
-        llm_service = LlmService(
-            providers=[args.provider],
-            ollama_url=args.ollama_host,
-            ollama_port=args.ollama_port,
-        )
-        prompt_service = PromptService(PROMPTS_FILE, logger)
-        alima_manager = AlimaManager(llm_service, prompt_service, logger)
-
-        abstract_data = AbstractData(abstract=args.abstract, keywords=args.keywords)
-        try:
-            task_state = alima_manager.analyze_abstract(
-                abstract_data,
-                args.task,
-                args.model,
-                args.use_chunking_abstract,
-                args.abstract_chunk_size,
-                args.use_chunking_keywords,
-                args.keyword_chunk_size,
-                provider=args.provider,
-                prompt_template=args.prompt_template,
-            )
-            print(
-                json.dumps(
-                    _task_state_to_dict(task_state), ensure_ascii=False, indent=4
-                )
-            )
-
-            if args.output_json:
-                try:
-                    with open(args.output_json, "w", encoding="utf-8") as f:
-                        json.dump(
-                            _task_state_to_dict(task_state),
-                            f,
-                            ensure_ascii=False,
-                            indent=4,
-                        )
-                    logger.info(f"Task state saved to {args.output_json}")
-                except Exception as e:
-                    logger.error(f"Error saving task state to JSON: {e}")
-
-        except Exception as e:
-            logger.error(f"An error occurred during analysis: {e}")
-
     elif args.command == "search":
         cache_manager = UnifiedKnowledgeManager()
         search_cli = SearchCLI(cache_manager)
@@ -988,7 +891,7 @@ def main():
 
     elif args.command == "test-catalog":
         # Claude Generated - Test catalog search functionality
-        from src.core.biblioextractor import BiblioExtractor
+        from src.utils.clients.biblio_client import BiblioClient
         
         # Setup logging level
         if args.debug:
@@ -1029,7 +932,7 @@ def main():
             print()
             
             # Initialize BiblioExtractor
-            extractor = BiblioExtractor(
+            extractor = BiblioClient(
                 token=catalog_token,
                 debug=args.debug
             )

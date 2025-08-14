@@ -12,12 +12,12 @@ class SearchEngine(QObject):
     term_search_error = pyqtSignal(str, str)
     search_finished = pyqtSignal(dict)
 
-    def __init__(self, cache_manager):
+    def __init__(self, cache_manager: 'UnifiedKnowledgeManager'):
         """
         Initialisiert die Suchmaschine.
 
         Args:
-            cache_manager: Instance des CacheManagers für Caching-Funktionalität
+            cache_manager: Instanz des UnifiedKnowledgeManager für Caching-Funktionalität
         """
         super().__init__()
         self.logger = logging.getLogger(__name__)
