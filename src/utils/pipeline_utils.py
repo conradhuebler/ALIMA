@@ -80,7 +80,7 @@ class PipelineStepExecutor:
                 stream_callback(token, kwargs.get("step_id", "initialisation"))
 
         # Filter out our custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results"]}
+        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]}
 
         # Execute analysis via AlimaManager
         task_state = self.alima_manager.analyze_abstract(
@@ -515,7 +515,7 @@ class PipelineStepExecutor:
                 stream_callback(token, kwargs.get("step_id", "keywords"))
 
         # Filter out our custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id"]}
+        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]}
 
         # Execute final analysis
         task_state = self.alima_manager.analyze_abstract(
@@ -600,7 +600,7 @@ class PipelineStepExecutor:
         alima_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results"]
+            if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]
         }
 
         # Execute final analysis

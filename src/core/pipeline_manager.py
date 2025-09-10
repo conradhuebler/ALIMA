@@ -78,6 +78,8 @@ class PipelineConfig:
                 "temperature": 0.7,
                 "top_p": 0.1,
                 "task": "keywords",
+                "keyword_chunking_threshold": 500,  # Claude Generated - Default chunking threshold
+                "chunking_task": "keywords_chunked",  # Claude Generated - Task for chunk processing
             },
             "dk_search": {
                 "step_id": "dk_search",
@@ -500,16 +502,27 @@ class PipelineManager:
         # Execute using shared pipeline executor
         try:
             # Only pass parameters that AlimaManager.analyze_abstract() expects
+            # Note: prompt_template removed - let PromptService load correct prompt based on task
             allowed_params = [
                 "use_chunking_abstract",
                 "abstract_chunk_size",
                 "use_chunking_keywords",
                 "keyword_chunk_size",
-                "prompt_template",
+                "keyword_chunking_threshold",
+                "chunking_task",
             ]
             filtered_config = {
                 k: v for k, v in keywords_config.items() if k in allowed_params
             }
+
+            # Debug: Log what's actually in the filtered config - Claude Generated
+            self.logger.info(f"Keywords step filtered_config: {filtered_config}")
+            if "keyword_chunking_threshold" in filtered_config:
+                self.logger.info(f"GUI Chunking threshold: {filtered_config['keyword_chunking_threshold']}")
+            if "chunking_task" in filtered_config:
+                self.logger.info(f"GUI Chunking task: {filtered_config['chunking_task']}")
+            else:
+                self.logger.warning("GUI: chunking_task missing from filtered_config!")
 
             # Handle system_prompt -> system parameter mapping
             if "system_prompt" in keywords_config:
@@ -554,13 +567,30 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK search
             dk_search_config = self.config.step_configs.get("dk_search", {})
+            
+            # Get catalog configuration from global config if not in step config - Claude Generated
+            try:
+                from ..utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                catalog_config = config_manager.get_catalog_config()
+                
+                catalog_token = dk_search_config.get("catalog_token") or catalog_config.get("catalog_token", "")
+                catalog_search_url = dk_search_config.get("catalog_search_url") or catalog_config.get("catalog_search_url", "")
+                catalog_details_url = dk_search_config.get("catalog_details_url") or catalog_config.get("catalog_details_url", "")
+                
+            except Exception as e:
+                self.logger.warning(f"Failed to load catalog config: {e}")
+                catalog_token = dk_search_config.get("catalog_token", "")
+                catalog_search_url = dk_search_config.get("catalog_search_url", "")
+                catalog_details_url = dk_search_config.get("catalog_details_url", "")
+            
             dk_search_results = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
                 stream_callback=self._stream_callback_adapter,
                 max_results=dk_search_config.get("max_results", 20),
-                catalog_token=dk_search_config.get("catalog_token"),
-                catalog_search_url=dk_search_config.get("catalog_search_url"),
-                catalog_details_url=dk_search_config.get("catalog_details_url"),
+                catalog_token=catalog_token,
+                catalog_search_url=catalog_search_url,
+                catalog_details_url=catalog_details_url,
             )
             
             step.output_data = {"dk_search_results": dk_search_results}
