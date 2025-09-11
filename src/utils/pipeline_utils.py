@@ -24,6 +24,7 @@ from ..core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
 )
+from .smart_provider_selector import SmartProviderSelector, TaskType
 
 
 class PipelineStepExecutor:
@@ -34,38 +35,85 @@ class PipelineStepExecutor:
         alima_manager,
         cache_manager: UnifiedKnowledgeManager,
         logger=None,
+        config_manager=None,
     ):
         self.alima_manager = alima_manager
         self.cache_manager = cache_manager
         self.logger = logger
+        self.config_manager = config_manager
+        
+        # Initialize SmartProviderSelector if config_manager available
+        self.smart_selector = None
+        if config_manager:
+            try:
+                self.smart_selector = SmartProviderSelector(config_manager)
+                if logger:
+                    logger.info("PipelineStepExecutor initialized with SmartProviderSelector")
+            except Exception as e:
+                if logger:
+                    logger.warning(f"Failed to initialize SmartProviderSelector: {e}")
+                    logger.info("Falling back to manual provider selection")
 
     def execute_initial_keyword_extraction(
         self,
         abstract_text: str,
-        model: str,
-        provider: str = "ollama",
+        model: str = None,
+        provider: str = None,
         task: str = "initialisation",
         stream_callback: Optional[callable] = None,
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
-        """Execute initial keyword extraction step - Claude Generated"""
+        """Execute initial keyword extraction step with intelligent provider selection - Claude Generated"""
 
-        # Resolve provider configuration name to provider type - Claude Generated
-        try:
-            from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            config = config_manager.load_config()
-            resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
-            
-            if self.logger and resolved_provider != provider:
-                self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+        # Intelligent provider selection - Claude Generated
+        if self.smart_selector and (not provider or not model):
+            try:
+                # Use SmartProviderSelector for optimal provider/model selection
+                task_type = TaskType.TEXT  # Initial keyword extraction is text processing
+                prefer_fast = True  # Initial extraction can prioritize speed
                 
-            provider = resolved_provider  # Use resolved provider type
+                selection = self.smart_selector.select_provider(
+                    task_type=task_type,
+                    prefer_fast=prefer_fast
+                )
+                
+                # Use SmartProvider selection if no explicit provider/model given
+                if not provider:
+                    provider = selection.provider
+                if not model:
+                    model = selection.model
+                
+                if self.logger:
+                    self.logger.info(f"SmartProvider selection for initial extraction: {provider}/{model} (fast text processing)")
+                    
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"SmartProvider selection failed: {e}")
+                # Fallback to defaults if SmartProvider fails
+                provider = provider or "ollama"
+                model = model or "cogito:14b"
+        else:
+            # Use explicit parameters or fallback defaults
+            provider = provider or "ollama"
+            model = model or "cogito:14b"
             
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
-            # Continue with original provider name as fallback
+        # Legacy provider resolution for backward compatibility - Claude Generated
+        if provider and not self.smart_selector:
+            try:
+                from ..utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                config = config_manager.load_config()
+                resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
+                
+                if self.logger and resolved_provider != provider:
+                    self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+                    
+                provider = resolved_provider  # Use resolved provider type
+                
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
+                # Continue with original provider name as fallback
 
         # Create abstract data
         abstract_data = AbstractData(abstract=abstract_text, keywords="")
@@ -396,8 +444,8 @@ class PipelineStepExecutor:
         self,
         original_abstract: str,
         search_results: Dict[str, Dict[str, Any]],
-        model: str,
-        provider: str = "ollama",
+        model: str = None,
+        provider: str = None,
         task: str = "keywords",
         stream_callback: Optional[callable] = None,
         keyword_chunking_threshold: int = 500,
@@ -405,23 +453,56 @@ class PipelineStepExecutor:
         expand_synonyms: bool = False,
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
-        """Execute final keyword analysis step with intelligent chunking - Claude Generated"""
+        """Execute final keyword analysis step with intelligent provider selection - Claude Generated"""
 
-        # Resolve provider configuration name to provider type - Claude Generated
-        try:
-            from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            config = config_manager.load_config()
-            resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
-            
-            if self.logger and resolved_provider != provider:
-                self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+        # Intelligent provider selection for final analysis - Claude Generated
+        if self.smart_selector and (not provider or not model):
+            try:
+                # Use SmartProviderSelector for optimal provider/model selection
+                task_type = TaskType.TEXT  # Final keyword analysis is high-quality text processing
+                prefer_fast = False  # Final analysis should prioritize quality
                 
-            provider = resolved_provider  # Use resolved provider type
-            
-        except Exception as e:
-            if self.logger:
-                self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
+                selection = self.smart_selector.select_provider(
+                    task_type=task_type,
+                    prefer_fast=prefer_fast
+                )
+                
+                # Use SmartProvider selection if no explicit provider/model given
+                if not provider:
+                    provider = selection.provider
+                if not model:
+                    model = selection.model
+                
+                if self.logger:
+                    self.logger.info(f"SmartProvider selection for final analysis: {provider}/{model} (quality text processing)")
+                    
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"SmartProvider selection failed: {e}")
+                # Fallback to defaults if SmartProvider fails
+                provider = provider or "ollama"
+                model = model or "cogito:32b"
+        else:
+            # Use explicit parameters or fallback defaults
+            provider = provider or "ollama"
+            model = model or "cogito:32b"
+
+        # Legacy provider resolution for backward compatibility - Claude Generated
+        if provider and not self.smart_selector:
+            try:
+                from ..utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                config = config_manager.load_config()
+                resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
+                
+                if self.logger and resolved_provider != provider:
+                    self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+                    
+                provider = resolved_provider  # Use resolved provider type
+                
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
             # Continue with original provider name as fallback
 
         # Prepare GND search results for prompt
@@ -964,20 +1045,20 @@ class PipelineStepExecutor:
         self,
         original_abstract: str,
         dk_search_results: List[Dict[str, Any]],
-        model: str = "cogito:32b",
-        provider: str = "ollama",
+        model: str = None,
+        provider: str = None,
         stream_callback: Optional[callable] = None,
         dk_frequency_threshold: int = 10,  # Claude Generated - Only pass classifications with >= N occurrences
         **kwargs,
     ) -> List[str]:
         """
-        Execute LLM-based DK classification using pre-fetched catalog search results - Claude Generated
+        Execute LLM-based DK classification using pre-fetched catalog search results with intelligent provider selection - Claude Generated
         
         Args:
             original_abstract: The original abstract text for analysis
             dk_search_results: List of DK classification results from catalog search
-            model: LLM model to use for classification
-            provider: LLM provider (ollama, gemini, etc.)
+            model: LLM model to use for classification (optional - SmartProvider selection if None)
+            provider: LLM provider (optional - SmartProvider selection if None)
             stream_callback: Optional callback for streaming progress updates
             dk_frequency_threshold: Minimum occurrence count for DK classifications to be included.
                                   Only classifications that appear >= this many times in the catalog
@@ -993,6 +1074,56 @@ class PipelineStepExecutor:
             classifications that occur infrequently in the catalog, which are typically
             less relevant for the given abstract.
         """
+
+        # Intelligent provider selection for classification - Claude Generated
+        if self.smart_selector and (not provider or not model):
+            try:
+                # Use SmartProviderSelector for optimal classification provider
+                task_type = TaskType.CLASSIFICATION  # Specialized classification task
+                prefer_fast = False  # Classification should prioritize accuracy
+                
+                selection = self.smart_selector.select_provider(
+                    task_type=task_type,
+                    prefer_fast=prefer_fast
+                )
+                
+                # Use SmartProvider selection if no explicit provider/model given
+                if not provider:
+                    provider = selection.provider
+                if not model:
+                    model = selection.model
+                
+                if self.logger:
+                    self.logger.info(f"SmartProvider selection for DK classification: {provider}/{model} (specialized classification)")
+                    
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"SmartProvider selection failed: {e}")
+                # Fallback to defaults if SmartProvider fails
+                provider = provider or "ollama"
+                model = model or "cogito:32b"
+        else:
+            # Use explicit parameters or fallback defaults
+            provider = provider or "ollama"
+            model = model or "cogito:32b"
+
+        # Legacy provider resolution for backward compatibility - Claude Generated
+        if provider and not self.smart_selector:
+            try:
+                from ..utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                config = config_manager.load_config()
+                resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
+                
+                if self.logger and resolved_provider != provider:
+                    self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
+                    
+                provider = resolved_provider  # Use resolved provider type
+                
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
+                # Continue with original provider name as fallback
 
         if not dk_search_results:
             if stream_callback:
@@ -1419,6 +1550,408 @@ class PipelineResultFormatter:
 
         return gnd_keywords
 
+
+def execute_input_extraction(
+    llm_service,
+    input_source: str,
+    input_type: str = "auto",
+    stream_callback: Optional[callable] = None,
+    logger=None,
+    **kwargs,
+) -> Tuple[str, str, str]:
+    """
+    Extract text from various input sources (PDF, Image, Text) - Claude Generated
+    
+    Args:
+        llm_service: LLM service instance for image OCR
+        input_source: File path or text content
+        input_type: "auto", "pdf", "image", "text", or "file"
+        stream_callback: Callback for progress updates
+        logger: Logger instance
+        **kwargs: Additional parameters for LLM
+        
+    Returns:
+        Tuple of (extracted_text, source_info, extraction_method)
+    """
+    import os
+    import PyPDF2
+    import tempfile
+    from pathlib import Path
+    
+    if logger:
+        logger.info(f"Starting input extraction: {input_source[:50]}... (type: {input_type})")
+    
+    # Auto-detect input type if not specified
+    if input_type == "auto":
+        if os.path.isfile(input_source):
+            ext = Path(input_source).suffix.lower()
+            if ext == ".pdf":
+                input_type = "pdf" 
+            elif ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"]:
+                input_type = "image"
+            else:
+                input_type = "file"
+        else:
+            input_type = "text"
+    
+    # Handle different input types
+    try:
+        if input_type == "text":
+            # Direct text input
+            return input_source.strip(), "Direkter Text", "text"
+            
+        elif input_type == "file" and os.path.isfile(input_source):
+            # Text file reading
+            try:
+                with open(input_source, 'r', encoding='utf-8') as f:
+                    text = f.read().strip()
+                    filename = os.path.basename(input_source)
+                    return text, f"Textdatei: {filename}", "file_read"
+            except UnicodeDecodeError:
+                # Try different encodings
+                for encoding in ['latin-1', 'cp1252']:
+                    try:
+                        with open(input_source, 'r', encoding=encoding) as f:
+                            text = f.read().strip()
+                            filename = os.path.basename(input_source)
+                            return text, f"Textdatei: {filename} ({encoding})", "file_read"
+                    except UnicodeDecodeError:
+                        continue
+                raise Exception("Datei konnte nicht gelesen werden (Encoding-Problem)")
+                
+        elif input_type == "pdf":
+            return _extract_from_pdf_pipeline(input_source, llm_service, stream_callback, logger)
+            
+        elif input_type == "image":
+            return _extract_from_image_pipeline(input_source, llm_service, stream_callback, logger)
+            
+        else:
+            raise Exception(f"Unbekannter Input-Typ: {input_type}")
+            
+    except Exception as e:
+        error_msg = f"Input-Extraktion fehlgeschlagen: {str(e)}"
+        if logger:
+            logger.error(error_msg)
+        raise Exception(error_msg)
+
+
+def _extract_from_pdf_pipeline(
+    pdf_path: str, 
+    llm_service,
+    stream_callback: Optional[callable] = None,
+    logger=None
+) -> Tuple[str, str, str]:
+    """Extract text from PDF with LLM fallback for pipeline - Claude Generated"""
+    import os
+    import PyPDF2
+    from pathlib import Path
+    
+    filename = os.path.basename(pdf_path)
+    
+    if stream_callback:
+        stream_callback(f"📄 PDF wird gelesen: {filename}")
+    
+    try:
+        with open(pdf_path, "rb") as file:
+            reader = PyPDF2.PdfReader(file)
+            text_parts = []
+            
+            for i, page in enumerate(reader.pages):
+                if stream_callback:
+                    stream_callback(f"📄 Seite {i+1} von {len(reader.pages)} wird verarbeitet...")
+                page_text = page.extract_text()
+                text_parts.append(page_text)
+            
+            full_text = "\\n\\n".join(text_parts).strip()
+            
+            # Text-Qualität prüfen
+            quality_assessment = _assess_text_quality_pipeline(full_text)
+            
+            if quality_assessment['is_good']:
+                # Direkter Text ist brauchbar
+                source_info = f"PDF: {filename} ({len(reader.pages)} Seiten, Text extrahiert)"
+                return full_text, source_info, "pdf_direct"
+            else:
+                # Text-Qualität schlecht, verwende LLM-OCR
+                if stream_callback:
+                    stream_callback(f"📄 Text-Qualität unzureichend ({quality_assessment['reason']}), starte OCR...")
+                
+                return _extract_pdf_with_llm_pipeline(pdf_path, filename, len(reader.pages), llm_service, stream_callback, logger)
+                
+    except Exception as e:
+        raise Exception(f"PDF-Verarbeitung fehlgeschlagen: {str(e)}")
+
+
+def _extract_pdf_with_llm_pipeline(
+    pdf_path: str,
+    filename: str, 
+    page_count: int,
+    llm_service,
+    stream_callback: Optional[callable] = None,
+    logger=None
+) -> Tuple[str, str, str]:
+    """Extract PDF using LLM OCR for pipeline - Claude Generated"""
+    
+    try:
+        # Versuche pdf2image Import
+        try:
+            import pdf2image
+        except ImportError:
+            raise Exception("pdf2image-Bibliothek nicht verfügbar. Installieren Sie: pip install pdf2image")
+        
+        if stream_callback:
+            stream_callback("📄 Konvertiere PDF für OCR-Analyse...")
+        
+        # Konvertiere PDF zu Bildern (max. erste 3 Seiten)
+        images = pdf2image.convert_from_path(
+            pdf_path,
+            first_page=1,
+            last_page=min(3, page_count),
+            dpi=200
+        )
+        
+        if not images:
+            raise Exception("PDF konnte nicht zu Bildern konvertiert werden")
+        
+        # Speichere erstes Bild temporär
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+            images[0].save(tmp_file.name, 'PNG')
+            temp_image_path = tmp_file.name
+        
+        try:
+            # Verwende LLM für OCR
+            extracted_text, _, _ = _extract_from_image_pipeline(
+                temp_image_path, 
+                llm_service, 
+                stream_callback, 
+                logger
+            )
+            
+            source_info = f"PDF (OCR): {filename} ({page_count} Seiten, per LLM analysiert)"
+            return extracted_text, source_info, "pdf_llm_ocr"
+            
+        finally:
+            # Cleanup temporäre Datei
+            try:
+                os.unlink(temp_image_path)
+            except:
+                pass
+                
+    except Exception as e:
+        raise Exception(f"PDF-LLM-OCR fehlgeschlagen: {str(e)}")
+
+
+def _extract_from_image_pipeline(
+    image_path: str,
+    llm_service, 
+    stream_callback: Optional[callable] = None,
+    logger=None
+) -> Tuple[str, str, str]:
+    """Extract text from image using LLM for pipeline - Claude Generated"""
+    import uuid
+    import os
+    from pathlib import Path
+    from ..llm.prompt_service import PromptService
+    
+    filename = os.path.basename(image_path)
+    
+    if stream_callback:
+        stream_callback(f"🖼️ Analysiere Bild mit LLM: {filename}")
+    
+    try:
+        # Lade OCR-Prompt
+        import os
+        prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
+        prompt_service = PromptService(prompts_path, logger)
+        
+        # Verwende image_text_extraction Task
+        prompt_config_data = prompt_service.get_prompt_config(
+            task="image_text_extraction",
+            model="default"
+        )
+        
+        if not prompt_config_data:
+            raise Exception("OCR-Prompt 'image_text_extraction' nicht gefunden in prompts.json")
+        
+        # Konvertiere PromptConfigData zu Dictionary für Kompatibilität
+        prompt_config = {
+            'prompt': prompt_config_data.prompt,
+            'system': prompt_config_data.system or '',
+            'temperature': prompt_config_data.temp,
+            'top_p': prompt_config_data.p_value,
+            'seed': prompt_config_data.seed
+        }
+        
+        # Bestimme besten Provider für Bilderkennung
+        provider, model = _get_best_vision_provider_pipeline(llm_service, logger)
+        
+        if not provider:
+            raise Exception("Kein Provider mit Bilderkennung verfügbar")
+        
+        if stream_callback:
+            stream_callback(f"🖼️ Verwende {provider} ({model}) für Bilderkennung...")
+        
+        request_id = str(uuid.uuid4())
+        
+        # LLM-Aufruf für Bilderkennung
+        response = llm_service.generate_response(
+            provider=provider,
+            model=model,
+            prompt=prompt_config['prompt'],
+            system=prompt_config.get('system', ''),
+            request_id=request_id,
+            temperature=float(prompt_config.get('temperature', 0.1)),
+            p_value=float(prompt_config.get('top_p', 0.1)),
+            seed=prompt_config.get('seed'),
+            image=image_path,
+            stream=False
+        )
+        
+        # Handle verschiedene Response-Typen
+        extracted_text = ""
+        if hasattr(response, "__iter__") and not isinstance(response, str):
+            # Generator response
+            text_parts = []
+            for chunk in response:
+                if isinstance(chunk, str):
+                    text_parts.append(chunk)
+                elif hasattr(chunk, 'text'):
+                    text_parts.append(chunk.text)
+                elif hasattr(chunk, 'content'):
+                    text_parts.append(chunk.content)
+                else:
+                    text_parts.append(str(chunk))
+            extracted_text = "".join(text_parts)
+        else:
+            extracted_text = str(response)
+        
+        # Bereinige LLM-Output
+        extracted_text = _clean_ocr_output_pipeline(extracted_text)
+        
+        if not extracted_text.strip():
+            raise Exception("LLM konnte keinen Text im Bild erkennen")
+        
+        source_info = f"Bild (OCR): {filename}"
+        return extracted_text, source_info, "image_llm_ocr"
+        
+    except Exception as e:
+        raise Exception(f"Bild-LLM-OCR fehlgeschlagen: {str(e)}")
+
+
+def _assess_text_quality_pipeline(text: str) -> Dict[str, Any]:
+    """Assess quality of extracted PDF text for pipeline - Claude Generated"""
+    if not text or len(text.strip()) == 0:
+        return {'is_good': False, 'reason': 'Kein Text gefunden'}
+    
+    char_count = len(text)
+    word_count = len(text.split())
+    
+    if char_count < 50:
+        return {'is_good': False, 'reason': 'Text zu kurz'}
+    
+    if word_count > 0:
+        avg_word_length = char_count / word_count
+        if avg_word_length < 2 or avg_word_length > 20:
+            return {'is_good': False, 'reason': 'Ungewöhnliche Wortlängen'}
+    
+    special_char_ratio = sum(1 for c in text if not c.isalnum() and c not in ' \n\t.,!?;:-()[]') / len(text)
+    if special_char_ratio > 0.3:
+        return {'is_good': False, 'reason': 'Zu viele Sonderzeichen'}
+    
+    lines_with_content = [line.strip() for line in text.split('\n') if len(line.strip()) > 5]
+    if len(lines_with_content) < max(1, word_count // 20):
+        return {'is_good': False, 'reason': 'Text fragmentiert'}
+        
+    return {'is_good': True, 'reason': 'Text-Qualität ausreichend'}
+
+
+def _get_best_vision_provider_pipeline(llm_service, logger=None) -> Tuple[Optional[str], Optional[str]]:
+    """Get best available provider for vision tasks using SmartProviderSelector - Claude Generated"""
+    try:
+        from .smart_provider_selector import SmartProviderSelector, TaskType
+        
+        selector = SmartProviderSelector()
+        selection = selector.select_provider(
+            task_type=TaskType.VISION,
+            required_capabilities=["vision"],
+            prefer_fast=False
+        )
+        
+        if logger:
+            logger.info(f"SmartProviderSelector chose {selection.provider} with {selection.model} for vision task (fallback_used: {selection.fallback_used})")
+        
+        return selection.provider, selection.model
+        
+    except Exception as e:
+        if logger:
+            logger.warning(f"SmartProviderSelector failed, falling back to legacy selection: {e}")
+        
+        # Legacy fallback for compatibility
+        vision_providers = [
+            ("gemini", ["gemini-2.0-flash", "gemini-1.5-flash"]),
+            ("openai", ["gpt-4o", "gpt-4-vision-preview"]),
+            ("anthropic", ["claude-3-5-sonnet", "claude-3-opus"]),
+            ("ollama", ["llava", "minicpm-v", "cogito:32b"])
+        ]
+        
+        try:
+            available_providers = llm_service.get_available_providers()
+            
+            for provider_name, preferred_models in vision_providers:
+                if provider_name in available_providers:
+                    try:
+                        available_models = llm_service.get_available_models(provider_name)
+                        
+                        for preferred_model in preferred_models:
+                            if preferred_model in available_models:
+                                return provider_name, preferred_model
+                        
+                        if available_models:
+                            return provider_name, available_models[0]
+                            
+                    except Exception as e:
+                        if logger:
+                            logger.warning(f"Error checking models for {provider_name}: {e}")
+                        continue
+            
+            return None, None
+            
+        except Exception as e:
+            if logger:
+                logger.error(f"Error determining best vision provider: {e}")
+            return None, None
+
+
+def _clean_ocr_output_pipeline(text: str) -> str:
+    """Clean OCR output from common LLM artifacts for pipeline - Claude Generated"""
+    if not text:
+        return ""
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        # Überspringe typische LLM-Metakommentare
+        if any(phrase in line.lower() for phrase in [
+            'hier ist der text',
+            'der text lautet',
+            'ich kann folgenden text erkennen',
+            'das bild enthält folgenden text',
+            'extracted text:',
+            'ocr result:',
+            'text erkannt:',
+            'gefundener text:'
+        ]):
+            continue
+        
+        if line:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines).strip()
+
+
 def execute_complete_pipeline(
     alima_manager,
     cache_manager: UnifiedKnowledgeManager,
@@ -1471,7 +2004,12 @@ def execute_complete_pipeline(
         if catalog_token and catalog_token.strip():
             suggesters.append("catalog")
 
-    executor = PipelineStepExecutor(alima_manager, cache_manager, logger)
+    # Get ConfigManager for intelligent provider selection - Claude Generated
+    config_manager = getattr(alima_manager, 'config_manager', None)
+    if hasattr(alima_manager, 'llm_service'):
+        config_manager = config_manager or getattr(alima_manager.llm_service, 'config_manager', None)
+    
+    executor = PipelineStepExecutor(alima_manager, cache_manager, logger, config_manager)
     
     # Set up auto-save path if not provided
     if auto_save_path is None:

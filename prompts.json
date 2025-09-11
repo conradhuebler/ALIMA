@@ -336,6 +336,65 @@
       ]
     ]
   },
+  "image_text_extraction": {
+    "fields": [
+      "prompt",
+      "system",
+      "temp",
+      "p-value",
+      "model",
+      "seed"
+    ],
+    "required": [
+      "image"
+    ],
+    "prompts": [
+      [
+        "Du bist ein OCR-Experte für deutsche Texte. Extrahiere den kompletten Text aus diesem Bild so genau wie möglich. Achte besonders auf:\n- Korrekte deutsche Rechtschreibung und Zeichensetzung\n- Erhaltung der ursprünglichen Formatierung (Absätze, Listen)\n- Vollständige Erfassung aller sichtbaren Textinhalte\n- Korrekte Wiedergabe von Sonderzeichen und Umlauten\n\nGib nur den erkannten Text zurück, ohne zusätzliche Kommentare oder Erklärungen.",
+        "Du bist ein präziser OCR-Assistent, der Texte aus Bildern extrahiert.",
+        "0.1",
+        "0.1",
+        [
+          "gemini-2.0-flash",
+          "gpt-4o",
+          "claude-3-5-sonnet"
+        ],
+        "0"
+      ],
+      [
+        "Lies den Text aus diesem Bild komplett aus. Extrahiere alle sichtbaren Textinhalte:\n- Titel, Überschriften, Fließtext\n- Tabellen, Listen, Bildunterschriften\n- Fußnoten und Randnotizen\n- Formeln oder technische Begriffe\n\nBewahre die strukturelle Gliederung (Absätze, Einrückungen) bei. Gib ausschließlich den extrahierten Text aus.",
+        "",
+        "0.05",
+        "0.1",
+        [
+          "gpt-4o",
+          "gemini-1.5-flash"
+        ],
+        "0"
+      ],
+      [
+        "Führe eine vollständige Textextraktion aus diesem Bild durch. Erkenne und transkribiere:\n• Alle Textzeilen von oben nach unten\n• Mehrspaltige Layouts korrekt\n• Deutsche Umlaute (ä, ö, ü, ß) exakt\n• Zahlen, Daten, Symbole präzise\n\nAusgabe nur des reinen Textes ohne OCR-Hinweise oder Metakommentare.",
+        "",
+        "0.2",
+        "0.1",
+        [
+          "cogito:32b",
+          "magistral:latest"
+        ],
+        "0"
+      ],
+      [
+        "Extrahiere den Text aus diesem Bild vollständig. Achte auf wissenschaftliche/akademische Inhalte:\n- Abstracts, Zusammenfassungen\n- Bibliografische Angaben\n- Fachterminologie korrekt\n- Literaturverweise und Zitationen\n- Formeln und spezielle Notationen\n\nNur Textausgabe, keine Erklärungen.",
+        "",
+        "0.15",
+        "0.1",
+        [
+          "default"
+        ],
+        "0"
+      ]
+    ]
+  },
   "rephrase": {
     "fields": [
       "prompt",

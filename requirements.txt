@@ -13,3 +13,4 @@ pillow
 crawl4ai
 anthropic
 azure-ai-inference
+pdf2image

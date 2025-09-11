@@ -82,13 +82,21 @@ def main():
         help="DOI or URL to resolve and analyze (e.g., 10.1007/978-3-031-47390-6, https://link.springer.com/book/...).",
     )
     pipeline_parser.add_argument(
-        "--initial-model", required=True, help="Model for initial keyword extraction."
+        "--initial-model", help="Model for initial keyword extraction (optional - uses Provider Preferences if not specified)."
     )
     pipeline_parser.add_argument(
-        "--final-model", required=True, help="Model for final keyword analysis."
+        "--final-model", help="Model for final keyword analysis (optional - uses Provider Preferences if not specified)."
     )
     pipeline_parser.add_argument(
-        "--provider", default="ollama", help="LLM provider to use."
+        "--provider", help="LLM provider to use (optional - uses Provider Preferences if not specified)."
+    )
+    pipeline_parser.add_argument(
+        "--save-preferences", action="store_true",
+        help="Save successful provider/model combinations as new Provider Preferences defaults."
+    )
+    pipeline_parser.add_argument(
+        "--show-config", action="store_true",
+        help="Show current pipeline configuration (including Provider Preferences) before execution."
     )
     pipeline_parser.add_argument(
         "--suggesters",
@@ -480,8 +488,9 @@ def main():
         return
 
     if args.command == "pipeline":
-        # Setup services - provider mapping handled in PipelineStepExecutor - Claude Generated  
+        # Setup services with Provider Preferences integration - Claude Generated  
         from src.utils.config_manager import ConfigManager as CM
+        from src.core.pipeline_manager import PipelineConfig
         config_manager = CM()
         llm_service = LlmService(
             providers=None,  # Initialize without specific providers, they'll be resolved dynamically
@@ -492,6 +501,45 @@ def main():
         prompt_service = PromptService(PROMPTS_FILE, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, logger)
         cache_manager = UnifiedKnowledgeManager()
+        
+        # Create pipeline config from Provider Preferences as baseline - Claude Generated
+        try:
+            pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
+            logger.info("Pipeline configuration loaded from Provider Preferences")
+        except Exception as e:
+            logger.warning(f"Failed to load Provider Preferences, using defaults: {e}")
+            pipeline_config = PipelineConfig()
+        
+        # Override with CLI parameters if provided - Claude Generated
+        cli_overrides = {}
+        if args.initial_model:
+            cli_overrides['initial_model'] = args.initial_model
+        if args.final_model:
+            cli_overrides['final_model'] = args.final_model
+        if args.provider:
+            cli_overrides['provider'] = args.provider
+        
+        # Show configuration if requested - Claude Generated
+        if args.show_config:
+            print("🔧 Pipeline Configuration:")
+            print(f"  Provider Preferences based: {'✅ Yes' if not cli_overrides else '⚠️ CLI Overrides active'}")
+            
+            for step_id, step_config in pipeline_config.step_configs.items():
+                if step_config.get('enabled') and 'provider' in step_config:
+                    provider = cli_overrides.get('provider', step_config.get('provider'))
+                    if step_id == 'initialisation':
+                        model = cli_overrides.get('initial_model', step_config.get('model'))
+                    elif step_id == 'keywords':
+                        model = cli_overrides.get('final_model', step_config.get('model'))
+                    else:
+                        model = step_config.get('model')
+                    print(f"  {step_id}: {provider}/{model}")
+            
+            if cli_overrides:
+                print(f"  CLI Overrides: {', '.join([f'{k}={v}' for k, v in cli_overrides.items()])}")
+            
+            print(f"  Save preferences: {'✅ Yes' if args.save_preferences else '❌ No'}")
+            print()
         
         # Get catalog configuration - use args if provided, otherwise from config - Claude Generated
         catalog_config = config_manager.get_catalog_config()
@@ -545,13 +593,18 @@ def main():
                 # Handle DK classification flag
                 include_dk = args.include_dk_classification and not args.disable_dk_classification
                 
+                # Apply CLI overrides to pipeline execution - Claude Generated
+                initial_model = cli_overrides.get('initial_model') or args.initial_model
+                final_model = cli_overrides.get('final_model') or args.final_model
+                provider = cli_overrides.get('provider') or args.provider
+                
                 analysis_state = execute_complete_pipeline(
                     alima_manager=alima_manager,
                     cache_manager=cache_manager,
                     input_text=input_text,
-                    initial_model=args.initial_model,
-                    final_model=args.final_model,
-                    provider=args.provider,  # Raw provider name, resolved in execute_complete_pipeline - Claude Generated
+                    initial_model=initial_model,  # May be None - SmartProvider will handle
+                    final_model=final_model,      # May be None - SmartProvider will handle
+                    provider=provider,            # May be None - SmartProvider will handle
                     suggesters=args.suggesters,
                     stream_callback=stream_callback,
                     logger=logger,
@@ -579,6 +632,41 @@ def main():
                 print(
                     f"GND Classes: {analysis_state.final_llm_analysis.extracted_gnd_classes}"
                 )
+                
+                # Save preferences if requested and pipeline was successful - Claude Generated
+                if args.save_preferences:
+                    try:
+                        preferences = config_manager.get_provider_preferences() 
+                        preferences_updated = False
+                        
+                        # Update preferences based on successful execution
+                        if initial_model and provider:
+                            preferences.preferred_models[provider] = final_model or initial_model  # Prefer final model
+                            preferences_updated = True
+                        
+                        # Set most used provider as preferred if not already set explicitly
+                        if provider and (not preferences.preferred_provider or preferences.preferred_provider == "ollama"):
+                            preferences.preferred_provider = provider
+                            preferences_updated = True
+                        
+                        # Ensure provider is in priority list
+                        if provider and provider not in preferences.provider_priority:
+                            preferences.provider_priority.insert(0, provider)
+                            preferences_updated = True
+                        
+                        if preferences_updated:
+                            config_manager.update_provider_preferences(preferences)
+                            config_manager.save_config()
+                            print(f"\n✅ Provider preferences updated and saved:")
+                            print(f"   Preferred provider: {preferences.preferred_provider}")
+                            if provider in preferences.preferred_models:
+                                print(f"   Preferred model for {provider}: {preferences.preferred_models[provider]}")
+                        else:
+                            print("\n📋 No preference changes needed - current settings already optimal")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to save provider preferences: {e}")
+                        print(f"\n⚠️ Failed to save preferences: {e}")
 
             # Save results if requested
             if args.output_json:

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QMimeData, QUrl, pyqtSlot
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import logging
 import os
 import PyPDF2
@@ -74,7 +74,7 @@ class TextExtractionWorker(QThread):
             self.error_occurred.emit(str(e))
 
     def _extract_from_pdf(self):
-        """Extract text from PDF file - Claude Generated"""
+        """Extract text from PDF file with LLM fallback - Claude Generated"""
         self.progress_updated.emit("PDF wird gelesen...")
 
         try:
@@ -86,16 +86,105 @@ class TextExtractionWorker(QThread):
                     self.progress_updated.emit(
                         f"Seite {i+1} von {len(reader.pages)} wird verarbeitet..."
                     )
-                    text_parts.append(page.extract_text())
+                    page_text = page.extract_text()
+                    text_parts.append(page_text)
 
-                full_text = "\\n\\n".join(text_parts)
+                full_text = "\\n\\n".join(text_parts).strip()
                 filename = os.path.basename(self.source_data)
-                source_info = f"PDF: {filename} ({len(reader.pages)} Seiten)"
-
-                self.text_extracted.emit(full_text, source_info)
+                
+                # Prüfe Text-Qualität
+                text_quality = self._assess_text_quality(full_text)
+                
+                if text_quality['is_good']:
+                    # Direkter Text ist brauchbar
+                    source_info = f"PDF: {filename} ({len(reader.pages)} Seiten, Text extrahiert)"
+                    self.text_extracted.emit(full_text, source_info)
+                else:
+                    # Text-Qualität schlecht, verwende LLM-OCR
+                    self.progress_updated.emit("Text-Qualität unzureichend, starte OCR-Analyse...")
+                    self._extract_pdf_with_llm(filename, len(reader.pages))
 
         except Exception as e:
             self.error_occurred.emit(f"PDF-Fehler: {str(e)}")
+
+    def _assess_text_quality(self, text: str) -> Dict[str, Any]:
+        """Assess quality of extracted PDF text - Claude Generated"""
+        if not text or len(text.strip()) == 0:
+            return {'is_good': False, 'reason': 'Kein Text gefunden'}
+        
+        # Grundlegende Qualitätsprüfungen
+        char_count = len(text)
+        word_count = len(text.split())
+        
+        # Prüfe auf Mindestlänge
+        if char_count < 50:
+            return {'is_good': False, 'reason': 'Text zu kurz'}
+        
+        # Prüfe Zeichen-zu-Wort-Verhältnis (durchschnittliche Wortlänge)
+        if word_count > 0:
+            avg_word_length = char_count / word_count
+            if avg_word_length < 2 or avg_word_length > 20:
+                return {'is_good': False, 'reason': 'Ungewöhnliche Wortlängen'}
+        
+        # Prüfe auf zu viele Sonderzeichen oder Fragmente  
+        special_char_ratio = sum(1 for c in text if not c.isalnum() and c not in ' \n\t.,!?;:-()[]') / len(text)
+        if special_char_ratio > 0.3:
+            return {'is_good': False, 'reason': 'Zu viele Sonderzeichen'}
+        
+        # Prüfe auf zusammenhängenden Text (nicht nur einzelne Zeichen)
+        lines_with_content = [line.strip() for line in text.split('\n') if len(line.strip()) > 5]
+        if len(lines_with_content) < max(1, word_count // 20):
+            return {'is_good': False, 'reason': 'Text fragmentiert'}
+            
+        return {'is_good': True, 'reason': 'Text-Qualität ausreichend'}
+
+    def _extract_pdf_with_llm(self, filename: str, page_count: int):
+        """Extract PDF using LLM OCR when text quality is poor - Claude Generated"""
+        if not self.llm_service:
+            self.error_occurred.emit("LLM-Service nicht verfügbar für PDF-OCR")
+            return
+        
+        try:
+            import uuid
+            from ..llm.prompt_service import PromptService
+            
+            # Konvertiere PDF zu Bild für LLM-Analyse (erste Seite als Test)
+            self.progress_updated.emit("Konvertiere PDF für OCR-Analyse...")
+            
+            # Verwende pdf2image für Konvertierung
+            try:
+                import pdf2image
+                images = pdf2image.convert_from_path(
+                    self.source_data, 
+                    first_page=1, 
+                    last_page=min(3, page_count),  # Max. erste 3 Seiten für OCR
+                    dpi=200
+                )
+                
+                if not images:
+                    self.error_occurred.emit("PDF konnte nicht zu Bildern konvertiert werden")
+                    return
+                
+                # Speichere erstes Bild temporär für LLM-Analyse
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                    images[0].save(tmp_file.name, 'PNG')
+                    temp_image_path = tmp_file.name
+                
+                # Verwende LLM für OCR
+                self._extract_image_with_llm(
+                    temp_image_path, 
+                    f"PDF (OCR): {filename} ({page_count} Seiten, per LLM analysiert)",
+                    cleanup_temp=True
+                )
+                
+            except ImportError:
+                self.error_occurred.emit("pdf2image-Bibliothek nicht verfügbar. Installieren Sie: pip install pdf2image")
+            except Exception as e:
+                self.error_occurred.emit(f"PDF-zu-Bild Konvertierung fehlgeschlagen: {str(e)}")
+                
+        except Exception as e:
+            self.error_occurred.emit(f"PDF-LLM-Extraktion fehlgeschlagen: {str(e)}")
 
     def _extract_from_image(self):
         """Extract text from image using LLM - Claude Generated"""
@@ -103,17 +192,176 @@ class TextExtractionWorker(QThread):
             self.error_occurred.emit("LLM-Service nicht verfügbar für Bilderkennung")
             return
 
-        self.progress_updated.emit("Bild wird analysiert...")
+        filename = os.path.basename(self.source_data)
+        source_info = f"Bild: {filename}"
+        
+        self._extract_image_with_llm(self.source_data, source_info)
+
+    def _extract_image_with_llm(self, image_path: str, source_info: str, cleanup_temp: bool = False):
+        """Extract text from image using LLM with image_text_extraction prompt - Claude Generated"""
+        self.progress_updated.emit("Bild wird mit LLM analysiert...")
 
         try:
-            # Hier würde die Bildanalyse implementiert werden
-            # Für jetzt als Platzhalter
-            filename = os.path.basename(self.source_data)
-            source_info = f"Bild: {filename}"
-            self.text_extracted.emit("", source_info)
+            import uuid
+            from ..llm.prompt_service import PromptService
+            
+            # Lade OCR-Prompt
+            import os
+            prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
+            prompt_service = PromptService(prompts_path, self.logger)
+            
+            # Verwende image_text_extraction Task
+            prompt_config_data = prompt_service.get_prompt_config(
+                task="image_text_extraction",
+                model="default"  # Wird automatisch den besten verfügbaren Provider wählen
+            )
+            
+            if not prompt_config_data:
+                self.error_occurred.emit("OCR-Prompt nicht gefunden. Bitte prüfen Sie prompts.json")
+                return
+            
+            # Konvertiere PromptConfigData zu Dictionary für Kompatibilität
+            prompt_config = {
+                'prompt': prompt_config_data.prompt,
+                'system': prompt_config_data.system or '',
+                'temperature': prompt_config_data.temp,
+                'top_p': prompt_config_data.p_value,
+                'seed': prompt_config_data.seed
+            }
+            
+            request_id = str(uuid.uuid4())
+            
+            # Bestimme besten verfügbaren Provider für Bilderkennung
+            provider, model = self._get_best_vision_provider()
+            
+            if not provider:
+                self.error_occurred.emit("Kein Provider mit Bilderkennung verfügbar")
+                return
+            
+            self.progress_updated.emit(f"Verwende {provider} ({model}) für Bilderkennung...")
+            
+            # LLM-Aufruf für Bilderkennung
+            response = self.llm_service.generate_response(
+                provider=provider,
+                model=model,
+                prompt=prompt_config['prompt'],
+                system=prompt_config.get('system', ''),
+                request_id=request_id,
+                temperature=float(prompt_config.get('temperature', 0.1)),
+                p_value=float(prompt_config.get('top_p', 0.1)),
+                seed=prompt_config.get('seed'),
+                image=image_path,
+                stream=False
+            )
+
+            # Handle verschiedene Response-Typen
+            extracted_text = ""
+            if hasattr(response, "__iter__") and not isinstance(response, str):
+                # Generator response (z.B. von Ollama)
+                text_parts = []
+                for chunk in response:
+                    if isinstance(chunk, str):
+                        text_parts.append(chunk)
+                    elif hasattr(chunk, 'text'):
+                        text_parts.append(chunk.text)
+                    elif hasattr(chunk, 'content'):
+                        text_parts.append(chunk.content)
+                    else:
+                        text_parts.append(str(chunk))
+                extracted_text = "".join(text_parts)
+            else:
+                extracted_text = str(response)
+
+            # Bereinige Ausgabe von LLM-Metakommentaren
+            extracted_text = self._clean_ocr_output(extracted_text)
+            
+            # Cleanup temporäre Datei wenn angefordert
+            if cleanup_temp:
+                try:
+                    os.unlink(image_path)
+                except:
+                    pass
+            
+            if extracted_text.strip():
+                self.text_extracted.emit(extracted_text, source_info)
+            else:
+                self.error_occurred.emit("LLM konnte keinen Text im Bild erkennen")
 
         except Exception as e:
-            self.error_occurred.emit(f"Bild-Fehler: {str(e)}")
+            # Cleanup temporäre Datei auch bei Fehlern
+            if cleanup_temp:
+                try:
+                    os.unlink(image_path)
+                except:
+                    pass
+            self.logger.error(f"Image LLM extraction error: {e}")
+            self.error_occurred.emit(f"LLM-Bilderkennung fehlgeschlagen: {str(e)}")
+
+    def _get_best_vision_provider(self) -> tuple:
+        """Get best available provider for vision tasks - Claude Generated"""
+        # Prioritätsliste für Vision-Provider
+        vision_providers = [
+            ("gemini", ["gemini-2.0-flash", "gemini-1.5-flash"]),
+            ("openai", ["gpt-4o", "gpt-4-vision-preview"]),
+            ("anthropic", ["claude-3-5-sonnet", "claude-3-opus"]),
+            ("ollama", ["llava", "minicpm-v", "cogito:32b"])
+        ]
+        
+        try:
+            available_providers = self.llm_service.get_available_providers()
+            
+            for provider_name, preferred_models in vision_providers:
+                if provider_name in available_providers:
+                    try:
+                        available_models = self.llm_service.get_available_models(provider_name)
+                        
+                        # Finde das beste verfügbare Modell
+                        for preferred_model in preferred_models:
+                            if preferred_model in available_models:
+                                return provider_name, preferred_model
+                        
+                        # Falls kein bevorzugtes Modell, nimm das erste verfügbare
+                        if available_models:
+                            return provider_name, available_models[0]
+                            
+                    except Exception as e:
+                        self.logger.warning(f"Error checking models for {provider_name}: {e}")
+                        continue
+            
+            return None, None
+            
+        except Exception as e:
+            self.logger.error(f"Error determining best vision provider: {e}")
+            return None, None
+
+    def _clean_ocr_output(self, text: str) -> str:
+        """Clean OCR output from common LLM artifacts - Claude Generated"""
+        if not text:
+            return ""
+        
+        # Entferne häufige LLM-Metakommentare
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            # Überspringe typische LLM-Metakommentare
+            if any(phrase in line.lower() for phrase in [
+                'hier ist der text',
+                'der text lautet',
+                'ich kann folgenden text erkennen',
+                'das bild enthält folgenden text',
+                'extracted text:',
+                'ocr result:',
+                'text erkannt:',
+                'gefundener text:'
+            ]):
+                continue
+            
+            if line:  # Nur nicht-leere Zeilen
+                cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines).strip()
 
     def _extract_from_doi(self):
         """Extract metadata from DOI using unified resolver - Claude Generated"""

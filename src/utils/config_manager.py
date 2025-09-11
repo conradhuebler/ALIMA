@@ -11,7 +11,7 @@ import os
 import sys
 import platform
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, Union, List, Tuple
 from dataclasses import dataclass, asdict, field
 import logging
 
@@ -142,10 +142,7 @@ class LLMConfig:
     
     # Ollama providers (flexible multi-instance list)
     ollama_providers: List[OllamaProvider] = field(default_factory=list)
-    
-    # Legacy ollama settings (for backward compatibility)
-    ollama_host: str = 'localhost'
-    ollama_port: int = 11434
+
     
     def get_provider_by_name(self, name: str) -> Optional[OpenAICompatibleProvider]:
         """Get OpenAI-compatible provider by name - Claude Generated"""
@@ -262,25 +259,11 @@ class LLMConfig:
         """Create LLMConfig with default OpenAI-compatible and Ollama providers - Claude Generated"""
         default_openai_providers = [
             OpenAICompatibleProvider(
-                name="ChatAI",
-                base_url="http://chat-ai.academiccloud.de/v1",
-                api_key="",
-                enabled=True,
-                description="GWDG Academic Cloud ChatAI"
-            ),
-            OpenAICompatibleProvider(
                 name="OpenAI",
                 base_url="https://api.openai.com/v1", 
                 api_key="",
                 enabled=False,
                 description="Official OpenAI API"
-            ),
-            OpenAICompatibleProvider(
-                name="Comet",
-                base_url="https://api.cometapi.com/v1",
-                api_key="",
-                enabled=False,
-                description="Comet API"
             )
         ]
         
@@ -301,9 +284,7 @@ class LLMConfig:
             gemini="",
             anthropic="",
             openai_compatible_providers=default_openai_providers,
-            ollama_providers=default_ollama_providers,
-            ollama_host="localhost",
-            ollama_port=11434
+            ollama_providers=default_ollama_providers
         )
 
 
@@ -326,16 +307,426 @@ class SystemConfig:
 
 
 @dataclass
+class ProviderPreferences:
+    """Universal LLM provider preferences for all tasks - Claude Generated"""
+    
+    # Global provider preferences
+    preferred_provider: str = "ollama"  # First choice: ollama, gemini, anthropic, openai, chatai, etc.
+    provider_priority: List[str] = field(default_factory=lambda: ["ollama", "gemini", "anthropic", "openai"])  # Fallback order
+    disabled_providers: List[str] = field(default_factory=list)  # Providers to never use (e.g. ["gemini"])
+    
+    # Task-specific provider overrides
+    vision_provider: Optional[str] = None  # Override for image/vision tasks (gemini-2.0-flash, gpt-4o, claude-3-5-sonnet)
+    text_provider: Optional[str] = None    # Override for text-only tasks 
+    classification_provider: Optional[str] = None  # Override for classification tasks
+    
+    # Preferred models per provider
+    preferred_models: Dict[str, str] = field(default_factory=lambda: {
+        "ollama": "cogito:32b",
+        "gemini": "gemini-2.0-flash", 
+        "anthropic": "claude-3-5-sonnet",
+        "openai": "gpt-4o"
+    })
+    
+    # Fallback behavior
+    auto_fallback: bool = True  # Automatically try next provider if preferred fails
+    fallback_timeout: int = 30  # Seconds to wait before trying fallback
+    
+    # Performance preferences
+    prefer_faster_models: bool = False  # Prioritize speed over quality
+    max_cost_per_request: Optional[float] = None  # Maximum cost threshold (future use)
+    
+    def get_provider_for_task(self, task_type: str = "general") -> str:
+        """Get the preferred provider for a specific task type - Claude Generated"""
+        # Check task-specific overrides first
+        if task_type == "vision" and self.vision_provider:
+            return self.vision_provider
+        elif task_type == "text" and self.text_provider:
+            return self.text_provider
+        elif task_type == "classification" and self.classification_provider:
+            return self.classification_provider
+        
+        # Return global preferred provider
+        return self.preferred_provider
+    
+    def get_provider_priority_for_task(self, task_type: str = "general") -> List[str]:
+        """Get the full provider priority list for a task, excluding disabled providers - Claude Generated"""
+        task_provider = self.get_provider_for_task(task_type)
+        
+        # Start with task-specific provider if different from preferred
+        if task_provider != self.preferred_provider:
+            priority_list = [task_provider] + self.provider_priority
+        else:
+            priority_list = self.provider_priority[:]
+        
+        # Remove duplicates and disabled providers
+        filtered_list = []
+        for provider in priority_list:
+            if provider not in self.disabled_providers and provider not in filtered_list:
+                filtered_list.append(provider)
+        
+        return filtered_list
+    
+    def get_preferred_model(self, provider: str) -> Optional[str]:
+        """Get the preferred model for a specific provider - Claude Generated"""
+        return self.preferred_models.get(provider)
+    
+    def is_provider_enabled(self, provider: str) -> bool:
+        """Check if a provider is enabled (not in disabled list) - Claude Generated"""
+        return provider not in self.disabled_providers
+    
+    def disable_provider(self, provider: str):
+        """Disable a specific provider - Claude Generated"""
+        if provider not in self.disabled_providers:
+            self.disabled_providers.append(provider)
+    
+    def enable_provider(self, provider: str):
+        """Enable a previously disabled provider - Claude Generated"""
+        if provider in self.disabled_providers:
+            self.disabled_providers.remove(provider)
+    
+    def validate_preferences(self, detection_service: 'ProviderDetectionService') -> Dict[str, List[str]]:
+        """Validate all provider preferences against available providers - Claude Generated"""
+        validation_issues = {
+            'missing_providers': [],
+            'invalid_task_overrides': [],
+            'invalid_models': [],
+            'warnings': []
+        }
+        
+        available_providers = detection_service.get_available_providers()
+        
+        # Validate preferred provider
+        if self.preferred_provider not in available_providers:
+            validation_issues['missing_providers'].append(f"Preferred provider '{self.preferred_provider}' not available")
+        
+        # Validate provider priority list
+        for provider in self.provider_priority:
+            if provider not in available_providers:
+                validation_issues['missing_providers'].append(f"Priority provider '{provider}' not available")
+        
+        # Validate task-specific overrides
+        task_providers = {
+            'vision': self.vision_provider,
+            'text': self.text_provider,
+            'classification': self.classification_provider
+        }
+        
+        for task, provider in task_providers.items():
+            if provider and provider not in available_providers:
+                validation_issues['invalid_task_overrides'].append(f"Task '{task}' provider '{provider}' not available")
+        
+        # Validate preferred models
+        for provider, model in self.preferred_models.items():
+            if provider in available_providers:
+                available_models = detection_service.get_available_models(provider)
+                if available_models and model not in available_models:
+                    validation_issues['invalid_models'].append(f"Model '{model}' not available for provider '{provider}'")
+            else:
+                validation_issues['warnings'].append(f"Cannot validate model '{model}' - provider '{provider}' not available")
+        
+        return validation_issues
+    
+    def auto_cleanup(self, detection_service: 'ProviderDetectionService') -> Dict[str, Any]:
+        """Auto-cleanup invalid provider references - Claude Generated"""
+        cleanup_report = {
+            'cleaned_providers': [],
+            'updated_preferred': None,
+            'cleaned_models': [],
+            'cleaned_task_overrides': []
+        }
+        
+        available_providers = detection_service.get_available_providers()
+        
+        # Clean provider priority list - remove unavailable providers
+        original_priority = self.provider_priority[:]
+        self.provider_priority = [p for p in self.provider_priority if p in available_providers]
+        
+        for removed in set(original_priority) - set(self.provider_priority):
+            cleanup_report['cleaned_providers'].append(f"Removed unavailable provider '{removed}' from priority list")
+        
+        # Update preferred provider if not available
+        if self.preferred_provider not in available_providers:
+            if self.provider_priority:
+                old_preferred = self.preferred_provider
+                self.preferred_provider = self.provider_priority[0]
+                cleanup_report['updated_preferred'] = f"Changed preferred provider from '{old_preferred}' to '{self.preferred_provider}'"
+            else:
+                # Fallback to first available provider
+                if available_providers:
+                    old_preferred = self.preferred_provider
+                    self.preferred_provider = available_providers[0]
+                    cleanup_report['updated_preferred'] = f"Changed preferred provider from '{old_preferred}' to '{self.preferred_provider}' (fallback)"
+        
+        # Clean task-specific overrides
+        task_overrides = [
+            ('vision', 'vision_provider'),
+            ('text', 'text_provider'), 
+            ('classification', 'classification_provider')
+        ]
+        
+        for task_name, attr_name in task_overrides:
+            provider = getattr(self, attr_name)
+            if provider and provider not in available_providers:
+                setattr(self, attr_name, None)
+                cleanup_report['cleaned_task_overrides'].append(f"Cleared unavailable {task_name} provider '{provider}'")
+        
+        # Clean preferred models for unavailable providers
+        models_to_remove = []
+        for provider in list(self.preferred_models.keys()):
+            if provider not in available_providers:
+                models_to_remove.append(provider)
+        
+        for provider in models_to_remove:
+            model = self.preferred_models.pop(provider)
+            cleanup_report['cleaned_models'].append(f"Removed model preference '{model}' for unavailable provider '{provider}'")
+        
+        # Update disabled providers list - remove providers that are not available anymore
+        original_disabled = self.disabled_providers[:]
+        self.disabled_providers = [p for p in self.disabled_providers if p in available_providers]
+        
+        for removed in set(original_disabled) - set(self.disabled_providers):
+            cleanup_report['cleaned_providers'].append(f"Removed unavailable provider '{removed}' from disabled list")
+        
+        return cleanup_report
+    
+    def ensure_valid_configuration(self, detection_service: 'ProviderDetectionService') -> bool:
+        """Ensure preferences have at least one valid provider configured - Claude Generated"""
+        available_providers = detection_service.get_available_providers()
+        
+        if not available_providers:
+            return False  # No providers available at all
+        
+        # Make sure we have at least one provider in our priority list
+        if not any(p in available_providers for p in self.provider_priority):
+            # Add all available providers to priority list
+            self.provider_priority = available_providers[:]
+        
+        # Make sure preferred provider is valid
+        if self.preferred_provider not in available_providers:
+            if self.provider_priority:
+                self.preferred_provider = self.provider_priority[0]
+            else:
+                self.preferred_provider = available_providers[0]
+        
+        return True
+
+
+@dataclass
 class AlimaConfig:
     """Complete ALIMA configuration - Claude Generated"""
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     llm: LLMConfig = field(default_factory=lambda: LLMConfig.create_default())
     catalog: CatalogConfig = field(default_factory=CatalogConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
+    provider_preferences: ProviderPreferences = field(default_factory=ProviderPreferences)  # Claude Generated
     
     # Version and metadata
     config_version: str = '1.0'
     last_updated: str = ''
+
+
+class ProviderDetectionService:
+    """
+    Service for detecting available LLM providers using internal ALIMA logic - Claude Generated
+    Wraps LlmService to provide clean API for provider detection, capabilities, and testing
+    """
+    
+    def __init__(self, config_manager: Optional['ConfigManager'] = None):
+        self.logger = logging.getLogger(__name__)
+        self.config_manager = config_manager
+        self._llm_service = None  # Lazy initialization
+        
+    def _get_llm_service(self):
+        """Lazy initialize LLM service to avoid startup delays - Claude Generated"""
+        if self._llm_service is None:
+            try:
+                # Import here to avoid circular imports
+                from ..llm.llm_service import LlmService
+                self._llm_service = LlmService(lazy_initialization=True)
+            except Exception as e:
+                self.logger.error(f"Failed to initialize LlmService: {e}")
+                raise
+        return self._llm_service
+    
+    def get_available_providers(self) -> List[str]:
+        """Get list of all available providers from internal LlmService - Claude Generated"""
+        try:
+            llm_service = self._get_llm_service()
+            return llm_service.get_available_providers()
+        except Exception as e:
+            self.logger.error(f"Error getting available providers: {e}")
+            return []
+    
+    def is_provider_reachable(self, provider: str) -> bool:
+        """Test if a provider is currently reachable - Claude Generated"""
+        try:
+            llm_service = self._get_llm_service()
+            return llm_service.is_provider_reachable(provider)
+        except Exception as e:
+            self.logger.warning(f"Error testing reachability for {provider}: {e}")
+            return False
+    
+    def get_available_models(self, provider: str) -> List[str]:
+        """Get available models for a specific provider - Claude Generated"""
+        try:
+            llm_service = self._get_llm_service()
+            models = llm_service.get_available_models(provider)
+            return models if models else []
+        except Exception as e:
+            self.logger.warning(f"Error getting models for {provider}: {e}")
+            return []
+    
+    def detect_provider_capabilities(self, provider: str) -> List[str]:
+        """Detect capabilities of a provider based on available models and configuration - Claude Generated"""
+        capabilities = []
+        
+        try:
+            models = self.get_available_models(provider)
+            models_str = ' '.join(models).lower()
+            
+            # Vision capability detection
+            vision_indicators = ['vision', 'gpt-4o', 'claude-3', 'gemini-2.0', 'llava', 'minicpm-v']
+            if any(indicator in models_str for indicator in vision_indicators):
+                capabilities.append('vision')
+            
+            # Speed capability (based on model names)
+            speed_indicators = ['flash', 'mini', 'haiku', '14b', 'turbo']
+            if any(indicator in models_str for indicator in speed_indicators):
+                capabilities.append('fast')
+            
+            # Large context capability
+            large_context_indicators = ['gpt-4', 'claude-3', 'gemini-1.5', 'cogito:32b']
+            if any(indicator in models_str for indicator in large_context_indicators):
+                capabilities.append('large_context')
+            
+            # Provider-specific capabilities
+            if provider.startswith('ollama') or 'ollama' in provider.lower():
+                capabilities.extend(['local', 'privacy', 'custom_models'])
+            
+            if 'gemini' in provider.lower():
+                capabilities.extend(['multimodal', 'google'])
+            
+            if 'anthropic' in provider.lower():
+                capabilities.extend(['reasoning', 'analysis'])
+            
+            if 'openai' in provider.lower():
+                capabilities.extend(['function_calling', 'structured_output'])
+            
+            if 'chatai' in provider.lower():
+                capabilities.extend(['academic', 'german'])
+            
+        except Exception as e:
+            self.logger.warning(f"Error detecting capabilities for {provider}: {e}")
+        
+        return list(set(capabilities))  # Remove duplicates
+    
+    def get_provider_info(self, provider: str) -> Dict[str, Any]:
+        """Get comprehensive information about a provider - Claude Generated"""
+        info = {
+            'name': provider,
+            'available': provider in self.get_available_providers(),
+            'reachable': False,
+            'models': [],
+            'model_count': 0,
+            'capabilities': [],
+            'description': '',
+            'status': 'unknown'
+        }
+        
+        if not info['available']:
+            info['status'] = 'not_configured'
+            return info
+        
+        # Test reachability
+        info['reachable'] = self.is_provider_reachable(provider)
+        
+        if info['reachable']:
+            info['status'] = 'ready'
+            info['models'] = self.get_available_models(provider)
+            info['model_count'] = len(info['models'])
+            info['capabilities'] = self.detect_provider_capabilities(provider)
+            
+            # Generate description
+            caps_str = ', '.join(info['capabilities'][:3])
+            model_info = f"{info['model_count']} models"
+            info['description'] = f"{caps_str} | {model_info}" if caps_str else model_info
+        else:
+            info['status'] = 'unreachable'
+        
+        return info
+    
+    def get_all_provider_info(self) -> Dict[str, Dict[str, Any]]:
+        """Get information about all available providers - Claude Generated"""
+        providers = self.get_available_providers()
+        return {provider: self.get_provider_info(provider) for provider in providers}
+    
+    def get_providers_with_capability(self, capability: str) -> List[str]:
+        """Get all providers that have a specific capability - Claude Generated"""
+        matching_providers = []
+        
+        for provider in self.get_available_providers():
+            if capability in self.detect_provider_capabilities(provider):
+                matching_providers.append(provider)
+        
+        return matching_providers
+    
+    def get_vision_providers(self) -> List[str]:
+        """Get all providers with vision capabilities - Claude Generated"""
+        return self.get_providers_with_capability('vision')
+    
+    def get_local_providers(self) -> List[str]:
+        """Get all local providers (typically Ollama) - Claude Generated"""
+        return self.get_providers_with_capability('local')
+    
+    def validate_provider_list(self, providers: List[str]) -> Tuple[List[str], List[str]]:
+        """
+        Validate a list of providers against available providers - Claude Generated
+        
+        Returns:
+            Tuple of (valid_providers, invalid_providers)
+        """
+        available = set(self.get_available_providers())
+        valid = [p for p in providers if p in available]
+        invalid = [p for p in providers if p not in available]
+        
+        return valid, invalid
+    
+    def cleanup_provider_preferences(self, preferences: 'ProviderPreferences') -> 'ProviderPreferences':
+        """Clean up provider preferences by removing unavailable providers - Claude Generated"""
+        available = set(self.get_available_providers())
+        
+        # Clean up provider priority
+        preferences.provider_priority = [p for p in preferences.provider_priority if p in available]
+        
+        # Clean up disabled providers (only keep ones that exist)
+        preferences.disabled_providers = [p for p in preferences.disabled_providers if p in available]
+        
+        # Clean up preferred provider
+        if preferences.preferred_provider not in available:
+            if preferences.provider_priority:
+                preferences.preferred_provider = preferences.provider_priority[0]
+            elif available:
+                preferences.preferred_provider = list(available)[0]
+            else:
+                preferences.preferred_provider = "ollama"  # fallback
+        
+        # Clean up task-specific overrides
+        if preferences.vision_provider and preferences.vision_provider not in available:
+            preferences.vision_provider = None
+        
+        if preferences.text_provider and preferences.text_provider not in available:
+            preferences.text_provider = None
+        
+        if preferences.classification_provider and preferences.classification_provider not in available:
+            preferences.classification_provider = None
+        
+        # Clean up preferred models
+        for provider in list(preferences.preferred_models.keys()):
+            if provider not in available:
+                del preferences.preferred_models[provider]
+        
+        return preferences
 
 
 class ConfigManager:
@@ -348,6 +739,7 @@ class ConfigManager:
         self._setup_config_paths()
         
         self._config: Optional[AlimaConfig] = None
+        self._provider_detection_service: Optional[ProviderDetectionService] = None  # Claude Generated
     
     def _setup_config_paths(self):
         """Setup OS-specific configuration file paths - Claude Generated"""
@@ -364,13 +756,11 @@ class ConfigManager:
             
             self.user_config_path = Path(appdata) / "ALIMA" / "config.json"
             self.system_config_path = Path(programdata) / "ALIMA" / "config.json"
-            self.legacy_config_path = Path.home() / ".alima_config.json"
             
         elif system_name == "darwin":  # macOS
             # macOS paths following Apple guidelines
             self.user_config_path = Path.home() / "Library" / "Application Support" / "ALIMA" / "config.json"
             self.system_config_path = Path("/Library") / "Application Support" / "ALIMA" / "config.json"
-            self.legacy_config_path = Path.home() / ".alima_config.json"
             
         else:  # Linux and other Unix-like systems
             # Follow XDG Base Directory Specification
@@ -381,13 +771,11 @@ class ConfigManager:
             # Use first directory from XDG_CONFIG_DIRS, fallback to /etc
             system_config_dir = Path(xdg_config_dirs[0]) if xdg_config_dirs else Path("/etc")
             self.system_config_path = system_config_dir / "alima" / "config.json"
-            self.legacy_config_path = Path.home() / ".alima_config.json"
         
         self.logger.debug(f"Config paths for {system_name}:")
         self.logger.debug(f"  Project: {self.project_config_path}")
         self.logger.debug(f"  User: {self.user_config_path}")
         self.logger.debug(f"  System: {self.system_config_path}")
-        self.logger.debug(f"  Legacy: {self.legacy_config_path}")
     
     def get_config_info(self) -> Dict[str, str]:
         """Get information about configuration paths - Claude Generated"""
@@ -397,7 +785,6 @@ class ConfigManager:
             "project_config": str(self.project_config_path),
             "user_config": str(self.user_config_path),
             "system_config": str(self.system_config_path),
-            "legacy_config": str(self.legacy_config_path)
         }
         
     def load_config(self) -> AlimaConfig:
@@ -410,7 +797,6 @@ class ConfigManager:
             ("project", self.project_config_path),
             ("user", self.user_config_path), 
             ("system", self.system_config_path),
-            ("legacy", self.legacy_config_path)
         ]
         
         for source_name, config_path in config_sources:
@@ -445,10 +831,7 @@ class ConfigManager:
     def _parse_config(self, config_data: Dict[str, Any], source_name: str) -> AlimaConfig:
         """Parse configuration data into AlimaConfig - Claude Generated"""
         
-        # Handle legacy config format
-        if source_name == "legacy":
-            return self._parse_legacy_config(config_data)
-        
+
         # Parse new format
         config = AlimaConfig()
         
@@ -490,32 +873,6 @@ class ConfigManager:
                         openai_providers.append(provider)
                     except ValueError as e:
                         self.logger.warning(f"Skipping invalid provider: {e}")
-            else:
-                # Legacy format: convert individual fields to providers
-                if llm_data.get("openai"):
-                    openai_providers.append(OpenAICompatibleProvider(
-                        name="OpenAI",
-                        base_url="https://api.openai.com/v1",
-                        api_key=llm_data["openai"],
-                        enabled=True,
-                        description="Official OpenAI API"
-                    ))
-                if llm_data.get("chatai"):
-                    openai_providers.append(OpenAICompatibleProvider(
-                        name="ChatAI",
-                        base_url="http://chat-ai.academiccloud.de/v1",
-                        api_key=llm_data["chatai"],
-                        enabled=True,
-                        description="GWDG Academic Cloud ChatAI"
-                    ))
-                if llm_data.get("comet"):
-                    openai_providers.append(OpenAICompatibleProvider(
-                        name="Comet",
-                        base_url="https://api.cometapi.com/v1",
-                        api_key=llm_data["comet"],
-                        enabled=True,
-                        description="Comet API"
-                    ))
             
             # Parse Ollama providers (new multi-instance format)
             ollama_providers = []
@@ -536,36 +893,12 @@ class ConfigManager:
                         ollama_providers.append(provider)
                     except ValueError as e:
                         self.logger.warning(f"Skipping invalid Ollama provider: {e}")
-            elif "ollama" in llm_data:
-                # Migration from old OllamaConfig format
-                ollama_data = llm_data["ollama"]
-                if ollama_data.get("local_enabled", True):
-                    ollama_providers.append(OllamaProvider(
-                        name="localhost_migrated",
-                        host=ollama_data.get("local_host", "localhost"),
-                        port=ollama_data.get("local_port", 11434),
-                        enabled=True,
-                        description="Migrated from legacy config",
-                        connection_type="native_client"
-                    ))
-            else:
-                # Legacy fallback: create default localhost provider
-                ollama_providers.append(OllamaProvider(
-                    name="localhost",
-                    host=llm_data.get("ollama_host", "localhost"),
-                    port=llm_data.get("ollama_port", 11434),
-                    enabled=True,
-                    description="Legacy configuration",
-                    connection_type="native_client"
-                ))
             
             config.llm = LLMConfig(
                 gemini=llm_data.get("gemini", ""),
                 anthropic=llm_data.get("anthropic", ""),
                 openai_compatible_providers=openai_providers,
-                ollama_providers=ollama_providers,
-                ollama_host=llm_data.get("ollama_host", "localhost"),
-                ollama_port=llm_data.get("ollama_port", 11434)
+                ollama_providers=ollama_providers
             )
         
         # Catalog section
@@ -588,34 +921,32 @@ class ConfigManager:
                 temp_dir=sys_data.get("temp_dir", "/tmp")
             )
         
+        # Provider preferences section - Claude Generated
+        if "provider_preferences" in config_data:
+            pref_data = config_data["provider_preferences"]
+            config.provider_preferences = ProviderPreferences(
+                preferred_provider=pref_data.get("preferred_provider", "ollama"),
+                provider_priority=pref_data.get("provider_priority", ["ollama", "gemini", "anthropic", "openai"]),
+                disabled_providers=pref_data.get("disabled_providers", []),
+                vision_provider=pref_data.get("vision_provider"),
+                text_provider=pref_data.get("text_provider"),
+                classification_provider=pref_data.get("classification_provider"),
+                preferred_models=pref_data.get("preferred_models", {
+                    "ollama": "cogito:32b",
+                    "gemini": "gemini-2.0-flash", 
+                    "anthropic": "claude-3-5-sonnet",
+                    "openai": "gpt-4o"
+                }),
+                auto_fallback=pref_data.get("auto_fallback", True),
+                fallback_timeout=pref_data.get("fallback_timeout", 30),
+                prefer_faster_models=pref_data.get("prefer_faster_models", False),
+                max_cost_per_request=pref_data.get("max_cost_per_request")
+            )
+        
         # Metadata
         config.config_version = config_data.get("config_version", "1.0")
         config.last_updated = config_data.get("last_updated", "")
         
-        return config
-    
-    def _parse_legacy_config(self, config_data: Dict[str, Any]) -> AlimaConfig:
-        """Parse legacy .alima_config.json format - Claude Generated"""
-        config = AlimaConfig()
-        
-        # Map legacy fields to new structure
-        config.llm.gemini = config_data.get("gemini", "")
-        config.llm.anthropic = config_data.get("anthropic", "")
-        config.llm.openai = config_data.get("openai", "")
-        config.llm.comet = config_data.get("comet", "")
-        config.llm.chatai = config_data.get("chatai", "")
-        config.llm.ollama_host = config_data.get("ollama_host", "localhost")
-        config.llm.ollama_port = int(config_data.get("ollama_port", 11434))
-        
-        config.catalog.catalog_token = config_data.get("catalog_token", "")
-        config.catalog.catalog_search_url = config_data.get("catalog_search_url", "")
-        config.catalog.catalog_details_url = config_data.get("catalog_details", "")
-        
-        # Database defaults to SQLite for legacy
-        config.database.db_type = "sqlite"
-        config.database.sqlite_path = "alima_knowledge.db"
-        
-        self.logger.info("Converted legacy config to new format")
         return config
     
     def save_config(self, config: AlimaConfig, scope: str = "user") -> bool:
@@ -740,30 +1071,6 @@ class ConfigManager:
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
     
-    def get_llm_config(self) -> Dict[str, Any]:
-        """Get LLM configuration in legacy format for compatibility - Claude Generated"""
-        config = self.load_config()
-        llm = config.llm
-        
-        # Create legacy format with individual provider keys for backwards compatibility
-        result = {
-            "gemini": llm.gemini,
-            "anthropic": llm.anthropic,
-            "ollama_host": llm.ollama_host,
-            "ollama_port": str(llm.ollama_port)
-        }
-        
-        # Add individual provider keys for legacy compatibility
-        for provider in llm.openai_compatible_providers:
-            if provider.name.lower() == "openai":
-                result["openai"] = provider.api_key
-            elif provider.name.lower() == "chatai":
-                result["chatai"] = provider.api_key  
-            elif provider.name.lower() == "comet":
-                result["comet"] = provider.api_key
-        
-        return result
-    
     def get_catalog_config(self) -> Dict[str, Any]:
         """Get catalog configuration in unified format - Claude Generated"""
         config = self.load_config()
@@ -774,6 +1081,46 @@ class ConfigManager:
             "catalog_search_url": cat.catalog_search_url,
             "catalog_details_url": cat.catalog_details_url  # Unified key name - Claude Generated
         }
+    
+    def get_provider_preferences(self) -> ProviderPreferences:
+        """Get provider preferences configuration - Claude Generated"""
+        config = self.load_config()
+        return config.provider_preferences
+    
+    def update_provider_preferences(self, preferences: ProviderPreferences) -> bool:
+        """Update provider preferences and save configuration - Claude Generated"""
+        try:
+            config = self.load_config()
+            config.provider_preferences = preferences
+            return self.save_config(config)
+        except Exception as e:
+            self.logger.error(f"Failed to update provider preferences: {e}")
+            return False
+    
+    def get_provider_detection_service(self) -> ProviderDetectionService:
+        """Get provider detection service instance - Claude Generated"""
+        if self._provider_detection_service is None:
+            self._provider_detection_service = ProviderDetectionService(config_manager=self)
+        return self._provider_detection_service
+    
+    def get_available_providers(self) -> List[str]:
+        """Get list of all available providers from internal ALIMA logic - Claude Generated"""
+        return self.get_provider_detection_service().get_available_providers()
+    
+    def get_all_provider_info(self) -> Dict[str, Dict[str, Any]]:
+        """Get comprehensive information about all available providers - Claude Generated"""
+        return self.get_provider_detection_service().get_all_provider_info()
+    
+    def cleanup_provider_preferences_auto(self) -> bool:
+        """Automatically cleanup provider preferences by removing unavailable providers - Claude Generated"""
+        try:
+            preferences = self.get_provider_preferences()
+            detection_service = self.get_provider_detection_service()
+            cleaned_preferences = detection_service.cleanup_provider_preferences(preferences)
+            return self.update_provider_preferences(cleaned_preferences)
+        except Exception as e:
+            self.logger.error(f"Failed to cleanup provider preferences: {e}")
+            return False
     
     def create_sample_configs(self) -> Dict[str, str]:
         """Create sample configuration files - Claude Generated"""
@@ -788,9 +1135,7 @@ class ConfigManager:
             llm=LLMConfig(
                 gemini='your_gemini_api_key_here',
                 anthropic='your_anthropic_api_key_here',
-                openai='your_openai_api_key_here',
-                ollama_host='localhost',
-                ollama_port=11434
+                openai='your_openai_api_key_here'
             ),
             catalog=CatalogConfig(
                 catalog_token='your_catalog_token_here',
@@ -840,9 +1185,9 @@ def get_config() -> AlimaConfig:
     """Get current configuration - Claude Generated"""
     return get_config_manager().load_config()
 
-def get_llm_config() -> Dict[str, Any]:
-    """Get LLM configuration - Claude Generated"""
-    return get_config_manager().get_llm_config()
+#def get_llm_config() -> Dict[str, Any]:
+#    """Get LLM configuration - Claude Generated"""
+#    return get_config_manager().get_llm_config()
 
 def get_catalog_config() -> Dict[str, Any]: 
     """Get catalog configuration - Claude Generated"""
@@ -858,7 +1203,6 @@ if __name__ == "__main__":
     parser.add_argument("--show-paths", action="store_true", help="Show OS-specific configuration paths")
     parser.add_argument("--test-db", action="store_true", help="Test database connection")
     parser.add_argument("--create-samples", action="store_true", help="Show sample configurations")
-    parser.add_argument("--convert-legacy", action="store_true", help="Convert legacy config to new format")
     
     args = parser.parse_args()
     
@@ -878,7 +1222,6 @@ if __name__ == "__main__":
         print(f"   Project:  {config_info['project_config']}")
         print(f"   User:     {config_info['user_config']}")
         print(f"   System:   {config_info['system_config']}")
-        print(f"   Legacy:   {config_info['legacy_config']}")
         print()
         
         # Show which files exist
@@ -887,7 +1230,6 @@ if __name__ == "__main__":
             ("Project", config_info['project_config']),
             ("User", config_info['user_config']),
             ("System", config_info['system_config']),
-            ("Legacy", config_info['legacy_config'])
         ]
         
         print("📁 File Status:")
@@ -908,10 +1250,3 @@ if __name__ == "__main__":
         print("\n=== MySQL Configuration Sample ===")
         print(samples['mysql'])
     
-    if args.convert_legacy:
-        config = manager.load_config()
-        success = manager.save_config(config, "user")
-        if success:
-            print("✅ Legacy config converted and saved to ~/.alima_config_v2.json")
-        else:
-            print("❌ Failed to convert legacy config")

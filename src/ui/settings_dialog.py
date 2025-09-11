@@ -82,6 +82,10 @@ class SettingsDialog(QDialog):
         # UI-Einstellungen
         self.ui_tab = self.create_ui_tab()
         self.tabs.addTab(self.ui_tab, "Oberfläche")
+        
+        # Provider-Preferences-Tab - Claude Generated
+        self.provider_tab = self.create_provider_tab()
+        self.tabs.addTab(self.provider_tab, "LLM-Provider")
 
         layout.addWidget(self.tabs)
 
@@ -222,6 +226,43 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return tab
 
+    def create_provider_tab(self) -> QWidget:
+        """Erstellt den Tab für Provider-Preferences - Claude Generated"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        provider_group = QGroupBox("LLM-Provider-Einstellungen")
+        provider_layout = QVBoxLayout(provider_group)
+
+        info_label = QLabel(
+            "Hier können Sie universelle LLM-Provider-Präferenzen für alle Tasks konfigurieren.\n"
+            "Diese Einstellungen gelten für Textanalyse, Bilderkennung, Klassifikation und alle anderen KI-Aufgaben."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("QLabel { color: #666; margin: 5px; }")
+        provider_layout.addWidget(info_label)
+
+        open_preferences_button = QPushButton("Provider-Einstellungen öffnen")
+        open_preferences_button.clicked.connect(self.open_provider_preferences)
+        open_preferences_button.setStyleSheet(
+            "QPushButton { "
+            "background-color: #4CAF50; "
+            "color: white; "
+            "border: none; "
+            "padding: 10px 20px; "
+            "font-weight: bold; "
+            "border-radius: 5px; "
+            "} "
+            "QPushButton:hover { "
+            "background-color: #45a049; "
+            "}"
+        )
+        provider_layout.addWidget(open_preferences_button)
+
+        layout.addWidget(provider_group)
+        layout.addStretch()
+        return tab
+
     def open_prompt_editor(self):
         """Öffnet den Prompt-Editor-Dialog"""
         from .prompt_editor_dialog import PromptEditorDialog
@@ -230,6 +271,20 @@ class SettingsDialog(QDialog):
         editor.exec()
         # After closing the editor, reload settings if necessary
         self.load_settings()
+
+    def open_provider_preferences(self):
+        """Öffnet den Provider-Preferences-Dialog - Claude Generated"""
+        from .provider_preferences_dialog import ProviderPreferencesDialog
+
+        dialog = ProviderPreferencesDialog(self)
+        dialog.preferences_changed.connect(self.on_provider_preferences_changed)
+        dialog.exec()
+
+    def on_provider_preferences_changed(self):
+        """Handler für Provider-Preferences-Änderungen - Claude Generated"""
+        # Reload settings if necessary
+        self.load_settings()
+        # Could emit signal to parent to refresh components if needed
 
     def update_model_list(self):
         """Aktualisiert die Liste der verfügbaren Modelle basierend auf dem ausgewählten Provider"""

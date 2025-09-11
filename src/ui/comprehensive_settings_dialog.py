@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
     QFormLayout, QLineEdit, QSpinBox, QComboBox, QCheckBox,
     QPushButton, QTextEdit, QLabel, QGroupBox, QScrollArea,
     QMessageBox, QFileDialog, QProgressDialog, QGridLayout,
-    QSplitter, QListWidget, QListWidgetItem, QStackedWidget
+    QSplitter, QListWidget, QListWidgetItem, QStackedWidget,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # Claude Generated
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QFont, QIcon
@@ -20,7 +21,7 @@ import getpass
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, LLMConfig, CatalogConfig, SystemConfig, OpenAICompatibleProvider, OllamaProvider
+from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, LLMConfig, CatalogConfig, SystemConfig, OpenAICompatibleProvider, OllamaProvider, ProviderPreferences
 from ..llm.prompt_service import PromptService
 
 
@@ -723,6 +724,7 @@ class ComprehensiveSettingsDialog(QDialog):
         self.llm_tab = self._create_llm_tab()
         self.catalog_tab = self._create_catalog_tab()
         self.prompts_tab = self._create_prompts_tab()
+        self.provider_preferences_tab = self._create_provider_preferences_tab()  # Claude Generated
         self.system_tab = self._create_system_tab()
         self.about_tab = self._create_about_tab()
         
@@ -731,6 +733,7 @@ class ComprehensiveSettingsDialog(QDialog):
         self.tab_widget.addTab(self.llm_tab, "🤖 LLM Providers") 
         self.tab_widget.addTab(self.catalog_tab, "📚 Catalog")
         self.tab_widget.addTab(self.prompts_tab, "📝 Prompts")
+        self.tab_widget.addTab(self.provider_preferences_tab, "🎯 Provider Preferences")  # Claude Generated
         self.tab_widget.addTab(self.system_tab, "⚙️ System")
         self.tab_widget.addTab(self.about_tab, "ℹ️ About")
         
@@ -1079,7 +1082,6 @@ class ComprehensiveSettingsDialog(QDialog):
 <b>Project:</b> {config_info['project_config']}<br>
 <b>User:</b> {config_info['user_config']}<br>
 <b>System:</b> {config_info['system_config']}<br>
-<b>Legacy:</b> {config_info['legacy_config']}
         """.strip()
         
         paths_label = QLabel(paths_text)
@@ -1092,6 +1094,821 @@ class ComprehensiveSettingsDialog(QDialog):
         layout.addStretch()
         widget.setLayout(layout)
         return widget
+    
+    def _create_provider_preferences_tab(self) -> QWidget:
+        """Create comprehensive provider preferences tab with direct UI integration - Claude Generated"""
+        widget = QWidget()
+        main_layout = QVBoxLayout()
+        
+        # Create scroll area for the content
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
+        
+        # Header
+        header_label = QLabel("<h2>🎯 Universal LLM Provider Preferences</h2>")
+        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(header_label)
+        
+        info_label = QLabel(
+            "Configure provider preferences for all AI tasks. These settings control which providers and models "
+            "are used for text analysis, image recognition, classification, and all other AI-powered features."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("QLabel { color: #666; margin: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 5px; }")
+        layout.addWidget(info_label)
+        
+        # Create tab widget for the four main sections
+        self.provider_tabs = QTabWidget()
+        
+        # 1. Provider Status Tab
+        self.provider_status_tab = self._create_provider_status_tab()
+        self.provider_tabs.addTab(self.provider_status_tab, "📊 Provider Status")
+        
+        # 2. Priority Settings Tab
+        self.priority_tab = self._create_priority_settings_tab()
+        self.provider_tabs.addTab(self.priority_tab, "⚡ Priority Settings")
+        
+        # 3. Task Overrides Tab
+        self.task_overrides_tab = self._create_task_overrides_tab()
+        self.provider_tabs.addTab(self.task_overrides_tab, "🎯 Task Overrides")
+        
+        # 4. Model Preferences Tab
+        self.model_preferences_tab = self._create_model_preferences_tab()
+        self.provider_tabs.addTab(self.model_preferences_tab, "🚀 Model Preferences")
+        
+        layout.addWidget(self.provider_tabs)
+        
+        # Control buttons
+        button_layout = QHBoxLayout()
+        
+        self.refresh_providers_btn = QPushButton("🔄 Refresh Provider Status")
+        self.refresh_providers_btn.clicked.connect(self._refresh_provider_status)
+        
+        self.test_providers_btn = QPushButton("🧪 Test Current Settings")
+        self.test_providers_btn.clicked.connect(self._test_provider_settings)
+        
+        self.reset_preferences_btn = QPushButton("♻️ Reset to Defaults")
+        self.reset_preferences_btn.clicked.connect(self._reset_provider_preferences)
+        
+        button_layout.addWidget(self.refresh_providers_btn)
+        button_layout.addWidget(self.test_providers_btn)
+        button_layout.addWidget(self.reset_preferences_btn)
+        button_layout.addStretch()
+        
+        layout.addLayout(button_layout)
+        
+        scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(scroll_area)
+        widget.setLayout(main_layout)
+        
+        # Load initial data
+        self._load_provider_preferences()
+        
+        return widget
+    
+    def _create_provider_status_tab(self) -> QWidget:
+        """Create provider status overview tab - Claude Generated"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Provider Status Table
+        status_group = QGroupBox("Available Providers Status")
+        status_layout = QVBoxLayout(status_group)
+        
+        self.provider_status_table = QTableWidget()
+        self.provider_status_table.setColumnCount(6)
+        self.provider_status_table.setHorizontalHeaderLabels([
+            "Provider", "Status", "Reachable", "Models", "Capabilities", "Actions"
+        ])
+        
+        # Configure table appearance
+        header = self.provider_status_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        
+        self.provider_status_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.provider_status_table.setAlternatingRowColors(True)
+        self.provider_status_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        
+        status_layout.addWidget(self.provider_status_table)
+        layout.addWidget(status_group)
+        
+        return tab
+    
+    def _create_priority_settings_tab(self) -> QWidget:
+        """Create priority settings tab - Claude Generated"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Preferred Provider
+        preferred_group = QGroupBox("Preferred Provider")
+        preferred_layout = QFormLayout(preferred_group)
+        
+        self.preferred_provider_combo = QComboBox()
+        preferred_layout.addRow("Default Provider:", self.preferred_provider_combo)
+        
+        layout.addWidget(preferred_group)
+        
+        # Provider Priority
+        priority_group = QGroupBox("Provider Priority Order")
+        priority_layout = QHBoxLayout(priority_group)
+        
+        # Priority list
+        priority_list_layout = QVBoxLayout()
+        priority_list_layout.addWidget(QLabel("Drag to reorder priority:"))
+        
+        self.priority_list = QListWidget()
+        self.priority_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        priority_list_layout.addWidget(self.priority_list)
+        
+        priority_layout.addLayout(priority_list_layout)
+        
+        # Priority controls
+        controls_layout = QVBoxLayout()
+        
+        self.move_up_btn = QPushButton("⬆️ Move Up")
+        self.move_up_btn.clicked.connect(self._move_priority_up)
+        
+        self.move_down_btn = QPushButton("⬇️ Move Down")
+        self.move_down_btn.clicked.connect(self._move_priority_down)
+        
+        controls_layout.addWidget(self.move_up_btn)
+        controls_layout.addWidget(self.move_down_btn)
+        controls_layout.addStretch()
+        
+        priority_layout.addLayout(controls_layout)
+        layout.addWidget(priority_group)
+        
+        # Disabled Providers
+        disabled_group = QGroupBox("Disabled Providers")
+        disabled_layout = QVBoxLayout(disabled_group)
+        
+        disabled_layout.addWidget(QLabel("Select providers to disable completely:"))
+        
+        # Will be populated dynamically
+        self.disabled_checkboxes = {}
+        self.disabled_layout = disabled_layout
+        
+        layout.addWidget(disabled_group)
+        
+        # Fallback Settings
+        fallback_group = QGroupBox("Fallback Behavior")
+        fallback_layout = QFormLayout(fallback_group)
+        
+        self.auto_fallback_checkbox = QCheckBox()
+        fallback_layout.addRow("Enable Auto-Fallback:", self.auto_fallback_checkbox)
+        
+        self.fallback_timeout_spin = QSpinBox()
+        self.fallback_timeout_spin.setRange(5, 300)
+        self.fallback_timeout_spin.setSuffix(" seconds")
+        fallback_layout.addRow("Fallback Timeout:", self.fallback_timeout_spin)
+        
+        layout.addWidget(fallback_group)
+        layout.addStretch()
+        
+        return tab
+    
+    def _create_task_overrides_tab(self) -> QWidget:
+        """Create task-specific overrides tab - Claude Generated"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Task Overrides
+        overrides_group = QGroupBox("Task-Specific Provider Overrides")
+        overrides_layout = QFormLayout(overrides_group)
+        
+        self.vision_provider_combo = QComboBox()
+        overrides_layout.addRow("Vision/Image Tasks:", self.vision_provider_combo)
+        
+        self.text_provider_combo = QComboBox()
+        overrides_layout.addRow("Text-Only Tasks:", self.text_provider_combo)
+        
+        self.classification_provider_combo = QComboBox()
+        overrides_layout.addRow("Classification Tasks:", self.classification_provider_combo)
+        
+        layout.addWidget(overrides_group)
+        
+        # Task Capabilities Reference
+        capabilities_group = QGroupBox("Provider Capabilities Reference")
+        capabilities_layout = QVBoxLayout(capabilities_group)
+        
+        # Will be populated dynamically based on detected capabilities
+        self.capabilities_label = QLabel()
+        self.capabilities_label.setWordWrap(True)
+        self.capabilities_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }")
+        capabilities_layout.addWidget(self.capabilities_label)
+        
+        layout.addWidget(capabilities_group)
+        layout.addStretch()
+        
+        return tab
+    
+    def _create_model_preferences_tab(self) -> QWidget:
+        """Create model preferences tab - Claude Generated"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Model Preferences Table
+        models_group = QGroupBox("Preferred Models per Provider")
+        models_layout = QVBoxLayout(models_group)
+        
+        self.models_table = QTableWidget()
+        self.models_table.setColumnCount(3)
+        self.models_table.setHorizontalHeaderLabels([
+            "Provider", "Current Model", "Available Models"
+        ])
+        
+        # Configure table
+        header = self.models_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        
+        self.models_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.models_table.setAlternatingRowColors(True)
+        
+        models_layout.addWidget(self.models_table)
+        
+        # Quick fill buttons
+        buttons_layout = QHBoxLayout()
+        
+        self.quality_models_btn = QPushButton("🎯 Quality Models")
+        self.quality_models_btn.clicked.connect(self._set_quality_models)
+        
+        self.speed_models_btn = QPushButton("⚡ Speed Models")
+        self.speed_models_btn.clicked.connect(self._set_speed_models)
+        
+        buttons_layout.addWidget(self.quality_models_btn)
+        buttons_layout.addWidget(self.speed_models_btn)
+        buttons_layout.addStretch()
+        
+        models_layout.addLayout(buttons_layout)
+        layout.addWidget(models_group)
+        
+        # Performance Settings
+        perf_group = QGroupBox("Performance Preferences")
+        perf_layout = QFormLayout(perf_group)
+        
+        self.prefer_faster_checkbox = QCheckBox()
+        perf_layout.addRow("Prefer Faster Models:", self.prefer_faster_checkbox)
+        
+        layout.addWidget(perf_group)
+        layout.addStretch()
+        
+        return tab
+    
+    def _load_provider_preferences(self):
+        """Load provider preferences data into UI components - Claude Generated"""
+        try:
+            # Get provider detection service and preferences
+            detection_service = self.config_manager.get_provider_detection_service()
+            preferences = self.config_manager.get_provider_preferences()
+            
+            # Populate provider status table
+            self._populate_provider_status_table()
+            
+            # Populate priority settings
+            self._populate_priority_settings()
+            
+            # Populate task overrides
+            self._populate_task_overrides()
+            
+            # Populate model preferences
+            self._populate_model_preferences()
+            
+        except Exception as e:
+            self.logger.error(f"Error loading provider preferences: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load provider preferences:\n\n{str(e)}")
+    
+    def _populate_provider_status_table(self):
+        """Populate the provider status table with live data - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            provider_info = detection_service.get_all_provider_info()
+            
+            self.provider_status_table.setRowCount(len(provider_info))
+            
+            for row, (provider, info) in enumerate(provider_info.items()):
+                # Provider name
+                self.provider_status_table.setItem(row, 0, QTableWidgetItem(provider))
+                
+                # Status
+                status_text = "✅ Ready" if info['status'] == 'ready' else "❌ Unavailable"
+                if info['status'] == 'not_configured':
+                    status_text = "⚙️ Not Configured"
+                elif info['status'] == 'unreachable':
+                    status_text = "📡 Unreachable"
+                
+                self.provider_status_table.setItem(row, 1, QTableWidgetItem(status_text))
+                
+                # Reachable
+                reachable_text = "🌐 Yes" if info['reachable'] else "❌ No"
+                self.provider_status_table.setItem(row, 2, QTableWidgetItem(reachable_text))
+                
+                # Models count
+                models_text = f"{info['model_count']} models"
+                self.provider_status_table.setItem(row, 3, QTableWidgetItem(models_text))
+                
+                # Capabilities
+                caps_text = ", ".join(info['capabilities'][:3]) if info['capabilities'] else "None detected"
+                self.provider_status_table.setItem(row, 4, QTableWidgetItem(caps_text))
+                
+                # Actions
+                test_btn = QPushButton("🧪 Test")
+                test_btn.clicked.connect(lambda checked, p=provider: self._test_single_provider(p))
+                self.provider_status_table.setCellWidget(row, 5, test_btn)
+                
+        except Exception as e:
+            self.logger.error(f"Error populating provider status table: {e}")
+    
+    def _populate_priority_settings(self):
+        """Populate priority settings - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            preferences = self.config_manager.get_provider_preferences()
+            available_providers = detection_service.get_available_providers()
+            
+            # Populate preferred provider combo
+            self.preferred_provider_combo.clear()
+            self.preferred_provider_combo.addItems(available_providers)
+            self.preferred_provider_combo.setCurrentText(preferences.preferred_provider)
+            
+            # Populate priority list
+            self.priority_list.clear()
+            for provider in preferences.provider_priority:
+                if provider in available_providers:
+                    self.priority_list.addItem(provider)
+            
+            # Populate disabled providers checkboxes
+            # Clear existing checkboxes
+            for checkbox in self.disabled_checkboxes.values():
+                checkbox.setParent(None)
+            self.disabled_checkboxes.clear()
+            
+            # Add checkboxes for each available provider
+            for provider in available_providers:
+                checkbox = QCheckBox(provider)
+                checkbox.setChecked(provider in preferences.disabled_providers)
+                self.disabled_checkboxes[provider] = checkbox
+                self.disabled_layout.addWidget(checkbox)
+            
+            # Fallback settings
+            self.auto_fallback_checkbox.setChecked(preferences.auto_fallback)
+            self.fallback_timeout_spin.setValue(preferences.fallback_timeout)
+            
+        except Exception as e:
+            self.logger.error(f"Error populating priority settings: {e}")
+    
+    def _populate_task_overrides(self):
+        """Populate task overrides - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            preferences = self.config_manager.get_provider_preferences()
+            available_providers = detection_service.get_available_providers()
+            
+            # Common items for all combos
+            combo_items = ["(use general preference)"] + available_providers
+            
+            # Vision provider combo
+            self.vision_provider_combo.clear()
+            self.vision_provider_combo.addItems(combo_items)
+            if preferences.vision_provider:
+                self.vision_provider_combo.setCurrentText(preferences.vision_provider)
+            
+            # Text provider combo
+            self.text_provider_combo.clear()
+            self.text_provider_combo.addItems(combo_items)
+            if preferences.text_provider:
+                self.text_provider_combo.setCurrentText(preferences.text_provider)
+            
+            # Classification provider combo
+            self.classification_provider_combo.clear()
+            self.classification_provider_combo.addItems(combo_items)
+            if preferences.classification_provider:
+                self.classification_provider_combo.setCurrentText(preferences.classification_provider)
+            
+            # Update capabilities reference
+            self._update_capabilities_reference()
+            
+        except Exception as e:
+            self.logger.error(f"Error populating task overrides: {e}")
+    
+    def _populate_model_preferences(self):
+        """Populate model preferences table - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            preferences = self.config_manager.get_provider_preferences()
+            available_providers = detection_service.get_available_providers()
+            
+            self.models_table.setRowCount(len(available_providers))
+            
+            for row, provider in enumerate(available_providers):
+                # Provider name
+                provider_item = QTableWidgetItem(provider)
+                provider_item.setFlags(provider_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.models_table.setItem(row, 0, provider_item)
+                
+                # Current preferred model
+                current_model = preferences.preferred_models.get(provider, "")
+                current_item = QLineEdit(current_model)
+                self.models_table.setCellWidget(row, 1, current_item)
+                
+                # Available models combo
+                available_models = detection_service.get_available_models(provider)
+                models_combo = QComboBox()
+                models_combo.addItem("")  # Empty option
+                models_combo.addItems(available_models)
+                if current_model in available_models:
+                    models_combo.setCurrentText(current_model)
+                
+                # Connect combo to update current model
+                current_item.textChanged.connect(
+                    lambda text, r=row, p=provider: self._on_model_preference_changed(p, text)
+                )
+                models_combo.currentTextChanged.connect(
+                    lambda text, r=row, widget=current_item: widget.setText(text) if text else None
+                )
+                
+                self.models_table.setCellWidget(row, 2, models_combo)
+            
+            # Performance settings
+            self.prefer_faster_checkbox.setChecked(preferences.prefer_faster_models)
+            
+        except Exception as e:
+            self.logger.error(f"Error populating model preferences: {e}")
+    
+    def _update_capabilities_reference(self):
+        """Update the capabilities reference display - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            available_providers = detection_service.get_available_providers()
+            
+            capabilities_text = "<b>Detected Provider Capabilities:</b><br><br>"
+            
+            for provider in available_providers:
+                capabilities = detection_service.detect_provider_capabilities(provider)
+                models_count = len(detection_service.get_available_models(provider))
+                reachable = "🌐" if detection_service.is_provider_reachable(provider) else "📡"
+                
+                caps_str = ", ".join(capabilities) if capabilities else "None detected"
+                capabilities_text += f"<b>{reachable} {provider}</b> ({models_count} models): {caps_str}<br>"
+            
+            self.capabilities_label.setText(capabilities_text)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating capabilities reference: {e}")
+    
+    def _refresh_provider_status(self):
+        """Refresh all provider status information - Claude Generated"""
+        try:
+            # Clear availability cache to force fresh checks
+            detection_service = self.config_manager.get_provider_detection_service()
+            if hasattr(detection_service, '_llm_service') and detection_service._llm_service:
+                # Clear any caches in the LLM service
+                pass
+            
+            # Auto-validate and cleanup current preferences - Claude Generated
+            preferences = self.config_manager.get_provider_preferences()
+            validation_issues = preferences.validate_preferences(detection_service)
+            
+            if any(validation_issues.values()):
+                self.logger.info("Auto-cleanup during refresh - found preference validation issues")
+                cleanup_report = preferences.auto_cleanup(detection_service)
+                
+                cleanup_actions = []
+                for category, actions in cleanup_report.items():
+                    if actions:
+                        if isinstance(actions, list):
+                            cleanup_actions.extend(actions)
+                        else:
+                            cleanup_actions.append(actions)
+                
+                if cleanup_actions:
+                    # Save cleaned preferences
+                    self.config_manager.update_provider_preferences(preferences)
+                    
+                    # Show summary of auto-cleanup
+                    cleanup_summary = f"🔧 Auto-cleanup performed ({len(cleanup_actions)} changes):\n\n"
+                    for action in cleanup_actions[:5]:  # Show first 5 actions
+                        cleanup_summary += f"  • {action}\n"
+                    
+                    if len(cleanup_actions) > 5:
+                        cleanup_summary += f"  ... and {len(cleanup_actions) - 5} more changes"
+                    
+                    QMessageBox.information(self, "Refresh Complete", 
+                                          f"Provider status refreshed successfully.\n\n{cleanup_summary}")
+                else:
+                    QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
+            else:
+                QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
+            
+            # Reload all data
+            self._load_provider_preferences()
+            
+        except Exception as e:
+            self.logger.error(f"Error refreshing provider status: {e}")
+            QMessageBox.critical(self, "Refresh Error", f"Failed to refresh provider status:\n\n{str(e)}")
+    
+    def _test_provider_settings(self):
+        """Test current provider settings - Claude Generated"""
+        try:
+            # Save current UI state first
+            self._save_provider_preferences_from_ui()
+            
+            from ..utils.smart_provider_selector import SmartProviderSelector, TaskType
+            
+            selector = SmartProviderSelector(self.config_manager)
+            test_results = []
+            
+            # Test different task types
+            task_types = [
+                (TaskType.GENERAL, "General Text Processing"),
+                (TaskType.VISION, "Vision/Image Analysis"),
+                (TaskType.TEXT, "Text-Only Processing"),
+                (TaskType.CLASSIFICATION, "Classification Tasks")
+            ]
+            
+            for task_type, task_name in task_types:
+                try:
+                    selection = selector.select_provider(task_type=task_type)
+                    test_results.append(f"✅ {task_name}: {selection.provider} with {selection.model}")
+                    if selection.fallback_used:
+                        test_results.append(f"    (Used fallback after {selection.total_attempts} attempts)")
+                except Exception as e:
+                    test_results.append(f"❌ {task_name}: Failed - {str(e)}")
+            
+            # Show results
+            results_text = "\n".join(test_results)
+            QMessageBox.information(self, "Provider Test Results", f"Test Results:\n\n{results_text}")
+            
+        except Exception as e:
+            self.logger.error(f"Error testing provider settings: {e}")
+            QMessageBox.critical(self, "Test Error", f"Error testing provider settings:\n\n{str(e)}")
+    
+    def _reset_provider_preferences(self):
+        """Reset provider preferences to defaults - Claude Generated"""
+        result = QMessageBox.question(
+            self,
+            "Reset Provider Preferences",
+            "Are you sure you want to reset all provider preferences to defaults?\n\nThis will discard all your current settings.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if result == QMessageBox.StandardButton.Yes:
+            try:
+                # Create new default preferences
+                default_preferences = ProviderPreferences()
+                
+                # Clean up with available providers
+                detection_service = self.config_manager.get_provider_detection_service()
+                cleaned_preferences = detection_service.cleanup_provider_preferences(default_preferences)
+                
+                # Save and reload
+                self.config_manager.update_provider_preferences(cleaned_preferences)
+                self._load_provider_preferences()
+                
+                QMessageBox.information(self, "Reset Complete", "Provider preferences have been reset to defaults.")
+                
+            except Exception as e:
+                self.logger.error(f"Error resetting provider preferences: {e}")
+                QMessageBox.critical(self, "Reset Error", f"Failed to reset provider preferences:\n\n{str(e)}")
+    
+    def _save_provider_preferences_from_ui(self):
+        """Save provider preferences from current UI state - Claude Generated"""
+        try:
+            preferences = self.config_manager.get_provider_preferences()
+            
+            # General settings
+            preferences.preferred_provider = self.preferred_provider_combo.currentText()
+            
+            # Priority list
+            preferences.provider_priority = []
+            for i in range(self.priority_list.count()):
+                item = self.priority_list.item(i)
+                preferences.provider_priority.append(item.text())
+            
+            # Disabled providers
+            preferences.disabled_providers = []
+            for provider, checkbox in self.disabled_checkboxes.items():
+                if checkbox.isChecked():
+                    preferences.disabled_providers.append(provider)
+            
+            # Fallback settings
+            preferences.auto_fallback = self.auto_fallback_checkbox.isChecked()
+            preferences.fallback_timeout = self.fallback_timeout_spin.value()
+            
+            # Task overrides
+            vision_text = self.vision_provider_combo.currentText()
+            preferences.vision_provider = None if vision_text == "(use general preference)" else vision_text
+            
+            text_text = self.text_provider_combo.currentText()
+            preferences.text_provider = None if text_text == "(use general preference)" else text_text
+            
+            classification_text = self.classification_provider_combo.currentText()
+            preferences.classification_provider = None if classification_text == "(use general preference)" else classification_text
+            
+            # Model preferences
+            for row in range(self.models_table.rowCount()):
+                provider_item = self.models_table.item(row, 0)
+                if provider_item:
+                    provider = provider_item.text()
+                    model_widget = self.models_table.cellWidget(row, 1)
+                    if model_widget and isinstance(model_widget, QLineEdit):
+                        model_text = model_widget.text().strip()
+                        if model_text:
+                            preferences.preferred_models[provider] = model_text
+                        elif provider in preferences.preferred_models:
+                            del preferences.preferred_models[provider]
+            
+            # Performance settings
+            preferences.prefer_faster_models = self.prefer_faster_checkbox.isChecked()
+            
+            # Validate and auto-cleanup before saving - Claude Generated
+            detection_service = self.config_manager.get_provider_detection_service()
+            validation_issues = preferences.validate_preferences(detection_service)
+            
+            if any(validation_issues.values()):
+                # Show validation report to user
+                validation_message = "⚠️ Provider preference validation issues found:\n\n"
+                
+                for category, issues in validation_issues.items():
+                    if issues:
+                        category_name = category.replace('_', ' ').title()
+                        validation_message += f"**{category_name}:**\n"
+                        for issue in issues:
+                            validation_message += f"  • {issue}\n"
+                        validation_message += "\n"
+                
+                validation_message += "🔧 Auto-cleanup will be performed to fix these issues."
+                
+                # Ask user for confirmation
+                reply = QMessageBox.question(
+                    self,
+                    "Validation Issues Found",
+                    validation_message,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes
+                )
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    # Perform auto-cleanup
+                    cleanup_report = preferences.auto_cleanup(detection_service)
+                    
+                    # Show cleanup report
+                    if any(cleanup_report.values()):
+                        cleanup_message = "✅ Provider preferences have been cleaned up:\n\n"
+                        
+                        for category, actions in cleanup_report.items():
+                            if actions:
+                                category_name = category.replace('_', ' ').title()
+                                
+                                if isinstance(actions, list) and actions:
+                                    cleanup_message += f"**{category_name}:**\n"
+                                    for action in actions:
+                                        cleanup_message += f"  • {action}\n"
+                                    cleanup_message += "\n"
+                                elif isinstance(actions, str):
+                                    cleanup_message += f"**{category_name}:** {actions}\n\n"
+                        
+                        QMessageBox.information(self, "Cleanup Complete", cleanup_message)
+                        
+                        # Reload UI to reflect cleaned preferences
+                        self._load_provider_preferences()
+                else:
+                    # User declined cleanup, warn about potential issues
+                    QMessageBox.warning(
+                        self,
+                        "Configuration May Be Invalid",
+                        "⚠️ Your provider preferences may contain invalid settings that could cause errors during LLM operations.\n\n"
+                        "It's recommended to fix these issues to ensure reliable AI functionality."
+                    )
+            
+            # Ensure valid configuration
+            preferences.ensure_valid_configuration(detection_service)
+            
+            # Save to config
+            self.config_manager.update_provider_preferences(preferences)
+            
+        except Exception as e:
+            self.logger.error(f"Error saving provider preferences from UI: {e}")
+            raise
+    
+    # Event handlers
+    def _move_priority_up(self):
+        """Move selected priority item up - Claude Generated"""
+        current_row = self.priority_list.currentRow()
+        if current_row > 0:
+            item = self.priority_list.takeItem(current_row)
+            self.priority_list.insertItem(current_row - 1, item)
+            self.priority_list.setCurrentRow(current_row - 1)
+    
+    def _move_priority_down(self):
+        """Move selected priority item down - Claude Generated"""
+        current_row = self.priority_list.currentRow()
+        if current_row < self.priority_list.count() - 1 and current_row >= 0:
+            item = self.priority_list.takeItem(current_row)
+            self.priority_list.insertItem(current_row + 1, item)
+            self.priority_list.setCurrentRow(current_row + 1)
+    
+    def _test_single_provider(self, provider: str):
+        """Test a single provider - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            
+            # Test reachability
+            is_reachable = detection_service.is_provider_reachable(provider)
+            models = detection_service.get_available_models(provider)
+            capabilities = detection_service.detect_provider_capabilities(provider)
+            
+            result_text = (
+                f"Provider: {provider}\n"
+                f"Reachable: {'✅ Yes' if is_reachable else '❌ No'}\n"
+                f"Models: {len(models)} available\n"
+                f"Capabilities: {', '.join(capabilities) if capabilities else 'None detected'}"
+            )
+            
+            if models:
+                result_text += f"\n\nAvailable Models:\n" + "\n".join(f"• {model}" for model in models[:10])
+                if len(models) > 10:
+                    result_text += f"\n... and {len(models) - 10} more"
+            
+            QMessageBox.information(self, f"Test Results - {provider}", result_text)
+            
+        except Exception as e:
+            QMessageBox.critical(self, f"Test Failed - {provider}", f"Error testing {provider}:\n\n{str(e)}")
+    
+    def _set_quality_models(self):
+        """Set quality-focused models for all providers - Claude Generated"""
+        self._set_models_by_type("quality")
+    
+    def _set_speed_models(self):
+        """Set speed-focused models for all providers - Claude Generated"""
+        self._set_models_by_type("speed")
+    
+    def _set_models_by_type(self, model_type: str):
+        """Set models based on type (quality or speed) - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            
+            for row in range(self.models_table.rowCount()):
+                provider_item = self.models_table.item(row, 0)
+                if not provider_item:
+                    continue
+                    
+                provider = provider_item.text()
+                available_models = detection_service.get_available_models(provider)
+                
+                if not available_models:
+                    continue
+                
+                selected_model = ""
+                
+                if model_type == "quality":
+                    # Look for quality indicators
+                    quality_indicators = ['2.0', '4o', 'claude-3-5', 'cogito:32b', 'opus', 'large']
+                    for model in available_models:
+                        if any(indicator in model.lower() for indicator in quality_indicators):
+                            selected_model = model
+                            break
+                elif model_type == "speed":
+                    # Look for speed indicators
+                    speed_indicators = ['flash', 'mini', 'haiku', '14b', 'turbo', 'small']
+                    for model in available_models:
+                        if any(indicator in model.lower() for indicator in speed_indicators):
+                            selected_model = model
+                            break
+                
+                # Fall back to first available model if no specific model found
+                if not selected_model:
+                    selected_model = available_models[0]
+                
+                # Update the UI
+                model_widget = self.models_table.cellWidget(row, 1)
+                if model_widget and isinstance(model_widget, QLineEdit):
+                    model_widget.setText(selected_model)
+                
+                combo_widget = self.models_table.cellWidget(row, 2)
+                if combo_widget and isinstance(combo_widget, QComboBox):
+                    combo_widget.setCurrentText(selected_model)
+            
+            QMessageBox.information(self, "Models Updated", f"Set all providers to use {model_type}-optimized models.")
+            
+        except Exception as e:
+            self.logger.error(f"Error setting {model_type} models: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to set {model_type} models:\n\n{str(e)}")
+    
+    def _on_model_preference_changed(self, provider: str, model: str):
+        """Handle model preference change - Claude Generated"""
+        # This is called in real-time as the user types
+        # We could implement auto-save here or just rely on manual save
+        pass
     
     def _create_about_tab(self) -> QWidget:
         """Create about tab - Claude Generated"""
@@ -1143,6 +1960,32 @@ class ComprehensiveSettingsDialog(QDialog):
         layout.addWidget(scroll_area)
         widget.setLayout(layout)
         return widget
+
+    def _populate_openai_providers_list(self):
+        """Populate the list of OpenAI-compatible providers from config - Gemini Refactor"""
+        self.providers_list.clear()
+        # Ensure llm config and providers list exist
+        if hasattr(self.current_config, 'llm') and hasattr(self.current_config.llm, 'openai_compatible_providers'):
+            providers = self.current_config.llm.openai_compatible_providers
+            for provider in providers:
+                status_icon = "✅" if provider.enabled else "❌"
+                item_text = f"{status_icon} {provider.name}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, provider.name)  # Store name for retrieval
+                self.providers_list.addItem(item)
+
+    def _populate_ollama_providers_list(self):
+        """Populate the list of Ollama providers from config - Gemini Refactor"""
+        self.ollama_providers_list.clear()
+        # Ensure llm config and providers list exist
+        if hasattr(self.current_config, 'llm') and hasattr(self.current_config.llm, 'ollama_providers'):
+            providers = self.current_config.llm.ollama_providers
+            for provider in providers:
+                status_icon = "✅" if provider.enabled else "❌"
+                item_text = f"{status_icon} {provider.name} ({provider.host}:{provider.port})"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, provider.name)  # Store name for retrieval
+                self.ollama_providers_list.addItem(item)
     
     def _load_current_settings(self):
         """Load current settings into UI elements - Claude Generated"""
@@ -1165,8 +2008,9 @@ class ComprehensiveSettingsDialog(QDialog):
         self.gemini_key.setText(config.llm.gemini)
         self.anthropic_key.setText(config.llm.anthropic)
         
-        # Load Ollama providers - Claude Generated
-        # (The Ollama providers are loaded in _load_ollama_providers_list)
+        # Populate the dynamic provider lists
+        self._populate_openai_providers_list()
+        self._populate_ollama_providers_list()
         
         # Catalog settings
         self.catalog_token.setText(config.catalog.catalog_token)
@@ -1576,9 +2420,7 @@ class ComprehensiveSettingsDialog(QDialog):
             gemini=self.gemini_key.text(),
             anthropic=self.anthropic_key.text(),
             openai_compatible_providers=self.current_config.llm.openai_compatible_providers,
-            ollama_providers=self.current_config.llm.ollama_providers,
-            ollama_host=self.current_config.llm.ollama_host,  # Legacy field
-            ollama_port=self.current_config.llm.ollama_port   # Legacy field
+            ollama_providers=self.current_config.llm.ollama_providers
         )
         
         # Catalog configuration
@@ -1602,6 +2444,15 @@ class ComprehensiveSettingsDialog(QDialog):
     def _save_and_close(self):
         """Save configuration and close dialog - Claude Generated"""
         try:
+            # Save provider preferences first if the tab exists - Claude Generated
+            if hasattr(self, 'provider_preferences_tab'):
+                try:
+                    self._save_provider_preferences_from_ui()
+                except Exception as e:
+                    self.logger.error(f"Error saving provider preferences: {e}")
+                    QMessageBox.critical(self, "Provider Preferences Error", f"Failed to save provider preferences:\n\n{str(e)}")
+                    return
+            
             # Get configuration from UI
             config = self._get_config_from_ui()
             

@@ -230,9 +230,13 @@ class PipelineTab(QWidget):
         # Load catalog configuration
         self.catalog_token, self.catalog_search_url, self.catalog_details_url = self._load_catalog_config()
         
-        # Pipeline manager
+        # Pipeline manager with intelligent provider configuration - Claude Generated
+        config_manager = getattr(alima_manager, 'config_manager', None) or getattr(llm_service, 'config_manager', None)
         self.pipeline_manager = PipelineManager(
-            alima_manager=alima_manager, cache_manager=cache_manager, logger=self.logger
+            alima_manager=alima_manager, 
+            cache_manager=cache_manager, 
+            logger=self.logger,
+            config_manager=config_manager
         )
         
         # Update pipeline config with catalog settings
@@ -793,10 +797,14 @@ class PipelineTab(QWidget):
         if hasattr(self.alima_manager, "prompt_service"):
             prompt_service = self.alima_manager.prompt_service
 
+        # Get config_manager for provider preferences integration - Claude Generated
+        config_manager = getattr(self.alima_manager, 'config_manager', None) or getattr(self.llm_service, 'config_manager', None)
+        
         dialog = PipelineConfigDialog(
             llm_service=self.llm_service,
             prompt_service=prompt_service,
             current_config=self.pipeline_manager.config,
+            config_manager=config_manager,
             parent=self,
         )
         dialog.config_saved.connect(self.on_config_saved)

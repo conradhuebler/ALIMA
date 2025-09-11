@@ -166,7 +166,7 @@ class LlmService(QObject):
         
         # Load all enabled OpenAI-compatible providers from configuration
         for provider in self.alima_config.llm.get_enabled_providers():
-            provider_key = provider.name.lower().replace(" ", "_")
+            provider_key = provider.name
             self.openai_providers[provider_key] = {
                 "name": provider.name,
                 "module": "openai",
@@ -574,13 +574,37 @@ class LlmService(QObject):
 
     def get_available_providers(self) -> List[str]:
         """
-        Get list of all available providers (both initialized and lazy-loadable) - Claude Generated
+        Get a clean list of user-facing, available providers. - Gemini Refactor
 
         Returns:
             List of provider names.
         """
-        # Get all configured providers, not just initialized ones
-        return list(self.supported_providers.keys())
+        provider_list = []
+
+        # 1. Handle static providers with API key and model check
+        if self.alima_config.llm.gemini and self.get_available_models("gemini"):
+            provider_list.append("gemini")
+        
+        if self.alima_config.llm.anthropic and self.get_available_models("anthropic"):
+            provider_list.append("anthropic")
+
+        # 2. Add enabled OpenAI-compatible providers
+        if hasattr(self.alima_config.llm, 'get_enabled_openai_providers'):
+            for provider in self.alima_config.llm.get_enabled_openai_providers():
+                provider_list.append(provider.name)
+
+        # 3. Add enabled Ollama providers
+        if hasattr(self.alima_config.llm, 'get_enabled_ollama_providers'):
+            for provider in self.alima_config.llm.get_enabled_ollama_providers():
+                provider_list.append(provider.name)
+            
+        # Return a unique list while preserving order
+        unique_providers = []
+        for provider in provider_list:
+            if provider not in unique_providers:
+                unique_providers.append(provider)
+                
+        return unique_providers
 
     def get_preferred_ollama_provider(self) -> Optional[str]:
         """
@@ -839,42 +863,29 @@ class LlmService(QObject):
             # Log the request
             self.logger.info(f"Generating with {provider}/{model} (stream={stream})")
 
-            # Generate based on provider with dynamic support - Claude Generated
-            if provider == "gemini":
-                response = self._generate_gemini(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "anthropic":
-                response = self._generate_anthropic(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "ollama":
-                response = self._generate_ollama(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "ollama_native":
-                response = self._generate_ollama(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "github":
-                response = self._generate_github(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider == "azure":
-                response = self._generate_azure_inference(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
-            elif provider in self.openai_providers:
-                # Dynamic OpenAI-compatible provider support
-                response = self._generate_openai_compatible(
-                    model, prompt, temperature, p_value, seed, image, system, stream
-                )
+            # --- Start Gemini Refactor: Dynamic Provider Dispatch ---
+            provider_info = self.supported_providers.get(provider)
+
+            if provider_info and 'generator' in provider_info:
+                generator_func = provider_info['generator']
+                
+                # Handle the special case for native ollama generator which has a different signature
+                if generator_func == self._generate_ollama_native:
+                    response = generator_func(
+                        provider, model, prompt, temperature, p_value, seed, image, system, stream
+                    )
+                else:
+                    # All other generators have a consistent signature
+                    response = generator_func(
+                        model, prompt, temperature, p_value, seed, image, system, stream
+                    )
             else:
                 error_msg = f"Generation not implemented for provider: {provider}"
                 self.logger.error(error_msg)
                 self.generation_error.emit(self.current_request_id, error_msg)
                 self.stream_running = False
                 raise ValueError(error_msg)
+            # --- End Gemini Refactor ---
 
             if stream:
                 return response  # Return the generator directly
