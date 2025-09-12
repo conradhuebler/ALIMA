@@ -46,6 +46,7 @@ class OpenAICompatibleProvider:
     api_key: str = ''                # API key for authentication
     enabled: bool = True             # Whether provider is active
     models: List[str] = field(default_factory=list)  # Available models (optional)
+    preferred_model: str = ''        # Preferred model for this provider - Claude Generated
     description: str = ''            # Description for UI display
     
     def __post_init__(self):
@@ -64,6 +65,7 @@ class OllamaProvider:
     port: int = 11434  # Server port
     api_key: str = ''  # Optional API key for authenticated access
     enabled: bool = True  # Provider enabled/disabled state
+    preferred_model: str = ''  # Preferred model for this provider - Claude Generated
     description: str = ''  # Human-readable description
     use_ssl: bool = False  # Use HTTPS instead of HTTP
     connection_type: str = 'native_client'  # 'native_client' (native ollama library) or 'openai_compatible' (OpenAI API format)
@@ -135,7 +137,9 @@ class LLMConfig:
     """LLM provider configuration - Claude Generated"""
     # Individual provider API Keys (non-OpenAI compatible)
     gemini: str = ''
+    gemini_preferred_model: str = ''  # Preferred model for Gemini provider - Claude Generated
     anthropic: str = ''
+    anthropic_preferred_model: str = ''  # Preferred model for Anthropic provider - Claude Generated
     
     # OpenAI-compatible providers (flexible list)
     openai_compatible_providers: List[OpenAICompatibleProvider] = field(default_factory=list)
@@ -282,7 +286,9 @@ class LLMConfig:
         
         return cls(
             gemini="",
+            gemini_preferred_model="",
             anthropic="",
+            anthropic_preferred_model="",
             openai_compatible_providers=default_openai_providers,
             ollama_providers=default_ollama_providers
         )
@@ -567,6 +573,15 @@ class ProviderDetectionService:
             self.logger.warning(f"Error testing reachability for {provider}: {e}")
             return False
     
+    def has_provider_api_key(self, provider: str) -> bool:
+        """Check if provider has API key configured - Claude Generated"""
+        try:
+            llm_service = self._get_llm_service()
+            return llm_service.has_provider_api_key(provider)
+        except Exception as e:
+            self.logger.warning(f"Error checking API key for {provider}: {e}")
+            return False
+    
     def get_available_models(self, provider: str) -> List[str]:
         """Get available models for a specific provider - Claude Generated"""
         try:
@@ -626,6 +641,7 @@ class ProviderDetectionService:
         info = {
             'name': provider,
             'available': provider in self.get_available_providers(),
+            'has_api_key': False,
             'reachable': False,
             'models': [],
             'model_count': 0,
@@ -633,6 +649,9 @@ class ProviderDetectionService:
             'description': '',
             'status': 'unknown'
         }
+        
+        # Check API key availability first
+        info['has_api_key'] = self.has_provider_api_key(provider)
         
         if not info['available']:
             info['status'] = 'not_configured'
@@ -652,7 +671,13 @@ class ProviderDetectionService:
             model_info = f"{info['model_count']} models"
             info['description'] = f"{caps_str} | {model_info}" if caps_str else model_info
         else:
-            info['status'] = 'unreachable'
+            # Provider configured but unreachable
+            if info['has_api_key']:
+                info['status'] = 'configured_unreachable'
+                info['description'] = "API key configured but unreachable"
+            else:
+                info['status'] = 'unreachable'
+                info['description'] = "Not configured properly"
         
         return info
     
@@ -787,10 +812,16 @@ class ConfigManager:
             "system_config": str(self.system_config_path),
         }
         
-    def load_config(self) -> AlimaConfig:
+    def load_config(self, force_reload: bool = False) -> AlimaConfig:
         """Load configuration with priority fallback - Claude Generated"""
-        if self._config is not None:
+        if self._config is not None and not force_reload:
+            # 🔍 DEBUG: Log cache hit - Claude Generated
+            self.logger.critical(f"🔍 CONFIG_LOAD_CACHE_HIT: Using cached config")
             return self._config
+        elif force_reload:
+            # 🔍 DEBUG: Log forced reload - Claude Generated
+            self.logger.critical(f"🔍 CONFIG_FORCE_RELOAD: Forcing config reload from file")
+            self._config = None  # Clear cache
             
         # Try loading from different sources (priority order)
         config_sources = [
@@ -805,6 +836,10 @@ class ConfigManager:
                     config_data = self._load_config_file(config_path)
                     if config_data:
                         self._config = self._parse_config(config_data, source_name)
+                        # 🔍 DEBUG: Log loaded preferred model values - Claude Generated
+                        self.logger.critical(f"🔍 CONFIG_LOADED_FROM_FILE: {config_path}")
+                        self.logger.critical(f"🔍 LOADED_gemini_preferred_model: '{self._config.llm.gemini_preferred_model}'")
+                        self.logger.critical(f"🔍 LOADED_anthropic_preferred_model: '{self._config.llm.anthropic_preferred_model}'")
                         self.logger.info(f"Loaded config from {source_name}: {config_path}")
                         return self._config
                 except Exception as e:
@@ -868,6 +903,7 @@ class ConfigManager:
                             api_key=provider_data.get("api_key", ""),
                             enabled=provider_data.get("enabled", True),
                             models=provider_data.get("models", []),
+                            preferred_model=provider_data.get("preferred_model", ""),  # Include preferred_model - Claude Generated
                             description=provider_data.get("description", "")
                         )
                         openai_providers.append(provider)
@@ -886,6 +922,7 @@ class ConfigManager:
                             port=provider_data.get("port", 11434),
                             api_key=provider_data.get("api_key", ""),
                             enabled=provider_data.get("enabled", True),
+                            preferred_model=provider_data.get("preferred_model", ""),  # Include preferred_model - Claude Generated
                             description=provider_data.get("description", ""),
                             use_ssl=provider_data.get("use_ssl", False),
                             connection_type=provider_data.get("connection_type", "native_client")
@@ -896,7 +933,9 @@ class ConfigManager:
             
             config.llm = LLMConfig(
                 gemini=llm_data.get("gemini", ""),
+                gemini_preferred_model=llm_data.get("gemini_preferred_model", ""),
                 anthropic=llm_data.get("anthropic", ""),
+                anthropic_preferred_model=llm_data.get("anthropic_preferred_model", ""),
                 openai_compatible_providers=openai_providers,
                 ollama_providers=ollama_providers
             )
@@ -952,6 +991,11 @@ class ConfigManager:
     def save_config(self, config: AlimaConfig, scope: str = "user") -> bool:
         """Save configuration - Claude Generated"""
         try:
+            # 🔍 DEBUG: Log save operation start - Claude Generated
+            self.logger.critical(f"🔍 CONFIG_SAVE_START: scope='{scope}'")
+            self.logger.critical(f"🔍 SAVE_gemini_preferred_model: '{config.llm.gemini_preferred_model}'")
+            self.logger.critical(f"🔍 SAVE_anthropic_preferred_model: '{config.llm.anthropic_preferred_model}'")
+            
             if scope == "system":
                 config_path = self.system_config_path
             elif scope == "project":
@@ -981,15 +1025,66 @@ class ConfigManager:
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
             
+            # 🔍 DEBUG: Log successful save and cache update - Claude Generated
+            self.logger.critical(f"🔍 CONFIG_WRITTEN_TO_FILE: {config_path}")
+            
+            # 🔍 DEBUG: Verify JSON file content after writing - Claude Generated
+            self._debug_verify_json_content(config_path)
+            
             self.logger.info(f"Saved config to {scope}: {config_path}")
             
             # Update cached config
+            old_cache = self._config
             self._config = config
+            self.logger.critical(f"🔍 CONFIG_CACHE_UPDATED: old_cache={'None' if old_cache is None else 'exists'}")
             return True
             
         except Exception as e:
             self.logger.error(f"Failed to save {scope} config: {e}")
             return False
+    
+    def _debug_verify_json_content(self, config_path: Path):
+        """Debug method to verify JSON file contains expected preferred_model fields - Claude Generated"""
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                saved_data = json.load(f)
+            
+            # Check if llm section exists
+            if 'llm' in saved_data:
+                llm_data = saved_data['llm']
+                
+                # Check static providers
+                gemini_pref = llm_data.get('gemini_preferred_model', 'MISSING')
+                anthropic_pref = llm_data.get('anthropic_preferred_model', 'MISSING')
+                
+                self.logger.critical(f"🔍 JSON_FILE_CONTENT: gemini_preferred_model='{gemini_pref}'")
+                self.logger.critical(f"🔍 JSON_FILE_CONTENT: anthropic_preferred_model='{anthropic_pref}'")
+                
+                # Check OpenAI-compatible providers
+                if 'openai_compatible_providers' in llm_data:
+                    openai_providers = llm_data['openai_compatible_providers']
+                    for i, provider in enumerate(openai_providers):
+                        pref_model = provider.get('preferred_model', 'MISSING')
+                        provider_name = provider.get('name', f'provider_{i}')
+                        self.logger.critical(f"🔍 JSON_FILE_CONTENT: openai_compatible[{provider_name}].preferred_model='{pref_model}'")
+                
+                # Check Ollama providers
+                if 'ollama_providers' in llm_data:
+                    ollama_providers = llm_data['ollama_providers']
+                    for i, provider in enumerate(ollama_providers):
+                        pref_model = provider.get('preferred_model', 'MISSING')
+                        provider_name = provider.get('name', f'provider_{i}')
+                        self.logger.critical(f"🔍 JSON_FILE_CONTENT: ollama[{provider_name}].preferred_model='{pref_model}'")
+            else:
+                self.logger.critical(f"🔍 JSON_FILE_CONTENT: llm section MISSING from saved file!")
+                
+        except Exception as e:
+            self.logger.error(f"🔍 JSON_VERIFICATION_ERROR: {e}")
+    
+    def invalidate_cache(self):
+        """Invalidate the configuration cache to force reload - Claude Generated"""
+        self.logger.critical(f"🔍 CONFIG_CACHE_INVALIDATED: Forcing next load_config() to reload from file")
+        self._config = None
     
     def get_database_connection_string(self) -> str:
         """Get database connection string - Claude Generated"""

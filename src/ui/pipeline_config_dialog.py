@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QMessageBox,
     QSplitter,
+    QRadioButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QMetaObject, Q_ARG
 from PyQt6.QtGui import QFont
@@ -31,6 +32,12 @@ import logging
 from ..core.pipeline_manager import PipelineConfig
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
+from ..utils.unified_provider_config import (
+    PipelineMode, 
+    PipelineStepConfig, 
+    TaskType as UnifiedTaskType
+)
+from ..utils.smart_provider_selector import SmartProviderSelector
 
 
 class SearchStepConfigWidget(QWidget):
@@ -115,6 +122,728 @@ class SearchStepConfigWidget(QWidget):
             self.catalog_checkbox.setChecked("catalog" in suggesters)
 
 
+class HybridStepConfigWidget(QWidget):
+    """
+    Hybrid Mode Step Configuration Widget - Claude Generated
+    Supports Smart/Advanced/Expert modes for pipeline step configuration
+    """
+    
+    config_changed = pyqtSignal()
+    
+    def __init__(self, step_name: str, step_id: str, 
+                 config_manager=None, parent=None):
+        super().__init__(parent)
+        self.step_name = step_name
+        self.step_id = step_id
+        self.config_manager = config_manager
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialize with smart mode step config - Claude Generated
+        self.step_config = PipelineStepConfig(
+            step_id=step_id,
+            mode=PipelineMode.SMART,
+            task_type=self._get_default_task_type(step_id)
+        )
+        
+        self.setup_ui()
+        self._update_ui_for_mode()
+        
+        # Initialize with preferred provider/model from settings after UI is set up - Claude Generated
+        self._initialize_with_preferred_settings()
+    
+    def _get_default_task_type(self, step_id: str) -> UnifiedTaskType:
+        """Get default task type for step - Claude Generated"""
+        task_mapping = {
+            "initialisation": UnifiedTaskType.TEXT_ANALYSIS,
+            "keywords": UnifiedTaskType.TEXT_ANALYSIS,
+            "dk_classification": UnifiedTaskType.CLASSIFICATION,
+            "input": UnifiedTaskType.GENERAL,
+            "search": UnifiedTaskType.GENERAL
+        }
+        return task_mapping.get(step_id, UnifiedTaskType.GENERAL)
+    
+    def setup_ui(self):
+        """Setup the hybrid mode UI - Claude Generated"""
+        layout = QVBoxLayout(self)
+        
+        # Step Header
+        header_label = QLabel(f"📋 {self.step_name}")
+        header_font = QFont()
+        header_font.setPointSize(12)
+        header_font.setBold(True)
+        header_label.setFont(header_font)
+        layout.addWidget(header_label)
+        
+        # Mode Selection
+        mode_group = QGroupBox("🎛️ Configuration Mode")
+        mode_layout = QHBoxLayout(mode_group)
+        
+        self.smart_radio = QRadioButton("🤖 Smart Mode")
+        self.smart_radio.setToolTip("Automatic provider/model selection based on task type and preferences")
+        self.smart_radio.toggled.connect(lambda: self._on_mode_changed(PipelineMode.SMART))
+        
+        self.advanced_radio = QRadioButton("⚙️ Advanced Mode")
+        self.advanced_radio.setToolTip("Manual provider and model selection")
+        self.advanced_radio.toggled.connect(lambda: self._on_mode_changed(PipelineMode.ADVANCED))
+
+        self.expert_radio = QRadioButton("🔬 Expert Mode")
+        self.expert_radio.setToolTip("Full control over all LLM parameters")
+        self.expert_radio.toggled.connect(lambda: self._on_mode_changed(PipelineMode.EXPERT))
+
+        #self.advanced_radio.setChecked(True)
+
+        mode_layout.addWidget(self.smart_radio)
+        mode_layout.addWidget(self.advanced_radio)
+        mode_layout.addWidget(self.expert_radio)
+        mode_layout.addStretch()
+        
+        layout.addWidget(mode_group)
+        
+        # Smart Mode Configuration
+        self.smart_group = QGroupBox("🤖 Smart Configuration")
+        smart_layout = QGridLayout(self.smart_group)
+        
+        smart_layout.addWidget(QLabel("Task Type:"), 0, 0)
+        self.task_type_combo = QComboBox()
+        self.task_type_combo.addItems([t.value.replace('_', ' ').title() for t in UnifiedTaskType])
+        self.task_type_combo.currentTextChanged.connect(self._on_smart_config_changed)
+        smart_layout.addWidget(self.task_type_combo, 0, 1)
+        
+        smart_layout.addWidget(QLabel("Quality Preference:"), 1, 0)
+        self.quality_combo = QComboBox()
+        self.quality_combo.addItems(["Fast", "Balanced", "High"])
+        self.quality_combo.setCurrentText("Balanced")
+        self.quality_combo.currentTextChanged.connect(self._on_smart_config_changed)
+        smart_layout.addWidget(self.quality_combo, 1, 1)
+        
+        # Smart preview
+        self.smart_preview_label = QLabel("🎯 Will auto-select optimal provider/model")
+        self.smart_preview_label.setStyleSheet("color: #666; font-style: italic;")
+        smart_layout.addWidget(self.smart_preview_label, 2, 0, 1, 2)
+        
+        layout.addWidget(self.smart_group)
+        
+        # Manual Configuration (Advanced/Expert)
+        self.manual_group = QGroupBox("⚙️ Manual Configuration")
+        manual_layout = QGridLayout(self.manual_group)
+        
+        # Provider Selection
+        manual_layout.addWidget(QLabel("Provider:"), 0, 0)
+        self.provider_combo = QComboBox()
+        self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
+        manual_layout.addWidget(self.provider_combo, 0, 1)
+        
+        # Model Selection
+        manual_layout.addWidget(QLabel("Model:"), 1, 0)
+        self.model_combo = QComboBox()
+        self.model_combo.currentTextChanged.connect(self._on_manual_config_changed)
+        manual_layout.addWidget(self.model_combo, 1, 1)
+        
+        # Task/Prompt Selection
+        manual_layout.addWidget(QLabel("Prompt Task:"), 2, 0)
+        self.task_combo = QComboBox()
+        self.task_combo.addItems(["initialisation", "keywords", "rephrase", "keywords_chunked", "dk_class"])
+        self.task_combo.currentTextChanged.connect(self._on_manual_config_changed)
+        manual_layout.addWidget(self.task_combo, 2, 1)
+        
+        layout.addWidget(self.manual_group)
+        
+        # Expert Parameters (only visible in Expert mode)
+        self.expert_group = QGroupBox("🔬 Expert Parameters")
+        expert_layout = QGridLayout(self.expert_group)
+        
+        # Temperature
+        expert_layout.addWidget(QLabel("Temperature:"), 0, 0)
+        self.temperature_spinbox = QDoubleSpinBox()
+        self.temperature_spinbox.setRange(0.0, 2.0)
+        self.temperature_spinbox.setSingleStep(0.1)
+        self.temperature_spinbox.setValue(0.7)
+        self.temperature_spinbox.valueChanged.connect(self._on_expert_config_changed)
+        expert_layout.addWidget(self.temperature_spinbox, 0, 1)
+        
+        # Top-P
+        expert_layout.addWidget(QLabel("Top-P:"), 1, 0)
+        self.top_p_spinbox = QDoubleSpinBox()
+        self.top_p_spinbox.setRange(0.0, 1.0)
+        self.top_p_spinbox.setSingleStep(0.05)
+        self.top_p_spinbox.setValue(0.1)
+        self.top_p_spinbox.valueChanged.connect(self._on_expert_config_changed)
+        expert_layout.addWidget(self.top_p_spinbox, 1, 1)
+        
+        # Max Tokens
+        expert_layout.addWidget(QLabel("Max Tokens:"), 2, 0)
+        self.max_tokens_spinbox = QSpinBox()
+        self.max_tokens_spinbox.setRange(1, 8192)
+        self.max_tokens_spinbox.setValue(2048)
+        self.max_tokens_spinbox.valueChanged.connect(self._on_expert_config_changed)
+        expert_layout.addWidget(self.max_tokens_spinbox, 2, 1)
+        
+        layout.addWidget(self.expert_group)
+        
+        # Testing and Validation
+        test_layout = QHBoxLayout()
+        
+        self.validate_button = QPushButton("🔍 Validate Configuration")
+        self.validate_button.clicked.connect(self._validate_configuration)
+        
+        self.test_button = QPushButton("🧪 Test Configuration")
+        self.test_button.clicked.connect(self._test_configuration)
+        
+        test_layout.addWidget(self.validate_button)
+        test_layout.addWidget(self.test_button)
+        test_layout.addStretch()
+        
+        layout.addLayout(test_layout)
+        
+        # Status/Results
+        self.status_label = QLabel("✅ Configuration ready")
+        self.status_label.setStyleSheet("color: green;")
+        layout.addWidget(self.status_label)
+        
+        # Provider/model combos will be initialized after preferred settings are loaded
+        
+        # Add refresh button for providers
+        refresh_layout = QHBoxLayout()
+        refresh_button = QPushButton("🔄 Refresh Providers")
+        refresh_button.clicked.connect(self._refresh_providers)
+        refresh_layout.addWidget(refresh_button)
+        refresh_layout.addStretch()
+        layout.addLayout(refresh_layout)
+    
+    def _on_mode_changed(self, mode: PipelineMode):
+        """Handle mode change - Claude Generated"""
+        # Ensure only one radio is checked
+        if mode == PipelineMode.SMART:
+            self.advanced_radio.setChecked(False)
+            self.expert_radio.setChecked(False)
+        elif mode == PipelineMode.ADVANCED:
+            self.smart_radio.setChecked(False)
+            self.expert_radio.setChecked(False)
+        elif mode == PipelineMode.EXPERT:
+            self.smart_radio.setChecked(False)
+            self.advanced_radio.setChecked(False)
+        
+        self.step_config.mode = mode
+        self._update_ui_for_mode()
+        self.config_changed.emit()
+    
+    def _update_ui_for_mode(self):
+        """Update UI visibility based on selected mode - Claude Generated"""
+        mode = self.step_config.mode
+        
+        # Show/hide groups based on mode
+        self.smart_group.setVisible(mode == PipelineMode.SMART)
+        self.manual_group.setVisible(mode in [PipelineMode.ADVANCED, PipelineMode.EXPERT])
+        self.expert_group.setVisible(mode == PipelineMode.EXPERT)
+        
+        # Update status
+        mode_text = {
+            PipelineMode.SMART: "🤖 Smart mode - automatic selection",
+            PipelineMode.ADVANCED: "⚙️ Advanced mode - manual provider/model",
+            PipelineMode.EXPERT: "🔬 Expert mode - full parameter control"
+        }
+        self.status_label.setText(mode_text.get(mode, "Unknown mode"))
+        self.status_label.setStyleSheet("color: blue;")
+    
+    def _populate_providers(self):
+        """Populate provider and model combos - Claude Generated"""
+        if not self.config_manager:
+            return
+        
+        try:
+            from ..utils.config_manager import ProviderDetectionService
+            detection_service = ProviderDetectionService(self.config_manager)
+            providers = detection_service.get_available_providers()
+            
+            self.provider_combo.clear()
+            self.provider_combo.addItems(providers)
+            
+            if providers:
+                # Priority: use provider from step_config if already set, otherwise from settings - Claude Generated
+                provider_to_select = None
+                
+                # 1. Check if step_config already has a provider set
+                current_step_provider = getattr(self.step_config, 'provider', None)
+                if current_step_provider and current_step_provider in providers:
+                    provider_to_select = current_step_provider
+                    self.logger.info(f"Using provider from step config: {current_step_provider}")
+                else:
+                    # 2. Try to use preferred provider from settings
+                    preferred_provider = self._get_preferred_provider_from_settings()
+                    if preferred_provider and preferred_provider in providers:
+                        provider_to_select = preferred_provider
+                        self.logger.info(f"Auto-selected preferred provider from settings: {preferred_provider}")
+                    else:
+                        # 3. Fallback to first provider
+                        provider_to_select = providers[0]
+                        self.logger.info(f"Using first available provider: {providers[0]}")
+                
+                # Set the selected provider
+                if provider_to_select:
+                    index = self.provider_combo.findText(provider_to_select)
+                    if index >= 0:
+                        self.provider_combo.setCurrentIndex(index)
+                    self._on_provider_changed(provider_to_select)
+                
+        except Exception as e:
+            self.logger.warning(f"Could not populate providers: {e}")
+            # Fallback to common providers
+            self.provider_combo.addItems(["ollama", "gemini", "openai", "anthropic"])
+    
+    def _refresh_providers(self):
+        """Refresh provider and model lists with current status - Claude Generated"""
+        current_provider = self.provider_combo.currentText()
+        current_model = self.model_combo.currentText()
+        
+        # Re-populate providers
+        self._populate_providers()
+        
+        # Try to restore previous selections
+        if current_provider:
+            index = self.provider_combo.findText(current_provider)
+            if index >= 0:
+                self.provider_combo.setCurrentIndex(index)
+                self._on_provider_changed(current_provider)
+                
+                # Try to restore model selection
+                if current_model:
+                    model_index = self.model_combo.findText(current_model)
+                    if model_index >= 0:
+                        self.model_combo.setCurrentIndex(model_index)
+        
+        # Update status
+        self._validate_configuration()
+        self.logger.info("Provider list refreshed")
+    
+    def _on_provider_changed(self, provider: str):
+        """Handle provider change - Claude Generated"""
+        if not provider:
+            return
+            
+        self.model_combo.clear()
+        
+        try:
+            if self.config_manager:
+                from ..utils.config_manager import ProviderDetectionService
+                detection_service = ProviderDetectionService(self.config_manager)
+                models = detection_service.get_available_models(provider)
+                
+                if models:
+                    # 🔍 DEBUG: Log available models vs preferred model - Claude Generated
+                    self.logger.critical(f"🔍 AVAILABLE_MODELS: provider='{provider}', models={models[:5]}{'...' if len(models) > 5 else ''} (total: {len(models)})")
+                    
+                    self.model_combo.addItems(models)
+                    
+                    # Determine which model to select - PRIORITY: Preferred > Step Config > Fallback - Claude Generated
+                    model_to_select = None
+                    
+                    # 1. FIRST PRIORITY: Try to use preferred model from provider config
+                    preferred_model = self._get_preferred_model_for_provider(provider)
+                    self.logger.critical(f"🔍 MODEL_SELECTION: provider='{provider}', preferred='{preferred_model}'")
+                    
+                    if preferred_model:
+                        if preferred_model in models:
+                            # Exact match found
+                            model_to_select = preferred_model
+                            self.logger.critical(f"🔍 MODEL_SELECTED: Using preferred model '{preferred_model}' ⭐ (exact match)")
+                        else:
+                            # Try fuzzy matching for model names - Claude Generated
+                            fuzzy_match = self._find_fuzzy_model_match(preferred_model, models)
+                            if fuzzy_match:
+                                model_to_select = fuzzy_match
+                                self.logger.critical(f"🔍 MODEL_SELECTED: Using fuzzy match '{fuzzy_match}' for preferred '{preferred_model}' ⭐")
+                            else:
+                                self.logger.critical(f"🔍 MODEL_MISMATCH: preferred='{preferred_model}' not found in {models[:3]}{'...' if len(models) > 3 else ''}")
+                    
+                    if not model_to_select:
+                        # 2. SECOND PRIORITY: Check if there's already a model set in step_config for this provider
+                        current_step_model = getattr(self.step_config, 'model', None)
+                        if current_step_model and current_step_model in models:
+                            model_to_select = current_step_model
+                            self.logger.critical(f"🔍 MODEL_SELECTED: Using step config model '{current_step_model}' (no preferred model available)")
+                        else:
+                            # 3. THIRD PRIORITY: Use first available model as fallback
+                            model_to_select = models[0]
+                            self.logger.critical(f"🔍 MODEL_SELECTED: Using fallback model '{models[0]}'")
+                            if preferred_model:
+                                self.logger.critical(f"🔍 MODEL_MISMATCH: preferred='{preferred_model}' not in {models[:3]}{'...' if len(models) > 3 else ''}")
+                    
+                    # Set the selected model
+                    if model_to_select:
+                        index = self.model_combo.findText(model_to_select)
+                        if index >= 0:
+                            self.model_combo.setCurrentIndex(index)
+                            
+                            # Set tooltip to show if this is the preferred model
+                            preferred_model = self._get_preferred_model_for_provider(provider)
+                            if model_to_select == preferred_model:
+                                self.model_combo.setToolTip(f"⭐ Preferred model: {model_to_select} (from provider settings)")
+                            else:
+                                self.model_combo.setToolTip(f"Model: {model_to_select}")
+                else:
+                    # Fallback models
+                    fallback_models = {
+                        "ollama": ["cogito:32b", "cogito:14b", "llama3:8b"],
+                        "gemini": ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"],
+                        "openai": ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
+                        "anthropic": ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
+                    }
+                    self.model_combo.addItems(fallback_models.get(provider, ["default-model"]))
+        except Exception as e:
+            self.logger.warning(f"Could not load models for {provider}: {e}")
+        
+        self._on_manual_config_changed()
+    
+    def _get_preferred_model_for_provider(self, provider: str) -> Optional[str]:
+        """Get preferred model for provider from direct config - Claude Generated"""
+        try:
+            if not self.config_manager:
+                return None
+            
+            # 🔍 DEBUG: Log pipeline config dialog preference request - Claude Generated
+            self.logger.critical(f"🔍 PIPELINE_DIALOG_PREF_REQUEST: provider='{provider}'")
+            
+            # Force reload to ensure we get latest saved config - Claude Generated    
+            config = self.config_manager.load_config(force_reload=True)
+            
+            # 🔍 DEBUG: Log what pipeline dialog sees in loaded config - Claude Generated
+            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: gemini_preferred='{config.llm.gemini_preferred_model}', anthropic_preferred='{config.llm.anthropic_preferred_model}'")
+            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: openai_providers_count={len(config.llm.openai_compatible_providers)}, ollama_providers_count={len(config.llm.ollama_providers)}")
+            
+            # Check static providers
+            if provider == "gemini":
+                preferred = config.llm.gemini_preferred_model or None
+                self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: gemini -> '{preferred}'")
+                return preferred
+            elif provider == "anthropic":
+                preferred = config.llm.anthropic_preferred_model or None
+                self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: anthropic -> '{preferred}'")
+                return preferred
+            
+            # Check OpenAI-compatible providers
+            for openai_provider in config.llm.openai_compatible_providers:
+                self.logger.critical(f"🔍 PIPELINE_CHECKING_OPENAI: '{openai_provider.name}'.preferred_model='{openai_provider.preferred_model}' vs requested '{provider}'")
+                if openai_provider.name == provider:
+                    preferred = openai_provider.preferred_model or None
+                    self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: openai_compatible '{provider}' -> '{preferred}'")
+                    return preferred
+            
+            # Check Ollama providers - with fuzzy matching - Claude Generated
+            for ollama_provider in config.llm.ollama_providers:
+                self.logger.critical(f"🔍 PIPELINE_CHECKING_OLLAMA: '{ollama_provider.name}' vs requested '{provider}'")
+                
+                # Direct name match
+                if ollama_provider.name == provider:
+                    preferred = ollama_provider.preferred_model or None
+                    self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (exact)")
+                    return preferred
+                
+                # Fuzzy matching for provider name variations
+                if self._provider_names_match(ollama_provider.name, provider):
+                    preferred = ollama_provider.preferred_model or None
+                    self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy: '{ollama_provider.name}')")
+                    return preferred
+            
+            self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: '{provider}' -> None (not found)")
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting preferred model for {provider}: {e}")
+            return None
+    
+    def _find_fuzzy_model_match(self, preferred_model: str, available_models: List[str]) -> Optional[str]:
+        """Find fuzzy match for model name in available models - Claude Generated"""
+        if not preferred_model or not available_models:
+            return None
+        
+        preferred_lower = preferred_model.lower()
+        
+        # 1. Try partial name matching (e.g., "cogito:8b" -> "cogito:*")
+        base_name = preferred_lower.split(':')[0]  # Extract base name before ':'
+        for model in available_models:
+            if model.lower().startswith(base_name):
+                self.logger.critical(f"🔍 FUZZY_MATCH: '{preferred_model}' -> '{model}' (base name match)")
+                return model
+        
+        # 2. Try tag-flexible matching (e.g., "model:8b" -> "model:latest")  
+        if ':' in preferred_lower:
+            base_part = preferred_lower.split(':')[0]
+            for model in available_models:
+                if ':' in model.lower() and model.lower().split(':')[0] == base_part:
+                    self.logger.critical(f"🔍 FUZZY_MATCH: '{preferred_model}' -> '{model}' (tag flexible match)")
+                    return model
+        
+        # 3. Try substring matching for complex model names
+        for model in available_models:
+            if base_name in model.lower() or model.lower() in preferred_lower:
+                self.logger.critical(f"🔍 FUZZY_MATCH: '{preferred_model}' -> '{model}' (substring match)")
+                return model
+        
+        return None
+    
+    def _provider_names_match(self, config_name: str, requested_name: str) -> bool:
+        """Check if provider names match with fuzzy logic for common variations - Claude Generated"""
+        # Normalize names for comparison
+        config_normalized = config_name.lower().replace(' ', '').replace('-', '').replace('/', '').replace('_', '')
+        requested_normalized = requested_name.lower().replace(' ', '').replace('-', '').replace('/', '').replace('_', '')
+        
+        # Direct match after normalization
+        if config_normalized == requested_normalized:
+            return True
+        
+        # Check if one contains the other (e.g., "LLMachine/Ollama" contains "ollama")
+        if 'ollama' in config_normalized and 'ollama' in requested_normalized:
+            return True
+            
+        return False
+    
+    def _get_preferred_provider_from_settings(self) -> Optional[str]:
+        """Get preferred provider from ProviderPreferences settings - Claude Generated"""
+        try:
+            if not self.config_manager:
+                return None
+                
+            provider_preferences = self.config_manager.get_provider_preferences()
+            
+            # Get preferred provider for the current task type
+            task_type = getattr(self.step_config, 'task_type', None)
+            if task_type:
+                return provider_preferences.get_provider_for_task(task_type.value)
+            else:
+                return provider_preferences.preferred_provider
+                
+        except Exception as e:
+            self.logger.warning(f"Error getting preferred provider from settings: {e}")
+            return None
+    
+    def _initialize_with_preferred_settings(self):
+        """Initialize step config with preferred provider/model from settings - Claude Generated"""
+        try:
+            if not self.config_manager:
+                # If no config manager, just populate providers with defaults
+                self._populate_providers()
+                return
+            
+            # Get preferred provider
+            preferred_provider = self._get_preferred_provider_from_settings()
+            if preferred_provider:
+                # Update step config with preferred provider
+                self.step_config.provider = preferred_provider
+                
+                # Get preferred model for this provider
+                preferred_model = self._get_preferred_model_for_provider(preferred_provider)
+                if preferred_model:
+                    self.step_config.model = preferred_model
+                
+                self.logger.info(f"Initialized {self.step_id} with preferred provider: {preferred_provider}, model: {preferred_model}")
+            
+            # Now populate providers with the preferred settings in place
+            self._populate_providers()
+        
+        except Exception as e:
+            self.logger.warning(f"Error initializing with preferred settings: {e}")
+            # Fallback to basic provider population
+            self._populate_providers()
+    
+    def _on_smart_config_changed(self):
+        """Handle smart configuration changes - Claude Generated"""
+        task_text = self.task_type_combo.currentText()
+        quality = self.quality_combo.currentText().lower()
+        
+        # Update step config
+        task_type_map = {t.value.replace('_', ' ').title(): t for t in UnifiedTaskType}
+        self.step_config.task_type = task_type_map.get(task_text, UnifiedTaskType.GENERAL)
+        self.step_config.quality_preference = quality
+        
+        # Update preview with smart selection
+        self._update_smart_preview()
+        self.config_changed.emit()
+    
+    def _update_smart_preview(self):
+        """Update smart mode preview - Claude Generated"""
+        try:
+            if self.config_manager:
+                smart_selector = SmartProviderSelector(self.config_manager)
+                prefer_fast = self.step_config.quality_preference == "fast"
+                
+                # Get smart selection
+                from ..utils.smart_provider_selector import TaskType
+                selection = smart_selector.select_provider(TaskType.TEXT, prefer_fast=prefer_fast)
+                
+                # Check if the selected model is the preferred model
+                preferred_model = self._get_preferred_model_for_provider(selection.provider)
+                is_preferred = preferred_model and selection.model == preferred_model
+                
+                preview_text = f"🎯 Will use: {selection.provider} / {selection.model}"
+                if is_preferred:
+                    preview_text += " ⭐ (preferred)"
+                elif selection.fallback_used:
+                    preview_text += " (fallback)"
+                
+                self.smart_preview_label.setText(preview_text)
+                self.smart_preview_label.setStyleSheet("color: green; font-style: italic;")
+            
+        except Exception as e:
+            self.smart_preview_label.setText(f"⚠️ Preview unavailable: {str(e)}")
+            self.smart_preview_label.setStyleSheet("color: orange; font-style: italic;")
+    
+    def _on_manual_config_changed(self):
+        """Handle manual configuration changes - Claude Generated"""
+        self.step_config.provider = self.provider_combo.currentText()
+        self.step_config.model = self.model_combo.currentText()
+        self.step_config.task = self.task_combo.currentText()
+        self.config_changed.emit()
+    
+    def _on_expert_config_changed(self):
+        """Handle expert parameter changes - Claude Generated"""
+        self.step_config.temperature = self.temperature_spinbox.value()
+        self.step_config.top_p = self.top_p_spinbox.value()
+        self.step_config.max_tokens = self.max_tokens_spinbox.value()
+        self.config_changed.emit()
+    
+    def _validate_configuration(self):
+        """Validate current configuration - Claude Generated"""
+        if self.step_config.mode == PipelineMode.SMART:
+            self.status_label.setText("✅ Smart mode configuration is valid")
+            self.status_label.setStyleSheet("color: green;")
+        else:
+            # Validate manual configuration
+            if not self.step_config.provider or not self.step_config.model:
+                self.status_label.setText("❌ Provider and model must be selected")
+                self.status_label.setStyleSheet("color: red;")
+                return
+            
+            # Validate using SmartProviderSelector
+            if self.config_manager:
+                try:
+                    smart_selector = SmartProviderSelector(self.config_manager)
+                    validation = smart_selector.validate_manual_choice(
+                        self.step_config.provider, 
+                        self.step_config.model
+                    )
+                    
+                    if validation["valid"]:
+                        self.status_label.setText("✅ Manual configuration is valid")
+                        self.status_label.setStyleSheet("color: green;")
+                    else:
+                        issues = "; ".join(validation["issues"])
+                        self.status_label.setText(f"❌ Issues: {issues}")
+                        self.status_label.setStyleSheet("color: red;")
+                        
+                except Exception as e:
+                    self.status_label.setText(f"⚠️ Validation error: {str(e)}")
+                    self.status_label.setStyleSheet("color: orange;")
+    
+    def _test_configuration(self):
+        """Test current configuration - Claude Generated"""
+        # This would perform an actual test call to the provider
+        self.status_label.setText("🧪 Testing functionality to be implemented")
+        self.status_label.setStyleSheet("color: blue;")
+    
+    def get_step_config(self) -> PipelineStepConfig:
+        """Get current step configuration - Claude Generated"""
+        return self.step_config
+    
+    def get_config(self) -> Dict[str, Any]:
+        """Get configuration in legacy format for compatibility - Claude Generated"""
+        # Convert PipelineStepConfig to legacy dict format
+        config = {
+            "step_id": self.step_config.step_id,
+            "enabled": True,  # HybridStepConfig is always enabled
+            "provider": self.step_config.provider or "",
+            "model": self.step_config.model or "",
+            "task": self.step_config.task or "",
+            "temperature": getattr(self.step_config, 'temperature', 0.7),
+            "top_p": getattr(self.step_config, 'top_p', 0.1),
+        }
+        
+        # Add mode information as metadata
+        config["mode"] = self.step_config.mode.value
+        config["task_type"] = self.step_config.task_type.value if self.step_config.task_type else None
+        config["quality_preference"] = getattr(self.step_config, 'quality_preference', None)
+        
+        return config
+    
+    def set_config(self, config: Dict[str, Any]):
+        """Set configuration from legacy dict format - Claude Generated"""
+        # Convert legacy dict to PipelineStepConfig
+        from ..utils.unified_provider_config import PipelineMode, TaskType as UnifiedTaskType
+        
+        # Map string mode to PipelineMode enum
+        mode = PipelineMode.SMART  # default
+        if "mode" in config:
+            try:
+                mode = PipelineMode(config["mode"])
+            except ValueError:
+                self.logger.warning(f"Unknown pipeline mode: {config.get('mode')}, using SMART")
+        
+        # Map task_type if available
+        task_type = None
+        if "task_type" in config and config["task_type"]:
+            try:
+                task_type = UnifiedTaskType(config["task_type"])
+            except ValueError:
+                self.logger.warning(f"Unknown task type: {config.get('task_type')}")
+        
+        # Create PipelineStepConfig from legacy dict
+        step_config = PipelineStepConfig(
+            step_id=config.get("step_id", self.step_id),
+            mode=mode,
+            task_type=task_type,
+            provider=config.get("provider"),
+            model=config.get("model"),
+            task=config.get("task")
+        )
+        
+        # Set additional parameters if available
+        if hasattr(step_config, 'temperature'):
+            step_config.temperature = config.get("temperature", 0.7)
+        if hasattr(step_config, 'top_p'):
+            step_config.top_p = config.get("top_p", 0.1)
+        if hasattr(step_config, 'quality_preference'):
+            step_config.quality_preference = config.get("quality_preference", "balanced")
+        
+        # Apply the configuration
+        self.set_step_config(step_config)
+    
+    def set_step_config(self, config: PipelineStepConfig):
+        """Set step configuration and update UI - Claude Generated"""
+        self.step_config = config
+        
+        # Update mode radios
+        self.smart_radio.setChecked(config.mode == PipelineMode.SMART)
+        self.advanced_radio.setChecked(config.mode == PipelineMode.ADVANCED)
+        self.expert_radio.setChecked(config.mode == PipelineMode.EXPERT)
+        
+        # Update smart mode controls
+        if config.task_type:
+            task_text = config.task_type.value.replace('_', ' ').title()
+            self.task_type_combo.setCurrentText(task_text)
+        
+        if config.quality_preference:
+            self.quality_combo.setCurrentText(config.quality_preference.title())
+        
+        # Update manual mode controls
+        if config.provider:
+            self.provider_combo.setCurrentText(config.provider)
+            # Trigger provider change to populate models including preferred model
+            self._on_provider_changed(config.provider)
+        if config.model:
+            self.model_combo.setCurrentText(config.model)
+        if config.task:
+            self.task_combo.setCurrentText(config.task)
+        
+        # Update expert mode controls
+        if config.temperature is not None:
+            self.temperature_spinbox.setValue(config.temperature)
+        if config.top_p is not None:
+            self.top_p_spinbox.setValue(config.top_p)
+        if config.max_tokens is not None:
+            self.max_tokens_spinbox.setValue(config.max_tokens)
+        
+        self._update_ui_for_mode()
+
+
 class PipelineStepConfigWidget(QWidget):
     """Widget für die Konfiguration eines Pipeline-Schritts - Claude Generated"""
 
@@ -132,6 +861,7 @@ class PipelineStepConfigWidget(QWidget):
         self.llm_service = llm_service
         self.prompt_service = prompt_service
         self.logger = logging.getLogger(__name__)
+        self.config = {}  # Store the config for this step
         self.setup_ui()
 
     def setup_ui(self):
@@ -327,6 +1057,16 @@ class PipelineStepConfigWidget(QWidget):
         models = self.llm_service.get_available_models(provider)
         if models:
             self.model_combo.addItems(models)
+            
+            # --- START QUICK FIX ---
+            # Try to re-select the model that was saved in the config
+            saved_model = self.config.get("model")
+            if saved_model:
+                index = self.model_combo.findText(saved_model)
+                if index >= 0:
+                    self.model_combo.setCurrentIndex(index)
+            # --- END QUICK FIX ---
+
         # Load prompt settings when provider changes
         self.load_prompt_settings()
 
@@ -577,6 +1317,7 @@ class PipelineStepConfigWidget(QWidget):
 
     def set_config(self, config: Dict[str, Any]):
         """Set configuration - Claude Generated"""
+        self.config = config
         if "enabled" in config:
             self.enabled_checkbox.setChecked(config["enabled"])
 
@@ -725,8 +1466,12 @@ class PipelineConfigDialog(QDialog):
                 self.step_widgets[step_id] = search_widget
                 self.tab_widget.addTab(search_widget, step_name)
             else:
-                step_widget = PipelineStepConfigWidget(
-                    step_name, step_id, self.llm_service, self.prompt_service
+                # Use HybridStepConfigWidget for LLM steps to show Smart/Advanced/Expert modes - Claude Generated
+                step_widget = HybridStepConfigWidget(
+                    step_name=step_name, 
+                    step_id=step_id, 
+                    config_manager=self.config_manager,
+                    parent=self
                 )
                 self.step_widgets[step_id] = step_widget
                 self.tab_widget.addTab(step_widget, step_name)

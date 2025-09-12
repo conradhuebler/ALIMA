@@ -581,11 +581,11 @@ class LlmService(QObject):
         """
         provider_list = []
 
-        # 1. Handle static providers with API key and model check
-        if self.alima_config.llm.gemini and self.get_available_models("gemini"):
+        # 1. Handle static providers with API key check only (separate from model loading) - Claude Generated
+        if self.alima_config.llm.gemini:
             provider_list.append("gemini")
         
-        if self.alima_config.llm.anthropic and self.get_available_models("anthropic"):
+        if self.alima_config.llm.anthropic:
             provider_list.append("anthropic")
 
         # 2. Add enabled OpenAI-compatible providers
@@ -2151,6 +2151,28 @@ class LlmService(QObject):
             self.logger.error(f"Qt ping test error for {provider_name}: {e}")
         
         return result
+    
+    def has_provider_api_key(self, provider: str) -> bool:
+        """
+        Check if provider has API key configured (separate from reachability) - Claude Generated
+        Args:
+            provider: Provider name to check
+        Returns:
+            True if API key is configured, False otherwise
+        """
+        if provider == "gemini":
+            return bool(self.alima_config.llm.gemini)
+        elif provider == "anthropic":
+            return bool(self.alima_config.llm.anthropic)
+        elif hasattr(self.alima_config.llm, 'get_enabled_openai_providers'):
+            for openai_provider in self.alima_config.llm.get_enabled_openai_providers():
+                if openai_provider.name == provider:
+                    return bool(openai_provider.api_key)
+        elif hasattr(self.alima_config.llm, 'get_enabled_ollama_providers'):
+            for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
+                if ollama_provider.name == provider:
+                    return ollama_provider.enabled
+        return False
     
     def is_provider_reachable(self, provider_name: str, force_check: bool = False) -> bool:
         """

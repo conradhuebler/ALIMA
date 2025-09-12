@@ -190,6 +190,125 @@ class SmartProviderSelector:
         # If we get here, all providers failed
         raise RuntimeError(f"No available providers for task type {task_type.value}. Attempted: {[a.provider for a in attempts]}")
     
+    def _get_model_for_provider(self, provider: str, task_type: TaskType, preferences: ProviderPreferences, prefer_fast: bool = False) -> str:
+        """Get the best model for a provider considering direct provider config - Claude Generated"""
+        # First, check if there's a preferred model directly in provider config
+        preferred_model = self._get_preferred_model_from_config(provider)
+        if preferred_model:
+            # Verify the preferred model is actually available
+            available_models = self.provider_detection_service.get_available_models(provider)
+            if preferred_model in available_models:
+                self.logger.info(f"Using preferred model {preferred_model} from provider config for {provider}")
+                return preferred_model
+            else:
+                self.logger.warning(f"Preferred model {preferred_model} not available for {provider}, falling back to automatic selection")
+        
+        # Fall back to automatic model selection based on task and speed preference
+        available_models = self.provider_detection_service.get_available_models(provider)
+        if not available_models:
+            self.logger.warning(f"No models available for provider {provider}")
+            return ""
+        
+        # Apply speed vs quality preference
+        if prefer_fast or preferences.prefer_faster_models:
+            # Prioritize models with speed indicators
+            fast_models = [m for m in available_models if any(indicator in m.lower() 
+                          for indicator in ['flash', 'mini', 'haiku', '14b', 'turbo', 'fast'])]
+            if fast_models:
+                selected = fast_models[0]
+                self.logger.info(f"Selected fast model {selected} for provider {provider}")
+                return selected
+        
+        # Default: use first available model (typically the recommended one)
+        selected = available_models[0]
+        self.logger.info(f"Selected default model {selected} for provider {provider}")
+        return selected
+    
+    def _get_preferred_model_from_config(self, provider: str) -> Optional[str]:
+        """Get preferred model directly from provider configuration - Claude Generated"""
+        try:
+            # 🔍 DEBUG: Log preferred model request - Claude Generated
+            self.logger.critical(f"🔍 PREFERRED_MODEL_REQUEST: provider='{provider}'")
+            
+            # Force reload to ensure we get latest saved config - Claude Generated
+            config = self.config_manager.load_config(force_reload=True)
+            
+            # 🔍 DEBUG: Try to find provider with name mapping - Claude Generated
+            self.logger.critical(f"🔍 SEARCHING_FOR_PROVIDER: '{provider}' in all provider lists")
+            
+            # 🔍 DEBUG: Log what we found in config - Claude Generated
+            self.logger.critical(f"🔍 CONFIG_gemini_preferred_model: '{config.llm.gemini_preferred_model}'")
+            self.logger.critical(f"🔍 CONFIG_anthropic_preferred_model: '{config.llm.anthropic_preferred_model}'")
+            
+            # Check static providers first
+            if provider == "gemini":
+                preferred = config.llm.gemini_preferred_model or None
+                self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: gemini -> '{preferred}'")
+                return preferred
+            elif provider == "anthropic":
+                preferred = config.llm.anthropic_preferred_model or None
+                self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: anthropic -> '{preferred}'")
+                return preferred
+            
+            # Check OpenAI-compatible providers
+            for openai_provider in config.llm.openai_compatible_providers:
+                if openai_provider.name == provider:
+                    preferred = openai_provider.preferred_model or None
+                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: openai_compatible '{provider}' -> '{preferred}'")
+                    return preferred
+            
+            # Check Ollama providers - with fuzzy matching for common names - Claude Generated
+            for ollama_provider in config.llm.ollama_providers:
+                self.logger.critical(f"🔍 CHECKING_OLLAMA_PROVIDER: '{ollama_provider.name}' vs requested '{provider}'")
+                
+                # Direct name match
+                if ollama_provider.name == provider:
+                    preferred = ollama_provider.preferred_model or None
+                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: ollama '{provider}' -> '{preferred}' (exact match)")
+                    return preferred
+                
+                # Fuzzy matching for common provider name variations - Claude Generated
+                if self._provider_names_match(ollama_provider.name, provider):
+                    preferred = ollama_provider.preferred_model or None  
+                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy match: '{ollama_provider.name}')")
+                    return preferred
+            
+            self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: '{provider}' -> None (not found)")
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting preferred model for {provider}: {e}")
+            return None
+    
+    def _provider_names_match(self, config_name: str, requested_name: str) -> bool:
+        """Check if provider names match with fuzzy logic for common variations - Claude Generated"""
+        # Normalize names for comparison
+        config_normalized = config_name.lower().replace(' ', '').replace('-', '').replace('/', '').replace('_', '')
+        requested_normalized = requested_name.lower().replace(' ', '').replace('-', '').replace('/', '').replace('_', '')
+        
+        # Direct match after normalization
+        if config_normalized == requested_normalized:
+            return True
+        
+        # Common ollama name variations
+        ollama_variations = {
+            'ollama': ['localhost', 'local', 'ollama.com', 'ollamacom'],
+            'localhost': ['ollama', 'local'],
+            'local': ['ollama', 'localhost'],
+        }
+        
+        # Check if requested name is a known variation of config name
+        if requested_normalized in ollama_variations.get(config_normalized, []):
+            return True
+        if config_normalized in ollama_variations.get(requested_normalized, []):
+            return True
+        
+        # Check if one contains the other (e.g., "LLMachine/Ollama" contains "ollama")
+        if 'ollama' in config_normalized and 'ollama' in requested_normalized:
+            return True
+            
+        return False
+    
     def _filter_by_capabilities(self, providers: List[str], required_capabilities: List[str]) -> List[str]:
         """Filter providers by required capabilities using dynamic detection - Claude Generated"""
         filtered = []
@@ -410,6 +529,153 @@ class SmartProviderSelector:
         self._last_successful.clear()
         self._availability_cache.clear()
         self.logger.info("Provider performance tracking reset")
+    
+    def select_with_manual_override(self,
+                                   manual_provider: Optional[str] = None,
+                                   manual_model: Optional[str] = None,
+                                   task_type: TaskType = TaskType.GENERAL,
+                                   prefer_fast: bool = False,
+                                   validate_manual: bool = True) -> SmartSelection:
+        """
+        Select provider with optional manual override - Claude Generated
+        
+        Args:
+            manual_provider: Force specific provider (None = use smart selection)
+            manual_model: Force specific model (None = use smart selection for provider)
+            task_type: Type of task for smart selection fallback
+            prefer_fast: Speed vs quality preference for smart selection  
+            validate_manual: Whether to validate manual choices
+            
+        Returns:
+            SmartSelection with provider/model and fallback information
+        """
+        start_time = time.time()
+        attempts = []
+        
+        # If manual override is specified
+        if manual_provider:
+            self.logger.info(f"Manual override requested: {manual_provider}/{manual_model or 'auto'}")
+            
+            # Validate manual provider if requested
+            if validate_manual and not self._is_provider_available(manual_provider):
+                self.logger.warning(f"Manual provider '{manual_provider}' not available, falling back to smart selection")
+                return self._fallback_to_smart_selection(task_type, prefer_fast, attempts, start_time)
+            
+            # Get provider configuration
+            provider_config = self._get_provider_config(manual_provider)
+            if not provider_config:
+                self.logger.warning(f"No configuration found for manual provider '{manual_provider}'")
+                return self._fallback_to_smart_selection(task_type, prefer_fast, attempts, start_time)
+            
+            # Handle model selection
+            if manual_model:
+                # Validate manual model if requested
+                if validate_manual:
+                    available_models = self.provider_detection_service.get_available_models(manual_provider)
+                    if available_models and manual_model not in available_models:
+                        self.logger.warning(f"Manual model '{manual_model}' not available for provider '{manual_provider}', using provider default")
+                        manual_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast)
+                
+                selected_model = manual_model
+            else:
+                # Auto-select model for manual provider
+                selected_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast)
+            
+            # Create manual selection result
+            attempts.append(ProviderAttempt(
+                provider=manual_provider,
+                model=selected_model,
+                success=True,
+                response_time=time.time() - start_time
+            ))
+            
+            return SmartSelection(
+                provider=manual_provider,
+                model=selected_model,
+                config=provider_config,
+                attempts=attempts,
+                fallback_used=False,
+                selection_time=time.time() - start_time
+            )
+        
+        # No manual override - use smart selection
+        return self.select_provider(task_type, prefer_fast=prefer_fast)
+    
+    def _fallback_to_smart_selection(self, task_type: TaskType, prefer_fast: bool, 
+                                   existing_attempts: List[ProviderAttempt], start_time: float) -> SmartSelection:
+        """Fallback to smart selection with existing attempt history - Claude Generated"""
+        self.logger.info("Falling back to smart provider selection")
+        smart_selection = self.select_provider(task_type, prefer_fast=prefer_fast)
+        
+        # Combine attempt histories
+        combined_attempts = existing_attempts + smart_selection.attempts
+        
+        return SmartSelection(
+            provider=smart_selection.provider,
+            model=smart_selection.model,
+            config=smart_selection.config,
+            attempts=combined_attempts,
+            fallback_used=True,  # Mark that fallback was used
+            selection_time=time.time() - start_time
+        )
+    
+    def validate_manual_choice(self, provider: str, model: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Validate a manual provider/model choice - Claude Generated
+        
+        Returns:
+            Dict with validation results:
+            {
+                "valid": bool,
+                "issues": List[str],
+                "suggestions": List[str],
+                "available_models": List[str]
+            }
+        """
+        result = {
+            "valid": True,
+            "issues": [],
+            "suggestions": [],
+            "available_models": []
+        }
+        
+        # Check provider availability
+        if not self._is_provider_available(provider):
+            result["valid"] = False
+            result["issues"].append(f"Provider '{provider}' is not available or disabled")
+            
+            # Suggest alternatives
+            available_providers = self.provider_detection_service.get_available_providers()
+            if available_providers:
+                result["suggestions"].append(f"Available providers: {', '.join(available_providers[:3])}")
+        else:
+            # Provider is available, get available models
+            available_models = self.provider_detection_service.get_available_models(provider)
+            result["available_models"] = available_models or []
+            
+            # Check model if specified
+            if model:
+                if available_models and model not in available_models:
+                    result["valid"] = False
+                    result["issues"].append(f"Model '{model}' not available for provider '{provider}'")
+                    
+                    # Suggest similar models
+                    similar_models = [m for m in available_models if model.lower() in m.lower() or m.lower() in model.lower()]
+                    if similar_models:
+                        result["suggestions"].append(f"Similar models: {', '.join(similar_models[:3])}")
+                    elif available_models:
+                        result["suggestions"].append(f"Available models: {', '.join(available_models[:3])}")
+        
+        return result
+    
+    def get_provider_capabilities(self, provider: str) -> List[str]:
+        """Get capabilities for a specific provider - Claude Generated"""
+        return self.provider_detection_service.detect_provider_capabilities(provider)
+    
+    def get_optimal_model_for_task(self, provider: str, task_type: TaskType, prefer_fast: bool = False) -> Optional[str]:
+        """Get the optimal model for a provider/task combination - Claude Generated"""
+        preferences = self.config_manager.get_provider_preferences()
+        return self._get_model_for_provider(provider, task_type, preferences, prefer_fast)
 
 
 # Convenience functions for easy integration

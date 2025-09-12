@@ -23,6 +23,7 @@ from typing import Dict, Any, Optional, List
 
 from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, LLMConfig, CatalogConfig, SystemConfig, OpenAICompatibleProvider, OllamaProvider, ProviderPreferences
 from ..llm.prompt_service import PromptService
+from .unified_provider_tab import UnifiedProviderTab
 
 
 class OllamaConnectionTestWorker(QThread):
@@ -721,19 +722,20 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Create tabs
         self.database_tab = self._create_database_tab()
-        self.llm_tab = self._create_llm_tab()
+        self.unified_provider_tab = UnifiedProviderTab(self.config_manager, self)  # Claude Generated - Unified Provider Management
         self.catalog_tab = self._create_catalog_tab()
         self.prompts_tab = self._create_prompts_tab()
-        self.provider_preferences_tab = self._create_provider_preferences_tab()  # Claude Generated
         self.system_tab = self._create_system_tab()
         self.about_tab = self._create_about_tab()
         
+        # Connect unified provider tab signals
+        self.unified_provider_tab.config_changed.connect(self.config_changed)
+        
         # Add tabs
         self.tab_widget.addTab(self.database_tab, "🗄️ Database")
-        self.tab_widget.addTab(self.llm_tab, "🤖 LLM Providers") 
+        self.tab_widget.addTab(self.unified_provider_tab, "🚀 Providers & Models")  # Claude Generated - Unified Tab
         self.tab_widget.addTab(self.catalog_tab, "📚 Catalog")
         self.tab_widget.addTab(self.prompts_tab, "📝 Prompts")
-        self.tab_widget.addTab(self.provider_preferences_tab, "🎯 Provider Preferences")  # Claude Generated
         self.tab_widget.addTab(self.system_tab, "⚙️ System")
         self.tab_widget.addTab(self.about_tab, "ℹ️ About")
         
@@ -850,111 +852,6 @@ class ComprehensiveSettingsDialog(QDialog):
         widget.setLayout(layout)
         return widget
     
-    def _create_llm_tab(self) -> QWidget:
-        """Create LLM providers configuration tab with dynamic provider management - Claude Generated"""
-        widget = QWidget()
-        layout = QVBoxLayout()
-        
-        # Static Provider API Keys
-        static_group = QGroupBox("Static Provider API Keys")
-        static_layout = QFormLayout()
-        
-        self.gemini_key = QLineEdit()
-        self.gemini_key.setEchoMode(QLineEdit.EchoMode.Password)
-        static_layout.addRow("Google Gemini:", self.gemini_key)
-        
-        self.anthropic_key = QLineEdit()
-        self.anthropic_key.setEchoMode(QLineEdit.EchoMode.Password)
-        static_layout.addRow("Anthropic Claude:", self.anthropic_key)
-        
-        static_group.setLayout(static_layout)
-        layout.addWidget(static_group)
-        
-        # OpenAI-Compatible Providers
-        openai_group = QGroupBox("OpenAI-Compatible Providers")
-        openai_layout = QVBoxLayout()
-        
-        # Provider management buttons
-        provider_buttons = QHBoxLayout()
-        
-        add_provider_btn = QPushButton("➕ Add Provider")
-        add_provider_btn.clicked.connect(self._add_openai_provider)
-        provider_buttons.addWidget(add_provider_btn)
-        
-        edit_provider_btn = QPushButton("✏️ Edit Provider")
-        edit_provider_btn.clicked.connect(self._edit_openai_provider)
-        provider_buttons.addWidget(edit_provider_btn)
-        
-        delete_provider_btn = QPushButton("🗑️ Delete Provider")
-        delete_provider_btn.clicked.connect(self._delete_openai_provider)
-        provider_buttons.addWidget(delete_provider_btn)
-        
-        # Add test connection button for OpenAI-compatible providers - Claude Generated
-        test_openai_btn = QPushButton("🔧 Test Connection")
-        test_openai_btn.clicked.connect(self._test_openai_connection)
-        provider_buttons.addWidget(test_openai_btn)
-        self.openai_test_btn = test_openai_btn
-        
-        # Add provider status refresh button - Claude Generated
-        refresh_status_btn = QPushButton("🔄 Refresh All Status")
-        refresh_status_btn.clicked.connect(self._refresh_all_providers_status)
-        provider_buttons.addWidget(refresh_status_btn)
-        
-        provider_buttons.addStretch()
-        openai_layout.addLayout(provider_buttons)
-        
-        # Provider list
-        self.providers_list = QListWidget()
-        self.providers_list.itemDoubleClicked.connect(self._edit_openai_provider)
-        openai_layout.addWidget(self.providers_list)
-        
-        openai_group.setLayout(openai_layout)
-        layout.addWidget(openai_group)
-        
-        # Multi-Instance Ollama Configuration - Claude Generated
-        ollama_group = QGroupBox("Ollama Providers")
-        ollama_layout = QVBoxLayout()
-        
-        # Provider management buttons
-        ollama_buttons = QHBoxLayout()
-        
-        add_ollama_btn = QPushButton("➕ Add Provider")
-        add_ollama_btn.clicked.connect(self._add_ollama_provider)
-        ollama_buttons.addWidget(add_ollama_btn)
-        
-        edit_ollama_btn = QPushButton("✏️ Edit Provider")
-        edit_ollama_btn.clicked.connect(self._edit_ollama_provider)
-        ollama_buttons.addWidget(edit_ollama_btn)
-        
-        delete_ollama_btn = QPushButton("🗑️ Delete Provider")
-        delete_ollama_btn.clicked.connect(self._delete_ollama_provider)
-        ollama_buttons.addWidget(delete_ollama_btn)
-        
-        # Add test connection button for Ollama providers - consistent with OpenAI - Claude Generated
-        test_ollama_btn = QPushButton("🔧 Test Connection")
-        test_ollama_btn.clicked.connect(self._test_ollama_connection)
-        ollama_buttons.addWidget(test_ollama_btn)
-        self.ollama_test_btn = test_ollama_btn
-        
-        # Add provider status refresh button - Claude Generated
-        refresh_status_btn = QPushButton("🔄 Refresh All Status")
-        refresh_status_btn.clicked.connect(self._refresh_all_providers_status)
-        ollama_buttons.addWidget(refresh_status_btn)
-        
-        ollama_buttons.addStretch()
-        ollama_layout.addLayout(ollama_buttons)
-        
-        # Provider list
-        self.ollama_providers_list = QListWidget()
-        self.ollama_providers_list.itemDoubleClicked.connect(self._edit_ollama_provider)
-        ollama_layout.addWidget(self.ollama_providers_list)
-        
-        ollama_group.setLayout(ollama_layout)
-        layout.addWidget(ollama_group)
-        
-        layout.addStretch()
-        widget.setLayout(layout)
-        return widget
     
     def _create_catalog_tab(self) -> QWidget:
         """Create catalog configuration tab - Claude Generated"""
@@ -2004,13 +1901,11 @@ class ComprehensiveSettingsDialog(QDialog):
         self.connection_timeout.setValue(config.database.connection_timeout)
         self.auto_create_tables.setChecked(config.database.auto_create_tables)
         
-        # LLM settings (only static providers)
-        self.gemini_key.setText(config.llm.gemini)
-        self.anthropic_key.setText(config.llm.anthropic)
+        # LLM settings are now handled by the unified provider tab
+        # Note: Static provider API keys (Gemini, Anthropic) are managed through the unified provider system
         
-        # Populate the dynamic provider lists
-        self._populate_openai_providers_list()
-        self._populate_ollama_providers_list()
+        # Provider lists are now managed by the unified provider tab
+        # Dynamic provider population is handled automatically by the UnifiedProviderTab
         
         # Catalog settings
         self.catalog_token.setText(config.catalog.catalog_token)
@@ -2030,11 +1925,9 @@ class ComprehensiveSettingsDialog(QDialog):
         # Load prompts
         self._load_prompts_list()
         
-        # Load OpenAI-compatible providers
-        self._load_providers_list()
+        # OpenAI-compatible providers are now managed by the unified provider tab
         
-        # Load Ollama providers
-        self._load_ollama_providers_list()
+        # Ollama providers are now managed by the unified provider tab
     
     def _load_providers_list(self):
         """Load OpenAI-compatible providers into the list widget - Claude Generated"""
@@ -2064,7 +1957,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 
                 # Add provider to configuration
                 self.current_config.llm.add_provider(new_provider)
-                self._load_providers_list()
+                # Provider list is now managed by unified provider tab
                 
             except ValueError as e:
                 QMessageBox.critical(self, "Invalid Provider", f"Error creating provider: {str(e)}")
@@ -2094,7 +1987,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 # Remove old and add updated
                 self.current_config.llm.remove_provider(provider.name)
                 self.current_config.llm.add_provider(updated_provider)
-                self._load_providers_list()
+                # Provider list is now managed by unified provider tab
                 
             except ValueError as e:
                 QMessageBox.critical(self, "Invalid Provider", f"Error updating provider: {str(e)}")
@@ -2415,13 +2308,27 @@ class ComprehensiveSettingsDialog(QDialog):
         # LLM configuration with flexible Ollama - Claude Generated
         # OllamaConfig no longer needed - using OllamaProvider instead - Claude Generated
         
-        # Use current Ollama providers from configuration (they're managed through the provider list)
+        # CRITICAL: Reload current_config to get latest model preferences - Claude Generated
+        fresh_config = self.config_manager.load_config(force_reload=True)
+        
+        # Use fresh configuration - provider settings are managed through the unified provider system
         config.llm = LLMConfig(
-            gemini=self.gemini_key.text(),
-            anthropic=self.anthropic_key.text(),
-            openai_compatible_providers=self.current_config.llm.openai_compatible_providers,
-            ollama_providers=self.current_config.llm.ollama_providers
+            gemini=fresh_config.llm.gemini,  # Preserve existing API keys
+            gemini_preferred_model=fresh_config.llm.gemini_preferred_model,  # Preserve preferred models - Claude Generated
+            anthropic=fresh_config.llm.anthropic,  # Preserve existing API keys
+            anthropic_preferred_model=fresh_config.llm.anthropic_preferred_model,  # Preserve preferred models - Claude Generated
+            openai_compatible_providers=fresh_config.llm.openai_compatible_providers,  # Fresh provider data - Claude Generated
+            ollama_providers=fresh_config.llm.ollama_providers  # Fresh provider data - Claude Generated
         )
+        
+        # 🔍 DEBUG: Log preserved preferred models - Claude Generated
+        self.logger.critical(f"🔍 GET_CONFIG_FROM_UI: gemini_preferred='{config.llm.gemini_preferred_model}', anthropic_preferred='{config.llm.anthropic_preferred_model}'")
+        
+        # 🔍 DEBUG: Log dynamic provider preferred models - Claude Generated
+        for provider in config.llm.openai_compatible_providers:
+            self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_OPENAI: {provider.name}.preferred_model='{provider.preferred_model}'")
+        for provider in config.llm.ollama_providers:
+            self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_OLLAMA: {provider.name}.preferred_model='{provider.preferred_model}'")
         
         # Catalog configuration
         config.catalog = CatalogConfig(
