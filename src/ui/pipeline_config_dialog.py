@@ -37,7 +37,7 @@ from ..utils.unified_provider_config import (
     PipelineStepConfig, 
     TaskType as UnifiedTaskType
 )
-from ..utils.smart_provider_selector import SmartProviderSelector
+from ..utils.smart_provider_selector import SmartProviderSelector, TaskType as SmartTaskType
 
 
 class SearchStepConfigWidget(QWidget):
@@ -617,31 +617,80 @@ class HybridStepConfigWidget(QWidget):
             return None
     
     def _initialize_with_preferred_settings(self):
-        """Initialize step config with preferred provider/model from settings - Claude Generated"""
+        """Initialize step config with Task Preference enhanced defaults - Claude Generated"""
         try:
             if not self.config_manager:
                 # If no config manager, just populate providers with defaults
                 self._populate_providers()
                 return
             
-            # Get preferred provider
-            preferred_provider = self._get_preferred_provider_from_settings()
-            if preferred_provider:
-                # Update step config with preferred provider
-                self.step_config.provider = preferred_provider
-                
-                # Get preferred model for this provider
-                preferred_model = self._get_preferred_model_for_provider(preferred_provider)
-                if preferred_model:
-                    self.step_config.model = preferred_model
-                
-                self.logger.info(f"Initialized {self.step_id} with preferred provider: {preferred_provider}, model: {preferred_model}")
+            # ENHANCED INITIALIZATION WITH TASK PREFERENCES
+            selected_provider = None
+            selected_model = None
+            selection_reason = "unknown"
+            
+            # 1. Try Task Preference based initialization (highest priority)
+            try:
+                smart_selector = SmartProviderSelector(self.config_manager)
+                if hasattr(smart_selector, 'unified_config') and smart_selector.unified_config:
+                    # Map step to task type
+                    smart_task_type = SmartTaskType.from_pipeline_step(self.step_id, "")
+                    unified_task_type = smart_task_type.to_unified_task_type()
+                    
+                    # Get task preference
+                    task_pref = smart_selector.unified_config.get_task_preference(unified_task_type)
+                    
+                    # Get first available provider/model from task preferences
+                    for priority_entry in task_pref.model_priority:
+                        candidate_provider = priority_entry.get("provider_name")
+                        candidate_model = priority_entry.get("model_name")
+                        
+                        if candidate_provider and candidate_model:
+                            # Verify provider is available
+                            if smart_selector._is_provider_available(candidate_provider):
+                                available_models = smart_selector.provider_detection_service.get_available_models(candidate_provider)
+                                if candidate_model in available_models:
+                                    selected_provider = candidate_provider
+                                    selected_model = candidate_model
+                                    rank = task_pref.model_priority.index(priority_entry) + 1
+                                    selection_reason = f"task preference (rank {rank})"
+                                    break
+                                else:
+                                    # Try fuzzy matching
+                                    fuzzy_match = smart_selector._find_fuzzy_model_match(candidate_model, available_models)
+                                    if fuzzy_match:
+                                        selected_provider = candidate_provider
+                                        selected_model = fuzzy_match
+                                        selection_reason = f"task preference via fuzzy match ('{candidate_model}' -> '{fuzzy_match}')"
+                                        break
+                    
+                    if selected_provider and selected_model:
+                        self.logger.info(f"Initialized {self.step_id} via {selection_reason}: {selected_provider}/{selected_model}")
+            except Exception as e:
+                self.logger.warning(f"Failed to use task preferences for initialization: {e}")
+            
+            # 2. Fallback to legacy provider preferences
+            if not selected_provider:
+                preferred_provider = self._get_preferred_provider_from_settings()
+                if preferred_provider:
+                    preferred_model = self._get_preferred_model_for_provider(preferred_provider)
+                    if preferred_model:
+                        selected_provider = preferred_provider
+                        selected_model = preferred_model
+                        selection_reason = "provider preferences"
+                        self.logger.info(f"Initialized {self.step_id} via {selection_reason}: {preferred_provider}/{preferred_model}")
+            
+            # 3. Apply the selected configuration
+            if selected_provider:
+                self.step_config.provider = selected_provider
+                if selected_model:
+                    self.step_config.model = selected_model
             
             # Now populate providers with the preferred settings in place
             self._populate_providers()
         
         except Exception as e:
-            self.logger.warning(f"Error initializing with preferred settings: {e}")
+            self.logger.warning(f"Error initializing with enhanced preferred settings: {e}")
             # Fallback to basic provider population
             self._populate_providers()
     
@@ -660,32 +709,105 @@ class HybridStepConfigWidget(QWidget):
         self.config_changed.emit()
     
     def _update_smart_preview(self):
-        """Update smart mode preview - Claude Generated"""
+        """Update smart mode preview with Task Preference integration - Claude Generated"""
         try:
             if self.config_manager:
                 smart_selector = SmartProviderSelector(self.config_manager)
                 prefer_fast = self.step_config.quality_preference == "fast"
                 
-                # Get smart selection
-                from ..utils.smart_provider_selector import TaskType
-                selection = smart_selector.select_provider(TaskType.TEXT, prefer_fast=prefer_fast)
+                # Map step_id to SmartTaskType for enhanced task detection
+                smart_task_type = SmartTaskType.from_pipeline_step(self.step_id, "")
                 
-                # Check if the selected model is the preferred model
-                preferred_model = self._get_preferred_model_for_provider(selection.provider)
-                is_preferred = preferred_model and selection.model == preferred_model
+                # Map pipeline step_id to task_name for task_preferences lookup - Claude Generated
+                task_name_mapping = {
+                    "initialisation": "initialisation",
+                    "keywords": "keywords",
+                    "verification": "keywords",  # Verification uses keywords task
+                    "dk_classification": "classification",
+                    "classification": "classification"
+                }
+                task_name = task_name_mapping.get(self.step_id, "")
                 
-                preview_text = f"🎯 Will use: {selection.provider} / {selection.model}"
-                if is_preferred:
-                    preview_text += " ⭐ (preferred)"
-                elif selection.fallback_used:
-                    preview_text += " (fallback)"
+                # Get smart selection with task preference integration - Claude Generated
+                selection = smart_selector.select_provider(
+                    task_type=smart_task_type, 
+                    prefer_fast=prefer_fast,
+                    step_id=self.step_id,
+                    task_name=task_name  # This enables task preference hierarchy
+                )
                 
+                # Enhanced preview with task-specific information
+                preview_parts = []
+                
+                # Base selection info
+                preview_parts.append(f"🎯 **{selection.provider}** / **{selection.model}**")
+                
+                # Task type indicator
+                task_type_display = smart_task_type.value.replace('_', ' ').title()
+                preview_parts.append(f"📋 Task: {task_type_display}")
+                
+                # Selection reason analysis
+                selection_indicators = []
+                
+                # Check if task preference was used (root-level config.task_preferences) - Claude Generated
+                try:
+                    if hasattr(smart_selector, 'config') and smart_selector.config and task_name:
+                        # Check if task has specific preferences in config.task_preferences
+                        if task_name in smart_selector.config.task_preferences:
+                            task_data = smart_selector.config.task_preferences[task_name]
+                            model_priorities = task_data.get('model_priority', [])
+                            
+                            # Check if this provider/model combo is in task preferences
+                            for priority_entry in model_priorities:
+                                if (priority_entry.get("provider_name") == selection.provider and 
+                                    priority_entry.get("model_name") == selection.model):
+                                    rank = model_priorities.index(priority_entry) + 1
+                                    selection_indicators.append(f"⭐ Task preference #{rank} ({task_name})")
+                                    break
+                            
+                            # Check for chunked preferences if applicable
+                            if not selection_indicators and 'chunked_model_priority' in task_data:
+                                chunked_priorities = task_data['chunked_model_priority']
+                                for priority_entry in chunked_priorities:
+                                    if (priority_entry.get("provider_name") == selection.provider and 
+                                        priority_entry.get("model_name") == selection.model):
+                                        rank = chunked_priorities.index(priority_entry) + 1
+                                        selection_indicators.append(f"⭐ Chunked preference #{rank} ({task_name})")
+                                        break
+                    
+                    # Fallback analysis if no task preference matched
+                    if not selection_indicators:
+                        # Check if provider config was used
+                        preferred_model = smart_selector._get_preferred_model_from_config(selection.provider)
+                        if preferred_model and selection.model == preferred_model:
+                            selection_indicators.append("🔧 Provider config")
+                        elif prefer_fast and any(indicator in selection.model.lower() for indicator in ['flash', 'mini', 'haiku', 'turbo']):
+                            selection_indicators.append("⚡ Speed optimized")
+                        elif selection.fallback_used:
+                            selection_indicators.append("🔄 Fallback used")
+                        else:
+                            selection_indicators.append("✅ Auto-selected")
+                            
+                except Exception as e:
+                    self.logger.warning(f"Failed to analyze selection reason: {e}")
+                    selection_indicators.append("✅ Smart selection")
+                
+                # Performance info
+                if hasattr(selection, 'selection_time'):
+                    selection_indicators.append(f"⏱️ {selection.selection_time*1000:.1f}ms")
+                
+                preview_parts.extend(selection_indicators)
+                
+                # Combine preview text
+                preview_text = " • ".join(preview_parts)
                 self.smart_preview_label.setText(preview_text)
-                self.smart_preview_label.setStyleSheet("color: green; font-style: italic;")
+                self.smart_preview_label.setStyleSheet("color: green; font-style: italic; font-weight: bold;")
             
         except Exception as e:
-            self.smart_preview_label.setText(f"⚠️ Preview unavailable: {str(e)}")
+            error_msg = f"⚠️ Preview unavailable: {str(e)}"
+            self.smart_preview_label.setText(error_msg)
             self.smart_preview_label.setStyleSheet("color: orange; font-style: italic;")
+            self.logger.warning(f"Smart preview update failed: {e}")
     
     def _on_manual_config_changed(self):
         """Handle manual configuration changes - Claude Generated"""

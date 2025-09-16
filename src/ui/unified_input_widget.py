@@ -198,9 +198,69 @@ class TextExtractionWorker(QThread):
         self._extract_image_with_llm(self.source_data, source_info)
 
     def _extract_image_with_llm(self, image_path: str, source_info: str, cleanup_temp: bool = False):
-        """Extract text from image using LLM with image_text_extraction prompt - Claude Generated"""
+        """Extract text from image using LLM with task preferences system - Claude Generated"""
         self.progress_updated.emit("Bild wird mit LLM analysiert...")
 
+        try:
+            # Try new unified task execution system first
+            if hasattr(self.llm_service, 'alima_manager'):
+                try:
+                    self.progress_updated.emit("Verwende neue Task-Präferenz-Logik...")
+                    
+                    # Create task context
+                    context = {'image_data': image_path}
+                    
+                    # Get unified config manager for task preferences
+                    from ..utils.unified_provider_config import UnifiedProviderConfigManager
+                    
+                    config_manager = getattr(self.llm_service, 'config_manager', None)
+                    unified_config_manager = None
+                    if config_manager:
+                        unified_config_manager = UnifiedProviderConfigManager(config_manager)
+                    
+                    # Execute task using new system
+                    extracted_text = self.llm_service.alima_manager.execute_task(
+                        task_name="image_text_extraction",
+                        context=context,
+                        stream_callback=None,  # No streaming for images
+                        unified_config_manager=unified_config_manager
+                    )
+                    
+                    # Clean output
+                    extracted_text = self._clean_ocr_output(extracted_text)
+                    
+                    # Cleanup temp file
+                    if cleanup_temp:
+                        try:
+                            os.unlink(image_path)
+                        except:
+                            pass
+                    
+                    if extracted_text.strip():
+                        self.text_extracted.emit(extracted_text, source_info)
+                        return
+                    else:
+                        self.logger.warning("New task system returned empty result, falling back to legacy method")
+                
+                except Exception as e:
+                    self.logger.warning(f"New task system failed: {e}, falling back to legacy method")
+            
+            # Fallback to legacy system
+            self.progress_updated.emit("Verwende Legacy-Bilderkennung...")
+            self._extract_image_with_llm_legacy(image_path, source_info, cleanup_temp)
+
+        except Exception as e:
+            # Cleanup temporäre Datei auch bei Fehlern
+            if cleanup_temp:
+                try:
+                    os.unlink(image_path)
+                except:
+                    pass
+            self.logger.error(f"Image LLM extraction error: {e}")
+            self.error_occurred.emit(f"LLM-Bilderkennung fehlgeschlagen: {str(e)}")
+    
+    def _extract_image_with_llm_legacy(self, image_path: str, source_info: str, cleanup_temp: bool = False):
+        """Legacy image extraction method for fallback - Claude Generated"""
         try:
             import uuid
             from ..llm.prompt_service import PromptService
@@ -294,8 +354,8 @@ class TextExtractionWorker(QThread):
                     os.unlink(image_path)
                 except:
                     pass
-            self.logger.error(f"Image LLM extraction error: {e}")
-            self.error_occurred.emit(f"LLM-Bilderkennung fehlgeschlagen: {str(e)}")
+            self.logger.error(f"Legacy image LLM extraction error: {e}")
+            self.error_occurred.emit(f"Legacy LLM-Bilderkennung fehlgeschlagen: {str(e)}")
 
     def _get_best_vision_provider(self) -> tuple:
         """Get best available provider for vision tasks - Claude Generated"""

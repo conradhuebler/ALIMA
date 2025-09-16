@@ -88,9 +88,15 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 6. **Dynamic UI Adjustment**: Automatic layout optimization for streaming text display
 7. **Manual UI Controls**: Toggle buttons for hiding/showing input areas during analysis
 8. **Improved Error Handling**: Better error feedback with status messages and auto-recovery
+9. **✅ Immediate Save Architecture**: All configuration changes save instantly without batched saves
+   - **Task Preferences**: Individual preference changes persist immediately to disk
+   - **Model Preferences**: Provider model selections save automatically on change  
+   - **Toast Notifications**: Real-time save feedback via global status bar ("✅ keywords preferences saved")
+   - **Auto-Save Safety Net**: Periodic auto-save every 30 seconds as backup mechanism
+   - **UX Improvement**: "Save Configuration" button renamed to "🔒 Close Tab" to eliminate confusion
 
 ### 🚀 MAJOR NEW FEATURES (Recently ADDED)
-9. **✅ Vertical Pipeline UI (`pipeline_tab.py`)**:
+10. **✅ Vertical Pipeline UI (`pipeline_tab.py`)**:
    - Chat-like vertical workflow with 5 pipeline steps
    - Visual status indicators: ▷ (Pending), ▶ (Running), ✓ (Completed), ✗ (Error)
    - Auto-Pipeline button for one-click complete analysis
@@ -98,14 +104,14 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
    - Real-time result display in each step
    - Direct integration with PipelineManager for workflow orchestration
 
-10. **✅ Global Status Bar (`global_status_bar.py`)**:
+11. **✅ Global Status Bar (`global_status_bar.py`)**:
     - Unified provider information display across all tabs
     - Real-time cache statistics (entries count, database size)
     - Pipeline progress tracking with color-coded status
     - Auto-updating every 5 seconds for live monitoring
     - Integration with LlmService and CacheManager
 
-11. **✅ Automated Data Flow Enhancement**:
+12. **✅ Automated Data Flow Enhancement**:
     - AbstractTab automatically sends results to AnalysisReviewTab
     - New `analysis_completed` signal in AbstractTab
     - `receive_analysis_data()` method in AnalysisReviewTab

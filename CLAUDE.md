@@ -31,6 +31,7 @@ As Claude, your AI assistant, I'm here to provide comprehensive support for the 
 - Maintain backward compatibility where possible
 - **Always check and consider instructions blocks** in relevant CLAUDE.md files before implementing 
 - reformulate and clarify task and vision entries if not alredy marked as CLAUDE formatted
+- avoid hardcoded provider list like gemini, anthropic etc, read available provider and models from llmanager
 
 ### Add(ed)/Tested/Approved
 - For Task/Features/Function use numeric identifieres (1,2,3,...) to organise the task/features/functions across the documents DURING development

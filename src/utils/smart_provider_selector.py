@@ -13,6 +13,12 @@ from enum import Enum
 
 from .config_manager import ConfigManager, ProviderPreferences, ProviderDetectionService
 from ..llm.llm_service import LlmService
+from .unified_provider_config import (
+    UnifiedProviderConfig, 
+    TaskPreference, 
+    TaskType as UnifiedTaskType,
+    get_unified_config_manager
+)
 
 
 class TaskType(Enum):
@@ -22,6 +28,38 @@ class TaskType(Enum):
     TEXT = "text" 
     CLASSIFICATION = "classification"
     CHUNKED = "chunked"
+    
+    def to_unified_task_type(self) -> 'UnifiedTaskType':
+        """Map SmartProviderSelector TaskType to UnifiedTaskType - Claude Generated"""
+        mapping = {
+            TaskType.GENERAL: UnifiedTaskType.GENERAL,
+            TaskType.VISION: UnifiedTaskType.VISION,
+            TaskType.TEXT: UnifiedTaskType.TEXT_ANALYSIS,
+            TaskType.CLASSIFICATION: UnifiedTaskType.CLASSIFICATION,
+            TaskType.CHUNKED: UnifiedTaskType.CHUNKED_PROCESSING
+        }
+        return mapping.get(self, UnifiedTaskType.GENERAL)
+    
+    @classmethod
+    def from_pipeline_step(cls, step_id: str, task_name: str = "") -> 'TaskType':
+        """Map Pipeline step to appropriate TaskType - Claude Generated"""
+        # Handle chunked tasks first
+        if task_name.endswith('_chunked') or 'chunked' in task_name.lower():
+            return cls.CHUNKED
+            
+        # Map pipeline steps to task types
+        step_mapping = {
+            "input": cls.GENERAL,
+            "initialisation": cls.TEXT,
+            "search": cls.GENERAL,  # Search step doesn't use LLM
+            "keywords": cls.TEXT,
+            "verification": cls.TEXT, 
+            "classification": cls.CLASSIFICATION,
+            "dk_classification": cls.CLASSIFICATION,
+            "image_text_extraction": cls.VISION
+        }
+        
+        return step_mapping.get(step_id, cls.GENERAL)
 
 
 @dataclass
@@ -75,6 +113,17 @@ class SmartProviderSelector:
         self.config_manager = config_manager or ConfigManager()
         self.provider_detection_service = self.config_manager.get_provider_detection_service()  # Claude Generated
         
+        # Task Preference Integration - Claude Generated (Root-level config.task_preferences)
+        try:
+            # Load main config for root-level task_preferences
+            self.config = self.config_manager.load_config()
+            self.provider_preferences = self.config_manager.get_provider_preferences()
+            self.logger.info("SmartProviderSelector initialized with root-level task_preferences support")
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize Task Preference support: {e}")
+            self.config = None
+            self.provider_preferences = None
+        
         # Performance tracking
         self._provider_performance: Dict[str, List[float]] = {}
         self._provider_failures: Dict[str, int] = {}
@@ -87,7 +136,9 @@ class SmartProviderSelector:
     def select_provider(self, 
                        task_type: TaskType = TaskType.GENERAL,
                        required_capabilities: Optional[List[str]] = None,
-                       prefer_fast: bool = False) -> SmartSelection:
+                       prefer_fast: bool = False,
+                       task_name: str = "",
+                       step_id: str = "") -> SmartSelection:
         """
         Select the best provider for a given task - Claude Generated
         
@@ -95,12 +146,21 @@ class SmartProviderSelector:
             task_type: Type of LLM task
             required_capabilities: List of required capabilities (e.g., ["vision", "large_context"])
             prefer_fast: Prioritize speed over quality
+            task_name: Specific task name (e.g., "keywords", "keywords_chunked") for Task Preference lookup
+            step_id: Pipeline step identifier (e.g., "keywords", "initialisation") for automatic TaskType mapping
             
         Returns:
             SmartSelection with provider, model, config, and attempt history
         """
         start_time = time.time()
         preferences = self.config_manager.get_provider_preferences()
+        
+        # Auto-detect TaskType from step_id if not explicitly provided - Claude Generated
+        if task_type == TaskType.GENERAL and step_id:
+            detected_task_type = TaskType.from_pipeline_step(step_id, task_name)
+            if detected_task_type != TaskType.GENERAL:
+                task_type = detected_task_type
+                self.logger.info(f"Auto-detected TaskType {task_type.value} from step_id '{step_id}' and task_name '{task_name}'")
         
         # Auto-validate and cleanup preferences before using them - Claude Generated
         validation_issues = preferences.validate_preferences(self.provider_detection_service)
@@ -123,8 +183,42 @@ class SmartProviderSelector:
         # Ensure we have a valid configuration
         preferences.ensure_valid_configuration(self.provider_detection_service)
         
-        # Get provider priority list for this task
-        provider_priority = preferences.get_provider_priority_for_task(task_type.value)
+        # Get provider priority list for this task - enhanced with 3-tier hierarchy - Claude Generated
+        provider_priority = []
+        
+        # === TIER 1: Task-specific preferences from config.task_preferences (highest priority) ===
+        if self.config and task_name and task_name in self.config.task_preferences:
+            task_data = self.config.task_preferences[task_name]
+            model_priorities = task_data.get('model_priority', [])
+            
+            if model_priorities and model_priorities[0].get("provider_name") != "auto":
+                # Extract unique providers from model_priority, maintaining order
+                for entry in model_priorities:
+                    provider = entry.get("provider_name")
+                    if provider and provider not in provider_priority:
+                        provider_priority.append(provider)
+                self.logger.info(f"TIER 1: Using task-specific provider priority for {task_name}: {provider_priority}")
+        
+        # === TIER 2: Provider defaults from provider preferences (medium priority) ===  
+        if not provider_priority and self.provider_preferences:
+            # Map TaskType to task names for legacy lookup
+            task_lookup_name = task_name
+            if not task_lookup_name:
+                task_type_mapping = {
+                    TaskType.TEXT: "text_analysis",
+                    TaskType.VISION: "image_text_extraction", 
+                    TaskType.CLASSIFICATION: "classification",
+                    TaskType.CHUNKED: "text_analysis"
+                }
+                task_lookup_name = task_type_mapping.get(task_type, "general")
+            
+            provider_priority = preferences.get_provider_priority_for_task(task_type.value)
+            self.logger.info(f"TIER 2: Using provider defaults for {task_type.value}: {provider_priority}")
+        
+        # === TIER 3: Detection service fallback (lowest priority) ===
+        if not provider_priority:
+            provider_priority = list(self.provider_detection_service.get_available_providers())
+            self.logger.info(f"TIER 3: Using detection service fallback: {provider_priority}")
         
         # Filter by capabilities if specified
         if required_capabilities:
@@ -148,7 +242,7 @@ class SmartProviderSelector:
                 continue
             
             # Get preferred model for this provider
-            model = self._get_model_for_provider(provider, task_type, preferences, prefer_fast)
+            model = self._get_model_for_provider(provider, task_type, preferences, prefer_fast, task_name)
             
             # Get provider configuration
             config = self._get_provider_config(provider)
@@ -190,39 +284,106 @@ class SmartProviderSelector:
         # If we get here, all providers failed
         raise RuntimeError(f"No available providers for task type {task_type.value}. Attempted: {[a.provider for a in attempts]}")
     
-    def _get_model_for_provider(self, provider: str, task_type: TaskType, preferences: ProviderPreferences, prefer_fast: bool = False) -> str:
-        """Get the best model for a provider considering direct provider config - Claude Generated"""
-        # First, check if there's a preferred model directly in provider config
-        preferred_model = self._get_preferred_model_from_config(provider)
-        if preferred_model:
-            # Verify the preferred model is actually available
-            available_models = self.provider_detection_service.get_available_models(provider)
-            if preferred_model in available_models:
-                self.logger.info(f"Using preferred model {preferred_model} from provider config for {provider}")
-                return preferred_model
-            else:
-                self.logger.warning(f"Preferred model {preferred_model} not available for {provider}, falling back to automatic selection")
-        
-        # Fall back to automatic model selection based on task and speed preference
+    def _get_model_for_provider(self, provider: str, task_type: TaskType, preferences: ProviderPreferences, prefer_fast: bool = False, task_name: str = "") -> str:
+        """Get the best model for a provider with Task Preference hierarchical selection - Claude Generated"""
         available_models = self.provider_detection_service.get_available_models(provider)
         if not available_models:
             self.logger.warning(f"No models available for provider {provider}")
             return ""
         
-        # Apply speed vs quality preference
+        # HIERARCHICAL MODEL SELECTION - PRIORITY ORDER:
+        # 1. Task-specific model preferences (highest priority)
+        # 2. Provider config preferred model
+        # 3. Speed/quality optimization
+        # 4. First available model (fallback)
+        
+        selected_model = None
+        selection_reason = ""
+        
+        # === PRIORITY 1: Task-specific model preferences (root-level config.task_preferences) ===
+        if self.config and task_name and task_name in self.config.task_preferences:
+            try:
+                task_data = self.config.task_preferences[task_name]
+                
+                # Determine if this is a chunked task
+                is_chunked = task_type == TaskType.CHUNKED or task_name.endswith('_chunked')
+                
+                # Get appropriate model priority list
+                if is_chunked and 'chunked_model_priority' in task_data:
+                    model_priorities = task_data['chunked_model_priority']
+                    self.logger.info(f"Using chunked model priority for task {task_name}")
+                else:
+                    model_priorities = task_data.get('model_priority', [])
+                    self.logger.info(f"Using standard model priority for task {task_name}")
+                
+                # Find first available model from task priorities that matches this provider
+                for priority_entry in model_priorities:
+                    if priority_entry.get("provider_name") == provider:
+                        preferred_model = priority_entry.get("model_name")
+                        if preferred_model == "auto" or preferred_model == "default":
+                            # "auto"/"default" means use provider's preferred model
+                            break
+                        elif preferred_model and preferred_model in available_models:
+                            selected_model = preferred_model
+                            selection_reason = f"task-specific preference (rank {model_priorities.index(priority_entry) + 1})"
+                            if is_chunked:
+                                selection_reason += " [chunked]"
+                            break
+                        elif preferred_model:
+                            # Try fuzzy matching for model names
+                            fuzzy_match = self._find_fuzzy_model_match(preferred_model, available_models)
+                            if fuzzy_match:
+                                selected_model = fuzzy_match
+                                selection_reason = f"task-specific preference via fuzzy match ('{preferred_model}' -> '{fuzzy_match}')"
+                                if is_chunked:
+                                    selection_reason += " [chunked]"
+                                break
+                                
+                if selected_model:
+                    self.logger.info(f"TIER 1: Selected model {selected_model} for {provider} via {selection_reason}")
+                    return selected_model
+                    
+            except Exception as e:
+                self.logger.warning(f"Failed to use task preferences for {provider}: {e}")
+        
+        # === PRIORITY 2: Provider config preferred model ===
+        preferred_model = self._get_preferred_model_from_config(provider)
+        if preferred_model:
+            # Verify the preferred model is actually available
+            if preferred_model in available_models:
+                selected_model = preferred_model
+                selection_reason = "provider config preference"
+            else:
+                # Try fuzzy matching
+                fuzzy_match = self._find_fuzzy_model_match(preferred_model, available_models)
+                if fuzzy_match:
+                    selected_model = fuzzy_match
+                    selection_reason = f"provider config via fuzzy match ('{preferred_model}' -> '{fuzzy_match}')"
+                else:
+                    self.logger.warning(f"Preferred model {preferred_model} not available for {provider}")
+        
+        if selected_model:
+            self.logger.info(f"TIER 2: Selected model {selected_model} for {provider} via {selection_reason}")
+            return selected_model
+        
+        # === PRIORITY 3: Speed/quality optimization ===
         if prefer_fast or preferences.prefer_faster_models:
             # Prioritize models with speed indicators
             fast_models = [m for m in available_models if any(indicator in m.lower() 
                           for indicator in ['flash', 'mini', 'haiku', '14b', 'turbo', 'fast'])]
             if fast_models:
-                selected = fast_models[0]
-                self.logger.info(f"Selected fast model {selected} for provider {provider}")
-                return selected
+                selected_model = fast_models[0]
+                selection_reason = "speed optimization"
         
-        # Default: use first available model (typically the recommended one)
-        selected = available_models[0]
-        self.logger.info(f"Selected default model {selected} for provider {provider}")
-        return selected
+        if selected_model:
+            self.logger.info(f"TIER 3: Selected model {selected_model} for {provider} via {selection_reason}")
+            return selected_model
+        
+        # === PRIORITY 4: First available model (fallback) ===
+        selected_model = available_models[0]
+        selection_reason = "fallback (first available)"
+        self.logger.info(f"TIER 4: Selected model {selected_model} for {provider} via {selection_reason}")
+        return selected_model
     
     def _get_preferred_model_from_config(self, provider: str) -> Optional[str]:
         """Get preferred model directly from provider configuration - Claude Generated"""
@@ -279,6 +440,31 @@ class SmartProviderSelector:
         except Exception as e:
             self.logger.warning(f"Error getting preferred model for {provider}: {e}")
             return None
+    
+    def _find_fuzzy_model_match(self, preferred_model: str, available_models: List[str]) -> Optional[str]:
+        """Find fuzzy match for model name in available models - Claude Generated"""
+        if not preferred_model or not available_models:
+            return None
+        
+        preferred_lower = preferred_model.lower()
+        
+        # Exact match (case insensitive)
+        for model in available_models:
+            if model.lower() == preferred_lower:
+                return model
+        
+        # Partial match - preferred in available
+        for model in available_models:
+            if preferred_lower in model.lower():
+                return model
+        
+        # Partial match - available in preferred
+        for model in available_models:
+            if model.lower() in preferred_lower:
+                return model
+        
+        # No fuzzy match found
+        return None
     
     def _provider_names_match(self, config_name: str, requested_name: str) -> bool:
         """Check if provider names match with fuzzy logic for common variations - Claude Generated"""
@@ -345,45 +531,6 @@ class SmartProviderSelector:
         # Sort by speed (lower is better)
         return sorted(providers, key=lambda p: speed_ranking.get(p, 999.0))
     
-    def _get_model_for_provider(self, provider: str, task_type: TaskType, preferences: ProviderPreferences, prefer_fast: bool) -> str:
-        """Get the appropriate model for a provider and task using dynamic model detection - Claude Generated"""
-        # Check for preferred model in preferences first
-        preferred = preferences.get_preferred_model(provider)
-        
-        if preferred and not prefer_fast:
-            return preferred
-        
-        # Get available models for this provider
-        available_models = self.provider_detection_service.get_available_models(provider)
-        
-        if not available_models:
-            return preferred or ""
-        
-        models_str = ' '.join(available_models).lower()
-        
-        # Task-specific model selection
-        if task_type == TaskType.VISION:
-            # Look for vision-capable models
-            vision_indicators = ['vision', 'gpt-4o', 'claude-3', 'gemini-2.0', 'llava', 'minicpm-v']
-            for model in available_models:
-                if any(indicator in model.lower() for indicator in vision_indicators):
-                    return model
-        
-        # Speed-optimized model selection
-        if prefer_fast:
-            speed_indicators = ['flash', 'mini', 'haiku', '14b', 'turbo']
-            for model in available_models:
-                if any(indicator in model.lower() for indicator in speed_indicators):
-                    return model
-        
-        # Quality-optimized model selection (default)
-        quality_indicators = ['2.0', '4o', 'claude-3-5', 'cogito:32b', 'opus']
-        for model in available_models:
-            if any(indicator in model.lower() for indicator in quality_indicators):
-                return model
-        
-        # Fallback to preferred or first available model
-        return preferred or available_models[0]
     
     def _get_provider_config(self, provider: str) -> Dict[str, Any]:
         """Get configuration for a specific provider - Claude Generated"""
@@ -574,12 +721,12 @@ class SmartProviderSelector:
                     available_models = self.provider_detection_service.get_available_models(manual_provider)
                     if available_models and manual_model not in available_models:
                         self.logger.warning(f"Manual model '{manual_model}' not available for provider '{manual_provider}', using provider default")
-                        manual_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast)
+                        manual_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast, "")
                 
                 selected_model = manual_model
             else:
                 # Auto-select model for manual provider
-                selected_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast)
+                selected_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast, "")
             
             # Create manual selection result
             attempts.append(ProviderAttempt(
@@ -672,10 +819,10 @@ class SmartProviderSelector:
         """Get capabilities for a specific provider - Claude Generated"""
         return self.provider_detection_service.detect_provider_capabilities(provider)
     
-    def get_optimal_model_for_task(self, provider: str, task_type: TaskType, prefer_fast: bool = False) -> Optional[str]:
+    def get_optimal_model_for_task(self, provider: str, task_type: TaskType, prefer_fast: bool = False, task_name: str = "") -> Optional[str]:
         """Get the optimal model for a provider/task combination - Claude Generated"""
         preferences = self.config_manager.get_provider_preferences()
-        return self._get_model_for_provider(provider, task_type, preferences, prefer_fast)
+        return self._get_model_for_provider(provider, task_type, preferences, prefer_fast, task_name)
 
 
 # Convenience functions for easy integration

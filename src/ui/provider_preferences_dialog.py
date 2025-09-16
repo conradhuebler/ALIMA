@@ -188,17 +188,17 @@ class ProviderPreferencesDialog(QDialog):
         
         # Vision tasks
         self.vision_provider_combo = QComboBox()
-        self.vision_provider_combo.addItems(["(use general preference)", "gemini", "openai", "anthropic", "ollama"])
+        #self.vision_provider_combo.addItems(["(use general preference)", "gemini", "openai", "anthropic", "ollama"])
         task_layout.addRow("Vision/Image Tasks:", self.vision_provider_combo)
         
         # Text-only tasks
         self.text_provider_combo = QComboBox()
-        self.text_provider_combo.addItems(["(use general preference)", "ollama", "gemini", "anthropic", "openai", "chatai"])
+        #self.text_provider_combo.addItems(["(use general preference)", "ollama", "gemini", "anthropic", "openai", "chatai"])
         task_layout.addRow("Text-Only Tasks:", self.text_provider_combo)
         
         # Classification tasks
         self.classification_provider_combo = QComboBox()
-        self.classification_provider_combo.addItems(["(use general preference)", "gemini", "anthropic", "openai", "ollama", "chatai"])
+        #self.classification_provider_combo.addItems(["(use general preference)", "gemini", "anthropic", "openai", "ollama", "chatai"])
         task_layout.addRow("Classification Tasks:", self.classification_provider_combo)
         
         layout.addWidget(task_group)
@@ -207,30 +207,6 @@ class ProviderPreferencesDialog(QDialog):
         info_group = QGroupBox("Provider Capabilities Reference")
         info_layout = QVBoxLayout(info_group)
         
-        capabilities_text = """
-        <b>Vision Capabilities:</b>
-        • Gemini: Excellent vision, fast processing
-        • OpenAI (GPT-4o): High-quality image analysis
-        • Anthropic (Claude): Good vision, detailed analysis
-        • Ollama (LLaVA): Local vision models, privacy-focused
-        
-        <b>Text Processing Strengths:</b>
-        • Ollama: Local processing, privacy, custom models
-        • Gemini: Fast, good for German content
-        • Anthropic: Thoughtful analysis, good reasoning
-        • OpenAI: General purpose, function calling
-        • ChatAI: Academic focus, German language support
-        
-        <b>Classification Tasks:</b>
-        • Gemini: Fast classification, good for libraries
-        • Anthropic: Detailed reasoning, hierarchy understanding
-        • OpenAI: Consistent classification, good accuracy
-        """
-        
-        capabilities_label = QLabel(capabilities_text)
-        capabilities_label.setWordWrap(True)
-        capabilities_label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 10px; border-radius: 5px; }")
-        info_layout.addWidget(capabilities_label)
         
         layout.addWidget(info_group)
         layout.addStretch()

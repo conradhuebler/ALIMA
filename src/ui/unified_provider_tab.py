@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox, QFormLayout,
     QLineEdit, QPushButton, QLabel, QComboBox, QSpinBox, QCheckBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QProgressBar, QTextEdit,
-    QSplitter, QFrame, QScrollArea, QGridLayout, QDialog, QDialogButtonBox
+    QSplitter, QFrame, QScrollArea, QGridLayout, QDialog, QDialogButtonBox,
+    QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPalette
@@ -24,6 +25,7 @@ from ..utils.unified_provider_config import (
     TaskType as UnifiedTaskType,
     get_unified_config_manager
 )
+from ..utils.config_manager import ProviderPreferences
 
 
 class ProviderTestWorker(QThread):
@@ -77,6 +79,149 @@ class ProviderTestWorker(QThread):
                 
         except Exception as e:
             self.test_completed.emit(self.provider.name, False, f"Test failed: {str(e)}")
+
+
+class TaskModelSelectionDialog(QDialog):
+    """Dialog for selecting provider and model for task-specific preferences - Claude Generated"""
+    
+    def __init__(self, config_manager, parent=None):
+        super().__init__(parent)
+        self.config_manager = config_manager
+        self.setWindowTitle("Select Provider and Model")
+        self.setModal(True)
+        self.resize(450, 350)
+        
+        self._setup_ui()
+        self._load_providers()
+    
+    def _setup_ui(self):
+        """Setup dialog UI with real provider/model detection - Claude Generated"""
+        layout = QVBoxLayout()
+        
+        # Provider selection
+        provider_group = QGroupBox("🌐 Select Provider")
+        provider_layout = QFormLayout(provider_group)
+        
+        self.provider_combo = QComboBox()
+        self.provider_combo.currentTextChanged.connect(self._load_models)
+        provider_layout.addRow("Available Providers:", self.provider_combo)
+        layout.addWidget(provider_group)
+        
+        # Model selection
+        model_group = QGroupBox("🎯 Select Model")
+        model_layout = QVBoxLayout(model_group)
+        
+        model_info_label = QLabel("Choose a specific model or use auto-selection:")
+        model_layout.addWidget(model_info_label)
+        
+        self.model_combo = QComboBox()
+        model_layout.addWidget(self.model_combo)
+        
+        # Strict validation note - Claude Generated
+        validation_note = QLabel("📋 Only detected models are available (for Smart Mode compatibility) • Changes apply immediately")
+        validation_note.setStyleSheet("color: gray; font-style: italic; padding: 5px;")
+        model_layout.addWidget(validation_note)
+        
+        layout.addWidget(model_group)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        ok_button = QPushButton("✅ OK")
+        ok_button.clicked.connect(self.accept)
+        ok_button.setDefault(True)
+        button_layout.addWidget(ok_button)
+        
+        cancel_button = QPushButton("❌ Cancel")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+    
+    def _load_providers(self):
+        """Load real available providers using detection service - Claude Generated"""
+        self.provider_combo.clear()
+        
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            available_providers = detection_service.get_available_providers()
+            
+            if not available_providers:
+                self.provider_combo.addItem("No providers available")
+                return
+            
+            self.provider_combo.addItems(available_providers)
+            
+        except Exception as e:
+            # Fallback to basic providers if detection fails
+            fallback_providers = ["ollama", "gemini", "openai", "anthropic"]
+            self.provider_combo.addItems(fallback_providers)
+    
+    def _load_models(self, provider_name: str):
+        """Load real models for selected provider using detection service - Claude Generated"""
+        self.model_combo.clear()
+        
+        if not provider_name or provider_name == "No providers available":
+            return
+        
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            available_models = detection_service.get_available_models(provider_name)
+            
+            # Always add auto-select option first
+            self.model_combo.addItem("(Auto-select)", "default")
+            
+            if available_models:
+                for model in available_models:
+                    self.model_combo.addItem(model, model)
+            else:
+                self.model_combo.addItem("No models detected", "default")
+                
+        except Exception as e:
+            # Fallback to auto-select if detection fails
+            self.model_combo.addItem("(Auto-select)", "default")
+    
+    def get_selected_model(self):
+        """Get selected provider and model - Claude Generated"""
+        provider = self.provider_combo.currentText()
+        
+        if provider == "No providers available":
+            return None, None
+        
+        # Only use detected models from combo box - Claude Generated
+        model = self.model_combo.currentData() or "default"
+        
+        return provider, model
+    
+    def set_default_from_global_preferences(self, provider_preferences):
+        """Set dialog defaults from global provider preferences - Claude Generated"""
+        try:
+            # Set preferred provider as default
+            preferred_provider = provider_preferences.preferred_provider
+            provider_index = self.provider_combo.findText(preferred_provider)
+            if provider_index >= 0:
+                self.provider_combo.setCurrentIndex(provider_index)
+                self._on_provider_changed()  # Trigger model list update
+                
+                # Set preferred model for this provider
+                preferred_model = provider_preferences.preferred_models.get(preferred_provider)
+                if preferred_model:
+                    model_index = -1
+                    for i in range(self.model_combo.count()):
+                        if self.model_combo.itemData(i) == preferred_model:
+                            model_index = i
+                            break
+                    
+                    if model_index >= 0:
+                        self.model_combo.setCurrentIndex(model_index)
+                    else:
+                        # Model not found in dropdown, fallback to auto-select
+                        self.model_combo.setCurrentIndex(0)  # "(Auto-select)" is always first
+                        
+        except Exception as e:
+            # Silent fallback - don't interrupt user workflow
+            pass
 
 
 class ProviderEditDialog(QDialog):
@@ -276,7 +421,13 @@ class UnifiedProviderTab(QWidget):
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
         
-        # Get unified config manager
+        # Get ProviderPreferences for legacy provider settings - Claude Generated
+        self.provider_preferences = config_manager.get_provider_preferences()
+        
+        # Get main config for task_preferences (root-level) - Claude Generated  
+        self.config = config_manager.load_config()
+        
+        # Keep unified config for provider management
         self.unified_config_manager = get_unified_config_manager(config_manager)
         self.unified_config = self.unified_config_manager.get_unified_config()
         
@@ -317,26 +468,15 @@ class UnifiedProviderTab(QWidget):
         self.preferences_tab = self._create_preferences_tab()
         self.main_tabs.addTab(self.preferences_tab, "🎯 Task Preferences")
         
-        # Status & Testing Tab
-        self.status_tab = self._create_status_tab()
-        self.main_tabs.addTab(self.status_tab, "📊 Status & Testing")
         
         # Action buttons
         button_layout = QHBoxLayout()
         
         self.test_all_button = QPushButton("🧪 Test All Providers")
         self.test_all_button.clicked.connect(self._test_all_providers)
-        
-        self.reset_button = QPushButton("🔄 Reset to Defaults") 
-        self.reset_button.clicked.connect(self._reset_to_defaults)
-        
-        self.save_button = QPushButton("💾 Save Configuration")
-        self.save_button.clicked.connect(self._save_configuration)
-        
+
         button_layout.addWidget(self.test_all_button)
         button_layout.addStretch()
-        button_layout.addWidget(self.reset_button)
-        button_layout.addWidget(self.save_button)
         
         layout.addLayout(button_layout)
     
@@ -345,53 +485,46 @@ class UnifiedProviderTab(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # Provider list and controls
-        list_layout = QHBoxLayout()
-        
-        # Provider table
+        # Provider table (full width)
         self.provider_table = QTableWidget()
-        self.provider_table.setColumnCount(6)
+        self.provider_table.setColumnCount(5)
         self.provider_table.setHorizontalHeaderLabels([
-            "Name", "Type", "Status", "Models", "Capabilities", "Actions"
+            "Name", "Type", "Status", "Models", "API Key"
         ])
-        
+
         # Make table responsive
         header = self.provider_table.horizontalHeader()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Name
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type  
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Models
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)           # Capabilities
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Actions
-        
-        list_layout.addWidget(self.provider_table)
-        
-        # Control buttons
-        controls_widget = QWidget()
-        controls_layout = QVBoxLayout(controls_widget)
-        controls_widget.setMaximumWidth(150)
-        
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # API Key
+
+        layout.addWidget(self.provider_table)
+
+        # Provider control buttons (horizontal under table)
+        provider_button_layout = QHBoxLayout()
+
         self.add_provider_button = QPushButton("➕ Add Provider")
         self.add_provider_button.clicked.connect(self._add_provider)
-        
+
         self.edit_provider_button = QPushButton("✏️ Edit Provider")
         self.edit_provider_button.clicked.connect(self._edit_provider)
-        
+
         self.remove_provider_button = QPushButton("🗑️ Remove Provider")
         self.remove_provider_button.clicked.connect(self._remove_provider)
-        
+
         self.refresh_models_button = QPushButton("🔄 Refresh Models")
         self.refresh_models_button.clicked.connect(self._refresh_models)
-        
-        controls_layout.addWidget(self.add_provider_button)
-        controls_layout.addWidget(self.edit_provider_button)
-        controls_layout.addWidget(self.remove_provider_button)
-        controls_layout.addWidget(self.refresh_models_button)
-        controls_layout.addStretch()
-        
-        list_layout.addWidget(controls_widget)
-        layout.addLayout(list_layout)
+
+        provider_button_layout.addWidget(self.add_provider_button)
+        provider_button_layout.addWidget(self.edit_provider_button)
+        provider_button_layout.addWidget(self.remove_provider_button)
+        provider_button_layout.addWidget(self.refresh_models_button)
+        provider_button_layout.addStretch()
+
+        layout.addLayout(provider_button_layout)
         
         return widget
     
@@ -435,52 +568,100 @@ class UnifiedProviderTab(QWidget):
         model_layout.addWidget(self.model_preferences_table)
         layout.addWidget(model_group)
         
-        # Task-specific preferences
-        task_group = QGroupBox("🎯 Task-Specific Preferences")
-        task_layout = QVBoxLayout(task_group)
+        # Task-specific preferences - Enhanced with advanced task management - Claude Generated
+        task_group = QGroupBox("🎯 Task-Specific Model Preferences")
+        task_main_layout = QVBoxLayout(task_group)
         
-        self.task_table = QTableWidget()
-        self.task_table.setColumnCount(4)
-        self.task_table.setHorizontalHeaderLabels([
-            "Task Type", "Preferred Providers", "Performance", "Allow Fallback"
-        ])
+        # Create splitter for task management
+        task_splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        task_layout.addWidget(self.task_table)
+        # Left side: Task categories and selection
+        left_task_widget = QWidget()
+        left_task_layout = QVBoxLayout(left_task_widget)
+        
+        task_categories_label = QLabel("📋 Available Tasks")
+        task_categories_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        left_task_layout.addWidget(task_categories_label)
+        
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+        self.task_categories_list = QListWidget()
+        self.task_categories_list.setMinimumWidth(280)
+        self.task_categories_list.setMaximumWidth(350)
+        self.task_categories_list.currentItemChanged.connect(self._on_task_category_selected)
+        left_task_layout.addWidget(self.task_categories_list)
+        
+        # Right side: Model priority configuration  
+        right_task_widget = QWidget()
+        right_task_layout = QVBoxLayout(right_task_widget)
+        
+        config_header_label = QLabel("⚙️ Model Priority Configuration")
+        config_header_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        right_task_layout.addWidget(config_header_label)
+        
+        # Selected task info
+        self.selected_task_info_label = QLabel("Select a task from the categories")
+        self.selected_task_info_label.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
+        right_task_layout.addWidget(self.selected_task_info_label)
+        
+        # Chunked checkbox for applicable tasks
+        self.chunked_tasks_checkbox = QCheckBox("Enable specialized models for large texts (Chunked Processing)")
+        self.chunked_tasks_checkbox.setVisible(False)
+        self.chunked_tasks_checkbox.stateChanged.connect(self._on_chunked_tasks_toggled)
+        right_task_layout.addWidget(self.chunked_tasks_checkbox)
+        
+        # Standard model priority
+        priority_label = QLabel("Model Priority:")
+        priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        right_task_layout.addWidget(priority_label)
+        
+        self.task_model_priority_list = QListWidget()
+        from PyQt6.QtWidgets import QAbstractItemView
+        self.task_model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.task_model_priority_list.setMinimumHeight(150)
+        right_task_layout.addWidget(self.task_model_priority_list)
+        
+        # Chunked model priority (conditional)
+        self.chunked_tasks_priority_label = QLabel("Chunked Processing Model Priority:")
+        self.chunked_tasks_priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        self.chunked_tasks_priority_label.setVisible(False)
+        right_task_layout.addWidget(self.chunked_tasks_priority_label)
+        
+        self.chunked_task_model_priority_list = QListWidget()
+        self.chunked_task_model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.chunked_task_model_priority_list.setMinimumHeight(120)
+        self.chunked_task_model_priority_list.setVisible(False)
+        right_task_layout.addWidget(self.chunked_task_model_priority_list)
+        
+        # Task management buttons
+        task_button_layout = QHBoxLayout()
+        
+        add_task_model_btn = QPushButton("➕ Add Model")
+        add_task_model_btn.clicked.connect(self._add_model_to_task_priority)
+        task_button_layout.addWidget(add_task_model_btn)
+        
+        remove_task_model_btn = QPushButton("➖ Remove Model")
+        remove_task_model_btn.clicked.connect(self._remove_model_from_task_priority)
+        task_button_layout.addWidget(remove_task_model_btn)
+        
+        task_button_layout.addStretch()
+        
+        reset_task_btn = QPushButton("🔄 Reset Task")
+        reset_task_btn.clicked.connect(self._reset_selected_task_to_defaults)
+        task_button_layout.addWidget(reset_task_btn)
+        
+        right_task_layout.addLayout(task_button_layout)
+        right_task_layout.addStretch()
+        
+        # Add widgets to splitter
+        task_splitter.addWidget(left_task_widget)
+        task_splitter.addWidget(right_task_widget)
+        task_splitter.setSizes([300, 500])  # Give more space to right side
+        
+        task_main_layout.addWidget(task_splitter)
         layout.addWidget(task_group)
         
         return widget
     
-    def _create_status_tab(self) -> QWidget:
-        """Create status and testing tab - Claude Generated"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        
-        # Status overview
-        status_group = QGroupBox("📊 Provider Status Overview")
-        status_layout = QVBoxLayout(status_group)
-        
-        self.status_text = QTextEdit()
-        self.status_text.setMaximumHeight(200)
-        self.status_text.setReadOnly(True)
-        
-        status_layout.addWidget(self.status_text)
-        layout.addWidget(status_group)
-        
-        # Test results
-        test_group = QGroupBox("🧪 Connection Tests")
-        test_layout = QVBoxLayout(test_group)
-        
-        self.test_progress = QProgressBar()
-        self.test_progress.setVisible(False)
-        
-        self.test_results_text = QTextEdit()
-        self.test_results_text.setReadOnly(True)
-        
-        test_layout.addWidget(self.test_progress)
-        test_layout.addWidget(self.test_results_text)
-        layout.addWidget(test_group)
-        
-        return widget
     
     def _load_configuration(self):
         """Load unified configuration into UI - Claude Generated"""
@@ -502,8 +683,6 @@ class UnifiedProviderTab(QWidget):
             # Load task preferences
             self._populate_task_preferences()
             
-            # Update status
-            self._update_status_overview()
             
         except Exception as e:
             self.logger.error(f"Error loading unified provider configuration: {e}")
@@ -534,9 +713,51 @@ class UnifiedProviderTab(QWidget):
             # Create default config if migration fails
             self.unified_config = UnifiedProviderConfig()
     
+    def _get_all_providers(self):
+        """Get all providers from unified config + LLM config - Claude Generated"""
+        all_providers = list(self.unified_config.providers)  # Start with unified providers
+
+        existing_names = [p.name.lower() for p in all_providers]
+
+        # Add Gemini from LLM config if configured and not already present
+        if (hasattr(self.config.llm, 'gemini') and
+            self.config.llm.gemini and
+            self.config.llm.gemini.strip() and
+            self.config.llm.gemini != "your_gemini_api_key_here" and
+            "gemini" not in existing_names):
+
+            gemini_provider = UnifiedProvider(
+                name="gemini",
+                type="gemini",
+                connection_config={"api_key": self.config.llm.gemini},
+                capabilities=["vision", "text"],
+                enabled=True,
+                description="Gemini from LLM configuration"
+            )
+            all_providers.append(gemini_provider)
+
+        # Add Anthropic from LLM config if configured and not already present
+        if (hasattr(self.config.llm, 'anthropic') and
+            self.config.llm.anthropic and
+            self.config.llm.anthropic.strip() and
+            self.config.llm.anthropic != "your_anthropic_api_key_here" and
+            "anthropic" not in existing_names):
+
+            anthropic_provider = UnifiedProvider(
+                name="anthropic",
+                type="anthropic",
+                connection_config={"api_key": self.config.llm.anthropic},
+                capabilities=["text"],
+                enabled=True,
+                description="Anthropic from LLM configuration"
+            )
+            all_providers.append(anthropic_provider)
+
+        return all_providers
+
     def _populate_provider_table(self):
-        """Populate the provider table with current providers - Claude Generated"""
-        providers = self.unified_config.providers
+        """Populate the provider table with all providers (unified + config) - Claude Generated"""
+        providers = self._get_all_providers()
         self.provider_table.setRowCount(len(providers))
         
         # Get provider detection service for live model detection
@@ -589,18 +810,22 @@ class UnifiedProviderTab(QWidget):
                         else:
                             models_text = "No models detected"
                     else:
-                        status_text = "❌ Unavailable"
-                        models_text = "Provider not available"
-                        
+                        status_text = "❌ Not Working"
+                        models_text = "Provider configured but not available"
+
                 except Exception as e:
                     self.logger.debug(f"Error detecting models for {provider.name}: {e}")
                     status_text = "⚠️ Detection failed"
             else:
-                # Fallback to stored models
+                # Fallback to stored models or show as configured
                 model_count = len(provider.available_models)
                 if model_count > 0:
                     models_text = f"{model_count} models (cached)"
                     status_text = "📝 Configured"
+                else:
+                    # Provider from config but no detection service
+                    status_text = "⚠️ Configured"
+                    models_text = "Status unknown"
             
             # Status
             status_item = QTableWidgetItem(status_text)
@@ -615,18 +840,63 @@ class UnifiedProviderTab(QWidget):
                     models_tooltip += f"\n... and {len(provider.available_models) - 10} more"
                 models_item.setToolTip(models_tooltip)
             self.provider_table.setItem(row, 3, models_item)
-            
-            # Capabilities
-            capabilities_text = ", ".join(provider.capabilities[:3])  # Show first 3
-            if len(provider.capabilities) > 3:
-                capabilities_text += f" (+{len(provider.capabilities) - 3} more)"
-            capabilities_item = QTableWidgetItem(capabilities_text)
-            self.provider_table.setItem(row, 4, capabilities_item)
-            
-            # Actions - placeholder (buttons will be added later)
-            actions_item = QTableWidgetItem("Edit | Test")
-            self.provider_table.setItem(row, 5, actions_item)
-    
+
+            # API Key Status
+            api_key_status = self._get_api_key_status(provider)
+            api_key_item = QTableWidgetItem(api_key_status)
+
+            # Color coding for API key status
+            if "✅" in api_key_status:
+                api_key_item.setForeground(QPalette().color(QPalette.ColorRole.Text))
+            elif "❌" in api_key_status:
+                api_key_item.setForeground(QPalette().color(QPalette.ColorRole.PlaceholderText))
+            else:  # N/A cases
+                api_key_item.setForeground(QPalette().color(QPalette.ColorRole.Mid))
+
+            self.provider_table.setItem(row, 4, api_key_item)
+
+    def _get_api_key_status(self, provider) -> str:
+        """Get API key status for a provider - Claude Generated"""
+        try:
+            # For Ollama providers, API key is not required
+            if provider.type == "ollama":
+                return "➖ N/A"
+
+            # For API-based providers, check connection_config for api_key first
+            if provider.type in ["gemini", "anthropic", "openai_compatible"]:
+                api_key = provider.connection_config.get("api_key", "")
+
+                # Fallback to legacy LLM config for Gemini/Anthropic if no unified config
+                if not api_key or api_key.strip() == "":
+                    if provider.type == "gemini":
+                        api_key = getattr(self.config.llm, 'gemini', '')
+                    elif provider.type == "anthropic":
+                        api_key = getattr(self.config.llm, 'anthropic', '')
+
+                if api_key and api_key.strip() and api_key != "your_api_key_here":
+                    # Check if API key looks like a placeholder
+                    placeholder_indicators = ["your_", "_here", "api_key", "token", "key_here"]
+                    is_placeholder = any(indicator in api_key.lower() for indicator in placeholder_indicators)
+
+                    if is_placeholder:
+                        return "❌ Placeholder"
+                    else:
+                        # Show partial key for security (first 8 chars + ...)
+                        if len(api_key) > 8:
+                            partial_key = api_key[:8] + "..."
+                            return f"✅ {partial_key}"
+                        else:
+                            return "✅ Configured"
+                else:
+                    return "❌ Missing"
+
+            # For unknown provider types
+            return "❓ Unknown"
+
+        except Exception as e:
+            self.logger.warning(f"Error checking API key status for {provider.name}: {e}")
+            return "❓ Error"
+
     def _populate_global_preferences(self):
         """Populate global preferences - Claude Generated"""
         # Update preferred provider combo
@@ -759,6 +1029,11 @@ class UnifiedProviderTab(QWidget):
                 save_success = self.config_manager.save_config(config)
                 self.logger.critical(f"🔍 CONFIG_SAVE_SUCCESS: {save_success}")
                 
+                # Show toast notification for model preference save - Claude Generated
+                if save_success:
+                    model_text = model or "auto-select"
+                    self._show_save_toast(f"⚙️ {provider}: {model_text}")
+                
                 # DON'T emit config_changed for model preferences - it causes reload cycle
                 # self.config_changed.emit()  # <-- DISABLED TO PREVENT RELOAD CYCLE
                 self.logger.info(f"Updated preferred model for {provider}: {model or 'auto-select'} (no UI reload)")
@@ -796,57 +1071,307 @@ class UnifiedProviderTab(QWidget):
             self.logger.warning(f"Error getting preferred model for {provider}: {e}")
             return ""
     
-    def _populate_task_preferences(self):
-        """Populate task preferences table - Claude Generated"""
-        task_types = list(UnifiedTaskType)
-        self.task_table.setRowCount(len(task_types))
-        
-        for row, task_type in enumerate(task_types):
-            task_pref = self.unified_config.get_task_preference(task_type)
+    def _get_available_prompt_tasks(self) -> List[str]:
+        """Get available tasks dynamically from prompts.json - Claude Generated"""
+        try:
+            import json
+            import os
             
-            # Task Type
-            task_item = QTableWidgetItem(task_type.value.replace('_', ' ').title())
-            self.task_table.setItem(row, 0, task_item)
+            # Try to load prompts.json from project root
+            prompt_file_paths = [
+                "prompts.json",
+                "../prompts.json", 
+                "../../prompts.json",
+                os.path.join(os.path.dirname(__file__), "..", "..", "prompts.json")
+            ]
             
-            # Preferred Providers
-            providers_text = ", ".join(task_pref.preferred_providers[:2])
-            if len(task_pref.preferred_providers) > 2:
-                providers_text += f" (+{len(task_pref.preferred_providers) - 2} more)"
-            providers_item = QTableWidgetItem(providers_text)
-            self.task_table.setItem(row, 1, providers_item)
+            for prompt_path in prompt_file_paths:
+                try:
+                    if os.path.exists(prompt_path):
+                        with open(prompt_path, 'r', encoding='utf-8') as f:
+                            prompts_data = json.load(f)
+                        available_tasks = list(prompts_data.keys())
+                        self.logger.info(f"Loaded {len(available_tasks)} tasks from {prompt_path}: {available_tasks}")
+                        return sorted(available_tasks)
+                except Exception as e:
+                    self.logger.debug(f"Could not load prompts from {prompt_path}: {e}")
+                    continue
             
-            # Performance Preference
-            perf_item = QTableWidgetItem(task_pref.performance_preference.title())
-            self.task_table.setItem(row, 2, perf_item)
+            # Fallback to known tasks if prompts.json is not found
+            fallback_tasks = ["initialisation", "keywords", "keywords_chunked", "rephrase", "image_text_extraction"]
+            self.logger.warning("Could not load prompts.json, using fallback tasks")
+            return fallback_tasks
             
-            # Allow Fallback
-            fallback_item = QTableWidgetItem("Yes" if task_pref.allow_fallback else "No")
-            self.task_table.setItem(row, 3, fallback_item)
+        except Exception as e:
+            self.logger.warning(f"Error loading prompt tasks: {e}")
+            return ["initialisation", "keywords", "classification"]  # Minimal fallback
     
-    def _update_status_overview(self):
-        """Update status overview text - Claude Generated"""
-        enabled_providers = [p for p in self.unified_config.providers if p.enabled]
-        disabled_providers = [p for p in self.unified_config.providers if not p.enabled]
+    def _populate_task_preferences(self):
+        """Populate task categories and load task-specific model preferences - Enhanced - Claude Generated"""
+        self._populate_task_categories_list()
+    
+    def _populate_task_categories_list(self):
+        """Populate the task categories list with Pipeline, Vision, and other tasks - Claude Generated"""
+        self.task_categories_list.clear()
         
-        status_text = f"📊 Configuration Overview:\n\n"
-        status_text += f"• Total Providers: {len(self.unified_config.providers)}\n"
-        status_text += f"• Enabled Providers: {len(enabled_providers)}\n" 
-        status_text += f"• Disabled Providers: {len(disabled_providers)}\n"
-        status_text += f"• Preferred Provider: {self.unified_config.preferred_provider}\n"
-        status_text += f"• Auto Fallback: {'Enabled' if self.unified_config.auto_fallback else 'Disabled'}\n\n"
+        # Pipeline tasks section - Load dynamically from prompts.json - Claude Generated
+        pipeline_header = QListWidgetItem("🔥 Available LLM Tasks")
+        pipeline_header.setFlags(pipeline_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        pipeline_header.setBackground(QPalette().alternateBase())
+        pipeline_header.setFont(QFont("", -1, QFont.Weight.Bold))
+        self.task_categories_list.addItem(pipeline_header)
         
-        if enabled_providers:
-            status_text += "🟢 Enabled Providers:\n"
-            for provider in enabled_providers:
-                model_count = len(provider.available_models)
-                status_text += f"  • {provider.name} ({provider.type}) - {model_count} models\n"
+        # Load available tasks dynamically from prompts.json - Claude Generated
+        available_tasks = self._get_available_prompt_tasks()
+        for task in available_tasks:
+            item = QListWidgetItem(f"  📋 {task}")
+            item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "llm_task"})
+            self.task_categories_list.addItem(item)
         
-        if disabled_providers:
-            status_text += "\n🔴 Disabled Providers:\n"
-            for provider in disabled_providers:
-                status_text += f"  • {provider.name} ({provider.type})\n"
+        # Vision tasks section  
+        vision_header = QListWidgetItem("👁️ Vision Tasks")
+        vision_header.setFlags(vision_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        vision_header.setBackground(QPalette().alternateBase())
+        vision_header.setFont(QFont("", -1, QFont.Weight.Bold))
+        self.task_categories_list.addItem(vision_header)
         
-        self.status_text.setPlainText(status_text)
+        vision_tasks = ["image_text_extraction"]
+        for task in vision_tasks:
+            item = QListWidgetItem(f"  👁️ {task}")
+            item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
+            self.task_categories_list.addItem(item)
+        
+        # Load additional tasks from prompts.json
+        other_tasks = []
+        try:
+            import os
+            import json
+            prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
+            
+            if os.path.exists(prompts_path):
+                with open(prompts_path, 'r', encoding='utf-8') as f:
+                    prompts_data = json.load(f)
+                
+                for task_name in prompts_data.keys():
+                    if (task_name not in pipeline_tasks and 
+                        task_name not in vision_tasks and
+                        not task_name.startswith('_')):
+                        other_tasks.append(task_name)
+        
+        except Exception as e:
+            self.logger.warning(f"Could not load additional tasks from prompts.json: {e}")
+        
+        if other_tasks:
+            other_header = QListWidgetItem("🔧 Additional Tasks")
+            other_header.setFlags(other_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            other_header.setBackground(QPalette().alternateBase())
+            other_header.setFont(QFont("", -1, QFont.Weight.Bold))
+            self.task_categories_list.addItem(other_header)
+            
+            for task in other_tasks:
+                item = QListWidgetItem(f"  🔧 {task}")
+                item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "other"})
+                self.task_categories_list.addItem(item)
+    
+    def _on_task_category_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
+        """Handle task category selection change - Claude Generated"""
+        # CRITICAL FIX: Save previous task's changes before switching - Claude Generated
+        if previous and previous.data(Qt.ItemDataRole.UserRole):
+            # Save the current task preferences before switching to new task
+            self._save_current_task_preferences()
+        
+        if not current or not current.data(Qt.ItemDataRole.UserRole):
+            self.selected_task_info_label.setText("Select a task from the categories")
+            self.chunked_tasks_checkbox.setVisible(False)
+            self.chunked_tasks_priority_label.setVisible(False)
+            self.chunked_task_model_priority_list.setVisible(False)
+            self.task_model_priority_list.clear()
+            self.chunked_task_model_priority_list.clear()
+            return
+        
+        task_data = current.data(Qt.ItemDataRole.UserRole)
+        task_name = task_data["task_name"]
+        category = task_data["category"]
+        
+        self.selected_task_info_label.setText(f"Task: {task_name} ({category})")
+        
+        # Show chunked options for applicable tasks
+        chunked_applicable = task_name in ["keywords", "initialisation"] or category == "pipeline"
+        self.chunked_tasks_checkbox.setVisible(chunked_applicable)
+        
+        # Load current model priorities for this task
+        self._load_task_specific_model_priorities(task_name)
+    
+    def _load_task_specific_model_priorities(self, task_name: str):
+        """Load model priorities for the selected task using detection service - Claude Generated"""
+        self.task_model_priority_list.clear()
+        self.chunked_task_model_priority_list.clear()
+        
+        try:
+            # Get model priority for this task from root-level config.task_preferences - Claude Generated
+            if task_name in self.config.task_preferences:
+                # Task has specific preferences - validate and use them
+                task_pref_data = self.config.task_preferences[task_name]
+                raw_model_priority = task_pref_data.get('model_priority', [])
+                model_priority = self._validate_and_filter_model_priority(raw_model_priority)
+            else:
+                # Task has no specific preferences - create intelligent defaults from global provider preferences
+                model_priority = self._create_task_defaults_from_global_preferences()
+            
+            # Populate main priority list with real provider/model validation
+            detection_service = self.config_manager.get_provider_detection_service()
+            available_providers = detection_service.get_available_providers()
+            
+            for model_config in model_priority:
+                provider_name = model_config["provider_name"]
+                model_name = model_config["model_name"]
+                
+                # Validate provider is available
+                if provider_name in available_providers:
+                    available_models = detection_service.get_available_models(provider_name)
+                    
+                    # Use "Auto-select" if model is "default" or not available
+                    display_model = model_name
+                    if model_name == "default" or (available_models and model_name not in available_models):
+                        display_model = "(Auto-select)"
+                    
+                    item_text = f"{provider_name}: {display_model}"
+                    item = QListWidgetItem(item_text)
+                    item.setData(Qt.ItemDataRole.UserRole, model_config)
+                    self.task_model_priority_list.addItem(item)
+            
+            # Check if task has chunked support - use config.task_preferences - Claude Generated
+            if task_name in self.config.task_preferences:
+                task_pref_data = self.config.task_preferences[task_name]
+                if 'chunked_model_priority' in task_pref_data and task_pref_data['chunked_model_priority']:
+                    self.chunked_tasks_checkbox.setChecked(True)
+                    self._on_chunked_tasks_toggled(True)
+                    
+                    # Populate chunked priority list
+                    for model_config in task_pref_data['chunked_model_priority']:
+                        provider_name = model_config["provider_name"]
+                        model_name = model_config["model_name"]
+                        
+                        # Validate provider is available
+                        if provider_name in available_providers:
+                            available_models = detection_service.get_available_models(provider_name)
+                            
+                            # Use "Auto-select" if model is "default" or not available
+                            display_model = model_name
+                            if model_name == "default" or (available_models and model_name not in available_models):
+                                display_model = "(Auto-select)"
+                            
+                            item_text = f"{provider_name}: {display_model}"
+                            item = QListWidgetItem(item_text)
+                            item.setData(Qt.ItemDataRole.UserRole, model_config)
+                            self.chunked_task_model_priority_list.addItem(item)
+                else:
+                    self.chunked_tasks_checkbox.setChecked(False)
+                    self._on_chunked_tasks_toggled(False)
+            
+        except Exception as e:
+            self.logger.error(f"Error loading task-specific model priorities: {e}")
+            QMessageBox.warning(self, "Load Error", f"Could not load model priorities for task '{task_name}':\n{str(e)}")
+    
+    def _on_chunked_tasks_toggled(self, checked: bool):
+        """Handle chunked tasks checkbox toggle - Claude Generated"""
+        self.chunked_tasks_priority_label.setVisible(checked)
+        self.chunked_task_model_priority_list.setVisible(checked)
+    
+    def _add_model_to_task_priority(self):
+        """Add model to task priority list using real provider/model detection - Claude Generated"""
+        current_item = self.task_categories_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            QMessageBox.information(self, "No Task Selected", "Please select a task first.")
+            return
+        
+        # Create enhanced model selection dialog with global preferences as defaults - Claude Generated
+        dialog = TaskModelSelectionDialog(self.config_manager, parent=self)
+        dialog.set_default_from_global_preferences(self.provider_preferences)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            provider_name, model_name = dialog.get_selected_model()
+            if provider_name and model_name:
+                model_config = {"provider_name": provider_name, "model_name": model_name}
+                
+                # Display model name or "Auto-select" for default
+                display_model = "(Auto-select)" if model_name == "default" else model_name
+                item_text = f"{provider_name}: {display_model}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, model_config)
+                
+                # Add to appropriate list based on chunked checkbox
+                if self.chunked_tasks_checkbox.isChecked() and self.chunked_tasks_checkbox.isVisible():
+                    # Ask which list to add to
+                    reply = QMessageBox.question(
+                        self, "Add to Which List?", 
+                        "Add to standard priority list or chunked priority list?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.task_model_priority_list.addItem(item)
+                    else:
+                        self.chunked_task_model_priority_list.addItem(item)
+                else:
+                    self.task_model_priority_list.addItem(item)
+                
+                # CRITICAL FIX: Immediately save to config.task_preferences - Claude Generated
+                self._save_current_task_preferences()
+    
+    def _remove_model_from_task_priority(self):
+        """Remove selected model from task priority list - Claude Generated"""
+        # Try main list first
+        current_item = self.task_model_priority_list.currentItem()
+        if current_item:
+            row = self.task_model_priority_list.row(current_item)
+            self.task_model_priority_list.takeItem(row)
+            # CRITICAL FIX: Immediately save to config.task_preferences - Claude Generated
+            self._save_current_task_preferences()
+            return
+        
+        # Try chunked list
+        current_item = self.chunked_task_model_priority_list.currentItem()
+        if current_item:
+            row = self.chunked_task_model_priority_list.row(current_item)
+            self.chunked_task_model_priority_list.takeItem(row)
+            # CRITICAL FIX: Immediately save to config.task_preferences - Claude Generated
+            self._save_current_task_preferences()
+            return
+        
+        QMessageBox.information(self, "No Selection", "Please select a model to remove.")
+    
+    def _reset_selected_task_to_defaults(self):
+        """Reset selected task to default model priorities - Claude Generated"""
+        current_item = self.task_categories_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            QMessageBox.information(self, "No Task Selected", "Please select a task first.")
+            return
+        
+        task_data = current_item.data(Qt.ItemDataRole.UserRole)
+        task_name = task_data["task_name"]
+        
+        reply = QMessageBox.question(
+            self, "Reset Task", 
+            f"Reset task '{task_name}' to default model priorities?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Remove task from config.task_preferences (will fall back to defaults) - Claude Generated
+                if task_name in self.config.task_preferences:
+                    del self.config.task_preferences[task_name]
+                    self.config_manager.save_config(self.config)
+                
+                # Reload priorities
+                self._load_task_specific_model_priorities(task_name)
+                QMessageBox.information(self, "Reset Complete", f"Task '{task_name}' reset to default priorities.")
+                
+            except Exception as e:
+                self.logger.error(f"Error resetting task: {e}")
+                QMessageBox.critical(self, "Reset Error", f"Could not reset task '{task_name}':\n{str(e)}")
+    
     
     def _add_provider(self):
         """Add a new provider - Claude Generated"""
@@ -944,7 +1469,6 @@ class UnifiedProviderTab(QWidget):
             
             # Refresh the UI
             self._populate_provider_table()
-            self._update_status_overview()
             
             # Show result
             if updated_count > 0:
@@ -966,22 +1490,17 @@ class UnifiedProviderTab(QWidget):
     def _test_all_providers(self):
         """Test connections to all enabled providers - Claude Generated"""
         enabled_providers = [p for p in self.unified_config.providers if p.enabled]
-        
+
         if not enabled_providers:
             QMessageBox.information(self, "No Providers", "No enabled providers to test.")
             return
-        
-        self.test_progress.setVisible(True)
-        self.test_progress.setMaximum(len(enabled_providers))
-        self.test_progress.setValue(0)
-        
-        self.test_results_text.clear()
-        self.test_results_text.append("🧪 Starting provider connection tests...\n")
-        
+
+        # Simple message box implementation since status tab is removed
+        test_results = []
+        test_results.append("🧪 Provider Connection Test Results:\n")
+
         # Test each provider (simplified for now)
-        for i, provider in enumerate(enabled_providers):
-            self.test_results_text.append(f"Testing {provider.name} ({provider.type})...")
-            
+        for provider in enabled_providers:
             # Simulate test result
             if provider.type == "ollama":
                 success = True
@@ -989,48 +1508,68 @@ class UnifiedProviderTab(QWidget):
             else:
                 success = len(provider.connection_config.get("api_key", "")) > 0
                 message = "API key configured" if success else "No API key configured"
-            
+
             status_icon = "✅" if success else "❌"
-            self.test_results_text.append(f"{status_icon} {provider.name}: {message}")
-            
-            self.test_progress.setValue(i + 1)
-        
-        self.test_results_text.append("\n🏁 Testing completed.")
-        QTimer.singleShot(3000, lambda: self.test_progress.setVisible(False))
+            test_results.append(f"{status_icon} {provider.name}: {message}")
+
+        # Show results in message box
+        QMessageBox.information(self, "Provider Test Results", "\n".join(test_results))
     
-    def _reset_to_defaults(self):
-        """Reset configuration to defaults - Claude Generated"""
-        reply = QMessageBox.question(
-            self, "Reset Configuration",
-            "Are you sure you want to reset all provider configuration to defaults?\n\nThis will remove all custom providers and preferences.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.unified_config = UnifiedProviderConfig()  # Create new default config
-            self._load_configuration()
-            self.config_changed.emit()
+    def _show_save_toast(self, message: str, duration: int = 2000, error: bool = False):
+        """Show toast notification via main window's global status bar - Claude Generated"""
+        try:
+            # Navigate up the parent hierarchy to find the main window with global_status_bar
+            current_widget = self
+            main_window = None
             
-            QMessageBox.information(self, "Reset Complete", "Configuration has been reset to defaults.")
+            # Search up to 5 levels for the main window
+            for _ in range(5):
+                if current_widget is None:
+                    break
+                    
+                # Check if this widget has a global_status_bar attribute (main window)
+                if hasattr(current_widget, 'global_status_bar'):
+                    main_window = current_widget
+                    break
+                    
+                current_widget = current_widget.parent()
+            
+            # Show the toast notification
+            if main_window and hasattr(main_window, 'global_status_bar'):
+                main_window.global_status_bar.show_temporary_message(message, duration)
+            else:
+                # Fallback: Log the message if we can't find the global status bar
+                log_level = "error" if error else "info"
+                getattr(self.logger, log_level)(f"Toast notification (no status bar found): {message}")
+                
+        except Exception as e:
+            self.logger.error(f"Error showing toast notification: {e}")
     
     def _save_configuration(self):
-        """Save unified configuration - Claude Generated"""
+        """Save unified configuration and task preferences - Claude Generated"""
         try:
             # Update config from UI
             self._update_config_from_ui()
             
-            # Save via unified config manager
-            success = self.unified_config_manager.save_unified_config(self.unified_config)
+            # Save provider configurations via unified config manager
+            unified_success = self.unified_config_manager.save_unified_config(self.unified_config)
             
-            if success:
-                QMessageBox.information(self, "Save Successful", "Provider configuration has been saved successfully.")
+            # Save task preferences via main config (root-level) - Claude Generated
+            task_success = self.config_manager.save_config(self.config)
+            
+            if unified_success and task_success:
+                QMessageBox.information(self, "Configuration Applied", "All provider and task preferences have been applied successfully.")
                 self.config_changed.emit()
+            elif unified_success:
+                QMessageBox.warning(self, "Partial Application", "Provider configuration applied, but task preferences failed to apply. Please check the logs.")
+            elif task_success:
+                QMessageBox.warning(self, "Partial Application", "Task preferences applied, but provider configuration failed to apply. Please check the logs.")
             else:
-                QMessageBox.warning(self, "Save Failed", "Failed to save provider configuration. Please check the logs.")
+                QMessageBox.warning(self, "Application Failed", "Failed to apply configuration changes. Please check the logs.")
                 
         except Exception as e:
-            self.logger.error(f"Error saving unified provider configuration: {e}")
-            QMessageBox.critical(self, "Save Error", f"Error saving configuration:\n\n{str(e)}")
+            self.logger.error(f"Error saving configuration: {e}")
+            QMessageBox.critical(self, "Configuration Error", f"Error applying configuration changes:\n\n{str(e)}")
     
     def _update_config_from_ui(self):
         """Update configuration object from UI state - Claude Generated"""
@@ -1039,14 +1578,151 @@ class UnifiedProviderTab(QWidget):
         self.unified_config.auto_fallback = self.auto_fallback_checkbox.isChecked()
         self.unified_config.prefer_faster_models = self.prefer_fast_checkbox.isChecked()
         
-        # Task preferences updates would go here
-        # For now, they're managed separately
+        # Update task preferences from UI - Claude Generated
+        # FIXED: Save currently selected task before global save - Claude Generated
+        self._save_current_task_preferences()
+        
+        # NOTE: Task preferences are managed in self.config.task_preferences
+        # They are already updated by individual UI operations
+        # No additional UI → config sync needed here
     
     def _auto_save(self):
         """Auto-save configuration periodically - Claude Generated"""
         try:
             self._update_config_from_ui()
+            # Save both unified config and task preferences  
             self.unified_config_manager.save_unified_config(self.unified_config)
-            self.logger.debug("Auto-saved unified provider configuration")
+            self.config_manager.save_config(self.config)
+            self.logger.debug("Auto-saved unified provider configuration and task preferences")
         except Exception as e:
             self.logger.warning(f"Auto-save failed: {e}")
+    
+    def _save_current_task_preferences(self):
+        """Save current task priority lists to ProviderPreferences - Claude Generated"""
+        try:
+            # Get currently selected task
+            current_item = self.task_categories_list.currentItem()
+            if not current_item:
+                return
+            
+            task_data = current_item.data(Qt.ItemDataRole.UserRole)
+            if not task_data:
+                return
+            task_name = task_data["task_name"]
+            
+            # Extract model priorities from task_model_priority_list
+            model_priority = []
+            for i in range(self.task_model_priority_list.count()):
+                item = self.task_model_priority_list.item(i)
+                model_config = item.data(Qt.ItemDataRole.UserRole)
+                if model_config:
+                    model_priority.append(model_config)
+            
+            # Extract chunked model priorities if chunked mode is enabled
+            chunked_model_priority = None
+            if self.chunked_tasks_checkbox.isChecked():
+                chunked_model_priority = []
+                for i in range(self.chunked_task_model_priority_list.count()):
+                    item = self.chunked_task_model_priority_list.item(i)
+                    model_config = item.data(Qt.ItemDataRole.UserRole)
+                    if model_config:
+                        chunked_model_priority.append(model_config)
+            
+            # Save to config.task_preferences (root-level) - Claude Generated
+            self.config.task_preferences[task_name] = {
+                'model_priority': model_priority,
+                'chunked_model_priority': chunked_model_priority
+            }
+            
+            # Actually save to disk - Claude Generated
+            success = self.config_manager.save_config(self.config)
+            
+            if success:
+                # Show toast notification for task preference save - Claude Generated
+                self._show_save_toast(f"✅ {task_name} preferences saved")
+                self.logger.info(f"Task preferences saved for '{task_name}': {len(model_priority)} models, chunked: {chunked_model_priority is not None}")
+            else:
+                self._show_save_toast(f"❌ Failed to save {task_name} preferences", error=True)
+                self.logger.error(f"Failed to save task preferences for '{task_name}'")
+            
+        except Exception as e:
+            self._show_save_toast(f"❌ Save failed: {str(e)[:30]}", error=True)
+            self.logger.warning(f"Failed to save current task preferences: {e}")
+    
+    def _create_task_defaults_from_global_preferences(self) -> List[Dict[str, str]]:
+        """Create intelligent task default priorities from global provider preferences - Claude Generated"""
+        try:
+            # Start with provider_priority order
+            model_priority = []
+            
+            for provider in self.provider_preferences.provider_priority:
+                # Skip disabled providers
+                if provider in self.provider_preferences.disabled_providers:
+                    continue
+                
+                # Get preferred model for this provider (if configured)
+                preferred_model = self.provider_preferences.preferred_models.get(provider, "auto")
+                
+                # Add to model priority
+                model_priority.append({
+                    "provider_name": provider,
+                    "model_name": preferred_model
+                })
+            
+            self.logger.debug(f"Created task defaults from global preferences: {len(model_priority)} providers")
+            return model_priority
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to create task defaults from global preferences: {e}")
+            # Fallback to basic provider priority
+            return [{"provider_name": p, "model_name": "auto"} for p in self.provider_preferences.provider_priority]
+    
+    def _validate_and_filter_model_priority(self, model_priority: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """Validate model_priority entries against available models and filter invalid ones - Claude Generated"""
+        try:
+            detection_service = self.config_manager.get_provider_detection_service()
+            available_providers = detection_service.get_available_providers()
+            
+            validated_priority = []
+            removed_entries = []
+            
+            for entry in model_priority:
+                provider_name = entry.get("provider_name")
+                model_name = entry.get("model_name")
+                
+                # Skip entries with missing data
+                if not provider_name or not model_name:
+                    removed_entries.append(f"Incomplete entry: {entry}")
+                    continue
+                
+                # Check if provider is available
+                if provider_name not in available_providers:
+                    removed_entries.append(f"{provider_name}/{model_name} (provider offline)")
+                    continue
+                
+                # Special case: "auto" is always valid
+                if model_name == "auto" or model_name == "default":
+                    validated_priority.append(entry)
+                    continue
+                
+                # Check if model is available for this provider
+                try:
+                    available_models = detection_service.get_available_models(provider_name)
+                    if available_models and model_name in available_models:
+                        validated_priority.append(entry)
+                    else:
+                        removed_entries.append(f"{provider_name}/{model_name} (model not found)")
+                except Exception as e:
+                    # Provider detection failed, keep entry but mark as unverified
+                    validated_priority.append(entry)
+                    self.logger.warning(f"Could not verify model {provider_name}/{model_name}: {e}")
+            
+            # Log removed entries for user awareness
+            if removed_entries:
+                self.logger.info(f"Filtered out invalid task preference entries: {removed_entries}")
+            
+            return validated_priority
+            
+        except Exception as e:
+            self.logger.warning(f"Model validation failed, using raw priority: {e}")
+            return model_priority  # Return original if validation fails

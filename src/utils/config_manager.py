@@ -334,6 +334,8 @@ class ProviderPreferences:
         "openai": "gpt-4o"
     })
     
+    # REMOVED: task_preferences moved to root-level config.task_preferences - Claude Generated
+    
     # Fallback behavior
     auto_fallback: bool = True  # Automatically try next provider if preferred fails
     fallback_timeout: int = 30  # Seconds to wait before trying fallback
@@ -390,6 +392,12 @@ class ProviderPreferences:
         """Enable a previously disabled provider - Claude Generated"""
         if provider in self.disabled_providers:
             self.disabled_providers.remove(provider)
+    
+    # REMOVED: get_model_priority_for_task() - task preferences moved to root-level config - Claude Generated
+    
+    # REMOVED: set_task_preference() - task preferences moved to root-level config - Claude Generated
+    
+    # REMOVED: get_task_preference() - task preferences moved to root-level config - Claude Generated
     
     def validate_preferences(self, detection_service: 'ProviderDetectionService') -> Dict[str, List[str]]:
         """Validate all provider preferences against available providers - Claude Generated"""
@@ -526,6 +534,9 @@ class AlimaConfig:
     catalog: CatalogConfig = field(default_factory=CatalogConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
     provider_preferences: ProviderPreferences = field(default_factory=ProviderPreferences)  # Claude Generated
+    
+    # Task-specific model preferences for Smart Mode - Claude Generated
+    task_preferences: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
     # Version and metadata
     config_version: str = '1.0'
@@ -976,11 +987,15 @@ class ConfigManager:
                     "anthropic": "claude-3-5-sonnet",
                     "openai": "gpt-4o"
                 }),
+                # REMOVED: task_preferences loading - moved to root-level config - Claude Generated
                 auto_fallback=pref_data.get("auto_fallback", True),
                 fallback_timeout=pref_data.get("fallback_timeout", 30),
                 prefer_faster_models=pref_data.get("prefer_faster_models", False),
                 max_cost_per_request=pref_data.get("max_cost_per_request")
             )
+        
+        # Task preferences for Smart Mode - Claude Generated
+        config.task_preferences = config_data.get("task_preferences", {})
         
         # Metadata
         config.config_version = config_data.get("config_version", "1.0")

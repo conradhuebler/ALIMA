@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # Claude Generated
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QPalette
 import json
 import logging
 import getpass
@@ -24,6 +24,7 @@ from typing import Dict, Any, Optional, List
 from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, LLMConfig, CatalogConfig, SystemConfig, OpenAICompatibleProvider, OllamaProvider, ProviderPreferences
 from ..llm.prompt_service import PromptService
 from .unified_provider_tab import UnifiedProviderTab
+from ..utils.unified_provider_config import UnifiedProviderConfigManager, TaskPreference, TaskType
 
 
 class OllamaConnectionTestWorker(QThread):
@@ -735,6 +736,9 @@ class ComprehensiveSettingsDialog(QDialog):
         self.tab_widget.addTab(self.database_tab, "🗄️ Database")
         self.tab_widget.addTab(self.unified_provider_tab, "🚀 Providers & Models")  # Claude Generated - Unified Tab
         self.tab_widget.addTab(self.catalog_tab, "📚 Catalog")
+        
+        # Task Preferences are now integrated into the unified provider tab
+        
         self.tab_widget.addTab(self.prompts_tab, "📝 Prompts")
         self.tab_widget.addTab(self.system_tab, "⚙️ System")
         self.tab_widget.addTab(self.about_tab, "ℹ️ About")
@@ -743,20 +747,12 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Buttons
         button_layout = QHBoxLayout()
-        
-        self.test_button = QPushButton("🔧 Test Connection")
-        self.test_button.clicked.connect(self._test_database_connection)
-        
-        self.reset_button = QPushButton("↶ Reset to Defaults")
-        self.reset_button.clicked.connect(self._reset_to_defaults)
-        
-        button_layout.addWidget(self.test_button)
-        button_layout.addWidget(self.reset_button)
+
         button_layout.addStretch()
-        
+
         self.save_button = QPushButton("💾 Save & Close")
         self.save_button.clicked.connect(self._save_and_close)
-        
+
         self.cancel_button = QPushButton("❌ Cancel")
         self.cancel_button.clicked.connect(self.reject)
         
@@ -847,7 +843,21 @@ class ComprehensiveSettingsDialog(QDialog):
         
         conn_group.setLayout(conn_layout)
         layout.addWidget(conn_group)
-        
+
+        # Database-specific buttons
+        db_button_layout = QHBoxLayout()
+
+        self.db_test_button = QPushButton("🔧 Test Connection")
+        self.db_test_button.clicked.connect(self._test_database_connection)
+
+        self.db_reset_button = QPushButton("↺ Reset Database Settings")
+        self.db_reset_button.clicked.connect(self._reset_database_to_defaults)
+
+        db_button_layout.addWidget(self.db_test_button)
+        db_button_layout.addWidget(self.db_reset_button)
+        db_button_layout.addStretch()
+
+        layout.addLayout(db_button_layout)
         layout.addStretch()
         widget.setLayout(layout)
         return widget
@@ -2249,14 +2259,14 @@ class ComprehensiveSettingsDialog(QDialog):
         """Test database connection - Claude Generated"""
         # Update config with current settings
         config = self._get_config_from_ui()
-        
+
         # Temporarily update config manager
         self.config_manager._config = config
-        
+
         # Create and start test worker
-        self.test_button.setEnabled(False)
-        self.test_button.setText("Testing...")
-        
+        self.db_test_button.setEnabled(False)
+        self.db_test_button.setText("Testing...")
+
         self.db_test_worker = DatabaseTestWorker(self.config_manager)
         self.db_test_worker.test_completed.connect(self._on_db_test_completed)
         self.db_test_worker.start()
@@ -2264,14 +2274,43 @@ class ComprehensiveSettingsDialog(QDialog):
     @pyqtSlot(bool, str)
     def _on_db_test_completed(self, success: bool, message: str):
         """Handle database test completion - Claude Generated"""
-        self.test_button.setEnabled(True)
-        self.test_button.setText("🔧 Test Connection")
-        
+        self.db_test_button.setEnabled(True)
+        self.db_test_button.setText("🔧 Test Connection")
+
         if success:
             QMessageBox.information(self, "Database Test", f"✅ {message}")
         else:
             QMessageBox.warning(self, "Database Test", f"❌ {message}")
-    
+
+    def _reset_database_to_defaults(self):
+        """Reset only database settings to defaults - Claude Generated"""
+        reply = QMessageBox.question(
+            self,
+            "Reset Database Settings",
+            "Are you sure you want to reset database settings to their default values?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Reset only database-related UI elements to defaults
+            self.db_type_combo.setCurrentText("sqlite")
+            self.sqlite_path.setText("alima_knowledge.db")
+            self.mysql_host.setText("localhost")
+            self.mysql_port.setValue(3306)
+            self.mysql_database.setText("")
+            self.mysql_username.setText("")
+            self.mysql_password.setText("")
+            self.mysql_charset.setText("utf8mb4")
+            self.mysql_ssl_disabled.setChecked(False)
+            self.connection_timeout.setValue(30)
+            self.auto_create_tables.setChecked(True)
+
+            # Trigger UI updates
+            self._on_db_type_changed("sqlite")
+
+            QMessageBox.information(self, "Reset Complete", "Database settings have been reset to defaults.")
+
     def _reset_to_defaults(self):
         """Reset all settings to defaults - Claude Generated"""
         reply = QMessageBox.question(
@@ -2351,6 +2390,8 @@ class ComprehensiveSettingsDialog(QDialog):
     def _save_and_close(self):
         """Save configuration and close dialog - Claude Generated"""
         try:
+            # Task preferences are now handled by the unified provider tab automatically
+            
             # Save provider preferences first if the tab exists - Claude Generated
             if hasattr(self, 'provider_preferences_tab'):
                 try:
@@ -2586,6 +2627,496 @@ class ComprehensiveSettingsDialog(QDialog):
         """Reset connection test UI elements - Claude Generated"""
         self.ollama_test_btn.setEnabled(True)
         self.ollama_test_btn.setText("🔧 Test Selected Provider")
+    
+    def _create_task_preferences_tab(self) -> QWidget:
+        """Create task preferences management tab - Claude Generated"""
+        widget = QWidget()
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(15)
+        
+        # Left side: Task list
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        
+        # Task categories header
+        tasks_header = QLabel("📋 Verfügbare Tasks")
+        tasks_header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+        left_layout.addWidget(tasks_header)
+        
+        # Tasks list widget
+        self.tasks_list = QListWidget()
+        self.tasks_list.setMinimumWidth(250)
+        self.tasks_list.setMaximumWidth(300)
+        self.tasks_list.currentItemChanged.connect(self._on_task_selected)
+        
+        # Populate tasks from prompts.json and pipeline tasks
+        self._populate_tasks_list()
+        
+        left_layout.addWidget(self.tasks_list)
+        left_widget.setLayout(left_layout)
+        
+        # Right side: Model priority configuration
+        right_widget = QWidget()
+        right_layout = QVBoxLayout()
+        
+        # Right side header
+        config_header = QLabel("⚙️ Modell-Prioritäten konfigurieren")
+        config_header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+        right_layout.addWidget(config_header)
+        
+        # Selected task info
+        self.selected_task_label = QLabel("Wählen Sie einen Task aus der Liste")
+        self.selected_task_label.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
+        right_layout.addWidget(self.selected_task_label)
+        
+        # Chunked checkbox (only for applicable tasks)
+        self.chunked_checkbox = QCheckBox("Spezielle Modelle für große Texte (Chunked)")
+        self.chunked_checkbox.setVisible(False)
+        self.chunked_checkbox.stateChanged.connect(self._on_chunked_toggled)
+        right_layout.addWidget(self.chunked_checkbox)
+        
+        # Model priority list (main)
+        priority_label = QLabel("Modell-Priorität:")
+        priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        right_layout.addWidget(priority_label)
+        
+        # Model list with drag and drop
+        self.model_priority_list = QListWidget()
+        self.model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.model_priority_list.setMinimumHeight(200)
+        right_layout.addWidget(self.model_priority_list)
+        
+        # Chunked model priority list (optional)
+        self.chunked_priority_label = QLabel("Chunked-Modell-Priorität:")
+        self.chunked_priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        self.chunked_priority_label.setVisible(False)
+        right_layout.addWidget(self.chunked_priority_label)
+        
+        self.chunked_model_priority_list = QListWidget()
+        self.chunked_model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.chunked_model_priority_list.setMinimumHeight(150)
+        self.chunked_model_priority_list.setVisible(False)
+        right_layout.addWidget(self.chunked_model_priority_list)
+        
+        # Action buttons
+        button_layout = QHBoxLayout()
+        
+        add_model_btn = QPushButton("➕ Modell hinzufügen")
+        add_model_btn.clicked.connect(self._add_model_to_priority)
+        button_layout.addWidget(add_model_btn)
+        
+        remove_model_btn = QPushButton("➖ Modell entfernen")
+        remove_model_btn.clicked.connect(self._remove_model_from_priority)
+        button_layout.addWidget(remove_model_btn)
+        
+        button_layout.addStretch()
+        
+        reset_task_btn = QPushButton("🔄 Task zurücksetzen")
+        reset_task_btn.clicked.connect(self._reset_task_to_default)
+        button_layout.addWidget(reset_task_btn)
+        
+        right_layout.addLayout(button_layout)
+        right_layout.addStretch()
+        
+        right_widget.setLayout(right_layout)
+        
+        # Add splitter for resizable panes
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([300, 500])  # Give more space to right side
+        
+        main_layout.addWidget(splitter)
+        widget.setLayout(main_layout)
+        return widget
+    
+    def _populate_tasks_list(self):
+        """Populate the tasks list with pipeline and vision tasks - Claude Generated"""
+        self.tasks_list.clear()
+        
+        # Pipeline tasks section
+        pipeline_header = QListWidgetItem("🔥 Pipeline Tasks")
+        pipeline_header.setFlags(pipeline_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        pipeline_header.setBackground(QPalette().alternateBase())
+        pipeline_header.setFont(QFont("", -1, QFont.Weight.Bold))
+        self.tasks_list.addItem(pipeline_header)
+        
+        pipeline_tasks = ["initialisation", "keywords", "classification"]
+        for task in pipeline_tasks:
+            item = QListWidgetItem(f"  📋 {task}")
+            item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "pipeline"})
+            self.tasks_list.addItem(item)
+        
+        # Vision tasks section  
+        vision_header = QListWidgetItem("👁️ Vision Tasks")
+        vision_header.setFlags(vision_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        vision_header.setBackground(QPalette().alternateBase())
+        vision_header.setFont(QFont("", -1, QFont.Weight.Bold))
+        self.tasks_list.addItem(vision_header)
+        
+        vision_tasks = ["image_text_extraction"]
+        for task in vision_tasks:
+            item = QListWidgetItem(f"  👁️ {task}")
+            item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
+            self.tasks_list.addItem(item)
+        
+        # Load additional tasks from prompts.json
+        other_tasks = []
+        try:
+            from ..llm.prompt_service import PromptService
+            import os
+            prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
+            
+            if os.path.exists(prompts_path):
+                with open(prompts_path, 'r', encoding='utf-8') as f:
+                    import json
+                    prompts_data = json.load(f)
+                
+                for task_name in prompts_data.keys():
+                    if (task_name not in pipeline_tasks and 
+                        task_name not in vision_tasks and
+                        not task_name.startswith('_')):
+                        other_tasks.append(task_name)
+        
+        except Exception as e:
+            self.logger.warning(f"Could not load additional tasks from prompts.json: {e}")
+        
+        if other_tasks:
+            other_header = QListWidgetItem("🔧 Weitere Tasks")
+            other_header.setFlags(other_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            other_header.setBackground(QPalette().alternateBase())
+            other_header.setFont(QFont("", -1, QFont.Weight.Bold))
+            self.tasks_list.addItem(other_header)
+            
+            for task in other_tasks:
+                item = QListWidgetItem(f"  🔧 {task}")
+                item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "other"})
+                self.tasks_list.addItem(item)
+    
+    def _on_task_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
+        """Handle task selection change - Claude Generated"""
+        if not current or not current.data(Qt.ItemDataRole.UserRole):
+            self.selected_task_label.setText("Wählen Sie einen Task aus der Liste")
+            self.chunked_checkbox.setVisible(False)
+            self.chunked_priority_label.setVisible(False)
+            self.chunked_model_priority_list.setVisible(False)
+            self.model_priority_list.clear()
+            self.chunked_model_priority_list.clear()
+            return
+        
+        task_data = current.data(Qt.ItemDataRole.UserRole)
+        task_name = task_data["task_name"]
+        category = task_data["category"]
+        
+        self.selected_task_label.setText(f"Task: {task_name} ({category})")
+        
+        # Show chunked options for applicable tasks
+        chunked_applicable = task_name in ["keywords", "initialisation"] or category == "pipeline"
+        self.chunked_checkbox.setVisible(chunked_applicable)
+        
+        # Load current model priorities for this task
+        self._load_task_model_priorities(task_name)
+    
+    def _load_task_model_priorities(self, task_name: str):
+        """Load model priorities for the selected task - Claude Generated"""
+        self.model_priority_list.clear()
+        self.chunked_model_priority_list.clear()
+        
+        try:
+            # Get unified config manager
+            unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
+            unified_config = unified_config_manager.get_unified_config()
+            
+            # Get model priority for this task
+            model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked=False)
+            
+            # Populate main priority list
+            for model_config in model_priority:
+                provider_name = model_config["provider_name"]
+                model_name = model_config["model_name"]
+                item_text = f"{provider_name}: {model_name}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, model_config)
+                self.model_priority_list.addItem(item)
+            
+            # Check if task has chunked support
+            if task_name in unified_config.task_preferences:
+                task_pref = unified_config.task_preferences[task_name]
+                if hasattr(task_pref, 'chunked_model_priority') and task_pref.chunked_model_priority:
+                    self.chunked_checkbox.setChecked(True)
+                    self._on_chunked_toggled(True)
+                    
+                    # Populate chunked priority list
+                    for model_config in task_pref.chunked_model_priority:
+                        provider_name = model_config["provider_name"]
+                        model_name = model_config["model_name"]
+                        item_text = f"{provider_name}: {model_name}"
+                        item = QListWidgetItem(item_text)
+                        item.setData(Qt.ItemDataRole.UserRole, model_config)
+                        self.chunked_model_priority_list.addItem(item)
+                else:
+                    self.chunked_checkbox.setChecked(False)
+                    self._on_chunked_toggled(False)
+            
+        except Exception as e:
+            self.logger.error(f"Error loading task model priorities: {e}")
+            QMessageBox.warning(self, "Load Error", f"Could not load model priorities for task '{task_name}':\n{str(e)}")
+    
+    def _on_chunked_toggled(self, checked: bool):
+        """Handle chunked checkbox toggle - Claude Generated"""
+        self.chunked_priority_label.setVisible(checked)
+        self.chunked_model_priority_list.setVisible(checked)
+    
+    def _add_model_to_priority(self):
+        """Add model to priority list - Claude Generated"""
+        current_item = self.tasks_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            QMessageBox.information(self, "No Task Selected", "Please select a task first.")
+            return
+        
+        # Create dialog for model selection
+        dialog = ModelSelectionDialog(self.config_manager, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            provider_name, model_name = dialog.get_selected_model()
+            if provider_name and model_name:
+                model_config = {"provider_name": provider_name, "model_name": model_name}
+                item_text = f"{provider_name}: {model_name}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, model_config)
+                
+                # Add to appropriate list based on chunked checkbox
+                if self.chunked_checkbox.isChecked() and self.chunked_checkbox.isVisible():
+                    # Ask which list to add to
+                    reply = QMessageBox.question(
+                        self, "Add to Which List?", 
+                        "Add to standard priority list or chunked priority list?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.model_priority_list.addItem(item)
+                    else:
+                        self.chunked_model_priority_list.addItem(item)
+                else:
+                    self.model_priority_list.addItem(item)
+    
+    def _remove_model_from_priority(self):
+        """Remove selected model from priority list - Claude Generated"""
+        # Try main list first
+        current_item = self.model_priority_list.currentItem()
+        if current_item:
+            row = self.model_priority_list.row(current_item)
+            self.model_priority_list.takeItem(row)
+            return
+        
+        # Try chunked list
+        current_item = self.chunked_model_priority_list.currentItem()
+        if current_item:
+            row = self.chunked_model_priority_list.row(current_item)
+            self.chunked_model_priority_list.takeItem(row)
+            return
+        
+        QMessageBox.information(self, "No Selection", "Please select a model to remove.")
+    
+    def _reset_task_to_default(self):
+        """Reset task to default model priorities - Claude Generated"""
+        current_item = self.tasks_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            QMessageBox.information(self, "No Task Selected", "Please select a task first.")
+            return
+        
+        task_data = current_item.data(Qt.ItemDataRole.UserRole)
+        task_name = task_data["task_name"]
+        
+        reply = QMessageBox.question(
+            self, "Reset Task", 
+            f"Reset task '{task_name}' to default model priorities?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Remove task from unified config (will fall back to defaults)
+                unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
+                unified_config = unified_config_manager.get_unified_config()
+                
+                if task_name in unified_config.task_preferences:
+                    del unified_config.task_preferences[task_name]
+                    unified_config_manager.save_unified_config(unified_config)
+                
+                # Reload priorities
+                self._load_task_model_priorities(task_name)
+                QMessageBox.information(self, "Reset Complete", f"Task '{task_name}' reset to default priorities.")
+                
+            except Exception as e:
+                self.logger.error(f"Error resetting task: {e}")
+                QMessageBox.critical(self, "Reset Error", f"Could not reset task '{task_name}':\n{str(e)}")
+
+
+class ModelSelectionDialog(QDialog):
+    """Dialog for selecting provider and model - Claude Generated"""
+    
+    def __init__(self, config_manager, parent=None):
+        super().__init__(parent)
+        self.config_manager = config_manager
+        self.setWindowTitle("Modell auswählen")
+        self.setModal(True)
+        self.resize(400, 300)
+        
+        self.setup_ui()
+        self.load_providers()
+    
+    def setup_ui(self):
+        """Setup dialog UI - Claude Generated"""
+        layout = QVBoxLayout()
+        
+        # Provider selection
+        provider_label = QLabel("Provider auswählen:")
+        layout.addWidget(provider_label)
+        
+        self.provider_combo = QComboBox()
+        self.provider_combo.currentTextChanged.connect(self.load_models)
+        layout.addWidget(self.provider_combo)
+        
+        # Model selection
+        model_label = QLabel("Modell auswählen:")
+        layout.addWidget(model_label)
+        
+        self.model_combo = QComboBox()
+        layout.addWidget(self.model_combo)
+        
+        # Custom model input
+        custom_label = QLabel("Oder eigenen Modellnamen eingeben:")
+        layout.addWidget(custom_label)
+        
+        self.custom_model_input = QLineEdit()
+        self.custom_model_input.setPlaceholderText("z.B. custom-model:latest")
+        layout.addWidget(self.custom_model_input)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept)
+        button_layout.addWidget(ok_button)
+        
+        cancel_button = QPushButton("Abbrechen")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+    
+    def load_providers(self):
+        """Load available providers - Claude Generated"""
+        self.provider_combo.clear()
+        
+        try:
+            # Add common providers
+            providers = ["ollama", "gemini", "openai", "anthropic"]
+            
+            # Add configured providers from unified config
+            unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
+            unified_config = unified_config_manager.get_unified_config()
+            
+            for provider in unified_config.get_enabled_providers():
+                if provider.name not in providers:
+                    providers.append(provider.name)
+            
+            self.provider_combo.addItems(providers)
+            
+        except Exception as e:
+            # Fallback to basic providers
+            self.provider_combo.addItems(["ollama", "gemini", "openai", "anthropic"])
+    
+    def load_models(self, provider_name: str):
+        """Load models for selected provider - Claude Generated"""
+        self.model_combo.clear()
+        
+        if not provider_name:
+            return
+        
+        try:
+            # Add common models based on provider
+            if provider_name == "ollama":
+                models = ["cogito:14b", "cogito:32b", "llama3.2:latest", "mistral:latest"]
+            elif provider_name == "gemini":
+                models = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
+            elif provider_name == "openai":
+                models = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
+            elif provider_name == "anthropic":
+                models = ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
+            else:
+                models = ["default"]
+            
+            self.model_combo.addItems(models)
+            
+        except Exception:
+            # Fallback
+            self.model_combo.addItems(["default"])
+    
+    def get_selected_model(self):
+        """Get selected provider and model - Claude Generated"""
+        provider = self.provider_combo.currentText()
+        
+        # Use custom model if provided
+        custom_model = self.custom_model_input.text().strip()
+        if custom_model:
+            model = custom_model
+        else:
+            model = self.model_combo.currentText()
+        
+        return provider, model
+    
+    def _save_task_preferences_from_ui(self):
+        """Save task preferences from UI to configuration - Claude Generated"""
+        if not hasattr(self, 'tasks_list'):
+            return  # Task preferences tab not initialized
+        
+        try:
+            # Get unified config manager
+            unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
+            unified_config = unified_config_manager.get_unified_config()
+            
+            # Iterate through all tasks and update their preferences
+            for i in range(self.tasks_list.count()):
+                item = self.tasks_list.item(i)
+                task_data = item.data(Qt.ItemDataRole.UserRole)
+                
+                if not task_data:  # Skip header items
+                    continue
+                
+                task_name = task_data["task_name"]
+                
+                # Create or update task preference
+                if task_name not in unified_config.task_preferences:
+                    # Create new task preference based on category
+                    category = task_data["category"]
+                    if category == "vision":
+                        task_type = TaskType.VISION
+                    elif category == "pipeline":
+                        task_type = TaskType.TEXT_ANALYSIS
+                    else:
+                        task_type = TaskType.GENERAL
+                    
+                    unified_config.task_preferences[task_name] = TaskPreference(
+                        task_type=task_type,
+                        model_priority=[],
+                        performance_preference="balanced"
+                    )
+                
+                # We would need to get the current UI state for each task here
+                # For now, the changes are applied when the user interacts with the UI
+                # and we save the current state of the selected task
+                
+            # Save unified config
+            unified_config_manager.save_unified_config(unified_config)
+            self.logger.info("Task preferences saved successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Error saving task preferences: {e}")
+            raise
 
 
 if __name__ == "__main__":

@@ -38,15 +38,26 @@ class TaskType(Enum):
 
 @dataclass
 class TaskPreference:
-    """Task-specific provider preferences - Claude Generated"""
+    """Task-specific provider preferences with chunked-task support - Claude Generated"""
     task_type: TaskType
-    preferred_providers: List[str] = field(default_factory=list)  # Priority order
+    model_priority: List[Dict[str, str]] = field(default_factory=list)  # [{"provider_name": "p1", "model_name": "m1"}, ...]
+    chunked_model_priority: Optional[List[Dict[str, str]]] = None  # For chunked subtasks like keywords_chunked
     performance_preference: str = "balanced"  # "quality", "speed", "balanced"
     allow_fallback: bool = True
+    
+    # Legacy compatibility
+    preferred_providers: List[str] = field(default_factory=list)  # Will be migrated to model_priority
     
     def __post_init__(self):
         if isinstance(self.task_type, str):
             self.task_type = TaskType(self.task_type)
+        
+        # Migrate legacy preferred_providers to model_priority if needed
+        if self.preferred_providers and not self.model_priority:
+            self.model_priority = [
+                {"provider_name": provider, "model_name": "default"} 
+                for provider in self.preferred_providers
+            ]
 
 
 @dataclass
@@ -219,27 +230,23 @@ class UnifiedProviderConfig:
             self._setup_default_task_preferences()
     
     def _setup_default_task_preferences(self):
-        """Setup intelligent default task preferences - Claude Generated"""
+        """Setup empty default task preferences - User must configure via UI - Claude Generated"""
         self.task_preferences = {
+            # Legacy compatibility entries only
             "text_analysis": TaskPreference(
                 task_type=TaskType.TEXT_ANALYSIS,
-                preferred_providers=["ollama", "gemini", "anthropic"],
+                preferred_providers=[],  # Empty by default
                 performance_preference="balanced"
             ),
             "vision": TaskPreference(
                 task_type=TaskType.VISION,
-                preferred_providers=["gemini", "openai", "anthropic"],
-                performance_preference="quality"
-            ),
-            "classification": TaskPreference(
-                task_type=TaskType.CLASSIFICATION,
-                preferred_providers=["gemini", "anthropic", "ollama"],
+                preferred_providers=[],  # Empty by default  
                 performance_preference="quality"
             ),
             "chunked": TaskPreference(
                 task_type=TaskType.CHUNKED_PROCESSING,
-                preferred_providers=["ollama", "gemini"],
-                performance_preference="speed"
+                preferred_providers=[],  # Empty by default
+                performance_preference="balanced"
             )
         }
     
@@ -350,6 +357,39 @@ class UnifiedProviderConfig:
             performance_preference="balanced"
         )
     
+    def get_model_priority_for_task(self, task_name: str, is_chunked: bool = False) -> List[Dict[str, str]]:
+        """Get model priority for specific task, with chunked task support - Claude Generated"""
+        # Handle chunked tasks: keywords_chunked -> keywords base task
+        base_task_name = task_name
+        if task_name.endswith('_chunked'):
+            base_task_name = task_name[:-8]  # Remove '_chunked' suffix
+            is_chunked = True
+        
+        # Get task preference
+        if base_task_name in self.task_preferences:
+            task_pref = self.task_preferences[base_task_name]
+            
+            # Use chunked model priority if available and requested
+            if is_chunked and task_pref.chunked_model_priority:
+                return task_pref.chunked_model_priority
+            
+            # Use standard model priority
+            if task_pref.model_priority:
+                return task_pref.model_priority
+            
+            # Legacy fallback: convert preferred_providers to model_priority
+            if task_pref.preferred_providers:
+                return [
+                    {"provider_name": provider, "model_name": "default"}
+                    for provider in task_pref.preferred_providers
+                ]
+        
+        # Fallback to global provider priority
+        return [
+            {"provider_name": provider, "model_name": "default"}
+            for provider in self.provider_priority
+        ]
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization - Claude Generated"""
         result = asdict(self)
@@ -359,7 +399,9 @@ class UnifiedProviderConfig:
         for key, task_pref in self.task_preferences.items():
             converted_task_preferences[key] = {
                 "task_type": task_pref.task_type.value,
-                "preferred_providers": task_pref.preferred_providers,
+                "model_priority": task_pref.model_priority,
+                "chunked_model_priority": task_pref.chunked_model_priority,
+                "preferred_providers": task_pref.preferred_providers,  # Legacy compatibility
                 "performance_preference": task_pref.performance_preference,
                 "allow_fallback": task_pref.allow_fallback
             }
@@ -380,8 +422,10 @@ class UnifiedProviderConfig:
         for key, task_data in data.get("task_preferences", {}).items():
             task_preferences[key] = TaskPreference(
                 task_type=TaskType(task_data["task_type"]),
-                preferred_providers=task_data["preferred_providers"],
-                performance_preference=task_data["performance_preference"],
+                model_priority=task_data.get("model_priority", []),
+                chunked_model_priority=task_data.get("chunked_model_priority"),
+                preferred_providers=task_data.get("preferred_providers", []),  # Legacy support
+                performance_preference=task_data.get("performance_preference", "balanced"),
                 allow_fallback=task_data.get("allow_fallback", True)
             )
         

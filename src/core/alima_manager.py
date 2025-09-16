@@ -13,6 +13,7 @@ from .processing_utils import (
     extract_gnd_system_from_response,
     match_keywords_against_text,
 )
+from ..utils.unified_provider_config import UnifiedProviderConfigManager
 
 
 class AlimaManager:
@@ -414,3 +415,145 @@ class AlimaManager:
             return "openai"
         else:
             return "ollama"
+    
+    def execute_task(
+        self, 
+        task_name: str, 
+        context: Dict[str, Any],
+        stream_callback: Optional[callable] = None,
+        unified_config_manager: Optional[UnifiedProviderConfigManager] = None
+    ) -> str:
+        """Execute a task using configured model priorities with fallback support - Claude Generated
+        
+        Args:
+            task_name: Name of the task (e.g., 'image_text_extraction', 'keywords', 'keywords_chunked')
+            context: Task context containing required data (e.g., 'image_data', 'abstract', 'keywords')
+            stream_callback: Optional callback for streaming output
+            unified_config_manager: Optional config manager for task preferences
+            
+        Returns:
+            str: Task execution result
+            
+        Raises:
+            Exception: If all configured models fail to execute the task
+        """
+        self.logger.info(f"Executing task: {task_name}")
+        
+        # Get model priority for task
+        model_priority = []
+        if unified_config_manager:
+            try:
+                unified_config = unified_config_manager.get_unified_config()
+                model_priority = unified_config.get_model_priority_for_task(task_name)
+                self.logger.info(f"Using task-specific model priority: {model_priority}")
+            except Exception as e:
+                self.logger.warning(f"Error getting task preferences: {e}, using fallback")
+        
+        # Fallback to available providers if no specific priority configured
+        if not model_priority:
+            try:
+                # Use detection service to get real available providers
+                if unified_config_manager:
+                    detection_service = unified_config_manager.config_manager.get_provider_detection_service()
+                    available_providers = detection_service.get_available_providers()
+                    
+                    # Create fallback priority from available providers
+                    for provider in available_providers:
+                        model_priority.append({"provider_name": provider, "model_name": "default"})
+                
+                # Final fallback if detection fails
+                if not model_priority:
+                    model_priority = [{"provider_name": "ollama", "model_name": "default"}]
+                    
+            except Exception as e:
+                self.logger.warning(f"Error getting available providers for fallback: {e}")
+                # Emergency fallback
+                model_priority = [{"provider_name": "ollama", "model_name": "default"}]
+        
+        # Get prompt configuration
+        prompt_config = None
+        base_task_name = task_name
+        if task_name.endswith('_chunked'):
+            base_task_name = task_name[:-8]  # Remove '_chunked' suffix
+        
+        prompt_config = self.prompt_service.get_prompt_config(base_task_name, "default")
+        if not prompt_config:
+            raise Exception(f"No prompt configuration found for task: {base_task_name}")
+        
+        # Try each model in priority order
+        last_error = None
+        for i, model_config in enumerate(model_priority):
+            provider_name = model_config["provider_name"]
+            model_name = model_config["model_name"]
+            
+            # Handle 'default' model name by using first available model from provider
+            if model_name == "default":
+                try:
+                    available_models = self.llm_service.get_available_models(provider_name)
+                    if available_models:
+                        model_name = available_models[0]
+                    else:
+                        self.logger.warning(f"No models available for provider {provider_name}")
+                        continue
+                except Exception as e:
+                    self.logger.warning(f"Error getting models for {provider_name}: {e}")
+                    continue
+            
+            try:
+                self.logger.info(f"Attempting task execution with {provider_name}:{model_name} (attempt {i+1}/{len(model_priority)})")
+                
+                # Generate request ID
+                request_id = str(uuid.uuid4())
+                
+                # Prepare LLM parameters
+                llm_params = {
+                    'provider': provider_name,
+                    'model': model_name,
+                    'prompt': prompt_config.prompt.format(**context),
+                    'system': prompt_config.system or '',
+                    'request_id': request_id,
+                    'temperature': float(prompt_config.temp),
+                    'p_value': float(prompt_config.p_value),
+                    'seed': prompt_config.seed,
+                    'stream_callback': stream_callback
+                }
+                
+                # Add image if present in context
+                if 'image_data' in context:
+                    llm_params['image'] = context['image_data']
+                
+                # Execute LLM call
+                response = self.llm_service.generate_response(**llm_params)
+                
+                # Handle response (generator or string)
+                if hasattr(response, "__iter__") and not isinstance(response, str):
+                    # Generator response
+                    response_parts = []
+                    for chunk in response:
+                        if isinstance(chunk, str):
+                            response_parts.append(chunk)
+                        elif hasattr(chunk, 'text'):
+                            response_parts.append(chunk.text)
+                        elif hasattr(chunk, 'content'):
+                            response_parts.append(chunk.content)
+                        else:
+                            response_parts.append(str(chunk))
+                    result = "".join(response_parts)
+                else:
+                    result = str(response)
+                
+                if result.strip():
+                    self.logger.info(f"Task {task_name} completed successfully with {provider_name}:{model_name}")
+                    return result
+                else:
+                    raise Exception("Empty response from LLM")
+                    
+            except Exception as e:
+                last_error = e
+                self.logger.warning(f"Task execution failed with {provider_name}:{model_name}: {e}")
+                continue
+        
+        # All models failed
+        error_msg = f"All configured models failed for task '{task_name}'. Last error: {last_error}"
+        self.logger.error(error_msg)
+        raise Exception(error_msg)
