@@ -21,6 +21,7 @@ class AlimaManager:
         self,
         llm_service: LlmService,
         prompt_service: PromptService,
+        config_manager: "ConfigManager",
         logger: logging.Logger = None,
     ):
         self.ollama_url = "http://localhost"  # Default Ollama URL, can be overridden
@@ -28,6 +29,7 @@ class AlimaManager:
 
         self.llm_service = llm_service
         self.prompt_service = prompt_service
+        self.config_manager = config_manager
         self.logger = logger or logging.getLogger(__name__)
 
     def set_ollama_url(self, url: str):
@@ -232,7 +234,7 @@ class AlimaManager:
                 }
                 formatted_prompt = prompt_config.prompt.format(**variables)
                 response_text = self._generate_response(
-                    request_id, prompt_config, formatted_prompt, provider
+                    request_id, prompt_config, formatted_prompt, provider, stream_callback
                 )
                 if response_text is None:
                     return AnalysisResult(
@@ -241,7 +243,7 @@ class AlimaManager:
                 chunk_results.append(response_text)
 
         combined_text = self._combine_chunk_results(
-            request_id, chunk_results, prompt_config, provider
+            request_id, chunk_results, prompt_config, provider, stream_callback
         )
         if combined_text is None:
             return AnalysisResult(
@@ -265,6 +267,7 @@ class AlimaManager:
         chunk_results: List[str],
         prompt_config: PromptConfigData,
         provider: Optional[str] = None,
+        stream_callback: Optional[callable] = None,
     ) -> Optional[str]:
         if len(chunk_results) == 1:
             return chunk_results[0]
@@ -281,7 +284,7 @@ class AlimaManager:
         formatted_prompt = combination_prompt_text.format(chunks=combined_input)
 
         return self._generate_response(
-            request_id, prompt_config, formatted_prompt, provider
+            request_id, prompt_config, formatted_prompt, provider, stream_callback
         )
 
     def _generate_response(
@@ -296,19 +299,26 @@ class AlimaManager:
         seed: int = 0,
     ) -> Optional[str]:
         try:
-            actual_provider = (
-                provider
-                if provider
-                else (
-                    self._get_provider_for_model(prompt_config.models[0], provider)
-                    if prompt_config.models
-                    else "default"
-                )
-            )
+            # CRITICAL DEBUG: Provider resolution for Smart Mode - Claude Generated
+            self.logger.info(f"🔍 PROVIDER_RESOLUTION: input provider='{provider}', models={prompt_config.models}")
+
+            # Provider must be explicitly provided - no more guessing - Claude Generated
+            if not provider:
+                raise ValueError(f"Provider must be explicitly provided to AlimaManager. "
+                               f"Received: provider='{provider}', models={prompt_config.models}")
+
+            actual_provider = provider
+
+            self.logger.info(f"🔍 PROVIDER_RESOLVED: actual_provider='{actual_provider}'")
+
+            # CRITICAL DEBUG: LLM service call - Claude Generated
+            llm_model = prompt_config.models[0] if prompt_config.models else "default"
+            self.logger.info(f"🚀 LLM_SERVICE_CALL: provider='{actual_provider}', model='{llm_model}'")
+            self.logger.info(f"🔄 STREAM_CALLBACK: {'✅ YES' if stream_callback else '❌ NONE'}")
 
             response_generator = self.llm_service.generate_response(
                 provider=actual_provider,
-                model=prompt_config.models[0] if prompt_config.models else "default",
+                model=llm_model,
                 prompt=formatted_prompt,
                 request_id=request_id,
                 temperature=temperature,
@@ -318,23 +328,33 @@ class AlimaManager:
                 stream=True,  # Enable streaming
             )
 
+            self.logger.info(f"📊 LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
+
             full_response_text = ""
             if response_generator is None:
                 self.logger.error(
-                    f"LLM service returned None for request_id: {request_id}"
+                    f"💥 LLM service returned None for request_id: {request_id}, provider: {actual_provider}, model: {llm_model}"
                 )
                 return None
 
             try:
+                chunk_count = 0
                 for text_chunk in response_generator:
                     if text_chunk is None:
                         continue  # Skip None chunks
+                    chunk_count += 1
                     full_response_text += text_chunk
                     if stream_callback:
+                        self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")
                         stream_callback(text_chunk)
+                    else:
+                        self.logger.debug(f"📡 Chunk #{chunk_count} (no callback): '{text_chunk[:50]}...'")
+
+                self.logger.info(f"✅ LLM_STREAM_COMPLETE: {chunk_count} chunks, {len(full_response_text)} chars total")
+
             except Exception as e:
                 self.logger.error(
-                    f"Error during streaming LLM response for request_id {request_id}: {e}"
+                    f"💥 Error during streaming LLM response for request_id {request_id}: {e}"
                 )
                 return None
 
@@ -404,24 +424,11 @@ class AlimaManager:
         )
         return matched_keywords
 
-    def _get_provider_for_model(
-        self, model_name: str, explicit_provider: Optional[str] = None
-    ) -> str:
-        if explicit_provider:
-            return explicit_provider
-        if "gemini" in model_name.lower():
-            return "gemini"
-        elif "gpt" in model_name.lower():
-            return "openai"
-        else:
-            return "ollama"
-    
     def execute_task(
         self, 
         task_name: str, 
         context: Dict[str, Any],
-        stream_callback: Optional[callable] = None,
-        unified_config_manager: Optional[UnifiedProviderConfigManager] = None
+        stream_callback: Optional[callable] = None
     ) -> str:
         """Execute a task using configured model priorities with fallback support - Claude Generated
         
@@ -429,7 +436,6 @@ class AlimaManager:
             task_name: Name of the task (e.g., 'image_text_extraction', 'keywords', 'keywords_chunked')
             context: Task context containing required data (e.g., 'image_data', 'abstract', 'keywords')
             stream_callback: Optional callback for streaming output
-            unified_config_manager: Optional config manager for task preferences
             
         Returns:
             str: Task execution result
@@ -439,12 +445,22 @@ class AlimaManager:
         """
         self.logger.info(f"Executing task: {task_name}")
         
+        # Create UnifiedProviderConfigManager from the instance's config_manager
+        unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
+
+        # Handle chunked tasks: keywords_chunked -> keywords base task
+        base_task_name = task_name
+        is_chunked = False
+        if task_name.endswith('_chunked'):
+            base_task_name = task_name[:-8]  # Remove '_chunked' suffix
+            is_chunked = True
+        
         # Get model priority for task
         model_priority = []
         if unified_config_manager:
             try:
                 unified_config = unified_config_manager.get_unified_config()
-                model_priority = unified_config.get_model_priority_for_task(task_name)
+                model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked)
                 self.logger.info(f"Using task-specific model priority: {model_priority}")
             except Exception as e:
                 self.logger.warning(f"Error getting task preferences: {e}, using fallback")
@@ -470,21 +486,17 @@ class AlimaManager:
                 # Emergency fallback
                 model_priority = [{"provider_name": "ollama", "model_name": "default"}]
         
-        # Get prompt configuration
-        prompt_config = None
-        base_task_name = task_name
-        if task_name.endswith('_chunked'):
-            base_task_name = task_name[:-8]  # Remove '_chunked' suffix
-        
-        prompt_config = self.prompt_service.get_prompt_config(base_task_name, "default")
-        if not prompt_config:
-            raise Exception(f"No prompt configuration found for task: {base_task_name}")
-        
         # Try each model in priority order
         last_error = None
         for i, model_config in enumerate(model_priority):
             provider_name = model_config["provider_name"]
             model_name = model_config["model_name"]
+
+            # Get prompt configuration for the current model
+            prompt_config = self.prompt_service.get_prompt_config(base_task_name, model_name)
+            if not prompt_config:
+                self.logger.warning(f"No prompt configuration found for task '{base_task_name}' and model '{model_name}', skipping.")
+                continue
             
             # Handle 'default' model name by using first available model from provider
             if model_name == "default":
@@ -515,7 +527,7 @@ class AlimaManager:
                     'temperature': float(prompt_config.temp),
                     'p_value': float(prompt_config.p_value),
                     'seed': prompt_config.seed,
-                    'stream_callback': stream_callback
+                    'stream': False  # No streaming for execute_task method
                 }
                 
                 # Add image if present in context

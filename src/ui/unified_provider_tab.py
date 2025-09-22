@@ -413,20 +413,40 @@ class UnifiedProviderTab(QWidget):
     Unified Provider Configuration Tab - Claude Generated
     Consolidates LLM Provider and Provider Preferences into single interface
     """
-    
+
     config_changed = pyqtSignal()
+    task_preferences_changed = pyqtSignal()  # New signal for task preference changes - Claude Generated
     
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
-        
+
         # Get ProviderPreferences for legacy provider settings - Claude Generated
         self.provider_preferences = config_manager.get_provider_preferences()
-        
-        # Get main config for task_preferences (root-level) - Claude Generated  
+
+        # Get main config for task_preferences (root-level) - Claude Generated
         self.config = config_manager.load_config()
-        
+
+        # CRITICAL FIX: Add explicit task tracking to prevent cross-contamination - Claude Generated
+        self.current_editing_task = None  # Track which task is currently being edited
+        self.task_ui_dirty = False  # Track if current task UI has unsaved changes
+
+        # 🔍 DEBUG: Log config loading for legacy provider detection - Claude Generated
+        self.logger.critical(f"🔍 CONFIG_LOAD: config loaded={self.config is not None}")
+        if self.config and hasattr(self.config, 'llm'):
+            self.logger.critical(f"🔍 CONFIG_LLM: hasattr llm={hasattr(self.config, 'llm')}")
+            if hasattr(self.config.llm, 'gemini'):
+                gemini_val = getattr(self.config.llm, 'gemini', '')
+                self.logger.critical(f"🔍 CONFIG_GEMINI: value_exists={bool(gemini_val)}, length={len(gemini_val) if gemini_val else 0}")
+                self.logger.critical(f"🔍 CONFIG_GEMINI: is_placeholder={gemini_val == 'your_gemini_api_key_here' if gemini_val else False}")
+            if hasattr(self.config.llm, 'anthropic'):
+                anthropic_val = getattr(self.config.llm, 'anthropic', '')
+                self.logger.critical(f"🔍 CONFIG_ANTHROPIC: value_exists={bool(anthropic_val)}, length={len(anthropic_val) if anthropic_val else 0}")
+                self.logger.critical(f"🔍 CONFIG_ANTHROPIC: is_placeholder={anthropic_val == 'your_anthropic_api_key_here' if anthropic_val else False}")
+        else:
+            self.logger.critical("🔍 CONFIG_NO_LLM: config has no llm attribute")
+
         # Keep unified config for provider management
         self.unified_config_manager = get_unified_config_manager(config_manager)
         self.unified_config = self.unified_config_manager.get_unified_config()
@@ -682,8 +702,10 @@ class UnifiedProviderTab(QWidget):
             
             # Load task preferences
             self._populate_task_preferences()
-            
-            
+
+            # CRITICAL FIX: Initialize task editing state properly - Claude Generated
+            self._initialize_task_editing_state()
+
         except Exception as e:
             self.logger.error(f"Error loading unified provider configuration: {e}")
             QMessageBox.critical(self, "Loading Error", f"Failed to load configuration:\n\n{str(e)}")
@@ -717,15 +739,28 @@ class UnifiedProviderTab(QWidget):
         """Get all providers from unified config + LLM config - Claude Generated"""
         all_providers = list(self.unified_config.providers)  # Start with unified providers
 
+        # 🔍 DEBUG: Log unified provider count - Claude Generated
+        self.logger.critical(f"🔍 UNIFIED_PROVIDERS: Found {len(all_providers)} unified providers: {[p.name for p in all_providers]}")
+
         existing_names = [p.name.lower() for p in all_providers]
 
-        # Add Gemini from LLM config if configured and not already present
-        if (hasattr(self.config.llm, 'gemini') and
-            self.config.llm.gemini and
-            self.config.llm.gemini.strip() and
-            self.config.llm.gemini != "your_gemini_api_key_here" and
-            "gemini" not in existing_names):
+        # 🔍 DEBUG: Check LLM config availability - Claude Generated
+        self.logger.critical(f"🔍 LLM_CONFIG_CHECK: hasattr(config.llm, 'gemini')={hasattr(self.config.llm, 'gemini')}")
+        if hasattr(self.config.llm, 'gemini'):
+            gemini_key = getattr(self.config.llm, 'gemini', '')
+            self.logger.critical(f"🔍 GEMINI_KEY: exists={bool(gemini_key)}, length={len(gemini_key) if gemini_key else 0}, not_placeholder={gemini_key != 'your_gemini_api_key_here' if gemini_key else False}")
 
+        # Add Gemini from LLM config if configured and not already present
+        gemini_conditions = [
+            hasattr(self.config.llm, 'gemini'),
+            self.config.llm.gemini,
+            self.config.llm.gemini.strip() if self.config.llm.gemini else False,
+            self.config.llm.gemini != "your_gemini_api_key_here" if self.config.llm.gemini else False,
+            "gemini" not in existing_names
+        ]
+        self.logger.critical(f"🔍 GEMINI_CONDITIONS: {gemini_conditions}")
+
+        if all(gemini_conditions):
             gemini_provider = UnifiedProvider(
                 name="gemini",
                 type="gemini",
@@ -735,14 +770,26 @@ class UnifiedProviderTab(QWidget):
                 description="Gemini from LLM configuration"
             )
             all_providers.append(gemini_provider)
+            self.logger.critical(f"🔍 GEMINI_ADDED: Successfully added Gemini from LLM config")
+        else:
+            self.logger.critical(f"🔍 GEMINI_SKIPPED: Conditions not met")
+
+        # 🔍 DEBUG: Check Anthropic config - Claude Generated
+        if hasattr(self.config.llm, 'anthropic'):
+            anthropic_key = getattr(self.config.llm, 'anthropic', '')
+            self.logger.critical(f"🔍 ANTHROPIC_KEY: exists={bool(anthropic_key)}, length={len(anthropic_key) if anthropic_key else 0}, not_placeholder={anthropic_key != 'your_anthropic_api_key_here' if anthropic_key else False}")
 
         # Add Anthropic from LLM config if configured and not already present
-        if (hasattr(self.config.llm, 'anthropic') and
-            self.config.llm.anthropic and
-            self.config.llm.anthropic.strip() and
-            self.config.llm.anthropic != "your_anthropic_api_key_here" and
-            "anthropic" not in existing_names):
+        anthropic_conditions = [
+            hasattr(self.config.llm, 'anthropic'),
+            self.config.llm.anthropic,
+            self.config.llm.anthropic.strip() if self.config.llm.anthropic else False,
+            self.config.llm.anthropic != "your_anthropic_api_key_here" if self.config.llm.anthropic else False,
+            "anthropic" not in existing_names
+        ]
+        self.logger.critical(f"🔍 ANTHROPIC_CONDITIONS: {anthropic_conditions}")
 
+        if all(anthropic_conditions):
             anthropic_provider = UnifiedProvider(
                 name="anthropic",
                 type="anthropic",
@@ -752,6 +799,12 @@ class UnifiedProviderTab(QWidget):
                 description="Anthropic from LLM configuration"
             )
             all_providers.append(anthropic_provider)
+            self.logger.critical(f"🔍 ANTHROPIC_ADDED: Successfully added Anthropic from LLM config")
+        else:
+            self.logger.critical(f"🔍 ANTHROPIC_SKIPPED: Conditions not met")
+
+        # 🔍 DEBUG: Final provider count - Claude Generated
+        self.logger.critical(f"🔍 FINAL_PROVIDERS: Total {len(all_providers)} providers: {[p.name for p in all_providers]}")
 
         return all_providers
 
@@ -1175,11 +1228,23 @@ class UnifiedProviderTab(QWidget):
     
     def _on_task_category_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         """Handle task category selection change - Claude Generated"""
-        # CRITICAL FIX: Save previous task's changes before switching - Claude Generated
-        if previous and previous.data(Qt.ItemDataRole.UserRole):
-            # Save the current task preferences before switching to new task
-            self._save_current_task_preferences()
-        
+        # CRITICAL FIX: Save previous task's changes before switching using explicit task name - Claude Generated
+        if previous and previous.data(Qt.ItemDataRole.UserRole) and self.current_editing_task:
+            # Save the previous task preferences using the explicit task name
+            previous_task_data = previous.data(Qt.ItemDataRole.UserRole)
+            previous_task_name = previous_task_data["task_name"]
+            self.logger.info(f"Saving preferences for previous task: {previous_task_name}")
+            self._save_current_task_preferences(explicit_task_name=previous_task_name)
+
+        # CRITICAL FIX: Use safe task clearing to preserve changes - Claude Generated
+        if self.current_editing_task and self.task_ui_dirty:
+            # Save current task before clearing
+            self.logger.info(f"Auto-saving changes for {self.current_editing_task} before clearing selection")
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+
+        self.current_editing_task = None
+        self.task_ui_dirty = False
+
         if not current or not current.data(Qt.ItemDataRole.UserRole):
             self.selected_task_info_label.setText("Select a task from the categories")
             self.chunked_tasks_checkbox.setVisible(False)
@@ -1192,20 +1257,26 @@ class UnifiedProviderTab(QWidget):
         task_data = current.data(Qt.ItemDataRole.UserRole)
         task_name = task_data["task_name"]
         category = task_data["category"]
-        
+
+        # CRITICAL FIX: Use safe task switching to prevent contamination - Claude Generated
+        self._safe_task_switch(task_name)
+
         self.selected_task_info_label.setText(f"Task: {task_name} ({category})")
-        
+        self.logger.info(f"Now editing task: {task_name}")
+
         # Show chunked options for applicable tasks
         chunked_applicable = task_name in ["keywords", "initialisation"] or category == "pipeline"
         self.chunked_tasks_checkbox.setVisible(chunked_applicable)
-        
+
         # Load current model priorities for this task
         self._load_task_specific_model_priorities(task_name)
     
     def _load_task_specific_model_priorities(self, task_name: str):
         """Load model priorities for the selected task using detection service - Claude Generated"""
+        # CRITICAL FIX: Clear UI state and reset dirty flag when loading new task - Claude Generated
         self.task_model_priority_list.clear()
         self.chunked_task_model_priority_list.clear()
+        self.task_ui_dirty = False  # Loading fresh data, UI is now clean
         
         try:
             # Get model priority for this task from root-level config.task_preferences - Claude Generated
@@ -1277,6 +1348,12 @@ class UnifiedProviderTab(QWidget):
         """Handle chunked tasks checkbox toggle - Claude Generated"""
         self.chunked_tasks_priority_label.setVisible(checked)
         self.chunked_task_model_priority_list.setVisible(checked)
+
+        # CRITICAL FIX: Mark UI as dirty when chunked setting changes - Claude Generated
+        if self.current_editing_task:
+            self.task_ui_dirty = True
+            # Auto-save the chunked setting change immediately
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
     
     def _add_model_to_task_priority(self):
         """Add model to task priority list using real provider/model detection - Claude Generated"""
@@ -1284,20 +1361,65 @@ class UnifiedProviderTab(QWidget):
         if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
             QMessageBox.information(self, "No Task Selected", "Please select a task first.")
             return
-        
-        # Create enhanced model selection dialog with global preferences as defaults - Claude Generated
+
+        # CRITICAL FIX: Lock the currently selected task to prevent cross-contamination - Claude Generated
+        task_data = current_item.data(Qt.ItemDataRole.UserRole)
+        selected_task_name = task_data["task_name"]
+        selected_task_display = task_data.get("display_name", selected_task_name.replace('_', ' ').title())
+
+        # CRITICAL FIX: Validate that we're adding to the correct task - Claude Generated
+        if self.current_editing_task != selected_task_name:
+            self.logger.error(f"Task mismatch: current_editing_task='{self.current_editing_task}' vs selected='{selected_task_name}'")
+            QMessageBox.warning(
+                self, "Task Mismatch Error",
+                f"Internal error: Cannot add model to '{selected_task_name}' while editing '{self.current_editing_task}'. "
+                f"Please re-select the task and try again."
+            )
+            return
+
+        # Create enhanced model selection dialog with task-specific context - Claude Generated
         dialog = TaskModelSelectionDialog(self.config_manager, parent=self)
+
+        # ENHANCEMENT: Set window title to show which task is being modified - Claude Generated
+        dialog.setWindowTitle(f"Add Model for Task: {selected_task_display}")
+
+        # Add task-specific information to the dialog - Claude Generated
+        if hasattr(dialog, 'layout'):
+            # Insert task info label at the top of the dialog
+            task_info_label = QLabel(f"🎯 Adding model preference for: <b>{selected_task_display}</b> ({selected_task_name})")
+            task_info_label.setStyleSheet("background-color: #e3f2fd; padding: 8px; border-radius: 4px; margin-bottom: 10px;")
+            task_info_label.setWordWrap(True)
+            dialog.layout().insertWidget(0, task_info_label)
+
         dialog.set_default_from_global_preferences(self.provider_preferences)
+
+        # CRITICAL FIX: Verify the task selection hasn't changed during dialog - Claude Generated
         if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Double-check that the task selection is still valid
+            current_item_verify = self.task_categories_list.currentItem()
+            if (not current_item_verify or
+                not current_item_verify.data(Qt.ItemDataRole.UserRole) or
+                current_item_verify.data(Qt.ItemDataRole.UserRole).get("task_name") != selected_task_name):
+
+                QMessageBox.warning(
+                    self, "Task Selection Changed",
+                    f"Task selection changed during model selection. "
+                    f"Please select '{selected_task_display}' again and retry."
+                )
+                return
+
             provider_name, model_name = dialog.get_selected_model()
             if provider_name and model_name:
                 model_config = {"provider_name": provider_name, "model_name": model_name}
-                
+
                 # Display model name or "Auto-select" for default
                 display_model = "(Auto-select)" if model_name == "default" else model_name
                 item_text = f"{provider_name}: {display_model}"
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.ItemDataRole.UserRole, model_config)
+
+                # Log which task is being modified for debugging - Claude Generated
+                self.logger.info(f"Adding model preference to task '{selected_task_name}': {provider_name}/{model_name}")
                 
                 # Add to appropriate list based on chunked checkbox
                 if self.chunked_tasks_checkbox.isChecked() and self.chunked_tasks_checkbox.isVisible():
@@ -1315,8 +1437,9 @@ class UnifiedProviderTab(QWidget):
                 else:
                     self.task_model_priority_list.addItem(item)
                 
-                # CRITICAL FIX: Immediately save to config.task_preferences - Claude Generated
-                self._save_current_task_preferences()
+                # CRITICAL FIX: Mark UI as dirty and save immediately using explicit task name - Claude Generated
+                self.task_ui_dirty = True
+                self._save_current_task_preferences(explicit_task_name=selected_task_name)
     
     def _remove_model_from_task_priority(self):
         """Remove selected model from task priority list - Claude Generated"""
@@ -1325,8 +1448,12 @@ class UnifiedProviderTab(QWidget):
         if current_item:
             row = self.task_model_priority_list.row(current_item)
             self.task_model_priority_list.takeItem(row)
-            # CRITICAL FIX: Immediately save to config.task_preferences - Claude Generated
-            self._save_current_task_preferences()
+            # CRITICAL FIX: Mark UI as dirty and save with explicit task name - Claude Generated
+            if self.current_editing_task:
+                self.task_ui_dirty = True
+                self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+            else:
+                self.logger.warning("No current editing task for remove operation")
             return
         
         # Try chunked list
@@ -1334,8 +1461,12 @@ class UnifiedProviderTab(QWidget):
         if current_item:
             row = self.chunked_task_model_priority_list.row(current_item)
             self.chunked_task_model_priority_list.takeItem(row)
-            # CRITICAL FIX: Immediately save to config.task_preferences - Claude Generated
-            self._save_current_task_preferences()
+            # CRITICAL FIX: Mark UI as dirty and save with explicit task name - Claude Generated
+            if self.current_editing_task:
+                self.task_ui_dirty = True
+                self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+            else:
+                self.logger.warning("No current editing task for remove operation")
             return
         
         QMessageBox.information(self, "No Selection", "Please select a model to remove.")
@@ -1363,6 +1494,10 @@ class UnifiedProviderTab(QWidget):
                 if task_name in self.config.task_preferences:
                     del self.config.task_preferences[task_name]
                     self.config_manager.save_config(self.config)
+
+                    # CRITICAL FIX: Update current editing task state after reset - Claude Generated
+                    if self.current_editing_task == task_name:
+                        self.task_ui_dirty = False  # UI will be reloaded with defaults
                 
                 # Reload priorities
                 self._load_task_specific_model_priorities(task_name)
@@ -1577,11 +1712,15 @@ class UnifiedProviderTab(QWidget):
         self.unified_config.preferred_provider = self.preferred_provider_combo.currentText()
         self.unified_config.auto_fallback = self.auto_fallback_checkbox.isChecked()
         self.unified_config.prefer_faster_models = self.prefer_fast_checkbox.isChecked()
-        
-        # Update task preferences from UI - Claude Generated
-        # FIXED: Save currently selected task before global save - Claude Generated
-        self._save_current_task_preferences()
-        
+
+        # CRITICAL FIX: Only save task preferences if we have an explicit task and no UI conflicts - Claude Generated
+        if self.current_editing_task and not self.task_ui_dirty:
+            # Only save if UI state is clean to prevent contamination
+            self.logger.debug(f"Global save: saving clean task preferences for {self.current_editing_task}")
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+        elif self.current_editing_task and self.task_ui_dirty:
+            self.logger.warning(f"Global save: skipping task preferences save for {self.current_editing_task} due to dirty UI state")
+
         # NOTE: Task preferences are managed in self.config.task_preferences
         # They are already updated by individual UI operations
         # No additional UI → config sync needed here
@@ -1589,26 +1728,44 @@ class UnifiedProviderTab(QWidget):
     def _auto_save(self):
         """Auto-save configuration periodically - Claude Generated"""
         try:
-            self._update_config_from_ui()
-            # Save both unified config and task preferences  
-            self.unified_config_manager.save_unified_config(self.unified_config)
-            self.config_manager.save_config(self.config)
-            self.logger.debug("Auto-saved unified provider configuration and task preferences")
+            # CRITICAL FIX: Skip task preference auto-save if user is actively editing - Claude Generated
+            if self.task_ui_dirty and self.current_editing_task:
+                self.logger.debug(f"Skipping task preference auto-save while editing task: {self.current_editing_task}")
+                # Only save unified config, not task preferences during active editing
+                self.unified_config_manager.save_unified_config(self.unified_config)
+            else:
+                # Safe to auto-save everything
+                self._update_config_from_ui()
+                # Save both unified config and task preferences
+                self.unified_config_manager.save_unified_config(self.unified_config)
+                self.config_manager.save_config(self.config)
+                self.logger.debug("Auto-saved unified provider configuration and task preferences")
         except Exception as e:
             self.logger.warning(f"Auto-save failed: {e}")
     
-    def _save_current_task_preferences(self):
+    def _save_current_task_preferences(self, explicit_task_name: str = None):
         """Save current task priority lists to ProviderPreferences - Claude Generated"""
         try:
-            # Get currently selected task
-            current_item = self.task_categories_list.currentItem()
-            if not current_item:
-                return
-            
-            task_data = current_item.data(Qt.ItemDataRole.UserRole)
-            if not task_data:
-                return
-            task_name = task_data["task_name"]
+            # CRITICAL FIX: Always use explicit task name or current_editing_task for isolation - Claude Generated
+            if explicit_task_name:
+                task_name = explicit_task_name
+                self.logger.info(f"Using explicit task name for save: '{task_name}'")
+            elif self.current_editing_task:
+                task_name = self.current_editing_task
+                self.logger.info(f"Using current_editing_task for save: '{task_name}'")
+            else:
+                # Fallback to UI selection, but warn about potential contamination
+                current_item = self.task_categories_list.currentItem()
+                if not current_item:
+                    self.logger.warning("No task selected and no explicit task name provided - skipping save")
+                    return
+
+                task_data = current_item.data(Qt.ItemDataRole.UserRole)
+                if not task_data:
+                    self.logger.warning("No task data available - skipping save")
+                    return
+                task_name = task_data["task_name"]
+                self.logger.warning(f"Fallback to UI selection for save: '{task_name}' - potential contamination risk!")
             
             # Extract model priorities from task_model_priority_list
             model_priority = []
@@ -1628,19 +1785,31 @@ class UnifiedProviderTab(QWidget):
                     if model_config:
                         chunked_model_priority.append(model_config)
             
+            # CRITICAL FIX: Add validation before saving to prevent cross-contamination - Claude Generated
+            if explicit_task_name and explicit_task_name != task_name:
+                self.logger.error(f"Task name mismatch: explicit='{explicit_task_name}' vs resolved='{task_name}' - aborting save")
+                self._show_save_toast(f"❌ Save aborted: task name mismatch", error=True)
+                return
+
             # Save to config.task_preferences (root-level) - Claude Generated
             self.config.task_preferences[task_name] = {
                 'model_priority': model_priority,
                 'chunked_model_priority': chunked_model_priority
             }
-            
+
             # Actually save to disk - Claude Generated
             success = self.config_manager.save_config(self.config)
-            
+
             if success:
+                # Mark UI as clean after successful save - Claude Generated
+                self.task_ui_dirty = False
+
                 # Show toast notification for task preference save - Claude Generated
                 self._show_save_toast(f"✅ {task_name} preferences saved")
                 self.logger.info(f"Task preferences saved for '{task_name}': {len(model_priority)} models, chunked: {chunked_model_priority is not None}")
+
+                # Emit signal to notify other components about task preference changes - Claude Generated
+                self.task_preferences_changed.emit()
             else:
                 self._show_save_toast(f"❌ Failed to save {task_name} preferences", error=True)
                 self.logger.error(f"Failed to save task preferences for '{task_name}'")
@@ -1648,6 +1817,50 @@ class UnifiedProviderTab(QWidget):
         except Exception as e:
             self._show_save_toast(f"❌ Save failed: {str(e)[:30]}", error=True)
             self.logger.warning(f"Failed to save current task preferences: {e}")
+
+    def _initialize_task_editing_state(self):
+        """Initialize the task editing state to prevent contamination - Claude Generated"""
+        try:
+            # Clear any initial task selection state
+            self.current_editing_task = None
+            self.task_ui_dirty = False
+
+            # Ensure task lists are clear initially
+            if hasattr(self, 'task_model_priority_list'):
+                self.task_model_priority_list.clear()
+            if hasattr(self, 'chunked_task_model_priority_list'):
+                self.chunked_task_model_priority_list.clear()
+
+            self.logger.info("Task editing state initialized successfully")
+
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize task editing state: {e}")
+
+    def _safe_task_switch(self, new_task_name: str):
+        """Safely switch to a new task with proper cleanup - Claude Generated"""
+        try:
+            # Save current task if it exists and has changes
+            if self.current_editing_task and self.task_ui_dirty:
+                self.logger.info(f"Auto-saving changes for {self.current_editing_task} before switching to {new_task_name}")
+                self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+
+            # Clear UI state
+            if hasattr(self, 'task_model_priority_list'):
+                self.task_model_priority_list.clear()
+            if hasattr(self, 'chunked_task_model_priority_list'):
+                self.chunked_task_model_priority_list.clear()
+
+            # Update tracking variables
+            self.current_editing_task = new_task_name
+            self.task_ui_dirty = False
+
+            self.logger.info(f"Successfully switched to task: {new_task_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error during safe task switch to {new_task_name}: {e}")
+            # Reset to safe state
+            self.current_editing_task = None
+            self.task_ui_dirty = False
     
     def _create_task_defaults_from_global_preferences(self) -> List[Dict[str, str]]:
         """Create intelligent task default priorities from global provider preferences - Claude Generated"""

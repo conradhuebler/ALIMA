@@ -32,12 +32,12 @@ from src.core.processing_utils import (
     extract_gnd_system_from_response,
 )
 from src.utils.pipeline_utils import (
-    execute_complete_pipeline,
     PipelineJsonManager,
     PipelineStepExecutor,
 )
 from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.config_manager import ConfigManager, OpenAICompatibleProvider
+from src.utils.unified_provider_config import PipelineMode, PipelineStepConfig
 from typing import List, Tuple
 
 PROMPTS_FILE = "prompts.json"
@@ -46,6 +46,169 @@ PROMPTS_FILE = "prompts.json"
 # Use shared JSON utilities from pipeline_utils
 _task_state_to_dict = PipelineJsonManager.task_state_to_dict
 _convert_sets_to_lists = PipelineJsonManager.convert_sets_to_lists
+
+
+def parse_step_config(value: str) -> tuple:
+    """Parse STEP=PROVIDER|MODEL format - Claude Generated"""
+    try:
+        step, provider_model = value.split('=', 1)
+
+        if '|' in provider_model:
+            provider, model = provider_model.split('|', 1)
+            return step.strip(), provider.strip() or None, model.strip() or None
+        else:
+            # Fallback: treat as provider only
+            return step.strip(), provider_model.strip(), None
+    except ValueError:
+        raise ValueError(f"Invalid step config format: {value}. Expected: STEP=PROVIDER|MODEL")
+
+
+def parse_step_parameter(value: str) -> tuple:
+    """Parse STEP=VALUE format for parameters - Claude Generated"""
+    try:
+        step, param_value = value.split('=', 1)
+        return step.strip(), param_value.strip()
+    except ValueError:
+        raise ValueError(f"Invalid step parameter format: {value}. Expected: STEP=VALUE")
+
+
+def build_step_configurations(args) -> dict:
+    """Build step configurations from CLI arguments - Claude Generated"""
+    step_configs = {}
+
+    # Parse step provider|model configurations
+    if args.step:
+        for step_config in args.step:
+            step, provider, model = parse_step_config(step_config)
+            if step not in step_configs:
+                step_configs[step] = {}
+            if provider:
+                step_configs[step]['provider'] = provider
+            if model:
+                step_configs[step]['model'] = model
+
+    # Parse step task configurations
+    if args.step_task:
+        for task_config in args.step_task:
+            step, task = parse_step_parameter(task_config)
+            if step not in step_configs:
+                step_configs[step] = {}
+            step_configs[step]['task'] = task
+
+    # Parse expert mode parameters
+    if args.step_temperature:
+        for temp_config in args.step_temperature:
+            step, temperature = parse_step_parameter(temp_config)
+            if step not in step_configs:
+                step_configs[step] = {}
+            step_configs[step]['temperature'] = float(temperature)
+
+    if args.step_top_p:
+        for top_p_config in args.step_top_p:
+            step, top_p = parse_step_parameter(top_p_config)
+            if step not in step_configs:
+                step_configs[step] = {}
+            step_configs[step]['top_p'] = float(top_p)
+
+    if args.step_seed:
+        for seed_config in args.step_seed:
+            step, seed = parse_step_parameter(seed_config)
+            if step not in step_configs:
+                step_configs[step] = {}
+            step_configs[step]['seed'] = int(seed)
+
+    return step_configs
+
+
+def create_config_from_cli_args(args, base_config):
+    """Convert CLI arguments to PipelineConfig - Claude Generated"""
+    from copy import deepcopy
+
+    # Make a copy of base config to avoid modifying the original
+    config = deepcopy(base_config)
+
+    # Global settings
+    if hasattr(args, 'suggesters') and args.suggesters:
+        config.search_suggesters = args.suggesters
+
+    if hasattr(args, 'disable_dk_classification') and args.disable_dk_classification:
+        # Disable DK classification step
+        if hasattr(config, 'step_configs') and 'dk_classification' in config.step_configs:
+            config.step_configs['dk_classification'].enabled = False
+
+    # Process step-specific arguments
+    step_configs = {}
+
+    # Parse --step arguments (format: step=provider|model)
+    if hasattr(args, 'step') and args.step:
+        for step_config in args.step:
+            step_name, provider_model = step_config.split('=', 1)
+            if '|' in provider_model:
+                provider, model = provider_model.split('|', 1)
+                step_configs[step_name] = {'provider': provider, 'model': model}
+
+    # Parse --step-task arguments (format: step=task)
+    if hasattr(args, 'step_task') and args.step_task:
+        for step_task in args.step_task:
+            step_name, task = step_task.split('=', 1)
+            if step_name not in step_configs:
+                step_configs[step_name] = {}
+            step_configs[step_name]['task'] = task
+
+    # Parse expert mode parameters
+    if hasattr(args, 'step_temperature') and args.step_temperature:
+        for step_temp in args.step_temperature:
+            step_name, temp = step_temp.split('=', 1)
+            if step_name not in step_configs:
+                step_configs[step_name] = {}
+            step_configs[step_name]['temperature'] = float(temp)
+
+    if hasattr(args, 'step_top_p') and args.step_top_p:
+        for step_top_p in args.step_top_p:
+            step_name, top_p = step_top_p.split('=', 1)
+            if step_name not in step_configs:
+                step_configs[step_name] = {}
+            step_configs[step_name]['top_p'] = float(top_p)
+
+    if hasattr(args, 'step_seed') and args.step_seed:
+        for step_seed in args.step_seed:
+            step_name, seed = step_seed.split('=', 1)
+            if step_name not in step_configs:
+                step_configs[step_name] = {}
+            step_configs[step_name]['seed'] = int(seed)
+
+    # Apply mode-specific settings to affected steps
+    mode_mapping = {
+        'smart': PipelineMode.SMART,
+        'advanced': PipelineMode.ADVANCED,
+        'expert': PipelineMode.EXPERT
+    }
+
+    target_mode = mode_mapping.get(args.mode, PipelineMode.SMART)
+
+    # Apply step configurations to pipeline config
+    for step_name, step_params in step_configs.items():
+        if hasattr(config, 'step_configs') and step_name in config.step_configs:
+            step_config = config.step_configs[step_name]
+
+            # Set mode
+            step_config.mode = target_mode
+
+            # Apply parameters
+            if 'provider' in step_params:
+                step_config.provider = step_params['provider']
+            if 'model' in step_params:
+                step_config.model = step_params['model']
+            if 'task' in step_params:
+                step_config.task = step_params['task']
+            if 'temperature' in step_params:
+                step_config.temperature = step_params['temperature']
+            if 'top_p' in step_params:
+                step_config.top_p = step_params['top_p']
+            if 'seed' in step_params:
+                step_config.seed = step_params['seed']
+
+    return config
 
 
 def main():
@@ -70,9 +233,48 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Pipeline command (new unified pipeline)
+    # Pipeline command (new unified pipeline) - Claude Generated
     pipeline_parser = subparsers.add_parser(
-        "pipeline", help="Execute complete ALIMA analysis pipeline."
+        "pipeline",
+        help="Execute complete ALIMA analysis pipeline with mode-based configuration.",
+        description="""
+ALIMA Pipeline Command - Three Configuration Modes:
+
+SMART MODE (--mode smart, default):
+  Automatically uses task preferences from config.json. No manual provider/model selection needed.
+  Best for: Regular analysis workflow with pre-configured preferences.
+
+ADVANCED MODE (--mode advanced):
+  Manual provider/model override with prompt task selection using --step format.
+  Format: --step STEP=PROVIDER|MODEL (e.g., --step initialisation=ollama|cogito:14b)
+  Best for: Testing different models or overriding specific steps.
+
+EXPERT MODE (--mode expert):
+  Full parameter control including temperature, top-p, and seed values.
+  Uses --step, --step-task, --step-temperature, --step-top-p, --step-seed arguments.
+  Best for: Fine-tuning and experimentation.
+
+PIPELINE STEPS:
+  - input: Text input processing (no LLM)
+  - initialisation: LLM keyword extraction from text
+  - search: GND database search (no LLM)
+  - keywords: LLM keyword verification with GND context
+  - classification: LLM DDC/DK/RVK classification (optional)
+
+EXAMPLES:
+  # Smart mode (default)
+  python alima_cli.py pipeline --input-text "Your text here"
+
+  # Advanced mode with specific models
+  python alima_cli.py pipeline --mode advanced --input-text "Text" \\
+    --step initialisation=ollama|cogito:14b --step keywords=gemini|gemini-1.5-flash
+
+  # Expert mode with full control
+  python alima_cli.py pipeline --mode expert --input-text "Text" \\
+    --step initialisation=ollama|cogito:32b --step-temperature initialisation=0.3 \\
+    --step-top-p keywords=0.1 --step-seed keywords=42
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     # Input options - either text or DOI (mutually exclusive)
     input_group = pipeline_parser.add_mutually_exclusive_group(required=True)
@@ -81,22 +283,60 @@ def main():
         "--doi",
         help="DOI or URL to resolve and analyze (e.g., 10.1007/978-3-031-47390-6, https://link.springer.com/book/...).",
     )
+    # Configuration mode selection - Claude Generated
     pipeline_parser.add_argument(
-        "--initial-model", help="Model for initial keyword extraction (optional - uses Provider Preferences if not specified)."
+        "--mode",
+        choices=["smart", "advanced", "expert"],
+        default="smart",
+        help="Configuration mode: smart (uses task_preferences), advanced (manual provider|model), expert (full parameter control)"
+    )
+
+    # Step-specific configuration with provider|model format - Claude Generated
+    pipeline_parser.add_argument(
+        "--step",
+        action="append",
+        help="Set provider|model for specific step: STEP=PROVIDER|MODEL (e.g., initialisation=ollama|cogito:32b)"
+    )
+
+    # Task selection for LLM steps - Claude Generated
+    pipeline_parser.add_argument(
+        "--step-task",
+        action="append",
+        help="Set prompt task for specific step: STEP=TASK (e.g., keywords=rephrase)"
+    )
+
+    # Expert mode parameters - Claude Generated
+    pipeline_parser.add_argument(
+        "--step-temperature",
+        action="append",
+        help="Set temperature for specific step: STEP=VALUE (Expert mode only)"
     )
     pipeline_parser.add_argument(
-        "--final-model", help="Model for final keyword analysis (optional - uses Provider Preferences if not specified)."
+        "--step-top-p",
+        action="append",
+        help="Set top-p for specific step: STEP=VALUE (Expert mode only)"
     )
     pipeline_parser.add_argument(
-        "--provider", help="LLM provider to use (optional - uses Provider Preferences if not specified)."
+        "--step-seed",
+        action="append",
+        help="Set seed for specific step: STEP=VALUE (Expert mode only)"
+    )
+
+    # Step control - Claude Generated
+    pipeline_parser.add_argument(
+        "--enable-step",
+        help="Comma-separated list of steps to enable"
     )
     pipeline_parser.add_argument(
-        "--save-preferences", action="store_true",
-        help="Save successful provider/model combinations as new Provider Preferences defaults."
+        "--disable-step",
+        help="Comma-separated list of steps to disable"
     )
+
+    # Configuration display - Claude Generated
     pipeline_parser.add_argument(
-        "--show-config", action="store_true",
-        help="Show current pipeline configuration (including Provider Preferences) before execution."
+        "--show-smart-config",
+        action="store_true",
+        help="Show what Smart mode would use and exit"
     )
     pipeline_parser.add_argument(
         "--suggesters",
@@ -115,27 +355,6 @@ def main():
     )
     pipeline_parser.add_argument(
         "--ollama-port", type=int, default=11434, help="Ollama port."
-    )
-    pipeline_parser.add_argument(
-        "--initial-task",
-        default="initialisation",
-        help="Task for initial keyword extraction (initialisation, keywords, rephrase).",
-    )
-    pipeline_parser.add_argument(
-        "--final-task",
-        default="keywords",
-        help="Task for final keyword analysis (keywords, rephrase, keywords_chunked).",
-    )
-    pipeline_parser.add_argument(
-        "--keyword-chunking-threshold",
-        type=int,
-        default=500,
-        help="Threshold for keyword chunking (default: 500).",
-    )
-    pipeline_parser.add_argument(
-        "--chunking-task",
-        default="keywords_chunked",
-        help="Task to use for chunked processing (keywords_chunked, rephrase).",
     )
     # Catalog configuration arguments - Claude Generated
     pipeline_parser.add_argument(
@@ -499,8 +718,34 @@ def main():
             ollama_port=args.ollama_port,
         )
         prompt_service = PromptService(PROMPTS_FILE, logger)
-        alima_manager = AlimaManager(llm_service, prompt_service, logger)
+        alima_manager = AlimaManager(llm_service, prompt_service, config_manager, logger)
         cache_manager = UnifiedKnowledgeManager()
+
+        # Initialize PipelineManager for unified CLI/GUI pipeline logic - Claude Generated
+        from src.core.pipeline_manager import PipelineManager
+        pipeline_manager = PipelineManager(
+            alima_manager=alima_manager,
+            cache_manager=cache_manager,
+            logger=logger,
+            config_manager=config_manager
+        )
+
+        # CLI Callbacks for pipeline events - Claude Generated
+        def cli_step_started(step):
+            provider_info = f"{step.provider}/{step.model}" if step.provider and step.model else "Smart Mode"
+            print(f"▶ Starte Schritt: {step.name} ({provider_info})")
+
+        def cli_step_completed(step):
+            print(f"✅ Schritt abgeschlossen: {step.name}")
+
+        def cli_step_error(step, error_message):
+            print(f"❌ Fehler in Schritt {step.name}: {error_message}")
+
+        def cli_pipeline_completed(analysis_state):
+            print("\n🎉 Pipeline vollständig abgeschlossen!")
+
+        def cli_stream_callback(token, step_id):
+            print(token, end="", flush=True)
         
         # Create pipeline config from Provider Preferences as baseline - Claude Generated
         try:
@@ -510,35 +755,40 @@ def main():
             logger.warning(f"Failed to load Provider Preferences, using defaults: {e}")
             pipeline_config = PipelineConfig()
         
-        # Override with CLI parameters if provided - Claude Generated
-        cli_overrides = {}
-        if args.initial_model:
-            cli_overrides['initial_model'] = args.initial_model
-        if args.final_model:
-            cli_overrides['final_model'] = args.final_model
-        if args.provider:
-            cli_overrides['provider'] = args.provider
+        # CLI parameters are now handled through mode-based step configurations - Claude Generated
         
         # Show configuration if requested - Claude Generated
-        if args.show_config:
+        if getattr(args, 'show_config', False):
             print("🔧 Pipeline Configuration:")
-            print(f"  Provider Preferences based: {'✅ Yes' if not cli_overrides else '⚠️ CLI Overrides active'}")
-            
-            for step_id, step_config in pipeline_config.step_configs.items():
-                if step_config.get('enabled') and 'provider' in step_config:
-                    provider = cli_overrides.get('provider', step_config.get('provider'))
-                    if step_id == 'initialisation':
-                        model = cli_overrides.get('initial_model', step_config.get('model'))
-                    elif step_id == 'keywords':
-                        model = cli_overrides.get('final_model', step_config.get('model'))
-                    else:
+            print(f"  Mode: {args.mode}")
+            print(f"  Task preferences enabled: {'✅ Yes' if args.mode == 'smart' else '⚠️ Mode-based override active'}")
+
+            # Show step configurations from new mode-based system
+            step_configs = build_step_configurations(args)
+            if step_configs:
+                print(f"  CLI step configurations:")
+                for step_id, config in step_configs.items():
+                    parts = []
+                    if config.get('provider'):
+                        parts.append(f"provider={config['provider']}")
+                    if config.get('model'):
+                        parts.append(f"model={config['model']}")
+                    if config.get('task'):
+                        parts.append(f"task={config['task']}")
+                    if config.get('temperature'):
+                        parts.append(f"temp={config['temperature']}")
+                    if config.get('top_p'):
+                        parts.append(f"top_p={config['top_p']}")
+                    print(f"    {step_id}: {', '.join(parts) if parts else 'default'}")
+            else:
+                print(f"  Using default configuration from pipeline_config")
+                for step_id, step_config in pipeline_config.step_configs.items():
+                    if step_config.get('enabled') and 'provider' in step_config:
+                        provider = step_config.get('provider')
                         model = step_config.get('model')
-                    print(f"  {step_id}: {provider}/{model}")
-            
-            if cli_overrides:
-                print(f"  CLI Overrides: {', '.join([f'{k}={v}' for k, v in cli_overrides.items()])}")
-            
-            print(f"  Save preferences: {'✅ Yes' if args.save_preferences else '❌ No'}")
+                        print(f"    {step_id}: {provider}/{model}")
+
+            print(f"  Save preferences: {'✅ Yes' if getattr(args, 'save_preferences', False) else '❌ No'}")
             print()
         
         # Get catalog configuration - use args if provided, otherwise from config - Claude Generated
@@ -588,41 +838,66 @@ def main():
                 else:
                     input_text = args.input_text
 
-                # Execute complete pipeline
-                logger.info("Starting complete pipeline execution")
+                # Execute complete pipeline with new mode-based configuration - Claude Generated
+                logger.info("Starting complete pipeline execution with mode-based configuration")
+
                 # Handle DK classification flag
-                include_dk = args.include_dk_classification and not args.disable_dk_classification
-                
-                # Apply CLI overrides to pipeline execution - Claude Generated
-                initial_model = cli_overrides.get('initial_model') or args.initial_model
-                final_model = cli_overrides.get('final_model') or args.final_model
-                provider = cli_overrides.get('provider') or args.provider
-                
-                analysis_state = execute_complete_pipeline(
-                    alima_manager=alima_manager,
-                    cache_manager=cache_manager,
-                    input_text=input_text,
-                    initial_model=initial_model,  # May be None - SmartProvider will handle
-                    final_model=final_model,      # May be None - SmartProvider will handle
-                    provider=provider,            # May be None - SmartProvider will handle
-                    suggesters=args.suggesters,
-                    stream_callback=stream_callback,
-                    logger=logger,
-                    initial_task=args.initial_task,
-                    final_task=args.final_task,
-                    keyword_chunking_threshold=args.keyword_chunking_threshold,
-                    chunking_task=args.chunking_task,
-                    include_dk_classification=include_dk,
-                    # Catalog configuration - Claude Generated
-                    catalog_token=catalog_token,
-                    catalog_search_url=catalog_search_url,
-                    catalog_details_url=catalog_details_url,
-                    # Recovery configuration - Claude Generated
-                    auto_save_path=args.auto_save_path,
-                    resume_from_path=args.resume_from,
-                    dk_max_results=args.dk_max_results,
-                    dk_frequency_threshold=args.dk_frequency_threshold,  # Claude Generated
+                include_dk = getattr(args, 'include_dk_classification', False) and not getattr(args, 'disable_dk_classification', False)
+
+                # Build step configurations from CLI arguments
+                step_configs = build_step_configurations(args)
+                logger.debug(f"Step configurations: {step_configs}")
+
+                # Unified Pipeline Execution via PipelineManager - Claude Generated
+                logger.info(f"Starting pipeline execution in {args.mode} mode using PipelineManager")
+
+                # Create pipeline configuration from CLI arguments
+                try:
+                    # Use the base pipeline_config as starting point
+                    updated_pipeline_config = create_config_from_cli_args(args, pipeline_config)
+                    logger.info(f"Pipeline configuration created from CLI args: mode={args.mode}")
+                except Exception as e:
+                    logger.error(f"Failed to create pipeline configuration: {e}")
+                    return
+
+                # Set pipeline configuration
+                pipeline_manager.set_config(updated_pipeline_config)
+
+                # Set callbacks for CLI output
+                pipeline_manager.set_callbacks(
+                    step_started_callback=cli_step_started,
+                    step_completed_callback=cli_step_completed,
+                    step_error_callback=cli_step_error,
+                    pipeline_completed_callback=cli_pipeline_completed,
+                    stream_callback=cli_stream_callback
                 )
+
+                # Execute pipeline
+                print(f"🚀 Starting {args.mode} mode pipeline...")
+                try:
+                    pipeline_manager.start_pipeline(input_text=input_text)
+
+                    # Wait for pipeline completion (synchronous mode for CLI)
+                    import time
+                    timeout = 300  # 5 minutes timeout
+                    elapsed = 0
+                    while pipeline_manager.is_running and elapsed < timeout:
+                        time.sleep(0.1)
+                        elapsed += 0.1
+
+                    if pipeline_manager.is_running:
+                        logger.error("Pipeline execution timed out")
+                        return
+
+                    # Get final analysis state
+                    analysis_state = pipeline_manager.current_analysis_state
+                    if not analysis_state:
+                        logger.error("Pipeline completed but no analysis state available")
+                        return
+
+                except Exception as e:
+                    logger.error(f"Pipeline execution failed: {e}")
+                    return
 
                 print("\n--- Pipeline Results ---")
                 print(f"Initial Keywords: {analysis_state.initial_keywords}")
@@ -634,36 +909,59 @@ def main():
                 )
                 
                 # Save preferences if requested and pipeline was successful - Claude Generated
-                if args.save_preferences:
+                if getattr(args, 'save_preferences', False):
                     try:
-                        preferences = config_manager.get_provider_preferences() 
+                        preferences = config_manager.get_provider_preferences()
                         preferences_updated = False
-                        
-                        # Update preferences based on successful execution
-                        if initial_model and provider:
-                            preferences.preferred_models[provider] = final_model or initial_model  # Prefer final model
-                            preferences_updated = True
-                        
-                        # Set most used provider as preferred if not already set explicitly
-                        if provider and (not preferences.preferred_provider or preferences.preferred_provider == "ollama"):
-                            preferences.preferred_provider = provider
-                            preferences_updated = True
-                        
-                        # Ensure provider is in priority list
-                        if provider and provider not in preferences.provider_priority:
-                            preferences.provider_priority.insert(0, provider)
-                            preferences_updated = True
-                        
+
+                        # Update preferences based on successful execution from mode-based configuration
+                        if args.mode == 'smart':
+                            print(f"\n📋 Smart mode used - no preference updates needed (task preferences already active)")
+
+                        elif args.mode in ['advanced', 'expert']:
+                            # Extract used providers/models from step configurations
+                            used_providers = set()
+                            used_models = set()
+
+                            for step, config in step_configs.items():
+                                provider_used = config.get('provider')
+                                model_used = config.get('model')
+
+                                if provider_used:
+                                    used_providers.add(provider_used)
+                                if model_used:
+                                    used_models.add(model_used)
+
+                                    # Update preferred model for this provider
+                                    if provider_used and model_used:
+                                        preferences.preferred_models[provider_used] = model_used
+                                        preferences_updated = True
+
+                            # Set most used provider as preferred
+                            if used_providers:
+                                most_used_provider = list(used_providers)[0]  # Take first for simplicity
+                                if not preferences.preferred_provider or preferences.preferred_provider == "ollama":
+                                    preferences.preferred_provider = most_used_provider
+                                    preferences_updated = True
+
+                                # Ensure all used providers are in priority list
+                                for provider_used in used_providers:
+                                    if provider_used not in preferences.provider_priority:
+                                        preferences.provider_priority.insert(0, provider_used)
+                                        preferences_updated = True
+
                         if preferences_updated:
                             config_manager.update_provider_preferences(preferences)
                             config_manager.save_config()
                             print(f"\n✅ Provider preferences updated and saved:")
+                            print(f"   Mode used: {args.mode}")
                             print(f"   Preferred provider: {preferences.preferred_provider}")
-                            if provider in preferences.preferred_models:
-                                print(f"   Preferred model for {provider}: {preferences.preferred_models[provider]}")
+                            for provider, model in preferences.preferred_models.items():
+                                if provider in used_providers:
+                                    print(f"   Preferred model for {provider}: {model}")
                         else:
-                            print("\n📋 No preference changes needed - current settings already optimal")
-                            
+                            print(f"\n📋 No preference changes needed - current settings already optimal")
+
                     except Exception as e:
                         logger.warning(f"Failed to save provider preferences: {e}")
                         print(f"\n⚠️ Failed to save preferences: {e}")

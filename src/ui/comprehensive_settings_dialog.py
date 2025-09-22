@@ -671,8 +671,9 @@ class DatabaseTestWorker(QThread):
 
 class ComprehensiveSettingsDialog(QDialog):
     """Comprehensive settings dialog combining all ALIMA configurations - Claude Generated"""
-    
+
     config_changed = pyqtSignal()
+    task_preferences_changed = pyqtSignal()  # Forward task preference changes - Claude Generated
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -731,6 +732,7 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Connect unified provider tab signals
         self.unified_provider_tab.config_changed.connect(self.config_changed)
+        self.unified_provider_tab.task_preferences_changed.connect(self.task_preferences_changed)  # Forward task preference changes - Claude Generated
         
         # Add tabs
         self.tab_widget.addTab(self.database_tab, "🗄️ Database")
@@ -2384,7 +2386,10 @@ class ComprehensiveSettingsDialog(QDialog):
             data_dir=self.data_dir.text(),
             temp_dir=self.temp_dir.text()
         )
-        
+
+        # Preserve task preferences from fresh config - Claude Generated
+        config.task_preferences = fresh_config.task_preferences
+
         return config
     
     def _save_and_close(self):
@@ -3096,14 +3101,13 @@ class ModelSelectionDialog(QDialog):
                     if category == "vision":
                         task_type = TaskType.VISION
                     elif category == "pipeline":
-                        task_type = TaskType.TEXT_ANALYSIS
+                        task_type = TaskType.KEYWORDS
                     else:
                         task_type = TaskType.GENERAL
                     
                     unified_config.task_preferences[task_name] = TaskPreference(
                         task_type=task_type,
-                        model_priority=[],
-                        performance_preference="balanced"
+                        model_priority=[]
                     )
                 
                 # We would need to get the current UI state for each task here

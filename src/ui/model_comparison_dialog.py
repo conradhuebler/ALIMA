@@ -448,7 +448,7 @@ class ModelComparisonDialog(QDialog):
             PipelineStepConfig(
                 step_id="smart_config",
                 mode=PipelineMode.SMART,
-                task_type=UnifiedTaskType.TEXT_ANALYSIS,
+                task_type=UnifiedTaskType.KEYWORDS,
                 quality_preference="balanced"
             ),
             PipelineStepConfig(
@@ -517,7 +517,7 @@ class ModelComparisonDialog(QDialog):
         smart_config = PipelineStepConfig(
             step_id=f"smart_{row}",
             mode=PipelineMode.SMART,
-            task_type=UnifiedTaskType.TEXT_ANALYSIS,
+            task_type=UnifiedTaskType.KEYWORDS,
             quality_preference="balanced"
         )
         
@@ -618,7 +618,7 @@ class ModelComparisonDialog(QDialog):
                 provider=provider,
                 model=model,
                 task=task if task != "Auto" else None,
-                task_type=UnifiedTaskType.TEXT_ANALYSIS
+                task_type=UnifiedTaskType.KEYWORDS
             )
             
             configurations.append(config)

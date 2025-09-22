@@ -71,10 +71,13 @@ class PipelineStepExecutor:
                 # Use SmartProviderSelector for optimal provider/model selection
                 task_type = TaskType.TEXT  # Initial keyword extraction is text processing
                 prefer_fast = True  # Initial extraction can prioritize speed
-                
+
+                # CRITICAL FIX: Pass task_name and step_id for task_preferences integration - Claude Generated
                 selection = self.smart_selector.select_provider(
                     task_type=task_type,
-                    prefer_fast=prefer_fast
+                    prefer_fast=prefer_fast,
+                    task_name=task,  # Use the task parameter (e.g., "initialisation")
+                    step_id="initialisation"  # Explicit step_id for task preference lookup
                 )
                 
                 # Use SmartProvider selection if no explicit provider/model given
@@ -118,19 +121,37 @@ class PipelineStepExecutor:
         # Create abstract data
         abstract_data = AbstractData(abstract=abstract_text, keywords="")
 
-        # Create a compatible stream callback for AlimaManager
+        # Create a compatible stream callback for AlimaManager - ENHANCED DEBUG - Claude Generated
         alima_stream_callback = None
         if stream_callback:
+            if self.logger:
+                self.logger.info(f"🔄 Creating stream callback adapter for initialisation step")
 
             def alima_stream_callback(token):
                 # AlimaManager expects callback(token), we have callback(token, step_id)
                 # So we call our callback with a default step_id
-                stream_callback(token, kwargs.get("step_id", "initialisation"))
+                try:
+                    step_id = kwargs.get("step_id", "initialisation")
+                    if self.logger:
+                        self.logger.debug(f"📡 Stream token received: '{token[:50]}...', forwarding to step_id='{step_id}'")
+                    stream_callback(token, step_id)
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"❌ Stream callback error: {e}")
+        else:
+            if self.logger:
+                self.logger.warning(f"⚠️ No stream callback provided for initialisation step")
 
         # Filter out our custom parameters that AlimaManager doesn't expect
         alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]}
 
-        # Execute analysis via AlimaManager
+        # Execute analysis via AlimaManager - ENHANCED DEBUG - Claude Generated
+        if self.logger:
+            self.logger.info(f"🚀 Calling AlimaManager.analyze_abstract:")
+            self.logger.info(f"   📋 task='{task}', model='{model}', provider='{provider}'")
+            self.logger.info(f"   🔄 stream_callback={'✅ YES' if alima_stream_callback else '❌ NONE'}")
+            self.logger.info(f"   ⚙️ kwargs={list(alima_kwargs.keys())}")
+
         task_state = self.alima_manager.analyze_abstract(
             abstract_data=abstract_data,
             task=task,
@@ -140,10 +161,19 @@ class PipelineStepExecutor:
             **alima_kwargs,
         )
 
+        if self.logger:
+            self.logger.info(f"📊 AlimaManager result: status='{task_state.status}'")
+            if task_state.status == "failed":
+                self.logger.error(f"❌ Analysis failed: {task_state.analysis_result.full_text}")
+            else:
+                response_preview = task_state.analysis_result.full_text[:100] if task_state.analysis_result.full_text else "NO RESPONSE"
+                self.logger.info(f"✅ Analysis success: '{response_preview}...'")
+
         if task_state.status == "failed":
-            raise ValueError(
-                f"Initial keyword extraction failed: {task_state.analysis_result.full_text}"
-            )
+            error_msg = f"Initial keyword extraction failed: {task_state.analysis_result.full_text}"
+            if self.logger:
+                self.logger.error(f"💥 PIPELINE_FAILURE: {error_msg}")
+            raise ValueError(error_msg)
 
         # Extract keywords and GND classes from response
         keywords = extract_keywords_from_response(task_state.analysis_result.full_text)
@@ -461,10 +491,13 @@ class PipelineStepExecutor:
                 # Use SmartProviderSelector for optimal provider/model selection
                 task_type = TaskType.TEXT  # Final keyword analysis is high-quality text processing
                 prefer_fast = False  # Final analysis should prioritize quality
-                
+
+                # CRITICAL FIX: Pass task_name and step_id for task_preferences integration - Claude Generated
                 selection = self.smart_selector.select_provider(
                     task_type=task_type,
-                    prefer_fast=prefer_fast
+                    prefer_fast=prefer_fast,
+                    task_name=task,  # Use the task parameter (e.g., "keywords", "rephrase")
+                    step_id="keywords"  # Explicit step_id for task preference lookup
                 )
                 
                 # Use SmartProvider selection if no explicit provider/model given
@@ -1081,10 +1114,13 @@ class PipelineStepExecutor:
                 # Use SmartProviderSelector for optimal classification provider
                 task_type = TaskType.CLASSIFICATION  # Specialized classification task
                 prefer_fast = False  # Classification should prioritize accuracy
-                
+
+                # CRITICAL FIX: Pass task_name and step_id for task_preferences integration - Claude Generated
                 selection = self.smart_selector.select_provider(
                     task_type=task_type,
-                    prefer_fast=prefer_fast
+                    prefer_fast=prefer_fast,
+                    task_name="classification",  # Explicit task name for classification
+                    step_id="classification"  # Explicit step_id for task preference lookup
                 )
                 
                 # Use SmartProvider selection if no explicit provider/model given
@@ -1950,254 +1986,3 @@ def _clean_ocr_output_pipeline(text: str) -> str:
             cleaned_lines.append(line)
     
     return '\n'.join(cleaned_lines).strip()
-
-
-def execute_complete_pipeline(
-    alima_manager,
-    cache_manager: UnifiedKnowledgeManager,
-    input_text: str,
-    initial_model: str,
-    final_model: str,
-    provider: str = "ollama",
-    suggesters: List[str] = None,
-    stream_callback: Optional[callable] = None,
-    logger=None,
-    initial_task: str = "initialisation",
-    final_task: str = "keywords",
-    include_dk_classification: bool = True,
-    catalog_token: str = None,
-    catalog_search_url: str = None,
-    catalog_details_url: str = None,
-    auto_save_path: str = None,
-    resume_from_path: str = None,
-    **kwargs,
-) -> KeywordAnalysisState:
-    """Execute complete pipeline from start to finish with recovery support - Claude Generated"""
-    
-
-    # Check for resume from saved state
-    if resume_from_path:
-        try:
-            if stream_callback:
-                stream_callback(f"Versuche Pipeline-Recovery von {resume_from_path}...\n", "recovery")
-            
-            # Load saved state
-            import os
-            if os.path.exists(resume_from_path):
-                analysis_state = PipelineJsonManager.load_analysis_state(resume_from_path)
-                if stream_callback:
-                    stream_callback("✅ Pipeline-State erfolgreich geladen - Recovery abgeschlossen\n", "recovery")
-                return analysis_state
-            else:
-                if stream_callback:
-                    stream_callback(f"⚠️ Recovery-Datei nicht gefunden: {resume_from_path}\n", "recovery")
-        except Exception as e:
-            if logger:
-                logger.warning(f"Pipeline recovery failed: {e}")
-            if stream_callback:
-                stream_callback(f"⚠️ Recovery fehlgeschlagen: {str(e)} - Starte normale Pipeline\n", "recovery")
-
-    if suggesters is None:
-        suggesters = ["lobid", "swb"]
-        
-        # Add catalog if token provided
-        if catalog_token and catalog_token.strip():
-            suggesters.append("catalog")
-
-    # Get ConfigManager for intelligent provider selection - Claude Generated
-    config_manager = getattr(alima_manager, 'config_manager', None)
-    if hasattr(alima_manager, 'llm_service'):
-        config_manager = config_manager or getattr(alima_manager.llm_service, 'config_manager', None)
-    
-    executor = PipelineStepExecutor(alima_manager, cache_manager, logger, config_manager)
-    
-    # Set up auto-save path if not provided
-    if auto_save_path is None:
-        import tempfile
-        import os
-        temp_dir = tempfile.gettempdir()
-        auto_save_path = os.path.join(temp_dir, "alima_pipeline_recovery.json")
-
-    # Filter out chunking-specific parameters for non-chunking steps
-    filtered_kwargs = {
-        k: v
-        for k, v in kwargs.items()
-        if k not in ["keyword_chunking_threshold", "chunking_task"]
-    }
-
-    # Step 1: Initial keyword extraction
-    if stream_callback:
-        stream_callback("Starting initial keyword extraction...\n", "initialisation")
-
-    initial_keywords, initial_gnd_classes, initial_llm_analysis = (
-        executor.execute_initial_keyword_extraction(
-            abstract_text=input_text,
-            model=initial_model,
-            provider=provider,
-            task=initial_task,
-            stream_callback=stream_callback,
-            **filtered_kwargs,
-        )
-    )
-
-    # Step 2: GND search
-    if stream_callback:
-        stream_callback("Starting GND search...\n", "search")
-
-    search_results = executor.execute_gnd_search(
-        keywords=initial_keywords,
-        suggesters=suggesters,
-        stream_callback=stream_callback,
-        catalog_token=catalog_token,
-        catalog_search_url=catalog_search_url,
-        catalog_details_url=catalog_details_url,
-    )
-    
-    # Auto-save after search step
-    try:
-        if auto_save_path:
-            temp_state = executor.create_complete_analysis_state(
-                original_abstract=input_text,
-                initial_keywords=initial_keywords,
-                initial_gnd_classes=initial_gnd_classes,
-                search_results=search_results,
-                initial_llm_analysis=initial_llm_analysis,
-                final_llm_analysis=None,  # Not completed yet
-                suggesters_used=suggesters,
-            )
-            temp_state.pipeline_step_completed = "search"
-            PipelineJsonManager.save_analysis_state(temp_state, auto_save_path)
-            if stream_callback:
-                stream_callback(f"💾 Zwischenspeicherung nach Search-Schritt: {auto_save_path}\n", "auto_save")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Auto-save after search failed: {e}")
-
-    # Step 3: Final keyword analysis
-    if stream_callback:
-        stream_callback("Starting final keyword analysis...\n", "keywords")
-
-    # Enable synonym expansion only when catalog suggester is used
-    expand_synonyms = "catalog" in suggesters
-    
-    final_keywords, final_gnd_classes, final_llm_analysis = (
-        executor.execute_final_keyword_analysis(
-            original_abstract=input_text,
-            search_results=search_results,
-            model=final_model,
-            provider=provider,
-            task=final_task,
-            stream_callback=stream_callback,
-            expand_synonyms=expand_synonyms,
-            **kwargs,  # Use original kwargs here (chunking parameters needed)
-        )
-    )
-    
-    # Auto-save after final keywords step
-    try:
-        if auto_save_path:
-            temp_state = executor.create_complete_analysis_state(
-                original_abstract=input_text,
-                initial_keywords=initial_keywords,
-                initial_gnd_classes=initial_gnd_classes,
-                search_results=search_results,
-                initial_llm_analysis=initial_llm_analysis,
-                final_llm_analysis=final_llm_analysis,
-                suggesters_used=suggesters,
-            )
-            temp_state.pipeline_step_completed = "keywords"
-            PipelineJsonManager.save_analysis_state(temp_state, auto_save_path)
-            if stream_callback:
-                stream_callback(f"💾 Zwischenspeicherung nach Keywords-Schritt: {auto_save_path}\n", "auto_save")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Auto-save after keywords failed: {e}")
-
-    # Step 4: Optional DK Classification (Split into two separate steps)
-    dk_search_results = []
-    dk_classifications = []
-    
-    if include_dk_classification:
-        # Step 4a: DK Search (time-intensive catalog search)
-        if stream_callback:
-            stream_callback("Starting DK catalog search...\n", "dk_search")
-        
-        dk_search_results = executor.execute_dk_search(
-            keywords=final_keywords,
-            stream_callback=stream_callback,
-            max_results=kwargs.get("dk_max_results", 20),
-            catalog_token=catalog_token,
-            catalog_search_url=catalog_search_url,
-            catalog_details_url=catalog_details_url,
-        )
-        
-        # Auto-save after DK search step
-        try:
-            if auto_save_path:
-                temp_state = executor.create_complete_analysis_state(
-                    original_abstract=input_text,
-                    initial_keywords=initial_keywords,
-                    initial_gnd_classes=initial_gnd_classes,
-                    search_results=search_results,
-                    initial_llm_analysis=initial_llm_analysis,
-                    final_llm_analysis=final_llm_analysis,
-                    suggesters_used=suggesters,
-                )
-                temp_state.pipeline_step_completed = "dk_search"
-                temp_state.dk_search_results = dk_search_results
-                PipelineJsonManager.save_analysis_state(temp_state, auto_save_path)
-                if stream_callback:
-                    stream_callback(f"💾 Zwischenspeicherung nach DK-Search-Schritt: {auto_save_path}\n", "auto_save")
-        except Exception as e:
-            if logger:
-                logger.warning(f"Auto-save after DK search failed: {e}")
-        
-        # Step 4b: DK Classification (fast LLM analysis)
-        if dk_search_results:
-            if stream_callback:
-                stream_callback("Starting DK LLM classification...\n", "dk_classification")
-            
-            dk_classifications = executor.execute_dk_classification(
-                dk_search_results=dk_search_results,
-                original_abstract=input_text,
-                model=final_model,
-                provider=provider,
-                stream_callback=stream_callback,
-                **kwargs,
-            )
-
-    # Create complete analysis state
-    analysis_state = executor.create_complete_analysis_state(
-        original_abstract=input_text,
-        initial_keywords=initial_keywords,
-        initial_gnd_classes=initial_gnd_classes,
-        search_results=search_results,
-        initial_llm_analysis=initial_llm_analysis,
-        final_llm_analysis=final_llm_analysis,
-        suggesters_used=suggesters,
-    )
-    
-    # Add DK results to analysis state if available
-    if dk_search_results:
-        analysis_state.dk_search_results = dk_search_results
-    if dk_classifications:
-        analysis_state.dk_classifications = dk_classifications
-    
-    # Mark pipeline as completed
-    analysis_state.pipeline_step_completed = "completed"
-    
-    # Final auto-save
-    try:
-        if auto_save_path:
-            PipelineJsonManager.save_analysis_state(analysis_state, auto_save_path)
-            if stream_callback:
-                stream_callback(f"💾 Pipeline abgeschlossen - Finaler Save: {auto_save_path}\n", "auto_save")
-    except Exception as e:
-        if logger:
-            logger.warning(f"Final auto-save failed: {e}")
-
-    if stream_callback:
-        total_steps = 5 if include_dk_classification else 3  # 3 base steps + 2 DK steps (search + classification)
-        stream_callback(f"Pipeline completed successfully! ({total_steps} steps)\n", "completion")
-
-    return analysis_state

@@ -108,7 +108,6 @@ class PipelineStepWidget(QFrame):
 
         # Status icon
         self.status_label = QLabel()
-        self.update_status_display()
         header_layout.addWidget(self.status_label)
 
         # Step name
@@ -121,11 +120,11 @@ class PipelineStepWidget(QFrame):
 
         header_layout.addStretch()
 
-        # Provider/Model info
-        if self.step.provider and self.step.model:
-            provider_label = QLabel(f"{self.step.provider} ({self.step.model})")
-            provider_label.setStyleSheet("color: #666; font-size: 10px;")
-            header_layout.addWidget(provider_label)
+        # Enhanced Provider/Model info with task preference indicators - Claude Generated
+        self.provider_model_label = QLabel()
+        self.provider_model_label.setStyleSheet("color: #666; font-size: 10px;")
+        self._update_provider_model_display()
+        header_layout.addWidget(self.provider_model_label)
 
         layout.addLayout(header_layout)
 
@@ -139,6 +138,67 @@ class PipelineStepWidget(QFrame):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
+
+        # Now that all UI elements are created, update the display - Claude Generated
+        self.update_status_display()
+
+    def _update_provider_model_display(self):
+        """Update provider/model display with task preference indicators - Claude Generated"""
+        # Safety check: ensure the label exists before updating - Claude Generated
+        if not hasattr(self, 'provider_model_label') or not self.provider_model_label:
+            return
+
+        if not self.step.provider or not self.step.model:
+            # Check if this is an LLM step that should have provider/model info
+            llm_steps = ["initialisation", "keywords", "dk_classification"]
+            if self.step.step_id in llm_steps:
+                self.provider_model_label.setText("⚠️ No provider configured")
+                self.provider_model_label.setStyleSheet("color: #ff9800; font-size: 10px; font-style: italic;")
+            else:
+                # Non-LLM steps (like search) don't need provider info
+                self.provider_model_label.setText("No LLM required")
+                self.provider_model_label.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
+            return
+
+        # Build display text with visual indicators
+        display_parts = []
+        style_color = "#666"
+
+        # Check if this looks like a task preference (basic heuristic)
+        task_preference_indicators = []
+        if hasattr(self.step, 'selection_reason') and self.step.selection_reason:
+            if "task preference" in self.step.selection_reason.lower():
+                task_preference_indicators.append("⭐")
+                style_color = "#2e7d32"  # Green for task preferences
+            elif "provider" in self.step.selection_reason.lower():
+                task_preference_indicators.append("🔧")
+                style_color = "#1976d2"  # Blue for provider preferences
+            elif "fallback" in self.step.selection_reason.lower():
+                task_preference_indicators.append("🔄")
+                style_color = "#ff9800"  # Orange for fallbacks
+
+        # Format provider/model display
+        indicator_prefix = "".join(task_preference_indicators)
+        if indicator_prefix:
+            display_parts.append(f"{indicator_prefix} {self.step.provider}/{self.step.model}")
+        else:
+            display_parts.append(f"{self.step.provider}/{self.step.model}")
+
+        # Add compact selection reason if available
+        if hasattr(self.step, 'selection_reason') and self.step.selection_reason:
+            reason_short = self.step.selection_reason.replace("task preference", "TP").replace("provider preferences", "PP")
+            if len(reason_short) < 30:  # Only show if compact enough
+                display_parts.append(f"({reason_short})")
+
+        display_text = " ".join(display_parts)
+        self.provider_model_label.setText(display_text)
+        self.provider_model_label.setStyleSheet(f"color: {style_color}; font-size: 10px;")
+
+        # Set tooltip with full details
+        tooltip_parts = [f"Provider: {self.step.provider}", f"Model: {self.step.model}"]
+        if hasattr(self.step, 'selection_reason') and self.step.selection_reason:
+            tooltip_parts.append(f"Source: {self.step.selection_reason}")
+        self.provider_model_label.setToolTip("\n".join(tooltip_parts))
 
     def update_status_display(self):
         """Update visual status indicator - Claude Generated"""
@@ -181,6 +241,9 @@ class PipelineStepWidget(QFrame):
                 "QFrame { border-color: #d32f2f; background-color: #ffebee; }"
             )
             self.progress_bar.setVisible(False)
+
+        # Always update provider/model display when status changes - Claude Generated
+        self._update_provider_model_display()
 
     def set_content(self, content_widget: QWidget):
         """Set the content widget for this step - Claude Generated"""
@@ -571,7 +634,9 @@ class PipelineTab(QWidget):
     def create_input_step_widget(self) -> QWidget:
         """Create unified input step widget - Claude Generated"""
         # Create unified input widget
-        self.unified_input = UnifiedInputWidget(llm_service=self.llm_service)
+        self.unified_input = UnifiedInputWidget(
+            llm_service=self.llm_service, alima_manager=self.alima_manager
+        )
 
         # Connect signals
         self.unified_input.text_ready.connect(self.on_input_text_ready)
@@ -839,6 +904,10 @@ class PipelineTab(QWidget):
                 step_widget.step.provider = provider
                 step_widget.step.model = model
 
+                # ENHANCED: Add task preference information - Claude Generated
+                selection_reason = self._determine_selection_reason(step_id, provider, model)
+                step_widget.step.selection_reason = selection_reason
+
                 # Update display (visual styling based on enabled state)
                 if not enabled:
                     step_widget.setStyleSheet("QFrame { opacity: 0.5; }")
@@ -846,6 +915,60 @@ class PipelineTab(QWidget):
                     step_widget.setStyleSheet("")
 
                 step_widget.update_status_display()
+
+    def _determine_selection_reason(self, step_id: str, provider: str, model: str) -> str:
+        """Determine why this provider/model was selected for the step - Claude Generated"""
+        try:
+            # Get config manager from pipeline manager
+            config_manager = getattr(self.pipeline_manager, 'config_manager', None)
+            if not config_manager:
+                return "unknown"
+
+            # Load current config to check task preferences
+            config = config_manager.load_config()
+            if not config or not hasattr(config, 'task_preferences'):
+                return "fallback"
+
+            # Map step_id to task name for task_preferences lookup
+            task_name_mapping = {
+                "initialisation": "initialisation",
+                "keywords": "keywords",
+                "dk_classification": "dk_class",
+                "image_text_extraction": "image_text_extraction"
+            }
+
+            task_name = task_name_mapping.get(step_id)
+            if not task_name or task_name not in config.task_preferences:
+                return "provider preferences" if provider else "default"
+
+            # Check if this provider/model matches task preferences
+            task_data = config.task_preferences[task_name]
+            model_priority = task_data.get('model_priority', [])
+
+            for rank, priority_entry in enumerate(model_priority, 1):
+                candidate_provider = priority_entry.get("provider_name")
+                candidate_model = priority_entry.get("model_name")
+
+                if candidate_provider == provider and candidate_model == model:
+                    return f"task preference #{rank}"
+
+            # Check chunked preferences
+            chunked_priorities = task_data.get('chunked_model_priority', [])
+            for rank, priority_entry in enumerate(chunked_priorities, 1):
+                candidate_provider = priority_entry.get("provider_name")
+                candidate_model = priority_entry.get("model_name")
+
+                if candidate_provider == provider and candidate_model == model:
+                    return f"chunked preference #{rank}"
+
+            # If we have provider/model but it's not in task preferences
+            if provider and model:
+                return "provider preferences"
+            else:
+                return "fallback"
+
+        except Exception as e:
+            return f"error: {str(e)[:20]}"
 
     def reset_pipeline(self):
         """Reset pipeline to initial state - Claude Generated"""

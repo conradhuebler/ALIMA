@@ -533,9 +533,9 @@ class AlimaConfig:
     llm: LLMConfig = field(default_factory=lambda: LLMConfig.create_default())
     catalog: CatalogConfig = field(default_factory=CatalogConfig)
     system: SystemConfig = field(default_factory=SystemConfig)
-    provider_preferences: ProviderPreferences = field(default_factory=ProviderPreferences)  # Claude Generated
     
     # Task-specific model preferences for Smart Mode - Claude Generated
+    provider_preferences: ProviderPreferences = field(default_factory=ProviderPreferences) # Re-added for UI compatibility
     task_preferences: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
     # Version and metadata
@@ -970,30 +970,13 @@ class ConfigManager:
                 data_dir=sys_data.get("data_dir", "data"),
                 temp_dir=sys_data.get("temp_dir", "/tmp")
             )
-        
-        # Provider preferences section - Claude Generated
+
+        # Provider Preferences section (re-added for UI compatibility)
         if "provider_preferences" in config_data:
             pref_data = config_data["provider_preferences"]
-            config.provider_preferences = ProviderPreferences(
-                preferred_provider=pref_data.get("preferred_provider", "ollama"),
-                provider_priority=pref_data.get("provider_priority", ["ollama", "gemini", "anthropic", "openai"]),
-                disabled_providers=pref_data.get("disabled_providers", []),
-                vision_provider=pref_data.get("vision_provider"),
-                text_provider=pref_data.get("text_provider"),
-                classification_provider=pref_data.get("classification_provider"),
-                preferred_models=pref_data.get("preferred_models", {
-                    "ollama": "cogito:32b",
-                    "gemini": "gemini-2.0-flash", 
-                    "anthropic": "claude-3-5-sonnet",
-                    "openai": "gpt-4o"
-                }),
-                # REMOVED: task_preferences loading - moved to root-level config - Claude Generated
-                auto_fallback=pref_data.get("auto_fallback", True),
-                fallback_timeout=pref_data.get("fallback_timeout", 30),
-                prefer_faster_models=pref_data.get("prefer_faster_models", False),
-                max_cost_per_request=pref_data.get("max_cost_per_request")
-            )
-        
+            # Directly construct ProviderPreferences from dict
+            config.provider_preferences = ProviderPreferences(**pref_data)
+
         # Task preferences for Smart Mode - Claude Generated
         config.task_preferences = config_data.get("task_preferences", {})
         

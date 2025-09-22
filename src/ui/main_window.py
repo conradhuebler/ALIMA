@@ -45,6 +45,8 @@ from ..core.gitupdate import GitUpdateWorker
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
+from ..utils.config_manager import ConfigManager
+
 
 from ..utils.config import Config
 from .crossref_tab import CrossrefTab
@@ -325,10 +327,11 @@ class MainWindow(QMainWindow):
         self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")
         self.ollama_port_default = self.settings.value("ollama_port", "11434")
 
+        self.config_manager = ConfigManager(logger=self.logger)
+
         # Instantiate core services with lazy initialization for faster GUI startup - Claude Generated
         self.llm_service = LlmService(
-            ollama_url=self.ollama_url_default,
-            ollama_port=self.ollama_port_default,
+            config_manager=self.config_manager, # Pass config manager
             lazy_initialization=True,  # Don't test providers during GUI startup
         )
         self.llm = self.llm_service  # Assign llm here
@@ -338,6 +341,7 @@ class MainWindow(QMainWindow):
         self.alima_manager = AlimaManager(
             llm_service=self.llm_service,
             prompt_service=self.prompt_service,
+            config_manager=self.config_manager, # Pass config manager
             logger=self.logger,  # Pass logger to manager
         )
 

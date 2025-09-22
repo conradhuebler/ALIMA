@@ -1,5 +1,7 @@
 # ALIMA UI Architecture Restructuring - Complete Documentation
 
+**Gemini Update (2025-09-10):** This document has been reviewed against the current codebase. The status of completed and pending tasks is confirmed to be accurate. Additional analysis details have been added to the "PENDING TASKS" section to reflect the current implementation state.
+
 **Claude Generated - Comprehensive Documentation of the ALIMA UI Restructuring Project**
 
 ## 🎯 Project Overview
@@ -355,9 +357,14 @@ dk_config = config.step_configs.get('dk_classification', {})
 
 ## 🟡 PENDING TASKS - Future Enhancements
 
+*Gemini Verification (2025-09-10): The following tasks are confirmed as pending based on source code analysis.*
+
 ### 8. Phase 3: AbstractTab Refactoring 🔵
 **Status:** PENDING (Low Priority)
 **Location:** `src/ui/abstract_tab.py`
+
+#### Current State Analysis:
+The `AbstractTab` currently implements its own `AnalysisWorker` class (a `QThread`) to handle background processing for AI analysis. This is a self-contained implementation that does not use the central `PipelineStepExecutor`.
 
 #### Planned Changes:
 - **Remove:** `AnalysisWorker` class
@@ -386,9 +393,13 @@ self.display_analysis_results(result)
 
 ---
 
+
 ### 9. Phase 4: ImageAnalysisTab Refactoring 🟡
 **Status:** PENDING (Medium Priority)
 **Location:** `src/ui/image_analysis_tab.py`
+
+#### Current State Analysis:
+The `ImageAnalysisTab` uses a dedicated `ImageAnalysisWorker` to perform image-to-text extraction. This logic is isolated within the tab and not shared with other components like the `UnifiedInputWidget`.
 
 #### Planned Changes:
 - **Remove:** `ImageAnalysisWorker` class
@@ -413,9 +424,13 @@ text = extractor.extract_from_image(image_path)
 
 ---
 
+
 ### 10. Phase 5: UBSearchTab Refactoring 🔵
 **Status:** PENDING (Low Priority)
 **Location:** `src/ui/ubsearch_tab.py`
+
+#### Current State Analysis:
+The `UBSearchTab` is implemented with two specific worker classes: `UBSearchWorker` and `AdditionalTitlesWorker`. These workers execute hardcoded search queries against the TU Freiberg library catalog and are not configurable or reusable.
 
 #### Planned Changes:
 - **Remove:** `UBSearchWorker` and `AdditionalTitlesWorker` classes
@@ -441,6 +456,7 @@ suggester = MetaSuggester(
 - **Configuration:** Catalog endpoints configurable via settings
 
 ---
+
 
 ### 11. DK Chunking Strategy Implementation 🟡
 **Status:** PENDING (Medium Priority)

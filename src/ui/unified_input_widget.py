@@ -33,6 +33,7 @@ from datetime import datetime
 from ..llm.llm_service import LlmService
 from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
+from ..core.alima_manager import AlimaManager
 from ..utils.doi_resolver import resolve_input_to_text
 
 
@@ -48,11 +49,13 @@ class TextExtractionWorker(QThread):
         source_type: str,
         source_data: Any,
         llm_service: Optional[LlmService] = None,
+        alima_manager: Optional[AlimaManager] = None,
     ):
         super().__init__()
         self.source_type = source_type  # pdf, image, doi, url
         self.source_data = source_data
         self.llm_service = llm_service
+        self.alima_manager = alima_manager
         self.logger = logging.getLogger(__name__)
 
     def run(self):
@@ -202,52 +205,36 @@ class TextExtractionWorker(QThread):
         self.progress_updated.emit("Bild wird mit LLM analysiert...")
 
         try:
-            # Try new unified task execution system first
-            if hasattr(self.llm_service, 'alima_manager'):
-                try:
-                    self.progress_updated.emit("Verwende neue Task-Präferenz-Logik...")
-                    
-                    # Create task context
-                    context = {'image_data': image_path}
-                    
-                    # Get unified config manager for task preferences
-                    from ..utils.unified_provider_config import UnifiedProviderConfigManager
-                    
-                    config_manager = getattr(self.llm_service, 'config_manager', None)
-                    unified_config_manager = None
-                    if config_manager:
-                        unified_config_manager = UnifiedProviderConfigManager(config_manager)
-                    
-                    # Execute task using new system
-                    extracted_text = self.llm_service.alima_manager.execute_task(
-                        task_name="image_text_extraction",
-                        context=context,
-                        stream_callback=None,  # No streaming for images
-                        unified_config_manager=unified_config_manager
-                    )
-                    
-                    # Clean output
-                    extracted_text = self._clean_ocr_output(extracted_text)
-                    
-                    # Cleanup temp file
-                    if cleanup_temp:
-                        try:
-                            os.unlink(image_path)
-                        except:
-                            pass
-                    
-                    if extracted_text.strip():
-                        self.text_extracted.emit(extracted_text, source_info)
-                        return
-                    else:
-                        self.logger.warning("New task system returned empty result, falling back to legacy method")
+            if self.alima_manager:
+                self.progress_updated.emit("Verwende neue Task-Präferenz-Logik...")
                 
-                except Exception as e:
-                    self.logger.warning(f"New task system failed: {e}, falling back to legacy method")
-            
-            # Fallback to legacy system
-            self.progress_updated.emit("Verwende Legacy-Bilderkennung...")
-            self._extract_image_with_llm_legacy(image_path, source_info, cleanup_temp)
+                # Create task context
+                context = {'image_data': image_path}
+                
+                # Execute task using the refactored system
+                extracted_text = self.alima_manager.execute_task(
+                    task_name="image_text_extraction",
+                    context=context,
+                    stream_callback=None  # No streaming for images
+                )
+                
+                # Clean output
+                extracted_text = self._clean_ocr_output(extracted_text)
+                
+                # Cleanup temp file
+                if cleanup_temp:
+                    try:
+                        os.unlink(image_path)
+                    except:
+                        pass
+                
+                if extracted_text.strip():
+                    self.text_extracted.emit(extracted_text, source_info)
+                    return
+                else:
+                    self.error_occurred.emit("LLM konnte keinen Text im Bild erkennen")
+            else:
+                self.error_occurred.emit("alima_manager not found")
 
         except Exception as e:
             # Cleanup temporäre Datei auch bei Fehlern
@@ -291,8 +278,8 @@ class TextExtractionWorker(QThread):
             
             request_id = str(uuid.uuid4())
             
-            # Bestimme besten verfügbaren Provider für Bilderkennung
-            provider, model = self._get_best_vision_provider()
+            # Bestimme besten verfügbaren Provider für Bilderkennung mit Task Preferences
+            provider, model = self._get_best_vision_provider_with_task_preferences()
             
             if not provider:
                 self.error_occurred.emit("Kein Provider mit Bilderkennung verfügbar")
@@ -389,10 +376,129 @@ class TextExtractionWorker(QThread):
                         continue
             
             return None, None
-            
+
         except Exception as e:
             self.logger.error(f"Error determining best vision provider: {e}")
             return None, None
+
+    def _get_best_vision_provider_with_task_preferences(self) -> tuple:
+        """Get best vision provider using task preferences for image_text_extraction - Claude Generated"""
+        try:
+            # 🔍 DEBUG: Start vision provider selection with task preferences - Claude Generated
+            self.logger.critical(f"🔍 VISION_TASK_START: Selecting provider for image_text_extraction")
+
+            # Get unified config manager for task preferences
+            from ..utils.unified_provider_config import UnifiedProviderConfigManager
+
+            # Try to get config manager from multiple sources - Claude Generated
+            config_manager = getattr(self.llm_service, 'config_manager', None)
+            if not config_manager:
+                config_manager = getattr(self.alima_manager, 'config_manager', None)
+
+            # 🔍 ROBUST FALLBACK: Try to create ConfigManager if no access via services - Claude Generated
+            if not config_manager:
+                self.logger.critical("🔍 CONFIG_MANAGER_FALLBACK: Attempting to create ConfigManager directly")
+                try:
+                    from ..utils.config_manager import ConfigManager
+                    config_manager = ConfigManager()
+                    self.logger.critical("🔍 CONFIG_MANAGER_CREATED: Successfully created ConfigManager directly")
+                except Exception as e:
+                    self.logger.critical(f"🔍 CONFIG_MANAGER_CREATION_FAILED: Failed to create ConfigManager: {e}")
+
+            # 🔍 DEBUG: Log config manager availability - Claude Generated
+            self.logger.critical(f"🔍 CONFIG_MANAGER: llm_service has config_manager={getattr(self.llm_service, 'config_manager', None) is not None}")
+            self.logger.critical(f"🔍 CONFIG_MANAGER: alima_manager has config_manager={getattr(self.alima_manager, 'config_manager', None) is not None}")
+            self.logger.critical(f"🔍 CONFIG_MANAGER: final config_manager={config_manager is not None}, type={type(config_manager).__name__ if config_manager else None}")
+
+            if not config_manager:
+                self.logger.critical("🔍 CONFIG_MANAGER_MISSING: No config_manager available, falling back to default vision provider")
+                return self._get_best_vision_provider()
+
+            unified_config_manager = UnifiedProviderConfigManager(config_manager)
+            unified_config = unified_config_manager.get_unified_config()
+
+            # 🔍 DEBUG: Log unified config loading and contents - Claude Generated
+            self.logger.critical(f"🔍 UNIFIED_CONFIG: loaded={unified_config is not None}")
+            if unified_config:
+                self.logger.critical(f"🔍 UNIFIED_CONFIG_PROVIDERS: {len(unified_config.providers)} providers configured")
+                self.logger.critical(f"🔍 UNIFIED_CONFIG_TASK_PREFS: {len(unified_config.task_preferences)} task preferences: {list(unified_config.task_preferences.keys())}")
+                self.logger.critical(f"🔍 UNIFIED_CONFIG_PROVIDER_PRIORITY: {unified_config.provider_priority}")
+
+            # Get model priority for image_text_extraction task
+            model_priority = unified_config.get_model_priority_for_task("image_text_extraction") if unified_config else []
+
+            # 🔍 DEBUG: Log detailed analysis of task preferences - Claude Generated
+            if unified_config and hasattr(unified_config, 'task_preferences'):
+                image_task_pref = unified_config.task_preferences.get("image_text_extraction")
+                self.logger.critical(f"🔍 IMAGE_TASK_PREF_OBJECT: {image_task_pref}")
+                if image_task_pref:
+                    self.logger.critical(f"🔍 IMAGE_TASK_PREF_MODEL_PRIORITY: {getattr(image_task_pref, 'model_priority', None)}")
+                    self.logger.critical(f"🔍 IMAGE_TASK_PREF_CHUNKED: {getattr(image_task_pref, 'chunked_model_priority', None)}")
+            else:
+                self.logger.critical("🔍 NO_TASK_PREFERENCES: unified_config has no task_preferences attribute")
+
+            # 🔍 ROBUST FALLBACK: If no model priority from unified config, try direct config access - Claude Generated
+            if not model_priority:
+                self.logger.critical("🔍 FALLBACK_TO_DIRECT_CONFIG: Trying direct AlimaConfig access for task preferences")
+                try:
+                    # Load AlimaConfig directly
+                    alima_config = config_manager.load_config()
+                    if hasattr(alima_config, 'task_preferences') and alima_config.task_preferences:
+                        task_prefs = alima_config.task_preferences.get("image_text_extraction", {})
+                        model_priority = task_prefs.get('model_priority', [])
+                        self.logger.critical(f"🔍 DIRECT_CONFIG_TASK_PREFS: Found {len(model_priority) if model_priority else 0} providers in direct config")
+                except Exception as e:
+                    self.logger.critical(f"🔍 DIRECT_CONFIG_ERROR: Failed to access task preferences from direct config: {e}")
+
+            # 🔍 DEBUG: Log task preferences - Claude Generated
+            self.logger.critical(f"🔍 TASK_PREFERENCES: image_text_extraction model_priority={model_priority}")
+
+            if model_priority:
+                self.logger.critical(f"🔍 USING_TASK_PREFERENCES: {len(model_priority)} providers configured for image_text_extraction: {model_priority}")
+
+                # Try each configured provider/model in priority order
+                for i, priority_item in enumerate(model_priority):
+                    provider_name = priority_item.get("provider_name", "")
+                    model_name = priority_item.get("model_name", "")
+
+                    self.logger.critical(f"🔍 TRYING_PROVIDER_{i+1}: {provider_name}/{model_name}")
+
+                    if provider_name and model_name:
+                        try:
+                            # Check if provider is available
+                            available_providers = self.llm_service.get_available_providers()
+                            self.logger.critical(f"🔍 AVAILABLE_PROVIDERS: {available_providers}")
+
+                            if provider_name in available_providers:
+                                available_models = self.llm_service.get_available_models(provider_name)
+                                self.logger.critical(f"🔍 AVAILABLE_MODELS_{provider_name}: {available_models}")
+
+                                if model_name in available_models or model_name == "default":
+                                    self.logger.critical(f"🔍 VISION_SUCCESS: Using configured vision provider: {provider_name}/{model_name}")
+                                    return provider_name, model_name
+                                else:
+                                    self.logger.critical(f"🔍 MODEL_UNAVAILABLE: Configured model {model_name} not available for {provider_name} (available: {available_models})")
+                            else:
+                                self.logger.critical(f"🔍 PROVIDER_UNAVAILABLE: Configured provider {provider_name} not available (available: {available_providers})")
+                        except Exception as e:
+                            self.logger.critical(f"🔍 PROVIDER_CHECK_ERROR: Error checking configured provider {provider_name}: {e}")
+                            continue
+
+                self.logger.critical("🔍 NO_CONFIGURED_PROVIDERS: No configured and available providers found in task preferences, falling back to default vision provider")
+
+            else:
+                self.logger.critical("🔍 NO_TASK_PREFERENCES: No task preferences configured for image_text_extraction, using default")
+
+            # Fallback to default vision provider selection
+            fallback_result = self._get_best_vision_provider()
+            self.logger.critical(f"🔍 FALLBACK_RESULT: Using fallback vision provider: {fallback_result}")
+            return fallback_result
+
+        except Exception as e:
+            self.logger.critical(f"🔍 VISION_ERROR: Error getting vision provider with task preferences: {e}")
+            import traceback
+            self.logger.critical(f"🔍 VISION_TRACEBACK: {traceback.format_exc()}")
+            return self._get_best_vision_provider()
 
     def _clean_ocr_output(self, text: str) -> str:
         """Clean OCR output from common LLM artifacts - Claude Generated"""
@@ -477,9 +583,10 @@ class UnifiedInputWidget(QWidget):
     text_ready = pyqtSignal(str, str)  # text, source_info
     input_cleared = pyqtSignal()
 
-    def __init__(self, llm_service: Optional[LlmService] = None, parent=None):
+    def __init__(self, llm_service: Optional[LlmService] = None, alima_manager: Optional[AlimaManager] = None, parent=None):
         super().__init__(parent)
         self.llm_service = llm_service
+        self.alima_manager = alima_manager
         self.logger = logging.getLogger(__name__)
         self.current_extraction_worker: Optional[TextExtractionWorker] = None
 
@@ -937,6 +1044,7 @@ class UnifiedInputWidget(QWidget):
             source_type=source_type,
             source_data=source_data,
             llm_service=self.llm_service,
+            alima_manager=self.alima_manager,
         )
 
         self.current_extraction_worker.text_extracted.connect(self.on_text_extracted)

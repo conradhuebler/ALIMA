@@ -28,10 +28,15 @@ class PipelineMode(Enum):
 
 
 class TaskType(Enum):
-    """LLM task types for intelligent provider selection - Claude Generated"""
-    TEXT_ANALYSIS = "text_analysis"      # Keywords, concept extraction
-    VISION = "vision"                    # Image analysis, OCR
-    CLASSIFICATION = "classification"    # DDC, DK classification  
+    """ALIMA pipeline step types for intelligent provider selection - Claude Generated"""
+    INPUT = "input"                      # File/text input (no LLM)
+    INITIALISATION = "initialisation"    # LLM keyword extraction from text
+    SEARCH = "search"                    # Database search (no LLM)
+    KEYWORDS = "keywords"                # LLM keyword verification with GND context
+    CLASSIFICATION = "classification"    # LLM DDC/DK/RVK classification
+    DK_SEARCH = "dk_search"             # Catalog search (no LLM)
+    DK_CLASSIFICATION = "dk_classification" # LLM DK classification analysis
+    VISION = "vision"                    # Image analysis, OCR (for image_text_extraction)
     CHUNKED_PROCESSING = "chunked"       # Large text processing
     GENERAL = "general"                  # Default fallback
 
@@ -42,7 +47,6 @@ class TaskPreference:
     task_type: TaskType
     model_priority: List[Dict[str, str]] = field(default_factory=list)  # [{"provider_name": "p1", "model_name": "m1"}, ...]
     chunked_model_priority: Optional[List[Dict[str, str]]] = None  # For chunked subtasks like keywords_chunked
-    performance_preference: str = "balanced"  # "quality", "speed", "balanced"
     allow_fallback: bool = True
     
     # Legacy compatibility
@@ -68,7 +72,6 @@ class PipelineStepConfig:
     
     # Smart Mode settings
     task_type: Optional[TaskType] = None
-    quality_preference: str = "balanced"  # "high", "balanced", "fast"
     
     # Advanced/Expert Mode settings  
     provider: Optional[str] = None
@@ -225,80 +228,48 @@ class UnifiedProviderConfig:
     config_version: str = "2.0"  # New unified version
     
     def __post_init__(self):
-        """Initialize default task preferences if not provided - Claude Generated"""
-        if not self.task_preferences:
-            self._setup_default_task_preferences()
-    
-    def _setup_default_task_preferences(self):
-        """Setup empty default task preferences - User must configure via UI - Claude Generated"""
-        self.task_preferences = {
-            # Legacy compatibility entries only
-            "text_analysis": TaskPreference(
-                task_type=TaskType.TEXT_ANALYSIS,
-                preferred_providers=[],  # Empty by default
-                performance_preference="balanced"
-            ),
-            "vision": TaskPreference(
-                task_type=TaskType.VISION,
-                preferred_providers=[],  # Empty by default  
-                performance_preference="quality"
-            ),
-            "chunked": TaskPreference(
-                task_type=TaskType.CHUNKED_PROCESSING,
-                preferred_providers=[],  # Empty by default
-                performance_preference="balanced"
-            )
-        }
+        """Post-initialization checks"""
+        # This method can be used for future validation or setup
+        pass
     
     @classmethod
-    def from_legacy_config(cls, llm_config: LLMConfig, provider_preferences: ProviderPreferences) -> 'UnifiedProviderConfig':
-        """Convert legacy LLMConfig + ProviderPreferences to UnifiedProviderConfig - Claude Generated"""
+    def from_alima_config(cls, alima_config: 'AlimaConfig') -> 'UnifiedProviderConfig':
+        """Create UnifiedProviderConfig from AlimaConfig - New Method"""
         
         # Convert providers
         unified_providers = []
         
         # Convert Ollama providers
-        for ollama_provider in llm_config.ollama_providers:
+        for ollama_provider in alima_config.llm.ollama_providers:
             unified_providers.append(UnifiedProvider.from_ollama_provider(ollama_provider))
         
         # Convert OpenAI-compatible providers
-        for openai_provider in llm_config.openai_compatible_providers:
+        for openai_provider in alima_config.llm.openai_compatible_providers:
             unified_providers.append(UnifiedProvider.from_openai_provider(openai_provider))
         
         # Create unified config
         unified_config = cls(
             providers=unified_providers,
-            preferred_provider=provider_preferences.preferred_provider,
-            provider_priority=provider_preferences.provider_priority.copy(),
-            disabled_providers=provider_preferences.disabled_providers.copy(),
-            gemini_api_key=llm_config.gemini,
-            anthropic_api_key=llm_config.anthropic,
-            auto_fallback=provider_preferences.auto_fallback,
-            fallback_timeout=provider_preferences.fallback_timeout,
-            prefer_faster_models=provider_preferences.prefer_faster_models
+            gemini_api_key=alima_config.llm.gemini,
+            anthropic_api_key=alima_config.llm.anthropic,
         )
-        
-        # Convert task-specific overrides to task preferences
-        if provider_preferences.vision_provider:
-            unified_config.task_preferences["vision"] = TaskPreference(
-                task_type=TaskType.VISION,
-                preferred_providers=[provider_preferences.vision_provider],
-                performance_preference="quality"
-            )
-        
-        if provider_preferences.text_provider:
-            unified_config.task_preferences["text_analysis"] = TaskPreference(
-                task_type=TaskType.TEXT_ANALYSIS,
-                preferred_providers=[provider_preferences.text_provider],
-                performance_preference="balanced"
-            )
-            
-        if provider_preferences.classification_provider:
-            unified_config.task_preferences["classification"] = TaskPreference(
-                task_type=TaskType.CLASSIFICATION,
-                preferred_providers=[provider_preferences.classification_provider],
-                performance_preference="quality"
-            )
+
+        # Copy task_preferences from the root of alima_config
+        if hasattr(alima_config, 'task_preferences'):
+            for task_name, task_data in alima_config.task_preferences.items():
+                # Ensure task_type is valid
+                task_type_str = task_data.get("task_type", "general")
+                try:
+                    task_type = TaskType(task_type_str)
+                except ValueError:
+                    task_type = TaskType.GENERAL
+
+                unified_config.task_preferences[task_name] = TaskPreference(
+                    task_type=task_type,
+                    model_priority=task_data.get("model_priority", []),
+                    chunked_model_priority=task_data.get("chunked_model_priority"),
+                    allow_fallback=task_data.get("allow_fallback", True)
+                )
         
         return unified_config
     
@@ -353,8 +324,7 @@ class UnifiedProviderConfig:
         # Return default task preference
         return TaskPreference(
             task_type=task_type,
-            preferred_providers=self.provider_priority.copy(),
-            performance_preference="balanced"
+            preferred_providers=self.provider_priority.copy()
         )
     
     def get_model_priority_for_task(self, task_name: str, is_chunked: bool = False) -> List[Dict[str, str]]:
@@ -402,7 +372,6 @@ class UnifiedProviderConfig:
                 "model_priority": task_pref.model_priority,
                 "chunked_model_priority": task_pref.chunked_model_priority,
                 "preferred_providers": task_pref.preferred_providers,  # Legacy compatibility
-                "performance_preference": task_pref.performance_preference,
                 "allow_fallback": task_pref.allow_fallback
             }
         result["task_preferences"] = converted_task_preferences
@@ -425,7 +394,6 @@ class UnifiedProviderConfig:
                 model_priority=task_data.get("model_priority", []),
                 chunked_model_priority=task_data.get("chunked_model_priority"),
                 preferred_providers=task_data.get("preferred_providers", []),  # Legacy support
-                performance_preference=task_data.get("performance_preference", "balanced"),
                 allow_fallback=task_data.get("allow_fallback", True)
             )
         
@@ -459,39 +427,57 @@ class UnifiedProviderConfigManager:
         return self._unified_config
     
     def _load_or_migrate_config(self) -> UnifiedProviderConfig:
-        """Load unified config or migrate from legacy system - Claude Generated"""
+        """Load unified config directly from AlimaConfig (no legacy migration) - Claude Generated"""
         if not self.config_manager:
             # Return default config if no config manager
             return UnifiedProviderConfig()
-        
+
         try:
-            # Try to load existing unified config first
+            # Load AlimaConfig (contains config.json data)
             alima_config = self.config_manager.load_config()
-            
-            # Check if we already have unified config
+
+            # Check if we already have unified config stored
             if hasattr(alima_config, 'unified_provider_config'):
-                self.logger.info("Loading existing unified provider config")
+                self.logger.info("Loading existing unified provider config from stored data")
                 return alima_config.unified_provider_config
-            
-            # Migrate from legacy system
-            self.logger.info("Migrating from legacy LLMConfig + ProviderPreferences")
-            legacy_llm_config = alima_config.llm
-            legacy_preferences = alima_config.provider_preferences
-            
-            unified_config = UnifiedProviderConfig.from_legacy_config(
-                legacy_llm_config, 
-                legacy_preferences
-            )
-            
-            self.logger.info(f"Migration completed: {len(unified_config.providers)} providers, "
+
+            # Create UnifiedProviderConfig directly from AlimaConfig (config.json is already loaded correctly)
+            self.logger.info("Creating UnifiedProviderConfig from AlimaConfig (config.json)")
+            unified_config = UnifiedProviderConfig.from_alima_config(alima_config)
+
+            self.logger.info(f"Config loaded successfully: {len(unified_config.providers)} providers, "
                            f"{len(unified_config.task_preferences)} task preferences")
-            
+
             return unified_config
-            
+
         except Exception as e:
-            self.logger.error(f"Error loading/migrating provider config: {e}")
-            self.logger.info("Falling back to default unified config")
-            return UnifiedProviderConfig()
+            self.logger.error(f"Error loading provider config: {e}")
+
+            # Robust fallback: Try to use AlimaConfig data directly even if UnifiedProviderConfig creation fails
+            try:
+                alima_config = self.config_manager.load_config()
+                self.logger.warning("Attempting to create minimal UnifiedProviderConfig from AlimaConfig as fallback")
+
+                # Create minimal config with task preferences from config.json
+                fallback_config = UnifiedProviderConfig()
+                if hasattr(alima_config, 'task_preferences') and alima_config.task_preferences:
+                    # Copy task preferences directly from config.json
+                    for task_name, task_data in alima_config.task_preferences.items():
+                        if isinstance(task_data, dict) and 'model_priority' in task_data:
+                            fallback_config.task_preferences[task_name] = TaskPreference(
+                                task_type=TaskType.GENERAL,
+                                model_priority=task_data.get('model_priority', []),
+                                chunked_model_priority=task_data.get('chunked_model_priority'),
+                                allow_fallback=task_data.get('allow_fallback', True)
+                            )
+
+                self.logger.info(f"Fallback config created with {len(fallback_config.task_preferences)} task preferences")
+                return fallback_config
+
+            except Exception as fallback_error:
+                self.logger.error(f"Fallback config creation failed: {fallback_error}")
+                self.logger.error("Using empty default config as last resort")
+                return UnifiedProviderConfig()
     
     def save_unified_config(self, unified_config: UnifiedProviderConfig) -> bool:
         """Save unified configuration - Claude Generated"""

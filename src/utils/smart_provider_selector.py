@@ -34,7 +34,7 @@ class TaskType(Enum):
         mapping = {
             TaskType.GENERAL: UnifiedTaskType.GENERAL,
             TaskType.VISION: UnifiedTaskType.VISION,
-            TaskType.TEXT: UnifiedTaskType.TEXT_ANALYSIS,
+            TaskType.TEXT: UnifiedTaskType.KEYWORDS,
             TaskType.CLASSIFICATION: UnifiedTaskType.CLASSIFICATION,
             TaskType.CHUNKED: UnifiedTaskType.CHUNKED_PROCESSING
         }
@@ -47,16 +47,17 @@ class TaskType(Enum):
         if task_name.endswith('_chunked') or 'chunked' in task_name.lower():
             return cls.CHUNKED
             
-        # Map pipeline steps to task types
+        # Map pipeline steps to task types - updated for real ALIMA pipeline steps
         step_mapping = {
-            "input": cls.GENERAL,
-            "initialisation": cls.TEXT,
-            "search": cls.GENERAL,  # Search step doesn't use LLM
-            "keywords": cls.TEXT,
-            "verification": cls.TEXT, 
-            "classification": cls.CLASSIFICATION,
-            "dk_classification": cls.CLASSIFICATION,
-            "image_text_extraction": cls.VISION
+            "input": cls.GENERAL,                    # File/text input (no LLM)
+            "initialisation": cls.TEXT,              # LLM keyword extraction
+            "search": cls.GENERAL,                   # Database search (no LLM)
+            "keywords": cls.TEXT,                    # LLM keyword verification
+            "verification": cls.TEXT,                # Legacy alias for keywords
+            "classification": cls.CLASSIFICATION,    # LLM DDC/DK/RVK classification
+            "dk_search": cls.GENERAL,               # Catalog search (no LLM)
+            "dk_classification": cls.CLASSIFICATION, # LLM DK classification analysis
+            "image_text_extraction": cls.VISION     # Image analysis, OCR
         }
         
         return step_mapping.get(step_id, cls.GENERAL)
@@ -177,8 +178,12 @@ class SmartProviderSelector:
                     else:
                         self.logger.info(f"Preference cleanup - {category}: {actions}")
             
-            # Save cleaned preferences back to config
-            self.config_manager.save_config()
+            # Save cleaned preferences back to config - Claude Generated
+            try:
+                current_config = self.config_manager.load_config()
+                self.config_manager.save_config(current_config, "user")
+            except Exception as e:
+                self.logger.warning(f"Failed to save cleaned preferences: {e}")
         
         # Ensure we have a valid configuration
         preferences.ensure_valid_configuration(self.provider_detection_service)
@@ -190,7 +195,10 @@ class SmartProviderSelector:
         if self.config and task_name and task_name in self.config.task_preferences:
             task_data = self.config.task_preferences[task_name]
             model_priorities = task_data.get('model_priority', [])
-            
+
+            # CRITICAL DEBUG: Log task preference loading attempt - Claude Generated
+            self.logger.info(f"🔍 TIER1_TASK_PREFS: task_name='{task_name}' found in config, model_priorities={model_priorities}")
+
             if model_priorities and model_priorities[0].get("provider_name") != "auto":
                 # Extract unique providers from model_priority, maintaining order
                 for entry in model_priorities:
@@ -198,6 +206,12 @@ class SmartProviderSelector:
                     if provider and provider not in provider_priority:
                         provider_priority.append(provider)
                 self.logger.info(f"TIER 1: Using task-specific provider priority for {task_name}: {provider_priority}")
+            else:
+                self.logger.info(f"🔍 TIER1_SKIP: task_name='{task_name}' has no usable model_priorities or is set to 'auto'")
+        elif self.config and task_name:
+            self.logger.info(f"🔍 TIER1_MISS: task_name='{task_name}' not found in task_preferences. Available: {list(self.config.task_preferences.keys())}")
+        else:
+            self.logger.info(f"🔍 TIER1_NO_CONFIG: config={self.config is not None}, task_name='{task_name}'")
         
         # === TIER 2: Provider defaults from provider preferences (medium priority) ===  
         if not provider_priority and self.provider_preferences:
@@ -304,10 +318,13 @@ class SmartProviderSelector:
         if self.config and task_name and task_name in self.config.task_preferences:
             try:
                 task_data = self.config.task_preferences[task_name]
-                
+
+                # CRITICAL DEBUG: Log task preference model selection attempt - Claude Generated
+                self.logger.info(f"🔍 PRIO1_MODEL_SEARCH: provider='{provider}', task_name='{task_name}', task_data={task_data}")
+
                 # Determine if this is a chunked task
                 is_chunked = task_type == TaskType.CHUNKED or task_name.endswith('_chunked')
-                
+
                 # Get appropriate model priority list
                 if is_chunked and 'chunked_model_priority' in task_data:
                     model_priorities = task_data['chunked_model_priority']
@@ -341,6 +358,8 @@ class SmartProviderSelector:
                                 
                 if selected_model:
                     self.logger.info(f"TIER 1: Selected model {selected_model} for {provider} via {selection_reason}")
+                    # CRITICAL DEBUG: Log successful task preference model selection - Claude Generated
+                    self.logger.info(f"🔍 PRIO1_SUCCESS: provider='{provider}', task='{task_name}', model='{selected_model}', reason='{selection_reason}'")
                     return selected_model
                     
             except Exception as e:
