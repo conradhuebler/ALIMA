@@ -52,7 +52,114 @@ class PipelineStepExecutor:
             except Exception as e:
                 if logger:
                     logger.warning(f"Failed to initialize SmartProviderSelector: {e}")
-                    logger.info("Falling back to manual provider selection")
+                    logger.info("Falling back to config-based provider selection")
+
+    def _resolve_provider_smart(self, provider: str, model: str, task_type: str, prefer_fast: bool = False, task_name: str = None, step_id: str = None) -> tuple[str, str]:
+        """Intelligent provider/model resolution with proper fallback chain - Claude Generated"""
+
+        # 1. Explicit parameters (highest priority)
+        if provider and model:
+            if self.logger:
+                self.logger.info(f"Using explicit provider/model: {provider}/{model}")
+            return provider, model
+
+        # 2. SmartProviderSelector (when available)
+        if self.smart_selector:
+            try:
+                # Map string to TaskType enum
+                task_type_mapping = {
+                    "text": TaskType.TEXT,
+                    "classification": TaskType.CLASSIFICATION,
+                    "vision": TaskType.VISION
+                }
+
+                task_type_enum = task_type_mapping.get(task_type.lower(), TaskType.TEXT)
+
+                selection = self.smart_selector.select_provider(
+                    task_type=task_type_enum,
+                    prefer_fast=prefer_fast,
+                    task_name=task_name,
+                    step_id=step_id
+                )
+
+                # Use SmartProvider selection if no explicit provider/model given
+                final_provider = provider or selection.provider
+                final_model = model or selection.model
+
+                if self.logger:
+                    self.logger.info(f"SmartProvider selection: {final_provider}/{final_model} (task_type={task_type}, prefer_fast={prefer_fast})")
+
+                return final_provider, final_model
+
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"SmartProvider selection failed: {e}")
+
+        # 3. Config-manager fallbacks (when SmartProvider unavailable)
+        if self.config_manager:
+            try:
+                config = self.config_manager.load_config()
+
+                # Try to get default provider/model from config
+                if hasattr(config, 'llm') and hasattr(config.llm, 'default_provider'):
+                    config_provider = provider or config.llm.default_provider
+                    config_model = model or getattr(config.llm, 'default_model', None)
+
+                    if config_provider and config_model:
+                        if self.logger:
+                            self.logger.info(f"Using config defaults: {config_provider}/{config_model}")
+                        return config_provider, config_model
+
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"Config fallback failed: {e}")
+
+        # 4. System defaults (last resort only)
+        fallback_provider = provider or "ollama"
+
+        # Task-specific model defaults as absolute last resort
+        task_defaults = {
+            "text": "cogito:14b" if prefer_fast else "cogito:32b",
+            "classification": "cogito:32b",
+            "vision": "cogito:32b"
+        }
+        fallback_model = model or task_defaults.get(task_type.lower(), "cogito:14b")
+
+        if self.logger:
+            self.logger.warning(f"Using system fallback defaults: {fallback_provider}/{fallback_model} (no SmartProvider or Config available)")
+
+        return fallback_provider, fallback_model
+
+    def _create_stream_callback_adapter(self, stream_callback: Optional[callable], step_id: str, debug: bool = False) -> Optional[callable]:
+        """Centralized stream callback adapter creation - Claude Generated"""
+        if not stream_callback:
+            if debug and self.logger:
+                self.logger.warning(f"⚠️ No stream callback provided for {step_id} step")
+            return None
+
+        if debug and self.logger:
+            self.logger.info(f"🔄 Creating stream callback adapter for {step_id} step")
+
+        def alima_stream_callback(token):
+            try:
+                if debug and self.logger:
+                    self.logger.debug(f"📡 Stream token received: '{token[:50]}...', forwarding to step_id='{step_id}'")
+                stream_callback(token, step_id)
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"❌ Stream callback error: {e}")
+
+        return alima_stream_callback
+
+    def _filter_alima_kwargs(self, kwargs: Dict[str, Any], exclude_llm_params: bool = False) -> Dict[str, Any]:
+        """Centralized parameter filtering for AlimaManager calls - Claude Generated"""
+        excluded_params = ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]
+
+        # Some methods need to exclude LLM parameters that are handled separately
+        if exclude_llm_params:
+            excluded_params.extend(["top_p", "temperature"])
+
+        return {k: v for k, v in kwargs.items() if k not in excluded_params}
 
     def execute_initial_keyword_extraction(
         self,
@@ -65,85 +172,28 @@ class PipelineStepExecutor:
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute initial keyword extraction step with intelligent provider selection - Claude Generated"""
 
-        # Intelligent provider selection - Claude Generated
-        if self.smart_selector and (not provider or not model):
-            try:
-                # Use SmartProviderSelector for optimal provider/model selection
-                task_type = TaskType.TEXT  # Initial keyword extraction is text processing
-                prefer_fast = True  # Initial extraction can prioritize speed
-
-                # CRITICAL FIX: Pass task_name and step_id for task_preferences integration - Claude Generated
-                selection = self.smart_selector.select_provider(
-                    task_type=task_type,
-                    prefer_fast=prefer_fast,
-                    task_name=task,  # Use the task parameter (e.g., "initialisation")
-                    step_id="initialisation"  # Explicit step_id for task preference lookup
-                )
-                
-                # Use SmartProvider selection if no explicit provider/model given
-                if not provider:
-                    provider = selection.provider
-                if not model:
-                    model = selection.model
-                
-                if self.logger:
-                    self.logger.info(f"SmartProvider selection for initial extraction: {provider}/{model} (fast text processing)")
-                    
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"SmartProvider selection failed: {e}")
-                # Fallback to defaults if SmartProvider fails
-                provider = provider or "ollama"
-                model = model or "cogito:14b"
-        else:
-            # Use explicit parameters or fallback defaults
-            provider = provider or "ollama"
-            model = model or "cogito:14b"
-            
-        # Legacy provider resolution for backward compatibility - Claude Generated
-        if provider and not self.smart_selector:
-            try:
-                from ..utils.config_manager import ConfigManager
-                config_manager = ConfigManager()
-                config = config_manager.load_config()
-                resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
-                
-                if self.logger and resolved_provider != provider:
-                    self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
-                    
-                provider = resolved_provider  # Use resolved provider type
-                
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
-                # Continue with original provider name as fallback
+        # Intelligent provider selection using centralized method - Claude Generated
+        provider, model = self._resolve_provider_smart(
+            provider=provider,
+            model=model,
+            task_type="text",
+            prefer_fast=True,  # Initial extraction can prioritize speed
+            task_name=task,
+            step_id="initialisation"
+        )
 
         # Create abstract data
         abstract_data = AbstractData(abstract=abstract_text, keywords="")
 
-        # Create a compatible stream callback for AlimaManager - ENHANCED DEBUG - Claude Generated
-        alima_stream_callback = None
-        if stream_callback:
-            if self.logger:
-                self.logger.info(f"🔄 Creating stream callback adapter for initialisation step")
+        # Create stream callback adapter using centralized method - Claude Generated
+        alima_stream_callback = self._create_stream_callback_adapter(
+            stream_callback,
+            kwargs.get("step_id", "initialisation"),
+            debug=True
+        )
 
-            def alima_stream_callback(token):
-                # AlimaManager expects callback(token), we have callback(token, step_id)
-                # So we call our callback with a default step_id
-                try:
-                    step_id = kwargs.get("step_id", "initialisation")
-                    if self.logger:
-                        self.logger.debug(f"📡 Stream token received: '{token[:50]}...', forwarding to step_id='{step_id}'")
-                    stream_callback(token, step_id)
-                except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"❌ Stream callback error: {e}")
-        else:
-            if self.logger:
-                self.logger.warning(f"⚠️ No stream callback provided for initialisation step")
-
-        # Filter out our custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]}
+        # Filter parameters using centralized method - Claude Generated
+        alima_kwargs = self._filter_alima_kwargs(kwargs)
 
         # Execute analysis via AlimaManager - ENHANCED DEBUG - Claude Generated
         if self.logger:
@@ -485,58 +535,15 @@ class PipelineStepExecutor:
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute final keyword analysis step with intelligent provider selection - Claude Generated"""
 
-        # Intelligent provider selection for final analysis - Claude Generated
-        if self.smart_selector and (not provider or not model):
-            try:
-                # Use SmartProviderSelector for optimal provider/model selection
-                task_type = TaskType.TEXT  # Final keyword analysis is high-quality text processing
-                prefer_fast = False  # Final analysis should prioritize quality
-
-                # CRITICAL FIX: Pass task_name and step_id for task_preferences integration - Claude Generated
-                selection = self.smart_selector.select_provider(
-                    task_type=task_type,
-                    prefer_fast=prefer_fast,
-                    task_name=task,  # Use the task parameter (e.g., "keywords", "rephrase")
-                    step_id="keywords"  # Explicit step_id for task preference lookup
-                )
-                
-                # Use SmartProvider selection if no explicit provider/model given
-                if not provider:
-                    provider = selection.provider
-                if not model:
-                    model = selection.model
-                
-                if self.logger:
-                    self.logger.info(f"SmartProvider selection for final analysis: {provider}/{model} (quality text processing)")
-                    
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"SmartProvider selection failed: {e}")
-                # Fallback to defaults if SmartProvider fails
-                provider = provider or "ollama"
-                model = model or "cogito:32b"
-        else:
-            # Use explicit parameters or fallback defaults
-            provider = provider or "ollama"
-            model = model or "cogito:32b"
-
-        # Legacy provider resolution for backward compatibility - Claude Generated
-        if provider and not self.smart_selector:
-            try:
-                from ..utils.config_manager import ConfigManager
-                config_manager = ConfigManager()
-                config = config_manager.load_config()
-                resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
-                
-                if self.logger and resolved_provider != provider:
-                    self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
-                    
-                provider = resolved_provider  # Use resolved provider type
-                
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
-            # Continue with original provider name as fallback
+        # Intelligent provider selection using centralized method - Claude Generated
+        provider, model = self._resolve_provider_smart(
+            provider=provider,
+            model=model,
+            task_type="text",
+            prefer_fast=False,  # Final analysis should prioritize quality
+            task_name=task,
+            step_id="keywords"
+        )
 
         # Prepare GND search results for prompt
         gnd_keywords_text = ""
@@ -614,74 +621,7 @@ class PipelineStepExecutor:
                 **kwargs,
             )
 
-        # Create abstract data with correct placeholder mapping
-        abstract_data = AbstractData(
-            abstract=original_abstract,  # This fills {abstract} placeholder
-            keywords=gnd_keywords_text,  # This fills {keywords} placeholder
-        )
-
-        # Create a compatible stream callback for AlimaManager
-        alima_stream_callback = None
-        if stream_callback:
-
-            def alima_stream_callback(token):
-                # AlimaManager expects callback(token), we have callback(token, step_id)
-                stream_callback(token, kwargs.get("step_id", "keywords"))
-
-        # Filter out our custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]}
-
-        # Execute final analysis
-        task_state = self.alima_manager.analyze_abstract(
-            abstract_data=abstract_data,
-            task=task,
-            model=model,
-            provider=provider,
-            stream_callback=alima_stream_callback,
-            **alima_kwargs,
-        )
-
-        if task_state.status == "failed":
-            raise ValueError(
-                f"Final keyword analysis failed: {task_state.analysis_result.full_text}"
-            )
-
-        # Extract final keywords and classes
-        extracted_keywords_all, extracted_keywords_exact = (
-            extract_keywords_from_descriptive_text(
-                task_state.analysis_result.full_text, gnd_compliant_keywords
-            )
-        )
-        
-        # Apply deduplication to ensure no duplicate keywords - Claude Generated
-        extracted_keywords_exact = self._deduplicate_keywords(
-            [extracted_keywords_exact],  # Wrap in list for consistency with chunked version
-            gnd_compliant_keywords
-        )
-        
-        extracted_gnd_classes = extract_classes_from_descriptive_text(
-            task_state.analysis_result.full_text
-        )
-
-        # Create final analysis details
-        llm_analysis = LlmKeywordAnalysis(
-            task_name=task,
-            model_used=model,
-            provider_used=provider,
-            prompt_template=(
-                task_state.prompt_config.prompt if task_state.prompt_config else ""
-            ),
-            filled_prompt=(
-                task_state.prompt_config.prompt if task_state.prompt_config else ""
-            ),
-            temperature=kwargs.get("temperature", 0.7),
-            seed=kwargs.get("seed", 0),
-            response_full_text=task_state.analysis_result.full_text,
-            extracted_gnd_keywords=extracted_keywords_exact,  # Use exact matches
-            extracted_gnd_classes=extracted_gnd_classes,
-        )
-
-        return extracted_keywords_exact, extracted_gnd_classes, llm_analysis
+        # DEAD CODE REMOVED - This section was unreachable due to early returns above - Claude Generated
 
     def _execute_single_keyword_analysis(
         self,
@@ -702,20 +642,14 @@ class PipelineStepExecutor:
             keywords=gnd_keywords_text,  # This fills {keywords} placeholder
         )
 
-        # Create a compatible stream callback for AlimaManager
-        alima_stream_callback = None
-        if stream_callback:
+        # Create stream callback adapter using centralized method - Claude Generated
+        alima_stream_callback = self._create_stream_callback_adapter(
+            stream_callback,
+            kwargs.get("step_id", "keywords")
+        )
 
-            def alima_stream_callback(token):
-                # AlimaManager expects callback(token), we have callback(token, step_id)
-                stream_callback(token, kwargs.get("step_id", "keywords"))
-
-        # Filter out our custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {
-            k: v
-            for k, v in kwargs.items()
-            if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "dk_frequency_threshold"]
-        }
+        # Filter parameters using centralized method - Claude Generated
+        alima_kwargs = self._filter_alima_kwargs(kwargs)
 
         # Execute final analysis
         task_state = self.alima_manager.analyze_abstract(
@@ -1108,58 +1042,15 @@ class PipelineStepExecutor:
             less relevant for the given abstract.
         """
 
-        # Intelligent provider selection for classification - Claude Generated
-        if self.smart_selector and (not provider or not model):
-            try:
-                # Use SmartProviderSelector for optimal classification provider
-                task_type = TaskType.CLASSIFICATION  # Specialized classification task
-                prefer_fast = False  # Classification should prioritize accuracy
-
-                # CRITICAL FIX: Pass task_name and step_id for task_preferences integration - Claude Generated
-                selection = self.smart_selector.select_provider(
-                    task_type=task_type,
-                    prefer_fast=prefer_fast,
-                    task_name="classification",  # Explicit task name for classification
-                    step_id="classification"  # Explicit step_id for task preference lookup
-                )
-                
-                # Use SmartProvider selection if no explicit provider/model given
-                if not provider:
-                    provider = selection.provider
-                if not model:
-                    model = selection.model
-                
-                if self.logger:
-                    self.logger.info(f"SmartProvider selection for DK classification: {provider}/{model} (specialized classification)")
-                    
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"SmartProvider selection failed: {e}")
-                # Fallback to defaults if SmartProvider fails
-                provider = provider or "ollama"
-                model = model or "cogito:32b"
-        else:
-            # Use explicit parameters or fallback defaults
-            provider = provider or "ollama"
-            model = model or "cogito:32b"
-
-        # Legacy provider resolution for backward compatibility - Claude Generated
-        if provider and not self.smart_selector:
-            try:
-                from ..utils.config_manager import ConfigManager
-                config_manager = ConfigManager()
-                config = config_manager.load_config()
-                resolved_provider, provider_config = config.llm.resolve_provider_type(provider)
-                
-                if self.logger and resolved_provider != provider:
-                    self.logger.info(f"Provider mapping: {provider} -> {resolved_provider}")
-                    
-                provider = resolved_provider  # Use resolved provider type
-                
-            except Exception as e:
-                if self.logger:
-                    self.logger.warning(f"Failed to resolve provider {provider}, using as-is: {e}")
-                # Continue with original provider name as fallback
+        # Intelligent provider selection using centralized method - Claude Generated
+        provider, model = self._resolve_provider_smart(
+            provider=provider,
+            model=model,
+            task_type="classification",
+            prefer_fast=False,  # Classification should prioritize accuracy
+            task_name="classification",
+            step_id="dk_classification"
+        )
 
         if not dk_search_results:
             if stream_callback:
@@ -1265,14 +1156,14 @@ class PipelineStepExecutor:
         if stream_callback:
             stream_callback("Starte LLM-basierte DK-Klassifikation...\n", "dk_classification")
 
-        # Create a compatible stream callback for AlimaManager
-        alima_stream_callback = None
-        if stream_callback:
-            def alima_stream_callback(token):
-                stream_callback(token, "dk_classification")
+        # Create stream callback adapter using centralized method - Claude Generated
+        alima_stream_callback = self._create_stream_callback_adapter(
+            stream_callback,
+            "dk_classification"
+        )
 
-        # Filter out custom parameters that AlimaManager doesn't expect
-        alima_kwargs = {k: v for k, v in kwargs.items() if k not in ["step_id", "keyword_chunking_threshold", "chunking_task", "expand_synonyms", "dk_max_results", "top_p", "temperature"]}
+        # Filter parameters using centralized method - Claude Generated
+        alima_kwargs = self._filter_alima_kwargs(kwargs, exclude_llm_params=True)
 
         # Execute LLM classification
         try:

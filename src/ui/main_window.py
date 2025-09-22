@@ -374,7 +374,10 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tabs)
 
         # Tabs erstellen
-        self.search_tab = SearchTab(cache_manager=self.cache_manager)
+        self.search_tab = SearchTab(
+            cache_manager=self.cache_manager,
+            alima_manager=self.alima_manager
+        )
 
         self.crossref_tab = CrossrefTab()
 
@@ -383,6 +386,7 @@ class MainWindow(QMainWindow):
         self.abstract_tab = AbstractTab(
             alima_manager=self.alima_manager,
             llm_service=self.llm_service,
+            cache_manager=self.cache_manager,
             main_window=self,
         )
         # self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
@@ -394,15 +398,18 @@ class MainWindow(QMainWindow):
         self.analyse_keywords = AbstractTab(
             alima_manager=self.alima_manager,
             llm_service=self.llm_service,
+            cache_manager=self.cache_manager,
             main_window=self,
         )
         self.analyse_keywords.template_name = (
             "results_verification"  # This might be removed later
         )
-        self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
-        self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
+        # self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
         self.analyse_keywords.need_keywords = True
-        self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
 
         self.ub_search_tab = UBSearchTab(
@@ -411,22 +418,26 @@ class MainWindow(QMainWindow):
             main_window=self,
         )
 
-        self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
-        self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
+        # self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
 
-        self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
 
-        self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
-        self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
+        # self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
 
         # Analysis Review Tab
         self.analysis_review_tab = AnalysisReviewTab()
-        self.analysis_review_tab.keywords_selected.connect(
-            self.search_tab.update_search_field
-        )
-        self.analysis_review_tab.abstract_selected.connect(
-            self.abstract_tab.set_abstract
-        )
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.analysis_review_tab.keywords_selected.connect(
+        #     self.search_tab.update_search_field
+        # )
+        # self.analysis_review_tab.abstract_selected.connect(
+        #     self.abstract_tab.set_abstract
+        # )
 
         # Connect AbstractTab analysis completion to AnalysisReviewTab - Claude Generated
         self.abstract_tab.analysis_completed.connect(
@@ -437,7 +448,8 @@ class MainWindow(QMainWindow):
         self.image_analysis_tab = ImageAnalysisTab(
             llm_service=self.llm_service, main_window=self
         )
-        self.image_analysis_tab.text_extracted.connect(self.abstract_tab.set_abstract)
+        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
+        # self.image_analysis_tab.text_extracted.connect(self.abstract_tab.set_abstract)
 
         # Pipeline Tab - Claude Generated
         self.pipeline_tab = PipelineTab(

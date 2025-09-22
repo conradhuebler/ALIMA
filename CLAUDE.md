@@ -43,7 +43,7 @@
 ## [Preserved Section - Permanent Documentation]
 **Change only if explicitly wanted by operator**
 
-### ALIMA - Pipeline Architecture v1.0.0 ✅
+### ALIMA - Pipeline Architecture v2.0.0 ✅
 **Step Definitions:**
 - **1. `input`**: [any text, imported from documents, clipboard, or extracted from images via LLM visual analysis] → TEXT
 - **2. `initialisation`**: Free keyword generation using "initialisation" prompt (formerly "abstract") → FREIE_SCHLAGWORTE  
@@ -51,8 +51,13 @@
 - **4. `keywords`**: Verbale Erschließung using "keywords"/"rephrase"/"keywords_chunked" prompts with GND context → FINALE_GND_SCHLAGWORTE
 - **5. `classification`**: Optional DDC/DK/RVK classification assignment via LLM → KLASSIFIKATIONEN
 
+**Core Classes & Roles (Orchestrator vs. Engine):**
+- **`PipelineManager` (The Conductor):** This is the high-level orchestrator for the entire workflow. It holds the `PipelineConfig`, manages the sequence of steps, and holds the overall state. It does *not* perform tasks itself but delegates them.
+- **`PipelineStepExecutor` (The Foreman):** A helper used by the `PipelineManager`. It knows *how* to execute a specific type of step, calling the appropriate specialist for the job (e.g., `AlimaManager` for LLM tasks, `SearchCLI` for searches).
+- **`AlimaManager` (The Engine):** This is the low-level specialist for LLM calls. It takes a precise, single task (a prompt, a model, parameters) and executes it via the `LlmService`, returning only the result of that single operation.
+
 **Technical Requirements IMPLEMENTED:**
-- ✅ CLI and GUI share identical PipelineManager code  
+- ✅ **[UNIFIED]** CLI and GUI share identical `PipelineManager` code  
 - ✅ JSON export/resume capability for each step
 - ✅ All prompts stored in prompts.json with provider/model adjustments
 - ✅ Live streaming feedback system with step-by-step progress

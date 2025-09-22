@@ -61,6 +61,10 @@ from ..utils.config import Config, ConfigSection, AIConfig
 from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
 from ..core.data_models import AbstractData, AnalysisResult
+from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
+from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
+from ..utils.unified_provider_config import PipelineStepConfig, PipelineMode
+from .workers import PipelineWorker
 
 from pathlib import Path
 import os
@@ -73,68 +77,6 @@ import threading
 import time
 from typing import List, Tuple, Dict, Optional
 import uuid
-
-
-class AnalysisWorker(QThread):
-    finished = pyqtSignal(AnalysisResult)
-    error = pyqtSignal(str)
-    new_token = pyqtSignal(str)
-
-    def __init__(
-        self,
-        alima_manager: AlimaManager,
-        abstract_data: AbstractData,
-        task: str,
-        model: str,
-        use_chunking_abstract: bool,
-        abstract_chunk_size: int,
-        use_chunking_keywords: bool,
-        keyword_chunk_size: int,
-        prompt_template: Optional[str] = None,
-        temperature: float = 0.7,
-        p_value: float = 0.1,
-        seed: int = 0,
-        system_prompt: Optional[str] = "",
-    ):
-        super().__init__()
-        self.alima_manager = alima_manager
-        self.abstract_data = abstract_data
-        self.task = task
-        self.model = model
-        self.use_chunking_abstract = use_chunking_abstract
-        self.abstract_chunk_size = abstract_chunk_size
-        self.use_chunking_keywords = use_chunking_keywords
-        self.keyword_chunk_size = keyword_chunk_size
-        self.prompt_template = prompt_template
-        self.temperature = temperature
-        self.p_value = p_value
-        self.seed = seed
-        self.system_prompt = system_prompt
-
-    def run(self):
-        try:
-
-            def stream_callback(token):
-                self.new_token.emit(token)
-
-            result = self.alima_manager.analyze_abstract(
-                self.abstract_data,
-                self.task,
-                self.model,
-                self.use_chunking_abstract,
-                self.abstract_chunk_size,
-                self.use_chunking_keywords,
-                self.keyword_chunk_size,
-                prompt_template=self.prompt_template,
-                stream_callback=stream_callback,
-                temperature=self.temperature,
-                p_value=self.p_value,
-                seed=self.seed,
-                system=self.system_prompt,
-            )
-            self.finished.emit(result.analysis_result)
-        except Exception as e:
-            self.error.emit(str(e))
 
 
 class AbstractTab(QWidget):
@@ -159,6 +101,7 @@ class AbstractTab(QWidget):
         self,
         alima_manager: AlimaManager,
         llm_service: LlmService,
+        cache_manager: UnifiedKnowledgeManager,
         main_window: Optional[QWidget] = None,
         parent: Optional[QWidget] = None,
     ):
@@ -166,10 +109,18 @@ class AbstractTab(QWidget):
         # Inject dependencies
         self.alima_manager = alima_manager
         self.llm = llm_service  # Renamed from self.llm_service to self.llm for consistency with existing code
+        self.cache_manager = cache_manager
         self.prompt_manager = (
             self.alima_manager.prompt_service
         )  # Access prompt_service via alima_manager
         self.main_window = main_window
+
+        # Create PipelineManager instance for manual step execution - Claude Generated
+        self.pipeline_manager = PipelineManager(
+            alima_manager=self.alima_manager,
+            cache_manager=self.cache_manager,
+            logger=logging.getLogger(__name__)
+        )
 
         self.need_keywords = False
         self.logger = logging.getLogger(__name__)
@@ -627,7 +578,7 @@ class AbstractTab(QWidget):
         self.chosen_model = model_name
 
     def start_analysis(self):
-        """Start analysis with enhanced UI feedback - Claude Generated"""
+        """Start analysis with PipelineManager integration - Claude Generated"""
         abstract_text = self.abstract_edit.toPlainText().strip()
         keywords_text = self.keywords_edit.toPlainText().strip()
 
@@ -655,48 +606,60 @@ class AbstractTab(QWidget):
         # Add analysis start message to results
         self.results_edit.setPlainText("🔄 Analyse gestartet...\n\n")
 
-        abstract_data = AbstractData(abstract=abstract_text, keywords=keywords_text)
-        use_chunking_abstract = self.enable_chunk_abstract.isChecked()
-        abstract_chunk_size = self.abstract_chunk_slider.value()
-        use_chunking_keywords = self.enable_chunk_keywords.isChecked()
-        keyword_chunk_size = self.keyword_chunk_slider.value()
-        use_chunking_abstract = self.enable_chunk_abstract.isChecked()
-        abstract_chunk_size = self.abstract_chunk_slider.value()
-        use_chunking_keywords = self.enable_chunk_keywords.isChecked()
-        keyword_chunk_size = self.keyword_chunk_slider.value()
+        # 1. Create ad-hoc PipelineConfig for single step execution - Claude Generated
+        adhoc_config = PipelineConfig()
+        adhoc_config.auto_advance = False  # Important: We want only one step
 
-        prompt_template = self.prompt_edit.toPlainText().strip()
-        system_prompt = self.system_prompt_edit.toPlainText().strip()
-        temperature = self.temp_spinbox.value()
-        p_value = self.p_value_spinbox.value()
-        seed = self.seed_spinbox.value()
-
-        self.analysis_worker = AnalysisWorker(
-            self.alima_manager,
-            abstract_data,
-            self.task,
-            self.chosen_model,
-            use_chunking_abstract,
-            abstract_chunk_size,
-            use_chunking_keywords,
-            keyword_chunk_size,
-            prompt_template=prompt_template,
-            temperature=temperature,
-            p_value=p_value,
-            seed=seed,
-            system_prompt=system_prompt,
+        # 2. Create step configuration for the chosen task - Claude Generated
+        step_config = PipelineStepConfig(
+            step_id=self.task,
+            mode=PipelineMode.EXPERT,  # Manual run is always "Expert"
+            provider=self.provider_combo.currentText(),
+            model=self.model_combo.currentText(),
+            task=self.task,
+            temperature=self.temp_spinbox.value(),
+            top_p=self.p_value_spinbox.value(),
+            custom_params={
+                'prompt_template': self.prompt_edit.toPlainText().strip(),
+                'system_prompt': self.system_prompt_edit.toPlainText().strip(),
+                'use_chunking_abstract': self.enable_chunk_abstract.isChecked(),
+                'abstract_chunk_size': self.abstract_chunk_slider.value(),
+                'use_chunking_keywords': self.enable_chunk_keywords.isChecked(),
+                'keyword_chunk_size': self.keyword_chunk_slider.value(),
+                'seed': self.seed_spinbox.value(),
+            }
         )
-        self.analysis_worker.new_token.connect(self._update_results_text)
-        self.analysis_worker.finished.connect(self.on_analysis_completed)
-        self.analysis_worker.error.connect(self.on_analysis_error)
+
+        # 3. Set the ad-hoc configuration in PipelineConfig - Claude Generated
+        adhoc_config.step_configs_v2[self.task] = step_config
+
+        # 4. Create input text with keywords if provided - Claude Generated
+        input_text = abstract_text
+        if keywords_text.strip():
+            input_text = f"{abstract_text}\n\nExisting Keywords: {keywords_text}"
+
+        # 5. Use centralized PipelineWorker with PipelineManager - Claude Generated
+        self.pipeline_worker = PipelineWorker(
+            pipeline_manager=self.pipeline_manager,
+            input_text=input_text,
+            input_type="text"
+        )
+
+        # Set the ad-hoc configuration
+        self.pipeline_worker.pipeline_manager.set_config(adhoc_config)
+
+        # 6. Connect callbacks to handle PipelineStep objects - Claude Generated
+        self.pipeline_worker.step_completed.connect(self.on_analysis_completed)
+        self.pipeline_worker.step_error.connect(self.on_analysis_error)
+        self.pipeline_worker.stream_token.connect(self._update_results_text)
 
         # Update status when analysis actually starts
         self.status_label.setText("Verbindung zu LLM...")
 
-        self.analysis_worker.start()
+        self.pipeline_worker.start()
 
-    def on_analysis_completed(self, result: AnalysisResult):
-        """Handle analysis completion with enhanced UI feedback - Claude Generated"""
+    def on_analysis_completed(self, step: PipelineStep):
+        """Handle analysis completion with PipelineStep integration - Claude Generated"""
         # Reset analysis state
         self.is_analysis_running = False
 
@@ -710,18 +673,31 @@ class AbstractTab(QWidget):
         # Restore input area if it was auto-hidden during streaming
         self.restore_input_after_streaming()
 
-        # Add result to history
-        self.add_result_to_history(result.full_text, self.task or "Analysis")
-        self.results_edit.setPlainText(result.full_text)
+        # Extract data from PipelineStep output_data - Claude Generated
+        if step.output_data and hasattr(step.output_data, 'analysis_result'):
+            result = step.output_data.analysis_result
 
-        # Extract only the keywords from the dictionary and join them into a comma-separated string
-        keywords_only = ", ".join(result.matched_keywords.keys())
-        self.final_list.emit(keywords_only)
-        self.gnd_systematic.emit(result.gnd_systematic)
+            # Add result to history
+            self.add_result_to_history(result.full_text, self.task or "Analysis")
+            self.results_edit.setPlainText(result.full_text)
 
-        # Send analysis data to AnalysisReviewTab - Claude Generated
-        current_abstract = self.abstract_edit.toPlainText().strip()
-        self.analysis_completed.emit(current_abstract, keywords_only, result.full_text)
+            # Extract only the keywords from the dictionary and join them into a comma-separated string
+            keywords_only = ", ".join(result.matched_keywords.keys())
+            self.final_list.emit(keywords_only)
+            self.gnd_systematic.emit(result.gnd_systematic)
+
+            # Send analysis data to AnalysisReviewTab - Claude Generated
+            current_abstract = self.abstract_edit.toPlainText().strip()
+            self.analysis_completed.emit(current_abstract, keywords_only, result.full_text)
+        else:
+            # Fallback: use step output_data directly if it's a string
+            output_text = str(step.output_data) if step.output_data else "No output data"
+            self.add_result_to_history(output_text, self.task or "Analysis")
+            self.results_edit.setPlainText(output_text)
+
+            # Send basic data to AnalysisReviewTab
+            current_abstract = self.abstract_edit.toPlainText().strip()
+            self.analysis_completed.emit(current_abstract, "", output_text)
 
         # Reset status after 3 seconds
         QApplication.instance().processEvents()
@@ -737,8 +713,8 @@ class AbstractTab(QWidget):
 
         threading.Thread(target=reset_status, daemon=True).start()
 
-    def on_analysis_error(self, error_message: str):
-        """Handle analysis error with enhanced UI feedback - Claude Generated"""
+    def on_analysis_error(self, step: PipelineStep, error_message: str):
+        """Handle analysis error with PipelineStep integration - Claude Generated"""
         # Reset analysis state
         self.is_analysis_running = False
 
@@ -752,8 +728,12 @@ class AbstractTab(QWidget):
         # Restore input area if it was auto-hidden during streaming
         self.restore_input_after_streaming()
 
-        # Show error in results area
-        self.results_edit.setPlainText(f"❌ Fehler bei der Analyse:\n\n{error_message}")
+        # Show error in results area with step information
+        error_details = f"❌ Fehler bei der Analyse:\nSchritt: {step.step_id}\nFehler: {error_message}"
+        if step.error_message:
+            error_details += f"\nZusätzliche Informationen: {step.error_message}"
+
+        self.results_edit.setPlainText(error_details)
 
         # Show error dialog
         QMessageBox.critical(self, "Analyse-Fehler", error_message)
@@ -792,7 +772,7 @@ class AbstractTab(QWidget):
         """Sets the keywords text in the keywords_edit QTextEdit."""
         self.keywords_edit.setPlainText(keywords)
 
-    def _update_results_text(self, text_chunk: str):
+    def _update_results_text(self, text_chunk: str, step_id: str = None):
         """Appends text chunks to the results_edit QTextEdit with enhanced feedback - Claude Generated"""
         # Update status to show streaming is active
         if self.is_analysis_running:

@@ -624,18 +624,7 @@ class PipelineManager:
             # Default to Smart Mode if configuration is unclear
             return True
 
-    def _get_smart_mode_provider_model(self, step_id: str, legacy_config: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
-        """Get provider/model for a step, respecting Smart Mode settings - Claude Generated"""
-        if self._should_use_smart_mode(step_id):
-            # Smart Mode: return None to let SmartProviderSelector handle it
-            self.logger.info(f"🤖 SMART_MODE: Step '{step_id}' will use SmartProviderSelector")
-            return None, None
-        else:
-            # Manual Mode: use explicit configuration
-            provider = legacy_config.get("provider", "ollama")
-            model = legacy_config.get("model", "cogito:14b")
-            self.logger.info(f"🔧 MANUAL_MODE: Step '{step_id}' using {provider}/{model}")
-            return provider, model
+    # _get_smart_mode_provider_model method removed - replaced by _resolve_smart_mode_for_step - Claude Generated
 
     def _create_pipeline_steps(self, input_type: str) -> List[PipelineStep]:
         """Create pipeline steps based on configuration - Claude Generated"""
@@ -653,17 +642,15 @@ class PipelineManager:
         # Initialisation step (free keyword generation)
         initialisation_config = self.config.step_configs.get("initialisation", {})
         if initialisation_config.get("enabled", True):
-            # CRITICAL FIX: Check Smart Mode for provider/model selection - Claude Generated
-            provider, model = self._get_smart_mode_provider_model("initialisation", initialisation_config)
-
+            # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
             steps.append(
                 PipelineStep(
                     step_id="initialisation",
                     name=self.step_definitions.get("initialisation", {}).get(
                         "name", "Initialisation"
                     ),
-                    provider=provider,  # None for Smart Mode, explicit for Manual Mode
-                    model=model,        # None for Smart Mode, explicit for Manual Mode
+                    provider=None,  # Resolved at execution time
+                    model=None,     # Resolved at execution time
                 )
             )
 
@@ -679,17 +666,15 @@ class PipelineManager:
         # Keywords step (Verbale Erschließung)
         keywords_config = self.config.step_configs.get("keywords", {})
         if keywords_config.get("enabled", True):
-            # CRITICAL FIX: Check Smart Mode for provider/model selection - Claude Generated
-            provider, model = self._get_smart_mode_provider_model("keywords", keywords_config)
-
+            # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
             steps.append(
                 PipelineStep(
                     step_id="keywords",
                     name=self.step_definitions.get("keywords", {}).get(
                         "name", "Keywords"
                     ),
-                    provider=provider,  # None for Smart Mode, explicit for Manual Mode
-                    model=model,        # None for Smart Mode, explicit for Manual Mode
+                    provider=None,  # Resolved at execution time
+                    model=None,     # Resolved at execution time
                 )
             )
 
@@ -706,15 +691,13 @@ class PipelineManager:
         # DK Classification step (optional)
         dk_classification_config = self.config.step_configs.get("dk_classification", {})
         if dk_classification_config.get("enabled", True):
-            # CRITICAL FIX: Check Smart Mode for provider/model selection - Claude Generated
-            provider, model = self._get_smart_mode_provider_model("dk_classification", dk_classification_config)
-
+            # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
             steps.append(
                 PipelineStep(
                     step_id="dk_classification",
                     name=self.step_definitions["dk_classification"]["name"],
-                    provider=provider,  # None for Smart Mode, explicit for Manual Mode
-                    model=model,        # None for Smart Mode, explicit for Manual Mode
+                    provider=None,  # Resolved at execution time
+                    model=None,     # Resolved at execution time
                 )
             )
 
@@ -1399,6 +1382,49 @@ class PipelineManager:
         except Exception as e:
             self.logger.error(f"Error loading analysis state: {e}")
             raise
+
+    def execute_single_step(self, step_id: str, config: PipelineConfig, input_data: Optional[Any] = None) -> PipelineStep:
+        """
+        Execute a single pipeline step with ad-hoc configuration - Claude Generated
+        Optimized for GUI tab single operations
+        """
+        try:
+            # Set the configuration
+            self.set_config(config)
+
+            # Create a single step
+            step = PipelineStep(
+                step_id=step_id,
+                name=self.step_definitions.get(step_id, {}).get("name", step_id),
+                input_data=input_data
+            )
+
+            # Execute the step
+            if self.step_started_callback:
+                self.step_started_callback(step)
+
+            success = self._execute_step(step)
+
+            if success:
+                step.status = "completed"
+                if self.step_completed_callback:
+                    self.step_completed_callback(step)
+            else:
+                step.status = "error"
+                if self.step_error_callback:
+                    self.step_error_callback(step, step.error_message or "Unknown error")
+
+            return step
+
+        except Exception as e:
+            step.status = "error"
+            step.error_message = str(e)
+            self.logger.error(f"Single step execution failed: {e}")
+
+            if self.step_error_callback:
+                self.step_error_callback(step, str(e))
+
+            return step
 
     def resume_pipeline_from_state(self, analysis_state: KeywordAnalysisState):
         """Resume pipeline from existing analysis state - Claude Generated"""

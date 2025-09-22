@@ -30,6 +30,9 @@ from pathlib import Path
 
 from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
 from ..core.search_cli import SearchCLI
+from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
+from ..utils.unified_provider_config import PipelineStepConfig, PipelineMode
+from .workers import PipelineWorker
 
 
 # SearchWorker class removed - now using central SearchCLI directly - Claude Generated
@@ -175,9 +178,11 @@ class SearchTab(QWidget):
         cache_manager,
         parent=None,
         config_file: Path = Path.home() / ".alima_config.json",
+        alima_manager=None,
     ):
         super().__init__(parent)
         self.cache_manager = cache_manager
+        self.alima_manager = alima_manager  # Add AlimaManager for PipelineManager - Claude Generated
         self.current_results = None
         self.current_gnd_id = None
         self.logger = logging.getLogger(__name__)
@@ -189,6 +194,17 @@ class SearchTab(QWidget):
         self.catalog_token = ""
         self.catalog_search_url = ""
         self.catalog_details = ""
+
+        # Create PipelineManager instance for search step execution - Claude Generated
+        if self.alima_manager:
+            self.pipeline_manager = PipelineManager(
+                alima_manager=self.alima_manager,
+                cache_manager=self.cache_manager,
+                logger=self.logger
+            )
+        else:
+            self.pipeline_manager = None
+            self.logger.warning("No AlimaManager provided - PipelineManager integration disabled")
 
         # Lade den Katalog-Token aus der Konfigurationsdatei
         self.config_file = config_file
@@ -546,7 +562,7 @@ class SearchTab(QWidget):
             }}
         """
         )
-        self.ddc_regenerate_button.clicked.connect(self.generate_ddc_prompt)
+        # ddc_regenerate_button connection removed - DDC filtering now handled by PipelineManager - Claude Generated
         ddc_layout.addWidget(self.ddc_regenerate_button)
 
         # Zum Tab hinzufügen
@@ -556,8 +572,7 @@ class SearchTab(QWidget):
         self.gnd_filter_widget = GNDSystemFilterWidget(self, self.cache_manager)
         self.filter_tabs.addTab(self.gnd_filter_widget, "GND-Systematik-Filter")
 
-        # Verbinde Button mit Funktion
-        self.gnd_filter_widget.apply_button.clicked.connect(self.generate_gnd_prompt)
+        # GND filter button connection removed - GND filtering now handled by PipelineManager - Claude Generated
 
         # Tab-Widget zum Layout hinzufügen
         filter_layout.addWidget(self.filter_tabs)
@@ -582,7 +597,7 @@ class SearchTab(QWidget):
             }}
         """
         )
-        self.regenerate_button.clicked.connect(self.generate_ddc_prompt)
+        # regenerate_button connection removed - filtering now handled by PipelineManager - Claude Generated
         filter_layout.addWidget(self.regenerate_button)
 
         # Füge Filter-Bereich zur Ergebnisgruppe hinzu
@@ -680,29 +695,88 @@ class SearchTab(QWidget):
                 )
                 suggester_types.append(SuggesterType.LOBID)
 
-            # Use central SearchCLI directly instead of worker - Claude Generated
-            search_cli = SearchCLI(
-                self.cache_manager,
-                catalog_token=self.catalog_token,
-                catalog_search_url=self.catalog_search_url,
-                catalog_details_url=self.catalog_details
-            )
-            
-            self.logger.info(f"Starting search for terms: {search_terms}")
-            results = search_cli.search(search_terms, suggester_types)
-            self.logger.info(f"Search completed with {len(results)} terms")
-            
-            # Process results directly
-            self.process_search_results(results)
+            # Use PipelineManager integration if available - Claude Generated
+            if self.pipeline_manager:
+                # 1. Create ad-hoc PipelineConfig for search step only
+                adhoc_config = PipelineConfig()
+                adhoc_config.auto_advance = False  # Important: We want only the search step
+
+                # 2. Configure search suggesters (convert enum to string)
+                suggester_names = []
+                for sug_type in suggester_types:
+                    if sug_type == SuggesterType.LOBID:
+                        suggester_names.append("lobid")
+                    elif sug_type == SuggesterType.SWB:
+                        suggester_names.append("swb")
+                    elif sug_type == SuggesterType.CATALOG:
+                        suggester_names.append("catalog")
+
+                adhoc_config.search_suggesters = suggester_names
+
+                # 3. Prepare input as comma-separated keywords
+                input_text = ", ".join(search_terms)
+
+                # 4. Use centralized PipelineWorker with PipelineManager
+                self.pipeline_worker = PipelineWorker(
+                    pipeline_manager=self.pipeline_manager,
+                    input_text=input_text,
+                    input_type="keywords"  # Indicate we're starting with keywords
+                )
+
+                # Set the ad-hoc configuration
+                self.pipeline_worker.pipeline_manager.set_config(adhoc_config)
+
+                # 5. Connect callbacks to handle search results
+                self.pipeline_worker.step_completed.connect(self.on_search_completed)
+                self.pipeline_worker.step_error.connect(self.on_search_error)
+
+                # Update status when search actually starts
+                self.status_label.setText("Verbindung zu Suchservices...")
+
+                self.pipeline_worker.start()
+            else:
+                # Single Source of Truth: Only PipelineManager allowed - Claude Generated
+                error_msg = "PipelineManager nicht verfügbar - Suche kann nicht durchgeführt werden"
+                self.logger.error(error_msg)
+                self.handle_error(error_msg)
+                return
 
         except Exception as e:
             self.logger.error(f"Search error: {str(e)}")
             self.handle_error(str(e))
 
+    def on_search_completed(self, step: PipelineStep):
+        """Handle search completion with PipelineStep integration - Claude Generated"""
+        try:
+            # Extract search results from PipelineStep output_data
+            if step.output_data and hasattr(step.output_data, 'search_results'):
+                results = step.output_data.search_results
+            elif step.output_data and isinstance(step.output_data, dict):
+                results = step.output_data.get('search_results', step.output_data)
+            else:
+                self.logger.warning(f"No search results in step output: {step.output_data}")
+                results = {}
+
+            # Process results using existing method
+            self.process_search_results(results)
+
+        except Exception as e:
+            self.logger.error(f"Error processing search results: {e}")
+            self.handle_error(str(e))
+
+    def on_search_error(self, step: PipelineStep, error_message: str):
+        """Handle search error with PipelineStep integration - Claude Generated"""
+        error_details = f"Suchfehler bei Schritt {step.step_id}: {error_message}"
+        if step.error_message:
+            error_details += f"\nZusätzliche Informationen: {step.error_message}"
+
+        self.logger.error(error_details)
+        self.handle_error(error_details)
+
     def process_search_results(self, results: dict):
         """Processes the search results from the CLI and displays them."""
         self.process_results(results)
-        self.finalise_catalog_search(self.unkown_terms)
+        # finalise_catalog_search logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
 
         # UI-Updates nach der Suche
         self.search_button.setEnabled(True)
@@ -887,39 +961,9 @@ class SearchTab(QWidget):
         # Generiere Initial-Prompt
         self.generate_initial_prompt(sorted_results)
 
-    def finalise_catalog_search(self, keywords):
-        """Im Katalog werden keine GND-IDs gespeichert, und wenn diese noch nicht im Cache sind, müssen die noch von der SWB
-        abgerufen werden, das machen wir hiermit
-        """
-        if not keywords:
-            return
+    # finalise_catalog_search method removed - logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
 
-        try:
-            suggester = MetaSuggester(
-                suggester_type=SuggesterType.SWB, 
-                debug=False, 
-                catalog_token=self.catalog_token,
-                catalog_search_url=self.catalog_search_url,
-                catalog_details=self.catalog_details
-            )
-            suggester.currentTerm.connect(self.current_term_update)
-            results = suggester.search(keywords)
-            self.process_results(results)
-        except Exception as e:
-            self.logger.error(f"Fehler bei SWB-Abfrage für unbekannte Terme: {str(e)}")
-
-    def determine_relation(self, keyword, search_term):
-        """Bestimmt die Beziehung zwischen Schlagwort und Suchbegriff"""
-        # 0: exakt, 1: ähnlich, 2: verschieden
-        if keyword.lower() == search_term.lower():
-            return 0  # exakt
-        elif (
-            search_term.lower() in keyword.lower()
-            or keyword.lower() in search_term.lower()
-        ):
-            return 1  # ähnlich
-        else:
-            return 2  # verschieden
+    # determine_relation method removed - relationship logic now handled by PipelineManager - Claude Generated
 
     def update_database_entry(self, gnd_id, title, data):
         """Aktualisiert oder erstellt einen Datenbankeintrag für eine GND-ID"""
@@ -975,128 +1019,11 @@ class SearchTab(QWidget):
                 gnd_system_item = QTableWidgetItem(entry.get("gnd_systems"))
                 self.results_table.setItem(row, 4, gnd_system_item)
 
-    def generate_initial_prompt(self, sorted_results):
-        """Generiert einen initialen Prompt basierend auf den Suchergebnissen"""
-        initial_prompt = []
+    # generate_initial_prompt method removed - prompt generation now handled by PipelineManager - Claude Generated
 
-        for gnd_id, term, count, relation, search_term in sorted_results:
-            # Füge nur exakte und ähnliche Begriffe hinzu
-            if term != gnd_id:  # Ignoriere, wenn Term = GND-ID
-                list_item = f"{term} ({gnd_id})"
-                if list_item not in initial_prompt:
-                    initial_prompt.append(list_item)
+    # generate_ddc_prompt method removed - DDC filtering now handled by PipelineManager - Claude Generated
 
-        # Sende Signal mit den gefundenen Schlagwörtern
-        if initial_prompt:
-            self.keywords_found.emit(", ".join(initial_prompt))
-
-    def generate_ddc_prompt(self):
-        """Generiert einen Prompt basierend auf DDC-Filterung"""
-        filtered_items = []
-
-        for gnd_id in self.gnd_ids:
-            gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
-            if not gnd_entry:
-                continue
-
-            ddcs = gnd_entry.get("ddcs", "").split(";")
-            include = False
-
-            # Prüfe für jede DDC, ob sie den Filter-Kriterien entspricht
-            for ddc in ddcs:
-                if not ddc:
-                    continue
-
-                # Extrahiere den DDC-Code (entferne Determinancy in Klammern)
-                ddc_code = ddc.split("(")[0].strip()
-
-                # Prüfe, ob das erste Zeichen den Filtern entspricht
-                if ddc_code and ddc_code[0].isdigit():
-                    ddc_first = int(ddc_code[0])
-
-                    # Prüfe gegen alle DDC-Filter
-                    if (
-                        (self.ddc1_check.isChecked() and ddc_first == 1)
-                        or (self.ddc2_check.isChecked() and ddc_first == 2)
-                        or (self.ddc3_check.isChecked() and ddc_first == 3)
-                        or (self.ddc4_check.isChecked() and ddc_first == 4)
-                        or (self.ddc5_check.isChecked() and ddc_first == 5)
-                        or (self.ddc6_check.isChecked() and ddc_first == 6)
-                        or (self.ddc7_check.isChecked() and ddc_first == 7)
-                        or (self.ddc8_check.isChecked() and ddc_first == 8)
-                        or (self.ddc9_check.isChecked() and ddc_first == 9)
-                    ):
-                        include = True
-                        break
-                elif self.ddcX_check.isChecked():
-                    # Für nicht-numerische DDC-Codes oder wenn alle zugelassen sind
-                    include = True
-                    break
-
-            # Wenn mindestens eine DDC den Kriterien entspricht, füge den Begriff hinzu
-            if include:
-                list_item = f"{gnd_entry['title']} ({gnd_id})"
-                filtered_items.append(list_item)
-
-        # Sende Signal mit den gefilterten Schlagwörtern
-        if filtered_items:
-            self.keywords_found.emit(", ".join(filtered_items))
-            self.status_label.setText(
-                f"{len(filtered_items)} gefilterte Schlagwörter generiert"
-            )
-        else:
-            self.status_label.setText("Keine Schlagwörter entsprechen den DDC-Filtern")
-
-    # Neue Funktion für GND-Systematik-Filterung hinzufügen
-    def generate_gnd_prompt(self):
-        """Generiert einen Prompt basierend auf GND-Systematik-Filterung"""
-        selected_systems = self.gnd_filter_widget.get_selected_systems()
-
-        if not selected_systems:
-            self.status_label.setText("Keine GND-Systematiken ausgewählt.")
-            return
-
-        filtered_items = []
-
-        for gnd_id in self.gnd_ids:
-            gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
-            if not gnd_entry:
-                continue
-
-            # GND-Systematiken sind mit | getrennt
-            gnd_systems = gnd_entry.get("gnd_systems", "").split("|")
-            include = False
-
-            # Prüfe, ob mindestens eine der GND-Systematiken den Filterkriterien entspricht
-            for system in gnd_systems:
-                system = system.strip()
-                if not system:
-                    continue
-
-                # Vergleiche mit ausgewählten Systemen (Präfixvergleich)
-                for selected in selected_systems:
-                    if system.startswith(selected):
-                        include = True
-                        break
-
-                if include:
-                    break
-
-            # Wenn mindestens eine GND-Systematik den Kriterien entspricht, füge den Begriff hinzu
-            if include:
-                list_item = f"{gnd_entry['title']} ({gnd_id})"
-                filtered_items.append(list_item)
-
-        # Sende Signal mit den gefilterten Schlagwörtern
-        if filtered_items:
-            self.keywords_found.emit(", ".join(filtered_items))
-            self.status_label.setText(
-                f"{len(filtered_items)} nach GND-Systematik gefilterte Schlagwörter generiert"
-            )
-        else:
-            self.status_label.setText(
-                "Keine Schlagwörter entsprechen den GND-Systematik-Filtern"
-            )
+    # generate_gnd_prompt method removed - GND filtering now handled by PipelineManager - Claude Generated
 
     def update_selected_entry(self):
         """Aktualisiert den aktuell ausgewählten Eintrag"""
@@ -1311,7 +1238,7 @@ class SearchTab(QWidget):
         
         # Process and display the results using existing logic
         self.process_results(results)
-        self.finalise_catalog_search(self.unkown_terms)
+        # finalise_catalog_search logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
         
         # Update status
         self.status_label.setText(
