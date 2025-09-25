@@ -2004,8 +2004,20 @@ class PipelineConfigDialog(QDialog):
         try:
             # Load step configurations
             for step_id, step_widget in self.step_widgets.items():
-                if step_id in config.step_configs:
-                    step_widget.set_config(config.step_configs[step_id])
+                if step_id in config.step_configs_v2:
+                    # Convert PipelineStepConfig to dict format for widget compatibility
+                    step_config = config.step_configs_v2[step_id]
+                    config_dict = {
+                        'step_id': step_config.step_id,
+                        'enabled': step_config.enabled,
+                        'provider': step_config.provider or '',
+                        'model': step_config.model or '',
+                        'task': step_config.task or '',
+                        'temperature': step_config.temperature or 0.7,
+                        'top_p': step_config.top_p or 0.1,
+                        'max_tokens': step_config.max_tokens
+                    }
+                    step_widget.set_config(config_dict)
                 elif step_id == "search":
                     # Load search suggesters from PipelineConfig
                     search_config = {"suggesters": config.search_suggesters}
@@ -2122,13 +2134,13 @@ class PipelineConfigDialog(QDialog):
             preferences = self.config_manager.get_provider_preferences()
             
             # Update provider preferences based on pipeline step configurations
-            step_configs = current_config.step_configs
+            step_configs = current_config.step_configs_v2
             
             # Determine the most frequently used provider as preferred
             provider_counts = {}
             for step_config in step_configs.values():
-                if 'provider' in step_config and step_config.get('enabled', True):
-                    provider = step_config['provider']
+                if step_config.provider and step_config.enabled:
+                    provider = step_config.provider
                     provider_counts[provider] = provider_counts.get(provider, 0) + 1
             
             if provider_counts:
@@ -2147,29 +2159,29 @@ class PipelineConfigDialog(QDialog):
                 preferences.provider_priority = new_priority
             
             # Update task-specific overrides based on pipeline config
-            if 'initialisation' in step_configs and step_configs['initialisation'].get('enabled', True):
+            if 'initialisation' in step_configs and step_configs['initialisation'].enabled:
                 # Fast text provider for initialization
-                init_provider = step_configs['initialisation'].get('provider')
+                init_provider = step_configs['initialisation'].provider
                 if init_provider:
                     preferences.text_provider = init_provider  # Or could create separate init_provider
                     
-            if 'keywords' in step_configs and step_configs['keywords'].get('enabled', True):
+            if 'keywords' in step_configs and step_configs['keywords'].enabled:
                 # Quality text provider for final analysis
-                keywords_provider = step_configs['keywords'].get('provider')
+                keywords_provider = step_configs['keywords'].provider
                 if keywords_provider:
                     preferences.text_provider = keywords_provider
                     
-            if 'dk_classification' in step_configs and step_configs['dk_classification'].get('enabled', True):
+            if 'dk_classification' in step_configs and step_configs['dk_classification'].enabled:
                 # Classification-specific provider
-                classification_provider = step_configs['dk_classification'].get('provider')
+                classification_provider = step_configs['dk_classification'].provider
                 if classification_provider:
                     preferences.classification_provider = classification_provider
             
             # Update preferred models per provider
             for step_config in step_configs.values():
-                if 'provider' in step_config and 'model' in step_config and step_config.get('enabled', True):
-                    provider = step_config['provider']
-                    model = step_config['model']
+                if step_config.provider and step_config.model and step_config.enabled:
+                    provider = step_config.provider
+                    model = step_config.model
                     if provider and model:
                         preferences.preferred_models[provider] = model
             

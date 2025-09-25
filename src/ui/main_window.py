@@ -922,6 +922,440 @@ class MainWindow(QMainWindow):
             # Always restore cursor
             QApplication.restoreOverrideCursor()
 
+    def load_analysis_state_from_file(self):
+        """
+        Öffnet einen Datei-Dialog, um einen JSON-Analyse-Zustand zu laden
+        und die UI damit zu befüllen - Claude Generated
+        """
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from ..utils.pipeline_utils import PipelineJsonManager
+        from ..core.data_models import KeywordAnalysisState
+
+        # Datei-Dialog öffnen
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            "Analyse-Zustand laden",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not file_name:
+            return  # Benutzer hat abgebrochen
+
+        try:
+            # 1. JSON-Datei laden und parsen
+            self.logger.info(f"Loading analysis state from: {file_name}")
+            state = PipelineJsonManager.load_analysis_state(file_name)
+
+            # 2. Daten an die Tabs verteilen
+            self.populate_all_tabs_from_state(state)
+
+            # 3. Erfolgsmeldung
+            self.global_status_bar.show_message("✅ Analyse-Zustand erfolgreich geladen.", 5000)
+
+            # 4. Zur Pipeline-Ansicht wechseln für Übersicht
+            self.tabs.setCurrentWidget(self.pipeline_tab)
+
+            self.logger.info("Analysis state successfully loaded and distributed to tabs")
+
+        except Exception as e:
+            self.logger.error(f"Fehler beim Laden des Analyse-Zustands: {e}")
+            QMessageBox.critical(
+                self,
+                "Ladefehler",
+                f"Die Datei konnte nicht geladen werden:\n\n{str(e)}"
+            )
+
+    def populate_all_tabs_from_state(self, state):
+        """
+        Verteilt die Daten aus einem KeywordAnalysisState-Objekt
+        an alle relevanten UI-Tabs - Claude Generated
+        """
+        from ..core.data_models import KeywordAnalysisState
+
+        self.logger.info("Distributing analysis state data to all tabs...")
+
+        # Helper function to convert search results format
+        def convert_search_results_to_dict(results_list):
+            """Convert List[SearchResult] to Dict format expected by UI"""
+            search_dict = {}
+            for search_result in results_list:
+                search_dict[search_result.search_term] = search_result.results
+            return search_dict
+
+        # Helper function to extract GND keywords for display
+        def extract_gnd_keywords_from_search_results(search_results):
+            """Extract formatted GND keywords from search results"""
+            gnd_keywords = []
+            for search_result in search_results:
+                for keyword, data in search_result.results.items():
+                    gnd_ids = data.get("gndid", [])
+                    for gnd_id in gnd_ids:
+                        # Get GND title from cache if available
+                        gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
+                        if gnd_title:
+                            formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
+                        else:
+                            formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
+                        gnd_keywords.append(formatted_keyword)
+            return gnd_keywords
+
+        try:
+            # 1. 🚀 Pipeline Tab - Complete workflow overview
+            if hasattr(self.pipeline_tab, 'unified_input') and state.original_abstract:
+                self.pipeline_tab.unified_input.set_text(state.original_abstract)
+                # Show visual indicators for loaded state
+                if hasattr(self.pipeline_tab, 'show_loaded_state_indicator'):
+                    self.pipeline_tab.show_loaded_state_indicator(state)
+                self.logger.info("✅ Pipeline tab populated with original abstract and state indicators")
+
+            # 2. 📄 Abstract-Analyse Tab - Initial analysis playground
+            if state.original_abstract:
+                self.abstract_tab.set_abstract(state.original_abstract)
+                # Show LLM details if available and set loaded analysis context
+                if state.initial_llm_call_details:
+                    llm_details = state.initial_llm_call_details
+                    # Add loaded analysis info to results area if available
+                    if hasattr(self.abstract_tab, 'results_text'):
+                        loaded_info = (
+                            f"📁 Geladene Analyse:\n"
+                            f"Provider: {llm_details.provider_used}\n"
+                            f"Model: {llm_details.model_used}\n"
+                            f"Task: {llm_details.task_name}\n"
+                            f"Temperature: {llm_details.temperature}\n\n"
+                            f"Extrahierte Keywords:\n{', '.join(state.initial_keywords)}\n\n"
+                            f"Original LLM Response:\n{llm_details.response_full_text}"
+                        )
+                        self.abstract_tab.results_text.setPlainText(loaded_info)
+                    self.logger.info(f"📊 Initial LLM analysis used: {llm_details.provider_used}/{llm_details.model_used}")
+                self.logger.info("✅ Abstract tab populated with original text and analysis context")
+
+            # 3. 🔍 GND-Suche Tab - Search results and new searches
+            if state.initial_keywords:
+                # Fill search input with initial keywords
+                keywords_text = ", ".join(state.initial_keywords)
+                self.search_tab.update_search_field(keywords_text)
+
+                # Display search results if available
+                if state.search_results:
+                    search_results_dict = convert_search_results_to_dict(state.search_results)
+                    self.search_tab.display_search_results(search_results_dict)
+                    self.logger.info(f"✅ Search tab populated with {len(state.search_results)} search result sets")
+
+            # 4. ✅ Verifikation Tab - Final analysis and GND pool
+            if state.original_abstract:
+                self.analyse_keywords.set_abstract(state.original_abstract)
+
+                # Provide GND keyword pool for verification
+                if state.search_results:
+                    gnd_keywords = extract_gnd_keywords_from_search_results(state.search_results)
+                    if gnd_keywords:
+                        self.analyse_keywords.set_keywords("\n".join(gnd_keywords))
+                        self.logger.info(f"✅ Verification tab populated with {len(gnd_keywords)} GND keywords")
+
+            # 5. 📊 Analyse-Review Tab - Complete results and export
+            if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
+                final_keywords = ", ".join(state.final_llm_analysis.extracted_gnd_keywords)
+                full_response = state.final_llm_analysis.response_full_text
+
+                self.analysis_review_tab.receive_analysis_data(
+                    state.original_abstract or "",
+                    final_keywords,
+                    full_response
+                )
+                self.logger.info("✅ Analysis review tab populated with final results")
+
+            # 6. 🏛️ UB Suche Tab - Keywords for library catalog search
+            if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
+                final_keywords = ", ".join(state.final_llm_analysis.extracted_gnd_keywords)
+                if hasattr(self.ub_search_tab, 'update_keywords'):
+                    self.ub_search_tab.update_keywords(final_keywords)
+                if hasattr(self.ub_search_tab, 'set_abstract') and state.original_abstract:
+                    self.ub_search_tab.set_abstract(state.original_abstract)
+                self.logger.info("✅ UB search tab populated with final keywords")
+
+            # 7. 🖼️ Bilderkennung Tab - Show OCR details if input was image
+            # Note: Currently we don't have image source info in KeywordAnalysisState
+            # This could be enhanced in future versions
+
+            # 8. Show summary in status bar
+            total_keywords = len(state.final_llm_analysis.extracted_gnd_keywords) if state.final_llm_analysis else len(state.initial_keywords)
+            summary_message = f"📁 Geladen: {total_keywords} Schlagwörter aus {len(state.search_results)} Suchvorgängen"
+            self.global_status_bar.show_message(summary_message, 10000)
+
+            self.logger.info(f"🎯 Analysis state distribution complete: {summary_message}")
+
+        except Exception as e:
+            self.logger.error(f"Error distributing analysis state: {e}")
+            raise  # Re-raise to be handled by calling method
+
+    def collect_current_gui_state(self):
+        """
+        Sammelt den aktuellen Zustand der GUI-Tabs zu einem KeywordAnalysisState-Objekt
+        für Export oder Vergleichszwecke - Claude Generated
+        """
+        from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis, SearchResult
+        from ..utils.pipeline_utils import PipelineJsonManager
+
+        try:
+            self.logger.info("Collecting current GUI state for export...")
+
+            # 1. Sammle Abstract/Input Text
+            original_abstract = ""
+            if hasattr(self.pipeline_tab, 'unified_input'):
+                original_abstract = self.pipeline_tab.unified_input.get_text() or ""
+            elif hasattr(self.abstract_tab, 'abstract_text'):
+                original_abstract = self.abstract_tab.abstract_text.toPlainText() or ""
+
+            # 2. Sammle initiale Keywords (aus Abstract Tab oder Search Tab Input)
+            initial_keywords = []
+            if hasattr(self.search_tab, 'search_field') and self.search_tab.search_field.text():
+                keywords_text = self.search_tab.search_field.text()
+                initial_keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
+
+            # 3. Sammle Suchergebnisse (aus Search Tab)
+            search_results = []
+            if hasattr(self.search_tab, 'flat_results') and self.search_tab.flat_results:
+                # Convert flat results back to SearchResult format
+                # This is a simplified conversion - in a full implementation we'd need more logic
+                search_results.append(SearchResult(
+                    search_term="current_search",
+                    results={"gui_results": {"count": len(self.search_tab.flat_results)}}
+                ))
+
+            # 4. Sammle finale Keywords (aus Analysis Review Tab oder Verification Tab)
+            final_keywords = []
+            final_response = ""
+            if hasattr(self.analysis_review_tab, 'keywords_text') and self.analysis_review_tab.keywords_text.toPlainText():
+                keywords_text = self.analysis_review_tab.keywords_text.toPlainText()
+                final_keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
+            if hasattr(self.analysis_review_tab, 'response_text') and self.analysis_review_tab.response_text.toPlainText():
+                final_response = self.analysis_review_tab.response_text.toPlainText()
+
+            # 5. Erstelle LLM Analysis Objekt für finale Analyse
+            final_llm_analysis = None
+            if final_keywords or final_response:
+                final_llm_analysis = LlmKeywordAnalysis(
+                    task_name="gui_collection",
+                    model_used="unknown",  # Could be enhanced to track current model
+                    provider_used="unknown",  # Could be enhanced to track current provider
+                    prompt_template="",
+                    filled_prompt="",
+                    temperature=0.7,
+                    seed=None,
+                    response_full_text=final_response,
+                    extracted_gnd_keywords=final_keywords,
+                    extracted_gnd_classes=[]
+                )
+
+            # 6. Erstelle KeywordAnalysisState
+            state = KeywordAnalysisState(
+                original_abstract=original_abstract,
+                initial_keywords=initial_keywords,
+                search_suggesters_used=["gui_collection"],
+                initial_gnd_classes=[],
+                search_results=search_results,
+                initial_llm_call_details=None,
+                final_llm_analysis=final_llm_analysis,
+                pipeline_step_completed="gui_collected"
+            )
+
+            self.logger.info(f"GUI state collected: {len(initial_keywords)} initial keywords, {len(final_keywords)} final keywords")
+            return state
+
+        except Exception as e:
+            self.logger.error(f"Error collecting GUI state: {e}")
+            raise
+
+    def export_current_gui_state(self):
+        """
+        Exportiert den aktuellen GUI-Zustand als JSON-Datei - Claude Generated
+        """
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from ..utils.pipeline_utils import PipelineJsonManager
+
+        try:
+            # 1. Sammle aktuellen GUI-Zustand
+            state = self.collect_current_gui_state()
+
+            # 2. Datei-Dialog für Export
+            file_name, _ = QFileDialog.getSaveFileName(
+                self,
+                "GUI-Zustand exportieren",
+                f"gui_state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                "JSON Files (*.json);;All Files (*)"
+            )
+
+            if not file_name:
+                return  # Benutzer hat abgebrochen
+
+            # 3. Export durchführen
+            PipelineJsonManager.save_analysis_state(state, file_name)
+
+            # 4. Erfolgsmeldung
+            self.global_status_bar.show_message("✅ GUI-Zustand erfolgreich exportiert.", 5000)
+            QMessageBox.information(
+                self,
+                "Export erfolgreich",
+                f"GUI-Zustand wurde erfolgreich exportiert:\n{file_name}"
+            )
+
+            self.logger.info(f"GUI state successfully exported to: {file_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error exporting GUI state: {e}")
+            QMessageBox.critical(
+                self,
+                "Export-Fehler",
+                f"Der GUI-Zustand konnte nicht exportiert werden:\n\n{str(e)}"
+            )
+
+    def compare_analysis_states(self):
+        """
+        Ermöglicht den Vergleich von zwei Analysis-States - Claude Generated
+        Diese Funktion ist eine Grundlage für erweiterte Analytics Features
+        """
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox, QDialog, QVBoxLayout, QTextEdit, QPushButton
+
+        try:
+            # 1. Erste Datei auswählen
+            file1, _ = QFileDialog.getOpenFileName(
+                self,
+                "Erste Analyse-Datei auswählen",
+                "",
+                "JSON Files (*.json);;All Files (*)"
+            )
+            if not file1:
+                return
+
+            # 2. Zweite Datei auswählen
+            file2, _ = QFileDialog.getOpenFileName(
+                self,
+                "Zweite Analyse-Datei auswählen",
+                "",
+                "JSON Files (*.json);;All Files (*)"
+            )
+            if not file2:
+                return
+
+            # 3. Beide Dateien laden
+            from ..utils.pipeline_utils import PipelineJsonManager
+            state1 = PipelineJsonManager.load_analysis_state(file1)
+            state2 = PipelineJsonManager.load_analysis_state(file2)
+
+            # 4. Einfachen Vergleich erstellen
+            comparison_text = self._create_state_comparison(state1, state2, file1, file2)
+
+            # 5. Vergleichsdialog anzeigen
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Analysis-State Vergleich")
+            dialog.setMinimumSize(800, 600)
+
+            layout = QVBoxLayout(dialog)
+            text_widget = QTextEdit()
+            text_widget.setPlainText(comparison_text)
+            text_widget.setReadOnly(True)
+            layout.addWidget(text_widget)
+
+            close_button = QPushButton("Schließen")
+            close_button.clicked.connect(dialog.accept)
+            layout.addWidget(close_button)
+
+            dialog.exec()
+
+        except Exception as e:
+            self.logger.error(f"Error comparing analysis states: {e}")
+            QMessageBox.critical(
+                self,
+                "Vergleichsfehler",
+                f"Die Analysis-States konnten nicht verglichen werden:\n\n{str(e)}"
+            )
+
+    def _create_state_comparison(self, state1, state2, file1, file2):
+        """
+        Erstellt einen textuellen Vergleich zwischen zwei Analysis-States - Claude Generated
+        """
+        from pathlib import Path
+
+        comparison_lines = []
+        comparison_lines.append("=== ANALYSIS-STATE VERGLEICH ===\n")
+        comparison_lines.append(f"Datei 1: {Path(file1).name}")
+        comparison_lines.append(f"Datei 2: {Path(file2).name}")
+        comparison_lines.append("\n" + "="*50 + "\n")
+
+        # Vergleiche Basis-Informationen
+        comparison_lines.append("📄 ABSTRACT/INPUT:")
+        if state1.original_abstract != state2.original_abstract:
+            comparison_lines.append("  ❌ UNTERSCHIEDLICH")
+            comparison_lines.append(f"  Datei 1: {len(state1.original_abstract or '')} Zeichen")
+            comparison_lines.append(f"  Datei 2: {len(state2.original_abstract or '')} Zeichen")
+        else:
+            comparison_lines.append("  ✅ IDENTISCH")
+
+        # Vergleiche Keywords
+        comparison_lines.append("\n🔑 INITIALE KEYWORDS:")
+        keywords1 = set(state1.initial_keywords)
+        keywords2 = set(state2.initial_keywords)
+
+        if keywords1 == keywords2:
+            comparison_lines.append("  ✅ IDENTISCH")
+        else:
+            comparison_lines.append("  ❌ UNTERSCHIEDLICH")
+            only_in_1 = keywords1 - keywords2
+            only_in_2 = keywords2 - keywords1
+            both = keywords1 & keywords2
+
+            if both:
+                comparison_lines.append(f"  🤝 Gemeinsam ({len(both)}): {', '.join(sorted(both))}")
+            if only_in_1:
+                comparison_lines.append(f"  📁 Nur in Datei 1 ({len(only_in_1)}): {', '.join(sorted(only_in_1))}")
+            if only_in_2:
+                comparison_lines.append(f"  📁 Nur in Datei 2 ({len(only_in_2)}): {', '.join(sorted(only_in_2))}")
+
+        # Vergleiche finale Keywords
+        comparison_lines.append("\n🎯 FINALE KEYWORDS:")
+        final1 = set(state1.final_llm_analysis.extracted_gnd_keywords) if state1.final_llm_analysis else set()
+        final2 = set(state2.final_llm_analysis.extracted_gnd_keywords) if state2.final_llm_analysis else set()
+
+        if final1 == final2:
+            comparison_lines.append("  ✅ IDENTISCH")
+        else:
+            comparison_lines.append("  ❌ UNTERSCHIEDLICH")
+            only_in_1 = final1 - final2
+            only_in_2 = final2 - final1
+            both = final1 & final2
+
+            if both:
+                comparison_lines.append(f"  🤝 Gemeinsam ({len(both)}): {', '.join(sorted(both))}")
+            if only_in_1:
+                comparison_lines.append(f"  📁 Nur in Datei 1 ({len(only_in_1)}): {', '.join(sorted(only_in_1))}")
+            if only_in_2:
+                comparison_lines.append(f"  📁 Nur in Datei 2 ({len(only_in_2)}): {', '.join(sorted(only_in_2))}")
+
+        # Vergleiche LLM-Details
+        comparison_lines.append("\n🤖 LLM-DETAILS:")
+        if state1.final_llm_analysis and state2.final_llm_analysis:
+            llm1 = state1.final_llm_analysis
+            llm2 = state2.final_llm_analysis
+
+            if llm1.provider_used != llm2.provider_used:
+                comparison_lines.append(f"  Provider: {llm1.provider_used} vs {llm2.provider_used}")
+            if llm1.model_used != llm2.model_used:
+                comparison_lines.append(f"  Model: {llm1.model_used} vs {llm2.model_used}")
+            if llm1.temperature != llm2.temperature:
+                comparison_lines.append(f"  Temperature: {llm1.temperature} vs {llm2.temperature}")
+        elif state1.final_llm_analysis:
+            comparison_lines.append("  📁 Nur Datei 1 hat LLM-Details")
+        elif state2.final_llm_analysis:
+            comparison_lines.append("  📁 Nur Datei 2 hat LLM-Details")
+        else:
+            comparison_lines.append("  ❌ Keine LLM-Details in beiden Dateien")
+
+        comparison_lines.append("\n" + "="*50)
+        comparison_lines.append("💡 Tipp: Verwende die Tabs zur detaillierteren Analyse der geladenen Daten!")
+
+        return "\n".join(comparison_lines)
+
     def _handle_file_extraction(self, filename: str) -> str:
         """Behandelt die Extraktion von gz-Dateien"""
         import gzip
@@ -1275,6 +1709,18 @@ class MainWindow(QMainWindow):
         # Import-Aktion
         import_action = file_menu.addAction("&Importieren...")
         import_action.triggered.connect(self.import_gnd_database)
+
+        # Analyse-Zustand laden - Claude Generated
+        load_state_action = file_menu.addAction("&Analyse-Zustand laden...")
+        load_state_action.triggered.connect(self.load_analysis_state_from_file)
+
+        # GUI-Zustand exportieren - Claude Generated
+        export_gui_state_action = file_menu.addAction("&GUI-Zustand exportieren...")
+        export_gui_state_action.triggered.connect(self.export_current_gui_state)
+
+        # Analysis-States vergleichen - Claude Generated
+        compare_states_action = file_menu.addAction("&Analysis-States vergleichen...")
+        compare_states_action.triggered.connect(self.compare_analysis_states)
 
         file_menu.addSeparator()
 

@@ -1388,6 +1388,25 @@ class PipelineJsonManager:
         return obj
 
     @staticmethod
+    def convert_lists_to_sets(obj):
+        """Convert known list fields back to sets after JSON loading - Claude Generated"""
+        if isinstance(obj, dict):
+            # Known set fields in search results (e.g., gndid fields)
+            result = {}
+            for key, value in obj.items():
+                if key == "gndid" and isinstance(value, list):
+                    # Convert gndid lists back to sets
+                    result[key] = set(value)
+                elif isinstance(value, (dict, list)):
+                    result[key] = PipelineJsonManager.convert_lists_to_sets(value)
+                else:
+                    result[key] = value
+            return result
+        elif isinstance(obj, list):
+            return [PipelineJsonManager.convert_lists_to_sets(elem) for elem in obj]
+        return obj
+
+    @staticmethod
     def save_analysis_state(analysis_state: KeywordAnalysisState, file_path: str):
         """Save KeywordAnalysisState to JSON file - Claude Generated"""
         try:
@@ -1403,15 +1422,39 @@ class PipelineJsonManager:
 
     @staticmethod
     def load_analysis_state(file_path: str) -> KeywordAnalysisState:
-        """Load KeywordAnalysisState from JSON file - Claude Generated"""
+        """Load KeywordAnalysisState from JSON file with deep object reconstruction - Claude Generated"""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            # Deep reconstruction of nested dataclass objects
+            from ..core.data_models import SearchResult, LlmKeywordAnalysis
+
+            # Reconstruct SearchResult objects
+            if data.get("search_results"):
+                reconstructed_search_results = []
+                for item in data["search_results"]:
+                    # Convert known list fields back to sets (e.g., gndid fields)
+                    if "results" in item:
+                        item["results"] = PipelineJsonManager.convert_lists_to_sets(item["results"])
+                    reconstructed_search_results.append(SearchResult(**item))
+                data["search_results"] = reconstructed_search_results
+
+            # Reconstruct LlmKeywordAnalysis objects
+            if data.get("initial_llm_call_details"):
+                data["initial_llm_call_details"] = LlmKeywordAnalysis(**data["initial_llm_call_details"])
+
+            if data.get("final_llm_analysis"):
+                data["final_llm_analysis"] = LlmKeywordAnalysis(**data["final_llm_analysis"])
+
             return KeywordAnalysisState(**data)
+
         except FileNotFoundError:
             raise ValueError(f"Analysis state file not found: {file_path}")
-        except json.JSONDecodeError:
-            raise ValueError(f"Invalid JSON in file: {file_path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in file: {file_path}. Error: {e}")
+        except TypeError as e:
+            raise ValueError(f"JSON structure incompatible with KeywordAnalysisState: {e}")
         except Exception as e:
             raise ValueError(f"Error loading analysis state: {e}")
 

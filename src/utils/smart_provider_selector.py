@@ -117,7 +117,7 @@ class SmartProviderSelector:
         # Task Preference Integration - Claude Generated (Root-level config.task_preferences)
         try:
             # Load main config for root-level task_preferences
-            self.config = self.config_manager.load_config()
+            self.config = self.config_manager.load_config(force_reload=True)
             self.provider_preferences = self.config_manager.get_provider_preferences()
             self.logger.info("SmartProviderSelector initialized with root-level task_preferences support")
         except Exception as e:

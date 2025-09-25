@@ -510,6 +510,11 @@ class PipelineTab(QWidget):
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
         buttons_layout.addWidget(self.auto_pipeline_button)
 
+        # Mode indicator
+        self.mode_indicator_label = QLabel()
+        self._update_mode_indicator()
+        buttons_layout.addWidget(self.mode_indicator_label)
+
         # Configuration button
         config_button = QPushButton("⚙️ Config")
         config_button.setMaximumWidth(80)
@@ -575,6 +580,56 @@ class PipelineTab(QWidget):
         layout.addWidget(progress_group)
 
         return control_widget
+
+    def _update_mode_indicator(self):
+        """Update mode indicator to show current pipeline mode - Claude Generated"""
+        try:
+            # Get the overall pipeline mode by checking if most steps use Smart Mode
+            config = self.pipeline_manager.config
+            if not hasattr(config, 'step_configs_v2') or not config.step_configs_v2:
+                self.mode_indicator_label.setText("🤖 Smart Mode")
+                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
+                return
+
+            # Count modes across LLM steps
+            llm_steps = ["initialisation", "keywords", "dk_classification"]
+            mode_counts = {"smart": 0, "advanced": 0, "expert": 0}
+
+            for step_id in llm_steps:
+                if step_id in config.step_configs_v2:
+                    step_config = config.step_configs_v2[step_id]
+                    if hasattr(step_config, 'mode'):
+                        mode_value = step_config.mode.value if hasattr(step_config.mode, 'value') else str(step_config.mode)
+                        mode_counts[mode_value] = mode_counts.get(mode_value, 0) + 1
+                    else:
+                        mode_counts["smart"] += 1  # Default to smart
+                else:
+                    mode_counts["smart"] += 1  # Default to smart
+
+            # Determine dominant mode
+            dominant_mode = max(mode_counts, key=mode_counts.get)
+
+            # Set mode indicator based on dominant mode
+            if dominant_mode == "smart":
+                self.mode_indicator_label.setText("🤖 Smart Mode")
+                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
+            elif dominant_mode == "advanced":
+                self.mode_indicator_label.setText("⚙️ Advanced Mode")
+                self.mode_indicator_label.setStyleSheet("color: #1976d2; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setToolTip("Pipeline Mode: Advanced (manual provider/model selection)")
+            else:  # expert
+                self.mode_indicator_label.setText("🔧 Expert Mode")
+                self.mode_indicator_label.setStyleSheet("color: #d32f2f; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setToolTip("Pipeline Mode: Expert (full parameter control)")
+
+        except Exception as e:
+            self.logger.error(f"Error updating mode indicator: {e}")
+            # Fallback to Smart Mode
+            self.mode_indicator_label.setText("🤖 Smart Mode")
+            self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
+            self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
 
     def jump_to_step(self, step_id: str):
         """Jump to specific pipeline step - Claude Generated"""
@@ -838,6 +893,9 @@ class PipelineTab(QWidget):
         # Update step widgets to reflect new configuration
         self.update_step_display_from_config()
 
+        # Update mode indicator to reflect new configuration
+        self._update_mode_indicator()
+
         QMessageBox.information(
             self,
             "Konfiguration gespeichert",
@@ -850,11 +908,11 @@ class PipelineTab(QWidget):
 
         # Update provider/model display for each step
         for step_id, step_widget in self.step_widgets.items():
-            if step_id in config.step_configs:
-                step_config = config.step_configs[step_id]
-                provider = step_config.get("provider", "")
-                model = step_config.get("model", "")
-                enabled = step_config.get("enabled", True)
+            if step_id in config.step_configs_v2:
+                step_config = config.step_configs_v2[step_id]
+                provider = step_config.provider or ""
+                model = step_config.model or ""
+                enabled = step_config.enabled
 
                 # Update step data
                 step_widget.step.provider = provider
@@ -871,6 +929,9 @@ class PipelineTab(QWidget):
                     step_widget.setStyleSheet("")
 
                 step_widget.update_status_display()
+
+        # Update mode indicator to reflect configuration changes
+        self._update_mode_indicator()
 
     def _determine_selection_reason(self, step_id: str, provider: str, model: str) -> str:
         """Determine why this provider/model was selected for the step - Claude Generated"""
@@ -1313,16 +1374,19 @@ class PipelineTab(QWidget):
         config = self.pipeline_manager.config
         
         # Update DK search step configuration
-        if "dk_search" in config.step_configs:
-            config.step_configs["dk_search"].update({
+        if "dk_search" in config.step_configs_v2:
+            # Store catalog settings in step config custom parameters
+            dk_search_config = config.step_configs_v2["dk_search"]
+            dk_search_config.custom_params.update({
                 "catalog_token": self.catalog_token,
                 "catalog_search_url": self.catalog_search_url,
                 "catalog_details_url": self.catalog_details_url,
             })
-            
+
         # Also update DK classification step if it exists
-        if "dk_classification" in config.step_configs:
-            config.step_configs["dk_classification"].update({
+        if "dk_classification" in config.step_configs_v2:
+            dk_classification_config = config.step_configs_v2["dk_classification"]
+            dk_classification_config.custom_params.update({
                 "catalog_token": self.catalog_token,
                 "catalog_search_url": self.catalog_search_url,
                 "catalog_details_url": self.catalog_details_url,
@@ -1363,3 +1427,56 @@ class PipelineTab(QWidget):
                 
         except Exception as e:
             self.logger.error(f"Error emitting step results to tabs: {e}")
+
+    def show_loaded_state_indicator(self, state):
+        """
+        Display visual indicators for loaded analysis state - Claude Generated
+        Shows which pipeline steps have data from the loaded JSON
+        """
+        try:
+            # Add visual indicator in pipeline status
+            loaded_steps = []
+
+            if state.original_abstract:
+                loaded_steps.append("Input")
+            if state.initial_keywords:
+                loaded_steps.append("Initialisierung")
+            if state.search_results:
+                loaded_steps.append("Suche")
+            if state.final_llm_analysis:
+                loaded_steps.append("Schlagworte")
+            if state.dk_classifications:
+                loaded_steps.append("DK-Klassifikation")
+
+            if loaded_steps:
+                loaded_info = " → ".join(loaded_steps)
+                self.pipeline_status_label.setText(f"📁 Geladener Zustand: {loaded_info}")
+                self.pipeline_status_label.setStyleSheet(
+                    "color: #2E7D32; font-weight: bold; padding: 5px; "
+                    "background-color: #E8F5E8; border: 1px solid #4CAF50; border-radius: 3px;"
+                )
+
+                # Populate results displays with loaded data
+                if state.initial_keywords and hasattr(self, 'initialisation_result'):
+                    keywords_text = ", ".join(state.initial_keywords)
+                    self.initialisation_result.setPlainText(f"📁 Geladene Keywords:\n{keywords_text}")
+
+                if state.search_results and hasattr(self, 'search_result'):
+                    search_count = len(state.search_results)
+                    total_results = sum(len(sr.results) for sr in state.search_results)
+                    self.search_result.setPlainText(
+                        f"📁 Geladene Suchergebnisse:\n{search_count} Suchvorgänge mit {total_results} Ergebnissen"
+                    )
+
+                if state.final_llm_analysis and hasattr(self, 'keywords_result'):
+                    final_keywords = ", ".join(state.final_llm_analysis.extracted_gnd_keywords)
+                    self.keywords_result.setPlainText(f"📁 Finale Schlagwörter:\n{final_keywords}")
+
+                if state.dk_classifications and hasattr(self, 'classification_result'):
+                    dk_text = ", ".join(state.dk_classifications)
+                    self.classification_result.setPlainText(f"📁 DK-Klassifikationen:\n{dk_text}")
+
+            self.logger.info(f"Pipeline tab updated with loaded state indicators: {loaded_steps}")
+
+        except Exception as e:
+            self.logger.error(f"Error showing loaded state indicator: {e}")

@@ -71,49 +71,6 @@ class PipelineConfig:
     default_mode: PipelineMode = PipelineMode.SMART
     step_configs_v2: Dict[str, PipelineStepConfig] = field(default_factory=dict)  # New unified step configs
 
-    # Step configurations - flexible dict structure
-    step_configs: Dict[str, Dict[str, Any]] = field(
-        default_factory=lambda: {
-            "initialisation": {
-                "step_id": "initialisation",
-                "enabled": True,
-                "provider": "ollama",
-                "model": "cogito:14b",
-                "temperature": 0.7,
-                "top_p": 0.1,
-                "task": "initialisation",
-            },
-            "keywords": {
-                "step_id": "keywords",
-                "enabled": True,
-                "provider": "ollama",
-                "model": "cogito:32b",
-                "temperature": 0.7,
-                "top_p": 0.1,
-                "task": "keywords",
-                "keyword_chunking_threshold": 500,  # Claude Generated - Default chunking threshold
-                "chunking_task": "keywords_chunked",  # Claude Generated - Task for chunk processing
-            },
-            "dk_search": {
-                "step_id": "dk_search",
-                "enabled": True,
-                "max_results": 20,
-                "catalog_token": "",  # Will be updated from config
-                "catalog_search_url": None,
-                "catalog_details_url": None,
-            },
-            "dk_classification": {
-                "step_id": "dk_classification",
-                "enabled": True,
-                "provider": "ollama",
-                "model": "cogito:32b",
-                "temperature": 0.7,
-                "top_p": 0.1,
-                "task": "dk_class",
-                "dk_frequency_threshold": 10,  # Claude Generated - Default threshold
-            },
-        }
-    )
 
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
@@ -201,8 +158,8 @@ class PipelineConfig:
         """Initialize hybrid mode step configurations - Claude Generated"""
         if self.step_configs_v2:
             return  # Already initialized
-            
-        # Create smart mode defaults for each step
+
+        # Create clean smart mode defaults for each step (no legacy migration)
         self.step_configs_v2 = {
             "input": PipelineStepConfig(
                 step_id="input",
@@ -230,35 +187,6 @@ class PipelineConfig:
                 task_type=UnifiedTaskType.CLASSIFICATION
             )
         }
-        
-        # Migrate from legacy step_configs if needed
-        self._migrate_legacy_configs()
-        
-    def _migrate_legacy_configs(self):
-        """Migrate legacy step_configs to new hybrid format - Claude Generated"""
-        for step_id, legacy_config in self.step_configs.items():
-            if step_id in self.step_configs_v2:
-                step_config = self.step_configs_v2[step_id]
-                
-                # If legacy config has manual provider/model, switch to Advanced mode
-                if legacy_config.get("provider") and legacy_config.get("model"):
-                    step_config.mode = PipelineMode.ADVANCED
-                    step_config.provider = legacy_config.get("provider")
-                    step_config.model = legacy_config.get("model")
-                    step_config.task = legacy_config.get("task")
-                    
-                    # Expert mode if has custom parameters
-                    if any(key in legacy_config for key in ["temperature", "top_p", "max_tokens"]):
-                        step_config.mode = PipelineMode.EXPERT
-                        step_config.temperature = legacy_config.get("temperature")
-                        step_config.top_p = legacy_config.get("top_p")
-                        step_config.custom_params = {
-                            k: v for k, v in legacy_config.items() 
-                            if k not in ["step_id", "enabled", "provider", "model", "task", "temperature", "top_p"]
-                        }
-                
-                # Copy enabled state
-                step_config.enabled = legacy_config.get("enabled", True)
     
     def get_step_config(self, step_id: str) -> PipelineStepConfig:
         """Get step configuration with fallback to defaults - Claude Generated"""
@@ -342,7 +270,9 @@ class PipelineConfig:
                     # Get smart selection
                     selection = smart_selector.select_provider(
                         task_type=TaskType.TEXT,  # Convert unified task type if needed
-                        prefer_fast=prefer_fast
+                        prefer_fast=prefer_fast,
+                        task_name=self._get_default_task_for_step(step_id),
+                        step_id=step_id
                     )
                     
                     # Return config dict
@@ -370,41 +300,38 @@ class PipelineConfig:
                 "_manual_override": True
             }
         
-        # Fallback to legacy config or defaults
-        if step_id in self.step_configs:
-            return self.step_configs[step_id].copy()
-        
-        # Ultimate fallback
+        # Ultimate fallback - use smart mode with intelligent defaults
         return {
             "step_id": step_id,
             "enabled": True,
-            "provider": "ollama",
-            "model": "cogito:32b",
+            "provider": "auto",  # Will be resolved by Smart Mode
+            "model": "auto",     # Will be resolved by Smart Mode
             "task": self._get_default_task_for_step(step_id),
             "temperature": 0.7,
-            "top_p": 0.1
+            "top_p": 0.1,
+            "_smart_fallback": True
         }
-    
+
     def _get_default_task_for_step(self, step_id: str) -> str:
         """Get default prompt task for a pipeline step - Claude Generated"""
         task_mapping = {
             "initialisation": "initialisation",
-            "keywords": "keywords", 
+            "keywords": "keywords",
             "dk_classification": "dk_class",
             "input": "input",
             "search": "search"
         }
         return task_mapping.get(step_id, "keywords")
-    
+
     def is_using_smart_mode(self) -> bool:
         """Check if pipeline is primarily using smart mode - Claude Generated"""
         if not self.step_configs_v2:
             return False
-            
-        smart_steps = sum(1 for config in self.step_configs_v2.values() 
+
+        smart_steps = sum(1 for config in self.step_configs_v2.values()
                          if config.mode == PipelineMode.SMART)
         total_steps = len(self.step_configs_v2)
-        
+
         return smart_steps > total_steps // 2  # Majority are smart mode
 
 
@@ -449,6 +376,9 @@ class PipelineManager:
         self.config.initialize_hybrid_mode_configs(config_manager)
         self.logger.info(f"Hybrid mode initialized with default mode: {self.config.default_mode.value}")
 
+        # 🔍 DEBUG: Log migration details after initialization
+        self._debug_step_configs()
+
         # Step definitions
         self.step_definitions = {
             "input": {"name": "Input Processing", "order": 1},
@@ -468,16 +398,28 @@ class PipelineManager:
             None  # Callback for LLM streaming tokens
         )
 
+    def _debug_step_configs(self):
+        """Debug logging for step configurations - Claude Generated"""
+        self.logger.info("🔍 DEBUG: Modern Step Configuration Analysis")
+
+        # Log current hybrid mode configs
+        if hasattr(self.config, 'step_configs_v2') and self.config.step_configs_v2:
+            for step_id, step_config in self.config.step_configs_v2.items():
+                self.logger.info(f"🔍 STEP_CONFIG[{step_id}]: mode={step_config.mode.value}, provider={step_config.provider}, model={step_config.model}, enabled={step_config.enabled}")
+        else:
+            self.logger.info("🔍 NO_STEP_CONFIGS: step_configs_v2 not initialized")
+
     def set_config(self, config: PipelineConfig):
         """Set pipeline configuration - Claude Generated"""
         self.config = config
         self.logger.info(f"Pipeline configuration updated: {config}")
 
-        # Debug: Log step configurations in detail
-        for step_id, step_config in config.step_configs.items():
-            task = step_config.get("task", "N/A")
-            enabled = step_config.get("enabled", "N/A")
-            self.logger.info(f"Step '{step_id}': task='{task}', enabled={enabled}")
+        # Debug: Log modern step configurations in detail
+        if hasattr(config, 'step_configs_v2') and config.step_configs_v2:
+            for step_id, step_config in config.step_configs_v2.items():
+                self.logger.info(f"Step '{step_id}': mode={step_config.mode.value}, enabled={step_config.enabled}")
+        else:
+            self.logger.info("No modern step configurations found")
 
     def set_callbacks(
         self,
@@ -614,13 +556,29 @@ class PipelineManager:
         if self.stream_callback:
             self.stream_callback(message, "input")
 
+    def get_step_config(self, step_id: str) -> PipelineStepConfig:
+        """Get step configuration with smart fallback - Claude Generated"""
+        try:
+            return self.config.get_step_config(step_id)
+        except Exception as e:
+            self.logger.warning(f"Failed to get step config for {step_id}: {e}")
+            # Fallback to Smart mode
+            return PipelineStepConfig(
+                step_id=step_id,
+                mode=PipelineMode.SMART,
+                task_type=UnifiedTaskType.GENERAL
+            )
+
     def _should_use_smart_mode(self, step_id: str) -> bool:
         """Check if a step should use Smart Mode for provider/model selection - Claude Generated"""
+        self.logger.info(f"🔍 SMART_MODE_CHECK: {step_id}")
         try:
             step_config = self.get_step_config(step_id)
-            return step_config.mode == PipelineMode.SMART
+            result = step_config.mode == PipelineMode.SMART
+            self.logger.info(f"🔍 SMART_MODE_RESULT: {step_id} mode={step_config.mode.value}, is_smart={result}")
+            return result
         except Exception as e:
-            self.logger.warning(f"Error checking Smart Mode for step {step_id}: {e}")
+            self.logger.warning(f"🔍 SMART_MODE_ERROR: {step_id}: {e}")
             # Default to Smart Mode if configuration is unclear
             return True
 
@@ -640,8 +598,8 @@ class PipelineManager:
         )
 
         # Initialisation step (free keyword generation)
-        initialisation_config = self.config.step_configs.get("initialisation", {})
-        if initialisation_config.get("enabled", True):
+        initialisation_config = self.config.get_step_config("initialisation")
+        if initialisation_config.enabled:
             # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
             steps.append(
                 PipelineStep(
@@ -664,8 +622,8 @@ class PipelineManager:
         )
 
         # Keywords step (Verbale Erschließung)
-        keywords_config = self.config.step_configs.get("keywords", {})
-        if keywords_config.get("enabled", True):
+        keywords_step_config = self.config.get_step_config("keywords")
+        if keywords_step_config.enabled:
             # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
             steps.append(
                 PipelineStep(
@@ -679,8 +637,8 @@ class PipelineManager:
             )
 
         # DK Search step (optional)
-        dk_search_config = self.config.step_configs.get("dk_search", {})
-        if dk_search_config.get("enabled", True):
+        dk_search_config = self.config.get_step_config("dk_search")
+        if dk_search_config.enabled:
             steps.append(
                 PipelineStep(
                     step_id="dk_search",
@@ -689,8 +647,8 @@ class PipelineManager:
             )
             
         # DK Classification step (optional)
-        dk_classification_config = self.config.step_configs.get("dk_classification", {})
-        if dk_classification_config.get("enabled", True):
+        dk_classification_config = self.config.get_step_config("dk_classification")
+        if dk_classification_config.enabled:
             # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
             steps.append(
                 PipelineStep(
@@ -836,10 +794,10 @@ class PipelineManager:
             raise ValueError("No input text available for keyword extraction")
 
         # Get configuration for initialisation step
-        initialisation_config = self.config.step_configs.get("initialisation", {})
-        task = initialisation_config.get("task", "initialisation")
-        temperature = initialisation_config.get("temperature", 0.7)
-        top_p = initialisation_config.get("top_p", 0.1)
+        step_config = self.config.get_step_config("initialisation")
+        task = step_config.task or "initialisation"
+        temperature = step_config.temperature or 0.7
+        top_p = step_config.top_p or 0.1
 
         # Debug: Log the extracted configuration
         self.logger.info(
@@ -847,7 +805,7 @@ class PipelineManager:
         )
 
         # Debug: Check for system prompt
-        system_prompt = initialisation_config.get("system_prompt")
+        system_prompt = getattr(step_config, 'system_prompt', None)
         if system_prompt:
             self.logger.info(
                 f"Initialisation step has system_prompt: {len(system_prompt)} chars"
@@ -899,13 +857,17 @@ class PipelineManager:
                 "keyword_chunk_size",
                 "prompt_template",
             ]
-            filtered_config = {
-                k: v for k, v in initialisation_config.items() if k in allowed_params
-            }
+
+            # Create filtered config from step_config attributes
+            filtered_config = {}
+            for param in allowed_params:
+                value = getattr(step_config, param, None)
+                if value is not None:
+                    filtered_config[param] = value
 
             # Handle system_prompt -> system parameter mapping
-            if "system_prompt" in initialisation_config:
-                filtered_config["system"] = initialisation_config["system_prompt"]
+            if hasattr(step_config, 'system_prompt') and step_config.system_prompt:
+                filtered_config["system"] = step_config.system_prompt
                 self.logger.info(
                     f"Initialisation: Mapped system_prompt to system parameter"
                 )
@@ -987,19 +949,19 @@ class PipelineManager:
             raise ValueError("No search results available for keywords step")
 
         # Get configuration for keywords step
-        keywords_config = self.config.step_configs.get("keywords", {})
-        task = keywords_config.get("task", "keywords")
-        temperature = keywords_config.get("temperature", 0.7)
-        top_p = keywords_config.get("top_p", 0.1)
+        step_config = self.config.get_step_config("keywords")
+        task = step_config.task or "keywords"
+        temperature = step_config.temperature or 0.7
+        top_p = step_config.top_p or 0.1
 
         # Debug: Log the extracted configuration
         self.logger.info(
             f"Keywords step config: task='{task}', temp={temperature}, top_p={top_p}"
         )
-        self.logger.info(f"Full keywords_config: {keywords_config}")
+        self.logger.info(f"Full step_config: {step_config}")
 
         # Debug: Check for system prompt
-        system_prompt = keywords_config.get("system_prompt")
+        system_prompt = getattr(step_config, 'system_prompt', None)
         if system_prompt:
             self.logger.info(
                 f"Keywords step has system_prompt: {len(system_prompt)} chars"
@@ -1051,9 +1013,12 @@ class PipelineManager:
                 "keyword_chunking_threshold",
                 "chunking_task",
             ]
-            filtered_config = {
-                k: v for k, v in keywords_config.items() if k in allowed_params
-            }
+            # Create filtered config from step_config attributes
+            filtered_config = {}
+            for param in allowed_params:
+                value = getattr(step_config, param, None)
+                if value is not None:
+                    filtered_config[param] = value
 
             # Debug: Log what's actually in the filtered config - Claude Generated
             self.logger.info(f"Keywords step filtered_config: {filtered_config}")
@@ -1065,8 +1030,8 @@ class PipelineManager:
                 self.logger.warning("GUI: chunking_task missing from filtered_config!")
 
             # Handle system_prompt -> system parameter mapping
-            if "system_prompt" in keywords_config:
-                filtered_config["system"] = keywords_config["system_prompt"]
+            if hasattr(step_config, 'system_prompt') and step_config.system_prompt:
+                filtered_config["system"] = step_config.system_prompt
                 self.logger.info(f"Keywords: Mapped system_prompt to system parameter")
 
             final_keywords, _, llm_analysis = (
@@ -1106,7 +1071,7 @@ class PipelineManager:
             final_keywords = previous_step.output_data.get("final_keywords", [])
             
             # Use the shared pipeline executor for DK search
-            dk_search_config = self.config.step_configs.get("dk_search", {})
+            step_config = self.config.get_step_config("dk_search")
             
             # Get catalog configuration from global config if not in step config - Claude Generated
             try:
@@ -1114,20 +1079,20 @@ class PipelineManager:
                 config_manager = ConfigManager()
                 catalog_config = config_manager.get_catalog_config()
                 
-                catalog_token = dk_search_config.get("catalog_token") or catalog_config.get("catalog_token", "")
-                catalog_search_url = dk_search_config.get("catalog_search_url") or catalog_config.get("catalog_search_url", "")
-                catalog_details_url = dk_search_config.get("catalog_details_url") or catalog_config.get("catalog_details_url", "")
+                catalog_token = getattr(step_config, 'catalog_token', '') or catalog_config.get("catalog_token", "")
+                catalog_search_url = getattr(step_config, 'catalog_search_url', '') or catalog_config.get("catalog_search_url", "")
+                catalog_details_url = getattr(step_config, 'catalog_details_url', '') or catalog_config.get("catalog_details_url", "")
                 
             except Exception as e:
                 self.logger.warning(f"Failed to load catalog config: {e}")
-                catalog_token = dk_search_config.get("catalog_token", "")
-                catalog_search_url = dk_search_config.get("catalog_search_url", "")
-                catalog_details_url = dk_search_config.get("catalog_details_url", "")
+                catalog_token = getattr(step_config, 'catalog_token', '')
+                catalog_search_url = getattr(step_config, 'catalog_search_url', '')
+                catalog_details_url = getattr(step_config, 'catalog_details_url', '')
             
             dk_search_results = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
                 stream_callback=self._stream_callback_adapter,
-                max_results=dk_search_config.get("max_results", 20),
+                max_results=getattr(step_config, 'max_results', 20),
                 catalog_token=catalog_token,
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
@@ -1161,16 +1126,16 @@ class PipelineManager:
                 original_abstract = input_step.output_data.get("text", "")
             
             # Use the shared pipeline executor for DK classification
-            dk_classification_config = self.config.step_configs.get("dk_classification", {})
+            step_config = self.config.get_step_config("dk_classification")
             dk_classifications = self.pipeline_executor.execute_dk_classification(
                 dk_search_results=dk_search_results,
                 original_abstract=original_abstract,
-                model=step.model or dk_classification_config.get("model", "cogito:32b"),
-                provider=step.provider or dk_classification_config.get("provider", "ollama"),
+                model=step.model or step_config.model or "cogito:32b",
+                provider=step.provider or step_config.provider or "ollama",
                 stream_callback=self._stream_callback_adapter,
-                temperature=dk_classification_config.get("temperature", 0.7),
-                top_p=dk_classification_config.get("top_p", 0.1),
-                dk_frequency_threshold=dk_classification_config.get("dk_frequency_threshold", 10),  # Claude Generated
+                temperature=step_config.temperature or 0.7,
+                top_p=step_config.top_p or 0.1,
+                dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', 10),  # Claude Generated
             )
             
             # Prepare search summary for display
@@ -1265,51 +1230,59 @@ class PipelineManager:
             return  # Already has provider/model (manual mode)
 
         try:
-            # Check if this step should use Smart Mode
-            if self._should_use_smart_mode(step.step_id):
+            # Get step configuration
+            step_config = self.config.get_step_config(step.step_id)
+            is_smart = step_config.mode == PipelineMode.SMART
+            self.logger.info(f"🔍 RESOLVE_PROVIDER: {step.step_id} mode={step_config.mode.value}")
+
+            # ALWAYS start with Smart defaults, even for Advanced/Expert modes
+            smart_provider = None
+            smart_model = None
+
+            if step.step_id in ["initialisation", "keywords", "dk_classification"]:
                 # Determine task type and parameters for SmartProviderSelector
                 task_type_mapping = {
-                    "initialisation": ("text", True),   # (task_type, prefer_fast)
-                    "keywords": ("text", False),
-                    "dk_classification": ("classification", False)
+                    "initialisation": (TaskType.TEXT, True),   # (task_type, prefer_fast)
+                    "keywords": (TaskType.TEXT, False),
+                    "dk_classification": (TaskType.CLASSIFICATION, False)
                 }
 
-                if step.step_id in task_type_mapping:
-                    task_type, prefer_fast = task_type_mapping[step.step_id]
+                task_type, prefer_fast = task_type_mapping[step.step_id]
 
-                    # Get smart selection
-                    selection = self.pipeline_executor.smart_selector.select_provider(
-                        task_type=task_type,
-                        prefer_fast=prefer_fast,
-                        task_name=step.step_id,
-                        step_id=step.step_id
-                    )
+                # Get smart selection as default for ALL modes
+                # Use proper task name mapping (e.g., "dk_classification" step_id -> "dk_class" task_name)
+                task_name = self._get_default_task_for_step(step.step_id)
+                selection = self.pipeline_executor.smart_selector.select_provider(
+                    task_type=task_type,
+                    prefer_fast=prefer_fast,
+                    task_name=task_name,
+                    step_id=step.step_id
+                )
+                smart_provider = selection.provider
+                smart_model = selection.model
+                self.logger.info(f"🤖 Smart defaults for {step.step_id}: {smart_provider}/{smart_model}")
 
-                    # Update step with resolved provider/model
-                    step.provider = selection.provider
-                    step.model = selection.model
-
-                    self.logger.info(f"Smart Mode resolved for {step.step_id}: {selection.provider}/{selection.model}")
-                else:
-                    self.logger.warning(f"No Smart Mode mapping for step: {step.step_id}")
+            # Apply mode-specific logic
+            if is_smart:
+                # Pure Smart Mode - use intelligent selection
+                step.provider = smart_provider or "ollama"
+                step.model = smart_model or "cogito:32b"
+                self.logger.info(f"🤖 Smart Mode for {step.step_id}: {step.provider}/{step.model}")
             else:
-                # Manual mode - try to get from step config
-                step_config = self.config.step_configs.get(step.step_id, {})
-                if not step.provider:
-                    step.provider = step_config.get("provider", "ollama")
-                if not step.model:
-                    step.model = step_config.get("model", "cogito:32b")
-
-                self.logger.info(f"Manual Mode resolved for {step.step_id}: {step.provider}/{step.model}")
+                # Advanced/Expert Mode - start with Smart defaults, allow manual overrides
+                step.provider = step_config.provider or smart_provider or "ollama"
+                step.model = step_config.model or smart_model or "cogito:32b"
+                mode_icon = "⚙️" if step_config.mode == PipelineMode.ADVANCED else "🔧"
+                self.logger.info(f"{mode_icon} {step_config.mode.value} Mode for {step.step_id}: {step.provider}/{step.model} (smart defaults applied)")
 
         except Exception as e:
             self.logger.warning(f"Could not resolve provider/model for step {step.step_id}: {e}")
 
             # Intelligent fallback: try user's manual config for this step first - Claude Generated
             try:
-                step_config = self.config.step_configs.get(step.step_id, {})
-                user_provider = step_config.get("provider")
-                user_model = step_config.get("model")
+                step_config = self.config.get_step_config(step.step_id)
+                user_provider = step_config.provider
+                user_model = step_config.model
 
                 if user_provider and user_model:
                     step.provider = user_provider
@@ -1327,11 +1300,27 @@ class PipelineManager:
                 step.model = "cogito:32b"
                 self.logger.error(f"All fallbacks failed for {step.step_id}, using hardcoded: {fallback_error}")
 
+    def _get_default_task_for_step(self, step_id: str) -> str:
+        """Get default prompt task for a pipeline step - Claude Generated"""
+        task_mapping = {
+            "initialisation": "initialisation",
+            "keywords": "keywords",
+            "dk_classification": "dk_class",
+            "input": "input",
+            "search": "search"
+        }
+        return task_mapping.get(step_id, "keywords")
+
     def get_current_step(self) -> Optional[PipelineStep]:
         """Get currently executing step - Claude Generated"""
         if 0 <= self.current_step_index < len(self.pipeline_steps):
             return self.pipeline_steps[self.current_step_index]
         return None
+
+    @property
+    def is_running(self) -> bool:
+        """Check if pipeline is currently running (any step has 'running' status) - Claude Generated"""
+        return any(step.status == "running" for step in self.pipeline_steps)
 
     def get_pipeline_status(self) -> Dict[str, Any]:
         """Get overall pipeline status - Claude Generated"""
