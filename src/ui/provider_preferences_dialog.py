@@ -258,16 +258,8 @@ class ProviderPreferencesDialog(QDialog):
         suggestions_label = QLabel("Quick Fill:")
         suggestions_layout.addWidget(suggestions_label)
         
-        self.quality_button = QPushButton("Quality Models")
-        self.quality_button.clicked.connect(self.fill_quality_models)
-        self.quality_button.setToolTip("Fill with high-quality models optimized for accuracy")
-        
-        self.speed_button = QPushButton("Speed Models") 
-        self.speed_button.clicked.connect(self.fill_speed_models)
-        self.speed_button.setToolTip("Fill with fast models optimized for speed")
-        
-        suggestions_layout.addWidget(self.quality_button)
-        suggestions_layout.addWidget(self.speed_button)
+        # REMOVED: Quality/Speed preset buttons - obsolete hardcoded logic
+        # Users can configure provider/model preferences directly without presets
         suggestions_layout.addStretch()
         
         models_layout.addLayout(suggestions_layout)
@@ -465,34 +457,18 @@ class ProviderPreferencesDialog(QDialog):
             self.priority_list.insertItem(current_row + 1, item)
             self.priority_list.setCurrentRow(current_row + 1)
     
-    def fill_quality_models(self):
-        """Fill model inputs with quality-focused models - Claude Generated"""
-        quality_models = {
-            "ollama": "cogito:32b",
-            "gemini": "gemini-2.0-flash",
-            "anthropic": "claude-3-5-sonnet",
-            "openai": "gpt-4o",
-            "chatai": "gpt-4o"
-        }
-        
-        for provider, model in quality_models.items():
-            if provider in self.model_inputs:
-                self.model_inputs[provider].setText(model)
-    
-    def fill_speed_models(self):
-        """Fill model inputs with speed-focused models - Claude Generated"""
-        speed_models = {
-            "ollama": "cogito:14b",
-            "gemini": "gemini-1.5-flash",
-            "anthropic": "claude-3-haiku",
-            "openai": "gpt-4o-mini",
-            "chatai": "gpt-4o-mini"
-        }
-        
-        for provider, model in speed_models.items():
-            if provider in self.model_inputs:
-                self.model_inputs[provider].setText(model)
-    
+    # ============================================================================
+    # REMOVED: Hardcoded Quality/Speed model presets - Claude Generated cleanup
+    # ============================================================================
+    # Removed methods: fill_quality_models(), fill_speed_models()
+    #
+    # These contained hardcoded model assumptions:
+    # Quality: cogito:32b, gemini-2.0-flash, claude-3-5-sonnet, gpt-4o
+    # Speed: cogito:14b, gemini-1.5-flash, claude-3-haiku, gpt-4o-mini
+    #
+    # Rationale: Hardcoded presets become outdated and don't reflect actual
+    # model performance which varies by task, dataset, and use case.
+    # ============================================================================
     def test_settings(self):
         """Test the current provider settings - Claude Generated"""
         try:

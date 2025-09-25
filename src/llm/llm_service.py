@@ -116,11 +116,11 @@ class LlmService(QObject):
         # Dictionary to store provider clients
         self.clients = {}
 
-        # Define static provider configurations (non-OpenAI compatible)
-        self._init_static_provider_configs()
-        
-        # Initialize dynamic OpenAI-compatible providers
-        self._init_dynamic_provider_configs()
+        # Initialize unified provider configurations
+        self._init_unified_provider_configs()
+
+        # Initialize legacy dynamic OpenAI-compatible providers (deprecated)
+        self._legacy_init_dynamic_provider_configs()
 
         # Initialize all providers directly (ping tests prevent blocking) - Claude Generated
         self.initialize_providers(providers)
@@ -137,105 +137,74 @@ class LlmService(QObject):
         self.ollama_port = port
         self.ollama_port_updated.emit()
 
-    def _init_static_provider_configs(self):
-        """Initialize static provider configurations (non-OpenAI compatible) - Claude Generated"""
-        self.static_providers = {
-            "gemini": {
-                "module": "google.generativeai",
-                "class": None,
-                "initializer": self._init_gemini,
-                "generator": self._generate_gemini,
-            },
-            "anthropic": {
-                "module": "anthropic", 
-                "class": "Anthropic",
-                "initializer": self._init_anthropic,
-                "generator": self._generate_anthropic,
-            },
-            "ollama": {
-                "module": "requests",
-                "class": None,
-                "initializer": self._init_ollama,
-                "generator": self._generate_ollama,
-            },
-        }
+    def _init_unified_provider_configs(self):
+        """Initialize all provider configurations from unified config - Claude Generated"""
+        self.all_providers = {}
 
-    def _init_dynamic_provider_configs(self):
-        """Initialize dynamic OpenAI-compatible provider configurations - Claude Generated"""
-        self.openai_providers = {}
-        
-        # Load all enabled OpenAI-compatible providers from configuration
-        for provider in self.alima_config.llm.get_enabled_providers():
-            provider_key = provider.name
-            self.openai_providers[provider_key] = {
-                "name": provider.name,
-                "module": "openai",
-                "class": "OpenAI",
-                "base_url": provider.base_url,
-                "api_key": provider.api_key,
-                "description": provider.description,
-                "initializer": self._init_openai_compatible,
-                "generator": self._generate_openai_compatible,
-            }
-            self.logger.debug(f"Configured OpenAI-compatible provider: {provider.name} -> {provider.base_url}")
-        
-        # Add Ollama providers as OpenAI-compatible or native clients
-        for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
-            provider_key = ollama_provider.name  # Use the actual provider name directly - Claude Generated
-            
-            if ollama_provider.connection_type == "openai_compatible":
-                # Add as OpenAI-compatible provider
-                self.openai_providers[provider_key] = {
-                    "name": f"Ollama {ollama_provider.name}",
-                    "module": "openai",
-                    "class": "OpenAI", 
-                    "base_url": ollama_provider.base_url,
-                    "api_key": ollama_provider.api_key,
-                    "description": f"Ollama {ollama_provider.name} ({ollama_provider.host}:{ollama_provider.port})",
-                    "initializer": self._init_openai_compatible,
-                    "generator": self._generate_openai_compatible,
-                }
-                self.logger.info(f"Configured Ollama OpenAI-compatible: {ollama_provider.name} -> {ollama_provider.base_url} (API Key: {'Set' if ollama_provider.api_key else 'Not Set'})")
-                
-            elif ollama_provider.connection_type == "native_client":
-                # Add as native Ollama client
-                self.static_providers[provider_key] = {
-                    "name": f"Ollama Native {ollama_provider.name}",
-                    "module": "ollama",
-                    "class": "Client",
-                    "base_url": ollama_provider.base_url,
-                    "api_key": ollama_provider.api_key,
-                    "description": f"Ollama Native {ollama_provider.name} ({ollama_provider.host}:{ollama_provider.port})",
-                    "initializer": self._init_ollama_native_provider,
-                    "generator": self._generate_ollama_native,
-                }
-                self.logger.info(f"Configured Ollama Native: {ollama_provider.name} -> {ollama_provider.base_url} (API Key: {'Set' if ollama_provider.api_key else 'Not Set'})")
-        
-        # Keep legacy Ollama support for backward compatibility
-        primary_ollama = self.alima_config.llm.get_primary_ollama_provider()
-        if primary_ollama and primary_ollama.connection_type == "openai_compatible":
-            self.ollama_url = primary_ollama.base_url.replace('/v1', '')  # Remove /v1 for legacy compatibility
-            self.ollama_port = primary_ollama.port
-        
-        # Add dynamic Ollama providers to supported providers - Claude Generated
-        ollama_providers = {}
-        for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
-            provider_key = ollama_provider.name  # Use the actual provider name directly - Claude Generated
-            
-            if ollama_provider.connection_type == "native_client":
-                ollama_providers[provider_key] = {
-                    "name": f"Ollama Native {ollama_provider.name}",
-                    "type": "ollama_native_provider",
-                    "params": {},
-                    "base_url": ollama_provider.base_url,
-                    "api_key": ollama_provider.api_key,
-                    "description": f"Ollama Native {ollama_provider.name} ({ollama_provider.host}:{ollama_provider.port})",
-                    "initializer": self._init_ollama_native_provider,
-                    "generator": self._generate_ollama_native,
-                }
-        
-        # Merge static and dynamic providers for unified access
-        self.supported_providers = {**self.static_providers, **self.openai_providers, **ollama_providers}
+        # Get unified config from config manager
+        try:
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            unified_config = config_manager.get_unified_config()
+
+            # Initialize all enabled providers from unified config
+            for provider in unified_config.get_enabled_providers():
+                provider_key = provider.name.lower()
+
+                if provider.provider_type == "gemini":
+                    self.all_providers[provider_key] = {
+                        "module": "google.generativeai",
+                        "class": None,
+                        "initializer": self._init_gemini,
+                        "generator": self._generate_gemini,
+                        "config": provider
+                    }
+                elif provider.provider_type == "anthropic":
+                    self.all_providers[provider_key] = {
+                        "module": "anthropic",
+                        "class": "Anthropic",
+                        "initializer": self._init_anthropic,
+                        "generator": self._generate_anthropic,
+                        "config": provider
+                    }
+                elif provider.provider_type == "ollama":
+                    self.all_providers[provider_key] = {
+                        "module": "requests",
+                        "class": None,
+                        "initializer": self._init_ollama,
+                        "generator": self._generate_ollama,
+                        "config": provider
+                    }
+                elif provider.provider_type == "openai_compatible":
+                    self.all_providers[provider_key] = {
+                        "module": "openai",
+                        "class": "OpenAI",
+                        "initializer": self._init_openai_compatible,
+                        "generator": self._generate_openai_compatible,
+                        "config": provider
+                    }
+
+        except Exception as e:
+            self.logger.error(f"Failed to initialize unified provider configs: {e}")
+            # Fallback to empty configuration
+            self.all_providers = {}
+
+        # Create supported_providers from all_providers for backwards compatibility
+        self.supported_providers = self.all_providers.copy()
+
+        # Also maintain legacy attributes for compatibility - using .get() for safety
+        self.static_providers = {k: v for k, v in self.all_providers.items()
+                               if v.get("config", {}) and hasattr(v.get("config"), 'provider_type') and
+                               v["config"].provider_type in ["gemini", "anthropic", "ollama"]}
+        self.openai_providers = {k: v for k, v in self.all_providers.items()
+                               if v.get("config", {}) and hasattr(v.get("config"), 'provider_type') and
+                               v["config"].provider_type == "openai_compatible"}
+
+    def _legacy_init_dynamic_provider_configs(self):
+        """DEPRECATED - Legacy method for OpenAI providers - Claude Generated"""
+        # This method is now handled by _init_unified_provider_configs
+        self.openai_providers = {}  # Keep for backward compatibility
+        self.logger.info("Legacy dynamic provider config method called - now handled by unified config")
 
     def reload_providers(self):
         """Reload providers from current configuration - Claude Generated"""
@@ -244,8 +213,8 @@ class LlmService(QObject):
         # Reload configuration
         self.alima_config = self.config_manager.load_config()
         
-        # Reinitialize dynamic provider configurations
-        self._init_dynamic_provider_configs()
+        # Reinitialize provider configurations
+        self._legacy_init_dynamic_provider_configs()
         
         # Reinitialize all providers
         self.clients.clear()

@@ -13,11 +13,10 @@ from enum import Enum
 
 from .config_manager import ConfigManager, ProviderPreferences, ProviderDetectionService
 from ..llm.llm_service import LlmService
-from .unified_provider_config import (
-    UnifiedProviderConfig, 
-    TaskPreference, 
-    TaskType as UnifiedTaskType,
-    get_unified_config_manager
+from .config_models import (
+    UnifiedProviderConfig,
+    TaskPreference,
+    TaskType as UnifiedTaskType
 )
 
 
@@ -114,16 +113,16 @@ class SmartProviderSelector:
         self.config_manager = config_manager or ConfigManager()
         self.provider_detection_service = self.config_manager.get_provider_detection_service()  # Claude Generated
         
-        # Task Preference Integration - Claude Generated (Root-level config.task_preferences)
+        # Unified Configuration Integration - Claude Generated
         try:
-            # Load main config for root-level task_preferences
+            # Load unified config instead of legacy config structure
             self.config = self.config_manager.load_config(force_reload=True)
-            self.provider_preferences = self.config_manager.get_provider_preferences()
-            self.logger.info("SmartProviderSelector initialized with root-level task_preferences support")
+            self.unified_config = self.config_manager.get_unified_config()
+            self.logger.info("SmartProviderSelector initialized with unified configuration support")
         except Exception as e:
-            self.logger.warning(f"Failed to initialize Task Preference support: {e}")
+            self.logger.warning(f"Failed to initialize Unified Configuration support: {e}")
             self.config = None
-            self.provider_preferences = None
+            self.unified_config = None
         
         # Performance tracking
         self._provider_performance: Dict[str, List[float]] = {}
@@ -191,9 +190,10 @@ class SmartProviderSelector:
         # Get provider priority list for this task - enhanced with 3-tier hierarchy - Claude Generated
         provider_priority = []
         
-        # === TIER 1: Task-specific preferences from config.task_preferences (highest priority) ===
-        if self.config and task_name and task_name in self.config.task_preferences:
-            task_data = self.config.task_preferences[task_name]
+        # === TIER 1: Task-specific preferences from unified_config.task_preferences (highest priority) ===
+        if self.unified_config and task_name and task_name in self.unified_config.task_preferences:
+            task_preference = self.unified_config.task_preferences[task_name]
+            task_data = {"model_priority": task_preference.model_priority}
             model_priorities = task_data.get('model_priority', [])
 
             # CRITICAL DEBUG: Log task preference loading attempt - Claude Generated
@@ -208,13 +208,13 @@ class SmartProviderSelector:
                 self.logger.info(f"TIER 1: Using task-specific provider priority for {task_name}: {provider_priority}")
             else:
                 self.logger.info(f"🔍 TIER1_SKIP: task_name='{task_name}' has no usable model_priorities or is set to 'auto'")
-        elif self.config and task_name:
-            self.logger.info(f"🔍 TIER1_MISS: task_name='{task_name}' not found in task_preferences. Available: {list(self.config.task_preferences.keys())}")
+        elif self.unified_config and task_name:
+            self.logger.info(f"🔍 TIER1_MISS: task_name='{task_name}' not found in task_preferences. Available: {list(self.unified_config.task_preferences.keys())}")
         else:
-            self.logger.info(f"🔍 TIER1_NO_CONFIG: config={self.config is not None}, task_name='{task_name}'")
+            self.logger.info(f"🔍 TIER1_NO_CONFIG: unified_config={self.unified_config is not None}, task_name='{task_name}'")
         
-        # === TIER 2: Provider defaults from provider preferences (medium priority) ===  
-        if not provider_priority and self.provider_preferences:
+        # === TIER 2: Provider defaults from unified config (medium priority) ===
+        if not provider_priority and self.unified_config:
             # Map TaskType to task names for legacy lookup
             task_lookup_name = task_name
             if not task_lookup_name:

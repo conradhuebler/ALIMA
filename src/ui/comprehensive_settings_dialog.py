@@ -1247,14 +1247,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # Quick fill buttons
         buttons_layout = QHBoxLayout()
         
-        self.quality_models_btn = QPushButton("🎯 Quality Models")
-        self.quality_models_btn.clicked.connect(self._set_quality_models)
-        
-        self.speed_models_btn = QPushButton("⚡ Speed Models")
-        self.speed_models_btn.clicked.connect(self._set_speed_models)
-        
-        buttons_layout.addWidget(self.quality_models_btn)
-        buttons_layout.addWidget(self.speed_models_btn)
+        # REMOVED: Quality/Speed model buttons - obsolete hardcoded presets
+        # Users can configure models directly through provider management interface
         buttons_layout.addStretch()
         
         models_layout.addLayout(buttons_layout)
@@ -1753,66 +1747,20 @@ class ComprehensiveSettingsDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, f"Test Failed - {provider}", f"Error testing {provider}:\n\n{str(e)}")
     
-    def _set_quality_models(self):
-        """Set quality-focused models for all providers - Claude Generated"""
-        self._set_models_by_type("quality")
-    
-    def _set_speed_models(self):
-        """Set speed-focused models for all providers - Claude Generated"""
-        self._set_models_by_type("speed")
-    
-    def _set_models_by_type(self, model_type: str):
-        """Set models based on type (quality or speed) - Claude Generated"""
-        try:
-            detection_service = self.config_manager.get_provider_detection_service()
-            
-            for row in range(self.models_table.rowCount()):
-                provider_item = self.models_table.item(row, 0)
-                if not provider_item:
-                    continue
-                    
-                provider = provider_item.text()
-                available_models = detection_service.get_available_models(provider)
-                
-                if not available_models:
-                    continue
-                
-                selected_model = ""
-                
-                if model_type == "quality":
-                    # Look for quality indicators
-                    quality_indicators = ['2.0', '4o', 'claude-3-5', 'cogito:32b', 'opus', 'large']
-                    for model in available_models:
-                        if any(indicator in model.lower() for indicator in quality_indicators):
-                            selected_model = model
-                            break
-                elif model_type == "speed":
-                    # Look for speed indicators
-                    speed_indicators = ['flash', 'mini', 'haiku', '14b', 'turbo', 'small']
-                    for model in available_models:
-                        if any(indicator in model.lower() for indicator in speed_indicators):
-                            selected_model = model
-                            break
-                
-                # Fall back to first available model if no specific model found
-                if not selected_model:
-                    selected_model = available_models[0]
-                
-                # Update the UI
-                model_widget = self.models_table.cellWidget(row, 1)
-                if model_widget and isinstance(model_widget, QLineEdit):
-                    model_widget.setText(selected_model)
-                
-                combo_widget = self.models_table.cellWidget(row, 2)
-                if combo_widget and isinstance(combo_widget, QComboBox):
-                    combo_widget.setCurrentText(selected_model)
-            
-            QMessageBox.information(self, "Models Updated", f"Set all providers to use {model_type}-optimized models.")
-            
-        except Exception as e:
-            self.logger.error(f"Error setting {model_type} models: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to set {model_type} models:\n\n{str(e)}")
-    
+    # ============================================================================
+    # REMOVED: Quality/Speed model selection methods - Claude Generated cleanup
+    # ============================================================================
+    # These methods contained hardcoded assumptions about model performance:
+    # - quality_indicators = ['2.0', '4o', 'claude-3-5', 'cogito:32b', 'opus', 'large']
+    # - speed_indicators = ['flash', 'mini', 'haiku', '14b', 'turbo', 'small']
+    #
+    # Rationale for removal:
+    # 1. Hardcoded model performance assumptions become outdated quickly
+    # 2. Model performance varies significantly based on task and context
+    # 3. Users can configure models directly through provider management
+    # 4. Reduces UI complexity and confusion
+    # ============================================================================
+
     def _on_model_preference_changed(self, provider: str, model: str):
         """Handle model preference change - Claude Generated"""
         # This is called in real-time as the user types

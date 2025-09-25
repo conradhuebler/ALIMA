@@ -1348,25 +1348,29 @@ class PipelineTab(QWidget):
     
     def _load_catalog_config(self) -> tuple[str, str, str]:
         """Load catalog configuration from ConfigManager - Claude Generated"""
+        # Initialize default values
+        catalog_token = ""
+        catalog_search_url = ""
+        catalog_details_url = ""
+
         try:
             from ..utils.config_manager import ConfigManager
             config_manager = ConfigManager()
             catalog_config = config_manager.get_catalog_config()
-            
-            catalog_token = catalog_config.get("catalog_token", "")
-            catalog_search_url = catalog_config.get("catalog_search_url", "")
-            catalog_details_url = catalog_config.get("catalog_details_url", "")
-            
+
+            # Access dataclass attributes directly (not dictionary .get())
+            catalog_token = catalog_config.catalog_token
+            catalog_search_url = catalog_config.catalog_search_url
+            catalog_details_url = catalog_config.catalog_details_url
+
             if catalog_token:
                 self.logger.info(f"Loaded catalog token from config (length: {len(catalog_token)})")
             else:
                 self.logger.warning("No catalog token found in config")
-            #else:
-            #    self.logger.warning(f"Config file not found: {config_file}")
-                
+
         except Exception as e:
             self.logger.error(f"Error loading catalog config: {e}")
-        
+
         return catalog_token, catalog_search_url, catalog_details_url
     
     def _update_pipeline_config_with_catalog_settings(self):
