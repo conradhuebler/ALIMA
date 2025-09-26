@@ -141,15 +141,13 @@ class LlmService(QObject):
         """Initialize all provider configurations from unified config - Claude Generated"""
         self.all_providers = {}
 
-        # Get unified config from config manager
+        # Get unified config from existing config manager - Claude Generated
         try:
-            from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            unified_config = config_manager.get_unified_config()
+            unified_config = self.config_manager.get_unified_config()
 
             # Initialize all enabled providers from unified config
             for provider in unified_config.get_enabled_providers():
-                provider_key = provider.name.lower()
+                provider_key = provider.name  # Use original case to match get_available_providers() output - Claude Generated
 
                 if provider.provider_type == "gemini":
                     self.all_providers[provider_key] = {
@@ -171,7 +169,7 @@ class LlmService(QObject):
                     self.all_providers[provider_key] = {
                         "module": "requests",
                         "class": None,
-                        "initializer": self._init_ollama,
+                        "initializer": self._init_ollama_native_provider,
                         "generator": self._generate_ollama,
                         "config": provider
                     }
@@ -377,60 +375,57 @@ class LlmService(QObject):
         Args:
             provider: The provider name to initialize.
         """
-        # Find provider info with case-insensitive fallback - Claude Generated
+        # Find provider info with case-insensitive fallback and enhanced debugging - Claude Generated
         provider_info = None
+
+        self.logger.info(f"🔍 PROVIDER_INIT_LOOKUP: Searching for provider '{provider}' in supported_providers")
+        self.logger.info(f"🔍 AVAILABLE_KEYS: {list(self.supported_providers.keys())}")
+
         if provider in self.supported_providers:
             provider_info = self.supported_providers[provider]
+            self.logger.info(f"✅ PROVIDER_FOUND: '{provider}' found with exact match")
         elif provider.lower() in self.supported_providers:
             provider_info = self.supported_providers[provider.lower()]
+            self.logger.info(f"✅ PROVIDER_FOUND: '{provider}' found with lowercase match")
         else:
-            self.logger.warning(f"Unsupported provider: {provider}")
-            return
+            # Try finding with case-insensitive search - Claude Generated
+            for key in self.supported_providers.keys():
+                if key.lower() == provider.lower():
+                    provider_info = self.supported_providers[key]
+                    self.logger.info(f"✅ PROVIDER_FOUND: '{provider}' found with case-insensitive match: '{key}'")
+                    break
+
+            if not provider_info:
+                self.logger.warning(f"❌ UNSUPPORTED_PROVIDER: '{provider}' not found in supported providers")
+                return
 
         try:
-            # Handle different provider types - Claude Generated
-            provider_type = provider_info.get("type", "")
-            
-            if provider_type == "ollama_native_provider":
-                # Special handling for native Ollama providers - don't import module
+            # Handle different provider types - Claude Generated (Updated for unified config)
+            provider_config = provider_info.get("config")
+            provider_type = provider_config.provider_type if provider_config else provider_info.get("type", "")
+
+            if provider_type == "ollama":
+                # Special handling for Ollama providers - don't import module
                 module = None
-                api_key = provider_info.get("api_key")
+                api_key = provider_config.api_key if provider_config else provider_info.get("api_key")
             else:
                 # Try to import the required module for other providers
                 module = importlib.import_module(provider_info["module"])
                 
-                # Handle API key based on provider type
-                api_key = None
-                if provider in self.static_providers:
-                    # Static providers: get API key from configuration
-                    if provider == "gemini":
-                        api_key = self.alima_config.llm.gemini
-                    elif provider == "anthropic":
-                        api_key = self.alima_config.llm.anthropic
-                    # Ollama (local) doesn't need API key
-                    elif provider == "ollama":
-                        api_key = None
-                    # Ollama native client uses API key from config
-                    elif provider == "ollama_native":
-                        api_key = self.alima_config.llm.ollama.native_api_key
-                else:
-                    # Dynamic OpenAI-compatible providers: get API key from provider config
-                    api_key = provider_info.get("api_key")
+                # Handle API key from unified config structure - Claude Generated
+                api_key = provider_config.api_key if provider_config else provider_info.get("api_key")
             
-            # Check if API key is provided - warn if missing but continue for some providers
+            # Check if API key is provided - warn if missing but continue for some providers - Claude Generated
             if not api_key:
-                if provider in ["ollama"]:
-                    # Local Ollama doesn't require API key
-                    pass
-                elif provider == "ollama_native" and not self.alima_config.llm.ollama.native_api_key:
-                    # Native Ollama without API key - might be local setup
-                    self.logger.info(f"No API key configured for {provider} - assuming local setup")
-                elif provider in self.static_providers and provider in ["gemini", "anthropic"]:
-                    # Static providers like Gemini and Anthropic require API keys
+                if provider_type in ["ollama"]:
+                    # Ollama providers may or may not need API keys depending on setup
+                    self.logger.info(f"No API key configured for {provider} - continuing without authentication")
+                elif provider_type in ["gemini", "anthropic"]:
+                    # API-only providers require API keys
                     self.logger.warning(f"No API key found for {provider} - initialization skipped")
                     return
                 else:
-                    # OpenAI-compatible providers: warn but continue (might not need API key)
+                    # Other providers: warn but continue (might not need API key)
                     self.logger.info(f"No API key configured for {provider} - continuing without authentication")
 
             # Call the specific initializer for this provider
@@ -474,38 +469,53 @@ class LlmService(QObject):
 
         # Register providers in clients dict but don't initialize them
         for provider in filtered_providers:
-            if provider.lower() not in self.supported_providers:
-                self.logger.warning(f"Unsupported provider: {provider}")
-                continue
-            
-            # Mark provider as registered but not initialized
-            self.clients[provider.lower()] = "lazy_uninitialized"
-            self.logger.debug(f"Registered provider for lazy initialization: {provider.lower()}")
+            # Check with case-insensitive lookup for supported providers - Claude Generated
+            if provider not in self.supported_providers:
+                # Try case-insensitive search
+                found = False
+                for key in self.supported_providers.keys():
+                    if key.lower() == provider.lower():
+                        found = True
+                        break
+                if not found:
+                    self.logger.warning(f"Unsupported provider: {provider}")
+                    continue
+
+            # Mark provider as registered but not initialized - use original case for consistency - Claude Generated
+            self.clients[provider] = "lazy_uninitialized"
+            self.logger.debug(f"Registered provider for lazy initialization: {provider}")
 
     def _ensure_provider_initialized(self, provider: str) -> bool:
         """
         Ensure a provider is actually initialized before use (lazy loading) - Claude Generated
-        
+
         Args:
             provider: Provider name to initialize
-            
+
         Returns:
             True if provider is initialized, False if initialization failed
         """
+        self.logger.info(f"🔧 ENSURE_INIT: Checking initialization for provider '{provider}'")
+        self.logger.info(f"🔧 CLIENT_KEYS_AVAILABLE: {list(self.clients.keys())}")
+
         if provider not in self.clients:
+            self.logger.warning(f"🔧 PROVIDER_NOT_IN_CLIENTS: '{provider}' not found in self.clients")
             return False
-            
+
         # If provider is already initialized (not a string), return True
         if self.clients[provider] != "lazy_uninitialized":
+            self.logger.info(f"🔧 PROVIDER_ALREADY_INIT: '{provider}' is already initialized")
             return True
-        
+
         # Initialize the provider now
-        self.logger.info(f"Lazy-initializing provider: {provider}")
+        self.logger.info(f"🔧 LAZY_INITIALIZING: Starting lazy initialization for provider '{provider}'")
         try:
             self._initialize_single_provider(provider)
-            return provider in self.clients and self.clients[provider] != "lazy_uninitialized"
+            success = provider in self.clients and self.clients[provider] != "lazy_uninitialized"
+            self.logger.info(f"🔧 LAZY_INIT_RESULT: '{provider}' initialization success: {success}")
+            return success
         except Exception as e:
-            self.logger.error(f"Failed to lazy-initialize provider {provider}: {e}")
+            self.logger.error(f"🔧 LAZY_INIT_FAILED: Failed to lazy-initialize provider {provider}: {e}")
             return False
 
     def initialize_providers(self, providers: List[str] = None):
@@ -600,7 +610,7 @@ class LlmService(QObject):
 
     def get_available_models(self, provider: str) -> List[str]:
         """
-        Get available models for specified provider with reachability check and lazy initialization - Claude Generated
+        Get available models for specified provider with direct approach - Claude Generated
 
         Args:
             provider: The provider name.
@@ -608,160 +618,112 @@ class LlmService(QObject):
         Returns:
             List of model names.
         """
-        # First check if provider is reachable - Claude Generated
+        # Simple approach: ping check → direct model loading
         if not self.is_provider_reachable(provider):
-            self.logger.warning(f"Provider {provider} is not reachable. Skipping model loading.")
             return []
-            
-        # Ensure provider is initialized if using lazy loading
-        if not self._ensure_provider_initialized(provider):
-            self.logger.warning(f"Provider {provider} could not be initialized.")
+
+        # Direct access - no lazy loading complications with case-insensitive lookup - Claude Generated
+        client_key = None
+        if provider in self.clients:
+            client_key = provider
+        else:
+            # Case-insensitive fallback
+            for key in self.clients.keys():
+                if key.lower() == provider.lower():
+                    client_key = key
+                    break
+
+        if not client_key:
+            self.logger.warning(f"No client found for provider '{provider}'. Available clients: {list(self.clients.keys())}")
             return []
 
         try:
-            if provider == "gemini":
-                # Ensure model.name is handled correctly, it's usually "models/model-name"
+            # Get provider config from unified configuration - Claude Generated
+            config = self.config_manager.load_config() if self.config_manager else None
+            if not config or not hasattr(config, 'unified_config'):
+                return []
+
+            provider_config = None
+            for p in config.unified_config.providers:
+                if p.name.lower() == provider.lower():
+                    provider_config = p
+                    break
+
+            if not provider_config:
+                return []
+
+            # Simple provider type based model loading - Claude Generated
+            self.logger.info(f"Loading models for {provider} (type: {provider_config.provider_type})")
+            if provider_config.provider_type == "gemini":
                 return [
                     model.name.split("/")[-1]
-                    for model in self.clients[provider].list_models()
-                    if hasattr(model, "name")  # Ensure 'name' attribute exists
+                    for model in self.clients[client_key].list_models()
+                    if hasattr(model, "name")
                 ]
 
-            elif provider == "ollama":
-                if not self._is_server_reachable(self.ollama_url, self.ollama_port):
-                    self.logger.warning(
-                        f"Ollama server not accessible at {self.ollama_url}:{self.ollama_port}"
-                    )
-                    return []
-                response = self.clients[provider].get(
-                    f"{self.ollama_url}:{self.ollama_port}/api/tags"
-                )
-                response.raise_for_status()  # Raise an exception for HTTP errors
-                return [model["name"] for model in response.json()["models"]]
+            elif provider_config.provider_type == "ollama":
+                # Use native Ollama client
+                models_response = self.clients[client_key].list()
+                if 'models' in models_response:
+                    models = []
+                    for model in models_response['models']:
+                        # Try different possible keys for model name
+                        if 'name' in model:
+                            models.append(model['name'])
+                        elif 'model' in model:
+                            models.append(model['model'])
+                        elif isinstance(model, str):
+                            models.append(model)
+                    return models
+                return []
 
-            elif provider == "ollama_native":
-                # Use native Ollama client to list models
+            elif provider_config.provider_type == "openai_compatible":
+                # OpenAI-compatible provider - Claude Generated
+                models = []
                 try:
-                    models_response = self.clients[provider].list()
-                    if 'models' in models_response:
-                        return [model['name'] for model in models_response['models']]
-                    else:
-                        return []
-                except Exception as e:
-                    self.logger.error(f"Error getting native Ollama models: {e}")
-                    return []
-
-            elif provider in self.openai_providers:
-                # Use a more robust way to get model IDs, handling potential missing 'id'
-                models = []
-                for model_obj in self.clients[provider].models.list():
-                    if hasattr(model_obj, "id"):
-                        models.append(model_obj.id)
-                    else:
-                        self.logger.warning(
-                            f"Model object from {provider} has no 'id' attribute: {model_obj}"
-                        )
-                return models
-
-            elif provider == "anthropic":
-                models = []
-                for model_obj in self.clients[provider].models.list():
-                    if hasattr(model_obj, "id"):
-                        models.append(model_obj.id)
-                    else:
-                        self.logger.warning(
-                            f"Model object from {provider} has no 'id' attribute: {model_obj}"
-                        )
-                return models
-
-            elif provider == "azure":
-                return self.supported_providers[provider]["params"]["supported_models"]
-
-            elif provider == "github":
-                return self.supported_providers[provider]["params"]["supported_models"]
-
-            # Check for flexible Ollama providers (new multi-instance system) - Claude Generated
-            config = self.config_manager.load_config()
-            
-            # Check if it's a configured Ollama provider - Claude Generated
-            for ollama_provider in config.llm.ollama_providers:
-                if ollama_provider.name == provider:
-                    if ollama_provider.connection_type == "native_client":
-                        # Use native Ollama client
-                        try:
-                            if provider not in self.clients:
-                                self.logger.warning(f"Native Ollama client {provider} not initialized")
-                                return []
-                                
-                            client = self.clients[provider]
-                            models_response = client.list()
-                            
-                            # Handle both dict format and ollama.ListResponse object format - Claude Generated
-                            if isinstance(models_response, dict) and 'models' in models_response:
-                                return [model['name'] for model in models_response['models']]
-                            elif hasattr(models_response, 'models'):
-                                # Handle ollama.ListResponse object format
-                                models = []
-                                for model in models_response.models:
-                                    if hasattr(model, 'model'):
-                                        models.append(model.model)  # Use .model attribute for model name
-                                    elif hasattr(model, 'name'):
-                                        models.append(model.name)   # Fallback to .name attribute
-                                    else:
-                                        models.append(str(model))   # Fallback to string representation
-                                return models
-                            else:
-                                self.logger.warning(f"Unexpected response format from {provider}: {type(models_response)}")
-                                self.logger.debug(f"Response content: {models_response}")
-                                return []
-                                
-                        except Exception as e:
-                            self.logger.error(f"Error getting native Ollama models from {provider}: {e}")
-                            self.logger.debug(traceback.format_exc())
-                            return []
-                    
-                    elif ollama_provider.connection_type == "openai_compatible":
-                        # Use OpenAI-compatible client
-                        try:
-                            if provider not in self.clients:
-                                self.logger.warning(f"OpenAI-compatible client {provider} not initialized")
-                                return []
-                            
-                            models = []
-                            for model_obj in self.clients[provider].models.list():
-                                if hasattr(model_obj, "id"):
-                                    models.append(model_obj.id)
-                            return models
-                            
-                        except Exception as e:
-                            self.logger.error(f"Error getting OpenAI-compatible models from {provider}: {e}")
-                            self.logger.debug(traceback.format_exc())
-                            return []
-                    
-                    break
-            
-            # Check for OpenAI-compatible providers
-            for openai_provider in config.llm.openai_compatible_providers:
-                if openai_provider.name == provider:
+                    for model_obj in self.clients[client_key].models.list():
+                        if hasattr(model_obj, "id"):
+                            models.append(model_obj.id)
+                    return models
+                except Exception as openai_error:
+                    self.logger.warning(f"OpenAI client models.list() failed for {provider}: {openai_error}")
+                    # Fallback to direct HTTP request - Claude Generated
                     try:
-                        if provider not in self.clients:
-                            self.logger.warning(f"OpenAI-compatible client {provider} not initialized")
-                            return []
-                        
-                        models = []
-                        for model_obj in self.clients[provider].models.list():
-                            if hasattr(model_obj, "id"):
-                                models.append(model_obj.id)
-                        return models
-                        
-                    except Exception as e:
-                        self.logger.error(f"Error getting OpenAI-compatible models from {provider}: {e}")
-                        self.logger.debug(traceback.format_exc())
+                        import requests
+                        base_url = provider_config.base_url.rstrip('/')
+                        models_url = f"{base_url}/models"
+
+                        headers = {}
+                        if provider_config.api_key and provider_config.api_key not in ["None", "no-key-required"]:
+                            headers["Authorization"] = f"Bearer {provider_config.api_key}"
+
+                        self.logger.info(f"Fallback HTTP request to {models_url} with headers: {bool(headers)}")
+                        response = requests.get(models_url, headers=headers, timeout=10)
+                        response.raise_for_status()
+                        data = response.json()
+
+                        if "data" in data:
+                            models_list = [model["id"] for model in data["data"] if "id" in model]
+                            self.logger.info(f"Fallback HTTP success: {len(models_list)} models found")
+                            return models_list
                         return []
+                    except Exception as fallback_error:
+                        self.logger.error(f"Fallback HTTP request failed for {provider}: {fallback_error}")
+                        return []
+
+            elif provider_config.provider_type == "anthropic":
+                models = []
+                for model_obj in self.clients[client_key].models.list():
+                    if hasattr(model_obj, "id"):
+                        models.append(model_obj.id)
+                return models
+
+            else:
+                return []  # Unknown provider type
 
         except Exception as e:
             self.logger.error(f"Error getting models for {provider}: {str(e)}")
-            self.logger.debug(traceback.format_exc())
+            return []
 
         return []
 
@@ -895,22 +857,28 @@ class LlmService(QObject):
         params = {}
         
         # Always provide an API key for OpenAI-compatible clients (required by OpenAI library)
-        # Use provided key or placeholder for providers that don't need authentication
-        if api_key:
+        # Use provided key or placeholder for providers that don't need authentication - Claude Generated
+        if api_key and api_key != "None":
             params["api_key"] = api_key
         else:
             params["api_key"] = "no-key-required"  # Placeholder for providers without authentication
             self.logger.info(f"Initializing {provider} with placeholder API key (no authentication required)")
 
-        # Add base_url if specified
-        if "base_url" in provider_info:
+        # Add base_url if specified - Claude Generated
+        provider_config = provider_info.get("config")
+        if provider_config and hasattr(provider_config, 'base_url') and provider_config.base_url:
+            params["base_url"] = provider_config.base_url
+        elif "base_url" in provider_info:
             params["base_url"] = provider_info["base_url"]
         elif provider_info.get("params", {}).get("base_url"):
             params["base_url"] = provider_info["params"]["base_url"]
 
-        # Create client
+        # Create client with debug logging - Claude Generated
         client_class = getattr(module, provider_info["class"])
         self.clients[provider] = client_class(**params)
+
+        self.logger.info(f"🔧 CLIENT_STORED: Provider '{provider}' client stored in self.clients")
+        self.logger.info(f"🔧 CLIENT_KEYS: Current client keys: {list(self.clients.keys())}")
 
         if "base_url" in params:
             self.logger.info(
@@ -1040,29 +1008,26 @@ class LlmService(QObject):
     ):
         """Initialize specific Ollama native client provider - Claude Generated"""
         try:
-            # Get base_url from provider info
-            base_url = provider_info.get("base_url", "http://localhost:11434")
-            
-            # Use provider name directly (no ollama_ prefix anymore) - Claude Generated
+            # Get provider configuration from unified config (provider data is in provider_info['config'])
+            provider_config = provider_info.get('config', {})
+            base_url = provider_config.base_url if hasattr(provider_config, 'base_url') else "http://localhost:11434"
+            provider_api_key = provider_config.api_key if hasattr(provider_config, 'api_key') else ""
+            provider_enabled = provider_config.enabled if hasattr(provider_config, 'enabled') else True
             provider_name = provider
-            
-            # Find matching Ollama provider in config
-            ollama_provider = self.alima_config.llm.get_ollama_provider_by_name(provider_name)
-            if not ollama_provider:
-                self.logger.warning(f"No Ollama provider configuration found for: {provider_name}")
-                return
-                
-            if not ollama_provider.enabled:
+
+
+            # Check if provider is enabled
+            if not provider_enabled:
                 self.logger.info(f"Ollama provider {provider_name} disabled in configuration")
                 return
-            
+
             # Set up client parameters
             client_params = {"host": base_url}
-            
+
             # Add authorization header if API key is provided
-            if ollama_provider.api_key:
+            if provider_api_key:
                 client_params["headers"] = {
-                    'Authorization': ollama_provider.api_key
+                    'Authorization': provider_api_key
                 }
                 self.logger.info(f"Initializing native Ollama client {provider_name} with authentication at {base_url}")
             else:
@@ -2056,16 +2021,9 @@ class LlmService(QObject):
             else:
                 config = self.config_manager.config
             
-            # Check if it's an Ollama provider - Claude Generated
-            if hasattr(config.llm, 'ollama_providers'):
-                for provider in config.llm.ollama_providers:
-                    if provider.name == provider_name:
-                        provider_config = provider
-                        break
-            
-            # Check if it's an OpenAI-compatible provider
-            if not provider_config and hasattr(config.llm, 'openai_compatible_providers'):
-                for provider in config.llm.openai_compatible_providers:
+            # Find provider in unified configuration - Claude Generated
+            if hasattr(config, 'unified_config') and config.unified_config:
+                for provider in config.unified_config.providers:
                     if provider.name == provider_name:
                         provider_config = provider
                         break
@@ -2155,8 +2113,8 @@ class LlmService(QObject):
             True if provider is reachable, False otherwise
         """
         # Skip reachability check for API-based services - Claude Generated
-        api_services = ['gemini', 'anthropic', 'openai', 'comet', 'chatai']
-        if provider_name.lower() in api_services:
+        # Check if provider has API key (indicates API-based service)
+        if self._is_api_based_provider(provider_name):
             return True  # Assume API services are always reachable
         current_time = time.time()
         
@@ -2184,6 +2142,33 @@ class LlmService(QObject):
         self.provider_status_changed.emit(provider_name, ping_result['reachable'])
         
         return ping_result['reachable']
+
+    def _is_api_based_provider(self, provider_name: str) -> bool:
+        """
+        Check if provider is API-based (has API key or is known API service) - Claude Generated
+
+        Args:
+            provider_name: Name of provider to check
+
+        Returns:
+            True if provider is API-based, False otherwise
+        """
+        # Known API-only services (no local hosting)
+        known_api_services = ['gemini', 'anthropic', 'openai']
+        if provider_name.lower() in known_api_services:
+            return True
+
+        # Check if provider has API key in unified config
+        try:
+            config = self.config_manager.load_config() if hasattr(self, 'config_manager') else None
+            if config and hasattr(config, 'unified_config') and config.unified_config:
+                for provider in config.unified_config.providers:
+                    if provider.name == provider_name and provider.api_key:
+                        return True
+        except Exception as e:
+            self.logger.debug(f"Error checking API key for {provider_name}: {e}")
+
+        return False
     
     def get_provider_status(self, provider_name: str) -> Dict[str, Any]:
         """

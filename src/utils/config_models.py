@@ -217,6 +217,29 @@ class TaskPreference:
                 for provider in self.preferred_providers
             ]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization - Claude Generated"""
+        return {
+            "task_type": self.task_type.value,  # Convert enum to string
+            "model_priority": self.model_priority,
+            "chunked_model_priority": self.chunked_model_priority,
+            "allow_fallback": self.allow_fallback,
+            "preferred_providers": self.preferred_providers
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'TaskPreference':
+        """Create from dictionary for JSON deserialization - Claude Generated"""
+        # Convert string back to enum
+        task_type = TaskType(data.get("task_type", "general"))
+        return cls(
+            task_type=task_type,
+            model_priority=data.get("model_priority", []),
+            chunked_model_priority=data.get("chunked_model_priority"),
+            allow_fallback=data.get("allow_fallback", True),
+            preferred_providers=data.get("preferred_providers", [])
+        )
+
 
 @dataclass
 class PipelineStepConfig:
@@ -300,6 +323,19 @@ class UnifiedProvider:
     use_ssl: bool = False
     connection_type: str = 'native_client'
 
+    # Runtime attributes
+    available_models: List[str] = field(default_factory=list)  # Models available from this provider
+
+    @property
+    def type(self) -> str:
+        """Alias for provider_type for backward compatibility - Claude Generated"""
+        return self.provider_type
+
+    @type.setter
+    def type(self, value: str):
+        """Setter for type alias - Claude Generated"""
+        self.provider_type = value
+
     @classmethod
     def from_ollama_provider(cls, provider: OllamaProvider) -> 'UnifiedProvider':
         """Create UnifiedProvider from OllamaProvider - Claude Generated"""
@@ -372,6 +408,7 @@ class UnifiedProviderConfig:
     gemini_api_key: str = ""
     anthropic_api_key: str = ""
     auto_fallback: bool = True
+    prefer_faster_models: bool = False  # Legacy compatibility for smart_provider_selector
 
     # Legacy compatibility properties
     @property
@@ -383,6 +420,14 @@ class UnifiedProviderConfig:
                 if provider and provider.enabled:
                     return provider_name
         return "ollama"  # Default fallback
+
+    @preferred_provider.setter
+    def preferred_provider(self, value: str):
+        """Set preferred provider by updating priority list - Claude Generated"""
+        if value in self.provider_priority:
+            # Move to first position
+            self.provider_priority.remove(value)
+        self.provider_priority.insert(0, value)
 
     def get_enabled_providers(self) -> List[UnifiedProvider]:
         """Get list of enabled providers - Claude Generated"""
@@ -407,6 +452,23 @@ class UnifiedProviderConfig:
             model_priority=[],
             allow_fallback=True
         )
+
+    @classmethod
+    def from_legacy_config(cls, legacy_data: Dict[str, Any]) -> 'UnifiedProviderConfig':
+        """Create UnifiedProviderConfig from legacy configuration - Claude Generated"""
+        config = cls()
+
+        # Migrate basic settings if present
+        if 'auto_fallback' in legacy_data:
+            config.auto_fallback = legacy_data['auto_fallback']
+        if 'prefer_faster_models' in legacy_data:
+            config.prefer_faster_models = legacy_data['prefer_faster_models']
+        if 'provider_priority' in legacy_data:
+            config.provider_priority = legacy_data['provider_priority']
+        if 'disabled_providers' in legacy_data:
+            config.disabled_providers = legacy_data['disabled_providers']
+
+        return config
 
 
 # ============================================================================
@@ -467,6 +529,16 @@ class AlimaConfig:
     @property
     def system(self) -> SystemConfig:
         return self.system_config
+
+    @property
+    def task_preferences(self):
+        """BRIDGE: Legacy task_preferences access via unified_config - Claude Generated"""
+        return self.unified_config.task_preferences
+
+    @task_preferences.setter
+    def task_preferences(self, value):
+        """BRIDGE: Legacy task_preferences setter - Claude Generated"""
+        self.unified_config.task_preferences = value
 
     @property
     def llm(self):  # Import needed from config_manager

@@ -1079,9 +1079,9 @@ class PipelineManager:
                 config_manager = ConfigManager()
                 catalog_config = config_manager.get_catalog_config()
                 
-                catalog_token = getattr(step_config, 'catalog_token', '') or catalog_config.get("catalog_token", "")
-                catalog_search_url = getattr(step_config, 'catalog_search_url', '') or catalog_config.get("catalog_search_url", "")
-                catalog_details_url = getattr(step_config, 'catalog_details_url', '') or catalog_config.get("catalog_details_url", "")
+                catalog_token = getattr(step_config, 'catalog_token', '') or getattr(catalog_config, "catalog_token", "")
+                catalog_search_url = getattr(step_config, 'catalog_search_url', '') or getattr(catalog_config, "catalog_search_url", "")
+                catalog_details_url = getattr(step_config, 'catalog_details_url', '') or getattr(catalog_config, "catalog_details_url", "")
                 
             except Exception as e:
                 self.logger.warning(f"Failed to load catalog config: {e}")

@@ -58,6 +58,27 @@ class ProviderPreferences:
     def get_provider_priority_for_task(self, task_type: str = "general") -> List[str]:
         return [p for p in self.provider_priority if p not in self.disabled_providers]
 
+    def validate_preferences(self, provider_detection_service) -> Dict[str, Any]:
+        """Validate provider preferences - Claude Generated"""
+        return {}  # No validation issues for bridge compatibility
+
+    def auto_cleanup(self, provider_detection_service) -> Dict[str, Any]:
+        """Auto-cleanup provider preferences - Claude Generated"""
+        return {}  # No cleanup needed for bridge compatibility
+
+    def ensure_valid_configuration(self, provider_detection_service):
+        """Ensure valid configuration - Claude Generated"""
+        pass  # Nothing to ensure for bridge compatibility
+
+    @property
+    def prefer_faster_models(self) -> bool:
+        """Get preference for faster models - Claude Generated"""
+        return self._unified_config.prefer_faster_models if hasattr(self._unified_config, 'prefer_faster_models') else False
+
+    def is_provider_enabled(self, provider: str) -> bool:
+        """Check if provider is enabled - Claude Generated"""
+        return provider not in self.disabled_providers
+
 
 class LLMConfig:
     """
@@ -256,6 +277,39 @@ class ProviderDetectionService:
 
         return info
 
+    def detect_provider_capabilities(self, provider: str) -> List[str]:
+        """Detect provider capabilities - Claude Generated"""
+        capabilities = []
+
+        try:
+            # Basic capability detection based on provider type and configuration
+            if provider == "gemini":
+                capabilities.extend(["vision", "large_context", "reasoning"])
+            elif provider == "anthropic":
+                capabilities.extend(["large_context", "reasoning", "analysis"])
+            elif "ollama" in provider.lower() or provider in ["localhost", "llmachine/ollama"]:
+                capabilities.extend(["local", "privacy"])
+
+                # Check available models for additional capabilities
+                models = self.get_available_models(provider)
+                if any("vision" in model.lower() or "llava" in model.lower() for model in models):
+                    capabilities.append("vision")
+                if any("fast" in model.lower() or "flash" in model.lower() for model in models):
+                    capabilities.append("fast")
+            else:
+                # OpenAI-compatible or other providers
+                capabilities.extend(["api_compatible"])
+
+                # Check for fast models
+                models = self.get_available_models(provider)
+                if any("fast" in model.lower() or "turbo" in model.lower() for model in models):
+                    capabilities.append("fast")
+
+        except Exception as e:
+            self.logger.warning(f"Error detecting capabilities for {provider}: {e}")
+
+        return capabilities
+
 
 class ConfigManager:
     """Unified ALIMA configuration manager with centralized provider management - Claude Generated"""
@@ -278,13 +332,13 @@ class ConfigManager:
         elif system_name == "darwin":  # macOS
             config_base = Path("~/Library/Application Support/ALIMA").expanduser()
         else:  # Linux and others
-            config_base = Path("~/.config/gnd-fetcher").expanduser()
+            config_base = Path("~/.config/alima").expanduser()
 
         # Ensure directory exists
         config_base.mkdir(parents=True, exist_ok=True)
 
         # Primary config file path
-        self.config_file = config_base / "alima_config.json"
+        self.config_file = config_base / "config.json"
         self.legacy_config_file = config_base / "config.yaml"
 
         self.logger.info(f"Config path: {self.config_file}")
@@ -328,8 +382,14 @@ class ConfigManager:
             system_config = SystemConfig(**config_data.get("system_config", config_data.get("system", {})))
 
             # Create unified provider config
-            unified_config_data = config_data.get("unified_config", {})
-            unified_config = self._parse_unified_config(unified_config_data)
+            if "unified_config" in config_data:
+                # Already in unified format
+                unified_config_data = config_data["unified_config"]
+                unified_config = self._parse_unified_config(unified_config_data)
+            else:
+                # Parse modern configuration format
+                self.logger.info("📋 Modern configuration detected - parsing provider data")
+                unified_config = self._parse_modern_config(config_data)
 
             # Create main config
             config = AlimaConfig(
@@ -354,16 +414,24 @@ class ConfigManager:
         if not config_data:
             return False
 
-        # Legacy indicators
-        legacy_keys = ['provider_preferences', 'task_preferences', 'llm']
-        has_legacy = any(key in config_data for key in legacy_keys)
+        # Modern format indicators (current standard)
+        modern_keys = ['provider_preferences', 'task_preferences', 'llm']
+        has_modern = any(key in config_data for key in modern_keys)
 
-        # New format indicators
-        new_keys = ['unified_config']
-        has_new = any(key in config_data for key in new_keys)
+        # Unified format indicators (our new target format)
+        unified_keys = ['unified_config']
+        has_unified = any(key in config_data for key in unified_keys)
 
-        # If it has legacy keys but no new keys, it's legacy
-        return has_legacy and not has_new
+        # If it has unified_config, it's already in new format
+        if has_unified:
+            return False
+
+        # If it has modern keys, it's NOT legacy - it's current standard
+        if has_modern:
+            return False
+
+        # Only truly old formats (YAML, old JSON schemas) are legacy
+        return True
 
     def _migrate_legacy_config(self, legacy_data: Dict[str, Any]) -> Dict[str, Any]:
         """Migrate legacy configuration to new format - Claude Generated"""
@@ -446,6 +514,9 @@ class ConfigManager:
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
         unified_config.anthropic_api_key = data.get("anthropic_api_key", "")
 
+        # Auto-create UnifiedProvider objects from API keys - Claude Generated
+        self._create_providers_from_api_keys(unified_config)
+
         # Parse task preferences
         task_prefs_data = data.get("task_preferences", {})
         for task_name, task_data in task_prefs_data.items():
@@ -461,6 +532,104 @@ class ConfigManager:
                 self.logger.warning(f"Error parsing task preference '{task_name}': {e}")
 
         return unified_config
+
+    def _parse_modern_config(self, config_data: Dict[str, Any]) -> UnifiedProviderConfig:
+        """Parse modern configuration format - Claude Generated"""
+        unified_config = UnifiedProviderConfig()
+
+        # Parse provider preferences
+        if 'provider_preferences' in config_data:
+            prefs = config_data['provider_preferences']
+            unified_config.provider_priority = prefs.get('provider_priority', ['ollama', 'gemini', 'anthropic', 'openai'])
+            unified_config.disabled_providers = prefs.get('disabled_providers', [])
+            unified_config.auto_fallback = prefs.get('auto_fallback', True)
+            unified_config.prefer_faster_models = prefs.get('prefer_faster_models', False)
+
+        # Parse LLM section and create providers
+        if 'llm' in config_data:
+            llm_data = config_data['llm']
+
+            # Store legacy API keys
+            unified_config.gemini_api_key = llm_data.get('gemini', '')
+            unified_config.anthropic_api_key = llm_data.get('anthropic', '')
+
+            # Parse OpenAI-compatible providers
+            if 'openai_compatible_providers' in llm_data:
+                for provider_data in llm_data['openai_compatible_providers']:
+                    try:
+                        # Create OpenAICompatibleProvider and convert to UnifiedProvider
+                        from .config_models import OpenAICompatibleProvider, UnifiedProvider
+                        provider = OpenAICompatibleProvider(**provider_data)
+                        unified_provider = UnifiedProvider.from_openai_compatible_provider(provider)
+                        unified_config.providers.append(unified_provider)
+                    except Exception as e:
+                        self.logger.warning(f"Error parsing OpenAI provider {provider_data.get('name', 'unknown')}: {e}")
+
+            # Parse Ollama providers
+            if 'ollama_providers' in llm_data:
+                for provider_data in llm_data['ollama_providers']:
+                    try:
+                        # Create OllamaProvider and convert to UnifiedProvider
+                        from .config_models import OllamaProvider, UnifiedProvider
+                        provider = OllamaProvider(**provider_data)
+                        unified_provider = UnifiedProvider.from_ollama_provider(provider)
+                        unified_config.providers.append(unified_provider)
+                    except Exception as e:
+                        self.logger.warning(f"Error parsing Ollama provider {provider_data.get('name', 'unknown')}: {e}")
+
+        # Auto-create providers from API keys
+        self._create_providers_from_api_keys(unified_config)
+
+        # Parse task preferences
+        if 'task_preferences' in config_data:
+            for task_name, task_data in config_data['task_preferences'].items():
+                try:
+                    from .config_models import TaskType, TaskPreference
+                    # Try to map task_name to TaskType enum
+                    try:
+                        task_type = TaskType(task_data.get('task_type', task_name))
+                    except ValueError:
+                        # Fallback to GENERAL if task_type not recognized
+                        task_type = TaskType.GENERAL
+                        self.logger.warning(f"Unknown task type '{task_data.get('task_type', task_name)}', using GENERAL")
+
+                    unified_config.task_preferences[task_name] = TaskPreference(
+                        task_type=task_type,
+                        model_priority=task_data.get('model_priority', []),
+                        chunked_model_priority=task_data.get('chunked_model_priority'),
+                        allow_fallback=task_data.get('allow_fallback', True)
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Error parsing task preference '{task_name}': {e}")
+
+        self.logger.info(f"✅ Parsed modern config: {len(unified_config.providers)} providers, {len(unified_config.task_preferences)} task preferences")
+        return unified_config
+
+    def _create_providers_from_api_keys(self, unified_config: UnifiedProviderConfig) -> None:
+        """Auto-create UnifiedProvider objects from API keys - Claude Generated"""
+        # Create Gemini provider if API key exists
+        if unified_config.gemini_api_key and not unified_config.get_provider_by_name("gemini"):
+            from .config_models import GeminiProvider, UnifiedProvider
+            gemini_provider = GeminiProvider(
+                api_key=unified_config.gemini_api_key,
+                enabled=True,
+                description="Google Gemini API"
+            )
+            unified_provider = UnifiedProvider.from_gemini_provider(gemini_provider)
+            unified_config.providers.append(unified_provider)
+            self.logger.info("✅ Created Gemini UnifiedProvider from API key")
+
+        # Create Anthropic provider if API key exists
+        if unified_config.anthropic_api_key and not unified_config.get_provider_by_name("anthropic"):
+            from .config_models import AnthropicProvider, UnifiedProvider
+            anthropic_provider = AnthropicProvider(
+                api_key=unified_config.anthropic_api_key,
+                enabled=True,
+                description="Anthropic Claude API"
+            )
+            unified_provider = UnifiedProvider.from_anthropic_provider(anthropic_provider)
+            unified_config.providers.append(unified_provider)
+            self.logger.info("✅ Created Anthropic UnifiedProvider from API key")
 
     def save_config(self, config: Optional[AlimaConfig] = None) -> bool:
         """Save configuration to JSON file - Claude Generated"""
@@ -672,3 +841,22 @@ class ConfigManager:
         """TEMPORARY BRIDGE METHOD - Return LLMConfig wrapper"""
         unified_config = self.get_unified_config()
         return LLMConfig(unified_config)
+
+    def get_config_info(self) -> dict:
+        """Return configuration paths information - Claude Generated"""
+        import platform
+        return {
+            'os': platform.system(),
+            'project_config': str(self.config_file),
+            'user_config': str(self.config_file),
+            'system_config': 'Not used'
+        }
+
+
+# ============================================================================
+# GLOBAL FUNCTIONS - For import compatibility
+# ============================================================================
+
+def get_config_manager() -> ConfigManager:
+    """Get global ConfigManager instance - Claude Generated"""
+    return ConfigManager()

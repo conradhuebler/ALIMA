@@ -793,9 +793,9 @@ EXAMPLES:
         
         # Get catalog configuration - use args if provided, otherwise from config - Claude Generated
         catalog_config = config_manager.get_catalog_config()
-        catalog_token = args.catalog_token or catalog_config.get("catalog_token", "")
-        catalog_search_url = args.catalog_search_url or catalog_config.get("catalog_search_url", "")
-        catalog_details_url = args.catalog_details_url or catalog_config.get("catalog_details_url", "")
+        catalog_token = args.catalog_token or getattr(catalog_config, "catalog_token", "")
+        catalog_search_url = args.catalog_search_url or getattr(catalog_config, "catalog_search_url", "")
+        catalog_details_url = args.catalog_details_url or getattr(catalog_config, "catalog_details_url", "")
 
         def stream_callback(token, step_id):
             print(token, end="", flush=True)
@@ -1038,15 +1038,26 @@ EXAMPLES:
             
             provider_count = 0
             reachable_count = 0
-            
+
+            # Group providers by type for organized display
+            providers_by_type = {
+                'ollama': [],
+                'openai_compatible': [],
+                'gemini': [],
+                'anthropic': []
+            }
+
+            for provider in config.unified_config.providers:
+                providers_by_type[provider.provider_type].append(provider)
+
             # Display Ollama providers
-            if config.llm.ollama_providers:
+            if providers_by_type['ollama']:
                 print("🚀 Ollama Providers:")
-                for provider in config.llm.ollama_providers:
+                for provider in providers_by_type['ollama']:
                     status_icon = "✅" if provider.enabled else "❌"
                     reachable = llm_service.is_provider_reachable(provider.name) if provider.enabled else False
                     reachable_icon = "🌐" if reachable else "📡"
-                    
+
                     print(f"  {status_icon} {provider.name} ({provider.host}:{provider.port})")
                     print(f"    URL: {provider.base_url}")
                     print(f"    Status: {'Enabled' if provider.enabled else 'Disabled'}")
@@ -1056,10 +1067,10 @@ EXAMPLES:
                         print(f"    API Key: {'*' * 8}...")
                     if provider.description:
                         print(f"    Description: {provider.description}")
-                    
+
                     if args.show_config:
                         print(f"    Connection Type: {provider.connection_type}")
-                    
+
                     if args.show_models and provider.enabled and reachable:
                         try:
                             models = llm_service.get_available_models(provider.name)
@@ -1069,20 +1080,20 @@ EXAMPLES:
                                 print("    Models: None available")
                         except Exception as e:
                             print(f"    Models: Error loading ({e})")
-                    
+
                     provider_count += 1
                     if provider.enabled and reachable:
                         reachable_count += 1
                     print()
-            
+
             # Display OpenAI-compatible providers
-            if config.llm.openai_compatible_providers:
+            if providers_by_type['openai_compatible']:
                 print("🤖 OpenAI-Compatible Providers:")
-                for provider in config.llm.openai_compatible_providers:
+                for provider in providers_by_type['openai_compatible']:
                     status_icon = "✅" if provider.enabled else "❌"
                     reachable = llm_service.is_provider_reachable(provider.name) if provider.enabled else False
                     reachable_icon = "🌐" if reachable else "📡"
-                    
+
                     print(f"  {status_icon} {provider.name}")
                     print(f"    URL: {provider.base_url}")
                     print(f"    Status: {'Enabled' if provider.enabled else 'Disabled'}")
@@ -1091,7 +1102,7 @@ EXAMPLES:
                         print(f"    API Key: {'*' * 8}...")
                     if provider.description:
                         print(f"    Description: {provider.description}")
-                    
+
                     if args.show_models and provider.enabled and reachable:
                         try:
                             models = llm_service.get_available_models(provider.name)
@@ -1101,37 +1112,35 @@ EXAMPLES:
                                 print("    Models: None available")
                         except Exception as e:
                             print(f"    Models: Error loading ({e})")
-                    
+
                     provider_count += 1
                     if provider.enabled and reachable:
                         reachable_count += 1
                     print()
-            
+
             # Display API-only providers (Gemini, Anthropic)
-            api_providers = []
-            if config.llm.gemini:
-                api_providers.append(("Gemini", "Google", config.llm.gemini))
-            if config.llm.anthropic:
-                api_providers.append(("Anthropic", "Anthropic", config.llm.anthropic))
-            
+            api_providers = providers_by_type['gemini'] + providers_by_type['anthropic']
             if api_providers:
                 print("🎯 API-Only Providers:")
-                for name, company, api_key in api_providers:
-                    print(f"  ✅ {name} ({company})")
-                    print(f"    API Key: {'*' * 8}...")
-                    print(f"    Status: Configured")
+                for provider in api_providers:
+                    print(f"  ✅ {provider.name} ({provider.provider_type.title()})")
+                    if provider.api_key:
+                        print(f"    API Key: {'*' * 8}...")
+                    print(f"    Status: {'Enabled' if provider.enabled else 'Disabled'}")
                     print(f"    Reachable: Yes (API service) 🌐")
-                    
+                    if provider.description:
+                        print(f"    Description: {provider.description}")
+
                     if args.show_models:
                         try:
-                            models = llm_service.get_available_models(name.lower())
+                            models = llm_service.get_available_models(provider.name)
                             if models:
                                 print(f"    Models ({len(models)}): {', '.join(models[:5])}{'...' if len(models) > 5 else ''}")
                             else:
                                 print("    Models: None available")
                         except Exception as e:
                             print(f"    Models: Error loading ({e})")
-                    
+
                     provider_count += 1
                     reachable_count += 1
                     print()
@@ -1213,37 +1222,44 @@ EXAMPLES:
         print("=== ALIMA Comprehensive Model List ===\n")
         
         try:
-            # Initialize LLM service
-            llm_service = LlmService(lazy_initialization=True)
-            
             # Get configuration for provider details
             from src.utils.config_manager import ConfigManager as CM
             config_manager = CM()
             config = config_manager.load_config()
+
+            # Initialize LLM service with direct initialization
+            llm_service = LlmService(config_manager=config_manager)
             
             total_models = 0
             provider_count = 0
             
             print("🔍 Scanning all providers for available models...\n")
             
-            # Check all configured providers
+            # Check all configured providers using unified configuration
             all_providers = []
-            
-            # Add Ollama providers
-            for provider in config.llm.ollama_providers:
+
+            # Use unified configuration for all providers
+            for provider in config.unified_config.providers:
                 if provider.enabled:
-                    all_providers.append((provider.name, 'Ollama', provider.base_url))
-            
-            # Add OpenAI-compatible providers  
-            for provider in config.llm.openai_compatible_providers:
-                if provider.enabled:
-                    all_providers.append((provider.name, 'OpenAI-Compatible', provider.base_url))
-            
-            # Add API providers
-            if config.llm.gemini:
-                all_providers.append(('gemini', 'Google API', 'https://api.google.com'))
-            if config.llm.anthropic:
-                all_providers.append(('anthropic', 'Anthropic API', 'https://api.anthropic.com'))
+                    # Map provider types to display names
+                    provider_type_display = {
+                        'ollama': 'Ollama',
+                        'openai_compatible': 'OpenAI-Compatible',
+                        'gemini': 'Google API',
+                        'anthropic': 'Anthropic API'
+                    }.get(provider.provider_type, provider.provider_type.title())
+
+                    # Use provider's base_url, fallback to constructed URL for API providers
+                    if provider.base_url:
+                        base_url = provider.base_url
+                    elif provider.provider_type == 'gemini':
+                        base_url = 'https://api.google.com'
+                    elif provider.provider_type == 'anthropic':
+                        base_url = 'https://api.anthropic.com'
+                    else:
+                        base_url = f"https://api.{provider.provider_type}.com"
+
+                    all_providers.append((provider.name, provider_type_display, base_url))
             
             for provider_name, provider_type, base_url in all_providers:
                 print(f"🚀 {provider_name} ({provider_type})")
@@ -1305,9 +1321,9 @@ EXAMPLES:
             config_manager = CM()
             catalog_config = config_manager.get_catalog_config()
             
-            catalog_token = args.catalog_token or catalog_config.get("catalog_token", "")
-            catalog_search_url = args.catalog_search_url or catalog_config.get("catalog_search_url", "")
-            catalog_details_url = args.catalog_details_url or catalog_config.get("catalog_details_url", "")
+            catalog_token = args.catalog_token or getattr(catalog_config, "catalog_token", "")
+            catalog_search_url = args.catalog_search_url or getattr(catalog_config, "catalog_search_url", "")
+            catalog_details_url = args.catalog_details_url or getattr(catalog_config, "catalog_details_url", "")
             
             if not catalog_token:
                 logger.error("❌ No catalog token found in config or arguments. Configure in settings or use --catalog-token TOKEN")

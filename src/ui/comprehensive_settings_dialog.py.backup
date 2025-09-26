@@ -21,8 +21,7 @@ import getpass
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig, ProviderPreferences
-from ..utils.config_models import OpenAICompatibleProvider, OllamaProvider, UnifiedProvider
+from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, LLMConfig, CatalogConfig, SystemConfig, OpenAICompatibleProvider, OllamaProvider, ProviderPreferences
 from ..llm.prompt_service import PromptService
 from .unified_provider_tab import UnifiedProviderTab
 from ..utils.unified_provider_config import UnifiedProviderConfigManager, TaskPreference, TaskType
@@ -255,10 +254,7 @@ class OllamaProviderEditorDialog(QDialog):
             from ..llm.llm_service import LlmService
             temp_service = LlmService(lazy_initialization=True)
             config = temp_service.config_manager.load_config()
-            # Convert to UnifiedProvider and add to unified config
-            unified_provider = UnifiedProvider.from_ollama_provider(provider)
-            config.unified_config.providers = [p for p in config.unified_config.providers if p.provider_type != 'ollama']
-            config.unified_config.providers.append(unified_provider)
+            config.llm.ollama_providers = [provider]
             temp_service.config_manager.config = config
             
             ping_result = temp_service.ping_test_provider(provider.name, timeout=5.0)
@@ -535,10 +531,7 @@ class ProviderEditorDialog(QDialog):
             progress.setLabelText(f"Pinging {test_provider.name} server...")
             temp_service = LlmService(lazy_initialization=True)
             config = temp_service.config_manager.load_config()
-            # Convert to UnifiedProvider and add to unified config
-            unified_provider = UnifiedProvider.from_openai_compatible_provider(test_provider)
-            config.unified_config.providers = [p for p in config.unified_config.providers if p.provider_type != 'openai_compatible']
-            config.unified_config.providers.append(unified_provider)
+            config.llm.openai_compatible_providers = [test_provider]
             temp_service.config_manager.config = config
             
             ping_result = temp_service.ping_test_provider(test_provider.name, timeout=5.0)
@@ -569,9 +562,7 @@ class ProviderEditorDialog(QDialog):
             
             # Create temporary config with test provider
             temp_config = ConfigManager().load_config()
-            # Add test provider to unified config
-            unified_provider = UnifiedProvider.from_openai_compatible_provider(test_provider)
-            temp_config.unified_config.providers.append(unified_provider)
+            temp_config.llm.add_provider(test_provider)
             
             # Save temporarily
             temp_config_manager.save_config(temp_config, "user")
@@ -1830,26 +1821,28 @@ class ComprehensiveSettingsDialog(QDialog):
     def _populate_openai_providers_list(self):
         """Populate the list of OpenAI-compatible providers from config - Gemini Refactor"""
         self.providers_list.clear()
-        # Get OpenAI-compatible providers from unified config
-        providers = [p for p in self.current_config.unified_config.providers if p.provider_type == 'openai_compatible']
-        for provider in providers:
-            status_icon = "✅" if provider.enabled else "❌"
-            item_text = f"{status_icon} {provider.name}"
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, provider.name)  # Store name for retrieval
-            self.providers_list.addItem(item)
+        # Ensure llm config and providers list exist
+        if hasattr(self.current_config, 'llm') and hasattr(self.current_config.llm, 'openai_compatible_providers'):
+            providers = self.current_config.llm.openai_compatible_providers
+            for provider in providers:
+                status_icon = "✅" if provider.enabled else "❌"
+                item_text = f"{status_icon} {provider.name}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, provider.name)  # Store name for retrieval
+                self.providers_list.addItem(item)
 
     def _populate_ollama_providers_list(self):
         """Populate the list of Ollama providers from config - Gemini Refactor"""
         self.ollama_providers_list.clear()
-        # Get Ollama providers from unified config
-        providers = [p for p in self.current_config.unified_config.providers if p.provider_type == 'ollama']
-        for provider in providers:
-            status_icon = "✅" if provider.enabled else "❌"
-            item_text = f"{status_icon} {provider.name} ({provider.host}:{provider.port})"
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, provider.name)  # Store name for retrieval
-            self.ollama_providers_list.addItem(item)
+        # Ensure llm config and providers list exist
+        if hasattr(self.current_config, 'llm') and hasattr(self.current_config.llm, 'ollama_providers'):
+            providers = self.current_config.llm.ollama_providers
+            for provider in providers:
+                status_icon = "✅" if provider.enabled else "❌"
+                item_text = f"{status_icon} {provider.name} ({provider.host}:{provider.port})"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, provider.name)  # Store name for retrieval
+                self.ollama_providers_list.addItem(item)
     
     def _load_current_settings(self):
         """Load current settings into UI elements - Claude Generated"""
@@ -1917,14 +1910,13 @@ class ComprehensiveSettingsDialog(QDialog):
                 new_provider = dialog.get_provider()
                 
                 # Check if provider name already exists
-                if self.current_config.unified_config.get_provider_by_name(new_provider.name):
-                    QMessageBox.warning(self, "Duplicate Name",
+                if self.current_config.llm.get_provider_by_name(new_provider.name):
+                    QMessageBox.warning(self, "Duplicate Name", 
                                       f"A provider with name '{new_provider.name}' already exists!")
                     return
-
-                # Add provider to unified configuration
-                unified_provider = UnifiedProvider.from_openai_compatible_provider(new_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                
+                # Add provider to configuration
+                self.current_config.llm.add_provider(new_provider)
                 # Provider list is now managed by unified provider tab
                 
             except ValueError as e:
@@ -1945,21 +1937,16 @@ class ComprehensiveSettingsDialog(QDialog):
                 updated_provider = dialog.get_provider()
                 
                 # Check if name changed and conflicts with existing
-                if (updated_provider.name != provider.name and
-                    self.current_config.unified_config.get_provider_by_name(updated_provider.name)):
-                    QMessageBox.warning(self, "Duplicate Name",
+                if (updated_provider.name != provider.name and 
+                    self.current_config.llm.get_provider_by_name(updated_provider.name)):
+                    QMessageBox.warning(self, "Duplicate Name", 
                                       f"A provider with name '{updated_provider.name}' already exists!")
                     return
-
-                # Update provider in unified configuration
-                # Remove old provider
-                self.current_config.unified_config.providers = [
-                    p for p in self.current_config.unified_config.providers
-                    if p.name != provider.name
-                ]
-                # Add updated provider
-                unified_provider = UnifiedProvider.from_openai_compatible_provider(updated_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                
+                # Update provider in configuration
+                # Remove old and add updated
+                self.current_config.llm.remove_provider(provider.name)
+                self.current_config.llm.add_provider(updated_provider)
                 # Provider list is now managed by unified provider tab
                 
             except ValueError as e:
@@ -1984,11 +1971,7 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Remove provider from unified configuration
-            self.current_config.unified_config.providers = [
-                p for p in self.current_config.unified_config.providers
-                if p.name != provider.name
-            ]
+            self.current_config.llm.remove_provider(provider.name)
             self._load_providers_list()
     
     def _test_openai_connection(self):
@@ -2311,13 +2294,30 @@ class ComprehensiveSettingsDialog(QDialog):
             auto_create_tables=self.auto_create_tables.isChecked()
         )
         
-        # Unified provider configuration - use current configuration as-is
-        # Provider settings are managed through the unified provider system
-        # No need to reconstruct LLMConfig - unified_config is already properly managed
+        # LLM configuration with flexible Ollama - Claude Generated
+        # OllamaConfig no longer needed - using OllamaProvider instead - Claude Generated
         
-        # 🔍 DEBUG: Log unified provider preferred models - Claude Generated
-        for provider in config.unified_config.providers:
-            self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_UNIFIED: {provider.name} ({provider.provider_type}).preferred_model='{provider.preferred_model}'")
+        # CRITICAL: Reload current_config to get latest model preferences - Claude Generated
+        fresh_config = self.config_manager.load_config(force_reload=True)
+        
+        # Use fresh configuration - provider settings are managed through the unified provider system
+        config.llm = LLMConfig(
+            gemini=fresh_config.llm.gemini,  # Preserve existing API keys
+            gemini_preferred_model=fresh_config.llm.gemini_preferred_model,  # Preserve preferred models - Claude Generated
+            anthropic=fresh_config.llm.anthropic,  # Preserve existing API keys
+            anthropic_preferred_model=fresh_config.llm.anthropic_preferred_model,  # Preserve preferred models - Claude Generated
+            openai_compatible_providers=fresh_config.llm.openai_compatible_providers,  # Fresh provider data - Claude Generated
+            ollama_providers=fresh_config.llm.ollama_providers  # Fresh provider data - Claude Generated
+        )
+        
+        # 🔍 DEBUG: Log preserved preferred models - Claude Generated
+        self.logger.critical(f"🔍 GET_CONFIG_FROM_UI: gemini_preferred='{config.llm.gemini_preferred_model}', anthropic_preferred='{config.llm.anthropic_preferred_model}'")
+        
+        # 🔍 DEBUG: Log dynamic provider preferred models - Claude Generated
+        for provider in config.llm.openai_compatible_providers:
+            self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_OPENAI: {provider.name}.preferred_model='{provider.preferred_model}'")
+        for provider in config.llm.ollama_providers:
+            self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_OLLAMA: {provider.name}.preferred_model='{provider.preferred_model}'")
         
         # Catalog configuration
         config.catalog = CatalogConfig(
@@ -2391,14 +2391,13 @@ class ComprehensiveSettingsDialog(QDialog):
                 new_provider = dialog.get_provider()
                 
                 # Check if provider name already exists
-                if self.current_config.unified_config.get_provider_by_name(new_provider.name):
-                    QMessageBox.warning(self, "Duplicate Name",
-                                      f"A provider with name '{new_provider.name}' already exists!")
+                if self.current_config.llm.get_ollama_provider_by_name(new_provider.name):
+                    QMessageBox.warning(self, "Duplicate Name", 
+                                      f"An Ollama provider with name '{new_provider.name}' already exists!")
                     return
-
-                # Add provider to unified configuration
-                unified_provider = UnifiedProvider.from_ollama_provider(new_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                
+                # Add provider to configuration
+                self.current_config.llm.add_ollama_provider(new_provider)
                 self._load_ollama_providers_list()
                 
             except ValueError as e:
@@ -2419,21 +2418,15 @@ class ComprehensiveSettingsDialog(QDialog):
                 updated_provider = dialog.get_provider()
                 
                 # Check if name changed and conflicts with existing
-                if (updated_provider.name != provider.name and
-                    self.current_config.unified_config.get_provider_by_name(updated_provider.name)):
-                    QMessageBox.warning(self, "Duplicate Name",
-                                      f"A provider with name '{updated_provider.name}' already exists!")
+                if (updated_provider.name != provider.name and 
+                    self.current_config.llm.get_ollama_provider_by_name(updated_provider.name)):
+                    QMessageBox.warning(self, "Duplicate Name", 
+                                      f"An Ollama provider with name '{updated_provider.name}' already exists!")
                     return
-
-                # Update provider in unified configuration
-                # Remove old provider
-                self.current_config.unified_config.providers = [
-                    p for p in self.current_config.unified_config.providers
-                    if p.name != provider.name
-                ]
-                # Add updated provider
-                unified_provider = UnifiedProvider.from_ollama_provider(updated_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                
+                # Update provider in configuration
+                self.current_config.llm.remove_ollama_provider(provider.name)
+                self.current_config.llm.add_ollama_provider(updated_provider)
                 self._load_ollama_providers_list()
                 
             except ValueError as e:
@@ -2459,23 +2452,14 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            # Remove provider from unified configuration
-            self.current_config.unified_config.providers = [
-                p for p in self.current_config.unified_config.providers
-                if p.name != provider.name
-            ]
+            self.current_config.llm.remove_ollama_provider(provider.name)
             self._load_ollama_providers_list()
     
     def _load_ollama_providers_list(self):
         """Load Ollama providers into the list widget - Claude Generated"""
         self.ollama_providers_list.clear()
-        # Get Ollama providers from unified config
-        ollama_providers = [p for p in self.current_config.unified_config.providers if p.provider_type == 'ollama']
-        for provider in ollama_providers:
-            # Create display name for unified provider
-            status = "🔐" if provider.api_key else "🔓"
-            ssl_indicator = "🔒" if provider.use_ssl else ""
-            item_text = f"{status}{ssl_indicator} {provider.name} ({provider.host}:{provider.port})"
+        for provider in self.current_config.llm.ollama_providers:
+            item_text = provider.display_name
             if provider.description:
                 item_text += f" - {provider.description}"
             

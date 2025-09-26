@@ -326,11 +326,11 @@ class SmartProviderSelector:
                 is_chunked = task_type == TaskType.CHUNKED or task_name.endswith('_chunked')
 
                 # Get appropriate model priority list
-                if is_chunked and 'chunked_model_priority' in task_data:
-                    model_priorities = task_data['chunked_model_priority']
+                if is_chunked and hasattr(task_data, 'chunked_model_priority') and task_data.chunked_model_priority:
+                    model_priorities = task_data.chunked_model_priority
                     self.logger.info(f"Using chunked model priority for task {task_name}")
                 else:
-                    model_priorities = task_data.get('model_priority', [])
+                    model_priorities = getattr(task_data, 'model_priority', [])
                     self.logger.info(f"Using standard model priority for task {task_name}")
                 
                 # Find first available model from task priorities that matches this provider
@@ -600,14 +600,20 @@ class SmartProviderSelector:
             self._availability_cache[provider] = (False, time.time())
             return False
         
-        # Use provider detection service for availability check
+        # Use provider detection service for availability check with debug logging - Claude Generated
         available_providers = self.provider_detection_service.get_available_providers()
         is_available = provider in available_providers
-        
+
+        self.logger.info(f"🔍 AVAILABILITY_CHECK: provider='{provider}', available_providers={available_providers}")
+        self.logger.info(f"🔍 AVAILABILITY_RESULT: provider='{provider}' in available_providers: {is_available}")
+
         # If available in config, also check reachability
         if is_available:
             is_reachable = self.provider_detection_service.is_provider_reachable(provider)
+            self.logger.info(f"🔍 REACHABILITY_CHECK: provider='{provider}' reachable: {is_reachable}")
             is_available = is_reachable
+        else:
+            self.logger.warning(f"🔍 PROVIDER_NOT_AVAILABLE: '{provider}' not found in available providers")
         
         self._availability_cache[provider] = (is_available, time.time())
         return is_available

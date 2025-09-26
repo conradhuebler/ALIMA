@@ -115,7 +115,8 @@ class PipelineStepExecutor:
                     self.logger.warning(f"Config fallback failed: {e}")
 
         # 4. System defaults (last resort only)
-        fallback_provider = provider or "ollama"
+        # Use first available Ollama provider instead of non-existent "ollama" - Claude Generated
+        fallback_provider = provider or self._get_first_available_ollama_provider()
 
         # Task-specific model defaults as absolute last resort
         task_defaults = {
@@ -129,6 +130,30 @@ class PipelineStepExecutor:
             self.logger.warning(f"Using system fallback defaults: {fallback_provider}/{fallback_model} (no SmartProvider or Config available)")
 
         return fallback_provider, fallback_model
+
+    def _get_first_available_ollama_provider(self) -> str:
+        """Get the first available Ollama provider name from config - Claude Generated"""
+        try:
+            if self.smart_selector and hasattr(self.smart_selector, 'config'):
+                config = self.smart_selector.config
+                # Get unified config and find first enabled Ollama provider
+                if hasattr(config, 'unified_config') and config.unified_config:
+                    for provider in config.unified_config.providers:
+                        if provider.provider_type == "ollama" and provider.enabled:
+                            return provider.name
+                # Fallback to legacy config if available
+                elif hasattr(config, 'llm'):
+                    enabled_ollama = config.llm.get_enabled_ollama_providers()
+                    if enabled_ollama:
+                        return enabled_ollama[0].name
+
+            # Last resort: hardcoded fallback to localhost
+            return "localhost"
+
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"Failed to get Ollama provider: {e}")
+            return "localhost"
 
     def _create_stream_callback_adapter(self, stream_callback: Optional[callable], step_id: str, debug: bool = False) -> Optional[callable]:
         """Centralized stream callback adapter creation - Claude Generated"""
