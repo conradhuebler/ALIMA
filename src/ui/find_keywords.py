@@ -31,7 +31,7 @@ from pathlib import Path
 from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
 from ..core.search_cli import SearchCLI
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
-from ..utils.unified_provider_config import PipelineStepConfig, PipelineMode
+from ..utils.config_models import PipelineStepConfig, PipelineMode
 from .workers import PipelineWorker
 
 
@@ -197,10 +197,14 @@ class SearchTab(QWidget):
 
         # Create PipelineManager instance for search step execution - Claude Generated
         if self.alima_manager:
+            # Extract config_manager for SmartProviderSelector integration - Claude Generated
+            config_manager = getattr(self.alima_manager, 'config_manager', None)
+
             self.pipeline_manager = PipelineManager(
                 alima_manager=self.alima_manager,
                 cache_manager=self.cache_manager,
-                logger=self.logger
+                logger=self.logger,
+                config_manager=config_manager
             )
         else:
             self.pipeline_manager = None

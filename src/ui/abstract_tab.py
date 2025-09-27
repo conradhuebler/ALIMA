@@ -63,7 +63,7 @@ from ..core.alima_manager import AlimaManager
 from ..core.data_models import AbstractData, AnalysisResult
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
-from ..utils.unified_provider_config import PipelineStepConfig, PipelineMode
+from ..utils.config_models import PipelineStepConfig, PipelineMode
 from .workers import PipelineWorker
 
 from pathlib import Path
@@ -115,11 +115,15 @@ class AbstractTab(QWidget):
         )  # Access prompt_service via alima_manager
         self.main_window = main_window
 
+        # Extract config_manager for SmartProviderSelector integration - Claude Generated
+        config_manager = getattr(self.alima_manager, 'config_manager', None) or getattr(llm_service, 'config_manager', None)
+
         # Create PipelineManager instance for manual step execution - Claude Generated
         self.pipeline_manager = PipelineManager(
             alima_manager=self.alima_manager,
             cache_manager=self.cache_manager,
-            logger=logging.getLogger(__name__)
+            logger=logging.getLogger(__name__),
+            config_manager=config_manager
         )
 
         self.need_keywords = False

@@ -13,7 +13,6 @@ from .processing_utils import (
     extract_gnd_system_from_response,
     match_keywords_against_text,
 )
-from ..utils.unified_provider_config import UnifiedProviderConfigManager
 
 
 class AlimaManager:
@@ -445,8 +444,8 @@ class AlimaManager:
         """
         self.logger.info(f"Executing task: {task_name}")
         
-        # Create UnifiedProviderConfigManager from the instance's config_manager
-        unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
+        # Use config_manager directly instead of bridge
+        # unified_config_manager = UnifiedProviderConfigManager(self.config_manager) # Removed bridge
 
         # Handle chunked tasks: keywords_chunked -> keywords base task
         base_task_name = task_name
@@ -457,34 +456,53 @@ class AlimaManager:
         
         # Get model priority for task
         model_priority = []
-        if unified_config_manager:
-            try:
-                unified_config = unified_config_manager.get_unified_config()
-                model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked)
-                self.logger.info(f"Using task-specific model priority: {model_priority}")
-            except Exception as e:
-                self.logger.warning(f"Error getting task preferences: {e}, using fallback")
+        try:
+            unified_config = self.config_manager.get_unified_config()
+            model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked)
+            self.logger.info(f"Using task-specific model priority: {model_priority}")
+        except Exception as e:
+            self.logger.warning(f"Error getting task preferences: {e}, using fallback")
         
         # Fallback to available providers if no specific priority configured
         if not model_priority:
             try:
                 # Use detection service to get real available providers
-                if unified_config_manager:
-                    detection_service = unified_config_manager.config_manager.get_provider_detection_service()
-                    available_providers = detection_service.get_available_providers()
-                    
-                    # Create fallback priority from available providers
-                    for provider in available_providers:
-                        model_priority.append({"provider_name": provider, "model_name": "default"})
+                detection_service = self.config_manager.get_provider_detection_service()
+                available_providers = detection_service.get_available_providers()
+
+                # Create fallback priority from available providers
+                for provider in available_providers:
+                    model_priority.append({"provider_name": provider, "model_name": "default"})
                 
                 # Final fallback if detection fails
                 if not model_priority:
-                    model_priority = [{"provider_name": "ollama", "model_name": "default"}]
-                    
+                    # Try to get first available ollama provider from config
+                    try:
+                        unified_config = self.config_manager.get_unified_config()
+                        first_ollama = None
+                        for provider in unified_config.providers:
+                            if provider.provider_type == "ollama" and provider.enabled:
+                                first_ollama = provider.name
+                                break
+                        fallback_provider = first_ollama or "localhost"
+                        model_priority = [{"provider_name": fallback_provider, "model_name": "default"}]
+                    except:
+                        model_priority = [{"provider_name": "localhost", "model_name": "default"}]
+
             except Exception as e:
                 self.logger.warning(f"Error getting available providers for fallback: {e}")
-                # Emergency fallback
-                model_priority = [{"provider_name": "ollama", "model_name": "default"}]
+                # Emergency fallback - use first available ollama provider
+                try:
+                    unified_config = self.config_manager.get_unified_config()
+                    first_ollama = None
+                    for provider in unified_config.providers:
+                        if provider.provider_type == "ollama" and provider.enabled:
+                            first_ollama = provider.name
+                            break
+                    fallback_provider = first_ollama or "localhost"
+                    model_priority = [{"provider_name": fallback_provider, "model_name": "default"}]
+                except:
+                    model_priority = [{"provider_name": "localhost", "model_name": "default"}]
         
         # Try each model in priority order
         last_error = None

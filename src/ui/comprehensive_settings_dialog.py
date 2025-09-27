@@ -21,11 +21,11 @@ import getpass
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig, ProviderPreferences
+from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig
 from ..utils.config_models import OpenAICompatibleProvider, OllamaProvider, UnifiedProvider
 from ..llm.prompt_service import PromptService
 from .unified_provider_tab import UnifiedProviderTab
-from ..utils.unified_provider_config import UnifiedProviderConfigManager, TaskPreference, TaskType
+from ..utils.config_models import TaskPreference, TaskType
 
 
 class OllamaConnectionTestWorker(QThread):
@@ -1280,7 +1280,7 @@ class ComprehensiveSettingsDialog(QDialog):
         try:
             # Get provider detection service and preferences
             detection_service = self.config_manager.get_provider_detection_service()
-            preferences = self.config_manager.get_provider_preferences()
+            unified_config = self.config_manager.get_unified_config()
             
             # Populate provider status table
             self._populate_provider_status_table()
@@ -1343,17 +1343,17 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate priority settings - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            preferences = self.config_manager.get_provider_preferences()
+            unified_config = self.config_manager.get_unified_config()
             available_providers = detection_service.get_available_providers()
             
             # Populate preferred provider combo
             self.preferred_provider_combo.clear()
             self.preferred_provider_combo.addItems(available_providers)
-            self.preferred_provider_combo.setCurrentText(preferences.preferred_provider)
+            self.preferred_provider_combo.setCurrentText(unified_config.preferred_provider)
             
             # Populate priority list
             self.priority_list.clear()
-            for provider in preferences.provider_priority:
+            for provider in unified_config.provider_priority:
                 if provider in available_providers:
                     self.priority_list.addItem(provider)
             
@@ -1366,13 +1366,14 @@ class ComprehensiveSettingsDialog(QDialog):
             # Add checkboxes for each available provider
             for provider in available_providers:
                 checkbox = QCheckBox(provider)
-                checkbox.setChecked(provider in preferences.disabled_providers)
+                checkbox.setChecked(provider in unified_config.disabled_providers)
                 self.disabled_checkboxes[provider] = checkbox
                 self.disabled_layout.addWidget(checkbox)
             
             # Fallback settings
-            self.auto_fallback_checkbox.setChecked(preferences.auto_fallback)
-            self.fallback_timeout_spin.setValue(preferences.fallback_timeout)
+            self.auto_fallback_checkbox.setChecked(unified_config.auto_fallback)
+            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
+            # self.fallback_timeout_spin.setValue(unified_config.fallback_timeout)
             
         except Exception as e:
             self.logger.error(f"Error populating priority settings: {e}")
@@ -1381,7 +1382,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate task overrides - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            preferences = self.config_manager.get_provider_preferences()
+            unified_config = self.config_manager.get_unified_config()
             available_providers = detection_service.get_available_providers()
             
             # Common items for all combos
@@ -1390,20 +1391,23 @@ class ComprehensiveSettingsDialog(QDialog):
             # Vision provider combo
             self.vision_provider_combo.clear()
             self.vision_provider_combo.addItems(combo_items)
-            if preferences.vision_provider:
-                self.vision_provider_combo.setCurrentText(preferences.vision_provider)
+            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+            # if unified_config.vision_provider:
+            #     self.vision_provider_combo.setCurrentText(unified_config.vision_provider)
             
             # Text provider combo
             self.text_provider_combo.clear()
             self.text_provider_combo.addItems(combo_items)
-            if preferences.text_provider:
-                self.text_provider_combo.setCurrentText(preferences.text_provider)
+            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+            # if unified_config.text_provider:
+            #     self.text_provider_combo.setCurrentText(unified_config.text_provider)
             
             # Classification provider combo
             self.classification_provider_combo.clear()
             self.classification_provider_combo.addItems(combo_items)
-            if preferences.classification_provider:
-                self.classification_provider_combo.setCurrentText(preferences.classification_provider)
+            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+            # if unified_config.classification_provider:
+            #     self.classification_provider_combo.setCurrentText(unified_config.classification_provider)
             
             # Update capabilities reference
             self._update_capabilities_reference()
@@ -1415,7 +1419,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate model preferences table - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            preferences = self.config_manager.get_provider_preferences()
+            unified_config = self.config_manager.get_unified_config()
             available_providers = detection_service.get_available_providers()
             
             self.models_table.setRowCount(len(available_providers))
@@ -1427,7 +1431,8 @@ class ComprehensiveSettingsDialog(QDialog):
                 self.models_table.setItem(row, 0, provider_item)
                 
                 # Current preferred model
-                current_model = preferences.preferred_models.get(provider, "")
+                # TODO: Implement preferred_models in UnifiedProviderConfig
+                current_model = ""  # Disabled until proper implementation
                 current_item = QLineEdit(current_model)
                 self.models_table.setCellWidget(row, 1, current_item)
                 
@@ -1450,7 +1455,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 self.models_table.setCellWidget(row, 2, models_combo)
             
             # Performance settings
-            self.prefer_faster_checkbox.setChecked(preferences.prefer_faster_models)
+            self.prefer_faster_checkbox.setChecked(unified_config.prefer_faster_models)
             
         except Exception as e:
             self.logger.error(f"Error populating model preferences: {e}")
@@ -1486,39 +1491,40 @@ class ComprehensiveSettingsDialog(QDialog):
                 pass
             
             # Auto-validate and cleanup current preferences - Claude Generated
-            preferences = self.config_manager.get_provider_preferences()
-            validation_issues = preferences.validate_preferences(detection_service)
-            
-            if any(validation_issues.values()):
-                self.logger.info("Auto-cleanup during refresh - found preference validation issues")
-                cleanup_report = preferences.auto_cleanup(detection_service)
-                
-                cleanup_actions = []
-                for category, actions in cleanup_report.items():
-                    if actions:
-                        if isinstance(actions, list):
-                            cleanup_actions.extend(actions)
-                        else:
-                            cleanup_actions.append(actions)
-                
-                if cleanup_actions:
-                    # Save cleaned preferences
-                    self.config_manager.update_provider_preferences(preferences)
-                    
-                    # Show summary of auto-cleanup
-                    cleanup_summary = f"🔧 Auto-cleanup performed ({len(cleanup_actions)} changes):\n\n"
-                    for action in cleanup_actions[:5]:  # Show first 5 actions
-                        cleanup_summary += f"  • {action}\n"
-                    
-                    if len(cleanup_actions) > 5:
-                        cleanup_summary += f"  ... and {len(cleanup_actions) - 5} more changes"
-                    
-                    QMessageBox.information(self, "Refresh Complete", 
-                                          f"Provider status refreshed successfully.\n\n{cleanup_summary}")
-                else:
-                    QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
-            else:
-                QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
+            unified_config = self.config_manager.get_unified_config()
+            # TODO: Implement validation in UnifiedProviderConfig if needed
+            # validation_issues = unified_config.validate_preferences(detection_service)
+            #
+            # if any(validation_issues.values()):
+            #     self.logger.info("Auto-cleanup during refresh - found preference validation issues")
+            #     cleanup_report = unified_config.auto_cleanup(detection_service)
+            #
+            #     cleanup_actions = []
+            #     for category, actions in cleanup_report.items():
+            #         if actions:
+            #             if isinstance(actions, list):
+            #                 cleanup_actions.extend(actions)
+            #             else:
+            #                 cleanup_actions.append(actions)
+            #
+            #     if cleanup_actions:
+            #         # Save cleaned preferences
+            #         self.config_manager.update_provider_preferences(preferences)
+            #
+            #         # Show summary of auto-cleanup
+            #         cleanup_summary = f"🔧 Auto-cleanup performed ({len(cleanup_actions)} changes):\n\n"
+            #         for action in cleanup_actions[:5]:  # Show first 5 actions
+            #             cleanup_summary += f"  • {action}\n"
+            #
+            #         if len(cleanup_actions) > 5:
+            #             cleanup_summary += f"  ... and {len(cleanup_actions) - 5} more changes"
+            #
+            #         QMessageBox.information(self, "Refresh Complete",
+            #                               f"Provider status refreshed successfully.\n\n{cleanup_summary}")
+            #     else:
+            #         QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
+            # else:
+            QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
             
             # Reload all data
             self._load_provider_preferences()
@@ -1595,36 +1601,39 @@ class ComprehensiveSettingsDialog(QDialog):
     def _save_provider_preferences_from_ui(self):
         """Save provider preferences from current UI state - Claude Generated"""
         try:
-            preferences = self.config_manager.get_provider_preferences()
+            unified_config = self.config_manager.get_unified_config()
             
             # General settings
-            preferences.preferred_provider = self.preferred_provider_combo.currentText()
-            
+            unified_config.preferred_provider = self.preferred_provider_combo.currentText()
+
             # Priority list
-            preferences.provider_priority = []
+            unified_config.provider_priority = []
             for i in range(self.priority_list.count()):
                 item = self.priority_list.item(i)
-                preferences.provider_priority.append(item.text())
-            
+                unified_config.provider_priority.append(item.text())
+
             # Disabled providers
-            preferences.disabled_providers = []
+            unified_config.disabled_providers = []
             for provider, checkbox in self.disabled_checkboxes.items():
                 if checkbox.isChecked():
-                    preferences.disabled_providers.append(provider)
-            
+                    unified_config.disabled_providers.append(provider)
+
             # Fallback settings
-            preferences.auto_fallback = self.auto_fallback_checkbox.isChecked()
-            preferences.fallback_timeout = self.fallback_timeout_spin.value()
+            unified_config.auto_fallback = self.auto_fallback_checkbox.isChecked()
+            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
+            # unified_config.fallback_timeout = self.fallback_timeout_spin.value()
             
             # Task overrides
             vision_text = self.vision_provider_combo.currentText()
-            preferences.vision_provider = None if vision_text == "(use general preference)" else vision_text
-            
-            text_text = self.text_provider_combo.currentText()
-            preferences.text_provider = None if text_text == "(use general preference)" else text_text
-            
-            classification_text = self.classification_provider_combo.currentText()
-            preferences.classification_provider = None if classification_text == "(use general preference)" else classification_text
+            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+            # vision_text = self.vision_provider_combo.currentText()
+            # unified_config.vision_provider = None if vision_text == "(use general preference)" else vision_text
+            #
+            # text_text = self.text_provider_combo.currentText()
+            # unified_config.text_provider = None if text_text == "(use general preference)" else text_text
+            #
+            # classification_text = self.classification_provider_combo.currentText()
+            # unified_config.classification_provider = None if classification_text == "(use general preference)" else classification_text
             
             # Model preferences
             for row in range(self.models_table.rowCount()):
@@ -1634,79 +1643,82 @@ class ComprehensiveSettingsDialog(QDialog):
                     model_widget = self.models_table.cellWidget(row, 1)
                     if model_widget and isinstance(model_widget, QLineEdit):
                         model_text = model_widget.text().strip()
-                        if model_text:
-                            preferences.preferred_models[provider] = model_text
-                        elif provider in preferences.preferred_models:
-                            del preferences.preferred_models[provider]
+                        # TODO: Implement preferred_models in UnifiedProviderConfig
+                        pass  # Disabled until proper implementation
             
             # Performance settings
-            preferences.prefer_faster_models = self.prefer_faster_checkbox.isChecked()
+            unified_config.prefer_faster_models = self.prefer_faster_checkbox.isChecked()
             
-            # Validate and auto-cleanup before saving - Claude Generated
-            detection_service = self.config_manager.get_provider_detection_service()
-            validation_issues = preferences.validate_preferences(detection_service)
+            # TODO: Implement validation in UnifiedProviderConfig if needed
+            # detection_service = self.config_manager.get_provider_detection_service()
+            # validation_issues = unified_config.validate_preferences(detection_service)
             
-            if any(validation_issues.values()):
+            # TODO: Re-implement validation block when UnifiedProviderConfig supports validation
+            if False:  # Disabled validation block
+                pass
+                # DISABLED CODE BLOCK:
                 # Show validation report to user
-                validation_message = "⚠️ Provider preference validation issues found:\n\n"
-                
-                for category, issues in validation_issues.items():
-                    if issues:
-                        category_name = category.replace('_', ' ').title()
-                        validation_message += f"**{category_name}:**\n"
-                        for issue in issues:
-                            validation_message += f"  • {issue}\n"
-                        validation_message += "\n"
-                
-                validation_message += "🔧 Auto-cleanup will be performed to fix these issues."
-                
-                # Ask user for confirmation
-                reply = QMessageBox.question(
-                    self,
-                    "Validation Issues Found",
-                    validation_message,
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes
-                )
-                
-                if reply == QMessageBox.StandardButton.Yes:
-                    # Perform auto-cleanup
-                    cleanup_report = preferences.auto_cleanup(detection_service)
-                    
-                    # Show cleanup report
-                    if any(cleanup_report.values()):
-                        cleanup_message = "✅ Provider preferences have been cleaned up:\n\n"
-                        
-                        for category, actions in cleanup_report.items():
-                            if actions:
-                                category_name = category.replace('_', ' ').title()
-                                
-                                if isinstance(actions, list) and actions:
-                                    cleanup_message += f"**{category_name}:**\n"
-                                    for action in actions:
-                                        cleanup_message += f"  • {action}\n"
-                                    cleanup_message += "\n"
-                                elif isinstance(actions, str):
-                                    cleanup_message += f"**{category_name}:** {actions}\n\n"
-                        
-                        QMessageBox.information(self, "Cleanup Complete", cleanup_message)
-                        
-                        # Reload UI to reflect cleaned preferences
-                        self._load_provider_preferences()
-                else:
-                    # User declined cleanup, warn about potential issues
-                    QMessageBox.warning(
-                        self,
-                        "Configuration May Be Invalid",
-                        "⚠️ Your provider preferences may contain invalid settings that could cause errors during LLM operations.\n\n"
-                        "It's recommended to fix these issues to ensure reliable AI functionality."
-                    )
+                # validation_message = "⚠️ Provider preference validation issues found:\n\n"
+                #
+                # for category, issues in validation_issues.items():
+                #     if issues:
+                #         category_name = category.replace('_', ' ').title()
+                #         validation_message += f"**{category_name}:**\n"
+                #         for issue in issues:
+                #             validation_message += f"  • {issue}\n"
+                #         validation_message += "\n"
+                #
+                # validation_message += "🔧 Auto-cleanup will be performed to fix these issues."
+                #
+                # # Ask user for confirmation
+                # reply = QMessageBox.question(
+                #     self,
+                #     "Validation Issues Found",
+                #     validation_message,
+                #     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                #     QMessageBox.StandardButton.Yes
+                # )
+                #
+                # if reply == QMessageBox.StandardButton.Yes:
+                #     # Perform auto-cleanup
+                #     # TODO: Implement cleanup in UnifiedProviderConfig
+                #     # cleanup_report = unified_config.auto_cleanup(detection_service)
+                #     cleanup_report = {}
+                #
+                #     # Show cleanup report
+                #     if any(cleanup_report.values()):
+                #         cleanup_message = "✅ Provider preferences have been cleaned up:\n\n"
+                #
+                #         for category, actions in cleanup_report.items():
+                #             if actions:
+                #                 category_name = category.replace('_', ' ').title()
+                #
+                #                 if isinstance(actions, list) and actions:
+                #                     cleanup_message += f"**{category_name}:**\n"
+                #                     for action in actions:
+                #                         cleanup_message += f"  • {action}\n"
+                #                     cleanup_message += "\n"
+                #                 elif isinstance(actions, str):
+                #                     cleanup_message += f"**{category_name}:** {actions}\n\n"
+                #
+                #         QMessageBox.information(self, "Cleanup Complete", cleanup_message)
+                #
+                #         # Reload UI to reflect cleaned preferences
+                #         self._load_provider_preferences()
+                # else:
+                #     # User declined cleanup, warn about potential issues
+                #     QMessageBox.warning(
+                #         self,
+                #         "Configuration May Be Invalid",
+                #         "⚠️ Your provider preferences may contain invalid settings that could cause errors during LLM operations.\n\n"
+                #         "It's recommended to fix these issues to ensure reliable AI functionality."
+                #     )
             
-            # Ensure valid configuration
-            preferences.ensure_valid_configuration(detection_service)
-            
-            # Save to config
-            self.config_manager.update_provider_preferences(preferences)
+            # TODO: Implement ensure_valid_configuration in UnifiedProviderConfig if needed
+            # unified_config.ensure_valid_configuration(detection_service)
+
+            # Save to config directly
+            self.config_manager.save_config()
             
         except Exception as e:
             self.logger.error(f"Error saving provider preferences from UI: {e}")
@@ -1899,7 +1911,7 @@ class ComprehensiveSettingsDialog(QDialog):
     def _load_providers_list(self):
         """Load OpenAI-compatible providers into the list widget - Claude Generated"""
         self.providers_list.clear()
-        for provider in self.current_config.llm.openai_compatible_providers:
+        for provider in self.current_config.unified_config.openai_compatible_providers:
             status = "✅" if provider.enabled else "❌"
             item_text = f"{status} {provider.name} - {provider.base_url}"
             if provider.description:
@@ -2336,7 +2348,7 @@ class ComprehensiveSettingsDialog(QDialog):
         )
 
         # Preserve task preferences from fresh config - Claude Generated
-        config.task_preferences = fresh_config.task_preferences
+        config.unified_config.task_preferences = fresh_config.unified_config.task_preferences
 
         return config
     
@@ -2792,10 +2804,9 @@ class ComprehensiveSettingsDialog(QDialog):
         self.chunked_model_priority_list.clear()
         
         try:
-            # Get unified config manager
-            unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
-            unified_config = unified_config_manager.get_unified_config()
-            
+            # Get unified config directly
+            unified_config = self.config_manager.get_unified_config()
+
             # Get model priority for this task
             model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked=False)
             
@@ -2907,12 +2918,11 @@ class ComprehensiveSettingsDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 # Remove task from unified config (will fall back to defaults)
-                unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
-                unified_config = unified_config_manager.get_unified_config()
-                
+                unified_config = self.config_manager.get_unified_config()
+
                 if task_name in unified_config.task_preferences:
                     del unified_config.task_preferences[task_name]
-                    unified_config_manager.save_unified_config(unified_config)
+                    self.config_manager.save_config()
                 
                 # Reload priorities
                 self._load_task_model_priorities(task_name)
@@ -2986,9 +2996,8 @@ class ModelSelectionDialog(QDialog):
             providers = ["ollama", "gemini", "openai", "anthropic"]
             
             # Add configured providers from unified config
-            unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
-            unified_config = unified_config_manager.get_unified_config()
-            
+            unified_config = self.config_manager.get_unified_config()
+
             for provider in unified_config.get_enabled_providers():
                 if provider.name not in providers:
                     providers.append(provider.name)
@@ -3044,9 +3053,8 @@ class ModelSelectionDialog(QDialog):
             return  # Task preferences tab not initialized
         
         try:
-            # Get unified config manager
-            unified_config_manager = UnifiedProviderConfigManager(self.config_manager)
-            unified_config = unified_config_manager.get_unified_config()
+            # Get unified config directly
+            unified_config = self.config_manager.get_unified_config()
             
             # Iterate through all tasks and update their preferences
             for i in range(self.tasks_list.count()):
@@ -3079,7 +3087,7 @@ class ModelSelectionDialog(QDialog):
                 # and we save the current state of the selected task
                 
             # Save unified config
-            unified_config_manager.save_unified_config(unified_config)
+            self.config_manager.save_unified_config(unified_config)
             self.logger.info("Task preferences saved successfully")
             
         except Exception as e:

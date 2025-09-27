@@ -955,11 +955,11 @@ class PipelineTab(QWidget):
             }
 
             task_name = task_name_mapping.get(step_id)
-            if not task_name or task_name not in config.task_preferences:
+            if not task_name or task_name not in config.unified_config.task_preferences:
                 return "provider preferences" if provider else "default"
 
             # Check if this provider/model matches task preferences
-            task_data = config.task_preferences[task_name]
+            task_data = config.unified_config.task_preferences[task_name]
             model_priority = task_data.get('model_priority', [])
 
             for rank, priority_entry in enumerate(model_priority, 1):

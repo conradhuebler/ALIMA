@@ -32,9 +32,9 @@ import logging
 from ..core.pipeline_manager import PipelineConfig
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
-from ..utils.unified_provider_config import (
-    PipelineMode, 
-    PipelineStepConfig, 
+from ..utils.config_models import (
+    PipelineMode,
+    PipelineStepConfig,
     TaskType as UnifiedTaskType
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType as SmartTaskType
@@ -226,7 +226,7 @@ class HybridStepConfigWidget(QWidget):
 
     def _load_task_preferences_direct(self) -> tuple[Optional[str], Optional[str], str]:
         """
-        Load task preferences directly from config.task_preferences - Claude Generated
+        Load task preferences directly from config.unified_config.task_preferences - Claude Generated
         Returns: (provider_name, model_name, selection_reason)
         """
         if not self.config_manager:
@@ -239,11 +239,11 @@ class HybridStepConfigWidget(QWidget):
                 return None, None, "no config loaded"
             if not hasattr(config, 'task_preferences'):
                 return None, None, "config has no task_preferences attribute"
-            if not config.task_preferences:
+            if not config.unified_config.task_preferences:
                 return None, None, "task_preferences is empty"
 
             # CRITICAL DEBUG: Log available task preferences - Claude Generated
-            available_tasks = list(config.task_preferences.keys())
+            available_tasks = list(config.unified_config.task_preferences.keys())
             self.logger.info(f"🔍 TASK_PREFS_AVAILABLE: {available_tasks} for step_id '{self.step_id}'")
 
             # Map step_id to task name for task_preferences lookup - Claude Generated
@@ -260,12 +260,12 @@ class HybridStepConfigWidget(QWidget):
                 return None, None, f"no task mapping for step '{self.step_id}'"
 
             # Get task preferences from config
-            task_data = config.task_preferences.get(task_name, {})
+            task_data = config.unified_config.task_preferences.get(task_name, {})
             model_priority = task_data.get('model_priority', [])
 
             # CRITICAL DEBUG: Log task preference lookup - Claude Generated
-            self.logger.info(f"🔍 TASK_PREF_LOOKUP: step_id='{self.step_id}' -> task_name='{task_name}' -> found={task_name in config.task_preferences}")
-            if task_name in config.task_preferences:
+            self.logger.info(f"🔍 TASK_PREF_LOOKUP: step_id='{self.step_id}' -> task_name='{task_name}' -> found={task_name in config.unified_config.task_preferences}")
+            if task_name in config.unified_config.task_preferences:
                 self.logger.info(f"🔍 TASK_PREF_DATA: {task_data}")
 
             if not model_priority:
@@ -767,21 +767,21 @@ class HybridStepConfigWidget(QWidget):
             config = self.config_manager.load_config(force_reload=True)
             
             # 🔍 DEBUG: Log what pipeline dialog sees in loaded config - Claude Generated
-            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: gemini_preferred='{config.llm.gemini_preferred_model}', anthropic_preferred='{config.llm.anthropic_preferred_model}'")
-            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: openai_providers_count={len(config.llm.openai_compatible_providers)}, ollama_providers_count={len(config.llm.ollama_providers)}")
+            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: gemini_preferred='{config.unified_config.gemini_preferred_model}', anthropic_preferred='{config.unified_config.anthropic_preferred_model}'")
+            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: openai_providers_count={len(config.unified_config.openai_compatible_providers)}, ollama_providers_count={len(config.unified_config.ollama_providers)}")
             
             # Check static providers
             if provider == "gemini":
-                preferred = config.llm.gemini_preferred_model or None
+                preferred = config.unified_config.gemini_preferred_model or None
                 self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: gemini -> '{preferred}'")
                 return preferred
             elif provider == "anthropic":
-                preferred = config.llm.anthropic_preferred_model or None
+                preferred = config.unified_config.anthropic_preferred_model or None
                 self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: anthropic -> '{preferred}'")
                 return preferred
             
             # Check OpenAI-compatible providers
-            for openai_provider in config.llm.openai_compatible_providers:
+            for openai_provider in config.unified_config.openai_compatible_providers:
                 self.logger.critical(f"🔍 PIPELINE_CHECKING_OPENAI: '{openai_provider.name}'.preferred_model='{openai_provider.preferred_model}' vs requested '{provider}'")
                 if openai_provider.name == provider:
                     preferred = openai_provider.preferred_model or None
@@ -789,7 +789,7 @@ class HybridStepConfigWidget(QWidget):
                     return preferred
             
             # Check Ollama providers - with fuzzy matching - Claude Generated
-            for ollama_provider in config.llm.ollama_providers:
+            for ollama_provider in config.unified_config.ollama_providers:
                 self.logger.critical(f"🔍 PIPELINE_CHECKING_OLLAMA: '{ollama_provider.name}' vs requested '{provider}'")
                 
                 # Direct name match
@@ -858,19 +858,20 @@ class HybridStepConfigWidget(QWidget):
         return False
     
     def _get_preferred_provider_from_settings(self) -> Optional[str]:
-        """Get preferred provider from ProviderPreferences settings - Claude Generated"""
+        """Get preferred provider from unified config settings - Claude Generated"""
         try:
             if not self.config_manager:
                 return None
                 
-            provider_preferences = self.config_manager.get_provider_preferences()
-            
+            unified_config = self.config_manager.get_unified_config()
+
             # Get preferred provider for the current task type
             task_type = getattr(self.step_config, 'task_type', None)
             if task_type:
-                return provider_preferences.get_provider_for_task(task_type.value)
+                # TODO: Implement task-specific provider selection in UnifiedProviderConfig
+                return unified_config.preferred_provider  # Fallback to general preference
             else:
-                return provider_preferences.preferred_provider
+                return unified_config.preferred_provider
                 
         except Exception as e:
             self.logger.warning(f"Error getting preferred provider from settings: {e}")
@@ -1054,11 +1055,11 @@ class HybridStepConfigWidget(QWidget):
                 try:
                     if hasattr(smart_selector, 'config') and smart_selector.config and task_name:
                         # CRITICAL DEBUG: Log task preference availability - Claude Generated
-                        self.logger.info(f"🔍 SMART_PREVIEW_TASK_CHECK: step_id='{self.step_id}' -> task_name='{task_name}' -> available_tasks={list(smart_selector.config.task_preferences.keys())}")
+                        self.logger.info(f"🔍 SMART_PREVIEW_TASK_CHECK: step_id='{self.step_id}' -> task_name='{task_name}' -> available_tasks={list(smart_selector.config.unified_config.task_preferences.keys())}")
 
-                        # Check if task has specific preferences in config.task_preferences
-                        if task_name in smart_selector.config.task_preferences:
-                            task_data = smart_selector.config.task_preferences[task_name]
+                        # Check if task has specific preferences in config.unified_config.task_preferences
+                        if task_name in smart_selector.config.unified_config.task_preferences:
+                            task_data = smart_selector.config.unified_config.task_preferences[task_name]
                             model_priorities = task_data.get('model_priority', [])
 
                             # CRITICAL DEBUG: Log found task preference data - Claude Generated
@@ -1225,7 +1226,7 @@ class HybridStepConfigWidget(QWidget):
     def set_config(self, config: Dict[str, Any]):
         """Set configuration from legacy dict format - Claude Generated"""
         # Convert legacy dict to PipelineStepConfig
-        from ..utils.unified_provider_config import PipelineMode, TaskType as UnifiedTaskType
+        from ..utils.config_models import PipelineMode, TaskType as UnifiedTaskType
         
         # Map string mode to PipelineMode enum
         mode = PipelineMode.SMART  # default
@@ -2131,7 +2132,7 @@ class PipelineConfigDialog(QDialog):
             current_config = self.get_config()
             
             # Extract provider preferences from pipeline config
-            preferences = self.config_manager.get_provider_preferences()
+            unified_config = self.config_manager.get_unified_config()
             
             # Update provider preferences based on pipeline step configurations
             step_configs = current_config.step_configs_v2
@@ -2146,36 +2147,39 @@ class PipelineConfigDialog(QDialog):
             if provider_counts:
                 # Set most used provider as preferred
                 most_used_provider = max(provider_counts, key=provider_counts.get)
-                preferences.preferred_provider = most_used_provider
-                
+                unified_config.preferred_provider = most_used_provider
+
                 # Update provider priority based on usage
                 sorted_providers = sorted(provider_counts.keys(), key=provider_counts.get, reverse=True)
                 # Keep existing priority for unused providers, append at end
-                existing_priority = preferences.provider_priority[:]
+                existing_priority = unified_config.provider_priority[:]
                 new_priority = sorted_providers[:]
                 for provider in existing_priority:
                     if provider not in new_priority:
                         new_priority.append(provider)
-                preferences.provider_priority = new_priority
+                unified_config.provider_priority = new_priority
             
             # Update task-specific overrides based on pipeline config
             if 'initialisation' in step_configs and step_configs['initialisation'].enabled:
                 # Fast text provider for initialization
                 init_provider = step_configs['initialisation'].provider
                 if init_provider:
-                    preferences.text_provider = init_provider  # Or could create separate init_provider
+                    # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+                    pass  # Disabled until proper implementation
                     
             if 'keywords' in step_configs and step_configs['keywords'].enabled:
                 # Quality text provider for final analysis
                 keywords_provider = step_configs['keywords'].provider
                 if keywords_provider:
-                    preferences.text_provider = keywords_provider
+                    # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+                    pass  # Disabled until proper implementation
                     
             if 'dk_classification' in step_configs and step_configs['dk_classification'].enabled:
                 # Classification-specific provider
                 classification_provider = step_configs['dk_classification'].provider
                 if classification_provider:
-                    preferences.classification_provider = classification_provider
+                    # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+                    pass  # Disabled until proper implementation
             
             # Update preferred models per provider
             for step_config in step_configs.values():
@@ -2183,12 +2187,13 @@ class PipelineConfigDialog(QDialog):
                     provider = step_config.provider
                     model = step_config.model
                     if provider and model:
-                        preferences.preferred_models[provider] = model
+                        # TODO: Implement preferred_models in UnifiedProviderConfig
+                        pass  # Disabled until proper implementation
             
-            # Validate and cleanup preferences before saving
-            if self.smart_selector:
-                validation_issues = preferences.validate_preferences(self.smart_selector.provider_detection_service)
-                if any(validation_issues.values()):
+            # TODO: Implement validation in UnifiedProviderConfig if needed
+            # if self.smart_selector:
+            #     validation_issues = unified_config.validate_preferences(self.smart_selector.provider_detection_service)
+            # TODO: Re-implement validation block when UnifiedProviderConfig supports validation\n            if False:  # Disabled: any(validation_issues.values()):
                     # Show validation issues but allow saving
                     issues_text = ""
                     for category, issues in validation_issues.items():
@@ -2214,21 +2219,22 @@ class PipelineConfigDialog(QDialog):
                         return
                     
                     # Perform auto-cleanup
-                    cleanup_report = preferences.auto_cleanup(self.smart_selector.provider_detection_service)
+                    # TODO: Implement cleanup in UnifiedProviderConfig
+                    # cleanup_report = unified_config.auto_cleanup(self.smart_selector.provider_detection_service)
+                    cleanup_report = {}
                     if cleanup_report and any(cleanup_report.values()):
                         self.logger.info("Auto-cleanup performed during provider preferences save")
             
-            # Save updated preferences
-            self.config_manager.update_provider_preferences(preferences)
+            # Save updated config directly
             self.config_manager.save_config()
             
             # Success message with summary
             success_message = "✅ Provider-Einstellungen erfolgreich gespeichert!\n\n"
-            success_message += f"📋 Bevorzugter Provider: {preferences.preferred_provider}\n"
-            success_message += f"🎯 Provider-Priorität: {', '.join(preferences.provider_priority[:3])}"
-            if len(preferences.provider_priority) > 3:
-                success_message += f" (+{len(preferences.provider_priority) - 3} weitere)"
-            success_message += f"\n🚀 Modell-Präferenzen: {len(preferences.preferred_models)} Provider konfiguriert\n\n"
+            success_message += f"📋 Bevorzugter Provider: {unified_config.preferred_provider}\n"
+            success_message += f"🎯 Provider-Priorität: {', '.join(unified_config.provider_priority[:3])}"
+            if len(unified_config.provider_priority) > 3:
+                success_message += f" (+{len(unified_config.provider_priority) - 3} weitere)"
+            success_message += f"\n🚀 Konfiguration erfolgreich gespeichert\n\n"
             success_message += "Diese Einstellungen werden jetzt als Standardwerte für alle ALIMA-Funktionen verwendet."
             
             QMessageBox.information(self, "Erfolgreich gespeichert", success_message)

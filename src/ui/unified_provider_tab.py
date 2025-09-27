@@ -18,14 +18,12 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPalette
 
 from ..utils.config_manager import ConfigManager, OpenAICompatibleProvider, OllamaProvider
-from ..utils.unified_provider_config import (
-    UnifiedProviderConfig, 
-    UnifiedProvider, 
-    TaskPreference, 
-    TaskType as UnifiedTaskType,
-    get_unified_config_manager
+from ..utils.config_models import (
+    UnifiedProviderConfig,
+    UnifiedProvider,
+    TaskPreference,
+    TaskType as UnifiedTaskType
 )
-from ..utils.config_manager import ProviderPreferences
 
 
 class ProviderTestWorker(QThread):
@@ -422,8 +420,8 @@ class UnifiedProviderTab(QWidget):
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
 
-        # Get ProviderPreferences for legacy provider settings - Claude Generated
-        self.provider_preferences = config_manager.get_provider_preferences()
+        # Get unified config directly - Claude Generated
+        self.unified_config = config_manager.get_unified_config()
 
         # Get main config for task_preferences (root-level) - Claude Generated
         self.config = config_manager.load_config()
@@ -436,20 +434,19 @@ class UnifiedProviderTab(QWidget):
         self.logger.critical(f"🔍 CONFIG_LOAD: config loaded={self.config is not None}")
         if self.config and hasattr(self.config, 'llm'):
             self.logger.critical(f"🔍 CONFIG_LLM: hasattr llm={hasattr(self.config, 'llm')}")
-            if hasattr(self.config.llm, 'gemini'):
-                gemini_val = getattr(self.config.llm, 'gemini', '')
+            if hasattr(self.config.unified_config, 'gemini'):
+                gemini_val = getattr(self.config.unified_config, 'gemini', '')
                 self.logger.critical(f"🔍 CONFIG_GEMINI: value_exists={bool(gemini_val)}, length={len(gemini_val) if gemini_val else 0}")
                 self.logger.critical(f"🔍 CONFIG_GEMINI: is_placeholder={gemini_val == 'your_gemini_api_key_here' if gemini_val else False}")
-            if hasattr(self.config.llm, 'anthropic'):
-                anthropic_val = getattr(self.config.llm, 'anthropic', '')
+            if hasattr(self.config.unified_config, 'anthropic'):
+                anthropic_val = getattr(self.config.unified_config, 'anthropic', '')
                 self.logger.critical(f"🔍 CONFIG_ANTHROPIC: value_exists={bool(anthropic_val)}, length={len(anthropic_val) if anthropic_val else 0}")
                 self.logger.critical(f"🔍 CONFIG_ANTHROPIC: is_placeholder={anthropic_val == 'your_anthropic_api_key_here' if anthropic_val else False}")
         else:
             self.logger.critical("🔍 CONFIG_NO_LLM: config has no llm attribute")
 
         # Keep unified config for provider management
-        self.unified_config_manager = get_unified_config_manager(config_manager)
-        self.unified_config = self.unified_config_manager.get_unified_config()
+        self.unified_config = config_manager.get_unified_config()
         
         self._setup_ui()
         self._load_configuration()
@@ -717,16 +714,17 @@ class UnifiedProviderTab(QWidget):
             alima_config = self.config_manager.load_config()
             
             # Get provider preferences for migration
-            provider_preferences = self.config_manager.get_provider_preferences()
+            # Use existing unified_config instead of bridge
+            # provider_preferences = self.config_manager.get_provider_preferences()
             
             # Create unified config from legacy data
             self.unified_config = UnifiedProviderConfig.from_legacy_config(
-                alima_config.llm, 
-                provider_preferences
+                alima_config.unified_config,
+                self.unified_config  # Use existing unified_config instead of bridge
             )
             
             # Update the unified config manager
-            self.unified_config_manager.save_unified_config(self.unified_config)
+            self.config_manager.save_unified_config(self.unified_config)
             
             self.logger.info(f"Successfully migrated {len(self.unified_config.providers)} providers from legacy config")
             
@@ -745,17 +743,17 @@ class UnifiedProviderTab(QWidget):
         existing_names = [p.name.lower() for p in all_providers]
 
         # 🔍 DEBUG: Check LLM config availability - Claude Generated
-        self.logger.critical(f"🔍 LLM_CONFIG_CHECK: hasattr(config.llm, 'gemini')={hasattr(self.config.llm, 'gemini')}")
-        if hasattr(self.config.llm, 'gemini'):
-            gemini_key = getattr(self.config.llm, 'gemini', '')
+        self.logger.critical(f"🔍 LLM_CONFIG_CHECK: hasattr(config.unified_config, 'gemini')={hasattr(self.config.unified_config, 'gemini')}")
+        if hasattr(self.config.unified_config, 'gemini'):
+            gemini_key = getattr(self.config.unified_config, 'gemini', '')
             self.logger.critical(f"🔍 GEMINI_KEY: exists={bool(gemini_key)}, length={len(gemini_key) if gemini_key else 0}, not_placeholder={gemini_key != 'your_gemini_api_key_here' if gemini_key else False}")
 
         # Add Gemini from LLM config if configured and not already present
         gemini_conditions = [
-            hasattr(self.config.llm, 'gemini'),
-            self.config.llm.gemini,
-            self.config.llm.gemini.strip() if self.config.llm.gemini else False,
-            self.config.llm.gemini != "your_gemini_api_key_here" if self.config.llm.gemini else False,
+            hasattr(self.config.unified_config, 'gemini'),
+            self.config.unified_config.gemini,
+            self.config.unified_config.gemini.strip() if self.config.unified_config.gemini else False,
+            self.config.unified_config.gemini != "your_gemini_api_key_here" if self.config.unified_config.gemini else False,
             "gemini" not in existing_names
         ]
         self.logger.critical(f"🔍 GEMINI_CONDITIONS: {gemini_conditions}")
@@ -764,7 +762,7 @@ class UnifiedProviderTab(QWidget):
             gemini_provider = UnifiedProvider(
                 name="gemini",
                 type="gemini",
-                connection_config={"api_key": self.config.llm.gemini},
+                connection_config={"api_key": self.config.unified_config.gemini},
                 capabilities=["vision", "text"],
                 enabled=True,
                 description="Gemini from LLM configuration"
@@ -775,16 +773,16 @@ class UnifiedProviderTab(QWidget):
             self.logger.critical(f"🔍 GEMINI_SKIPPED: Conditions not met")
 
         # 🔍 DEBUG: Check Anthropic config - Claude Generated
-        if hasattr(self.config.llm, 'anthropic'):
-            anthropic_key = getattr(self.config.llm, 'anthropic', '')
+        if hasattr(self.config.unified_config, 'anthropic'):
+            anthropic_key = getattr(self.config.unified_config, 'anthropic', '')
             self.logger.critical(f"🔍 ANTHROPIC_KEY: exists={bool(anthropic_key)}, length={len(anthropic_key) if anthropic_key else 0}, not_placeholder={anthropic_key != 'your_anthropic_api_key_here' if anthropic_key else False}")
 
         # Add Anthropic from LLM config if configured and not already present
         anthropic_conditions = [
-            hasattr(self.config.llm, 'anthropic'),
-            self.config.llm.anthropic,
-            self.config.llm.anthropic.strip() if self.config.llm.anthropic else False,
-            self.config.llm.anthropic != "your_anthropic_api_key_here" if self.config.llm.anthropic else False,
+            hasattr(self.config.unified_config, 'anthropic'),
+            self.config.unified_config.anthropic,
+            self.config.unified_config.anthropic.strip() if self.config.unified_config.anthropic else False,
+            self.config.unified_config.anthropic != "your_anthropic_api_key_here" if self.config.unified_config.anthropic else False,
             "anthropic" not in existing_names
         ]
         self.logger.critical(f"🔍 ANTHROPIC_CONDITIONS: {anthropic_conditions}")
@@ -793,7 +791,7 @@ class UnifiedProviderTab(QWidget):
             anthropic_provider = UnifiedProvider(
                 name="anthropic",
                 type="anthropic",
-                connection_config={"api_key": self.config.llm.anthropic},
+                connection_config={"api_key": self.config.unified_config.anthropic},
                 capabilities=["text"],
                 enabled=True,
                 description="Anthropic from LLM configuration"
@@ -922,9 +920,9 @@ class UnifiedProviderTab(QWidget):
                 # Fallback to legacy LLM config for Gemini/Anthropic if no unified config
                 if not api_key or api_key.strip() == "":
                     if provider.type == "gemini":
-                        api_key = getattr(self.config.llm, 'gemini', '')
+                        api_key = getattr(self.config.unified_config, 'gemini', '')
                     elif provider.type == "anthropic":
-                        api_key = getattr(self.config.llm, 'anthropic', '')
+                        api_key = getattr(self.config.unified_config, 'anthropic', '')
 
                 if api_key and api_key.strip() and api_key != "your_api_key_here":
                     # Check if API key looks like a placeholder
@@ -1043,29 +1041,29 @@ class UnifiedProviderTab(QWidget):
             
             # 🔍 DEBUG: Log config state before changes - Claude Generated
             if provider == "gemini":
-                self.logger.critical(f"🔍 CONFIG_BEFORE: gemini_preferred_model='{config.llm.gemini_preferred_model}'")
+                self.logger.critical(f"🔍 CONFIG_BEFORE: gemini_preferred_model='{config.unified_config.gemini_preferred_model}'")
             elif provider == "anthropic":
-                self.logger.critical(f"🔍 CONFIG_BEFORE: anthropic_preferred_model='{config.llm.anthropic_preferred_model}'")
+                self.logger.critical(f"🔍 CONFIG_BEFORE: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}'")
             
             updated = False
             
             # Update static providers
             if provider == "gemini":
-                config.llm.gemini_preferred_model = model
+                config.unified_config.gemini_preferred_model = model
                 updated = True
             elif provider == "anthropic":
-                config.llm.anthropic_preferred_model = model
+                config.unified_config.anthropic_preferred_model = model
                 updated = True
             
             # Update OpenAI-compatible providers
-            for openai_provider in config.llm.openai_compatible_providers:
+            for openai_provider in config.unified_config.openai_compatible_providers:
                 if openai_provider.name == provider:
                     openai_provider.preferred_model = model
                     updated = True
                     break
             
             # Update Ollama providers
-            for ollama_provider in config.llm.ollama_providers:
+            for ollama_provider in config.unified_config.ollama_providers:
                 if ollama_provider.name == provider:
                     ollama_provider.preferred_model = model
                     updated = True
@@ -1074,9 +1072,9 @@ class UnifiedProviderTab(QWidget):
             if updated:
                 # 🔍 DEBUG: Log config state after changes - Claude Generated
                 if provider == "gemini":
-                    self.logger.critical(f"🔍 CONFIG_AFTER: gemini_preferred_model='{config.llm.gemini_preferred_model}'")
+                    self.logger.critical(f"🔍 CONFIG_AFTER: gemini_preferred_model='{config.unified_config.gemini_preferred_model}'")
                 elif provider == "anthropic":
-                    self.logger.critical(f"🔍 CONFIG_AFTER: anthropic_preferred_model='{config.llm.anthropic_preferred_model}'")
+                    self.logger.critical(f"🔍 CONFIG_AFTER: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}'")
                 
                 # Save configuration directly
                 save_success = self.config_manager.save_config(config)
@@ -1101,21 +1099,21 @@ class UnifiedProviderTab(QWidget):
         try:
             # Check static providers
             if provider == "gemini":
-                result = config.llm.gemini_preferred_model or ""
-                self.logger.critical(f"🔍 GET_PREF_GEMINI: gemini_preferred_model='{config.llm.gemini_preferred_model}' -> '{result}'")
+                result = config.unified_config.gemini_preferred_model or ""
+                self.logger.critical(f"🔍 GET_PREF_GEMINI: gemini_preferred_model='{config.unified_config.gemini_preferred_model}' -> '{result}'")
                 return result
             elif provider == "anthropic":
-                result = config.llm.anthropic_preferred_model or ""
-                self.logger.critical(f"🔍 GET_PREF_ANTHROPIC: anthropic_preferred_model='{config.llm.anthropic_preferred_model}' -> '{result}'")
+                result = config.unified_config.anthropic_preferred_model or ""
+                self.logger.critical(f"🔍 GET_PREF_ANTHROPIC: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}' -> '{result}'")
                 return result
             
             # Check OpenAI-compatible providers
-            for openai_provider in config.llm.openai_compatible_providers:
+            for openai_provider in config.unified_config.openai_compatible_providers:
                 if openai_provider.name == provider:
                     return openai_provider.preferred_model or ""
             
             # Check Ollama providers
-            for ollama_provider in config.llm.ollama_providers:
+            for ollama_provider in config.unified_config.ollama_providers:
                 if ollama_provider.name == provider:
                     return ollama_provider.preferred_model or ""
             
@@ -1279,10 +1277,10 @@ class UnifiedProviderTab(QWidget):
         self.task_ui_dirty = False  # Loading fresh data, UI is now clean
         
         try:
-            # Get model priority for this task from root-level config.task_preferences - Claude Generated
-            if task_name in self.config.task_preferences:
+            # Get model priority for this task from root-level config.unified_config.task_preferences - Claude Generated
+            if task_name in self.config.unified_config.task_preferences:
                 # Task has specific preferences - validate and use them
-                task_pref_data = self.config.task_preferences[task_name]
+                task_pref_data = self.config.unified_config.task_preferences[task_name]
                 raw_model_priority = task_pref_data.get('model_priority', [])
                 model_priority = self._validate_and_filter_model_priority(raw_model_priority)
             else:
@@ -1311,9 +1309,9 @@ class UnifiedProviderTab(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, model_config)
                     self.task_model_priority_list.addItem(item)
             
-            # Check if task has chunked support - use config.task_preferences - Claude Generated
-            if task_name in self.config.task_preferences:
-                task_pref_data = self.config.task_preferences[task_name]
+            # Check if task has chunked support - use config.unified_config.task_preferences - Claude Generated
+            if task_name in self.config.unified_config.task_preferences:
+                task_pref_data = self.config.unified_config.task_preferences[task_name]
                 if 'chunked_model_priority' in task_pref_data and task_pref_data['chunked_model_priority']:
                     self.chunked_tasks_checkbox.setChecked(True)
                     self._on_chunked_tasks_toggled(True)
@@ -1391,7 +1389,8 @@ class UnifiedProviderTab(QWidget):
             task_info_label.setWordWrap(True)
             dialog.layout().insertWidget(0, task_info_label)
 
-        dialog.set_default_from_global_preferences(self.provider_preferences)
+        # TODO: Update ProviderSelectorDialog to use UnifiedProviderConfig
+        # dialog.set_default_from_global_preferences(self.unified_config)
 
         # CRITICAL FIX: Verify the task selection hasn't changed during dialog - Claude Generated
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1490,9 +1489,9 @@ class UnifiedProviderTab(QWidget):
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Remove task from config.task_preferences (will fall back to defaults) - Claude Generated
-                if task_name in self.config.task_preferences:
-                    del self.config.task_preferences[task_name]
+                # Remove task from config.unified_config.task_preferences (will fall back to defaults) - Claude Generated
+                if task_name in self.config.unified_config.task_preferences:
+                    del self.config.unified_config.task_preferences[task_name]
                     self.config_manager.save_config(self.config)
 
                     # CRITICAL FIX: Update current editing task state after reset - Claude Generated
@@ -1687,7 +1686,7 @@ class UnifiedProviderTab(QWidget):
             self._update_config_from_ui()
             
             # Save provider configurations via unified config manager
-            unified_success = self.unified_config_manager.save_unified_config(self.unified_config)
+            unified_success = self.config_manager.save_unified_config(self.unified_config)
             
             # Save task preferences via main config (root-level) - Claude Generated
             task_success = self.config_manager.save_config(self.config)
@@ -1721,7 +1720,7 @@ class UnifiedProviderTab(QWidget):
         elif self.current_editing_task and self.task_ui_dirty:
             self.logger.warning(f"Global save: skipping task preferences save for {self.current_editing_task} due to dirty UI state")
 
-        # NOTE: Task preferences are managed in self.config.task_preferences
+        # NOTE: Task preferences are managed in self.config.unified_config.task_preferences
         # They are already updated by individual UI operations
         # No additional UI → config sync needed here
     
@@ -1732,12 +1731,12 @@ class UnifiedProviderTab(QWidget):
             if self.task_ui_dirty and self.current_editing_task:
                 self.logger.debug(f"Skipping task preference auto-save while editing task: {self.current_editing_task}")
                 # Only save unified config, not task preferences during active editing
-                self.unified_config_manager.save_unified_config(self.unified_config)
+                self.config_manager.save_unified_config(self.unified_config)
             else:
                 # Safe to auto-save everything
                 self._update_config_from_ui()
                 # Save both unified config and task preferences
-                self.unified_config_manager.save_unified_config(self.unified_config)
+                self.config_manager.save_unified_config(self.unified_config)
                 self.config_manager.save_config(self.config)
                 self.logger.debug("Auto-saved unified provider configuration and task preferences")
         except Exception as e:
@@ -1791,8 +1790,8 @@ class UnifiedProviderTab(QWidget):
                 self._show_save_toast(f"❌ Save aborted: task name mismatch", error=True)
                 return
 
-            # Save to config.task_preferences (root-level) - Claude Generated
-            self.config.task_preferences[task_name] = {
+            # Save to config.unified_config.task_preferences (root-level) - Claude Generated
+            self.config.unified_config.task_preferences[task_name] = {
                 'model_priority': model_priority,
                 'chunked_model_priority': chunked_model_priority
             }
@@ -1868,13 +1867,14 @@ class UnifiedProviderTab(QWidget):
             # Start with provider_priority order
             model_priority = []
             
-            for provider in self.provider_preferences.provider_priority:
+            for provider in self.unified_config.provider_priority:
                 # Skip disabled providers
-                if provider in self.provider_preferences.disabled_providers:
+                if provider in self.unified_config.disabled_providers:
                     continue
                 
                 # Get preferred model for this provider (if configured)
-                preferred_model = self.provider_preferences.preferred_models.get(provider, "auto")
+                # TODO: Implement preferred_models in UnifiedProviderConfig
+                preferred_model = "auto"  # Disabled until proper implementation
                 
                 # Add to model priority
                 model_priority.append({
@@ -1888,7 +1888,7 @@ class UnifiedProviderTab(QWidget):
         except Exception as e:
             self.logger.warning(f"Failed to create task defaults from global preferences: {e}")
             # Fallback to basic provider priority
-            return [{"provider_name": p, "model_name": "auto"} for p in self.provider_preferences.provider_priority]
+            return [{"provider_name": p, "model_name": "auto"} for p in self.unified_config.provider_priority]
     
     def _validate_and_filter_model_priority(self, model_priority: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Validate model_priority entries against available models and filter invalid ones - Claude Generated"""

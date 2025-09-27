@@ -37,7 +37,7 @@ from src.utils.pipeline_utils import (
 )
 from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.config_manager import ConfigManager, OpenAICompatibleProvider
-from src.utils.unified_provider_config import PipelineMode, PipelineStepConfig
+from src.utils.config_models import PipelineMode, PipelineStepConfig
 from typing import List, Tuple
 
 PROMPTS_FILE = "prompts.json"
@@ -911,7 +911,7 @@ EXAMPLES:
                 # Save preferences if requested and pipeline was successful - Claude Generated
                 if getattr(args, 'save_preferences', False):
                     try:
-                        preferences = config_manager.get_provider_preferences()
+                        unified_config = config_manager.get_unified_config()
                         preferences_updated = False
 
                         # Update preferences based on successful execution from mode-based configuration
@@ -932,33 +932,34 @@ EXAMPLES:
                                 if model_used:
                                     used_models.add(model_used)
 
-                                    # Update preferred model for this provider
+                                    # TODO: Update preferred model for this provider in UnifiedProviderConfig
                                     if provider_used and model_used:
-                                        preferences.preferred_models[provider_used] = model_used
+                                        # TODO: Implement preferred_models in UnifiedProviderConfig
+                                        pass  # Disabled until proper implementation
                                         preferences_updated = True
 
                             # Set most used provider as preferred
                             if used_providers:
                                 most_used_provider = list(used_providers)[0]  # Take first for simplicity
-                                if not preferences.preferred_provider or preferences.preferred_provider == "ollama":
-                                    preferences.preferred_provider = most_used_provider
+                                if not unified_config.preferred_provider or unified_config.preferred_provider == "ollama":
+                                    unified_config.preferred_provider = most_used_provider
                                     preferences_updated = True
 
                                 # Ensure all used providers are in priority list
                                 for provider_used in used_providers:
-                                    if provider_used not in preferences.provider_priority:
-                                        preferences.provider_priority.insert(0, provider_used)
+                                    if provider_used not in unified_config.provider_priority:
+                                        unified_config.provider_priority.insert(0, provider_used)
                                         preferences_updated = True
 
                         if preferences_updated:
-                            config_manager.update_provider_preferences(preferences)
                             config_manager.save_config()
                             print(f"\n✅ Provider preferences updated and saved:")
                             print(f"   Mode used: {args.mode}")
-                            print(f"   Preferred provider: {preferences.preferred_provider}")
-                            for provider, model in preferences.preferred_models.items():
-                                if provider in used_providers:
-                                    print(f"   Preferred model for {provider}: {model}")
+                            print(f"   Preferred provider: {unified_config.preferred_provider}")
+                            # TODO: Show preferred models when implemented in UnifiedProviderConfig
+                            # for provider, model in unified_config.preferred_models.items():
+                            #     if provider in used_providers:
+                            #         print(f"   Preferred model for {provider}: {model}")
                         else:
                             print(f"\n📋 No preference changes needed - current settings already optimal")
 
@@ -1602,7 +1603,7 @@ EXAMPLES:
         if args.provider_action == "list":
             try:
                 config = config_manager.load_config()
-                providers = config.llm.openai_compatible_providers
+                providers = config.unified_config.openai_compatible_providers
                 
                 if not providers:
                     print("🔍 No OpenAI-compatible providers configured.")
@@ -1634,7 +1635,7 @@ EXAMPLES:
                 config = config_manager.load_config()
                 
                 # Check if provider already exists
-                if config.llm.get_provider_by_name(args.name):
+                if config.unified_config.get_provider_by_name(args.name):
                     print(f"❌ Provider '{args.name}' already exists.")
                     print("   Use 'alima_cli.py provider edit' to modify existing providers.")
                     return
@@ -1649,7 +1650,7 @@ EXAMPLES:
                 )
                 
                 # Add provider to configuration
-                config.llm.add_provider(new_provider)
+                config.unified_config.add_provider(new_provider)
                 
                 # Save configuration
                 success = config_manager.save_config(config, args.scope)
@@ -1672,14 +1673,14 @@ EXAMPLES:
                 config = config_manager.load_config()
                 
                 # Check if provider exists
-                provider = config.llm.get_provider_by_name(args.name)
+                provider = config.unified_config.get_provider_by_name(args.name)
                 if not provider:
                     print(f"❌ Provider '{args.name}' not found.")
                     print("   Use 'alima_cli.py provider list' to see available providers.")
                     return
                 
                 # Remove provider
-                success = config.llm.remove_provider(args.name)
+                success = config.unified_config.remove_provider(args.name)
                 if success:
                     # Save configuration
                     config_saved = config_manager.save_config(config, args.scope)
@@ -1698,7 +1699,7 @@ EXAMPLES:
                 config = config_manager.load_config()
                 
                 # Find provider to edit
-                provider = config.llm.get_provider_by_name(args.name)
+                provider = config.unified_config.get_provider_by_name(args.name)
                 if not provider:
                     print(f"❌ Provider '{args.name}' not found.")
                     print("   Use 'alima_cli.py provider list' to see available providers.")
@@ -1735,7 +1736,7 @@ EXAMPLES:
                 config = config_manager.load_config()
                 
                 # Find provider to test
-                provider = config.llm.get_provider_by_name(args.name)
+                provider = config.unified_config.get_provider_by_name(args.name)
                 if not provider:
                     print(f"❌ Provider '{args.name}' not found.")
                     print("   Use 'alima_cli.py provider list' to see available providers.")
@@ -1786,10 +1787,10 @@ EXAMPLES:
                 try:
                     config = config_manager.load_config()
                     print("🔧 Current Ollama Configuration:")
-                    print(f"   Local:    {'✅ Enabled' if config.llm.ollama.local_enabled else '❌ Disabled'} ({config.llm.ollama.local_host}:{config.llm.ollama.local_port})")
-                    print(f"   Official: {'✅ Enabled' if config.llm.ollama.official_enabled else '❌ Disabled'} ({config.llm.ollama.official_base_url})")
-                    print(f"   Native:   {'✅ Enabled' if config.llm.ollama.native_enabled else '❌ Disabled'} ({config.llm.ollama.native_host})")
-                    print(f"   Active:   {config.llm.ollama.get_active_connection_type()}")
+                    print(f"   Local:    {'✅ Enabled' if config.unified_config.ollama.local_enabled else '❌ Disabled'} ({config.unified_config.ollama.local_host}:{config.unified_config.ollama.local_port})")
+                    print(f"   Official: {'✅ Enabled' if config.unified_config.ollama.official_enabled else '❌ Disabled'} ({config.unified_config.ollama.official_base_url})")
+                    print(f"   Native:   {'✅ Enabled' if config.unified_config.ollama.native_enabled else '❌ Disabled'} ({config.unified_config.ollama.native_host})")
+                    print(f"   Active:   {config.unified_config.ollama.get_active_connection_type()}")
                 except Exception as e:
                     print(f"❌ Error loading Ollama configuration: {str(e)}")
             
@@ -1798,13 +1799,13 @@ EXAMPLES:
                     config = config_manager.load_config()
                     
                     # Update local Ollama settings
-                    config.llm.ollama.local_enabled = True
-                    config.llm.ollama.local_host = args.host
-                    config.llm.ollama.local_port = args.port
+                    config.unified_config.ollama.local_enabled = True
+                    config.unified_config.ollama.local_host = args.host
+                    config.unified_config.ollama.local_port = args.port
                     
                     # Disable other types for clarity
-                    config.llm.ollama.official_enabled = False
-                    config.llm.ollama.native_enabled = False
+                    config.unified_config.ollama.official_enabled = False
+                    config.unified_config.ollama.native_enabled = False
                     
                     config_manager.save_config(config)
                     print(f"✅ Local Ollama enabled: {args.host}:{args.port}")
@@ -1817,13 +1818,13 @@ EXAMPLES:
                     config = config_manager.load_config()
                     
                     # Update official Ollama settings
-                    config.llm.ollama.official_enabled = True
-                    config.llm.ollama.official_base_url = args.base_url
-                    config.llm.ollama.official_api_key = args.api_key
+                    config.unified_config.ollama.official_enabled = True
+                    config.unified_config.ollama.official_base_url = args.base_url
+                    config.unified_config.ollama.official_api_key = args.api_key
                     
                     # Disable other types for clarity
-                    config.llm.ollama.local_enabled = False
-                    config.llm.ollama.native_enabled = False
+                    config.unified_config.ollama.local_enabled = False
+                    config.unified_config.ollama.native_enabled = False
                     
                     config_manager.save_config(config)
                     print(f"✅ Official Ollama API enabled: {args.base_url}")
@@ -1837,14 +1838,14 @@ EXAMPLES:
                     config = config_manager.load_config()
                     
                     # Update native Ollama settings
-                    config.llm.ollama.native_enabled = True
-                    config.llm.ollama.native_host = args.host
+                    config.unified_config.ollama.native_enabled = True
+                    config.unified_config.ollama.native_host = args.host
                     if args.api_key:
-                        config.llm.ollama.native_api_key = args.api_key
+                        config.unified_config.ollama.native_api_key = args.api_key
                     
                     # Disable other types for clarity
-                    config.llm.ollama.local_enabled = False
-                    config.llm.ollama.official_enabled = False
+                    config.unified_config.ollama.local_enabled = False
+                    config.unified_config.ollama.official_enabled = False
                     
                     config_manager.save_config(config)
                     print(f"✅ Native Ollama client enabled: {args.host}")

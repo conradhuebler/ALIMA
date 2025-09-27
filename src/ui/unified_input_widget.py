@@ -387,8 +387,7 @@ class TextExtractionWorker(QThread):
             # 🔍 DEBUG: Start vision provider selection with task preferences - Claude Generated
             self.logger.critical(f"🔍 VISION_TASK_START: Selecting provider for image_text_extraction")
 
-            # Get unified config manager for task preferences
-            from ..utils.unified_provider_config import UnifiedProviderConfigManager
+            # Get unified config for task preferences - Claude Generated
 
             # Try to get config manager from multiple sources - Claude Generated
             config_manager = getattr(self.llm_service, 'config_manager', None)
@@ -414,8 +413,7 @@ class TextExtractionWorker(QThread):
                 self.logger.critical("🔍 CONFIG_MANAGER_MISSING: No config_manager available, falling back to default vision provider")
                 return self._get_best_vision_provider()
 
-            unified_config_manager = UnifiedProviderConfigManager(config_manager)
-            unified_config = unified_config_manager.get_unified_config()
+            unified_config = config_manager.get_unified_config()
 
             # 🔍 DEBUG: Log unified config loading and contents - Claude Generated
             self.logger.critical(f"🔍 UNIFIED_CONFIG: loaded={unified_config is not None}")
@@ -443,8 +441,8 @@ class TextExtractionWorker(QThread):
                 try:
                     # Load AlimaConfig directly
                     alima_config = config_manager.load_config()
-                    if hasattr(alima_config, 'task_preferences') and alima_config.task_preferences:
-                        task_prefs = alima_config.task_preferences.get("image_text_extraction", {})
+                    if hasattr(alima_config, 'unified_config') and alima_config.unified_config.task_preferences:
+                        task_prefs = alima_config.unified_config.task_preferences.get("image_text_extraction", {})
                         model_priority = task_prefs.get('model_priority', [])
                         self.logger.critical(f"🔍 DIRECT_CONFIG_TASK_PREFS: Found {len(model_priority) if model_priority else 0} providers in direct config")
                 except Exception as e:

@@ -410,24 +410,8 @@ class UnifiedProviderConfig:
     auto_fallback: bool = True
     prefer_faster_models: bool = False  # Legacy compatibility for smart_provider_selector
 
-    # Legacy compatibility properties
-    @property
-    def preferred_provider(self) -> str:
-        """Get first enabled provider from priority list - Claude Generated"""
-        for provider_name in self.provider_priority:
-            if provider_name not in self.disabled_providers:
-                provider = self.get_provider_by_name(provider_name)
-                if provider and provider.enabled:
-                    return provider_name
-        return "ollama"  # Default fallback
-
-    @preferred_provider.setter
-    def preferred_provider(self, value: str):
-        """Set preferred provider by updating priority list - Claude Generated"""
-        if value in self.provider_priority:
-            # Move to first position
-            self.provider_priority.remove(value)
-        self.provider_priority.insert(0, value)
+    # Direct preferred provider attribute (config.md Phase 1) - Claude Generated
+    preferred_provider: str = "localhost"  # Explicit user choice, independent of provider_priority
 
     def get_enabled_providers(self) -> List[UnifiedProvider]:
         """Get list of enabled providers - Claude Generated"""
@@ -530,22 +514,6 @@ class AlimaConfig:
     def system(self) -> SystemConfig:
         return self.system_config
 
-    @property
-    def task_preferences(self):
-        """BRIDGE: Legacy task_preferences access via unified_config - Claude Generated"""
-        return self.unified_config.task_preferences
-
-    @task_preferences.setter
-    def task_preferences(self, value):
-        """BRIDGE: Legacy task_preferences setter - Claude Generated"""
-        self.unified_config.task_preferences = value
-
-    @property
-    def llm(self):  # Import needed from config_manager
-        """CRITICAL BRIDGE: Legacy LLM config access via unified_config - Claude Generated"""
-        # Import here to avoid circular imports
-        from .config_manager import LLMConfig
-        return LLMConfig(self.unified_config)
 
     # Version and metadata
     config_version: str = '2.0'  # Incremented for unified config

@@ -34,12 +34,11 @@ from ..utils.pipeline_utils import (
     execute_input_extraction,
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType
-from ..utils.unified_provider_config import (
+from ..utils.config_models import (
     UnifiedProviderConfig,
-    PipelineMode, 
+    PipelineMode,
     TaskType as UnifiedTaskType,
-    PipelineStepConfig,
-    get_unified_config_manager
+    PipelineStepConfig
 )
 
 
@@ -1265,12 +1264,12 @@ class PipelineManager:
             # Apply mode-specific logic
             if is_smart:
                 # Pure Smart Mode - use intelligent selection
-                step.provider = smart_provider or "ollama"
+                step.provider = smart_provider or self.pipeline_executor._get_first_available_ollama_provider()
                 step.model = smart_model or "cogito:32b"
                 self.logger.info(f"🤖 Smart Mode for {step.step_id}: {step.provider}/{step.model}")
             else:
                 # Advanced/Expert Mode - start with Smart defaults, allow manual overrides
-                step.provider = step_config.provider or smart_provider or "ollama"
+                step.provider = step_config.provider or smart_provider or self.pipeline_executor._get_first_available_ollama_provider()
                 step.model = step_config.model or smart_model or "cogito:32b"
                 mode_icon = "⚙️" if step_config.mode == PipelineMode.ADVANCED else "🔧"
                 self.logger.info(f"{mode_icon} {step_config.mode.value} Mode for {step.step_id}: {step.provider}/{step.model} (smart defaults applied)")
@@ -1289,16 +1288,18 @@ class PipelineManager:
                     step.model = user_model
                     self.logger.info(f"Fallback to user manual config for {step.step_id}: {user_provider}/{user_model}")
                 else:
-                    # Ultimate fallback only if user has no manual config
-                    step.provider = "ollama"
+                    # Ultimate fallback: use first available configured ollama provider
+                    fallback_provider = self.pipeline_executor._get_first_available_ollama_provider()
+                    step.provider = fallback_provider
                     step.model = "cogito:32b"
-                    self.logger.warning(f"Ultimate fallback to hardcoded defaults for {step.step_id}: ollama/cogito:32b")
+                    self.logger.warning(f"Ultimate fallback to configured provider for {step.step_id}: {fallback_provider}/cogito:32b")
 
             except Exception as fallback_error:
-                # If even user config fails, use hardcoded fallback
-                step.provider = "ollama"
+                # If even user config fails, use first available configured ollama provider
+                fallback_provider = self.pipeline_executor._get_first_available_ollama_provider()
+                step.provider = fallback_provider
                 step.model = "cogito:32b"
-                self.logger.error(f"All fallbacks failed for {step.step_id}, using hardcoded: {fallback_error}")
+                self.logger.error(f"All fallbacks failed for {step.step_id}, using configured provider {fallback_provider}: {fallback_error}")
 
     def _get_default_task_for_step(self, step_id: str) -> str:
         """Get default prompt task for a pipeline step - Claude Generated"""

@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
 
-from .config_manager import ConfigManager, ProviderPreferences, ProviderDetectionService
+from .config_manager import ConfigManager, ProviderDetectionService
 from ..llm.llm_service import LlmService
 from .config_models import (
     UnifiedProviderConfig,
@@ -153,7 +153,7 @@ class SmartProviderSelector:
             SmartSelection with provider, model, config, and attempt history
         """
         start_time = time.time()
-        preferences = self.config_manager.get_provider_preferences()
+        unified_config = self.config_manager.get_unified_config()
         
         # Auto-detect TaskType from step_id if not explicitly provided - Claude Generated
         if task_type == TaskType.GENERAL and step_id:
@@ -162,30 +162,27 @@ class SmartProviderSelector:
                 task_type = detected_task_type
                 self.logger.info(f"Auto-detected TaskType {task_type.value} from step_id '{step_id}' and task_name '{task_name}'")
         
-        # Auto-validate and cleanup preferences before using them - Claude Generated
-        validation_issues = preferences.validate_preferences(self.provider_detection_service)
-        if any(validation_issues.values()):
-            self.logger.info("Found provider preference issues, performing auto-cleanup...")
-            cleanup_report = preferences.auto_cleanup(self.provider_detection_service)
-            
-            # Log cleanup actions
-            for category, actions in cleanup_report.items():
-                if actions:
-                    if isinstance(actions, list):
-                        for action in actions:
-                            self.logger.info(f"Preference cleanup - {category}: {action}")
-                    else:
-                        self.logger.info(f"Preference cleanup - {category}: {actions}")
-            
-            # Save cleaned preferences back to config - Claude Generated
-            try:
-                current_config = self.config_manager.load_config()
-                self.config_manager.save_config(current_config, "user")
-            except Exception as e:
-                self.logger.warning(f"Failed to save cleaned preferences: {e}")
-        
+        # TODO: Implement validation in UnifiedProviderConfig if needed
+        # validation_issues = unified_config.validate_preferences(self.provider_detection_service)
+        # if any(validation_issues.values()):
+        #     self.logger.info("Found provider preference issues, performing auto-cleanup...")
+        #     cleanup_report = unified_config.auto_cleanup(self.provider_detection_service)
+        #\n        #     # Log cleanup actions\n        #     for category, actions in cleanup_report.items():\n        #         if actions:\n        #             if isinstance(actions, list):
+        #                 for action in actions:
+        #                     self.logger.info(f"Preference cleanup - {category}: {action}")
+        #             else:
+        #                 self.logger.info(f"Preference cleanup - {category}: {actions}")
+        #
+        #     # Save cleaned preferences back to config - Claude Generated
+        #     try:
+        #         current_config = self.config_manager.load_config()
+        #         self.config_manager.save_config(current_config, "user")
+        #     except Exception as e:
+        #         self.logger.warning(f"Failed to save cleaned preferences: {e}")
+
+
         # Ensure we have a valid configuration
-        preferences.ensure_valid_configuration(self.provider_detection_service)
+        # TODO: Implement ensure_valid_configuration in UnifiedProviderConfig if needed\n        # unified_config.ensure_valid_configuration(self.provider_detection_service)
         
         # Get provider priority list for this task - enhanced with 3-tier hierarchy - Claude Generated
         provider_priority = []
@@ -226,7 +223,7 @@ class SmartProviderSelector:
                 }
                 task_lookup_name = task_type_mapping.get(task_type, "general")
             
-            provider_priority = preferences.get_provider_priority_for_task(task_type.value)
+            # TODO: Implement task-specific provider priority in UnifiedProviderConfig\n            provider_priority = unified_config.provider_priority  # Fallback to general priority
             self.logger.info(f"TIER 2: Using provider defaults for {task_type.value}: {provider_priority}")
         
         # === TIER 3: Detection service fallback (lowest priority) ===
@@ -239,7 +236,7 @@ class SmartProviderSelector:
             provider_priority = self._filter_by_capabilities(provider_priority, required_capabilities)
         
         # Apply speed preference
-        if prefer_fast or preferences.prefer_faster_models:
+        if prefer_fast or unified_config.prefer_faster_models:
             provider_priority = self._sort_by_speed(provider_priority)
         
         attempts = []
@@ -256,7 +253,7 @@ class SmartProviderSelector:
                 continue
             
             # Get preferred model for this provider
-            model = self._get_model_for_provider(provider, task_type, preferences, prefer_fast, task_name)
+            model = self._get_model_for_provider(provider, task_type, unified_config, prefer_fast, task_name)
             
             # Get provider configuration
             config = self._get_provider_config(provider)
@@ -298,7 +295,7 @@ class SmartProviderSelector:
         # If we get here, all providers failed
         raise RuntimeError(f"No available providers for task type {task_type.value}. Attempted: {[a.provider for a in attempts]}")
     
-    def _get_model_for_provider(self, provider: str, task_type: TaskType, preferences: ProviderPreferences, prefer_fast: bool = False, task_name: str = "") -> str:
+    def _get_model_for_provider(self, provider: str, task_type: TaskType, unified_config, prefer_fast: bool = False, task_name: str = "") -> str:
         """Get the best model for a provider with Task Preference hierarchical selection - Claude Generated"""
         available_models = self.provider_detection_service.get_available_models(provider)
         if not available_models:
@@ -314,10 +311,10 @@ class SmartProviderSelector:
         selected_model = None
         selection_reason = ""
         
-        # === PRIORITY 1: Task-specific model preferences (root-level config.task_preferences) ===
-        if self.config and task_name and task_name in self.config.task_preferences:
+        # === PRIORITY 1: Task-specific model preferences (root-level config.unified_config.task_preferences) ===
+        if self.config and task_name and task_name in self.config.unified_config.task_preferences:
             try:
-                task_data = self.config.task_preferences[task_name]
+                task_data = self.config.unified_config.task_preferences[task_name]
 
                 # CRITICAL DEBUG: Log task preference model selection attempt - Claude Generated
                 self.logger.info(f"🔍 PRIO1_MODEL_SEARCH: provider='{provider}', task_name='{task_name}', task_data={task_data}")
@@ -386,7 +383,7 @@ class SmartProviderSelector:
             return selected_model
         
         # === PRIORITY 3: Speed/quality optimization ===
-        if prefer_fast or preferences.prefer_faster_models:
+        if prefer_fast or unified_config.prefer_faster_models:
             # Prioritize models with speed indicators
             fast_models = [m for m in available_models if any(indicator in m.lower() 
                           for indicator in ['flash', 'mini', 'haiku', '14b', 'turbo', 'fast'])]
@@ -417,28 +414,28 @@ class SmartProviderSelector:
             self.logger.critical(f"🔍 SEARCHING_FOR_PROVIDER: '{provider}' in all provider lists")
             
             # 🔍 DEBUG: Log what we found in config - Claude Generated
-            self.logger.critical(f"🔍 CONFIG_gemini_preferred_model: '{config.llm.gemini_preferred_model}'")
-            self.logger.critical(f"🔍 CONFIG_anthropic_preferred_model: '{config.llm.anthropic_preferred_model}'")
+            self.logger.critical(f"🔍 CONFIG_gemini_preferred_model: '{config.unified_config.gemini_preferred_model}'")
+            self.logger.critical(f"🔍 CONFIG_anthropic_preferred_model: '{config.unified_config.anthropic_preferred_model}'")
             
             # Check static providers first
             if provider == "gemini":
-                preferred = config.llm.gemini_preferred_model or None
+                preferred = config.unified_config.gemini_preferred_model or None
                 self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: gemini -> '{preferred}'")
                 return preferred
             elif provider == "anthropic":
-                preferred = config.llm.anthropic_preferred_model or None
+                preferred = config.unified_config.anthropic_preferred_model or None
                 self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: anthropic -> '{preferred}'")
                 return preferred
             
             # Check OpenAI-compatible providers
-            for openai_provider in config.llm.openai_compatible_providers:
+            for openai_provider in config.unified_config.openai_compatible_providers:
                 if openai_provider.name == provider:
                     preferred = openai_provider.preferred_model or None
                     self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: openai_compatible '{provider}' -> '{preferred}'")
                     return preferred
             
             # Check Ollama providers - with fuzzy matching for common names - Claude Generated
-            for ollama_provider in config.llm.ollama_providers:
+            for ollama_provider in config.unified_config.ollama_providers:
                 self.logger.critical(f"🔍 CHECKING_OLLAMA_PROVIDER: '{ollama_provider.name}' vs requested '{provider}'")
                 
                 # Direct name match
@@ -553,37 +550,28 @@ class SmartProviderSelector:
     
     def _get_provider_config(self, provider: str) -> Dict[str, Any]:
         """Get configuration for a specific provider - Claude Generated"""
-        llm_config = self.config_manager.load_config().llm
-        
+        # Use unified config instead of legacy llm config
+        unified_config = self.config_manager.get_unified_config()
+
         if provider == "gemini":
-            return {"api_key": llm_config.gemini}
+            return {"api_key": unified_config.gemini_api_key}
         elif provider == "anthropic":
-            return {"api_key": llm_config.anthropic}
-        elif provider == "ollama":
-            # Use primary Ollama provider or fallback to legacy config
-            ollama_provider = llm_config.get_primary_ollama_provider()
-            if ollama_provider:
-                return {
-                    "host": ollama_provider.host,
-                    "port": ollama_provider.port,
-                    "api_key": ollama_provider.api_key,
-                    "use_ssl": ollama_provider.use_ssl,
-                    "connection_type": ollama_provider.connection_type
-                }
-            else:
-                return {
-                    "host": llm_config.ollama_host,
-                    "port": llm_config.ollama_port
-                }
+            return {"api_key": unified_config.anthropic_api_key}
         else:
-            # Try to find in OpenAI-compatible providers
-            openai_provider = llm_config.get_provider_by_name(provider)
-            if openai_provider:
-                return {
-                    "base_url": openai_provider.base_url,
-                    "api_key": openai_provider.api_key
+            # Try to find in unified providers list
+            provider_obj = unified_config.get_provider_by_name(provider)
+            if provider_obj:
+                config = {
+                    "api_key": provider_obj.api_key,
+                    "base_url": provider_obj.base_url
                 }
-        
+                # Add provider-specific fields
+                if hasattr(provider_obj, 'host'):
+                    config["host"] = provider_obj.host
+                if hasattr(provider_obj, 'port'):
+                    config["port"] = provider_obj.port
+                return config
+
         return {}
     
     def _is_provider_available(self, provider: str) -> bool:
@@ -595,8 +583,8 @@ class SmartProviderSelector:
                 return is_available
         
         # Check if provider is disabled in preferences
-        preferences = self.config_manager.get_provider_preferences()
-        if not preferences.is_provider_enabled(provider):
+        unified_config = self.config_manager.get_unified_config()
+        if provider in unified_config.disabled_providers:
             self._availability_cache[provider] = (False, time.time())
             return False
         
@@ -746,12 +734,12 @@ class SmartProviderSelector:
                     available_models = self.provider_detection_service.get_available_models(manual_provider)
                     if available_models and manual_model not in available_models:
                         self.logger.warning(f"Manual model '{manual_model}' not available for provider '{manual_provider}', using provider default")
-                        manual_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast, "")
+                        manual_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_unified_config(), prefer_fast, "")
                 
                 selected_model = manual_model
             else:
                 # Auto-select model for manual provider
-                selected_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_provider_preferences(), prefer_fast, "")
+                selected_model = self._get_model_for_provider(manual_provider, task_type, self.config_manager.get_unified_config(), prefer_fast, "")
             
             # Create manual selection result
             attempts.append(ProviderAttempt(
@@ -846,8 +834,8 @@ class SmartProviderSelector:
     
     def get_optimal_model_for_task(self, provider: str, task_type: TaskType, prefer_fast: bool = False, task_name: str = "") -> Optional[str]:
         """Get the optimal model for a provider/task combination - Claude Generated"""
-        preferences = self.config_manager.get_provider_preferences()
-        return self._get_model_for_provider(provider, task_type, preferences, prefer_fast, task_name)
+        unified_config = self.config_manager.get_unified_config()
+        return self._get_model_for_provider(provider, task_type, unified_config, prefer_fast, task_name)
 
 
 # Convenience functions for easy integration

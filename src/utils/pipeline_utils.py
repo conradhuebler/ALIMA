@@ -101,9 +101,9 @@ class PipelineStepExecutor:
                 config = self.config_manager.load_config()
 
                 # Try to get default provider/model from config
-                if hasattr(config, 'llm') and hasattr(config.llm, 'default_provider'):
-                    config_provider = provider or config.llm.default_provider
-                    config_model = model or getattr(config.llm, 'default_model', None)
+                if hasattr(config, 'llm') and hasattr(config.unified_config, 'default_provider'):
+                    config_provider = provider or config.unified_config.default_provider
+                    config_model = model or getattr(config.unified_config, 'default_model', None)
 
                     if config_provider and config_model:
                         if self.logger:
@@ -143,7 +143,7 @@ class PipelineStepExecutor:
                             return provider.name
                 # Fallback to legacy config if available
                 elif hasattr(config, 'llm'):
-                    enabled_ollama = config.llm.get_enabled_ollama_providers()
+                    enabled_ollama = config.unified_config.get_enabled_ollama_providers()
                     if enabled_ollama:
                         return enabled_ollama[0].name
 

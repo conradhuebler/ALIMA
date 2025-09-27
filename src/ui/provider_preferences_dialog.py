@@ -18,7 +18,7 @@ from PyQt6.QtGui import QFont, QIcon
 from typing import Dict, List, Optional
 import logging
 
-from ..utils.config_manager import ConfigManager, ProviderPreferences
+from ..utils.config_manager import ConfigManager
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType
 
 
@@ -33,9 +33,9 @@ class ProviderPreferencesDialog(QDialog):
         self.logger = logging.getLogger(__name__)
         self.config_manager = ConfigManager()
         
-        # Load current preferences
-        self.preferences = self.config_manager.get_provider_preferences()
-        self.original_preferences = None  # For cancel functionality
+        # Load current unified config
+        self.unified_config = self.config_manager.get_unified_config()
+        self.original_preferred_provider = None  # For cancel functionality
         
         self.setWindowTitle("LLM Provider Preferences")
         self.setModal(True)
@@ -352,44 +352,38 @@ class ProviderPreferencesDialog(QDialog):
     def load_preferences(self):
         """Load current preferences into UI controls - Claude Generated"""
         try:
-            # Store original preferences for cancel functionality
-            import copy
-            self.original_preferences = copy.deepcopy(self.preferences)
-            
+            # Store original preferred provider for cancel functionality
+            self.original_preferred_provider = self.unified_config.preferred_provider
+
             # General tab
-            self.preferred_provider_combo.setCurrentText(self.preferences.preferred_provider)
+            self.preferred_provider_combo.setCurrentText(self.unified_config.preferred_provider)
             
-            # Load priority list
+            # Load priority list - using direct unified_config access
             self.priority_list.clear()
-            for provider in self.preferences.provider_priority:
+            for provider in self.unified_config.provider_priority:
                 self.priority_list.addItem(provider)
-            
+
             # Load disabled providers
             for provider, checkbox in self.disabled_checkboxes.items():
-                checkbox.setChecked(provider in self.preferences.disabled_providers)
-            
+                checkbox.setChecked(provider in self.unified_config.disabled_providers)
+
             # Fallback settings
-            self.auto_fallback_checkbox.setChecked(self.preferences.auto_fallback)
-            self.fallback_timeout_spin.setValue(self.preferences.fallback_timeout)
-            
-            # Task-specific tab
-            self.vision_provider_combo.setCurrentText(
-                self.preferences.vision_provider or "(use general preference)"
-            )
-            self.text_provider_combo.setCurrentText(
-                self.preferences.text_provider or "(use general preference)"
-            )
-            self.classification_provider_combo.setCurrentText(
-                self.preferences.classification_provider or "(use general preference)"
-            )
-            
-            # Models tab
+            self.auto_fallback_checkbox.setChecked(self.unified_config.auto_fallback)
+            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
+            # self.fallback_timeout_spin.setValue(self.unified_config.fallback_timeout)
+
+            # Task-specific tab - TODO: Implement task-specific provider overrides in UnifiedProviderConfig
+            # For now, disable these features as they need to be redesigned for the new architecture
+            self.vision_provider_combo.setEnabled(False)
+            self.text_provider_combo.setEnabled(False)
+            self.classification_provider_combo.setEnabled(False)
+
+            # Models tab - TODO: Implement preferred models per provider in UnifiedProviderConfig
             for provider, input_widget in self.model_inputs.items():
-                preferred_model = self.preferences.preferred_models.get(provider, "")
-                input_widget.setText(preferred_model)
-            
+                input_widget.setEnabled(False)  # Disable until proper implementation
+
             # Performance tab
-            self.prefer_faster_checkbox.setChecked(self.preferences.prefer_faster_models)
+            self.prefer_faster_checkbox.setChecked(self.unified_config.prefer_faster_models)
             
         except Exception as e:
             self.logger.error(f"Error loading preferences: {e}")
@@ -398,44 +392,34 @@ class ProviderPreferencesDialog(QDialog):
     def save_preferences(self):
         """Save UI settings to preferences object - Claude Generated"""
         try:
-            # General settings
-            self.preferences.preferred_provider = self.preferred_provider_combo.currentText()
-            
+            # General settings - direct unified_config access
+            self.unified_config.preferred_provider = self.preferred_provider_combo.currentText()
+
             # Priority list
-            self.preferences.provider_priority = []
+            self.unified_config.provider_priority = []
             for i in range(self.priority_list.count()):
                 item = self.priority_list.item(i)
-                self.preferences.provider_priority.append(item.text())
-            
+                self.unified_config.provider_priority.append(item.text())
+
             # Disabled providers
-            self.preferences.disabled_providers = []
+            self.unified_config.disabled_providers = []
             for provider, checkbox in self.disabled_checkboxes.items():
                 if checkbox.isChecked():
-                    self.preferences.disabled_providers.append(provider)
-            
+                    self.unified_config.disabled_providers.append(provider)
+
             # Fallback settings
-            self.preferences.auto_fallback = self.auto_fallback_checkbox.isChecked()
-            self.preferences.fallback_timeout = self.fallback_timeout_spin.value()
-            
-            # Task-specific settings
-            vision_text = self.vision_provider_combo.currentText()
-            self.preferences.vision_provider = None if vision_text == "(use general preference)" else vision_text
-            
-            text_text = self.text_provider_combo.currentText()
-            self.preferences.text_provider = None if text_text == "(use general preference)" else text_text
-            
-            classification_text = self.classification_provider_combo.currentText()
-            self.preferences.classification_provider = None if classification_text == "(use general preference)" else classification_text
-            
-            # Preferred models
-            self.preferences.preferred_models = {}
-            for provider, input_widget in self.model_inputs.items():
-                model_text = input_widget.text().strip()
-                if model_text:
-                    self.preferences.preferred_models[provider] = model_text
-            
+            self.unified_config.auto_fallback = self.auto_fallback_checkbox.isChecked()
+            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
+            # self.unified_config.fallback_timeout = self.fallback_timeout_spin.value()
+
+            # Task-specific settings - TODO: Implement in UnifiedProviderConfig
+            # Disabled for now pending proper architecture implementation
+
+            # Preferred models - TODO: Implement in UnifiedProviderConfig
+            # Disabled for now pending proper architecture implementation
+
             # Performance settings
-            self.preferences.prefer_faster_models = self.prefer_faster_checkbox.isChecked()
+            self.unified_config.prefer_faster_models = self.prefer_faster_checkbox.isChecked()
             
         except Exception as e:
             self.logger.error(f"Error saving preferences: {e}")
@@ -472,11 +456,11 @@ class ProviderPreferencesDialog(QDialog):
     def test_settings(self):
         """Test the current provider settings - Claude Generated"""
         try:
-            # Save current UI state to preferences temporarily
+            # Save current UI state to unified config temporarily
             self.save_preferences()
-            
-            # Update config manager with current preferences
-            success = self.config_manager.update_provider_preferences(self.preferences)
+
+            # Save config
+            success = self.config_manager.save_config()
             
             if not success:
                 QMessageBox.critical(self, "Test Failed", "Failed to apply preferences for testing.")
@@ -554,18 +538,22 @@ class ProviderPreferencesDialog(QDialog):
         )
         
         if result == QMessageBox.StandardButton.Yes:
-            # Create new default preferences
-            self.preferences = ProviderPreferences()
+            # Reset to default preferred provider
+            self.unified_config.preferred_provider = "ollama"
+            self.unified_config.provider_priority = ["ollama", "gemini", "anthropic", "openai"]
+            self.unified_config.disabled_providers = []
+            self.unified_config.auto_fallback = True
+            self.unified_config.prefer_faster_models = False
             self.load_preferences()
     
     def save_and_apply(self):
         """Save and apply the preferences - Claude Generated"""
         try:
-            # Save UI state to preferences
+            # Save UI state to unified config
             self.save_preferences()
-            
-            # Update config manager
-            success = self.config_manager.update_provider_preferences(self.preferences)
+
+            # Save config directly
+            success = self.config_manager.save_config()
             
             if success:
                 self.preferences_changed.emit()
@@ -591,9 +579,9 @@ class ProviderPreferencesDialog(QDialog):
             )
     
     def reject(self):
-        """Cancel and restore original preferences - Claude Generated"""
-        if self.original_preferences:
-            # Restore original preferences
-            self.config_manager.update_provider_preferences(self.original_preferences)
-        
+        """Cancel and restore original preferred provider - Claude Generated"""
+        if self.original_preferred_provider is not None:
+            # Restore original preferred provider
+            self.unified_config.preferred_provider = self.original_preferred_provider
+
         super().reject()

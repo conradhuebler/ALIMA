@@ -21,9 +21,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
 from PyQt6.QtGui import QFont, QPalette, QTextDocument, QTextCursor
 
-from ..utils.unified_provider_config import (
-    PipelineStepConfig, 
-    PipelineMode, 
+from ..utils.config_models import (
+    PipelineStepConfig,
+    PipelineMode,
     TaskType as UnifiedTaskType
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType

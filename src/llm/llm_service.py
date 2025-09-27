@@ -231,9 +231,9 @@ class LlmService(QObject):
         if provider in self.static_providers:
             # Update static provider API key in configuration
             if provider == "gemini":
-                self.alima_config.llm.gemini = api_key
+                self.alima_config.unified_config.gemini_api_key = api_key
             elif provider == "anthropic":
-                self.alima_config.llm.anthropic = api_key
+                self.alima_config.unified_config.anthropic_api_key = api_key
             
             # Save configuration
             self.config_manager.save_config(self.alima_config)
@@ -243,7 +243,7 @@ class LlmService(QObject):
             
         elif provider in self.openai_providers:
             # Update OpenAI-compatible provider API key
-            provider_obj = self.alima_config.llm.get_provider_by_name(provider)
+            provider_obj = self.alima_config.unified_config.get_provider_by_name(provider)
             if provider_obj:
                 provider_obj.api_key = api_key
                 
@@ -459,7 +459,7 @@ class LlmService(QObject):
         for provider in providers:
             if provider == "ollama":
                 # Check if we have any enabled Ollama providers
-                if self.alima_config.llm.get_enabled_ollama_providers():
+                if self.alima_config.unified_config.get_enabled_ollama_providers():
                     filtered_providers.append(provider)
                     continue
                 else:
@@ -495,27 +495,30 @@ class LlmService(QObject):
         Returns:
             True if provider is initialized, False if initialization failed
         """
-        self.logger.info(f"🔧 ENSURE_INIT: Checking initialization for provider '{provider}'")
+        # Map legacy provider names to actual configured providers - Claude Generated
+        mapped_provider = self._map_provider_name(provider)
+
+        self.logger.info(f"🔧 ENSURE_INIT: Checking initialization for provider '{mapped_provider}' (original: '{provider}')")
         self.logger.info(f"🔧 CLIENT_KEYS_AVAILABLE: {list(self.clients.keys())}")
 
-        if provider not in self.clients:
-            self.logger.warning(f"🔧 PROVIDER_NOT_IN_CLIENTS: '{provider}' not found in self.clients")
+        if mapped_provider not in self.clients:
+            self.logger.warning(f"🔧 PROVIDER_NOT_IN_CLIENTS: '{mapped_provider}' not found in self.clients")
             return False
 
         # If provider is already initialized (not a string), return True
-        if self.clients[provider] != "lazy_uninitialized":
-            self.logger.info(f"🔧 PROVIDER_ALREADY_INIT: '{provider}' is already initialized")
+        if self.clients[mapped_provider] != "lazy_uninitialized":
+            self.logger.info(f"🔧 PROVIDER_ALREADY_INIT: '{mapped_provider}' is already initialized")
             return True
 
         # Initialize the provider now
-        self.logger.info(f"🔧 LAZY_INITIALIZING: Starting lazy initialization for provider '{provider}'")
+        self.logger.info(f"🔧 LAZY_INITIALIZING: Starting lazy initialization for provider '{mapped_provider}'")
         try:
-            self._initialize_single_provider(provider)
-            success = provider in self.clients and self.clients[provider] != "lazy_uninitialized"
-            self.logger.info(f"🔧 LAZY_INIT_RESULT: '{provider}' initialization success: {success}")
+            self._initialize_single_provider(mapped_provider)
+            success = mapped_provider in self.clients and self.clients[mapped_provider] != "lazy_uninitialized"
+            self.logger.info(f"🔧 LAZY_INIT_RESULT: '{mapped_provider}' initialization success: {success}")
             return success
         except Exception as e:
-            self.logger.error(f"🔧 LAZY_INIT_FAILED: Failed to lazy-initialize provider {provider}: {e}")
+            self.logger.error(f"🔧 LAZY_INIT_FAILED: Failed to lazy-initialize provider {mapped_provider}: {e}")
             return False
 
     def initialize_providers(self, providers: List[str] = None):
@@ -534,7 +537,7 @@ class LlmService(QObject):
             # For backward compatibility, allow legacy "ollama" provider
             if provider == "ollama":
                 # Check if we have any enabled Ollama providers
-                if self.alima_config.llm.get_enabled_ollama_providers():
+                if self.alima_config.unified_config.get_enabled_ollama_providers():
                     filtered_providers.append(provider)
                     continue
                 else:
@@ -561,21 +564,18 @@ class LlmService(QObject):
         provider_list = []
 
         # 1. Handle static providers with API key check only (separate from model loading) - Claude Generated
-        if self.alima_config.llm.gemini:
+        if self.alima_config.unified_config.gemini_api_key:
             provider_list.append("gemini")
-        
-        if self.alima_config.llm.anthropic:
+
+        if self.alima_config.unified_config.anthropic_api_key:
             provider_list.append("anthropic")
 
-        # 2. Add enabled OpenAI-compatible providers
-        if hasattr(self.alima_config.llm, 'get_enabled_openai_providers'):
-            for provider in self.alima_config.llm.get_enabled_openai_providers():
-                provider_list.append(provider.name)
-
-        # 3. Add enabled Ollama providers
-        if hasattr(self.alima_config.llm, 'get_enabled_ollama_providers'):
-            for provider in self.alima_config.llm.get_enabled_ollama_providers():
-                provider_list.append(provider.name)
+        # 2. Add all enabled providers from unified config - Claude Generated
+        if hasattr(self.alima_config.unified_config, 'get_enabled_providers'):
+            for provider in self.alima_config.unified_config.get_enabled_providers():
+                # Add all enabled providers regardless of type
+                if provider.name not in provider_list:
+                    provider_list.append(provider.name)
             
         # Return a unique list while preserving order
         unique_providers = []
@@ -584,6 +584,32 @@ class LlmService(QObject):
                 unique_providers.append(provider)
                 
         return unique_providers
+
+    def _map_provider_name(self, provider: str) -> str:
+        """
+        Map legacy provider names to actual configured provider names - Claude Generated
+
+        Args:
+            provider: Original provider name (may be legacy "ollama")
+
+        Returns:
+            Actual configured provider name
+        """
+        if provider == "ollama":
+            # Map "ollama" to first available configured ollama provider
+            for ollama_provider in self.alima_config.unified_config.get_enabled_ollama_providers():
+                if ollama_provider.name in self.clients:
+                    self.logger.info(f"🔄 PROVIDER_MAPPING: 'ollama' → '{ollama_provider.name}'")
+                    return ollama_provider.name
+
+            # Fallback to localhost if no configured providers found
+            if "localhost" in self.clients:
+                self.logger.info(f"🔄 PROVIDER_MAPPING: 'ollama' → 'localhost' (fallback)")
+                return "localhost"
+
+            self.logger.warning(f"🔄 PROVIDER_MAPPING: No available ollama providers found for 'ollama'")
+
+        return provider  # Return original if no mapping needed
 
     def get_preferred_ollama_provider(self) -> Optional[str]:
         """
@@ -601,7 +627,7 @@ class LlmService(QObject):
             return "ollama"
         
         # Check for configured Ollama providers
-        for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
+        for ollama_provider in self.alima_config.unified_config.get_enabled_ollama_providers():
             provider_key = ollama_provider.name  # Use the actual provider name directly - Claude Generated
             if provider_key in available:
                 return provider_key
@@ -773,6 +799,9 @@ class LlmService(QObject):
         Returns:
             Generated text response (str) or a generator if streaming.
         """
+        # Map legacy provider names to actual configured providers - Claude Generated
+        provider = self._map_provider_name(provider)
+
         # Reset cancellation state
         self.cancel_requested = False
         self.stream_running = True
@@ -1910,15 +1939,15 @@ class LlmService(QObject):
             provider_config = None
             
             # Check if it's an Ollama provider
-            if hasattr(self.config_manager.config.llm, 'ollama_providers'):
-                for provider in self.config_manager.config.llm.ollama_providers:
+            if hasattr(self.config_manager.config.unified_config, 'ollama_providers'):
+                for provider in self.config_manager.config.unified_config.ollama_providers:
                     if provider.name == provider_name:
                         provider_config = provider
                         break
             
             # Check if it's an OpenAI-compatible provider
-            if not provider_config and hasattr(self.config_manager.config.llm, 'openai_compatible_providers'):
-                for provider in self.config_manager.config.llm.openai_compatible_providers:
+            if not provider_config and hasattr(self.config_manager.config.unified_config, 'openai_compatible_providers'):
+                for provider in self.config_manager.config.unified_config.openai_compatible_providers:
                     if provider.name == provider_name:
                         provider_config = provider
                         break
@@ -2088,15 +2117,15 @@ class LlmService(QObject):
             True if API key is configured, False otherwise
         """
         if provider == "gemini":
-            return bool(self.alima_config.llm.gemini)
+            return bool(self.alima_config.unified_config.gemini_api_key)
         elif provider == "anthropic":
-            return bool(self.alima_config.llm.anthropic)
-        elif hasattr(self.alima_config.llm, 'get_enabled_openai_providers'):
-            for openai_provider in self.alima_config.llm.get_enabled_openai_providers():
+            return bool(self.alima_config.unified_config.anthropic_api_key)
+        elif hasattr(self.alima_config.unified_config, 'get_enabled_openai_providers'):
+            for openai_provider in self.alima_config.unified_config.get_enabled_openai_providers():
                 if openai_provider.name == provider:
                     return bool(openai_provider.api_key)
-        elif hasattr(self.alima_config.llm, 'get_enabled_ollama_providers'):
-            for ollama_provider in self.alima_config.llm.get_enabled_ollama_providers():
+        elif hasattr(self.alima_config.unified_config, 'get_enabled_ollama_providers'):
+            for ollama_provider in self.alima_config.unified_config.get_enabled_ollama_providers():
                 if ollama_provider.name == provider:
                     return ollama_provider.enabled
         return False
@@ -2198,14 +2227,14 @@ class LlmService(QObject):
         config = self.config_manager.load_config()
         
         # Check Ollama providers
-        if hasattr(config.llm, 'ollama_providers'):
-            for provider in config.llm.ollama_providers:
+        if hasattr(config.unified_config, 'ollama_providers'):
+            for provider in config.unified_config.ollama_providers:
                 if provider.enabled:
                     results[provider.name] = self.is_provider_reachable(provider.name, force_check=True)
         
         # Check OpenAI-compatible providers
-        if hasattr(config.llm, 'openai_compatible_providers'):
-            for provider in config.llm.openai_compatible_providers:
+        if hasattr(config.unified_config, 'openai_compatible_providers'):
+            for provider in config.unified_config.openai_compatible_providers:
                 if provider.enabled:
                     results[provider.name] = self.is_provider_reachable(provider.name, force_check=True)
         
