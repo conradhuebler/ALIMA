@@ -41,7 +41,7 @@ class ProviderTestWorker(QThread):
         try:
             provider_name = self.provider.name
             
-            if self.provider.type == "ollama":
+            if self.provider.provider_type == "ollama":
                 # Test Ollama connection
                 import requests
                 base_url = self.provider.get_base_url()
@@ -54,9 +54,9 @@ class ProviderTestWorker(QThread):
                 else:
                     self.test_completed.emit(provider_name, False, f"HTTP {response.status_code}")
                     
-            elif self.provider.type == "openai_compatible":
+            elif self.provider.provider_type == "openai_compatible":
                 # Test OpenAI-compatible connection
-                api_key = self.provider.connection_config.get("api_key", "")
+                api_key = self.provider.api_key
                 if not api_key:
                     self.test_completed.emit(provider_name, False, "No API key configured")
                     return
@@ -64,16 +64,16 @@ class ProviderTestWorker(QThread):
                 # For now, just validate configuration
                 self.test_completed.emit(provider_name, True, "Configuration valid (no test call)")
                 
-            elif self.provider.type in ["gemini", "anthropic"]:
+            elif self.provider.provider_type in ["gemini", "anthropic"]:
                 # Test static provider API keys
-                api_key = self.provider.connection_config.get("api_key", "")
+                api_key = self.provider.api_key
                 if not api_key:
                     self.test_completed.emit(provider_name, False, "No API key configured")
                 else:
                     self.test_completed.emit(provider_name, True, "API key configured (no test call)")
             
             else:
-                self.test_completed.emit(provider_name, False, f"Unknown provider type: {self.provider.type}")
+                self.test_completed.emit(provider_name, False, f"Unknown provider type: {self.provider.provider_type}")
                 
         except Exception as e:
             self.test_completed.emit(self.provider.name, False, f"Test failed: {str(e)}")
@@ -339,34 +339,32 @@ class ProviderEditDialog(QDialog):
         self.name_edit.setText(self.provider.name)
         self.description_edit.setText(self.provider.description)
         self.enabled_checkbox.setChecked(self.provider.enabled)
-        self.type_combo.setCurrentText(self.provider.type)
+        self.type_combo.setCurrentText(self.provider.provider_type)
         
-        # Load capabilities
-        capabilities_text = "\n".join(self.provider.capabilities)
+        # Load capabilities (UnifiedProvider doesn't have capabilities field yet, so leave empty)
+        capabilities_text = ""  # TODO: Add capabilities field to UnifiedProvider if needed
         self.capabilities_text.setPlainText(capabilities_text)
         
-        # Load connection configuration
-        config = self.provider.connection_config
-        
-        if self.provider.type == "ollama":
+        # Load connection configuration from provider attributes
+        if self.provider.provider_type == "ollama":
             if hasattr(self, 'host_edit'):
-                self.host_edit.setText(config.get("host", "localhost"))
+                self.host_edit.setText(self.provider.host or "localhost")
             if hasattr(self, 'port_spinbox'):
-                self.port_spinbox.setValue(config.get("port", 11434))
+                self.port_spinbox.setValue(self.provider.port or 11434)
             if hasattr(self, 'ssl_checkbox'):
-                self.ssl_checkbox.setChecked(config.get("use_ssl", False))
+                self.ssl_checkbox.setChecked(self.provider.use_ssl or False)
             if hasattr(self, 'api_key_edit'):
-                self.api_key_edit.setText(config.get("api_key", ""))
-                
-        elif self.provider.type == "openai_compatible":
+                self.api_key_edit.setText(self.provider.api_key or "")
+
+        elif self.provider.provider_type == "openai_compatible":
             if hasattr(self, 'base_url_edit'):
-                self.base_url_edit.setText(config.get("base_url", ""))
+                self.base_url_edit.setText(self.provider.base_url or "")
             if hasattr(self, 'api_key_edit'):
-                self.api_key_edit.setText(config.get("api_key", ""))
-                
-        elif self.provider.type in ["gemini", "anthropic"]:
+                self.api_key_edit.setText(self.provider.api_key or "")
+
+        elif self.provider.provider_type in ["gemini", "anthropic"]:
             if hasattr(self, 'api_key_edit'):
-                self.api_key_edit.setText(config.get("api_key", ""))
+                self.api_key_edit.setText(self.provider.api_key or "")
     
     def get_provider_data(self) -> UnifiedProvider:
         """Extract provider data from form fields - Claude Generated"""
@@ -398,11 +396,17 @@ class ProviderEditDialog(QDialog):
         
         return UnifiedProvider(
             name=self.name_edit.text() or f"New {provider_type.title()} Provider",
-            type=provider_type,
-            connection_config=connection_config,
-            capabilities=capabilities,
+            provider_type=provider_type,
             enabled=self.enabled_checkbox.isChecked(),
-            description=self.description_edit.text()
+            api_key=connection_config.get("api_key", ""),
+            base_url=connection_config.get("base_url", ""),
+            preferred_model="",  # Can be set later via model selection
+            description=self.description_edit.text(),
+            # Ollama specific fields
+            host=connection_config.get("host", ""),
+            port=connection_config.get("port", 11434),
+            use_ssl=connection_config.get("use_ssl", False),
+            connection_type=connection_config.get("connection_type", "native_client")
         )
 
 
@@ -750,10 +754,10 @@ class UnifiedProviderTab(QWidget):
 
         # Add Gemini from LLM config if configured and not already present
         gemini_conditions = [
-            hasattr(self.config.unified_config, 'gemini'),
-            self.config.unified_config.gemini,
-            self.config.unified_config.gemini.strip() if self.config.unified_config.gemini else False,
-            self.config.unified_config.gemini != "your_gemini_api_key_here" if self.config.unified_config.gemini else False,
+            hasattr(self.config.unified_config, 'gemini_api_key'),
+            self.config.unified_config.gemini_api_key,
+            self.config.unified_config.gemini_api_key.strip() if self.config.unified_config.gemini_api_key else False,
+            self.config.unified_config.gemini_api_key != "your_gemini_api_key_here" if self.config.unified_config.gemini_api_key else False,
             "gemini" not in existing_names
         ]
         self.logger.critical(f"🔍 GEMINI_CONDITIONS: {gemini_conditions}")
@@ -761,9 +765,8 @@ class UnifiedProviderTab(QWidget):
         if all(gemini_conditions):
             gemini_provider = UnifiedProvider(
                 name="gemini",
-                type="gemini",
-                connection_config={"api_key": self.config.unified_config.gemini},
-                capabilities=["vision", "text"],
+                provider_type="gemini",
+                api_key=self.config.unified_config.gemini_api_key,
                 enabled=True,
                 description="Gemini from LLM configuration"
             )
@@ -779,10 +782,10 @@ class UnifiedProviderTab(QWidget):
 
         # Add Anthropic from LLM config if configured and not already present
         anthropic_conditions = [
-            hasattr(self.config.unified_config, 'anthropic'),
-            self.config.unified_config.anthropic,
-            self.config.unified_config.anthropic.strip() if self.config.unified_config.anthropic else False,
-            self.config.unified_config.anthropic != "your_anthropic_api_key_here" if self.config.unified_config.anthropic else False,
+            hasattr(self.config.unified_config, 'anthropic_api_key'),
+            self.config.unified_config.anthropic_api_key,
+            self.config.unified_config.anthropic_api_key.strip() if self.config.unified_config.anthropic_api_key else False,
+            self.config.unified_config.anthropic_api_key != "your_anthropic_api_key_here" if self.config.unified_config.anthropic_api_key else False,
             "anthropic" not in existing_names
         ]
         self.logger.critical(f"🔍 ANTHROPIC_CONDITIONS: {anthropic_conditions}")
@@ -790,9 +793,8 @@ class UnifiedProviderTab(QWidget):
         if all(anthropic_conditions):
             anthropic_provider = UnifiedProvider(
                 name="anthropic",
-                type="anthropic",
-                connection_config={"api_key": self.config.unified_config.anthropic},
-                capabilities=["text"],
+                provider_type="anthropic",
+                api_key=self.config.unified_config.anthropic_api_key,
                 enabled=True,
                 description="Anthropic from LLM configuration"
             )
@@ -828,7 +830,7 @@ class UnifiedProviderTab(QWidget):
             self.provider_table.setItem(row, 0, name_item)
             
             # Type
-            type_item = QTableWidgetItem(provider.type.title())
+            type_item = QTableWidgetItem(provider.provider_type.title())
             self.provider_table.setItem(row, 1, type_item)
             
             # Status and live model detection
@@ -839,7 +841,7 @@ class UnifiedProviderTab(QWidget):
                 try:
                     # Check if provider is available
                     available_providers = detection_service.get_available_providers()
-                    is_available = provider.name in available_providers or provider.type in available_providers
+                    is_available = provider.name in available_providers or provider.provider_type in available_providers
                     
                     if is_available:
                         status_text = "✅ Available"
@@ -847,7 +849,7 @@ class UnifiedProviderTab(QWidget):
                         # Try to detect models
                         detected_models = detection_service.get_available_models(provider.name)
                         if not detected_models:
-                            detected_models = detection_service.get_available_models(provider.type)
+                            detected_models = detection_service.get_available_models(provider.provider_type)
                         
                         if detected_models:
                             # Update provider's available models
@@ -910,18 +912,18 @@ class UnifiedProviderTab(QWidget):
         """Get API key status for a provider - Claude Generated"""
         try:
             # For Ollama providers, API key is not required
-            if provider.type == "ollama":
+            if provider.provider_type == "ollama":
                 return "➖ N/A"
 
             # For API-based providers, check connection_config for api_key first
-            if provider.type in ["gemini", "anthropic", "openai_compatible"]:
-                api_key = provider.connection_config.get("api_key", "")
+            if provider.provider_type in ["gemini", "anthropic", "openai_compatible"]:
+                api_key = provider.api_key or ""
 
                 # Fallback to legacy LLM config for Gemini/Anthropic if no unified config
                 if not api_key or api_key.strip() == "":
-                    if provider.type == "gemini":
+                    if provider.provider_type == "gemini":
                         api_key = getattr(self.config.unified_config, 'gemini', '')
-                    elif provider.type == "anthropic":
+                    elif provider.provider_type == "anthropic":
                         api_key = getattr(self.config.unified_config, 'anthropic', '')
 
                 if api_key and api_key.strip() and api_key != "your_api_key_here":
@@ -1055,17 +1057,10 @@ class UnifiedProviderTab(QWidget):
                 config.unified_config.anthropic_preferred_model = model
                 updated = True
             
-            # Update OpenAI-compatible providers
-            for openai_provider in config.unified_config.openai_compatible_providers:
-                if openai_provider.name == provider:
-                    openai_provider.preferred_model = model
-                    updated = True
-                    break
-            
-            # Update Ollama providers
-            for ollama_provider in config.unified_config.ollama_providers:
-                if ollama_provider.name == provider:
-                    ollama_provider.preferred_model = model
+            # Update providers in unified provider list
+            for unified_provider in config.unified_config.providers:
+                if unified_provider.name == provider:
+                    unified_provider.preferred_model = model
                     updated = True
                     break
             
@@ -1107,15 +1102,10 @@ class UnifiedProviderTab(QWidget):
                 self.logger.critical(f"🔍 GET_PREF_ANTHROPIC: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}' -> '{result}'")
                 return result
             
-            # Check OpenAI-compatible providers
-            for openai_provider in config.unified_config.openai_compatible_providers:
-                if openai_provider.name == provider:
-                    return openai_provider.preferred_model or ""
-            
-            # Check Ollama providers
-            for ollama_provider in config.unified_config.ollama_providers:
-                if ollama_provider.name == provider:
-                    return ollama_provider.preferred_model or ""
+            # Check providers in unified provider list
+            for unified_provider in config.unified_config.providers:
+                if unified_provider.name == provider:
+                    return unified_provider.preferred_model or ""
             
             return ""
         except Exception as e:
@@ -1525,7 +1515,7 @@ class UnifiedProviderTab(QWidget):
             self._load_configuration()
             self.config_changed.emit()
             
-            self.logger.info(f"Added new provider: {new_provider.name} ({new_provider.type})")
+            self.logger.info(f"Added new provider: {new_provider.name} ({new_provider.provider_type})")
     
     def _edit_provider(self):
         """Edit selected provider - Claude Generated"""
@@ -1587,7 +1577,7 @@ class UnifiedProviderTab(QWidget):
                     # Try to detect models for this provider
                     detected_models = detection_service.get_available_models(provider.name)
                     if not detected_models:
-                        detected_models = detection_service.get_available_models(provider.type)
+                        detected_models = detection_service.get_available_models(provider.provider_type)
                     
                     if detected_models:
                         old_count = len(provider.available_models)
@@ -1636,11 +1626,11 @@ class UnifiedProviderTab(QWidget):
         # Test each provider (simplified for now)
         for provider in enabled_providers:
             # Simulate test result
-            if provider.type == "ollama":
+            if provider.provider_type == "ollama":
                 success = True
                 message = "Connection successful (simulated)"
             else:
-                success = len(provider.connection_config.get("api_key", "")) > 0
+                success = len(provider.api_key or "") > 0
                 message = "API key configured" if success else "No API key configured"
 
             status_icon = "✅" if success else "❌"
@@ -1684,8 +1674,14 @@ class UnifiedProviderTab(QWidget):
         try:
             # Update config from UI
             self._update_config_from_ui()
-            
+
+            # 🔍 DEBUG: Check what GUI thinks it has before save
+            self.logger.critical(f"🔍 GUI_SAVE_START: unified_config has {len(self.unified_config.providers)} providers")
+            for i, p in enumerate(self.unified_config.providers):
+                self.logger.critical(f"🔍 GUI_PROVIDER_{i}: {p.name} ({p.provider_type})")
+
             # Save provider configurations via unified config manager
+            self.logger.critical(f"🔍 CALLING_SAVE_UNIFIED_CONFIG with {len(self.unified_config.providers)} providers")
             unified_success = self.config_manager.save_unified_config(self.unified_config)
             
             # Save task preferences via main config (root-level) - Claude Generated
@@ -1727,20 +1723,24 @@ class UnifiedProviderTab(QWidget):
     def _auto_save(self):
         """Auto-save configuration periodically - Claude Generated"""
         try:
+            # 🔍 DEBUG: Track auto-save activity
+            self.logger.critical(f"🔍 AUTO_SAVE_START: unified_config has {len(self.unified_config.providers)} providers")
+
             # CRITICAL FIX: Skip task preference auto-save if user is actively editing - Claude Generated
             if self.task_ui_dirty and self.current_editing_task:
-                self.logger.debug(f"Skipping task preference auto-save while editing task: {self.current_editing_task}")
+                self.logger.critical(f"🔍 AUTO_SAVE_PARTIAL: Skipping task preference auto-save while editing task: {self.current_editing_task}")
                 # Only save unified config, not task preferences during active editing
                 self.config_manager.save_unified_config(self.unified_config)
             else:
                 # Safe to auto-save everything
+                self.logger.critical(f"🔍 AUTO_SAVE_FULL: Updating config from UI and saving both unified and main config")
                 self._update_config_from_ui()
                 # Save both unified config and task preferences
                 self.config_manager.save_unified_config(self.unified_config)
                 self.config_manager.save_config(self.config)
-                self.logger.debug("Auto-saved unified provider configuration and task preferences")
+                self.logger.critical("🔍 AUTO_SAVE_COMPLETE: Auto-saved unified provider configuration and task preferences")
         except Exception as e:
-            self.logger.warning(f"Auto-save failed: {e}")
+            self.logger.critical(f"🔍 AUTO_SAVE_ERROR: Auto-save failed: {e}")
     
     def _save_current_task_preferences(self, explicit_task_name: str = None):
         """Save current task priority lists to ProviderPreferences - Claude Generated"""

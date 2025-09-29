@@ -1911,7 +1911,7 @@ class ComprehensiveSettingsDialog(QDialog):
     def _load_providers_list(self):
         """Load OpenAI-compatible providers into the list widget - Claude Generated"""
         self.providers_list.clear()
-        for provider in self.current_config.unified_config.openai_compatible_providers:
+        for provider in [p for p in self.current_config.unified_config.providers if p.provider_type == "openai_compatible"]:
             status = "✅" if provider.enabled else "❌"
             item_text = f"{status} {provider.name} - {provider.base_url}"
             if provider.description:
@@ -2308,8 +2308,8 @@ class ComprehensiveSettingsDialog(QDialog):
         """Extract configuration from UI elements - Claude Generated"""
         config = AlimaConfig()
         
-        # Database configuration
-        config.database = DatabaseConfig(
+        # Database configuration - Claude Generated fix for expanded DatabaseConfig
+        config.database_config = DatabaseConfig(
             db_type=self.db_type_combo.currentText(),
             sqlite_path=self.sqlite_path.text(),
             host=self.mysql_host.text(),
@@ -2331,15 +2331,15 @@ class ComprehensiveSettingsDialog(QDialog):
         for provider in config.unified_config.providers:
             self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_UNIFIED: {provider.name} ({provider.provider_type}).preferred_model='{provider.preferred_model}'")
         
-        # Catalog configuration
-        config.catalog = CatalogConfig(
+        # Catalog configuration - Claude Generated fix for expanded config structure
+        config.catalog_config = CatalogConfig(
             catalog_token=self.catalog_token.text(),
             catalog_search_url=self.catalog_search_url.text(),
             catalog_details_url=self.catalog_details_url.text()
         )
-        
-        # System configuration
-        config.system = SystemConfig(
+
+        # System configuration - Claude Generated fix for expanded config structure
+        config.system_config = SystemConfig(
             debug=self.debug_mode.isChecked(),
             log_level=self.log_level.currentText(),
             cache_dir=self.cache_dir.text(),
@@ -2347,8 +2347,8 @@ class ComprehensiveSettingsDialog(QDialog):
             temp_dir=self.temp_dir.text()
         )
 
-        # Preserve task preferences from fresh config - Claude Generated
-        config.unified_config.task_preferences = fresh_config.unified_config.task_preferences
+        # Preserve task preferences from current config - Claude Generated
+        config.unified_config.task_preferences = self.current_config.unified_config.task_preferences
 
         return config
     

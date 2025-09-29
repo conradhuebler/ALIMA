@@ -1,5 +1,4 @@
 import unittest
-import sqlite3
 import tempfile
 import os
 from datetime import datetime, timedelta
@@ -15,19 +14,17 @@ class TestCache(unittest.TestCase):
 
     def tearDown(self):
         """Aufräumen nach jedem Test"""
-        self.cache_manager.conn.close()
+        self.cache_manager.db_manager.close_connection()
         os.unlink(self.temp_db.name)
 
     def test_cache_creation(self):
         """Testet die Erstellung der Cache-Datenbank"""
         # Überprüfe, ob die Tabellen existieren
-        cursor = self.cache_manager.conn.cursor()
-        
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = cursor.fetchall()
-        
-        self.assertIn(('searches',), tables)
-        self.assertIn(('cache_stats',), tables)
+        tables = self.cache_manager.db_manager.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
+        table_names = [table['name'] for table in tables]
+
+        self.assertIn('searches', table_names)
+        self.assertIn('cache_stats', table_names)
 
     def test_cache_results(self):
         """Testet das Cachen von Suchergebnissen"""

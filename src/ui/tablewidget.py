@@ -1,44 +1,57 @@
 import sys
-import sqlite3
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
+    QDialog,
     QTableView,
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
     QLabel,
     QHeaderView,
+    QComboBox,
+    QDialogButtonBox,
 )
 from PyQt6.QtSql import QSqlDatabase, QSqlTableModel, QSqlQuery
 from PyQt6.QtCore import Qt
 
+from ..core.database_manager import DatabaseManager
+from ..utils.config_models import DatabaseConfig
+
 
 class TableWidget(QWidget):
-    """Ein Widget, das Daten aus einer SQLite-Datenbank in einer Tabelle anzeigt."""
+    """Modern database table viewer using DatabaseManager - Claude Generated"""
 
-    def __init__(self, db_path, table_name, parent=None):
+    def __init__(self, database_config: DatabaseConfig = None, table_name: str = "gnd_entries", parent=None):
         """
-        Initialisiert das SQLite-Tabellen-Widget.
+        Initialize modern database table widget with DatabaseManager integration.
 
         Args:
-            db_path (str): Der Pfad zur SQLite-Datenbankdatei
-            table_name (str): Der Name der anzuzeigenden Tabelle
-            parent (QWidget, optional): Das Elternobjekt
+            database_config: Database configuration (uses default if None)
+            table_name: Initial table to display
+            parent: Parent widget
         """
         super().__init__(parent)
 
-        self.db_path = db_path
-        self.table_name = table_name
+        # Use default SQLite config if none provided
+        if database_config is None:
+            database_config = DatabaseConfig(db_type='sqlite', sqlite_path='alima_knowledge.db')
 
-        # Datenbankverbindung einrichten
-        self.db = QSqlDatabase.addDatabase("QSQLITE")
-        self.db.setDatabaseName(db_path)
+        self.database_config = database_config
+        self.current_table = table_name
 
-        if not self.db.open():
-            raise Exception(
-                f"Fehler beim Öffnen der Datenbank: {self.db.lastError().text()}"
-            )
+        # Available tables in the unified knowledge database
+        self.available_tables = {
+            "gnd_entries": "GND-Einträge (Facts)",
+            "classifications": "Klassifikationen (DK/RVK)",
+            "search_mappings": "Such-Mappings (Cache)"
+        }
+
+        # Initialize DatabaseManager
+        self.db_manager = DatabaseManager(database_config, f"tablewidget_{id(self)}")
+
+        # Get the Qt SQL connection for QSqlTableModel
+        self.db_connection = self.db_manager.get_connection()
 
         # Layout einrichten
         self.setup_ui()
@@ -47,17 +60,32 @@ class TableWidget(QWidget):
         self.load_table_data()
 
     def setup_ui(self):
-        """Richtet das User Interface des Widgets ein."""
+        """Setup modern UI with table selection - Claude Generated"""
         # Hauptlayout (vertikal)
         main_layout = QVBoxLayout(self)
 
-        # Layout für Überschrift und Info
+        # Header with table selection
         header_layout = QHBoxLayout()
-        self.title_label = QLabel(f"Tabelle: {self.table_name}")
+
+        # Table selection dropdown
+        self.table_selector = QComboBox()
+        for table_key, table_label in self.available_tables.items():
+            self.table_selector.addItem(table_label, table_key)
+
+        # Set current table as selected
+        current_index = list(self.available_tables.keys()).index(self.current_table)
+        self.table_selector.setCurrentIndex(current_index)
+        self.table_selector.currentTextChanged.connect(self.on_table_changed)
+
+        # Title and info labels
+        self.title_label = QLabel(f"📊 Datenbank: {self.database_config.db_type.upper()}")
         self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         self.info_label = QLabel("")
-        header_layout.addWidget(self.title_label)
+
+        header_layout.addWidget(QLabel("Tabelle:"))
+        header_layout.addWidget(self.table_selector)
         header_layout.addStretch()
+        header_layout.addWidget(self.title_label)
         header_layout.addWidget(self.info_label)
         main_layout.addLayout(header_layout)
 
@@ -80,8 +108,8 @@ class TableWidget(QWidget):
         self.edit_button = QPushButton("Bearbeiten")
         self.delete_button = QPushButton("Löschen")
 
-        # Buttons zum Layout hinzufügen
-        #     button_layout.addWidget(self.refresh_button)
+        # Buttons zum Layout hinzufügen - Claude Generated
+        button_layout.addWidget(self.refresh_button)
         #     button_layout.addWidget(self.add_button)
         #     button_layout.addWidget(self.edit_button)
         #     button_layout.addWidget(self.delete_button)
@@ -89,28 +117,125 @@ class TableWidget(QWidget):
 
         main_layout.addLayout(button_layout)
 
+    def on_table_changed(self):
+        """Handle table selection change - Claude Generated"""
+        # Get selected table key from combo box
+        selected_index = self.table_selector.currentIndex()
+        self.current_table = self.table_selector.itemData(selected_index)
+        self.load_table_data()
+
     def load_table_data(self):
-        """Lädt die Daten der SQLite-Tabelle in die TableView."""
-        # Modell für die Tabelle erstellen
-        self.model = QSqlTableModel(self, self.db)
-        self.model.setTable(self.table_name)
+        """Load database table data using DatabaseManager - Claude Generated"""
+        try:
+            # Create model with our database connection
+            self.model = QSqlTableModel(self, self.db_connection)
+            self.model.setTable(self.current_table)
 
-        # Editierverhalten festlegen (OnManualSubmit = Änderungen werden nicht sofort übernommen)
-        self.model.setEditStrategy(QSqlTableModel.EditStrategy.OnManualSubmit)
+            # Set edit strategy (read-only for safety)
+            self.model.setEditStrategy(QSqlTableModel.EditStrategy.OnManualSubmit)
 
-        # Daten abrufen
-        self.model.select()
+            # Load data
+            if not self.model.select():
+                # Table might not exist yet, show empty model
+                self.info_label.setText("Tabelle ist leer oder existiert nicht")
+                return
 
-        # Anzahl der Datensätze anzeigen
-        row_count = self.model.rowCount()
-        self.info_label.setText(f"{row_count} Datensätze")
+            # Set user-friendly column headers
+            self.set_column_headers()
 
-        # Modell der TableView zuweisen
-        self.table_view.setModel(self.model)
+            # Display row count
+            row_count = self.model.rowCount()
+            self.info_label.setText(f"{row_count:,} Datensätze")
+
+            # Assign model to view
+            self.table_view.setModel(self.model)
+
+            # Auto-resize columns to content
+            self.table_view.resizeColumnsToContents()
+
+        except Exception as e:
+            self.info_label.setText(f"Fehler beim Laden: {str(e)}")
+
+    def set_column_headers(self):
+        """Set user-friendly column headers - Claude Generated"""
+        if self.current_table == "gnd_entries":
+            headers = {
+                "gnd_id": "GND-ID",
+                "title": "Titel",
+                "description": "Beschreibung",
+                "synonyms": "Synonyme",
+                "ddcs": "DDC-Codes",
+                "ppn": "PPN",
+                "created_at": "Erstellt",
+                "updated_at": "Aktualisiert"
+            }
+        elif self.current_table == "classifications":
+            headers = {
+                "code": "Code",
+                "type": "Typ",
+                "title": "Titel",
+                "description": "Beschreibung",
+                "parent_code": "Übergeordnet",
+                "created_at": "Erstellt"
+            }
+        elif self.current_table == "search_mappings":
+            headers = {
+                "search_term": "Suchbegriff",
+                "normalized_term": "Normalisiert",
+                "suggester_type": "Suggester",
+                "found_gnd_ids": "Gefundene GND-IDs",
+                "found_classifications": "Klassifikationen",
+                "result_count": "Anzahl Ergebnisse",
+                "last_updated": "Zuletzt aktualisiert",
+                "created_at": "Erstellt"
+            }
+        else:
+            return  # No custom headers
+
+        # Apply headers
+        for i in range(self.model.columnCount()):
+            field_name = self.model.record().fieldName(i)
+            if field_name in headers:
+                self.model.setHeaderData(i, Qt.Orientation.Horizontal, headers[field_name])
 
     def closeEvent(self, event):
-        """Wird aufgerufen, wenn das Widget geschlossen wird."""
-        # Datenbankverbindung schließen
-        self.db.close()
-        QSqlDatabase.removeDatabase(QSqlDatabase.defaultConnection)
+        """Clean up database connection - Claude Generated"""
+        # Close DatabaseManager connection
+        if hasattr(self, 'db_manager'):
+            self.db_manager.close_connection()
+        super().closeEvent(event)
+
+
+class DatabaseViewerDialog(QDialog):
+    """Modal dialog for database viewing with proper Qt patterns - Claude Generated"""
+
+    def __init__(self, database_config: DatabaseConfig = None, parent=None):
+        """
+        Initialize database viewer dialog.
+
+        Args:
+            database_config: Database configuration
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self.setWindowTitle("📊 ALIMA Datenbank Viewer")
+        self.setMinimumSize(800, 600)
+        self.resize(1000, 700)  # Better default size
+
+        # Create layout
+        layout = QVBoxLayout(self)
+
+        # Create TableWidget
+        self.table_widget = TableWidget(database_config, parent=self)
+        layout.addWidget(self.table_widget)
+
+        # Add standard dialog buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        button_box.rejected.connect(self.reject)  # Proper QDialog pattern
+        layout.addWidget(button_box)
+
+    def closeEvent(self, event):
+        """Clean up when dialog is closed - Claude Generated"""
+        if hasattr(self, 'table_widget'):
+            self.table_widget.closeEvent(event)
         super().closeEvent(event)

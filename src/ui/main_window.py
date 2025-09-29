@@ -52,7 +52,7 @@ from ..utils.config import Config
 from .crossref_tab import CrossrefTab
 from .analysis_review_tab import AnalysisReviewTab
 from .ubsearch_tab import UBSearchTab
-from .tablewidget import TableWidget
+from .tablewidget import TableWidget, DatabaseViewerDialog
 from .image_analysis_tab import ImageAnalysisTab
 from .styles import get_main_stylesheet
 from .global_status_bar import GlobalStatusBar
@@ -800,6 +800,24 @@ class MainWindow(QMainWindow):
 
         editor = PromptEditorDialog(self)
         editor.exec()
+
+    def show_database_viewer(self):
+        """Open database viewer dialog - Claude Generated"""
+        try:
+            # Get current database configuration
+            config_manager = ConfigManager()
+            database_config = config_manager.get_database_config()
+
+            # Create and execute modal dialog (automatic memory management)
+            dialog = DatabaseViewerDialog(database_config, self)
+            dialog.exec()  # Modal dialog with automatic cleanup
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Öffnen des Datenbank-Viewers:\n{str(e)}"
+            )
 
     def closeEvent(self, event):
         """Wird beim Schließen des Fensters aufgerufen"""
@@ -1741,6 +1759,10 @@ class MainWindow(QMainWindow):
 
         # Cache-Menü
         cache_menu = menubar.addMenu("&Cache")
+
+        # Database viewer action - Claude Generated
+        db_viewer_action = cache_menu.addAction("📊 &Datenbank anzeigen")
+        db_viewer_action.triggered.connect(self.show_database_viewer)
 
         # Update-Menü hinzufügen/aktualisieren
         update_menu = menubar.addMenu("&Updates")

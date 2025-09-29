@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union, List, Tuple
 from dataclasses import dataclass, asdict, field
 import logging
-
+from enum import Enum
 # Import centralized data models
 from .config_models import (
     AlimaConfig, DatabaseConfig, CatalogConfig, PromptConfig,
@@ -144,6 +144,13 @@ class ProviderDetectionService:
 
         return capabilities
 
+
+class AlimaConfigEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle specific types like Enum."""
+    def default(self, o):
+        if isinstance(o, Enum):
+            return o.value
+        return super().default(o)
 
 class ConfigManager:
     """Unified ALIMA configuration manager with centralized provider management - Claude Generated"""
@@ -320,15 +327,62 @@ class ConfigManager:
             unified_config['gemini_api_key'] = llm_data.get('gemini', '')
             unified_config['anthropic_api_key'] = llm_data.get('anthropic', '')
 
+            # Initialize providers list
+            if 'providers' not in unified_config:
+                unified_config['providers'] = []
+
             # Migrate Ollama providers
             if 'ollama_providers' in llm_data:
-                # Convert to unified providers - simplified for now
-                pass
+                for provider_data in llm_data['ollama_providers']:
+                    try:
+                        from .config_models import OllamaProvider, UnifiedProvider
+                        provider = OllamaProvider(**provider_data)
+                        unified_provider = UnifiedProvider.from_ollama_provider(provider)
+                        unified_config['providers'].append(asdict(unified_provider))
+                        self.logger.info(f"✅ Migrated Ollama provider: {provider.name}")
+                    except Exception as e:
+                        self.logger.warning(f"Error migrating Ollama provider {provider_data.get('name', 'unknown')}: {e}")
 
             # Migrate OpenAI compatible providers
             if 'openai_compatible_providers' in llm_data:
-                # Convert to unified providers - simplified for now
-                pass
+                for provider_data in llm_data['openai_compatible_providers']:
+                    try:
+                        from .config_models import OpenAICompatibleProvider, UnifiedProvider
+                        provider = OpenAICompatibleProvider(**provider_data)
+                        unified_provider = UnifiedProvider.from_openai_compatible_provider(provider)
+                        unified_config['providers'].append(asdict(unified_provider))
+                        self.logger.info(f"✅ Migrated OpenAI provider: {provider.name}")
+                    except Exception as e:
+                        self.logger.warning(f"Error migrating OpenAI provider {provider_data.get('name', 'unknown')}: {e}")
+
+            # Create built-in providers from API keys
+            if unified_config['gemini_api_key']:
+                try:
+                    from .config_models import GeminiProvider, UnifiedProvider
+                    gemini_provider = GeminiProvider(
+                        api_key=unified_config['gemini_api_key'],
+                        enabled=True,
+                        description="Google Gemini API"
+                    )
+                    unified_provider = UnifiedProvider.from_gemini_provider(gemini_provider)
+                    unified_config['providers'].append(asdict(unified_provider))
+                    self.logger.info("✅ Created Gemini provider from API key")
+                except Exception as e:
+                    self.logger.warning(f"Error creating Gemini provider: {e}")
+
+            if unified_config['anthropic_api_key']:
+                try:
+                    from .config_models import AnthropicProvider, UnifiedProvider
+                    anthropic_provider = AnthropicProvider(
+                        api_key=unified_config['anthropic_api_key'],
+                        enabled=True,
+                        description="Anthropic Claude API"
+                    )
+                    unified_provider = UnifiedProvider.from_anthropic_provider(anthropic_provider)
+                    unified_config['providers'].append(asdict(unified_provider))
+                    self.logger.info("✅ Created Anthropic provider from API key")
+                except Exception as e:
+                    self.logger.warning(f"Error creating Anthropic provider: {e}")
 
         migrated['unified_config'] = unified_config
         migrated['config_version'] = '2.0'
@@ -347,6 +401,16 @@ class ConfigManager:
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
         unified_config.anthropic_api_key = data.get("anthropic_api_key", "")
+
+        # Parse saved providers from config - Claude Generated
+        providers_data = data.get("providers", [])
+        for provider_dict in providers_data:
+            try:
+                provider = UnifiedProvider(**provider_dict)
+                unified_config.providers.append(provider)
+                self.logger.info(f"✅ Loaded provider: {provider.name}")
+            except Exception as e:
+                self.logger.warning(f"Error loading provider {provider_dict.get('name', 'unknown')}: {e}")
 
         # Auto-create UnifiedProvider objects from API keys - Claude Generated
         self._create_providers_from_api_keys(unified_config)
@@ -465,26 +529,78 @@ class ConfigManager:
             unified_config.providers.append(unified_provider)
             self.logger.info("✅ Created Anthropic UnifiedProvider from API key")
 
-    def save_config(self, config: Optional[AlimaConfig] = None) -> bool:
-        """Save configuration to JSON file - Claude Generated"""
-        if config is None:
-            config = self._config
-
-        if config is None:
-            self.logger.warning("No configuration to save")
-            return False
-
+    def save_config(self, config: AlimaConfig, scope: str = 'user', preserve_unified: bool = True) -> bool:
+        """Save configuration to specified scope - Claude Generated"""
         try:
-            # Convert to dictionary
-            config_dict = asdict(config)
+            # 🔍 DEBUG: Track save_config entry point
+            self.logger.critical(f"🔍 SAVE_CONFIG_ENTRY: preserve_unified={preserve_unified}")
+            self.logger.critical(f"🔍 SAVE_CONFIG_UNIFIED_PROVIDERS: {len(config.unified_config.providers)} providers in input config")
+            for i, p in enumerate(config.unified_config.providers):
+                self.logger.critical(f"🔍 SAVE_CONFIG_INPUT_PROVIDER_{i}: {p.name} ({p.provider_type})")
 
-            # Save to file
+            #config_path = self._get_config_path(scope)
+            #config_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Convert AlimaConfig to dictionary for serialization
+            config_dict = asdict(config)
+            self.logger.critical(f"🔍 SAVE_CONFIG_POST_ASDICT: {len(config_dict.get('unified_config', {}).get('providers', []))} providers after asdict")
+
+            # DEFAULT: Always preserve unified_config unless explicitly disabled
+            if preserve_unified:
+                try:
+                    self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVING: Reading current config from {self.config_file}")
+                    with open(self.config_file, 'r', encoding='utf-8') as f:
+                        current_config = json.load(f)
+
+                    # 🔍 DEBUG: Log what keys are in the current config
+                    self.logger.critical(f"🔍 SAVE_CONFIG_CURRENT_KEYS: {list(current_config.keys())}")
+
+                    # Keep existing unified_config if it exists
+                    if 'unified_config' in current_config:
+                        preserved_providers = current_config['unified_config'].get('providers', [])
+                        self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVING_COUNT: Found {len(preserved_providers)} providers to preserve")
+                        for i, p in enumerate(preserved_providers):
+                            self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVED_PROVIDER_{i}: {p.get('name', 'NO_NAME')} ({p.get('provider_type', 'NO_TYPE')})")
+                        config_dict['unified_config'] = current_config['unified_config']
+                        self.logger.critical("🔒 Auto-preserved unified_config (default protection)")
+                    else:
+                        self.logger.critical("🔍 SAVE_CONFIG_NO_UNIFIED: No unified_config found in current file")
+                        # CRITICAL FIX: If the config being saved has providers but file doesn't have unified_config,
+                        # this means we're migrating or the input config should be preserved
+                        input_providers = config_dict.get('unified_config', {}).get('providers', [])
+                        if input_providers:
+                            self.logger.critical(f"🔍 SAVE_CONFIG_LEGACY_OVERRIDE: Input config has {len(input_providers)} providers - preserving them despite legacy file format")
+                        else:
+                            # Load the current unified config from memory to avoid losing providers
+                            try:
+                                current_unified = self.get_unified_config()
+                                if current_unified.providers:
+                                    self.logger.critical(f"🔍 SAVE_CONFIG_MEMORY_PRESERVATION: Using current unified config from memory with {len(current_unified.providers)} providers")
+                                    config_dict['unified_config'] = asdict(current_unified)
+                                else:
+                                    self.logger.critical("🔍 SAVE_CONFIG_NO_PROVIDERS: No providers found in memory either")
+                            except Exception as memory_e:
+                                self.logger.critical(f"🔍 SAVE_CONFIG_MEMORY_ERROR: Could not load unified config from memory: {memory_e}")
+                except Exception as e:
+                    self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVE_ERROR: Could not preserve unified_config: {e}")
+            else:
+                self.logger.critical("⚠️  SAVE_CONFIG_PRESERVATION_DISABLED - providers may be lost!")
+
+            # Save with preserved unified_config
+            final_providers = config_dict.get('unified_config', {}).get('providers', [])
+            self.logger.critical(f"🔍 SAVE_CONFIG_FINAL_WRITE: Writing {len(final_providers)} providers to disk")
+
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config_dict, f, indent=2, ensure_ascii=False)
+                json.dump(config_dict, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
+
+            # Verify what was actually written
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                verification_config = json.load(f)
+            written_providers = verification_config.get('unified_config', {}).get('providers', [])
+            self.logger.critical(f"🔍 SAVE_CONFIG_VERIFICATION: {len(written_providers)} providers actually written to disk")
 
             self.logger.info(f"Configuration saved to {self.config_file}")
             return True
-
         except Exception as e:
             self.logger.error(f"Error saving configuration: {e}")
             return False
@@ -496,9 +612,46 @@ class ConfigManager:
 
     def save_unified_config(self, unified_config: UnifiedProviderConfig) -> bool:
         """Save unified provider configuration - Claude Generated"""
-        config = self.load_config()
-        config.unified_config = unified_config
-        return self.save_config(config)
+        try:
+            # 🔍 DEBUG: Check what config_manager receives
+            self.logger.critical(f"🔍 SAVE_UNIFIED_RECEIVED: {len(unified_config.providers)} providers")
+            for i, p in enumerate(unified_config.providers):
+                self.logger.critical(f"🔍 RECEIVED_PROVIDER_{i}: {p.name} ({p.provider_type})")
+
+            # Load raw JSON instead of config objects to avoid load-before-save bugs
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                config_dict = json.load(f)
+
+            # 🔍 DEBUG: Check before asdict conversion
+            self.logger.critical(f"🔍 PRE_ASDICT: {len(unified_config.providers)} providers")
+
+            # Convert unified_config to dict and update only that section
+            config_dict['unified_config'] = asdict(unified_config)
+
+            # 🔍 DEBUG: Check after asdict conversion
+            config_dict_unified = config_dict['unified_config']
+            providers_in_dict = config_dict_unified.get('providers', [])
+            self.logger.critical(f"🔍 POST_ASDICT: {len(providers_in_dict)} providers in dict")
+            for i, p_dict in enumerate(providers_in_dict):
+                self.logger.critical(f"🔍 DICT_PROVIDER_{i}: {p_dict.get('name')} ({p_dict.get('provider_type')})")
+
+            # Save directly back to file
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_dict, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
+
+            # 🔍 DEBUG: Verify what was actually written to file
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                saved_config = json.load(f)
+            saved_providers = saved_config.get('unified_config', {}).get('providers', [])
+            self.logger.critical(f"🔍 FILE_SAVED: {len(saved_providers)} providers written to disk")
+            for i, p_dict in enumerate(saved_providers):
+                self.logger.critical(f"🔍 FILE_PROVIDER_{i}: {p_dict.get('name')} ({p_dict.get('provider_type')})")
+
+            self.logger.info(f"Unified config saved with {len(unified_config.providers)} providers")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving unified config: {e}")
+            return False
 
     def get_provider_detection_service(self) -> ProviderDetectionService:
         """Get provider detection service instance - Claude Generated"""
@@ -667,6 +820,30 @@ class ConfigManager:
     # ============================================================================
 
 
+
+    def test_database_connection(self) -> tuple[bool, str]:
+        """Test database connection using current configuration - Claude Generated"""
+        try:
+            # Get database configuration
+            config = self.load_config()
+            database_config = config.database_config
+
+            # Import DatabaseManager
+            from ..core.database_manager import DatabaseManager
+
+            # Create temporary DatabaseManager for testing
+            db_manager = DatabaseManager(database_config, "test_connection")
+
+            # Test the connection
+            success, message = db_manager.test_connection()
+
+            # Clean up
+            db_manager.close_connection()
+
+            return success, message
+
+        except Exception as e:
+            return False, f"❌ Configuration error: {str(e)}"
 
     def get_config_info(self) -> dict:
         """Return configuration paths information - Claude Generated"""

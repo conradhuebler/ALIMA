@@ -1,9 +1,9 @@
 """
 Unified Knowledge Manager - Consolidates GND cache and DK classifications
 Claude Generated - Replaces CacheManager + DKCacheManager with Facts/Mappings separation
+Now using PyQt6.QtSql via DatabaseManager for seamless SQLite/MariaDB support
 """
 
-import sqlite3
 import json
 import logging
 import re
@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+
+from .database_manager import DatabaseManager
+from ..utils.config_models import DatabaseConfig
 
 
 @dataclass
@@ -53,70 +56,75 @@ class SearchMapping:
 
 class UnifiedKnowledgeManager:
     """Unified knowledge database manager with Facts/Mappings separation - Claude Generated"""
-    
-    def __init__(self, db_path: str = "alima_knowledge.db"):
+
+    def __init__(self, db_path: str = "alima_knowledge.db", database_config: Optional[DatabaseConfig] = None):
         self.db_path = db_path
         self.logger = logging.getLogger(__name__)
+
+        # Use provided config or create default SQLite config
+        if database_config is None:
+            database_config = DatabaseConfig(db_type='sqlite', sqlite_path=db_path)
+
+        self.db_manager = DatabaseManager(database_config, f"unified_knowledge_{id(self)}")
         self._init_database()
     
     def _init_database(self):
         """Initialize unified database schema - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                # === FACTS TABLES (Immutable truths) ===
-                
-                # 1. GND entries (facts only, no search terms)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS gnd_entries (
-                        gnd_id TEXT PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        synonyms TEXT,
-                        ddcs TEXT,
-                        ppn TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # 2. DK/RVK classifications (facts only, no keywords)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS classifications (
-                        code TEXT PRIMARY KEY,
-                        type TEXT NOT NULL,
-                        title TEXT,
-                        description TEXT,
-                        parent_code TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # === MAPPING TABLES (Dynamic associations) ===
-                
-                # 3. Search mappings (search term → found results)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS search_mappings (
-                        search_term TEXT NOT NULL,
-                        normalized_term TEXT NOT NULL,
-                        suggester_type TEXT NOT NULL,
-                        found_gnd_ids TEXT,
-                        found_classifications TEXT,
-                        result_count INTEGER DEFAULT 0,
-                        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (search_term, suggester_type)
-                    )
-                """)
-                
-                # Create indexes for performance
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_search_normalized ON search_mappings(normalized_term)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_search_term ON search_mappings(search_term)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_gnd_title ON gnd_entries(title)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_classifications_code ON classifications(code)")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_classifications_type ON classifications(type)")
-                
-                self.logger.info("Unified knowledge database schema initialized")
-                
+            # === FACTS TABLES (Immutable truths) ===
+
+            # 1. GND entries (facts only, no search terms)
+            self.db_manager.execute_query("""
+                CREATE TABLE IF NOT EXISTS gnd_entries (
+                    gnd_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    synonyms TEXT,
+                    ddcs TEXT,
+                    ppn TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # 2. DK/RVK classifications (facts only, no keywords)
+            self.db_manager.execute_query("""
+                CREATE TABLE IF NOT EXISTS classifications (
+                    code TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    title TEXT,
+                    description TEXT,
+                    parent_code TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # === MAPPING TABLES (Dynamic associations) ===
+
+            # 3. Search mappings (search term → found results)
+            self.db_manager.execute_query("""
+                CREATE TABLE IF NOT EXISTS search_mappings (
+                    search_term TEXT NOT NULL,
+                    normalized_term TEXT NOT NULL,
+                    suggester_type TEXT NOT NULL,
+                    found_gnd_ids TEXT,
+                    found_classifications TEXT,
+                    result_count INTEGER DEFAULT 0,
+                    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (search_term, suggester_type)
+                )
+            """)
+
+            # Create indexes for performance
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_normalized ON search_mappings(normalized_term)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_term ON search_mappings(search_term)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_gnd_title ON gnd_entries(title)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_code ON classifications(code)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_type ON classifications(type)")
+
+            self.logger.info("Unified knowledge database schema initialized")
+
         except Exception as e:
             self.logger.error(f"Error initializing unified database: {e}")
             raise
@@ -126,20 +134,19 @@ class UnifiedKnowledgeManager:
     def store_gnd_fact(self, gnd_id: str, gnd_data: Dict[str, Any]):
         """Store GND entry as immutable fact - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO gnd_entries 
-                    (gnd_id, title, description, synonyms, ddcs, ppn, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (
-                    gnd_id,
-                    gnd_data.get('title', ''),
-                    gnd_data.get('description', ''),
-                    gnd_data.get('synonyms', ''),
-                    gnd_data.get('ddcs', ''),
-                    gnd_data.get('ppn', '')
-                ))
-                
+            self.db_manager.execute_query("""
+                INSERT OR REPLACE INTO gnd_entries
+                (gnd_id, title, description, synonyms, ddcs, ppn, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, [
+                gnd_id,
+                gnd_data.get('title', ''),
+                gnd_data.get('description', ''),
+                gnd_data.get('synonyms', ''),
+                gnd_data.get('ddcs', ''),
+                gnd_data.get('ppn', '')
+            ])
+
         except Exception as e:
             self.logger.error(f"Error storing GND fact {gnd_id}: {e}")
             raise
@@ -147,42 +154,39 @@ class UnifiedKnowledgeManager:
     def get_gnd_fact(self, gnd_id: str) -> Optional[GNDEntry]:
         """Retrieve GND fact by ID - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                row = conn.execute(
-                    "SELECT * FROM gnd_entries WHERE gnd_id = ?", (gnd_id,)
-                ).fetchone()
-                
-                if row:
-                    return GNDEntry(
-                        gnd_id=row['gnd_id'],
-                        title=row['title'],
-                        description=row['description'],
-                        synonyms=row['synonyms'],
-                        ddcs=row['ddcs'],
-                        ppn=row['ppn'],
-                        created_at=row['created_at'],
-                        updated_at=row['updated_at']
-                    )
-                return None
-                
+            row = self.db_manager.fetch_one(
+                "SELECT * FROM gnd_entries WHERE gnd_id = ?", [gnd_id]
+            )
+
+            if row:
+                return GNDEntry(
+                    gnd_id=row['gnd_id'],
+                    title=row['title'],
+                    description=row['description'],
+                    synonyms=row['synonyms'],
+                    ddcs=row['ddcs'],
+                    ppn=row['ppn'],
+                    created_at=row['created_at'],
+                    updated_at=row['updated_at']
+                )
+            return None
+
         except Exception as e:
             self.logger.error(f"Error retrieving GND fact {gnd_id}: {e}")
             return None
     
     # === CLASSIFICATION FACTS MANAGEMENT ===
     
-    def store_classification_fact(self, code: str, classification_type: str, title: str = None, 
+    def store_classification_fact(self, code: str, classification_type: str, title: str = None,
                                 description: str = None, parent_code: str = None):
         """Store classification as immutable fact - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO classifications 
-                    (code, type, title, description, parent_code)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (code, classification_type, title, description, parent_code))
-                
+            self.db_manager.execute_query("""
+                INSERT OR REPLACE INTO classifications
+                (code, type, title, description, parent_code)
+                VALUES (?, ?, ?, ?, ?)
+            """, [code, classification_type, title, description, parent_code])
+
         except Exception as e:
             self.logger.error(f"Error storing classification fact {code}: {e}")
             raise
@@ -190,24 +194,22 @@ class UnifiedKnowledgeManager:
     def get_classification_fact(self, code: str, classification_type: str) -> Optional[Classification]:
         """Retrieve classification fact - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                row = conn.execute(
-                    "SELECT * FROM classifications WHERE code = ? AND type = ?", 
-                    (code, classification_type)
-                ).fetchone()
-                
-                if row:
-                    return Classification(
-                        code=row['code'],
-                        type=row['type'],
-                        title=row['title'],
-                        description=row['description'],
-                        parent_code=row['parent_code'],
-                        created_at=row['created_at']
-                    )
-                return None
-                
+            row = self.db_manager.fetch_one(
+                "SELECT * FROM classifications WHERE code = ? AND type = ?",
+                [code, classification_type]
+            )
+
+            if row:
+                return Classification(
+                    code=row['code'],
+                    type=row['type'],
+                    title=row['title'],
+                    description=row['description'],
+                    parent_code=row['parent_code'],
+                    created_at=row['created_at']
+                )
+            return None
+
         except Exception as e:
             self.logger.error(f"Error retrieving classification fact {code}: {e}")
             return None
@@ -217,52 +219,49 @@ class UnifiedKnowledgeManager:
     def get_search_mapping(self, search_term: str, suggester_type: str) -> Optional[SearchMapping]:
         """Get existing search mapping - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                row = conn.execute("""
-                    SELECT * FROM search_mappings 
-                    WHERE search_term = ? AND suggester_type = ?
-                """, (search_term, suggester_type)).fetchone()
-                
-                if row:
-                    return SearchMapping(
-                        search_term=row['search_term'],
-                        normalized_term=row['normalized_term'],
-                        suggester_type=row['suggester_type'],
-                        found_gnd_ids=json.loads(row['found_gnd_ids'] or '[]'),
-                        found_classifications=json.loads(row['found_classifications'] or '[]'),
-                        result_count=row['result_count'],
-                        last_updated=row['last_updated'],
-                        created_at=row['created_at']
-                    )
-                return None
-                
+            row = self.db_manager.fetch_one("""
+                SELECT * FROM search_mappings
+                WHERE search_term = ? AND suggester_type = ?
+            """, [search_term, suggester_type])
+
+            if row:
+                return SearchMapping(
+                    search_term=row['search_term'],
+                    normalized_term=row['normalized_term'],
+                    suggester_type=row['suggester_type'],
+                    found_gnd_ids=json.loads(row['found_gnd_ids'] or '[]'),
+                    found_classifications=json.loads(row['found_classifications'] or '[]'),
+                    result_count=row['result_count'],
+                    last_updated=row['last_updated'],
+                    created_at=row['created_at']
+                )
+            return None
+
         except Exception as e:
             self.logger.error(f"Error retrieving search mapping {search_term}: {e}")
             return None
     
-    def update_search_mapping(self, search_term: str, suggester_type: str, 
+    def update_search_mapping(self, search_term: str, suggester_type: str,
                             found_gnd_ids: List[str] = None,
                             found_classifications: List[Dict[str, str]] = None):
         """Update or create search mapping - Claude Generated"""
         try:
             normalized_term = self._normalize_term(search_term)
-            
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO search_mappings 
-                    (search_term, normalized_term, suggester_type, found_gnd_ids, 
-                     found_classifications, result_count, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (
-                    search_term,
-                    normalized_term,
-                    suggester_type,
-                    json.dumps(found_gnd_ids or []),
-                    json.dumps(found_classifications or []),
-                    len(found_gnd_ids or []) + len(found_classifications or [])
-                ))
-                
+
+            self.db_manager.execute_query("""
+                INSERT OR REPLACE INTO search_mappings
+                (search_term, normalized_term, suggester_type, found_gnd_ids,
+                 found_classifications, result_count, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, [
+                search_term,
+                normalized_term,
+                suggester_type,
+                json.dumps(found_gnd_ids or []),
+                json.dumps(found_classifications or []),
+                len(found_gnd_ids or []) + len(found_classifications or [])
+            ])
+
         except Exception as e:
             self.logger.error(f"Error updating search mapping {search_term}: {e}")
             raise
@@ -285,31 +284,28 @@ class UnifiedKnowledgeManager:
         try:
             normalized_term = self._normalize_term(term)
             entries = []
-            
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                
-                # Exact title match first
-                rows = conn.execute("""
-                    SELECT * FROM gnd_entries 
-                    WHERE title LIKE ? OR title LIKE ?
-                    LIMIT ?
-                """, (f"%{term}%", f"%{normalized_term}%", min_results * 2)).fetchall()
-                
-                for row in rows:
-                    entries.append(GNDEntry(
-                        gnd_id=row['gnd_id'],
-                        title=row['title'],
-                        description=row['description'],
-                        synonyms=row['synonyms'],
-                        ddcs=row['ddcs'],
-                        ppn=row['ppn'],
-                        created_at=row['created_at'],
-                        updated_at=row['updated_at']
-                    ))
-            
+
+            # Exact title match first
+            rows = self.db_manager.fetch_all("""
+                SELECT * FROM gnd_entries
+                WHERE title LIKE ? OR title LIKE ?
+                LIMIT ?
+            """, [f"%{term}%", f"%{normalized_term}%", min_results * 2])
+
+            for row in rows:
+                entries.append(GNDEntry(
+                    gnd_id=row['gnd_id'],
+                    title=row['title'],
+                    description=row['description'],
+                    synonyms=row['synonyms'],
+                    ddcs=row['ddcs'],
+                    ppn=row['ppn'],
+                    created_at=row['created_at'],
+                    updated_at=row['updated_at']
+                ))
+
             return entries[:min_results] if len(entries) >= min_results else []
-            
+
         except Exception as e:
             self.logger.error(f"Error in local GND search: {e}")
             return []
@@ -319,25 +315,24 @@ class UnifiedKnowledgeManager:
     def get_database_stats(self) -> Dict[str, int]:
         """Get unified database statistics - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                stats = {}
-                
-                # Count facts
-                stats['gnd_entries_count'] = conn.execute(
-                    "SELECT COUNT(*) FROM gnd_entries"
-                ).fetchone()[0]
-                
-                stats['classifications_count'] = conn.execute(
-                    "SELECT COUNT(*) FROM classifications"
-                ).fetchone()[0]
-                
-                # Count mappings
-                stats['search_mappings_count'] = conn.execute(
-                    "SELECT COUNT(*) FROM search_mappings"
-                ).fetchone()[0]
-                
-                return stats
-                
+            stats = {}
+
+            # Count facts
+            stats['gnd_entries_count'] = self.db_manager.fetch_scalar(
+                "SELECT COUNT(*) FROM gnd_entries"
+            )
+
+            stats['classifications_count'] = self.db_manager.fetch_scalar(
+                "SELECT COUNT(*) FROM classifications"
+            )
+
+            # Count mappings
+            stats['search_mappings_count'] = self.db_manager.fetch_scalar(
+                "SELECT COUNT(*) FROM search_mappings"
+            )
+
+            return stats
+
         except Exception as e:
             self.logger.error(f"Error getting database stats: {e}")
             return {}
@@ -345,13 +340,12 @@ class UnifiedKnowledgeManager:
     def clear_database(self):
         """Clear all data for fresh start - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("DELETE FROM search_mappings")
-                conn.execute("DELETE FROM classifications") 
-                conn.execute("DELETE FROM gnd_entries")
-                
-                self.logger.info("Database cleared for fresh start")
-                
+            self.db_manager.execute_query("DELETE FROM search_mappings")
+            self.db_manager.execute_query("DELETE FROM classifications")
+            self.db_manager.execute_query("DELETE FROM gnd_entries")
+
+            self.logger.info("Database cleared for fresh start")
+
         except Exception as e:
             self.logger.error(f"Error clearing database: {e}")
             raise
@@ -389,21 +383,19 @@ class UnifiedKnowledgeManager:
         """CacheManager compatibility - Claude Generated"""
         try:
             entries = {}
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute("SELECT * FROM gnd_entries").fetchall()
-                
-                for row in rows:
-                    entries[row['gnd_id']] = {
-                        'gnd_id': row['gnd_id'],
-                        'title': row['title'],
-                        'description': row['description'],
-                        'synonyms': row['synonyms'],
-                        'ddcs': row['ddcs'],
-                        'ppn': row['ppn']
-                    }
+            rows = self.db_manager.fetch_all("SELECT * FROM gnd_entries")
+
+            for row in rows:
+                entries[row['gnd_id']] = {
+                    'gnd_id': row['gnd_id'],
+                    'title': row['title'],
+                    'description': row['description'],
+                    'synonyms': row['synonyms'],
+                    'ddcs': row['ddcs'],
+                    'ppn': row['ppn']
+                }
             return entries
-            
+
         except Exception as e:
             self.logger.error(f"Error loading entries: {e}")
             return {}
@@ -450,38 +442,33 @@ class UnifiedKnowledgeManager:
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get unified cache statistics - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Count entries across all tables
-                cursor.execute("SELECT COUNT(*) FROM gnd_entries")
-                gnd_count = cursor.fetchone()[0]
-                
-                cursor.execute("SELECT COUNT(*) FROM classifications")
-                classification_count = cursor.fetchone()[0]
-                
-                cursor.execute("SELECT COUNT(*) FROM search_mappings")
-                mapping_count = cursor.fetchone()[0]
-                
-                total_entries = gnd_count + classification_count + mapping_count
-                
-                # Get database file size
-                import os
-                try:
+            # Count entries across all tables
+            gnd_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM gnd_entries")
+            classification_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM classifications")
+            mapping_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM search_mappings")
+
+            total_entries = gnd_count + classification_count + mapping_count
+
+            # Get database file size (only for SQLite)
+            import os
+            try:
+                if self.db_manager.config.db_type.lower() in ['sqlite', 'sqlite3']:
                     size_bytes = os.path.getsize(self.db_path)
                     size_mb = size_bytes / (1024 * 1024)
-                except OSError:
-                    size_mb = 0.0
-                
-                return {
-                    "total_entries": total_entries,
-                    "gnd_entries": gnd_count,
-                    "classification_entries": classification_count,
-                    "search_mappings": mapping_count,
-                    "size_mb": round(size_mb, 2),
-                    "file_path": self.db_path
-                }
-            
+                else:
+                    size_mb = 0.0  # For MySQL/MariaDB, size calculation would be different
+            except OSError:
+                size_mb = 0.0
+
+            return {
+                "total_entries": total_entries,
+                "gnd_entries": gnd_count,
+                "classification_entries": classification_count,
+                "search_mappings": mapping_count,
+                "size_mb": round(size_mb, 2),
+                "file_path": self.db_path
+            }
+
         except Exception as e:
             self.logger.error(f"Error getting cache stats: {e}")
             return {
@@ -553,14 +540,15 @@ class UnifiedKnowledgeManager:
     
     def save_to_file(self):
         """CacheManager compatibility - Claude Generated"""
-        # For SQLite databases, this would typically commit transactions
-        # Since we're using 'with' statements that auto-commit, this is a no-op
-        # but we provide it for compatibility
+        # For QtSql databases, this ensures any pending operations are committed
+        # Most operations are auto-committed, but this provides compatibility
         try:
-            # Ensure any pending operations are committed
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("PRAGMA integrity_check")
-            self.logger.debug("Database integrity check completed")
+            # Simple integrity check using QtSql
+            result = self.db_manager.fetch_scalar("SELECT 1")
+            if result == 1:
+                self.logger.debug("Database connection verified")
+            else:
+                self.logger.warning("Database integrity check returned unexpected result")
         except Exception as e:
             self.logger.warning(f"Database save operation warning: {e}")
     
@@ -686,47 +674,42 @@ class UnifiedKnowledgeManager:
     def get_mapping_statistics(self) -> Dict[str, Any]:
         """Get statistics about search mappings - Claude Generated"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Total mappings by suggester type
-                cursor.execute("""
-                    SELECT suggester_type, COUNT(*) as count, 
-                           AVG(result_count) as avg_results,
-                           MAX(last_updated) as latest_update
-                    FROM search_mappings 
-                    GROUP BY suggester_type
-                """)
-                by_suggester = cursor.fetchall()
-                
-                # Recent activity (last 24 hours)
-                from datetime import datetime, timedelta
-                cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
-                
-                cursor.execute("""
-                    SELECT COUNT(*) as recent_mappings,
-                           AVG(result_count) as recent_avg_results
-                    FROM search_mappings 
-                    WHERE last_updated > ?
-                """, (cutoff,))
-                recent_stats = cursor.fetchone()
-                
-                return {
-                    "by_suggester": [
-                        {
-                            "type": row[0],
-                            "count": row[1], 
-                            "avg_results": round(row[2] or 0, 1),
-                            "latest_update": row[3]
-                        }
-                        for row in by_suggester
-                    ],
-                    "recent_24h": {
-                        "mappings": recent_stats[0] or 0,
-                        "avg_results": round(recent_stats[1] or 0, 1)
+            # Total mappings by suggester type
+            by_suggester_rows = self.db_manager.fetch_all("""
+                SELECT suggester_type, COUNT(*) as count,
+                       AVG(result_count) as avg_results,
+                       MAX(last_updated) as latest_update
+                FROM search_mappings
+                GROUP BY suggester_type
+            """)
+
+            # Recent activity (last 24 hours)
+            from datetime import datetime, timedelta
+            cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
+
+            recent_stats_row = self.db_manager.fetch_one("""
+                SELECT COUNT(*) as recent_mappings,
+                       AVG(result_count) as recent_avg_results
+                FROM search_mappings
+                WHERE last_updated > ?
+            """, [cutoff])
+
+            return {
+                "by_suggester": [
+                    {
+                        "type": row["suggester_type"],
+                        "count": row["count"],
+                        "avg_results": round(row["avg_results"] or 0, 1),
+                        "latest_update": row["latest_update"]
                     }
+                    for row in by_suggester_rows
+                ],
+                "recent_24h": {
+                    "mappings": recent_stats_row["recent_mappings"] if recent_stats_row else 0,
+                    "avg_results": round(recent_stats_row["recent_avg_results"] or 0, 1) if recent_stats_row else 0
                 }
-                
+            }
+
         except Exception as e:
             self.logger.error(f"Error getting mapping statistics: {e}")
             return {"error": str(e)}

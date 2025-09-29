@@ -693,6 +693,23 @@ EXAMPLES:
     ollama_test_parser = ollama_subparsers.add_parser("test", help="Test Ollama provider connection")
     ollama_test_parser.add_argument("--name", required=True, help="Ollama provider name to test")
 
+    # Database migration commands - Claude Generated
+    migrate_parser = subparsers.add_parser(
+        "migrate-db", help="Database migration and backup operations."
+    )
+    migrate_subparsers = migrate_parser.add_subparsers(dest="migrate_action", help="Migration actions")
+
+    # Export database command
+    migrate_export_parser = migrate_subparsers.add_parser("export", help="Export database to JSON backup file")
+    migrate_export_parser.add_argument("--output", required=True, help="Output JSON file path")
+    migrate_export_parser.add_argument("--show-info", action="store_true", help="Show export statistics without exporting")
+
+    # Import database command
+    migrate_import_parser = migrate_subparsers.add_parser("import", help="Import database from JSON backup file")
+    migrate_import_parser.add_argument("--input", required=True, help="Input JSON file path")
+    migrate_import_parser.add_argument("--clear", action="store_true", help="Clear destination database before import")
+    migrate_import_parser.add_argument("--dry-run", action="store_true", help="Validate import file without importing")
+
     args = parser.parse_args()
 
     # Setup logging
@@ -702,7 +719,7 @@ EXAMPLES:
     logger = logging.getLogger(__name__)
 
     # Check if prompts file exists
-    if not os.path.exists(PROMPTS_FILE) and args.command not in ["list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache"]:
+    if not os.path.exists(PROMPTS_FILE) and args.command not in ["list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
         logger.error(f"Prompts file not found at: {PROMPTS_FILE}")
         return
 
@@ -1482,18 +1499,16 @@ EXAMPLES:
                 cache_manager.clear_database()
                 print("✅ All cache data cleared successfully.")
             else:
-                # Selective clearing - Claude Generated
-                import sqlite3
-                with sqlite3.connect(cache_manager.db_path) as conn:
-                    if args.type == "gnd":
-                        conn.execute("DELETE FROM gnd_entries")
-                        print("✅ GND entries cleared successfully.")
-                    elif args.type == "search":
-                        conn.execute("DELETE FROM search_mappings") 
-                        print("✅ Search mappings cleared successfully.")
-                    elif args.type == "classifications":
-                        conn.execute("DELETE FROM classifications")
-                        print("✅ Classifications cleared successfully.")
+                # Selective clearing using DatabaseManager - Claude Generated
+                if args.type == "gnd":
+                    cache_manager.db_manager.execute_query("DELETE FROM gnd_entries")
+                    print("✅ GND entries cleared successfully.")
+                elif args.type == "search":
+                    cache_manager.db_manager.execute_query("DELETE FROM search_mappings")
+                    print("✅ Search mappings cleared successfully.")
+                elif args.type == "classifications":
+                    cache_manager.db_manager.execute_query("DELETE FROM classifications")
+                    print("✅ Classifications cleared successfully.")
                         
         except Exception as e:
             logger.error(f"❌ Error clearing cache: {e}")
@@ -1863,8 +1878,13 @@ EXAMPLES:
     elif args.command == "db-config":
         # Database configuration commands - Claude Generated
         from src.utils.config_manager import ConfigManager, DatabaseConfig, AlimaConfig
+        from PyQt6.QtCore import QCoreApplication
         import getpass
-        
+
+        # Ensure QCoreApplication exists for QtSql database operations
+        if not QCoreApplication.instance():
+            app = QCoreApplication(sys.argv)
+
         config_manager = ConfigManager()
         
         if args.db_action == "show":
@@ -1982,6 +2002,130 @@ EXAMPLES:
                 logger.error(f"❌ Error configuring MySQL database: {e}")
         else:
             print("❌ No database action specified. Use 'show', 'test', 'set-sqlite', or 'set-mysql'")
+
+    elif args.command == "migrate-db":
+        # Database migration commands - Claude Generated
+        from src.utils.database_migrator import DatabaseMigrator
+        from src.utils.config_manager import ConfigManager
+        from PyQt6.QtCore import QCoreApplication
+
+        # Ensure QCoreApplication exists for QtSql database operations
+        if not QCoreApplication.instance():
+            app = QCoreApplication(sys.argv)
+
+        try:
+            config_manager = ConfigManager()
+
+            if args.migrate_action == "export":
+                try:
+                    # Get current database configuration
+                    config = config_manager.load_config()
+
+                    # Initialize database manager with current config
+                    from src.core.database_manager import DatabaseManager
+                    db_manager = DatabaseManager(config.database)
+
+                    # Initialize migrator
+                    migrator = DatabaseMigrator(logger)
+
+                    if args.show_info:
+                        # Show export information without exporting
+                        print("📊 Database Export Information:")
+                        print("-" * 40)
+                        export_info = migrator.get_export_info(db_manager)
+
+                        print(f"Database Type: {export_info.get('database_type', 'unknown')}")
+                        print(f"Total Records: {export_info.get('total_records', 0):,}")
+                        print("\nTable Breakdown:")
+                        for table, count in export_info.get('tables', {}).items():
+                            print(f"  {table}: {count:,} records")
+
+                        if 'connection_info' in export_info:
+                            conn_info = export_info['connection_info']
+                            if conn_info.get('type') == 'sqlite':
+                                size_mb = conn_info.get('file_size_mb', 'unknown')
+                                print(f"\nDatabase File Size: {size_mb} MB")
+                    else:
+                        # Perform actual export
+                        print(f"🔄 Exporting database to {args.output}")
+                        success = migrator.export_database(db_manager, args.output)
+
+                        if success:
+                            print(f"✅ Export completed successfully")
+                            print(f"📁 Output file: {args.output}")
+                        else:
+                            print("❌ Export failed")
+
+                except Exception as e:
+                    logger.error(f"❌ Export failed: {e}")
+
+            elif args.migrate_action == "import":
+                try:
+                    # Get current database configuration
+                    config = config_manager.load_config()
+
+                    # Initialize database manager with current config
+                    from src.core.database_manager import DatabaseManager
+                    db_manager = DatabaseManager(config.database)
+
+                    # Initialize migrator
+                    migrator = DatabaseMigrator(logger)
+
+                    if args.dry_run:
+                        # Validate import file without importing
+                        print(f"🔍 Validating import file: {args.input}")
+
+                        # Load and validate JSON
+                        import json
+                        from pathlib import Path
+
+                        input_path = Path(args.input)
+                        if not input_path.exists():
+                            print(f"❌ Input file not found: {args.input}")
+                            return
+
+                        with open(input_path, 'r', encoding='utf-8') as f:
+                            import_data = json.load(f)
+
+                        print("✅ JSON file is valid")
+                        print(f"   Version: {import_data.get('version', 'unknown')}")
+                        print(f"   Source DB Type: {import_data.get('source_db_type', 'unknown')}")
+                        print(f"   Created: {import_data.get('timestamp', 'unknown')}")
+
+                        if 'data' in import_data:
+                            print(f"   Tables: {len(import_data['data'])} found")
+                            total_records = 0
+                            for table, records in import_data['data'].items():
+                                record_count = len(records) if isinstance(records, list) else 0
+                                print(f"     {table}: {record_count:,} records")
+                                total_records += record_count
+                            print(f"   Total Records: {total_records:,}")
+
+                        print(f"🎯 Target DB Type: {config.database.db_type}")
+                        print("✅ Import file validation completed")
+                    else:
+                        # Perform actual import
+                        print(f"🔄 Importing database from {args.input}")
+                        if args.clear:
+                            print("⚠️  Warning: Existing data will be cleared before import")
+
+                        success = migrator.import_database(db_manager, args.input, args.clear)
+
+                        if success:
+                            print(f"✅ Import completed successfully")
+                            print(f"📁 Source file: {args.input}")
+                        else:
+                            print("❌ Import failed")
+
+                except Exception as e:
+                    logger.error(f"❌ Import failed: {e}")
+
+            else:
+                print("❌ No migration action specified. Use 'export' or 'import'")
+
+        except Exception as e:
+            logger.error(f"❌ Migration operation failed: {e}")
+
     else:
         parser.print_help()
 

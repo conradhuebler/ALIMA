@@ -407,6 +407,8 @@ class UnifiedProviderConfig:
     # Individual provider configs (LEGACY - will be migrated to providers list)
     gemini_api_key: str = ""
     anthropic_api_key: str = ""
+    gemini_preferred_model: str = ""
+    anthropic_preferred_model: str = ""
     auto_fallback: bool = True
     prefer_faster_models: bool = False  # Legacy compatibility for smart_provider_selector
 

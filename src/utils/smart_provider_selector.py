@@ -427,28 +427,22 @@ class SmartProviderSelector:
                 self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: anthropic -> '{preferred}'")
                 return preferred
             
-            # Check OpenAI-compatible providers
-            for openai_provider in config.unified_config.openai_compatible_providers:
-                if openai_provider.name == provider:
-                    preferred = openai_provider.preferred_model or None
-                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: openai_compatible '{provider}' -> '{preferred}'")
+            # Check providers in unified provider list - Claude Generated
+            for unified_provider in config.unified_config.providers:
+                if unified_provider.name == provider:
+                    preferred = unified_provider.preferred_model or None
+                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: {unified_provider.provider_type} '{provider}' -> '{preferred}'")
                     return preferred
-            
-            # Check Ollama providers - with fuzzy matching for common names - Claude Generated
-            for ollama_provider in config.unified_config.ollama_providers:
-                self.logger.critical(f"🔍 CHECKING_OLLAMA_PROVIDER: '{ollama_provider.name}' vs requested '{provider}'")
-                
-                # Direct name match
-                if ollama_provider.name == provider:
-                    preferred = ollama_provider.preferred_model or None
-                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: ollama '{provider}' -> '{preferred}' (exact match)")
-                    return preferred
-                
-                # Fuzzy matching for common provider name variations - Claude Generated
-                if self._provider_names_match(ollama_provider.name, provider):
-                    preferred = ollama_provider.preferred_model or None  
-                    self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy match: '{ollama_provider.name}')")
-                    return preferred
+
+                # Fuzzy matching for common Ollama names - Claude Generated
+                if unified_provider.provider_type == "ollama":
+                    self.logger.critical(f"🔍 CHECKING_OLLAMA_PROVIDER: '{unified_provider.name}' vs requested '{provider}'")
+
+                    # Fuzzy matching for common provider name variations - Claude Generated
+                    if self._provider_names_match(unified_provider.name, provider):
+                        preferred = unified_provider.preferred_model or None
+                        self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy match: '{unified_provider.name}')")
+                        return preferred
             
             self.logger.critical(f"🔍 PREFERRED_MODEL_FOUND: '{provider}' -> None (not found)")
             return None
