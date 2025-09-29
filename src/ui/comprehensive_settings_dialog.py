@@ -20,6 +20,7 @@ import logging
 import getpass
 from pathlib import Path
 from typing import Dict, Any, Optional, List
+from copy import deepcopy
 
 from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig
 from ..utils.config_models import OpenAICompatibleProvider, OllamaProvider, UnifiedProvider
@@ -689,8 +690,9 @@ class ComprehensiveSettingsDialog(QDialog):
         self.logger = logging.getLogger(__name__)
         self.config_manager = ConfigManager()
         
-        # Load current configuration
-        self.current_config = self.config_manager.load_config()
+        # Implement Unit of Work pattern - Claude Generated (Refactoring)
+        self.original_config = self.config_manager.load_config()
+        self.config_to_edit = deepcopy(self.original_config)
         
         # Load prompts for prompt editing
         self.prompts_file = Path("prompts.json")
@@ -733,7 +735,7 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Create tabs
         self.database_tab = self._create_database_tab()
-        self.unified_provider_tab = UnifiedProviderTab(self.config_manager, self)  # Claude Generated - Unified Provider Management
+        self.unified_provider_tab = UnifiedProviderTab(self.config_to_edit.unified_config, self.config_to_edit, self)  # Claude Generated - Unified Provider Management (Refactoring)
         self.catalog_tab = self._create_catalog_tab()
         self.prompts_tab = self._create_prompts_tab()
         self.system_tab = self._create_system_tab()
@@ -1599,9 +1601,9 @@ class ComprehensiveSettingsDialog(QDialog):
                 QMessageBox.critical(self, "Reset Error", f"Failed to reset provider preferences:\n\n{str(e)}")
     
     def _save_provider_preferences_from_ui(self):
-        """Save provider preferences from current UI state - Claude Generated"""
+        """Update provider preferences in working copy from current UI state - Claude Generated (Refactoring)"""
         try:
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             
             # General settings
             unified_config.preferred_provider = self.preferred_provider_combo.currentText()
@@ -1717,8 +1719,7 @@ class ComprehensiveSettingsDialog(QDialog):
             # TODO: Implement ensure_valid_configuration in UnifiedProviderConfig if needed
             # unified_config.ensure_valid_configuration(detection_service)
 
-            # Save to config directly
-            self.config_manager.save_config()
+            # Changes are now made to working copy - parent dialog will handle save - Claude Generated (Refactoring)
             
         except Exception as e:
             self.logger.error(f"Error saving provider preferences from UI: {e}")
@@ -1843,7 +1844,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate the list of OpenAI-compatible providers from config - Gemini Refactor"""
         self.providers_list.clear()
         # Get OpenAI-compatible providers from unified config
-        providers = [p for p in self.current_config.unified_config.providers if p.provider_type == 'openai_compatible']
+        providers = [p for p in self.config_to_edit.unified_config.providers if p.provider_type == 'openai_compatible']
         for provider in providers:
             status_icon = "✅" if provider.enabled else "❌"
             item_text = f"{status_icon} {provider.name}"
@@ -1855,7 +1856,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate the list of Ollama providers from config - Gemini Refactor"""
         self.ollama_providers_list.clear()
         # Get Ollama providers from unified config
-        providers = [p for p in self.current_config.unified_config.providers if p.provider_type == 'ollama']
+        providers = [p for p in self.config_to_edit.unified_config.providers if p.provider_type == 'ollama']
         for provider in providers:
             status_icon = "✅" if provider.enabled else "❌"
             item_text = f"{status_icon} {provider.name} ({provider.host}:{provider.port})"
@@ -1865,7 +1866,7 @@ class ComprehensiveSettingsDialog(QDialog):
     
     def _load_current_settings(self):
         """Load current settings into UI elements - Claude Generated"""
-        config = self.current_config
+        config = self.config_to_edit
         
         # Database settings
         self.db_type_combo.setCurrentText(config.database.db_type)
@@ -1911,7 +1912,7 @@ class ComprehensiveSettingsDialog(QDialog):
     def _load_providers_list(self):
         """Load OpenAI-compatible providers into the list widget - Claude Generated"""
         self.providers_list.clear()
-        for provider in [p for p in self.current_config.unified_config.providers if p.provider_type == "openai_compatible"]:
+        for provider in [p for p in self.config_to_edit.unified_config.providers if p.provider_type == "openai_compatible"]:
             status = "✅" if provider.enabled else "❌"
             item_text = f"{status} {provider.name} - {provider.base_url}"
             if provider.description:
@@ -1929,14 +1930,14 @@ class ComprehensiveSettingsDialog(QDialog):
                 new_provider = dialog.get_provider()
                 
                 # Check if provider name already exists
-                if self.current_config.unified_config.get_provider_by_name(new_provider.name):
+                if self.config_to_edit.unified_config.get_provider_by_name(new_provider.name):
                     QMessageBox.warning(self, "Duplicate Name",
                                       f"A provider with name '{new_provider.name}' already exists!")
                     return
 
                 # Add provider to unified configuration
                 unified_provider = UnifiedProvider.from_openai_compatible_provider(new_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                self.config_to_edit.unified_config.providers.append(unified_provider)
                 # Provider list is now managed by unified provider tab
                 
             except ValueError as e:
@@ -1958,20 +1959,20 @@ class ComprehensiveSettingsDialog(QDialog):
                 
                 # Check if name changed and conflicts with existing
                 if (updated_provider.name != provider.name and
-                    self.current_config.unified_config.get_provider_by_name(updated_provider.name)):
+                    self.config_to_edit.unified_config.get_provider_by_name(updated_provider.name)):
                     QMessageBox.warning(self, "Duplicate Name",
                                       f"A provider with name '{updated_provider.name}' already exists!")
                     return
 
                 # Update provider in unified configuration
                 # Remove old provider
-                self.current_config.unified_config.providers = [
-                    p for p in self.current_config.unified_config.providers
+                self.config_to_edit.unified_config.providers = [
+                    p for p in self.config_to_edit.unified_config.providers
                     if p.name != provider.name
                 ]
                 # Add updated provider
                 unified_provider = UnifiedProvider.from_openai_compatible_provider(updated_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                self.config_to_edit.unified_config.providers.append(unified_provider)
                 # Provider list is now managed by unified provider tab
                 
             except ValueError as e:
@@ -1997,8 +1998,8 @@ class ComprehensiveSettingsDialog(QDialog):
         
         if reply == QMessageBox.StandardButton.Yes:
             # Remove provider from unified configuration
-            self.current_config.unified_config.providers = [
-                p for p in self.current_config.unified_config.providers
+            self.config_to_edit.unified_config.providers = [
+                p for p in self.config_to_edit.unified_config.providers
                 if p.name != provider.name
             ]
             self._load_providers_list()
@@ -2097,7 +2098,7 @@ class ComprehensiveSettingsDialog(QDialog):
             # Create temporary LLM service to test providers
             from ..llm.llm_service import LlmService
             temp_service = LlmService(lazy_initialization=True)
-            temp_service.config_manager.config = self.current_config
+            temp_service.config_manager.config = self.config_to_edit
             
             # Refresh all provider status
             status_results = temp_service.refresh_all_provider_status()
@@ -2301,12 +2302,13 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.current_config = AlimaConfig()  # Create default config
+            self.config_to_edit = AlimaConfig()  # Create default config
             self._load_current_settings()
     
     def _get_config_from_ui(self) -> AlimaConfig:
-        """Extract configuration from UI elements - Claude Generated"""
-        config = AlimaConfig()
+        """Extract configuration from UI elements - Claude Generated (Refactoring)"""
+        # Use the Unit of Work copy and update it with UI values
+        config = self.config_to_edit
         
         # Database configuration - Claude Generated fix for expanded DatabaseConfig
         config.database_config = DatabaseConfig(
@@ -2347,8 +2349,7 @@ class ComprehensiveSettingsDialog(QDialog):
             temp_dir=self.temp_dir.text()
         )
 
-        # Preserve task preferences from current config - Claude Generated
-        config.unified_config.task_preferences = self.current_config.unified_config.task_preferences
+        # Task preferences are already up-to-date in config_to_edit from UnifiedProviderTab - Claude Generated (Refactoring)
 
         return config
     
@@ -2357,14 +2358,7 @@ class ComprehensiveSettingsDialog(QDialog):
         try:
             # Task preferences are now handled by the unified provider tab automatically
             
-            # Save provider preferences first if the tab exists - Claude Generated
-            if hasattr(self, 'provider_preferences_tab'):
-                try:
-                    self._save_provider_preferences_from_ui()
-                except Exception as e:
-                    self.logger.error(f"Error saving provider preferences: {e}")
-                    QMessageBox.critical(self, "Provider Preferences Error", f"Failed to save provider preferences:\n\n{str(e)}")
-                    return
+            # Provider preferences are handled by the unified provider tab and Unit of Work pattern - Claude Generated (Refactoring)
             
             # Get configuration from UI
             config = self._get_config_from_ui()
@@ -2403,14 +2397,14 @@ class ComprehensiveSettingsDialog(QDialog):
                 new_provider = dialog.get_provider()
                 
                 # Check if provider name already exists
-                if self.current_config.unified_config.get_provider_by_name(new_provider.name):
+                if self.config_to_edit.unified_config.get_provider_by_name(new_provider.name):
                     QMessageBox.warning(self, "Duplicate Name",
                                       f"A provider with name '{new_provider.name}' already exists!")
                     return
 
                 # Add provider to unified configuration
                 unified_provider = UnifiedProvider.from_ollama_provider(new_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                self.config_to_edit.unified_config.providers.append(unified_provider)
                 self._load_ollama_providers_list()
                 
             except ValueError as e:
@@ -2432,20 +2426,20 @@ class ComprehensiveSettingsDialog(QDialog):
                 
                 # Check if name changed and conflicts with existing
                 if (updated_provider.name != provider.name and
-                    self.current_config.unified_config.get_provider_by_name(updated_provider.name)):
+                    self.config_to_edit.unified_config.get_provider_by_name(updated_provider.name)):
                     QMessageBox.warning(self, "Duplicate Name",
                                       f"A provider with name '{updated_provider.name}' already exists!")
                     return
 
                 # Update provider in unified configuration
                 # Remove old provider
-                self.current_config.unified_config.providers = [
-                    p for p in self.current_config.unified_config.providers
+                self.config_to_edit.unified_config.providers = [
+                    p for p in self.config_to_edit.unified_config.providers
                     if p.name != provider.name
                 ]
                 # Add updated provider
                 unified_provider = UnifiedProvider.from_ollama_provider(updated_provider)
-                self.current_config.unified_config.providers.append(unified_provider)
+                self.config_to_edit.unified_config.providers.append(unified_provider)
                 self._load_ollama_providers_list()
                 
             except ValueError as e:
@@ -2472,8 +2466,8 @@ class ComprehensiveSettingsDialog(QDialog):
         
         if reply == QMessageBox.StandardButton.Yes:
             # Remove provider from unified configuration
-            self.current_config.unified_config.providers = [
-                p for p in self.current_config.unified_config.providers
+            self.config_to_edit.unified_config.providers = [
+                p for p in self.config_to_edit.unified_config.providers
                 if p.name != provider.name
             ]
             self._load_ollama_providers_list()
@@ -2482,7 +2476,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Load Ollama providers into the list widget - Claude Generated"""
         self.ollama_providers_list.clear()
         # Get Ollama providers from unified config
-        ollama_providers = [p for p in self.current_config.unified_config.providers if p.provider_type == 'ollama']
+        ollama_providers = [p for p in self.config_to_edit.unified_config.providers if p.provider_type == 'ollama']
         for provider in ollama_providers:
             # Create display name for unified provider
             status = "🔐" if provider.api_key else "🔓"
@@ -2917,12 +2911,9 @@ class ComprehensiveSettingsDialog(QDialog):
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Remove task from unified config (will fall back to defaults)
-                unified_config = self.config_manager.get_unified_config()
-
-                if task_name in unified_config.task_preferences:
-                    del unified_config.task_preferences[task_name]
-                    self.config_manager.save_config()
+                # Remove task from unified config (will fall back to defaults) - Claude Generated (Refactoring)
+                if task_name in self.config_to_edit.unified_config.task_preferences:
+                    del self.config_to_edit.unified_config.task_preferences[task_name]
                 
                 # Reload priorities
                 self._load_task_model_priorities(task_name)
@@ -3047,52 +3038,6 @@ class ModelSelectionDialog(QDialog):
         
         return provider, model
     
-    def _save_task_preferences_from_ui(self):
-        """Save task preferences from UI to configuration - Claude Generated"""
-        if not hasattr(self, 'tasks_list'):
-            return  # Task preferences tab not initialized
-        
-        try:
-            # Get unified config directly
-            unified_config = self.config_manager.get_unified_config()
-            
-            # Iterate through all tasks and update their preferences
-            for i in range(self.tasks_list.count()):
-                item = self.tasks_list.item(i)
-                task_data = item.data(Qt.ItemDataRole.UserRole)
-                
-                if not task_data:  # Skip header items
-                    continue
-                
-                task_name = task_data["task_name"]
-                
-                # Create or update task preference
-                if task_name not in unified_config.task_preferences:
-                    # Create new task preference based on category
-                    category = task_data["category"]
-                    if category == "vision":
-                        task_type = TaskType.VISION
-                    elif category == "pipeline":
-                        task_type = TaskType.KEYWORDS
-                    else:
-                        task_type = TaskType.GENERAL
-                    
-                    unified_config.task_preferences[task_name] = TaskPreference(
-                        task_type=task_type,
-                        model_priority=[]
-                    )
-                
-                # We would need to get the current UI state for each task here
-                # For now, the changes are applied when the user interacts with the UI
-                # and we save the current state of the selected task
-                
-            # Save unified config
-            self.config_manager.save_unified_config(unified_config)
-            self.logger.info("Task preferences saved successfully")
-            
-        except Exception as e:
-            self.logger.error(f"Error saving task preferences: {e}")
-            raise
 
 
 if __name__ == "__main__":

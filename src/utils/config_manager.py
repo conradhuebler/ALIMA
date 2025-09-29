@@ -611,47 +611,18 @@ class ConfigManager:
         return config.unified_config
 
     def save_unified_config(self, unified_config: UnifiedProviderConfig) -> bool:
-        """Save unified provider configuration - Claude Generated"""
-        try:
-            # 🔍 DEBUG: Check what config_manager receives
-            self.logger.critical(f"🔍 SAVE_UNIFIED_RECEIVED: {len(unified_config.providers)} providers")
-            for i, p in enumerate(unified_config.providers):
-                self.logger.critical(f"🔍 RECEIVED_PROVIDER_{i}: {p.name} ({p.provider_type})")
+        """Save unified provider configuration - Claude Generated (Deprecated)"""
+        import warnings
+        warnings.warn(
+            "save_unified_config is deprecated. Use save_config with a full AlimaConfig object instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
 
-            # Load raw JSON instead of config objects to avoid load-before-save bugs
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                config_dict = json.load(f)
-
-            # 🔍 DEBUG: Check before asdict conversion
-            self.logger.critical(f"🔍 PRE_ASDICT: {len(unified_config.providers)} providers")
-
-            # Convert unified_config to dict and update only that section
-            config_dict['unified_config'] = asdict(unified_config)
-
-            # 🔍 DEBUG: Check after asdict conversion
-            config_dict_unified = config_dict['unified_config']
-            providers_in_dict = config_dict_unified.get('providers', [])
-            self.logger.critical(f"🔍 POST_ASDICT: {len(providers_in_dict)} providers in dict")
-            for i, p_dict in enumerate(providers_in_dict):
-                self.logger.critical(f"🔍 DICT_PROVIDER_{i}: {p_dict.get('name')} ({p_dict.get('provider_type')})")
-
-            # Save directly back to file
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config_dict, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
-
-            # 🔍 DEBUG: Verify what was actually written to file
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                saved_config = json.load(f)
-            saved_providers = saved_config.get('unified_config', {}).get('providers', [])
-            self.logger.critical(f"🔍 FILE_SAVED: {len(saved_providers)} providers written to disk")
-            for i, p_dict in enumerate(saved_providers):
-                self.logger.critical(f"🔍 FILE_PROVIDER_{i}: {p_dict.get('name')} ({p_dict.get('provider_type')})")
-
-            self.logger.info(f"Unified config saved with {len(unified_config.providers)} providers")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error saving unified config: {e}")
-            return False
+        # Load the current configuration, update the unified_config part and save everything
+        config = self.load_config()
+        config.unified_config = unified_config
+        return self.save_config(config, preserve_unified=False)  # Preservation off since we're explicitly updating this part
 
     def get_provider_detection_service(self) -> ProviderDetectionService:
         """Get provider detection service instance - Claude Generated"""

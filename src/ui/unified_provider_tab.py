@@ -14,15 +14,16 @@ from PyQt6.QtWidgets import (
     QSplitter, QFrame, QScrollArea, QGridLayout, QDialog, QDialogButtonBox,
     QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QFont, QIcon, QPalette
 
-from ..utils.config_manager import ConfigManager, OpenAICompatibleProvider, OllamaProvider
+from ..utils.config_manager import ConfigManager, OpenAICompatibleProvider, OllamaProvider, ProviderDetectionService
 from ..utils.config_models import (
     UnifiedProviderConfig,
     UnifiedProvider,
     TaskPreference,
-    TaskType as UnifiedTaskType
+    TaskType as UnifiedTaskType,
+    AlimaConfig
 )
 
 
@@ -142,7 +143,7 @@ class TaskModelSelectionDialog(QDialog):
         self.provider_combo.clear()
         
         try:
-            detection_service = self.config_manager.get_provider_detection_service()
+            detection_service = ProviderDetectionService()
             available_providers = detection_service.get_available_providers()
             
             if not available_providers:
@@ -164,7 +165,7 @@ class TaskModelSelectionDialog(QDialog):
             return
         
         try:
-            detection_service = self.config_manager.get_provider_detection_service()
+            detection_service = ProviderDetectionService()
             available_models = detection_service.get_available_models(provider_name)
             
             # Always add auto-select option first
@@ -419,16 +420,13 @@ class UnifiedProviderTab(QWidget):
     config_changed = pyqtSignal()
     task_preferences_changed = pyqtSignal()  # New signal for task preference changes - Claude Generated
     
-    def __init__(self, config_manager: ConfigManager, parent=None):
+    def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig, parent=None):
         super().__init__(parent)
-        self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
 
-        # Get unified config directly - Claude Generated
-        self.unified_config = config_manager.get_unified_config()
-
-        # Get main config for task_preferences (root-level) - Claude Generated
-        self.config = config_manager.load_config()
+        # Store the configuration objects directly - Claude Generated (Refactoring)
+        self.unified_config = unified_config
+        self.config = alima_config
 
         # CRITICAL FIX: Add explicit task tracking to prevent cross-contamination - Claude Generated
         self.current_editing_task = None  # Track which task is currently being edited
@@ -449,16 +447,8 @@ class UnifiedProviderTab(QWidget):
         else:
             self.logger.critical("🔍 CONFIG_NO_LLM: config has no llm attribute")
 
-        # Keep unified config for provider management
-        self.unified_config = config_manager.get_unified_config()
-        
         self._setup_ui()
         self._load_configuration()
-        
-        # Auto-save timer
-        self.auto_save_timer = QTimer()
-        self.auto_save_timer.timeout.connect(self._auto_save)
-        self.auto_save_timer.start(30000)  # Auto-save every 30 seconds
     
     def _setup_ui(self):
         """Setup the unified provider tab UI - Claude Generated"""
@@ -688,7 +678,7 @@ class UnifiedProviderTab(QWidget):
         """Load unified configuration into UI - Claude Generated"""
         try:
             # Check if we need to migrate from legacy configuration
-            if not self.unified_config.providers and self.config_manager:
+            if not self.unified_config.providers and self.config:
                 self.logger.info("No unified providers found, attempting migration from legacy config")
                 self._migrate_from_legacy_config()
             
@@ -712,30 +702,24 @@ class UnifiedProviderTab(QWidget):
             QMessageBox.critical(self, "Loading Error", f"Failed to load configuration:\n\n{str(e)}")
     
     def _migrate_from_legacy_config(self):
-        """Migrate from legacy LLMConfig to UnifiedProviderConfig - Claude Generated"""
+        """Migrate from legacy LLMConfig to UnifiedProviderConfig - Claude Generated (Refactoring)"""
         try:
-            # Load current ALIMA config
-            alima_config = self.config_manager.load_config()
-            
-            # Get provider preferences for migration
-            # Use existing unified_config instead of bridge
-            # provider_preferences = self.config_manager.get_provider_preferences()
-            
-            # Create unified config from legacy data
+            # Create unified config from legacy data using the already loaded config
             self.unified_config = UnifiedProviderConfig.from_legacy_config(
-                alima_config.unified_config,
+                self.config.unified_config,
                 self.unified_config  # Use existing unified_config instead of bridge
             )
-            
-            # Update the unified config manager
-            self.config_manager.save_unified_config(self.unified_config)
-            
+
+            # Migration occurs in memory only - parent dialog will handle save
+            self.config_changed.emit()
+
             self.logger.info(f"Successfully migrated {len(self.unified_config.providers)} providers from legacy config")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to migrate from legacy config: {e}")
             # Create default config if migration fails
             self.unified_config = UnifiedProviderConfig()
+            self.config_changed.emit()
     
     def _get_all_providers(self):
         """Get all providers from unified config + LLM config - Claude Generated"""
@@ -815,10 +799,9 @@ class UnifiedProviderTab(QWidget):
         
         # Get provider detection service for live model detection
         detection_service = None
-        if self.config_manager:
+        if self.config:
             try:
-                from ..utils.config_manager import ProviderDetectionService
-                detection_service = ProviderDetectionService(self.config_manager)
+                detection_service = ProviderDetectionService()
             except Exception as e:
                 self.logger.warning(f"Could not initialize provider detection service: {e}")
         
@@ -968,9 +951,9 @@ class UnifiedProviderTab(QWidget):
     def _populate_model_preferences(self):
         """Populate model preferences table using direct provider config - Claude Generated"""
         try:
-            # Load current configuration
-            config = self.config_manager.load_config()
-            detection_service = self.config_manager.get_provider_detection_service()
+            # Use already loaded configuration
+            config = self.config
+            detection_service = ProviderDetectionService()
             
             # Get all available providers
             available_providers = detection_service.get_available_providers()
@@ -1037,52 +1020,45 @@ class UnifiedProviderTab(QWidget):
             
             # 🔍 DEBUG: Log the preference change request - Claude Generated
             self.logger.critical(f"🔍 MODEL_PREF_SAVE: Provider='{provider}', Model='{model}' (after auto-select processing)")
-                
-            # Load current configuration
-            config = self.config_manager.load_config()
-            
+
             # 🔍 DEBUG: Log config state before changes - Claude Generated
             if provider == "gemini":
-                self.logger.critical(f"🔍 CONFIG_BEFORE: gemini_preferred_model='{config.unified_config.gemini_preferred_model}'")
+                self.logger.critical(f"🔍 CONFIG_BEFORE: gemini_preferred_model='{self.config.unified_config.gemini_preferred_model}'")
             elif provider == "anthropic":
-                self.logger.critical(f"🔍 CONFIG_BEFORE: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}'")
-            
+                self.logger.critical(f"🔍 CONFIG_BEFORE: anthropic_preferred_model='{self.config.unified_config.anthropic_preferred_model}'")
+
             updated = False
-            
+
             # Update static providers
             if provider == "gemini":
-                config.unified_config.gemini_preferred_model = model
+                self.config.unified_config.gemini_preferred_model = model
                 updated = True
             elif provider == "anthropic":
-                config.unified_config.anthropic_preferred_model = model
+                self.config.unified_config.anthropic_preferred_model = model
                 updated = True
-            
+
             # Update providers in unified provider list
-            for unified_provider in config.unified_config.providers:
+            for unified_provider in self.config.unified_config.providers:
                 if unified_provider.name == provider:
                     unified_provider.preferred_model = model
                     updated = True
                     break
-            
+
             if updated:
                 # 🔍 DEBUG: Log config state after changes - Claude Generated
                 if provider == "gemini":
-                    self.logger.critical(f"🔍 CONFIG_AFTER: gemini_preferred_model='{config.unified_config.gemini_preferred_model}'")
+                    self.logger.critical(f"🔍 CONFIG_AFTER: gemini_preferred_model='{self.config.unified_config.gemini_preferred_model}'")
                 elif provider == "anthropic":
-                    self.logger.critical(f"🔍 CONFIG_AFTER: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}'")
-                
-                # Save configuration directly
-                save_success = self.config_manager.save_config(config)
-                self.logger.critical(f"🔍 CONFIG_SAVE_SUCCESS: {save_success}")
-                
+                    self.logger.critical(f"🔍 CONFIG_AFTER: anthropic_preferred_model='{self.config.unified_config.anthropic_preferred_model}'")
+
+                # Configuration changed in memory - parent dialog will handle save
+                self.config_changed.emit()
+
                 # Show toast notification for model preference save - Claude Generated
-                if save_success:
-                    model_text = model or "auto-select"
-                    self._show_save_toast(f"⚙️ {provider}: {model_text}")
-                
-                # DON'T emit config_changed for model preferences - it causes reload cycle
-                # self.config_changed.emit()  # <-- DISABLED TO PREVENT RELOAD CYCLE
-                self.logger.info(f"Updated preferred model for {provider}: {model or 'auto-select'} (no UI reload)")
+                model_text = model or "auto-select"
+                self._show_save_toast(f"⚙️ {provider}: {model_text}")
+
+                self.logger.info(f"Updated preferred model for {provider}: {model or 'auto-select'} (config_changed emitted)")
             else:
                 self.logger.warning(f"Provider {provider} not found in configuration")
             
@@ -1278,7 +1254,7 @@ class UnifiedProviderTab(QWidget):
                 model_priority = self._create_task_defaults_from_global_preferences()
             
             # Populate main priority list with real provider/model validation
-            detection_service = self.config_manager.get_provider_detection_service()
+            detection_service = ProviderDetectionService()
             available_providers = detection_service.get_available_providers()
             
             for model_config in model_priority:
@@ -1366,7 +1342,7 @@ class UnifiedProviderTab(QWidget):
             return
 
         # Create enhanced model selection dialog with task-specific context - Claude Generated
-        dialog = TaskModelSelectionDialog(self.config_manager, parent=self)
+        dialog = TaskModelSelectionDialog(None, parent=self)
 
         # ENHANCEMENT: Set window title to show which task is being modified - Claude Generated
         dialog.setWindowTitle(f"Add Model for Task: {selected_task_display}")
@@ -1482,7 +1458,9 @@ class UnifiedProviderTab(QWidget):
                 # Remove task from config.unified_config.task_preferences (will fall back to defaults) - Claude Generated
                 if task_name in self.config.unified_config.task_preferences:
                     del self.config.unified_config.task_preferences[task_name]
-                    self.config_manager.save_config(self.config)
+
+                    # Configuration changed in memory - parent dialog will handle save
+                    self.config_changed.emit()
 
                     # CRITICAL FIX: Update current editing task state after reset - Claude Generated
                     if self.current_editing_task == task_name:
@@ -1559,13 +1537,12 @@ class UnifiedProviderTab(QWidget):
     
     def _refresh_models(self):
         """Refresh model lists for all providers - Claude Generated"""
-        if not self.config_manager:
-            QMessageBox.warning(self, "No Config Manager", "No configuration manager available for model detection.")
+        if not self.config:
+            QMessageBox.warning(self, "No Configuration", "No configuration available for model detection.")
             return
-        
+
         try:
-            from ..utils.config_manager import ProviderDetectionService
-            detection_service = ProviderDetectionService(self.config_manager)
+            detection_service = ProviderDetectionService()
             
             updated_count = 0
             
@@ -1669,38 +1646,6 @@ class UnifiedProviderTab(QWidget):
         except Exception as e:
             self.logger.error(f"Error showing toast notification: {e}")
     
-    def _save_configuration(self):
-        """Save unified configuration and task preferences - Claude Generated"""
-        try:
-            # Update config from UI
-            self._update_config_from_ui()
-
-            # 🔍 DEBUG: Check what GUI thinks it has before save
-            self.logger.critical(f"🔍 GUI_SAVE_START: unified_config has {len(self.unified_config.providers)} providers")
-            for i, p in enumerate(self.unified_config.providers):
-                self.logger.critical(f"🔍 GUI_PROVIDER_{i}: {p.name} ({p.provider_type})")
-
-            # Save provider configurations via unified config manager
-            self.logger.critical(f"🔍 CALLING_SAVE_UNIFIED_CONFIG with {len(self.unified_config.providers)} providers")
-            unified_success = self.config_manager.save_unified_config(self.unified_config)
-            
-            # Save task preferences via main config (root-level) - Claude Generated
-            task_success = self.config_manager.save_config(self.config)
-            
-            if unified_success and task_success:
-                QMessageBox.information(self, "Configuration Applied", "All provider and task preferences have been applied successfully.")
-                self.config_changed.emit()
-            elif unified_success:
-                QMessageBox.warning(self, "Partial Application", "Provider configuration applied, but task preferences failed to apply. Please check the logs.")
-            elif task_success:
-                QMessageBox.warning(self, "Partial Application", "Task preferences applied, but provider configuration failed to apply. Please check the logs.")
-            else:
-                QMessageBox.warning(self, "Application Failed", "Failed to apply configuration changes. Please check the logs.")
-                
-        except Exception as e:
-            self.logger.error(f"Error saving configuration: {e}")
-            QMessageBox.critical(self, "Configuration Error", f"Error applying configuration changes:\n\n{str(e)}")
-    
     def _update_config_from_ui(self):
         """Update configuration object from UI state - Claude Generated"""
         # Update global preferences
@@ -1719,28 +1664,6 @@ class UnifiedProviderTab(QWidget):
         # NOTE: Task preferences are managed in self.config.unified_config.task_preferences
         # They are already updated by individual UI operations
         # No additional UI → config sync needed here
-    
-    def _auto_save(self):
-        """Auto-save configuration periodically - Claude Generated"""
-        try:
-            # 🔍 DEBUG: Track auto-save activity
-            self.logger.critical(f"🔍 AUTO_SAVE_START: unified_config has {len(self.unified_config.providers)} providers")
-
-            # CRITICAL FIX: Skip task preference auto-save if user is actively editing - Claude Generated
-            if self.task_ui_dirty and self.current_editing_task:
-                self.logger.critical(f"🔍 AUTO_SAVE_PARTIAL: Skipping task preference auto-save while editing task: {self.current_editing_task}")
-                # Only save unified config, not task preferences during active editing
-                self.config_manager.save_unified_config(self.unified_config)
-            else:
-                # Safe to auto-save everything
-                self.logger.critical(f"🔍 AUTO_SAVE_FULL: Updating config from UI and saving both unified and main config")
-                self._update_config_from_ui()
-                # Save both unified config and task preferences
-                self.config_manager.save_unified_config(self.unified_config)
-                self.config_manager.save_config(self.config)
-                self.logger.critical("🔍 AUTO_SAVE_COMPLETE: Auto-saved unified provider configuration and task preferences")
-        except Exception as e:
-            self.logger.critical(f"🔍 AUTO_SAVE_ERROR: Auto-save failed: {e}")
     
     def _save_current_task_preferences(self, explicit_task_name: str = None):
         """Save current task priority lists to ProviderPreferences - Claude Generated"""
@@ -1796,22 +1719,18 @@ class UnifiedProviderTab(QWidget):
                 'chunked_model_priority': chunked_model_priority
             }
 
-            # Actually save to disk - Claude Generated
-            success = self.config_manager.save_config(self.config)
+            # Configuration changed in memory - parent dialog will handle save
+            self.config_changed.emit()
 
-            if success:
-                # Mark UI as clean after successful save - Claude Generated
-                self.task_ui_dirty = False
+            # Mark UI as clean after successful change - Claude Generated
+            self.task_ui_dirty = False
 
-                # Show toast notification for task preference save - Claude Generated
-                self._show_save_toast(f"✅ {task_name} preferences saved")
-                self.logger.info(f"Task preferences saved for '{task_name}': {len(model_priority)} models, chunked: {chunked_model_priority is not None}")
+            # Show toast notification for task preference save - Claude Generated
+            self._show_save_toast(f"✅ {task_name} preferences saved")
+            self.logger.info(f"Task preferences saved for '{task_name}': {len(model_priority)} models, chunked: {chunked_model_priority is not None}")
 
-                # Emit signal to notify other components about task preference changes - Claude Generated
-                self.task_preferences_changed.emit()
-            else:
-                self._show_save_toast(f"❌ Failed to save {task_name} preferences", error=True)
-                self.logger.error(f"Failed to save task preferences for '{task_name}'")
+            # Emit signal to notify other components about task preference changes - Claude Generated
+            self.task_preferences_changed.emit()
             
         except Exception as e:
             self._show_save_toast(f"❌ Save failed: {str(e)[:30]}", error=True)
@@ -1893,7 +1812,7 @@ class UnifiedProviderTab(QWidget):
     def _validate_and_filter_model_priority(self, model_priority: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Validate model_priority entries against available models and filter invalid ones - Claude Generated"""
         try:
-            detection_service = self.config_manager.get_provider_detection_service()
+            detection_service = ProviderDetectionService()
             available_providers = detection_service.get_available_providers()
             
             validated_priority = []
