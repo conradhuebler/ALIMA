@@ -260,8 +260,8 @@ class HybridStepConfigWidget(QWidget):
                 return None, None, f"no task mapping for step '{self.step_id}'"
 
             # Get task preferences from config
-            task_data = config.unified_config.task_preferences.get(task_name, {})
-            model_priority = task_data.get('model_priority', [])
+            task_data = config.unified_config.task_preferences.get(task_name)
+            model_priority = task_data.model_priority if task_data else []
 
             # CRITICAL DEBUG: Log task preference lookup - Claude Generated
             self.logger.info(f"🔍 TASK_PREF_LOOKUP: step_id='{self.step_id}' -> task_name='{task_name}' -> found={task_name in config.unified_config.task_preferences}")
@@ -1060,7 +1060,7 @@ class HybridStepConfigWidget(QWidget):
                         # Check if task has specific preferences in config.unified_config.task_preferences
                         if task_name in smart_selector.config.unified_config.task_preferences:
                             task_data = smart_selector.config.unified_config.task_preferences[task_name]
-                            model_priorities = task_data.get('model_priority', [])
+                            model_priorities = task_data.model_priority if task_data else []
 
                             # CRITICAL DEBUG: Log found task preference data - Claude Generated
                             self.logger.info(f"🔍 SMART_PREVIEW_FOUND_PREFS: task='{task_name}' -> priorities={model_priorities}")
@@ -1080,7 +1080,7 @@ class HybridStepConfigWidget(QWidget):
 
                             # Check for chunked preferences if applicable
                             if not task_pref_found and 'chunked_model_priority' in task_data:
-                                chunked_priorities = task_data.get('chunked_model_priority')
+                                chunked_priorities = task_data.chunked_model_priority if task_data else None
                                 if chunked_priorities:
                                     for priority_entry in chunked_priorities:
                                         if (priority_entry.get("provider_name") == selection.provider and
@@ -1095,7 +1095,7 @@ class HybridStepConfigWidget(QWidget):
                             # Add task preference summary info - Claude Generated
                             if task_pref_found:
                                 # Show how many total preferences are configured for this task
-                                chunked_count = len(task_data.get('chunked_model_priority', []))
+                                chunked_count = len(task_data.chunked_model_priority) if task_data and task_data.chunked_model_priority else 0
                                 if chunked_count > 0:
                                     selection_indicators.append(f"📊 Total preferences: {len(model_priorities)} standard, {chunked_count} chunked")
                                 else:
@@ -2005,9 +2005,9 @@ class PipelineConfigDialog(QDialog):
         try:
             # Load step configurations
             for step_id, step_widget in self.step_widgets.items():
-                if step_id in config.step_configs_v2:
+                if step_id in config.step_configs:
                     # Convert PipelineStepConfig to dict format for widget compatibility
-                    step_config = config.step_configs_v2[step_id]
+                    step_config = config.step_configs[step_id]
                     config_dict = {
                         'step_id': step_config.step_id,
                         'enabled': step_config.enabled,
@@ -2135,7 +2135,7 @@ class PipelineConfigDialog(QDialog):
             unified_config = self.config_manager.get_unified_config()
             
             # Update provider preferences based on pipeline step configurations
-            step_configs = current_config.step_configs_v2
+            step_configs = current_config.step_configs
             
             # Determine the most frequently used provider as preferred
             provider_counts = {}

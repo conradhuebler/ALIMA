@@ -420,13 +420,14 @@ class UnifiedProviderTab(QWidget):
     config_changed = pyqtSignal()
     task_preferences_changed = pyqtSignal()  # New signal for task preference changes - Claude Generated
     
-    def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig, parent=None):
+    def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig, alima_manager=None, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
 
         # Store the configuration objects directly - Claude Generated (Refactoring)
         self.unified_config = unified_config
         self.config = alima_config
+        self.alima_manager = alima_manager  # Access to ProviderStatusService - Claude Generated
 
         # CRITICAL FIX: Add explicit task tracking to prevent cross-contamination - Claude Generated
         self.current_editing_task = None  # Track which task is currently being edited
@@ -449,6 +450,9 @@ class UnifiedProviderTab(QWidget):
 
         self._setup_ui()
         self._load_configuration()
+
+        # Setup reactive provider status connections - Claude Generated
+        self._setup_provider_status_connections()
     
     def _setup_ui(self):
         """Setup the unified provider tab UI - Claude Generated"""
@@ -793,80 +797,77 @@ class UnifiedProviderTab(QWidget):
         return all_providers
 
     def _populate_provider_table(self):
-        """Populate the provider table with all providers (unified + config) - Claude Generated"""
+        """Populate the provider table using cached ProviderStatusService data - Claude Generated"""
         providers = self._get_all_providers()
         self.provider_table.setRowCount(len(providers))
-        
-        # Get provider detection service for live model detection
-        detection_service = None
-        if self.config:
-            try:
-                detection_service = ProviderDetectionService()
-            except Exception as e:
-                self.logger.warning(f"Could not initialize provider detection service: {e}")
-        
+
+        # Get cached provider status from service (non-blocking)
+        provider_status_cache = {}
+        if (self.alima_manager and
+            hasattr(self.alima_manager, 'provider_status_service') and
+            self.alima_manager.provider_status_service):
+            provider_status_cache = self.alima_manager.provider_status_service.get_all_provider_info()
+            self.logger.debug(f"Using cached status for {len(provider_status_cache)} providers")
+        else:
+            self.logger.warning("ProviderStatusService not available, using fallback display")
+
         for row, provider in enumerate(providers):
             # Name
             name_item = QTableWidgetItem(provider.name)
             if not provider.enabled:
                 name_item.setForeground(QPalette().color(QPalette.ColorRole.PlaceholderText))
             self.provider_table.setItem(row, 0, name_item)
-            
+
             # Type
             type_item = QTableWidgetItem(provider.provider_type.title())
             self.provider_table.setItem(row, 1, type_item)
-            
-            # Status and live model detection
-            status_text = "Unknown"
-            models_text = "Not detected"
-            
-            if detection_service:
-                try:
-                    # Check if provider is available
-                    available_providers = detection_service.get_available_providers()
-                    is_available = provider.name in available_providers or provider.provider_type in available_providers
-                    
-                    if is_available:
-                        status_text = "✅ Available"
-                        
-                        # Try to detect models
-                        detected_models = detection_service.get_available_models(provider.name)
-                        if not detected_models:
-                            detected_models = detection_service.get_available_models(provider.provider_type)
-                        
-                        if detected_models:
-                            # Update provider's available models
-                            provider.available_models = detected_models
-                            models_text = f"{len(detected_models)} models"
-                            
-                            # Show first few models in tooltip
-                            models_preview = ", ".join(detected_models[:5])
-                            if len(detected_models) > 5:
-                                models_preview += f" (+{len(detected_models) - 5} more)"
-                        else:
-                            models_text = "No models detected"
-                    else:
-                        status_text = "❌ Not Working"
-                        models_text = "Provider configured but not available"
 
-                except Exception as e:
-                    self.logger.debug(f"Error detecting models for {provider.name}: {e}")
-                    status_text = "⚠️ Detection failed"
-            else:
-                # Fallback to stored models or show as configured
-                model_count = len(provider.available_models)
-                if model_count > 0:
-                    models_text = f"{model_count} models (cached)"
-                    status_text = "📝 Configured"
+            # Status and model info from cache (fast, non-blocking)
+            status_text = "Unknown"
+            models_text = "Not tested"
+
+            # Get cached status for this provider
+            cached_status = provider_status_cache.get(provider.name)
+            if cached_status:
+                # Use cached data from ProviderStatusService
+                is_reachable = cached_status.get('reachable', False)
+                cached_models = cached_status.get('models', [])
+                error_message = cached_status.get('error_message')
+
+                if is_reachable:
+                    status_text = "✅ Available"
+                    if cached_models:
+                        models_text = f"{len(cached_models)} models"
+                        # Update provider's available models from cache
+                        provider.available_models = cached_models
+                    else:
+                        models_text = "No models detected"
                 else:
-                    # Provider from config but no detection service
-                    status_text = "⚠️ Configured"
-                    models_text = "Status unknown"
-            
+                    status_text = "❌ Offline"
+                    if error_message:
+                        models_text = f"Error: {error_message[:30]}"
+                    else:
+                        models_text = "Provider not reachable"
+            else:
+                # No cached data available (tests haven't completed yet)
+                if provider_status_cache:
+                    # Service is running but provider not tested yet
+                    status_text = "⏳ Testing..."
+                    models_text = "Test in progress"
+                else:
+                    # Service not available, fallback to config data
+                    model_count = len(provider.available_models)
+                    if model_count > 0:
+                        models_text = f"{model_count} models (config)"
+                        status_text = "📝 Configured"
+                    else:
+                        status_text = "⚠️ Unknown"
+                        models_text = "Status unknown"
+
             # Status
             status_item = QTableWidgetItem(status_text)
             self.provider_table.setItem(row, 2, status_item)
-            
+
             # Models
             models_item = QTableWidgetItem(models_text)
             if provider.available_models:
@@ -1247,7 +1248,7 @@ class UnifiedProviderTab(QWidget):
             if task_name in self.config.unified_config.task_preferences:
                 # Task has specific preferences - validate and use them
                 task_pref_data = self.config.unified_config.task_preferences[task_name]
-                raw_model_priority = task_pref_data.get('model_priority', [])
+                raw_model_priority = task_pref_data.model_priority if task_pref_data else []
                 model_priority = self._validate_and_filter_model_priority(raw_model_priority)
             else:
                 # Task has no specific preferences - create intelligent defaults from global provider preferences
@@ -1278,12 +1279,12 @@ class UnifiedProviderTab(QWidget):
             # Check if task has chunked support - use config.unified_config.task_preferences - Claude Generated
             if task_name in self.config.unified_config.task_preferences:
                 task_pref_data = self.config.unified_config.task_preferences[task_name]
-                if 'chunked_model_priority' in task_pref_data and task_pref_data['chunked_model_priority']:
+                if task_pref_data and task_pref_data.chunked_model_priority:
                     self.chunked_tasks_checkbox.setChecked(True)
                     self._on_chunked_tasks_toggled(True)
                     
                     # Populate chunked priority list
-                    for model_config in task_pref_data['chunked_model_priority']:
+                    for model_config in task_pref_data.chunked_model_priority:
                         provider_name = model_config["provider_name"]
                         model_name = model_config["model_name"]
                         
@@ -1536,57 +1537,33 @@ class UnifiedProviderTab(QWidget):
             self.logger.info(f"Removed provider: {provider.name}")
     
     def _refresh_models(self):
-        """Refresh model lists for all providers - Claude Generated"""
-        if not self.config:
-            QMessageBox.warning(self, "No Configuration", "No configuration available for model detection.")
+        """Trigger background provider refresh via ProviderStatusService - Claude Generated"""
+        if (not self.alima_manager or
+            not hasattr(self.alima_manager, 'provider_status_service') or
+            not self.alima_manager.provider_status_service):
+            QMessageBox.warning(
+                self, "Service Unavailable",
+                "ProviderStatusService not available. Cannot refresh provider models."
+            )
             return
 
         try:
-            detection_service = ProviderDetectionService()
-            
-            updated_count = 0
-            
-            for provider in self.unified_config.providers:
-                if not provider.enabled:
-                    continue
-                    
-                try:
-                    # Try to detect models for this provider
-                    detected_models = detection_service.get_available_models(provider.name)
-                    if not detected_models:
-                        detected_models = detection_service.get_available_models(provider.provider_type)
-                    
-                    if detected_models:
-                        old_count = len(provider.available_models)
-                        provider.available_models = detected_models
-                        new_count = len(detected_models)
-                        
-                        if new_count != old_count:
-                            updated_count += 1
-                            self.logger.info(f"Updated {provider.name}: {old_count} → {new_count} models")
-                        
-                except Exception as e:
-                    self.logger.warning(f"Failed to refresh models for {provider.name}: {e}")
-            
-            # Refresh the UI
-            self._populate_provider_table()
-            
-            # Show result
-            if updated_count > 0:
-                QMessageBox.information(
-                    self, "Models Refreshed", 
-                    f"Successfully refreshed models for {updated_count} provider(s).\n\n"
-                    f"Check the provider table for updated model counts."
-                )
-            else:
-                QMessageBox.information(
-                    self, "No Updates", 
-                    "No model changes detected. All providers have current model lists."
-                )
-            
+            # Trigger force refresh in background (non-blocking)
+            self.alima_manager.provider_status_service.refresh_all(force=True)
+
+            # Show immediate feedback
+            QMessageBox.information(
+                self, "Refresh Started",
+                "Provider model refresh started in background.\n\n"
+                "The table will update automatically as providers are tested.\n"
+                "This may take a few moments for all providers."
+            )
+
+            self.logger.info("Triggered background provider refresh via ProviderStatusService")
+
         except Exception as e:
-            self.logger.error(f"Error refreshing models: {e}")
-            QMessageBox.critical(self, "Refresh Error", f"Failed to refresh models:\n\n{str(e)}")
+            self.logger.error(f"Error starting provider refresh: {e}")
+            QMessageBox.critical(self, "Refresh Error", f"Failed to start provider refresh:\n\n{str(e)}")
     
     def _test_all_providers(self):
         """Test connections to all enabled providers - Claude Generated"""
@@ -1645,6 +1622,40 @@ class UnifiedProviderTab(QWidget):
                 
         except Exception as e:
             self.logger.error(f"Error showing toast notification: {e}")
+
+    def _setup_provider_status_connections(self):
+        """Setup signal connections to ProviderStatusService for reactive updates - Claude Generated"""
+        if (self.alima_manager and
+            hasattr(self.alima_manager, 'provider_status_service') and
+            self.alima_manager.provider_status_service):
+
+            # Connect to status updates for automatic table refresh
+            self.alima_manager.provider_status_service.status_updated.connect(
+                self._populate_provider_table
+            )
+
+            # Connect to individual provider tests for live updates
+            self.alima_manager.provider_status_service.provider_tested.connect(
+                self._on_provider_tested
+            )
+
+            self.logger.info("Connected to ProviderStatusService signals for reactive updates")
+        else:
+            self.logger.warning("ProviderStatusService not available for signal connections")
+
+    def _on_provider_tested(self, provider_name: str, provider_info: dict):
+        """Handle individual provider test completion - Claude Generated"""
+        try:
+            # Refresh the table to show updated status
+            self._populate_provider_table()
+
+            # Log the update
+            status = provider_info.get('status', 'unknown')
+            model_count = provider_info.get('model_count', 0)
+            self.logger.debug(f"Provider {provider_name} tested: {status} ({model_count} models)")
+
+        except Exception as e:
+            self.logger.error(f"Error handling provider test result for {provider_name}: {e}")
     
     def _update_config_from_ui(self):
         """Update configuration object from UI state - Claude Generated"""
@@ -1713,11 +1724,38 @@ class UnifiedProviderTab(QWidget):
                 self._show_save_toast(f"❌ Save aborted: task name mismatch", error=True)
                 return
 
-            # Save to config.unified_config.task_preferences (root-level) - Claude Generated
-            self.config.unified_config.task_preferences[task_name] = {
-                'model_priority': model_priority,
-                'chunked_model_priority': chunked_model_priority
+            # CRITICAL FIX: Save proper TaskPreference object instead of dictionary - Claude Generated
+            # Map task name to TaskType enum
+            task_type_mapping = {
+                'initialisation': UnifiedTaskType.INITIALISATION,
+                'keywords': UnifiedTaskType.KEYWORDS,
+                'rephrase': UnifiedTaskType.KEYWORDS,  # rephrase is keywords variant
+                'classification': UnifiedTaskType.CLASSIFICATION,
+                'dk_classification': UnifiedTaskType.DK_CLASSIFICATION,
+                'image_text_extraction': UnifiedTaskType.VISION,
+                'keywords_chunked': UnifiedTaskType.CHUNKED_PROCESSING,
+                'extract_initial_keywords': UnifiedTaskType.INITIALISATION,
+                'dk_class': UnifiedTaskType.DK_CLASSIFICATION,
+                'dk_list': UnifiedTaskType.DK_SEARCH,
+                'text_analysis': UnifiedTaskType.GENERAL,
+                'vision': UnifiedTaskType.VISION,
+                'chunked': UnifiedTaskType.CHUNKED_PROCESSING
             }
+
+            # Get existing TaskPreference to preserve settings
+            existing_pref = self.config.unified_config.task_preferences.get(task_name)
+            task_type = task_type_mapping.get(task_name, UnifiedTaskType.GENERAL)
+
+            # Create proper TaskPreference object
+            task_preference = TaskPreference(
+                task_type=task_type,
+                model_priority=model_priority,
+                chunked_model_priority=chunked_model_priority,
+                allow_fallback=existing_pref.allow_fallback if existing_pref else True
+            )
+
+            # Save proper TaskPreference object
+            self.config.unified_config.task_preferences[task_name] = task_preference
 
             # Configuration changed in memory - parent dialog will handle save
             self.config_changed.emit()

@@ -46,6 +46,19 @@ def main():
     window = MainWindow()
     window.show()
 
+    # Start background provider check for instant UI with progressive loading - Claude Generated
+    if hasattr(window, 'alima_manager') and hasattr(window.alima_manager, 'provider_status_service'):
+        if window.alima_manager.provider_status_service:
+            try:
+                window.alima_manager.provider_status_service.refresh_all()
+                logging.info("Background provider status check started")
+            except Exception as e:
+                logging.warning(f"Failed to start background provider check: {e}")
+        else:
+            logging.warning("ProviderStatusService not available")
+    else:
+        logging.warning("MainWindow or AlimaManager not properly initialized")
+
     # Hide splash screen after main window is shown
     if "splash" in locals():
         splash.finish(window)

@@ -561,8 +561,18 @@ class ConfigManager:
                         self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVING_COUNT: Found {len(preserved_providers)} providers to preserve")
                         for i, p in enumerate(preserved_providers):
                             self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVED_PROVIDER_{i}: {p.get('name', 'NO_NAME')} ({p.get('provider_type', 'NO_TYPE')})")
-                        config_dict['unified_config'] = current_config['unified_config']
-                        self.logger.critical("🔒 Auto-preserved unified_config (default protection)")
+                        # CRITICAL FIX: Intelligent merge - preserve providers, update task_preferences - Claude Generated
+                        incoming_task_prefs = config_dict.get('unified_config', {}).get('task_preferences', {})
+                        preserved_unified_config = current_config['unified_config'].copy()
+
+                        # Merge new task preferences into preserved config while keeping providers
+                        if incoming_task_prefs:
+                            preserved_unified_config['task_preferences'] = incoming_task_prefs
+                            self.logger.critical(f"🔒 Smart-merged unified_config: preserved providers, updated {len(incoming_task_prefs)} task preferences")
+                        else:
+                            self.logger.critical("🔒 Auto-preserved unified_config (no task preferences to merge)")
+
+                        config_dict['unified_config'] = preserved_unified_config
                     else:
                         self.logger.critical("🔍 SAVE_CONFIG_NO_UNIFIED: No unified_config found in current file")
                         # CRITICAL FIX: If the config being saved has providers but file doesn't have unified_config,

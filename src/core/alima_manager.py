@@ -13,6 +13,7 @@ from .processing_utils import (
     extract_gnd_system_from_response,
     match_keywords_against_text,
 )
+from .provider_status_service import ProviderStatusService
 
 
 class AlimaManager:
@@ -30,6 +31,14 @@ class AlimaManager:
         self.prompt_service = prompt_service
         self.config_manager = config_manager
         self.logger = logger or logging.getLogger(__name__)
+
+        # Initialize Provider Status Service - Claude Generated
+        try:
+            self.provider_status_service = ProviderStatusService(self.llm_service)
+            self.logger.info("ProviderStatusService initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize ProviderStatusService: {e}")
+            self.provider_status_service = None
 
     def set_ollama_url(self, url: str):
         """Set the Ollama URL for LLM requests."""

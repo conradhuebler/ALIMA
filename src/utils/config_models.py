@@ -259,6 +259,7 @@ class PipelineStepConfig:
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     max_tokens: Optional[int] = None
+    seed: Optional[int] = None  # For reproducible results
     custom_params: Dict[str, Any] = field(default_factory=dict)
 
     # Meta settings

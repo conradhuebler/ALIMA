@@ -133,8 +133,8 @@ def create_config_from_cli_args(args, base_config):
 
     if hasattr(args, 'disable_dk_classification') and args.disable_dk_classification:
         # Disable DK classification step
-        if hasattr(config, 'step_configs_v2') and 'dk_classification' in config.step_configs_v2:
-            config.step_configs_v2['dk_classification'].enabled = False
+        if hasattr(config, 'step_configs') and 'dk_classification' in config.step_configs:
+            config.step_configs['dk_classification'].enabled = False
 
     # Process step-specific arguments
     step_configs = {}
@@ -188,8 +188,8 @@ def create_config_from_cli_args(args, base_config):
 
     # Apply step configurations to pipeline config
     for step_name, step_params in step_configs.items():
-        if hasattr(config, 'step_configs_v2') and step_name in config.step_configs_v2:
-            step_config = config.step_configs_v2[step_name]
+        if hasattr(config, 'step_configs') and step_name in config.step_configs:
+            step_config = config.step_configs[step_name]
 
             # Set mode
             step_config.mode = target_mode
@@ -799,7 +799,7 @@ EXAMPLES:
                     print(f"    {step_id}: {', '.join(parts) if parts else 'default'}")
             else:
                 print(f"  Using default configuration from pipeline_config")
-                for step_id, step_config in pipeline_config.step_configs_v2.items():
+                for step_id, step_config in pipeline_config.step_configs.items():
                     if step_config.enabled and step_config.provider:
                         provider = step_config.provider
                         model = step_config.model

@@ -442,8 +442,8 @@ class TextExtractionWorker(QThread):
                     # Load AlimaConfig directly
                     alima_config = config_manager.load_config()
                     if hasattr(alima_config, 'unified_config') and alima_config.unified_config.task_preferences:
-                        task_prefs = alima_config.unified_config.task_preferences.get("image_text_extraction", {})
-                        model_priority = task_prefs.get('model_priority', [])
+                        task_prefs = alima_config.unified_config.task_preferences.get("image_text_extraction")
+                        model_priority = task_prefs.model_priority if task_prefs else []
                         self.logger.critical(f"🔍 DIRECT_CONFIG_TASK_PREFS: Found {len(model_priority) if model_priority else 0} providers in direct config")
                 except Exception as e:
                     self.logger.critical(f"🔍 DIRECT_CONFIG_ERROR: Failed to access task preferences from direct config: {e}")

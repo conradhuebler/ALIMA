@@ -685,11 +685,12 @@ class ComprehensiveSettingsDialog(QDialog):
     config_changed = pyqtSignal()
     task_preferences_changed = pyqtSignal()  # Forward task preference changes - Claude Generated
     
-    def __init__(self, parent=None):
+    def __init__(self, alima_manager=None, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self.config_manager = ConfigManager()
-        
+        self.alima_manager = alima_manager  # For ProviderStatusService access - Claude Generated
+
         # Implement Unit of Work pattern - Claude Generated (Refactoring)
         self.original_config = self.config_manager.load_config()
         self.config_to_edit = deepcopy(self.original_config)
@@ -735,7 +736,7 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Create tabs
         self.database_tab = self._create_database_tab()
-        self.unified_provider_tab = UnifiedProviderTab(self.config_to_edit.unified_config, self.config_to_edit, self)  # Claude Generated - Unified Provider Management (Refactoring)
+        self.unified_provider_tab = UnifiedProviderTab(self.config_to_edit.unified_config, self.config_to_edit, self.alima_manager, self)  # Claude Generated - Provider Status Service Integration
         self.catalog_tab = self._create_catalog_tab()
         self.prompts_tab = self._create_prompts_tab()
         self.system_tab = self._create_system_tab()

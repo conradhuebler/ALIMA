@@ -68,11 +68,87 @@ class PipelineConfig:
     
     # Hybrid Mode Configuration - NEW
     default_mode: PipelineMode = PipelineMode.SMART
-    step_configs_v2: Dict[str, PipelineStepConfig] = field(default_factory=dict)  # New unified step configs
+    step_configs: Dict[str, PipelineStepConfig] = field(default_factory=dict)  # Unified step configs
 
 
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
+
+    def __post_init__(self):
+        """Convert dictionary step_configs to PipelineStepConfig objects - Claude Generated"""
+        # Convert any dictionary step configs to PipelineStepConfig objects
+        converted_configs = {}
+        for step_id, step_config in self.step_configs.items():
+            if isinstance(step_config, dict):
+                # Convert dictionary to PipelineStepConfig object
+                converted_configs[step_id] = self._dict_to_pipeline_step_config(step_id, step_config)
+            else:
+                # Already a PipelineStepConfig object
+                converted_configs[step_id] = step_config
+
+        # Update step_configs with converted objects
+        self.step_configs = converted_configs
+
+    def _dict_to_pipeline_step_config(self, step_id: str, config_dict: dict) -> 'PipelineStepConfig':
+        """Convert dictionary to PipelineStepConfig object - Claude Generated"""
+        from ..utils.config_models import PipelineStepConfig, PipelineMode, TaskType
+
+        # Determine mode based on config parameters
+        mode = PipelineMode.SMART  # Default
+        if 'mode' in config_dict:
+            if isinstance(config_dict['mode'], str):
+                mode = PipelineMode(config_dict['mode'])
+            else:
+                mode = config_dict['mode']
+        elif config_dict.get('provider') and config_dict.get('model'):
+            # Has explicit provider/model = Advanced mode
+            mode = PipelineMode.ADVANCED
+            if any(key in config_dict for key in ['temperature', 'top_p', 'seed', 'max_tokens']):
+                # Has expert parameters = Expert mode
+                mode = PipelineMode.EXPERT
+
+        # Map step_id to task_type
+        task_type_mapping = {
+            'input': TaskType.INPUT,
+            'initialisation': TaskType.INITIALISATION,
+            'search': TaskType.SEARCH,
+            'keywords': TaskType.KEYWORDS,
+            'classification': TaskType.CLASSIFICATION,
+            'dk_search': TaskType.DK_SEARCH,
+            'dk_classification': TaskType.DK_CLASSIFICATION
+        }
+        task_type = task_type_mapping.get(step_id, TaskType.GENERAL)
+
+        # Create PipelineStepConfig object with all supported parameters
+        step_config = PipelineStepConfig(
+            step_id=step_id,
+            mode=mode,
+            task_type=task_type,
+            enabled=config_dict.get('enabled', True),
+            provider=config_dict.get('provider'),
+            model=config_dict.get('model'),
+            task=config_dict.get('task'),
+            temperature=config_dict.get('temperature'),
+            top_p=config_dict.get('top_p'),
+            max_tokens=config_dict.get('max_tokens'),
+            seed=config_dict.get('seed'),
+            timeout=config_dict.get('timeout')
+        )
+
+        # Add any custom parameters (unsupported parameters go here)
+        custom_params = {}
+        supported_params = {
+            'step_id', 'mode', 'task_type', 'enabled', 'provider', 'model', 'task',
+            'temperature', 'top_p', 'max_tokens', 'seed', 'timeout'
+        }
+        for key, value in config_dict.items():
+            if key not in supported_params:
+                custom_params[key] = value
+
+        if custom_params:
+            step_config.custom_params.update(custom_params)
+
+        return step_config
     
     @classmethod
     def create_from_provider_preferences(cls, config_manager) -> 'PipelineConfig':
@@ -155,11 +231,11 @@ class PipelineConfig:
     
     def initialize_hybrid_mode_configs(self, config_manager=None):
         """Initialize hybrid mode step configurations - Claude Generated"""
-        if self.step_configs_v2:
+        if self.step_configs:
             return  # Already initialized
 
         # Create clean smart mode defaults for each step (no legacy migration)
-        self.step_configs_v2 = {
+        self.step_configs = {
             "input": PipelineStepConfig(
                 step_id="input",
                 mode=PipelineMode.SMART,
@@ -189,11 +265,11 @@ class PipelineConfig:
     
     def get_step_config(self, step_id: str) -> PipelineStepConfig:
         """Get step configuration with fallback to defaults - Claude Generated"""
-        if not self.step_configs_v2:
+        if not self.step_configs:
             self.initialize_hybrid_mode_configs()
             
-        if step_id in self.step_configs_v2:
-            return self.step_configs_v2[step_id]
+        if step_id in self.step_configs:
+            return self.step_configs[step_id]
         
         # Fallback: create default smart mode config
         return PipelineStepConfig(
@@ -204,22 +280,22 @@ class PipelineConfig:
     
     def set_step_mode(self, step_id: str, mode: PipelineMode):
         """Set the mode for a specific step - Claude Generated"""
-        if not self.step_configs_v2:
+        if not self.step_configs:
             self.initialize_hybrid_mode_configs()
             
-        if step_id in self.step_configs_v2:
-            self.step_configs_v2[step_id].mode = mode
+        if step_id in self.step_configs:
+            self.step_configs[step_id].mode = mode
     
     def set_step_manual_config(self, step_id: str, provider: str = None, model: str = None, 
                               task: str = None, **expert_params):
         """Configure step for Advanced/Expert mode - Claude Generated"""
-        if not self.step_configs_v2:
+        if not self.step_configs:
             self.initialize_hybrid_mode_configs()
             
-        if step_id not in self.step_configs_v2:
+        if step_id not in self.step_configs:
             return False
             
-        step_config = self.step_configs_v2[step_id]
+        step_config = self.step_configs[step_id]
         
         # Set manual parameters
         if provider:
@@ -324,12 +400,12 @@ class PipelineConfig:
 
     def is_using_smart_mode(self) -> bool:
         """Check if pipeline is primarily using smart mode - Claude Generated"""
-        if not self.step_configs_v2:
+        if not self.step_configs:
             return False
 
-        smart_steps = sum(1 for config in self.step_configs_v2.values()
+        smart_steps = sum(1 for config in self.step_configs.values()
                          if config.mode == PipelineMode.SMART)
-        total_steps = len(self.step_configs_v2)
+        total_steps = len(self.step_configs)
 
         return smart_steps > total_steps // 2  # Majority are smart mode
 
@@ -402,11 +478,22 @@ class PipelineManager:
         self.logger.info("🔍 DEBUG: Modern Step Configuration Analysis")
 
         # Log current hybrid mode configs
-        if hasattr(self.config, 'step_configs_v2') and self.config.step_configs_v2:
-            for step_id, step_config in self.config.step_configs_v2.items():
-                self.logger.info(f"🔍 STEP_CONFIG[{step_id}]: mode={step_config.mode.value}, provider={step_config.provider}, model={step_config.model}, enabled={step_config.enabled}")
+        if hasattr(self.config, 'step_configs') and self.config.step_configs:
+            for step_id, step_config in self.config.step_configs.items():
+                # Handle both dictionary and PipelineStepConfig objects - Claude Generated
+                if isinstance(step_config, dict):
+                    # Dictionary format from UI
+                    mode = step_config.get('mode', 'unknown')
+                    provider = step_config.get('provider', 'unknown')
+                    model = step_config.get('model', 'unknown')
+                    enabled = step_config.get('enabled', True)
+                    self.logger.info(f"🔍 STEP_CONFIG[{step_id}]: mode={mode}, provider={provider}, model={model}, enabled={enabled}")
+                else:
+                    # PipelineStepConfig object
+                    mode_value = step_config.mode.value if hasattr(step_config.mode, 'value') else str(step_config.mode)
+                    self.logger.info(f"🔍 STEP_CONFIG[{step_id}]: mode={mode_value}, provider={step_config.provider}, model={step_config.model}, enabled={step_config.enabled}")
         else:
-            self.logger.info("🔍 NO_STEP_CONFIGS: step_configs_v2 not initialized")
+            self.logger.info("🔍 NO_STEP_CONFIGS: step_configs not initialized")
 
     def set_config(self, config: PipelineConfig):
         """Set pipeline configuration - Claude Generated"""
@@ -414,8 +501,8 @@ class PipelineManager:
         self.logger.info(f"Pipeline configuration updated: {config}")
 
         # Debug: Log modern step configurations in detail
-        if hasattr(config, 'step_configs_v2') and config.step_configs_v2:
-            for step_id, step_config in config.step_configs_v2.items():
+        if hasattr(config, 'step_configs') and config.step_configs:
+            for step_id, step_config in config.step_configs.items():
                 self.logger.info(f"Step '{step_id}': mode={step_config.mode.value}, enabled={step_config.enabled}")
         else:
             self.logger.info("No modern step configurations found")

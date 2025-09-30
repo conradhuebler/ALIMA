@@ -45,6 +45,7 @@ from ..core.gitupdate import GitUpdateWorker
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
+from ..core.pipeline_manager import PipelineManager
 from ..utils.config_manager import ConfigManager
 
 
@@ -345,12 +346,24 @@ class MainWindow(QMainWindow):
             logger=self.logger,  # Pass logger to manager
         )
 
+        # Create central PipelineManager for all tabs - Claude Generated
+        self.pipeline_manager = PipelineManager(
+            alima_manager=self.alima_manager,
+            cache_manager=self.cache_manager,
+            logger=self.logger,
+            config_manager=self.config_manager
+        )
+
         self.available_models = {}
         self.available_providers = []
 
         self.init_ui()
         self.load_settings()
-        # Don't load models during startup - do it on demand - Claude Generated
+
+        # Setup reactive provider status connections - Claude Generated
+        self.setup_provider_status_connections()
+
+        # Don't load models during startup - use ProviderStatusService instead - Claude Generated
         # self.load_models_and_providers()
 
     def init_ui(self):
@@ -376,7 +389,8 @@ class MainWindow(QMainWindow):
         # Tabs erstellen
         self.search_tab = SearchTab(
             cache_manager=self.cache_manager,
-            alima_manager=self.alima_manager
+            alima_manager=self.alima_manager,
+            pipeline_manager=self.pipeline_manager
         )
 
         self.crossref_tab = CrossrefTab()
@@ -387,6 +401,7 @@ class MainWindow(QMainWindow):
             alima_manager=self.alima_manager,
             llm_service=self.llm_service,
             cache_manager=self.cache_manager,
+            pipeline_manager=self.pipeline_manager,
             main_window=self,
         )
         # self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
@@ -399,6 +414,7 @@ class MainWindow(QMainWindow):
             alima_manager=self.alima_manager,
             llm_service=self.llm_service,
             cache_manager=self.cache_manager,
+            pipeline_manager=self.pipeline_manager,
             main_window=self,
         )
         self.analyse_keywords.template_name = (
@@ -456,6 +472,7 @@ class MainWindow(QMainWindow):
             alima_manager=self.alima_manager,
             llm_service=self.llm_service,
             cache_manager=self.cache_manager,
+            pipeline_manager=self.pipeline_manager,
             main_window=self,
         )
 
@@ -516,29 +533,78 @@ class MainWindow(QMainWindow):
         # self.cache_info = QLabel()
         self.global_status_bar.addPermanentWidget(ollama_widget)
 
-    def ensure_models_and_providers_loaded(self):
-        """Ensure models and providers are loaded on-demand - Claude Generated"""
-        if not self.available_providers:
-            self.load_models_and_providers()
+    def get_provider_info(self):
+        """Get cached provider information from ProviderStatusService - Claude Generated"""
+        if hasattr(self.alima_manager, 'provider_status_service') and self.alima_manager.provider_status_service:
+            return self.alima_manager.provider_status_service.get_all_provider_info()
+        else:
+            # Fallback if service not available
+            self.logger.warning("ProviderStatusService not available, returning empty provider info")
+            return {}
 
-    def load_models_and_providers(self):
-        """Loads all available models and providers - Claude Generated"""
-        self.available_providers = self.llm_service.get_available_providers()
-        for provider in self.available_providers:
-            self.available_models[provider] = self.llm_service.get_available_models(
-                provider
+    def get_available_providers(self):
+        """Get list of available providers from cached status - Claude Generated"""
+        provider_info = self.get_provider_info()
+        return [name for name, info in provider_info.items() if info.get('reachable', False)]
+
+    def get_available_models(self, provider_name: str):
+        """Get available models for a provider from cached status - Claude Generated"""
+        if hasattr(self.alima_manager, 'provider_status_service') and self.alima_manager.provider_status_service:
+            return self.alima_manager.provider_status_service.get_available_models(provider_name)
+        else:
+            return []
+
+    def update_tabs_with_provider_info(self):
+        """Update tabs with current provider information - Claude Generated"""
+        try:
+            provider_info = self.get_provider_info()
+            available_providers = self.get_available_providers()
+
+            # Build available_models dict for backward compatibility
+            available_models = {}
+            for provider_name in available_providers:
+                available_models[provider_name] = self.get_available_models(provider_name)
+
+            # Update tabs with current provider info
+            if hasattr(self, 'abstract_tab'):
+                self.abstract_tab.set_models_and_providers(available_models, available_providers)
+            if hasattr(self, 'analyse_keywords'):
+                self.analyse_keywords.set_models_and_providers(available_models, available_providers)
+            if hasattr(self, 'ub_search_tab'):
+                self.ub_search_tab.set_models_and_providers(available_models, available_providers)
+
+            self.logger.info(f"Updated tabs with {len(available_providers)} providers")
+
+        except Exception as e:
+            self.logger.error(f"Error updating tabs with provider info: {e}")
+
+    def setup_provider_status_connections(self):
+        """Connect to ProviderStatusService signals for reactive updates - Claude Generated"""
+        if hasattr(self.alima_manager, 'provider_status_service') and self.alima_manager.provider_status_service:
+            # Connect to status updates for automatic UI refresh
+            self.alima_manager.provider_status_service.status_updated.connect(
+                self.update_tabs_with_provider_info
             )
+            self.logger.info("Connected to ProviderStatusService signals")
+        else:
+            self.logger.warning("ProviderStatusService not available for signal connections")
 
-        # Pass the loaded models and providers to the tabs
-        self.abstract_tab.set_models_and_providers(
-            self.available_models, self.available_providers
-        )
-        self.analyse_keywords.set_models_and_providers(
-            self.available_models, self.available_providers
-        )
-        self.ub_search_tab.set_models_and_providers(
-            self.available_models, self.available_providers
-        )
+        # REMOVED: Central Ollama signal management - hardcoded connections caused app hangs - Claude Generated
+        # Signal connections removed to prevent deadlock/hang issues
+        # Ollama provider changes now handled through unified provider system
+        self.logger.info("Ollama signal connections disabled to prevent app hangs")
+
+    def on_central_ollama_url_updated(self):
+        """Central handler for Ollama URL updates - NEUTRALIZED to prevent app hang - Claude Generated"""
+        # CRITICAL FIX: Remove hardcoded refresh_all to prevent deadlock/hang
+        # URL changes are now handled through unified provider system
+        pass
+
+    def on_central_ollama_port_updated(self):
+        """Central handler for Ollama Port updates - NEUTRALIZED to prevent app hang - Claude Generated"""
+        # CRITICAL FIX: Remove hardcoded refresh_all to prevent deadlock/hang
+        # Port changes are now handled through unified provider system
+        pass
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):
@@ -638,7 +704,7 @@ class MainWindow(QMainWindow):
     def show_settings(self):
         """Öffnet den umfassenden Einstellungsdialog - Claude Generated"""
         try:
-            dialog = ComprehensiveSettingsDialog(parent=self)
+            dialog = ComprehensiveSettingsDialog(alima_manager=self.alima_manager, parent=self)
             dialog.config_changed.connect(self._on_config_changed)
             if dialog.exec():
                 # Einstellungen wurden gespeichert

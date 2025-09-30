@@ -190,8 +190,7 @@ class SmartProviderSelector:
         # === TIER 1: Task-specific preferences from unified_config.task_preferences (highest priority) ===
         if self.unified_config and task_name and task_name in self.unified_config.task_preferences:
             task_preference = self.unified_config.task_preferences[task_name]
-            task_data = {"model_priority": task_preference.model_priority}
-            model_priorities = task_data.get('model_priority', [])
+            model_priorities = task_preference.model_priority if task_preference else []
 
             # CRITICAL DEBUG: Log task preference loading attempt - Claude Generated
             self.logger.info(f"🔍 TIER1_TASK_PREFS: task_name='{task_name}' found in config, model_priorities={model_priorities}")

@@ -236,6 +236,7 @@ class PipelineTab(QWidget):
         alima_manager: AlimaManager,
         llm_service: LlmService,
         cache_manager: UnifiedKnowledgeManager,
+        pipeline_manager: PipelineManager,
         main_window=None,
         parent=None,
     ):
@@ -248,15 +249,9 @@ class PipelineTab(QWidget):
 
         # Load catalog configuration
         self.catalog_token, self.catalog_search_url, self.catalog_details_url = self._load_catalog_config()
-        
-        # Pipeline manager with intelligent provider configuration - Claude Generated
-        config_manager = getattr(alima_manager, 'config_manager', None) or getattr(llm_service, 'config_manager', None)
-        self.pipeline_manager = PipelineManager(
-            alima_manager=alima_manager, 
-            cache_manager=cache_manager, 
-            logger=self.logger,
-            config_manager=config_manager
-        )
+
+        # Use injected central PipelineManager instead of creating redundant instance - Claude Generated
+        self.pipeline_manager = pipeline_manager
         
         # Update pipeline config with catalog settings
         self._update_pipeline_config_with_catalog_settings()
@@ -586,7 +581,7 @@ class PipelineTab(QWidget):
         try:
             # Get the overall pipeline mode by checking if most steps use Smart Mode
             config = self.pipeline_manager.config
-            if not hasattr(config, 'step_configs_v2') or not config.step_configs_v2:
+            if not hasattr(config, 'step_configs') or not config.step_configs:
                 self.mode_indicator_label.setText("🤖 Smart Mode")
                 self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
                 self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
@@ -597,8 +592,8 @@ class PipelineTab(QWidget):
             mode_counts = {"smart": 0, "advanced": 0, "expert": 0}
 
             for step_id in llm_steps:
-                if step_id in config.step_configs_v2:
-                    step_config = config.step_configs_v2[step_id]
+                if step_id in config.step_configs:
+                    step_config = config.step_configs[step_id]
                     if hasattr(step_config, 'mode'):
                         mode_value = step_config.mode.value if hasattr(step_config.mode, 'value') else str(step_config.mode)
                         mode_counts[mode_value] = mode_counts.get(mode_value, 0) + 1
@@ -908,8 +903,8 @@ class PipelineTab(QWidget):
 
         # Update provider/model display for each step
         for step_id, step_widget in self.step_widgets.items():
-            if step_id in config.step_configs_v2:
-                step_config = config.step_configs_v2[step_id]
+            if step_id in config.step_configs:
+                step_config = config.step_configs[step_id]
                 provider = step_config.provider or ""
                 model = step_config.model or ""
                 enabled = step_config.enabled
@@ -960,7 +955,7 @@ class PipelineTab(QWidget):
 
             # Check if this provider/model matches task preferences
             task_data = config.unified_config.task_preferences[task_name]
-            model_priority = task_data.get('model_priority', [])
+            model_priority = task_data.model_priority if task_data else []
 
             for rank, priority_entry in enumerate(model_priority, 1):
                 candidate_provider = priority_entry.get("provider_name")
@@ -970,7 +965,7 @@ class PipelineTab(QWidget):
                     return f"task preference #{rank}"
 
             # Check chunked preferences
-            chunked_priorities = task_data.get('chunked_model_priority', [])
+            chunked_priorities = task_data.chunked_model_priority if task_data and task_data.chunked_model_priority else []
             for rank, priority_entry in enumerate(chunked_priorities, 1):
                 candidate_provider = priority_entry.get("provider_name")
                 candidate_model = priority_entry.get("model_name")
@@ -1378,9 +1373,9 @@ class PipelineTab(QWidget):
         config = self.pipeline_manager.config
         
         # Update DK search step configuration
-        if "dk_search" in config.step_configs_v2:
+        if "dk_search" in config.step_configs:
             # Store catalog settings in step config custom parameters
-            dk_search_config = config.step_configs_v2["dk_search"]
+            dk_search_config = config.step_configs["dk_search"]
             dk_search_config.custom_params.update({
                 "catalog_token": self.catalog_token,
                 "catalog_search_url": self.catalog_search_url,
@@ -1388,8 +1383,8 @@ class PipelineTab(QWidget):
             })
 
         # Also update DK classification step if it exists
-        if "dk_classification" in config.step_configs_v2:
-            dk_classification_config = config.step_configs_v2["dk_classification"]
+        if "dk_classification" in config.step_configs:
+            dk_classification_config = config.step_configs["dk_classification"]
             dk_classification_config.custom_params.update({
                 "catalog_token": self.catalog_token,
                 "catalog_search_url": self.catalog_search_url,

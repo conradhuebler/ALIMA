@@ -179,6 +179,7 @@ class SearchTab(QWidget):
         parent=None,
         config_file: Path = Path.home() / ".alima_config.json",
         alima_manager=None,
+        pipeline_manager=None,
     ):
         super().__init__(parent)
         self.cache_manager = cache_manager
@@ -195,20 +196,10 @@ class SearchTab(QWidget):
         self.catalog_search_url = ""
         self.catalog_details = ""
 
-        # Create PipelineManager instance for search step execution - Claude Generated
-        if self.alima_manager:
-            # Extract config_manager for SmartProviderSelector integration - Claude Generated
-            config_manager = getattr(self.alima_manager, 'config_manager', None)
-
-            self.pipeline_manager = PipelineManager(
-                alima_manager=self.alima_manager,
-                cache_manager=self.cache_manager,
-                logger=self.logger,
-                config_manager=config_manager
-            )
-        else:
-            self.pipeline_manager = None
-            self.logger.warning("No AlimaManager provided - PipelineManager integration disabled")
+        # Use injected central PipelineManager instead of creating redundant instance - Claude Generated
+        self.pipeline_manager = pipeline_manager
+        if not self.pipeline_manager:
+            self.logger.warning("No PipelineManager provided - pipeline integration disabled")
 
         # Lade den Katalog-Token aus der Konfigurationsdatei
         self.config_file = config_file

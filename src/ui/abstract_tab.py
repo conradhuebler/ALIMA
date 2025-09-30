@@ -102,6 +102,7 @@ class AbstractTab(QWidget):
         alima_manager: AlimaManager,
         llm_service: LlmService,
         cache_manager: UnifiedKnowledgeManager,
+        pipeline_manager: PipelineManager,
         main_window: Optional[QWidget] = None,
         parent: Optional[QWidget] = None,
     ):
@@ -115,16 +116,8 @@ class AbstractTab(QWidget):
         )  # Access prompt_service via alima_manager
         self.main_window = main_window
 
-        # Extract config_manager for SmartProviderSelector integration - Claude Generated
-        config_manager = getattr(self.alima_manager, 'config_manager', None) or getattr(llm_service, 'config_manager', None)
-
-        # Create PipelineManager instance for manual step execution - Claude Generated
-        self.pipeline_manager = PipelineManager(
-            alima_manager=self.alima_manager,
-            cache_manager=self.cache_manager,
-            logger=logging.getLogger(__name__),
-            config_manager=config_manager
-        )
+        # Use injected central PipelineManager instead of creating redundant instance - Claude Generated
+        self.pipeline_manager = pipeline_manager
 
         self.need_keywords = False
         self.logger = logging.getLogger(__name__)
@@ -135,22 +128,21 @@ class AbstractTab(QWidget):
         self.is_analysis_running = False  # Track analysis state
         self.input_widget_visible = True  # Track input widget visibility
 
-        self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
-        self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
+        # Signal connections moved to central MainWindow management - Claude Generated
+        # self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
+        # self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
 
         # Set up the UI
         self.setup_ui()
 
-    # ======== UNCHANGED METHODS - Keep existing functionality ========
+    # ======== DEPRECATED METHODS - Moved to central MainWindow management ========
     def on_ollama_url_updated(self):
-        """Handle Ollama URL update."""
-        if self.main_window:
-            self.main_window.load_models_and_providers()
+        """DEPRECATED: Ollama URL updates now handled centrally in MainWindow - Claude Generated"""
+        pass
 
     def on_ollama_port_updated(self):
-        """Handle Ollama Port update."""
-        if self.main_window:
-            self.main_window.load_models_and_providers()
+        """DEPRECATED: Ollama Port updates now handled centrally in MainWindow - Claude Generated"""
+        pass
 
     def set_task(self, task: str):
         """Set the task type for model recommendations and update UI."""
@@ -316,7 +308,8 @@ class AbstractTab(QWidget):
         provider_model_layout = QGridLayout(provider_model_group)
         provider_model_layout.addWidget(QLabel("Provider:"), 0, 0)
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(self.llm.get_available_providers())
+        # Initialize with placeholder - will be populated by ProviderStatusService - Claude Generated
+        self.provider_combo.addItem("Loading providers...")
         self.provider_combo.currentTextChanged.connect(self.update_models)
         provider_model_layout.addWidget(self.provider_combo, 0, 1)
         provider_model_layout.addWidget(QLabel("Modell:"), 1, 0)
@@ -635,7 +628,7 @@ class AbstractTab(QWidget):
         )
 
         # 3. Set the ad-hoc configuration in PipelineConfig - Claude Generated
-        adhoc_config.step_configs_v2[self.task] = step_config
+        adhoc_config.step_configs[self.task] = step_config
 
         # 4. Create input text with keywords if provided - Claude Generated
         input_text = abstract_text
