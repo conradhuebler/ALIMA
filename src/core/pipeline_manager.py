@@ -65,9 +65,8 @@ class PipelineConfig:
     auto_advance: bool = True
     stop_on_error: bool = True
     save_intermediate_results: bool = True
-    
-    # Hybrid Mode Configuration - NEW
-    default_mode: PipelineMode = PipelineMode.SMART
+
+    # Step configurations
     step_configs: Dict[str, PipelineStepConfig] = field(default_factory=dict)  # Unified step configs
 
 
@@ -75,80 +74,10 @@ class PipelineConfig:
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
 
     def __post_init__(self):
-        """Convert dictionary step_configs to PipelineStepConfig objects - Claude Generated"""
-        # Convert any dictionary step configs to PipelineStepConfig objects
-        converted_configs = {}
-        for step_id, step_config in self.step_configs.items():
-            if isinstance(step_config, dict):
-                # Convert dictionary to PipelineStepConfig object
-                converted_configs[step_id] = self._dict_to_pipeline_step_config(step_id, step_config)
-            else:
-                # Already a PipelineStepConfig object
-                converted_configs[step_id] = step_config
-
-        # Update step_configs with converted objects
-        self.step_configs = converted_configs
-
-    def _dict_to_pipeline_step_config(self, step_id: str, config_dict: dict) -> 'PipelineStepConfig':
-        """Convert dictionary to PipelineStepConfig object - Claude Generated"""
-        from ..utils.config_models import PipelineStepConfig, PipelineMode, TaskType
-
-        # Determine mode based on config parameters
-        mode = PipelineMode.SMART  # Default
-        if 'mode' in config_dict:
-            if isinstance(config_dict['mode'], str):
-                mode = PipelineMode(config_dict['mode'])
-            else:
-                mode = config_dict['mode']
-        elif config_dict.get('provider') and config_dict.get('model'):
-            # Has explicit provider/model = Advanced mode
-            mode = PipelineMode.ADVANCED
-            if any(key in config_dict for key in ['temperature', 'top_p', 'seed', 'max_tokens']):
-                # Has expert parameters = Expert mode
-                mode = PipelineMode.EXPERT
-
-        # Map step_id to task_type
-        task_type_mapping = {
-            'input': TaskType.INPUT,
-            'initialisation': TaskType.INITIALISATION,
-            'search': TaskType.SEARCH,
-            'keywords': TaskType.KEYWORDS,
-            'classification': TaskType.CLASSIFICATION,
-            'dk_search': TaskType.DK_SEARCH,
-            'dk_classification': TaskType.DK_CLASSIFICATION
-        }
-        task_type = task_type_mapping.get(step_id, TaskType.GENERAL)
-
-        # Create PipelineStepConfig object with all supported parameters
-        step_config = PipelineStepConfig(
-            step_id=step_id,
-            mode=mode,
-            task_type=task_type,
-            enabled=config_dict.get('enabled', True),
-            provider=config_dict.get('provider'),
-            model=config_dict.get('model'),
-            task=config_dict.get('task'),
-            temperature=config_dict.get('temperature'),
-            top_p=config_dict.get('top_p'),
-            max_tokens=config_dict.get('max_tokens'),
-            seed=config_dict.get('seed'),
-            timeout=config_dict.get('timeout')
-        )
-
-        # Add any custom parameters (unsupported parameters go here)
-        custom_params = {}
-        supported_params = {
-            'step_id', 'mode', 'task_type', 'enabled', 'provider', 'model', 'task',
-            'temperature', 'top_p', 'max_tokens', 'seed', 'timeout'
-        }
-        for key, value in config_dict.items():
-            if key not in supported_params:
-                custom_params[key] = value
-
-        if custom_params:
-            step_config.custom_params.update(custom_params)
-
-        return step_config
+        """Initialize step configs with proper defaults - Claude Generated"""
+        # Ensure all step_configs are PipelineStepConfig objects
+        # In the new approach, we only accept PipelineStepConfig objects directly
+        pass
     
     @classmethod
     def create_from_provider_preferences(cls, config_manager) -> 'PipelineConfig':
@@ -157,51 +86,78 @@ class PipelineConfig:
             # Initialize SmartProviderSelector for intelligent provider selection
             smart_selector = SmartProviderSelector(config_manager)
             
-            # Get optimal providers for different task types
-            text_selection = smart_selector.select_provider(TaskType.TEXT, prefer_fast=False)
-            text_fast_selection = smart_selector.select_provider(TaskType.TEXT, prefer_fast=True) 
-            classification_selection = smart_selector.select_provider(TaskType.CLASSIFICATION, prefer_fast=False)
+            # Get optimal providers for different task types with proper task_name and step_id
+            text_selection = smart_selector.select_provider(
+                task_type=TaskType.TEXT,
+                prefer_fast=False,
+                task_name="keywords",
+                step_id="keywords"
+            )
+            text_fast_selection = smart_selector.select_provider(
+                task_type=TaskType.TEXT,
+                prefer_fast=True,
+                task_name="initialisation",
+                step_id="initialisation"
+            )
+            classification_selection = smart_selector.select_provider(
+                task_type=TaskType.CLASSIFICATION,
+                prefer_fast=False,
+                task_name="dk_class",
+                step_id="dk_classification"
+            )
             
-            # Create step configurations based on intelligent selections
+            # Create step configurations based on intelligent selections using PipelineStepConfig objects
+            from ..utils.config_models import PipelineStepConfig, TaskType as UnifiedTaskType
+
             step_configs = {
-                "initialisation": {
-                    "step_id": "initialisation",
-                    "enabled": True,
-                    "provider": text_fast_selection.provider,  # Fast provider for initial extraction
-                    "model": text_fast_selection.model,
-                    "temperature": 0.7,
-                    "top_p": 0.1,
-                    "task": "initialisation",
-                },
-                "keywords": {
-                    "step_id": "keywords",
-                    "enabled": True,
-                    "provider": text_selection.provider,  # Quality provider for final analysis
-                    "model": text_selection.model,
-                    "temperature": 0.7,
-                    "top_p": 0.1,
-                    "task": "keywords",
-                    "keyword_chunking_threshold": 500,
-                    "chunking_task": "keywords_chunked",
-                },
-                "dk_search": {
-                    "step_id": "dk_search",
-                    "enabled": True,
-                    "max_results": 20,
-                    "catalog_token": "",  # Will be updated from config
-                    "catalog_search_url": None,
-                    "catalog_details_url": None,
-                },
-                "dk_classification": {
-                    "step_id": "dk_classification",
-                    "enabled": True,
-                    "provider": classification_selection.provider,  # Classification-optimized provider
-                    "model": classification_selection.model,
-                    "temperature": 0.7,
-                    "top_p": 0.1,
-                    "task": "dk_class",
-                    "dk_frequency_threshold": 10,
-                },
+                "initialisation": PipelineStepConfig(
+                    step_id="initialisation",
+                    task_type=UnifiedTaskType.INITIALISATION,
+                    enabled=True,
+                    provider=text_fast_selection.provider,  # Fast provider for initial extraction
+                    model=text_fast_selection.model,
+                    temperature=0.7,
+                    top_p=0.1,
+                    task="initialisation",
+                ),
+                "keywords": PipelineStepConfig(
+                    step_id="keywords",
+                    task_type=UnifiedTaskType.KEYWORDS,
+                    enabled=True,
+                    provider=text_selection.provider,  # Quality provider for final analysis
+                    model=text_selection.model,
+                    temperature=0.7,
+                    top_p=0.1,
+                    task="keywords",
+                    custom_params={
+                        "keyword_chunking_threshold": 500,
+                        "chunking_task": "keywords_chunked",
+                    }
+                ),
+                "dk_search": PipelineStepConfig(
+                    step_id="dk_search",
+                    task_type=UnifiedTaskType.DK_SEARCH,
+                    enabled=True,
+                    custom_params={
+                        "max_results": 20,
+                        "catalog_token": "",  # Will be updated from config
+                        "catalog_search_url": None,
+                        "catalog_details_url": None,
+                    }
+                ),
+                "dk_classification": PipelineStepConfig(
+                    step_id="dk_classification",
+                    task_type=UnifiedTaskType.DK_CLASSIFICATION,
+                    enabled=True,
+                    provider=classification_selection.provider,  # Classification-optimized provider
+                    model=classification_selection.model,
+                    temperature=0.7,
+                    top_p=0.1,
+                    task="dk_class",
+                    custom_params={
+                        "dk_frequency_threshold": 10,
+                    }
+                ),
             }
             
             # Log provider selections
@@ -229,162 +185,38 @@ class PipelineConfig:
             
             return cls()  # Return default configuration
     
-    def initialize_hybrid_mode_configs(self, config_manager=None):
-        """Initialize hybrid mode step configurations - Claude Generated"""
-        if self.step_configs:
-            return  # Already initialized
-
-        # Create clean smart mode defaults for each step (no legacy migration)
-        self.step_configs = {
-            "input": PipelineStepConfig(
-                step_id="input",
-                mode=PipelineMode.SMART,
-                task_type=UnifiedTaskType.GENERAL
-            ),
-            "initialisation": PipelineStepConfig(
-                step_id="initialisation",
-                mode=self.default_mode,
-                task_type=UnifiedTaskType.INITIALISATION
-            ),
-            "search": PipelineStepConfig(
-                step_id="search",
-                mode=PipelineMode.SMART,  # Search doesn't use LLM
-                task_type=UnifiedTaskType.GENERAL
-            ),
-            "keywords": PipelineStepConfig(
-                step_id="keywords",
-                mode=self.default_mode,
-                task_type=UnifiedTaskType.KEYWORDS
-            ),
-            "dk_classification": PipelineStepConfig(
-                step_id="dk_classification",
-                mode=self.default_mode,
-                task_type=UnifiedTaskType.CLASSIFICATION
-            )
-        }
     
     def get_step_config(self, step_id: str) -> PipelineStepConfig:
         """Get step configuration with fallback to defaults - Claude Generated"""
-        if not self.step_configs:
-            self.initialize_hybrid_mode_configs()
-            
-        if step_id in self.step_configs:
+        if self.step_configs and step_id in self.step_configs:
             return self.step_configs[step_id]
-        
-        # Fallback: create default smart mode config
+
+        # Fallback: create default config
         return PipelineStepConfig(
             step_id=step_id,
-            mode=PipelineMode.SMART,
             task_type=UnifiedTaskType.GENERAL
         )
     
-    def set_step_mode(self, step_id: str, mode: PipelineMode):
-        """Set the mode for a specific step - Claude Generated"""
-        if not self.step_configs:
-            self.initialize_hybrid_mode_configs()
-            
-        if step_id in self.step_configs:
-            self.step_configs[step_id].mode = mode
-    
-    def set_step_manual_config(self, step_id: str, provider: str = None, model: str = None, 
-                              task: str = None, **expert_params):
-        """Configure step for Advanced/Expert mode - Claude Generated"""
-        if not self.step_configs:
-            self.initialize_hybrid_mode_configs()
-            
-        if step_id not in self.step_configs:
-            return False
-            
-        step_config = self.step_configs[step_id]
-        
-        # Set manual parameters
-        if provider:
-            step_config.provider = provider
-        if model:
-            step_config.model = model  
-        if task:
-            step_config.task = task
-            
-        # Handle expert parameters
-        if expert_params:
-            step_config.mode = PipelineMode.EXPERT
-            if "temperature" in expert_params:
-                step_config.temperature = expert_params["temperature"]
-            if "top_p" in expert_params:
-                step_config.top_p = expert_params["top_p"]
-            if "max_tokens" in expert_params:
-                step_config.max_tokens = expert_params["max_tokens"]
-            
-            # Store other custom parameters
-            other_params = {k: v for k, v in expert_params.items() 
-                          if k not in ["temperature", "top_p", "max_tokens"]}
-            step_config.custom_params.update(other_params)
-        elif provider or model or task:
-            # Advanced mode if only provider/model/task specified
-            step_config.mode = PipelineMode.ADVANCED
-        
-        return True
     
     def get_effective_config(self, step_id: str, config_manager=None) -> Dict[str, Any]:
         """
-        Get effective configuration for a step, resolving Smart mode via SmartProviderSelector
-        Returns dict compatible with existing pipeline execution logic - Claude Generated
+        Get effective configuration for a step - Claude Generated
+        Returns dict compatible with existing pipeline execution logic
         """
         step_config = self.get_step_config(step_id)
-        
-        if step_config.mode == PipelineMode.SMART:
-            # Use SmartProviderSelector for automatic selection
-            if config_manager:
-                try:
-                    from ..utils.smart_provider_selector import SmartProviderSelector
-                    smart_selector = SmartProviderSelector(config_manager)
-                    
-                    # Smart mode uses balanced approach (not fast preference)
-                    prefer_fast = False
-                    
-                    # Get smart selection
-                    selection = smart_selector.select_provider(
-                        task_type=TaskType.TEXT,  # Convert unified task type if needed
-                        prefer_fast=prefer_fast,
-                        task_name=self._get_default_task_for_step(step_id),
-                        step_id=step_id
-                    )
-                    
-                    # Return config dict
-                    return {
-                        "step_id": step_id,
-                        "enabled": step_config.enabled,
-                        "provider": selection.provider,
-                        "model": selection.model,
-                        "task": self._get_default_task_for_step(step_id),
-                        "temperature": 0.7,  # Smart defaults
-                        "top_p": 0.1,
-                        "_smart_selection": True
-                    }
-                except Exception as e:
-                    # Fallback to manual defaults if smart selection fails
-                    pass
-        
-        elif step_config.is_manual_override():
-            # Use manual configuration
-            manual_config = step_config.get_manual_config()
-            return {
-                "step_id": step_id,
-                "enabled": step_config.enabled,
-                **manual_config,
-                "_manual_override": True
-            }
-        
-        # Ultimate fallback - use smart mode with intelligent defaults
+
+        # Return configuration directly from step config
         return {
             "step_id": step_id,
-            "enabled": True,
-            "provider": "auto",  # Will be resolved by Smart Mode
-            "model": "auto",     # Will be resolved by Smart Mode
-            "task": self._get_default_task_for_step(step_id),
-            "temperature": 0.7,
-            "top_p": 0.1,
-            "_smart_fallback": True
+            "enabled": step_config.enabled,
+            "provider": step_config.provider,
+            "model": step_config.model,
+            "task": step_config.task or self._get_default_task_for_step(step_id),
+            "temperature": step_config.temperature,
+            "top_p": step_config.top_p,
+            "max_tokens": step_config.max_tokens,
+            "seed": step_config.seed,
+            **step_config.custom_params
         }
 
     def _get_default_task_for_step(self, step_id: str) -> str:
@@ -398,16 +230,6 @@ class PipelineConfig:
         }
         return task_mapping.get(step_id, "keywords")
 
-    def is_using_smart_mode(self) -> bool:
-        """Check if pipeline is primarily using smart mode - Claude Generated"""
-        if not self.step_configs:
-            return False
-
-        smart_steps = sum(1 for config in self.step_configs.values()
-                         if config.mode == PipelineMode.SMART)
-        total_steps = len(self.step_configs)
-
-        return smart_steps > total_steps // 2  # Majority are smart mode
 
 
 class PipelineManager:
@@ -447,12 +269,8 @@ class PipelineManager:
             self.config: PipelineConfig = PipelineConfig()
             self.logger.info("Pipeline configuration initialized with default settings (no ConfigManager provided)")
 
-        # Initialize hybrid mode configurations - Claude Generated
-        self.config.initialize_hybrid_mode_configs(config_manager)
-        self.logger.info(f"Hybrid mode initialized with default mode: {self.config.default_mode.value}")
-
-        # 🔍 DEBUG: Log migration details after initialization
-        self._debug_step_configs()
+        # Pipeline initialized with baseline + override architecture
+        self.logger.info("Pipeline configuration initialized with baseline + override architecture")
 
         # Step definitions
         self.step_definitions = {
@@ -473,27 +291,6 @@ class PipelineManager:
             None  # Callback for LLM streaming tokens
         )
 
-    def _debug_step_configs(self):
-        """Debug logging for step configurations - Claude Generated"""
-        self.logger.info("🔍 DEBUG: Modern Step Configuration Analysis")
-
-        # Log current hybrid mode configs
-        if hasattr(self.config, 'step_configs') and self.config.step_configs:
-            for step_id, step_config in self.config.step_configs.items():
-                # Handle both dictionary and PipelineStepConfig objects - Claude Generated
-                if isinstance(step_config, dict):
-                    # Dictionary format from UI
-                    mode = step_config.get('mode', 'unknown')
-                    provider = step_config.get('provider', 'unknown')
-                    model = step_config.get('model', 'unknown')
-                    enabled = step_config.get('enabled', True)
-                    self.logger.info(f"🔍 STEP_CONFIG[{step_id}]: mode={mode}, provider={provider}, model={model}, enabled={enabled}")
-                else:
-                    # PipelineStepConfig object
-                    mode_value = step_config.mode.value if hasattr(step_config.mode, 'value') else str(step_config.mode)
-                    self.logger.info(f"🔍 STEP_CONFIG[{step_id}]: mode={mode_value}, provider={step_config.provider}, model={step_config.model}, enabled={step_config.enabled}")
-        else:
-            self.logger.info("🔍 NO_STEP_CONFIGS: step_configs not initialized")
 
     def set_config(self, config: PipelineConfig):
         """Set pipeline configuration - Claude Generated"""
@@ -503,7 +300,8 @@ class PipelineManager:
         # Debug: Log modern step configurations in detail
         if hasattr(config, 'step_configs') and config.step_configs:
             for step_id, step_config in config.step_configs.items():
-                self.logger.info(f"Step '{step_id}': mode={step_config.mode.value}, enabled={step_config.enabled}")
+                config_status = "configured" if step_config.provider and step_config.model else "auto-selected"
+                self.logger.info(f"Step '{step_id}': status={config_status}, enabled={step_config.enabled}")
         else:
             self.logger.info("No modern step configurations found")
 
@@ -648,25 +446,12 @@ class PipelineManager:
             return self.config.get_step_config(step_id)
         except Exception as e:
             self.logger.warning(f"Failed to get step config for {step_id}: {e}")
-            # Fallback to Smart mode
+            # Fallback to default configuration
             return PipelineStepConfig(
                 step_id=step_id,
-                mode=PipelineMode.SMART,
                 task_type=UnifiedTaskType.GENERAL
             )
 
-    def _should_use_smart_mode(self, step_id: str) -> bool:
-        """Check if a step should use Smart Mode for provider/model selection - Claude Generated"""
-        self.logger.info(f"🔍 SMART_MODE_CHECK: {step_id}")
-        try:
-            step_config = self.get_step_config(step_id)
-            result = step_config.mode == PipelineMode.SMART
-            self.logger.info(f"🔍 SMART_MODE_RESULT: {step_id} mode={step_config.mode.value}, is_smart={result}")
-            return result
-        except Exception as e:
-            self.logger.warning(f"🔍 SMART_MODE_ERROR: {step_id}: {e}")
-            # Default to Smart Mode if configuration is unclear
-            return True
 
     # _get_smart_mode_provider_model method removed - replaced by _resolve_smart_mode_for_step - Claude Generated
 
@@ -686,15 +471,15 @@ class PipelineManager:
         # Initialisation step (free keyword generation)
         initialisation_config = self.config.get_step_config("initialisation")
         if initialisation_config.enabled:
-            # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
+            # Read provider/model directly from configuration - Claude Generated
             steps.append(
                 PipelineStep(
                     step_id="initialisation",
                     name=self.step_definitions.get("initialisation", {}).get(
                         "name", "Initialisation"
                     ),
-                    provider=None,  # Resolved at execution time
-                    model=None,     # Resolved at execution time
+                    provider=initialisation_config.provider,
+                    model=initialisation_config.model,
                 )
             )
 
@@ -710,15 +495,15 @@ class PipelineManager:
         # Keywords step (Verbale Erschließung)
         keywords_step_config = self.config.get_step_config("keywords")
         if keywords_step_config.enabled:
-            # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
+            # Read provider/model directly from configuration - Claude Generated
             steps.append(
                 PipelineStep(
                     step_id="keywords",
                     name=self.step_definitions.get("keywords", {}).get(
                         "name", "Keywords"
                     ),
-                    provider=None,  # Resolved at execution time
-                    model=None,     # Resolved at execution time
+                    provider=keywords_step_config.provider,
+                    model=keywords_step_config.model,
                 )
             )
 
@@ -735,13 +520,13 @@ class PipelineManager:
         # DK Classification step (optional)
         dk_classification_config = self.config.get_step_config("dk_classification")
         if dk_classification_config.enabled:
-            # Provider/model resolution moved to execution time via _resolve_smart_mode_for_step - Claude Generated
+            # Read provider/model directly from configuration - Claude Generated
             steps.append(
                 PipelineStep(
                     step_id="dk_classification",
                     name=self.step_definitions["dk_classification"]["name"],
-                    provider=None,  # Resolved at execution time
-                    model=None,     # Resolved at execution time
+                    provider=dk_classification_config.provider,
+                    model=dk_classification_config.model,
                 )
             )
 
@@ -881,7 +666,6 @@ class PipelineManager:
 
         # Get configuration for initialisation step
         step_config = self.config.get_step_config("initialisation")
-        mode = step_config.mode  # <--- NEU: Extract mode for parameter propagation
         task = step_config.task or "initialisation"
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
@@ -915,20 +699,19 @@ class PipelineManager:
             display_provider = step.provider or "Smart Mode"
             display_model = step.model or "Auto-Selected"
 
-            # Try to get resolved values if using Smart Mode
+            # Try to get resolved values if auto-selection is needed
             if not step.provider or not step.model:
                 try:
-                    # Check if we're using Smart Mode by looking at config
-                    if self._should_use_smart_mode("initialisation"):
-                        # Use SmartProviderSelector to get the actual selection
-                        selection = self.pipeline_executor.smart_selector.select_provider(
-                            task_type="text",
-                            prefer_fast=True,
-                            task_name="initialisation",
-                            step_id="initialisation"
-                        )
-                        display_provider = selection.provider
-                        display_model = selection.model
+                    # Auto-select provider/model when not explicitly configured
+                    # Use SmartProviderSelector to get the actual selection
+                    selection = self.pipeline_executor.smart_selector.select_provider(
+                        task_type="text",
+                        prefer_fast=True,
+                        task_name="initialisation",
+                        step_id="initialisation"
+                    )
+                    display_provider = selection.provider
+                    display_model = selection.model
                 except Exception as e:
                     self.logger.debug(f"Could not resolve Smart Mode provider/model for display: {e}")
 
@@ -969,7 +752,6 @@ class PipelineManager:
                     temperature=temperature,
                     p_value=top_p,
                     step_id=step.step_id,  # Pass step_id for proper callback handling
-                    mode=mode,  # <--- NEUER PARAMETER: Pass mode to executor
                     **filtered_config,  # Pass remaining config parameters
                 )
             )
@@ -1038,7 +820,6 @@ class PipelineManager:
 
         # Get configuration for keywords step
         step_config = self.config.get_step_config("keywords")
-        mode = step_config.mode  # <--- NEU: Extract mode for parameter propagation
         task = step_config.task or "keywords"
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
@@ -1071,20 +852,19 @@ class PipelineManager:
             display_provider = step.provider or "Smart Mode"
             display_model = step.model or "Auto-Selected"
 
-            # Try to get resolved values if using Smart Mode
+            # Try to get resolved values if auto-selection is needed
             if not step.provider or not step.model:
                 try:
-                    # Check if we're using Smart Mode by looking at config
-                    if self._should_use_smart_mode("keywords"):
-                        # Use SmartProviderSelector to get the actual selection
-                        selection = self.pipeline_executor.smart_selector.select_provider(
-                            task_type="text",
-                            prefer_fast=False,
-                            task_name="keywords",
-                            step_id="keywords"
-                        )
-                        display_provider = selection.provider
-                        display_model = selection.model
+                    # Auto-select provider/model when not explicitly configured
+                    # Use SmartProviderSelector to get the actual selection
+                    selection = self.pipeline_executor.smart_selector.select_provider(
+                        task_type="text",
+                        prefer_fast=False,
+                        task_name="keywords",
+                        step_id="keywords"
+                    )
+                    display_provider = selection.provider
+                    display_model = selection.model
                 except Exception as e:
                     self.logger.debug(f"Could not resolve Smart Mode provider/model for display: {e}")
 
@@ -1134,7 +914,6 @@ class PipelineManager:
                     temperature=temperature,
                     p_value=top_p,
                     step_id=step.step_id,  # Pass step_id for proper callback handling
-                    mode=mode,  # <--- NEUER PARAMETER: Pass mode to executor
                     **filtered_config,  # Pass remaining config parameters
                 )
             )
@@ -1217,7 +996,6 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK classification
             step_config = self.config.get_step_config("dk_classification")
-            mode = step_config.mode  # <--- NEU: Extract mode for parameter propagation
             dk_classifications = self.pipeline_executor.execute_dk_classification(
                 dk_search_results=dk_search_results,
                 original_abstract=original_abstract,
@@ -1227,7 +1005,6 @@ class PipelineManager:
                 temperature=step_config.temperature or 0.7,
                 top_p=step_config.top_p or 0.1,
                 dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', 10),  # Claude Generated
-                mode=mode,  # <--- NEUER PARAMETER: Pass mode to executor
             )
             
             # Prepare search summary for display
@@ -1277,9 +1054,6 @@ class PipelineManager:
             if current_step.status == "pending":
                 current_step.status = "running"
 
-                # Resolve Smart Mode provider/model BEFORE sending UI callback - Claude Generated
-                self._resolve_smart_mode_for_step(current_step)
-
                 if self.step_started_callback:
                     self.step_started_callback(current_step)
 
@@ -1312,87 +1086,6 @@ class PipelineManager:
                 return step
         return None
 
-    def _resolve_smart_mode_for_step(self, step: PipelineStep):
-        """Resolve Smart Mode provider/model for step before UI callback - Claude Generated"""
-        # Skip steps that don't use LLM or already have provider/model set
-        if step.step_id in ["input", "search", "dk_search"]:
-            return  # No LLM needed for these steps
-
-        if step.provider and step.model:
-            return  # Already has provider/model (manual mode)
-
-        try:
-            # Get step configuration
-            step_config = self.config.get_step_config(step.step_id)
-            is_smart = step_config.mode == PipelineMode.SMART
-            self.logger.info(f"🔍 RESOLVE_PROVIDER: {step.step_id} mode={step_config.mode.value}")
-
-            # ALWAYS start with Smart defaults, even for Advanced/Expert modes
-            smart_provider = None
-            smart_model = None
-
-            if step.step_id in ["initialisation", "keywords", "dk_classification"]:
-                # Determine task type and parameters for SmartProviderSelector
-                task_type_mapping = {
-                    "initialisation": (TaskType.TEXT, True),   # (task_type, prefer_fast)
-                    "keywords": (TaskType.TEXT, False),
-                    "dk_classification": (TaskType.CLASSIFICATION, False)
-                }
-
-                task_type, prefer_fast = task_type_mapping[step.step_id]
-
-                # Get smart selection as default for ALL modes
-                # Use proper task name mapping (e.g., "dk_classification" step_id -> "dk_class" task_name)
-                task_name = self._get_default_task_for_step(step.step_id)
-                selection = self.pipeline_executor.smart_selector.select_provider(
-                    task_type=task_type,
-                    prefer_fast=prefer_fast,
-                    task_name=task_name,
-                    step_id=step.step_id
-                )
-                smart_provider = selection.provider
-                smart_model = selection.model
-                self.logger.info(f"🤖 Smart defaults for {step.step_id}: {smart_provider}/{smart_model}")
-
-            # Apply mode-specific logic
-            if is_smart:
-                # Pure Smart Mode - use intelligent selection
-                step.provider = smart_provider or self.pipeline_executor._get_first_available_ollama_provider()
-                step.model = smart_model or "cogito:32b"
-                self.logger.info(f"🤖 Smart Mode for {step.step_id}: {step.provider}/{step.model}")
-            else:
-                # Advanced/Expert Mode - start with Smart defaults, allow manual overrides
-                step.provider = step_config.provider or smart_provider or self.pipeline_executor._get_first_available_ollama_provider()
-                step.model = step_config.model or smart_model or "cogito:32b"
-                mode_icon = "⚙️" if step_config.mode == PipelineMode.ADVANCED else "🔧"
-                self.logger.info(f"{mode_icon} {step_config.mode.value} Mode for {step.step_id}: {step.provider}/{step.model} (smart defaults applied)")
-
-        except Exception as e:
-            self.logger.warning(f"Could not resolve provider/model for step {step.step_id}: {e}")
-
-            # Intelligent fallback: try user's manual config for this step first - Claude Generated
-            try:
-                step_config = self.config.get_step_config(step.step_id)
-                user_provider = step_config.provider
-                user_model = step_config.model
-
-                if user_provider and user_model:
-                    step.provider = user_provider
-                    step.model = user_model
-                    self.logger.info(f"Fallback to user manual config for {step.step_id}: {user_provider}/{user_model}")
-                else:
-                    # Ultimate fallback: use first available configured ollama provider
-                    fallback_provider = self.pipeline_executor._get_first_available_ollama_provider()
-                    step.provider = fallback_provider
-                    step.model = "cogito:32b"
-                    self.logger.warning(f"Ultimate fallback to configured provider for {step.step_id}: {fallback_provider}/cogito:32b")
-
-            except Exception as fallback_error:
-                # If even user config fails, use first available configured ollama provider
-                fallback_provider = self.pipeline_executor._get_first_available_ollama_provider()
-                step.provider = fallback_provider
-                step.model = "cogito:32b"
-                self.logger.error(f"All fallbacks failed for {step.step_id}, using configured provider {fallback_provider}: {fallback_error}")
 
     def _get_default_task_for_step(self, step_id: str) -> str:
         """Get default prompt task for a pipeline step - Claude Generated"""

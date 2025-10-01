@@ -33,7 +33,6 @@ from ..core.pipeline_manager import PipelineConfig
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
 from ..utils.config_models import (
-    PipelineMode,
     PipelineStepConfig,
     TaskType as UnifiedTaskType
 )
@@ -138,10 +137,9 @@ class HybridStepConfigWidget(QWidget):
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
         
-        # Initialize with smart mode step config - Claude Generated
+        # Initialize with default step config - Claude Generated
         self.step_config = PipelineStepConfig(
             step_id=step_id,
-            mode=PipelineMode.SMART,
             task_type=self._get_default_task_type(step_id)
         )
         
@@ -354,30 +352,8 @@ class HybridStepConfigWidget(QWidget):
         header_label.setFont(header_font)
         layout.addWidget(header_label)
         
-        # Mode Selection
-        mode_group = QGroupBox("🎛️ Configuration Mode")
-        mode_layout = QHBoxLayout(mode_group)
-        
-        self.smart_radio = QRadioButton("🤖 Smart Mode")
-        self.smart_radio.setToolTip("Automatic provider/model selection based on task type and preferences")
-        self.smart_radio.toggled.connect(lambda: self._on_mode_changed(PipelineMode.SMART))
-        
-        self.advanced_radio = QRadioButton("⚙️ Advanced Mode")
-        self.advanced_radio.setToolTip("Manual provider and model selection")
-        self.advanced_radio.toggled.connect(lambda: self._on_mode_changed(PipelineMode.ADVANCED))
-
-        self.expert_radio = QRadioButton("🔬 Expert Mode")
-        self.expert_radio.setToolTip("Full control over all LLM parameters")
-        self.expert_radio.toggled.connect(lambda: self._on_mode_changed(PipelineMode.EXPERT))
-
-        #self.advanced_radio.setChecked(True)
-
-        mode_layout.addWidget(self.smart_radio)
-        mode_layout.addWidget(self.advanced_radio)
-        mode_layout.addWidget(self.expert_radio)
-        mode_layout.addStretch()
-        
-        layout.addWidget(mode_group)
+        # Note: Mode selection removed in baseline + override architecture
+        # Smart configuration is always the baseline, Advanced/Expert are override editors
         
         # Smart Mode Configuration
         self.smart_group = QGroupBox("🤖 Smart Configuration")
@@ -524,40 +500,21 @@ class HybridStepConfigWidget(QWidget):
         refresh_layout.addStretch()
         layout.addLayout(refresh_layout)
     
-    def _on_mode_changed(self, mode: PipelineMode):
-        """Handle mode change - Claude Generated"""
-        # Ensure only one radio is checked
-        if mode == PipelineMode.SMART:
-            self.advanced_radio.setChecked(False)
-            self.expert_radio.setChecked(False)
-        elif mode == PipelineMode.ADVANCED:
-            self.smart_radio.setChecked(False)
-            self.expert_radio.setChecked(False)
-        elif mode == PipelineMode.EXPERT:
-            self.smart_radio.setChecked(False)
-            self.advanced_radio.setChecked(False)
-        
-        self.step_config.mode = mode
-        self._update_ui_for_mode()
-        self.config_changed.emit()
     
     def _update_ui_for_mode(self):
-        """Update UI visibility based on selected mode - Claude Generated"""
-        mode = self.step_config.mode
-        
-        # Show/hide groups based on mode
-        self.smart_group.setVisible(mode == PipelineMode.SMART)
-        self.manual_group.setVisible(mode in [PipelineMode.ADVANCED, PipelineMode.EXPERT])
-        self.expert_group.setVisible(mode == PipelineMode.EXPERT)
-        self.prompt_editing_group.setVisible(mode == PipelineMode.EXPERT)
-        
+        """Update UI visibility - all groups always visible in baseline + override architecture - Claude Generated"""
+        # In new architecture: all groups are always visible
+        # Smart group shows baseline (read-only), Advanced/Expert are override editors
+        self.smart_group.setVisible(True)      # Baseline display
+        if hasattr(self, 'manual_group'):
+            self.manual_group.setVisible(True)    # Override editor
+        if hasattr(self, 'expert_group'):
+            self.expert_group.setVisible(True)    # Override editor
+        if hasattr(self, 'prompt_editing_group'):
+            self.prompt_editing_group.setVisible(True)  # Override editor
+
         # Update status
-        mode_text = {
-            PipelineMode.SMART: "🤖 Smart mode - automatic selection",
-            PipelineMode.ADVANCED: "⚙️ Advanced mode - manual provider/model",
-            PipelineMode.EXPERT: "🔬 Expert mode - full parameter control"
-        }
-        self.status_label.setText(mode_text.get(mode, "Unknown mode"))
+        self.status_label.setText("📋 Baseline + Override Configuration")
         self.status_label.setStyleSheet("color: blue;")
     
     def _populate_providers(self):
@@ -1163,36 +1120,35 @@ class HybridStepConfigWidget(QWidget):
     
     def _validate_configuration(self):
         """Validate current configuration - Claude Generated"""
-        if self.step_config.mode == PipelineMode.SMART:
-            self.status_label.setText("✅ Smart mode configuration is valid")
+        # In baseline + override architecture, validate based on whether configuration is complete
+        if not self.step_config.provider or not self.step_config.model:
+            self.status_label.setText("✅ Using smart defaults (will auto-select optimal provider/model)")
             self.status_label.setStyleSheet("color: green;")
+            return
+
+        # Validate manual overrides using SmartProviderSelector
+        if self.config_manager:
+            try:
+                smart_selector = SmartProviderSelector(self.config_manager)
+                validation = smart_selector.validate_manual_choice(
+                    self.step_config.provider,
+                    self.step_config.model
+                )
+
+                if validation["valid"]:
+                    self.status_label.setText("✅ Manual override configuration is valid")
+                    self.status_label.setStyleSheet("color: green;")
+                else:
+                    issues = "; ".join(validation["issues"])
+                    self.status_label.setText(f"❌ Issues: {issues}")
+                    self.status_label.setStyleSheet("color: red;")
+
+            except Exception as e:
+                self.status_label.setText(f"⚠️ Validation error: {str(e)}")
+                self.status_label.setStyleSheet("color: orange;")
         else:
-            # Validate manual configuration
-            if not self.step_config.provider or not self.step_config.model:
-                self.status_label.setText("❌ Provider and model must be selected")
-                self.status_label.setStyleSheet("color: red;")
-                return
-            
-            # Validate using SmartProviderSelector
-            if self.config_manager:
-                try:
-                    smart_selector = SmartProviderSelector(self.config_manager)
-                    validation = smart_selector.validate_manual_choice(
-                        self.step_config.provider, 
-                        self.step_config.model
-                    )
-                    
-                    if validation["valid"]:
-                        self.status_label.setText("✅ Manual configuration is valid")
-                        self.status_label.setStyleSheet("color: green;")
-                    else:
-                        issues = "; ".join(validation["issues"])
-                        self.status_label.setText(f"❌ Issues: {issues}")
-                        self.status_label.setStyleSheet("color: red;")
-                        
-                except Exception as e:
-                    self.status_label.setText(f"⚠️ Validation error: {str(e)}")
-                    self.status_label.setStyleSheet("color: orange;")
+            self.status_label.setText("✅ Manual override configuration set")
+            self.status_label.setStyleSheet("color: green;")
     
     def _test_configuration(self):
         """Test current configuration - Claude Generated"""
@@ -1217,8 +1173,7 @@ class HybridStepConfigWidget(QWidget):
             "top_p": getattr(self.step_config, 'top_p', 0.1),
         }
         
-        # Add mode information as metadata
-        config["mode"] = self.step_config.mode.value
+        # Add task type information as metadata
         config["task_type"] = self.step_config.task_type.value if self.step_config.task_type else None
         
         return config
@@ -1226,16 +1181,8 @@ class HybridStepConfigWidget(QWidget):
     def set_config(self, config: Dict[str, Any]):
         """Set configuration from legacy dict format - Claude Generated"""
         # Convert legacy dict to PipelineStepConfig
-        from ..utils.config_models import PipelineMode, TaskType as UnifiedTaskType
-        
-        # Map string mode to PipelineMode enum
-        mode = PipelineMode.SMART  # default
-        if "mode" in config:
-            try:
-                mode = PipelineMode(config["mode"])
-            except ValueError:
-                self.logger.warning(f"Unknown pipeline mode: {config.get('mode')}, using SMART")
-        
+        from ..utils.config_models import TaskType as UnifiedTaskType
+
         # Map task_type if available
         task_type = None
         if "task_type" in config and config["task_type"]:
@@ -1243,11 +1190,10 @@ class HybridStepConfigWidget(QWidget):
                 task_type = UnifiedTaskType(config["task_type"])
             except ValueError:
                 self.logger.warning(f"Unknown task type: {config.get('task_type')}")
-        
+
         # Create PipelineStepConfig from legacy dict
         step_config = PipelineStepConfig(
             step_id=config.get("step_id", self.step_id),
-            mode=mode,
             task_type=task_type,
             provider=config.get("provider"),
             model=config.get("model"),
@@ -1267,10 +1213,7 @@ class HybridStepConfigWidget(QWidget):
         """Set step configuration and update UI - Claude Generated"""
         self.step_config = config
         
-        # Update mode radios
-        self.smart_radio.setChecked(config.mode == PipelineMode.SMART)
-        self.advanced_radio.setChecked(config.mode == PipelineMode.ADVANCED)
-        self.expert_radio.setChecked(config.mode == PipelineMode.EXPERT)
+        # Note: Mode radios removed in baseline + override architecture
         
         # Update task type display (readonly)
         if config.task_type:
@@ -2035,35 +1978,60 @@ class PipelineConfigDialog(QDialog):
             )
 
     def save_config(self):
-        """Save current configuration - Claude Generated"""
+        """Save configuration using baseline + override pattern - Claude Generated"""
         try:
-            # Collect step configurations
+            # Step 1: Create smart baseline configuration
+            if self.config_manager:
+                # Use smart provider preferences as baseline
+                baseline_config = PipelineConfig.create_from_provider_preferences(self.config_manager)
+            else:
+                # Fallback to default configuration
+                baseline_config = PipelineConfig()
+
+            # Step 2: Apply UI overrides for each step
             step_configs = {}
             search_suggesters = ["lobid", "swb"]  # Default
 
             for step_id, step_widget in self.step_widgets.items():
-                config = step_widget.get_config()
-                if step_id == "search" and "suggesters" in config:
-                    # Extract suggesters for PipelineConfig
-                    search_suggesters = config["suggesters"]
-                step_configs[step_id] = config
+                if step_id == "search":
+                    # Handle search step (no LLM configuration)
+                    config = step_widget.get_config()
+                    if "suggesters" in config:
+                        search_suggesters = config["suggesters"]
+                    step_configs[step_id] = config
+                else:
+                    # Handle LLM steps with baseline + override logic
+                    widget_config = step_widget.get_config()
 
-                # Debug: Log what we're saving for each step
-                task = config.get("task", "N/A")
-                enabled = config.get("enabled", "N/A")
-                self.logger.info(
-                    f"Saving step '{step_id}': task='{task}', enabled={enabled}"
-                )
+                    # Check if user made manual selections (overrides)
+                    has_provider_override = widget_config.get("provider") and widget_config["provider"] != ""
+                    has_model_override = widget_config.get("model") and widget_config["model"] != ""
 
-            # Create PipelineConfig with search_suggesters
-            config = PipelineConfig(
+                    if has_provider_override or has_model_override:
+                        # User made manual selections -> apply as overrides
+                        step_configs[step_id] = widget_config
+                        self.logger.info(f"Step '{step_id}': applying UI overrides (provider={widget_config.get('provider')}, model={widget_config.get('model')})")
+                    else:
+                        # No manual selections -> use baseline (smart selection)
+                        # Create minimal config that will trigger smart selection
+                        step_configs[step_id] = {
+                            "step_id": step_id,
+                            "enabled": widget_config.get("enabled", True),
+                            "provider": None,  # Will use smart selection
+                            "model": None      # Will use smart selection
+                        }
+                        self.logger.info(f"Step '{step_id}': using smart baseline (no overrides)")
+
+            # Step 3: Create final configuration
+            final_config = PipelineConfig(
                 auto_advance=self.auto_advance_checkbox.isChecked(),
                 stop_on_error=self.stop_on_error_checkbox.isChecked(),
                 step_configs=step_configs,
                 search_suggesters=search_suggesters,
             )
 
-            self.config_saved.emit(config)
+            self.logger.info("Configuration saved using baseline + override pattern")
+            self.config_saved.emit(final_config)
             self.accept()
 
         except Exception as e:
@@ -2078,9 +2046,6 @@ class PipelineConfigDialog(QDialog):
             # Refresh each step widget's provider/model selection
             for step_id, widget in self.step_widgets.items():
                 try:
-                    # Save current mode
-                    current_mode = widget.step_config.mode
-
                     # Re-initialize with updated preferences
                     widget._initialize_with_preferred_settings()
 

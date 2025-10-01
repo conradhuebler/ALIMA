@@ -23,7 +23,6 @@ from PyQt6.QtGui import QFont, QPalette, QTextDocument, QTextCursor
 
 from ..utils.config_models import (
     PipelineStepConfig,
-    PipelineMode,
     TaskType as UnifiedTaskType
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType
@@ -112,16 +111,15 @@ class ComparisonTestWorker(QThread):
         
         try:
             # Convert step config to alima manager parameters
-            if config.mode == PipelineMode.SMART:
+            # In baseline + override architecture: use specified provider/model, otherwise use smart selection
+            if config.provider and config.model:
+                provider = config.provider
+                model = config.model
+            else:
                 # Use smart provider selection
                 # For now, simulate smart selection
                 provider = "ollama"  # Smart selection result
                 model = "cogito:32b"
-                
-            else:
-                # Use manual configuration
-                provider = config.provider or "ollama"
-                model = config.model or "cogito:32b"
             
             # Simulate LLM call (in real implementation, this would call the actual LLM)
             self.msleep(1000 + (len(self.test.test_input) // 10))  # Simulate processing time
@@ -447,21 +445,18 @@ class ModelComparisonDialog(QDialog):
         default_configs = [
             PipelineStepConfig(
                 step_id="smart_config",
-                mode=PipelineMode.SMART,
-                task_type=UnifiedTaskType.KEYWORDS,
+                                task_type=UnifiedTaskType.KEYWORDS,
                 quality_preference="balanced"
             ),
             PipelineStepConfig(
                 step_id="ollama_fast",
-                mode=PipelineMode.ADVANCED,
-                provider="ollama",
+                                provider="ollama",
                 model="cogito:14b",
                 task="keywords"
             ),
             PipelineStepConfig(
                 step_id="ollama_quality",
-                mode=PipelineMode.ADVANCED,
-                provider="ollama", 
+                                provider="ollama", 
                 model="cogito:32b",
                 task="keywords"
             )
@@ -476,16 +471,16 @@ class ModelComparisonDialog(QDialog):
         """Add configuration to table - Claude Generated"""
         # Name
         name = f"Config {row + 1}"
-        if config.mode == PipelineMode.SMART:
-            name += " (Smart)"
-        elif config.provider and config.model:
+        if config.provider and config.model:
             name += f" ({config.provider}/{config.model})"
-        
+        else:
+            name += " (Smart)"
+
         self.config_table.setItem(row, 0, QTableWidgetItem(name))
-        
-        # Mode
-        mode_text = config.mode.value.title()
-        self.config_table.setItem(row, 1, QTableWidgetItem(mode_text))
+
+        # Configuration Type (replaces Mode column)
+        config_type = "Manual Override" if config.provider and config.model else "Smart Baseline"
+        self.config_table.setItem(row, 1, QTableWidgetItem(config_type))
         
         # Provider
         provider_text = config.provider or "Auto"
@@ -516,8 +511,7 @@ class ModelComparisonDialog(QDialog):
         
         smart_config = PipelineStepConfig(
             step_id=f"smart_{row}",
-            mode=PipelineMode.SMART,
-            task_type=UnifiedTaskType.KEYWORDS,
+                        task_type=UnifiedTaskType.KEYWORDS,
             quality_preference="balanced"
         )
         
@@ -531,8 +525,7 @@ class ModelComparisonDialog(QDialog):
         
         manual_config = PipelineStepConfig(
             step_id=f"manual_{row}",
-            mode=PipelineMode.ADVANCED,
-            provider="gemini",
+                        provider="gemini",
             model="gemini-2.0-flash-exp",
             task="keywords"
         )
@@ -602,11 +595,11 @@ class ModelComparisonDialog(QDialog):
             task = self.config_table.item(row, 4).text()
             
             if mode_text == "smart":
-                mode = PipelineMode.SMART
+                # mode removed - baseline + override architecture
                 provider = None
                 model = None
             else:
-                mode = PipelineMode.ADVANCED
+                # mode removed - baseline + override architecture
                 if provider == "Auto":
                     provider = None
                 if model == "Auto":

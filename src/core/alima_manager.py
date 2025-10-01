@@ -87,26 +87,11 @@ class AlimaManager:
             )
         else:
             # Otherwise, get the prompt from the prompt service.
-            prompt_config = self.prompt_service.get_prompt_config(task, model, mode)  # <--- NEUER PARAMETER: Pass mode to PromptService
+            prompt_config = self.prompt_service.get_prompt_config(task, model)
 
         if not prompt_config:
-            # Enhanced error handling with mode-specific messages - Claude Generated
-            if mode:
-                from ..utils.config_models import PipelineMode  # Import here to avoid circular imports
-
-                if mode in [PipelineMode.ADVANCED, PipelineMode.EXPERT]:
-                    mode_name = mode.value if hasattr(mode, 'value') else str(mode)
-                    error_msg = (
-                        f"Im '{mode_name}'-Modus wurde keine Prompt-Konfiguration für das Modell '{model}' gefunden. "
-                        f"Bitte fügen Sie eine exakte Konfiguration für '{model}' in der 'prompts.json' hinzu, "
-                        f"oder verwenden Sie den Smart-Modus für automatische Modell-Auswahl."
-                    )
-                    self.logger.error(error_msg)
-                else:
-                    error_msg = f"Error: No prompt configuration found for task '{task}' and model '{model}'"
-            else:
-                error_msg = f"Error: No prompt configuration found for task '{task}' and model '{model}'"
-
+            error_msg = f"Error: No prompt configuration found for task '{task}' and model '{model}'"
+            self.logger.error(error_msg)
             analysis_result = AnalysisResult(full_text=error_msg)
             return TaskState(
                 abstract_data=abstract_data,

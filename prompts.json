@@ -84,6 +84,7 @@
         "0.1",
         [
           "cogito:32b",
+          "cogito:14b",
           "qwq:latest",
           "magistral:latest"
         ],
@@ -113,6 +114,7 @@
         [
           "gemini-2.0-flash",
           "DeepSeek-V3",
+          "cogito:14b",
           "Meta-Llama-3-70B-Instruct"
         ],
         "0"
@@ -231,6 +233,7 @@
           "gemini-1.5-flash",
           "gemini-2.0-flash",
           "DeepSeek-V3",
+          "cogito:14b",
           "Meta-Llama-3-70B-Instruct"
         ],
         "0"
@@ -284,7 +287,8 @@
         "0.25",
         "0.1",
         [
-          "cogito:8b"
+          "cogito:8b",
+          "cogito:14b"
         ],
         "0"
       ]
@@ -313,6 +317,7 @@
           "gemini-1.5-flash",
           "gemini-2.0-flash",
           "DeepSeek-V3",
+          "cogito:14b",
           "Meta-Llama-3-70B-Instruct"
         ]
       ],
@@ -350,7 +355,8 @@
           "gemini-1.5-flash",
           "gemini-2.0-flash",
           "DeepSeek-V3",
-          "Meta-Llama-3-70B-Instruct"
+          "Meta-Llama-3-70B-Instruct",
+          "cogito:14b"
         ]
       ],
       [
@@ -407,6 +413,7 @@
         "0.1",
         [
           "cogito:32b",
+          "cogito:14b",
           "magistral:latest"
         ],
         "0"

@@ -610,7 +610,6 @@ class AbstractTab(QWidget):
         # 2. Create step configuration for the chosen task - Claude Generated
         step_config = PipelineStepConfig(
             step_id=self.task,
-            mode=PipelineMode.EXPERT,  # Manual run is always "Expert"
             provider=self.provider_combo.currentText(),
             model=self.model_combo.currentText(),
             task=self.task,

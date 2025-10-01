@@ -245,17 +245,16 @@ class TaskPreference:
 class PipelineStepConfig:
     """Configuration for a single pipeline step - Claude Generated"""
     step_id: str
-    mode: PipelineMode = PipelineMode.SMART
 
-    # Smart Mode settings
+    # Task type for context (auto-derived from step_id)
     task_type: Optional[TaskType] = None
 
-    # Advanced/Expert Mode settings
+    # Configuration settings
     provider: Optional[str] = None
     model: Optional[str] = None
     task: Optional[str] = None  # Prompt task name
 
-    # Expert Mode parameters
+    # LLM parameters
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -268,39 +267,8 @@ class PipelineStepConfig:
 
     def __post_init__(self):
         # Convert string enums to proper enums
-        if isinstance(self.mode, str):
-            self.mode = PipelineMode(self.mode)
         if isinstance(self.task_type, str):
             self.task_type = TaskType(self.task_type)
-
-    def is_manual_override(self) -> bool:
-        """Check if this step uses manual provider/model selection - Claude Generated"""
-        return self.mode in [PipelineMode.ADVANCED, PipelineMode.EXPERT]
-
-    def get_manual_config(self) -> Dict[str, Any]:
-        """Get manual configuration for Advanced/Expert modes - Claude Generated"""
-        if not self.is_manual_override():
-            return {}
-
-        config = {}
-        if self.provider:
-            config["provider"] = self.provider
-        if self.model:
-            config["model"] = self.model
-        if self.task:
-            config["task"] = self.task
-
-        # Expert mode parameters
-        if self.mode == PipelineMode.EXPERT:
-            if self.temperature is not None:
-                config["temperature"] = self.temperature
-            if self.top_p is not None:
-                config["top_p"] = self.top_p
-            if self.max_tokens is not None:
-                config["max_tokens"] = self.max_tokens
-            config.update(self.custom_params)
-
-        return config
 
 
 # ============================================================================

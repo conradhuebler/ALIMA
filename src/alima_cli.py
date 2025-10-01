@@ -120,24 +120,21 @@ def build_step_configurations(args) -> dict:
     return step_configs
 
 
-def create_config_from_cli_args(args, base_config):
-    """Convert CLI arguments to PipelineConfig - Claude Generated"""
-    from copy import deepcopy
-
-    # Make a copy of base config to avoid modifying the original
-    config = deepcopy(base_config)
+def apply_cli_overrides(pipeline_config, args):
+    """Apply CLI argument overrides to a baseline PipelineConfig - Claude Generated"""
 
     # Global settings
     if hasattr(args, 'suggesters') and args.suggesters:
-        config.search_suggesters = args.suggesters
+        pipeline_config.search_suggesters = args.suggesters
 
     if hasattr(args, 'disable_dk_classification') and args.disable_dk_classification:
         # Disable DK classification step
-        if hasattr(config, 'step_configs') and 'dk_classification' in config.step_configs:
-            config.step_configs['dk_classification'].enabled = False
+        if hasattr(pipeline_config, 'step_configs') and 'dk_classification' in pipeline_config.step_configs:
+            pipeline_config.step_configs['dk_classification'].enabled = False
 
-    # Process step-specific arguments
-    step_configs = {}
+    # Process step-specific overrides - CLI overrides ALWAYS apply when specified
+    # The --mode flag is only a UX hint, not a functional gate
+    step_overrides = {}
 
     # Parse --step arguments (format: step=provider|model)
     if hasattr(args, 'step') and args.step:
@@ -145,56 +142,44 @@ def create_config_from_cli_args(args, base_config):
             step_name, provider_model = step_config.split('=', 1)
             if '|' in provider_model:
                 provider, model = provider_model.split('|', 1)
-                step_configs[step_name] = {'provider': provider, 'model': model}
+                step_overrides[step_name] = {'provider': provider, 'model': model}
 
     # Parse --step-task arguments (format: step=task)
     if hasattr(args, 'step_task') and args.step_task:
         for step_task in args.step_task:
             step_name, task = step_task.split('=', 1)
-            if step_name not in step_configs:
-                step_configs[step_name] = {}
-            step_configs[step_name]['task'] = task
+            if step_name not in step_overrides:
+                step_overrides[step_name] = {}
+            step_overrides[step_name]['task'] = task
 
-    # Parse expert mode parameters
+    # Parse expert parameters - always apply if provided
     if hasattr(args, 'step_temperature') and args.step_temperature:
         for step_temp in args.step_temperature:
             step_name, temp = step_temp.split('=', 1)
-            if step_name not in step_configs:
-                step_configs[step_name] = {}
-            step_configs[step_name]['temperature'] = float(temp)
+            if step_name not in step_overrides:
+                step_overrides[step_name] = {}
+            step_overrides[step_name]['temperature'] = float(temp)
 
     if hasattr(args, 'step_top_p') and args.step_top_p:
         for step_top_p in args.step_top_p:
             step_name, top_p = step_top_p.split('=', 1)
-            if step_name not in step_configs:
-                step_configs[step_name] = {}
-            step_configs[step_name]['top_p'] = float(top_p)
+            if step_name not in step_overrides:
+                step_overrides[step_name] = {}
+            step_overrides[step_name]['top_p'] = float(top_p)
 
     if hasattr(args, 'step_seed') and args.step_seed:
         for step_seed in args.step_seed:
             step_name, seed = step_seed.split('=', 1)
-            if step_name not in step_configs:
-                step_configs[step_name] = {}
-            step_configs[step_name]['seed'] = int(seed)
+            if step_name not in step_overrides:
+                step_overrides[step_name] = {}
+            step_overrides[step_name]['seed'] = int(seed)
 
-    # Apply mode-specific settings to affected steps
-    mode_mapping = {
-        'smart': PipelineMode.SMART,
-        'advanced': PipelineMode.ADVANCED,
-        'expert': PipelineMode.EXPERT
-    }
+    # Apply overrides to pipeline config
+    for step_name, step_params in step_overrides.items():
+        if hasattr(pipeline_config, 'step_configs') and step_name in pipeline_config.step_configs:
+            step_config = pipeline_config.step_configs[step_name]
 
-    target_mode = mode_mapping.get(args.mode, PipelineMode.SMART)
-
-    # Apply step configurations to pipeline config
-    for step_name, step_params in step_configs.items():
-        if hasattr(config, 'step_configs') and step_name in config.step_configs:
-            step_config = config.step_configs[step_name]
-
-            # Set mode
-            step_config.mode = target_mode
-
-            # Apply parameters
+            # Apply parameters - overrides always take precedence
             if 'provider' in step_params:
                 step_config.provider = step_params['provider']
             if 'model' in step_params:
@@ -208,7 +193,9 @@ def create_config_from_cli_args(args, base_config):
             if 'seed' in step_params:
                 step_config.seed = step_params['seed']
 
-    return config
+    return pipeline_config
+
+
 
 
 def main():
@@ -870,11 +857,11 @@ EXAMPLES:
 
                 # Create pipeline configuration from CLI arguments
                 try:
-                    # Use the base pipeline_config as starting point
-                    updated_pipeline_config = create_config_from_cli_args(args, pipeline_config)
-                    logger.info(f"Pipeline configuration created from CLI args: mode={args.mode}")
+                    # Apply CLI overrides to baseline configuration - NEW WORKFLOW
+                    updated_pipeline_config = apply_cli_overrides(pipeline_config, args)
+                    logger.info(f"Pipeline configuration: baseline + CLI overrides applied (mode={args.mode})")
                 except Exception as e:
-                    logger.error(f"Failed to create pipeline configuration: {e}")
+                    logger.error(f"Failed to apply CLI overrides: {e}")
                     return
 
                 # Set pipeline configuration
@@ -931,11 +918,13 @@ EXAMPLES:
                         unified_config = config_manager.get_unified_config()
                         preferences_updated = False
 
-                        # Update preferences based on successful execution from mode-based configuration
-                        if args.mode == 'smart':
-                            print(f"\n📋 Smart mode used - no preference updates needed (task preferences already active)")
+                        # Update preferences based on successful execution with CLI overrides - Claude Generated
+                        # In baseline + override architecture, update preferences when CLI overrides were used
+                        cli_overrides_used = bool(args.step or args.step_task or args.step_temperature or args.step_top_p or args.step_seed)
 
-                        elif args.mode in ['advanced', 'expert']:
+                        if not cli_overrides_used:
+                            print(f"\n📋 Smart mode baseline used - no preference updates needed (task preferences already active)")
+                        else:
                             # Extract used providers/models from step configurations
                             used_providers = set()
                             used_models = set()
@@ -971,7 +960,7 @@ EXAMPLES:
                         if preferences_updated:
                             config_manager.save_config()
                             print(f"\n✅ Provider preferences updated and saved:")
-                            print(f"   Mode used: {args.mode}")
+                            print(f"   Configuration: baseline + CLI overrides")
                             print(f"   Preferred provider: {unified_config.preferred_provider}")
                             # TODO: Show preferred models when implemented in UnifiedProviderConfig
                             # for provider, model in unified_config.preferred_models.items():

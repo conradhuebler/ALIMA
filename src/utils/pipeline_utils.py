@@ -193,7 +193,6 @@ class PipelineStepExecutor:
         provider: str = None,
         task: str = "initialisation",
         stream_callback: Optional[callable] = None,
-        mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute initial keyword extraction step with intelligent provider selection - Claude Generated"""
@@ -234,7 +233,6 @@ class PipelineStepExecutor:
             model=model,
             provider=provider,
             stream_callback=alima_stream_callback,
-            mode=mode,  # <--- NEUER PARAMETER: Pass mode to AlimaManager
             **alima_kwargs,
         )
 

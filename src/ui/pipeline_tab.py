@@ -587,37 +587,37 @@ class PipelineTab(QWidget):
                 self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
                 return
 
-            # Count modes across LLM steps
+            # Count configuration types across LLM steps (baseline vs override)
             llm_steps = ["initialisation", "keywords", "dk_classification"]
-            mode_counts = {"smart": 0, "advanced": 0, "expert": 0}
+            config_counts = {"baseline": 0, "override": 0}
 
             for step_id in llm_steps:
                 if step_id in config.step_configs:
                     step_config = config.step_configs[step_id]
-                    if hasattr(step_config, 'mode'):
-                        mode_value = step_config.mode.value if hasattr(step_config.mode, 'value') else str(step_config.mode)
-                        mode_counts[mode_value] = mode_counts.get(mode_value, 0) + 1
+                    # In baseline + override architecture: check if provider/model are explicitly set
+                    if step_config.provider and step_config.model:
+                        config_counts["override"] += 1
                     else:
-                        mode_counts["smart"] += 1  # Default to smart
+                        config_counts["baseline"] += 1
                 else:
-                    mode_counts["smart"] += 1  # Default to smart
+                    config_counts["baseline"] += 1  # Default to smart baseline
 
-            # Determine dominant mode
-            dominant_mode = max(mode_counts, key=mode_counts.get)
+            # Determine dominant configuration type
+            dominant_config = max(config_counts, key=config_counts.get)
 
-            # Set mode indicator based on dominant mode
-            if dominant_mode == "smart":
-                self.mode_indicator_label.setText("🤖 Smart Mode")
+            # Set configuration indicator based on dominant type
+            if dominant_config == "baseline" or config_counts["override"] == 0:
+                self.mode_indicator_label.setText("🤖 Smart Baseline")
                 self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
-                self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
-            elif dominant_mode == "advanced":
-                self.mode_indicator_label.setText("⚙️ Advanced Mode")
-                self.mode_indicator_label.setStyleSheet("color: #1976d2; font-size: 11px; font-weight: bold;")
-                self.mode_indicator_label.setToolTip("Pipeline Mode: Advanced (manual provider/model selection)")
-            else:  # expert
-                self.mode_indicator_label.setText("🔧 Expert Mode")
+                self.mode_indicator_label.setToolTip("Configuration: Smart Baseline (automatic provider/model selection)")
+            elif config_counts["baseline"] == 0:
+                self.mode_indicator_label.setText("⚙️ Full Override")
                 self.mode_indicator_label.setStyleSheet("color: #d32f2f; font-size: 11px; font-weight: bold;")
-                self.mode_indicator_label.setToolTip("Pipeline Mode: Expert (full parameter control)")
+                self.mode_indicator_label.setToolTip("Configuration: Full Override (all steps manually configured)")
+            else:  # mixed
+                self.mode_indicator_label.setText("🔧 Mixed Config")
+                self.mode_indicator_label.setStyleSheet("color: #1976d2; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setToolTip(f"Configuration: Mixed (baseline: {config_counts['baseline']}, override: {config_counts['override']})")
 
         except Exception as e:
             self.logger.error(f"Error updating mode indicator: {e}")
