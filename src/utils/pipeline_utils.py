@@ -193,6 +193,7 @@ class PipelineStepExecutor:
         provider: str = None,
         task: str = "initialisation",
         stream_callback: Optional[callable] = None,
+        mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute initial keyword extraction step with intelligent provider selection - Claude Generated"""
@@ -233,6 +234,7 @@ class PipelineStepExecutor:
             model=model,
             provider=provider,
             stream_callback=alima_stream_callback,
+            mode=mode,  # <--- NEUER PARAMETER: Pass mode to AlimaManager
             **alima_kwargs,
         )
 
@@ -556,6 +558,7 @@ class PipelineStepExecutor:
         keyword_chunking_threshold: int = 500,
         chunking_task: str = "keywords_chunked",
         expand_synonyms: bool = False,
+        mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute final keyword analysis step with intelligent provider selection - Claude Generated"""
@@ -683,6 +686,7 @@ class PipelineStepExecutor:
             model=model,
             provider=provider,
             stream_callback=alima_stream_callback,
+            mode=mode,  # <--- NEUER PARAMETER: Pass mode to AlimaManager
             **alima_kwargs,
         )
 
@@ -1041,6 +1045,7 @@ class PipelineStepExecutor:
         provider: str = None,
         stream_callback: Optional[callable] = None,
         dk_frequency_threshold: int = 10,  # Claude Generated - Only pass classifications with >= N occurrences
+        mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
     ) -> List[str]:
         """
@@ -1198,6 +1203,7 @@ class PipelineStepExecutor:
                 model=model,
                 provider=provider,
                 stream_callback=alima_stream_callback,
+                mode=mode,  # <--- NEUER PARAMETER: Pass mode to AlimaManager
                 **alima_kwargs,
             )
 

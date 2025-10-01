@@ -633,6 +633,8 @@ class UnifiedProviderTab(QWidget):
         from PyQt6.QtWidgets import QAbstractItemView
         self.task_model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.task_model_priority_list.setMinimumHeight(150)
+        # CRITICAL FIX: Add event handler to save priority changes after drag & drop - Claude Generated
+        self.task_model_priority_list.model().rowsMoved.connect(self._on_priority_list_reordered)
         right_task_layout.addWidget(self.task_model_priority_list)
         
         # Chunked model priority (conditional)
@@ -645,6 +647,8 @@ class UnifiedProviderTab(QWidget):
         self.chunked_task_model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.chunked_task_model_priority_list.setMinimumHeight(120)
         self.chunked_task_model_priority_list.setVisible(False)
+        # CRITICAL FIX: Add event handler to save priority changes after drag & drop - Claude Generated
+        self.chunked_task_model_priority_list.model().rowsMoved.connect(self._on_priority_list_reordered)
         right_task_layout.addWidget(self.chunked_task_model_priority_list)
         
         # Task management buttons
@@ -1818,6 +1822,18 @@ class UnifiedProviderTab(QWidget):
             self.current_editing_task = None
             self.task_ui_dirty = False
     
+    def _on_priority_list_reordered(self):
+        """Handle priority list reordering via drag & drop - Claude Generated"""
+        if self.current_editing_task:
+            self.logger.info(f"Priority list reordered for task: {self.current_editing_task}")
+            # Mark UI as dirty and save immediately
+            self.task_ui_dirty = True
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+            # Show visual feedback for the save
+            self._show_save_toast(f"🔄 {self.current_editing_task} priority updated")
+        else:
+            self.logger.warning("Priority list reordered but no current editing task")
+
     def _create_task_defaults_from_global_preferences(self) -> List[Dict[str, str]]:
         """Create intelligent task default priorities from global provider preferences - Claude Generated"""
         try:

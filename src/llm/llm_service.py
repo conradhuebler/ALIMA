@@ -1437,26 +1437,41 @@ class LlmService(QObject):
                         f"OpenAI compatible request ID: {self.current_request_id}"
                     )
 
-                full_response = ""
-                for chunk in response_stream:
-                    # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
-                    self.last_chunk_time = time.time()
+                # Generator function for proper streaming - Claude Generated
+                def stream_generator():
+                    full_response = ""
+                    try:
+                        for chunk in response_stream:
+                            # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
+                            self.last_chunk_time = time.time()
 
-                    # Prüfen auf Abbruchsignal
-                    if self.cancel_requested:
-                        self.logger.info(f"{provider} generation cancelled")
-                        break
+                            # Prüfen auf Abbruchsignal
+                            if self.cancel_requested:
+                                self.logger.info(f"{provider} generation cancelled")
+                                self.generation_cancelled.emit(self.current_request_id)
+                                break
 
-                    if (
-                        chunk.choices
-                        and chunk.choices[0].delta
-                        and chunk.choices[0].delta.content
-                    ):
-                        chunk_text = chunk.choices[0].delta.content
-                        full_response += chunk_text
-                        self.text_received.emit(self.current_request_id, chunk_text)
+                            if (
+                                chunk.choices
+                                and chunk.choices[0].delta
+                                and chunk.choices[0].delta.content
+                            ):
+                                chunk_text = chunk.choices[0].delta.content
+                                full_response += chunk_text
+                                self.text_received.emit(self.current_request_id, chunk_text)
+                                yield chunk_text  # Yield each chunk for generator
 
-                return full_response
+                        # Emit finished signal after streaming completes - Claude Generated
+                        if not self.cancel_requested:
+                            self.generation_finished.emit(self.current_request_id, full_response)
+
+                    except Exception as e:
+                        error_msg = f"Error with {provider.capitalize()}: {str(e)}"
+                        self.logger.error(error_msg)
+                        self.generation_error.emit(self.current_request_id, error_msg)
+                        raise
+
+                return stream_generator()
             else:
                 # Make API call without streaming
                 response = self.clients[provider].chat.completions.create(**params)

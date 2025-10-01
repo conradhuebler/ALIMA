@@ -112,11 +112,16 @@ class PromptService:
                     return True
         return False
 
-    def get_prompt_config(self, task: str, model: str) -> Optional[PromptConfigData]:
+    def get_prompt_config(self, task: str, model: str, mode=None) -> Optional[PromptConfigData]:  # <--- NEUER PARAMETER: Pipeline mode
         """
         Get the prompt configuration for a specific task and model.
         Returns a PromptConfigData object or None if not found.
+        Mode-specific behavior:
+        - SMART: Uses fuzzy matching and fallbacks
+        - ADVANCED/EXPERT: Only exact matches, returns None otherwise
         """
+        from ..utils.config_models import PipelineMode  # Import here to avoid circular imports
+
         if task not in self.models_by_task:
             self.logger.warning(f"Task '{task}' not found in prompt configurations.")
             return None
@@ -124,38 +129,57 @@ class PromptService:
         prompt_config_list = None
         matched_model = None
 
-        # 1. Try exact model match
+        # 1. Try exact model match (for all modes)
         if model in self.models_by_task[task]:
             self.logger.info(f"Found exact model '{model}' for task '{task}'.")
             prompt_config_list = self.models_by_task[task][model]
             matched_model = model
 
-        # 2. Try Smart Mode fuzzy matching - Claude Generated
-        elif model:
-            smart_match = self._try_smart_mode_model_matching(model, task)
-            if smart_match:
-                matched_model, prompt_config_list = smart_match
-                self.logger.info(f"Smart Mode: Matched '{model}' to '{matched_model}' for task '{task}'.")
-
-        # 3. Fall back to default
-        if not prompt_config_list and "default" in self.models_by_task[task]:
-            self.logger.info(
-                f"Model '{model}' not found, using 'default' model for task '{task}'."
-            )
-            prompt_config_list = self.models_by_task[task]["default"]
-            matched_model = "default"
-
-        # 4. Fall back to first available
-        elif not prompt_config_list and self.models_by_task[task]:
-            first_model = next(iter(self.models_by_task[task]))
-            self.logger.info(
-                f"Model '{model}' and 'default' not found, using first available model '{first_model}' for task '{task}'."
-            )
-            prompt_config_list = self.models_by_task[task][first_model]
-            matched_model = first_model
-
-        # 5. No models available
+        # 2. Mode-specific fallback logic - CORE IMPLEMENTATION
         elif not prompt_config_list:
+            if mode == PipelineMode.SMART or mode is None:
+                # SMART MODE: Use existing fallback logic (fuzzy matching, defaults)
+
+                # 2a. Try Smart Mode fuzzy matching - Claude Generated
+                if model:
+                    smart_match = self._try_smart_mode_model_matching(model, task)
+                    if smart_match:
+                        matched_model, prompt_config_list = smart_match
+                        self.logger.info(f"Smart Mode: Matched '{model}' to '{matched_model}' for task '{task}'.")
+
+                # 2b. Fall back to default
+                if not prompt_config_list and "default" in self.models_by_task[task]:
+                    self.logger.info(
+                        f"Model '{model}' not found, using 'default' model for task '{task}'."
+                    )
+                    prompt_config_list = self.models_by_task[task]["default"]
+                    matched_model = "default"
+
+                # 2c. Fall back to first available
+                elif not prompt_config_list and self.models_by_task[task]:
+                    first_model = next(iter(self.models_by_task[task]))
+                    self.logger.info(
+                        f"Model '{model}' and 'default' not found, using first available model '{first_model}' for task '{task}'."
+                    )
+                    prompt_config_list = self.models_by_task[task][first_model]
+                    matched_model = first_model
+
+            else:
+                # ADVANCED/EXPERT MODE: Try default fallback first, then strict
+                mode_name = mode.value if hasattr(mode, 'value') else str(mode)
+
+                # Try default fallback for Advanced/Expert modes
+                if "default" in self.models_by_task[task]:
+                    self.logger.info(f"{mode_name} Mode: Using 'default' fallback for unknown model '{model}' in task '{task}'")
+                    prompt_config_list = self.models_by_task[task]["default"]
+                    matched_model = "default"
+                else:
+                    # No default available - strict mode behavior
+                    self.logger.warning(f"Im '{mode_name}'-Modus wurde keine exakte Prompt-Konfiguration für das Modell '{model}' gefunden.")
+                    return None
+
+        # Final check: No models available (should only happen in corrupted configs)
+        if not prompt_config_list:
             self.logger.warning(f"No models configured for task '{task}'.")
             return None
 

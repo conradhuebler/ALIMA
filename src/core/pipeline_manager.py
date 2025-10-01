@@ -881,6 +881,7 @@ class PipelineManager:
 
         # Get configuration for initialisation step
         step_config = self.config.get_step_config("initialisation")
+        mode = step_config.mode  # <--- NEU: Extract mode for parameter propagation
         task = step_config.task or "initialisation"
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
@@ -968,6 +969,7 @@ class PipelineManager:
                     temperature=temperature,
                     p_value=top_p,
                     step_id=step.step_id,  # Pass step_id for proper callback handling
+                    mode=mode,  # <--- NEUER PARAMETER: Pass mode to executor
                     **filtered_config,  # Pass remaining config parameters
                 )
             )
@@ -1036,6 +1038,7 @@ class PipelineManager:
 
         # Get configuration for keywords step
         step_config = self.config.get_step_config("keywords")
+        mode = step_config.mode  # <--- NEU: Extract mode for parameter propagation
         task = step_config.task or "keywords"
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
@@ -1131,6 +1134,7 @@ class PipelineManager:
                     temperature=temperature,
                     p_value=top_p,
                     step_id=step.step_id,  # Pass step_id for proper callback handling
+                    mode=mode,  # <--- NEUER PARAMETER: Pass mode to executor
                     **filtered_config,  # Pass remaining config parameters
                 )
             )
@@ -1213,6 +1217,7 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK classification
             step_config = self.config.get_step_config("dk_classification")
+            mode = step_config.mode  # <--- NEU: Extract mode for parameter propagation
             dk_classifications = self.pipeline_executor.execute_dk_classification(
                 dk_search_results=dk_search_results,
                 original_abstract=original_abstract,
@@ -1222,6 +1227,7 @@ class PipelineManager:
                 temperature=step_config.temperature or 0.7,
                 top_p=step_config.top_p or 0.1,
                 dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', 10),  # Claude Generated
+                mode=mode,  # <--- NEUER PARAMETER: Pass mode to executor
             )
             
             # Prepare search summary for display
