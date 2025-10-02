@@ -905,9 +905,16 @@ class PipelineTab(QWidget):
         for step_id, step_widget in self.step_widgets.items():
             if step_id in config.step_configs:
                 step_config = config.step_configs[step_id]
-                provider = step_config.provider or ""
-                model = step_config.model or ""
-                enabled = step_config.enabled
+
+                # Handle both dict and PipelineStepConfig objects - Claude Generated
+                if isinstance(step_config, dict):
+                    provider = step_config.get("provider") or ""
+                    model = step_config.get("model") or ""
+                    enabled = step_config.get("enabled", True)
+                else:
+                    provider = step_config.provider or ""
+                    model = step_config.model or ""
+                    enabled = step_config.enabled
 
                 # Update step data
                 step_widget.step.provider = provider

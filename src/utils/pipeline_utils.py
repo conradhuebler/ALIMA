@@ -628,6 +628,7 @@ class PipelineStepExecutor:
                 task=task,
                 chunking_task=chunking_task,
                 stream_callback=stream_callback,
+                mode=mode,
                 **kwargs,
             )
         else:
@@ -644,6 +645,7 @@ class PipelineStepExecutor:
                 provider=provider,
                 task=task,
                 stream_callback=stream_callback,
+                mode=mode,
                 **kwargs,
             )
 
@@ -658,6 +660,7 @@ class PipelineStepExecutor:
         provider: str,
         task: str,
         stream_callback: Optional[callable] = None,
+        mode=None,
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute single keyword analysis without chunking - Claude Generated"""
@@ -739,6 +742,7 @@ class PipelineStepExecutor:
         task: str,
         chunking_task: str,
         stream_callback: Optional[callable] = None,
+        mode=None,
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute keyword analysis with chunking for large keyword sets - Claude Generated"""
@@ -802,6 +806,7 @@ class PipelineStepExecutor:
                 provider=provider,
                 task=chunking_task,  # Use chunking task (e.g., "keywords_chunked" or "rephrase")
                 stream_callback=stream_callback,
+                mode=mode,
                 **kwargs,
             )
 
@@ -867,6 +872,7 @@ class PipelineStepExecutor:
             provider=provider,
             task=task,  # Use original task for final analysis
             stream_callback=stream_callback,
+            mode=mode,
             **kwargs,
         )
 

@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QRadioButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QMetaObject, Q_ARG
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QBrush, QColor
 from typing import Dict, List, Any, Optional
 import json
 import logging
@@ -37,6 +37,11 @@ from ..utils.config_models import (
     TaskType as UnifiedTaskType
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType as SmartTaskType
+
+# Styling constants for baseline highlighting - Claude Generated
+STYLE_TASK_PREFERENCE = "background-color: #e8f5e9; color: #2e7d32; font-weight: bold;"
+STYLE_PROVIDER_PREFERENCE = "background-color: #e3f2fd; color: #1976d2;"
+STYLE_OVERRIDE = ""  # Default styling
 
 
 class SearchStepConfigWidget(QWidget):
@@ -388,7 +393,20 @@ class HybridStepConfigWidget(QWidget):
         self.edit_preferences_button.clicked.connect(self._open_task_preferences)
         self.edit_preferences_button.setVisible(False)  # Hidden by default
         smart_layout.addWidget(self.edit_preferences_button, 2, 0, 1, 2)
-        
+
+        # Color Legend for Baseline Settings - Claude Generated
+        legend_label = QLabel(
+            "📋 <b>Configuration Legend:</b><br>"
+            "<span style='color: #2e7d32; background-color: #e8f5e9; padding: 2px 4px;'>🟢 Task Preference</span> = "
+            "From Settings → Task Preferences (highest priority)<br>"
+            "<span style='color: #1976d2; background-color: #e3f2fd; padding: 2px 4px;'>🔵 Provider Default</span> = "
+            "From Settings → Provider Settings<br>"
+            "<span style='padding: 2px 4px;'>⚪ Override/Default</span> = Manual selection or system default"
+        )
+        legend_label.setWordWrap(True)
+        legend_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 8px; padding: 8px; background-color: #f5f5f5; border-radius: 4px;")
+        smart_layout.addWidget(legend_label, 3, 0, 1, 2)
+
         layout.addWidget(self.smart_group)
         
         # Manual Configuration (Advanced/Expert)
@@ -601,102 +619,156 @@ class HybridStepConfigWidget(QWidget):
         # Update status
         self._validate_configuration()
         self.logger.info("Provider list refreshed")
-    
+
+    def _populate_model_combo_with_styling(self, provider: str, models: List[str]) -> Optional[str]:
+        """
+        Populate model combo with visual baseline highlighting - Claude Generated
+
+        Args:
+            provider: Provider name
+            models: List of available models
+
+        Returns:
+            The model that should be selected (preferred model)
+        """
+        self.model_combo.clear()
+
+        if not models:
+            return None
+
+        # Get baseline information for this provider
+        try:
+            task_pref_provider, task_pref_model, task_reason = self._load_task_preferences_direct()
+        except Exception as e:
+            self.logger.debug(f"No task preferences: {e}")
+            task_pref_provider, task_pref_model, task_reason = None, None, ""
+
+        try:
+            provider_pref_model = self._get_preferred_model_for_provider(provider)
+        except Exception as e:
+            self.logger.debug(f"No provider preference: {e}")
+            provider_pref_model = None
+
+        model_to_select = None
+
+        # Add each model with individual styling
+        for model in models:
+            # Determine baseline source for this specific model
+            baseline_source = self._get_baseline_source(provider, model)
+
+            # Determine display text and styling
+            if baseline_source == 'task_preference':
+                # Task Preference: Green background + star icon
+                display_text = f"⭐ {model}"
+                background_color = QColor("#e8f5e9")  # Light green
+                text_color = QColor("#2e7d32")  # Dark green
+                tooltip = f"⭐ Task Preference for '{self.step_id}'\nSource: Settings → Task Preferences\nReason: {task_reason}"
+
+                # This is the model to select (highest priority)
+                if not model_to_select:
+                    model_to_select = model
+
+            elif baseline_source == 'provider_preference':
+                # Provider Preference: Blue background + diamond icon
+                display_text = f"💎 {model}"
+                background_color = QColor("#e3f2fd")  # Light blue
+                text_color = QColor("#1976d2")  # Dark blue
+                tooltip = f"💎 Provider Preferred Model\nSource: Settings → Provider Settings → {provider}"
+
+                # Select if no task preference exists
+                if not model_to_select:
+                    model_to_select = model
+
+            else:
+                # Normal model: no special styling
+                display_text = model
+                background_color = None
+                text_color = None
+                tooltip = None
+
+            # Add item to combo
+            self.model_combo.addItem(display_text)
+            index = self.model_combo.count() - 1
+
+            # Set item data roles for styling
+            if background_color:
+                self.model_combo.setItemData(index, QBrush(background_color), Qt.ItemDataRole.BackgroundRole)
+            if text_color:
+                self.model_combo.setItemData(index, QBrush(text_color), Qt.ItemDataRole.ForegroundRole)
+            if tooltip:
+                self.model_combo.setItemData(index, tooltip, Qt.ItemDataRole.ToolTipRole)
+
+            # Store the clean model name (without icon) as user data
+            self.model_combo.setItemData(index, model, Qt.ItemDataRole.UserRole)
+
+        # Fallback: select first model if no preferred model found
+        if not model_to_select and models:
+            model_to_select = models[0]
+
+        return model_to_select
+
     def _on_provider_changed(self, provider: str):
-        """Handle provider change - Claude Generated"""
+        """Handle provider change with visual baseline highlighting - Claude Generated"""
         if not provider:
             return
-            
-        self.model_combo.clear()
-        
+
         try:
             if self.config_manager:
                 from ..utils.config_manager import ProviderDetectionService
                 detection_service = ProviderDetectionService(self.config_manager)
                 models = detection_service.get_available_models(provider)
-                
+
                 if models:
-                    # 🔍 DEBUG: Log available models vs preferred model - Claude Generated
+                    # 🔍 DEBUG: Log available models - Claude Generated
                     self.logger.critical(f"🔍 AVAILABLE_MODELS: provider='{provider}', models={models[:5]}{'...' if len(models) > 5 else ''} (total: {len(models)})")
-                    
-                    self.model_combo.addItems(models)
-                    
-                    # Determine which model to select - PRIORITY: Task Preference > Provider Preference > Fallback - Claude Generated
-                    model_to_select = None
 
-                    # 1. FIRST PRIORITY: Check if there's already a model set in step_config for this provider (Task Preference)
-                    current_step_model = getattr(self.step_config, 'model', None)
-                    if current_step_model and current_step_model in models:
-                        model_to_select = current_step_model
-                        self.logger.critical(f"🔍 MODEL_SELECTED: Using task preference model '{current_step_model}' ⭐ (highest priority)")
+                    # Populate combo with visual styling for baseline models - Claude Generated
+                    model_to_select = self._populate_model_combo_with_styling(provider, models)
 
-                    if not model_to_select:
-                        # 2. SECOND PRIORITY: Try to use preferred model from provider config
-                        preferred_model = self._get_preferred_model_for_provider(provider)
-                        self.logger.critical(f"🔍 MODEL_SELECTION: provider='{provider}', preferred='{preferred_model}'")
+                    # Handle fuzzy matching if exact model not found
+                    if model_to_select and model_to_select not in models:
+                        fuzzy_match = self._find_fuzzy_model_match(model_to_select, models)
+                        if fuzzy_match:
+                            model_to_select = fuzzy_match
+                            self.logger.info(f"Using fuzzy match '{fuzzy_match}' for '{model_to_select}'")
 
-                        if preferred_model:
-                            if preferred_model in models:
-                                # Exact match found
-                                model_to_select = preferred_model
-                                self.logger.critical(f"🔍 MODEL_SELECTED: Using preferred model '{preferred_model}' ⭐ (exact match)")
-                            else:
-                                # Try fuzzy matching for model names - Claude Generated
-                                fuzzy_match = self._find_fuzzy_model_match(preferred_model, models)
-                                if fuzzy_match:
-                                    model_to_select = fuzzy_match
-                                    self.logger.critical(f"🔍 MODEL_SELECTED: Using fuzzy match '{fuzzy_match}' for preferred '{preferred_model}' ⭐")
-                                else:
-                                    self.logger.critical(f"🔍 MODEL_MISMATCH: preferred='{preferred_model}' not found in {models[:3]}{'...' if len(models) > 3 else ''}")
-
-                    if not model_to_select:
-                        # 3. THIRD PRIORITY: Use first available model as fallback
-                        model_to_select = models[0]
-                        self.logger.critical(f"🔍 MODEL_SELECTED: Using fallback model '{models[0]}'")
-                        preferred_model = self._get_preferred_model_for_provider(provider)
-                        if preferred_model:
-                            self.logger.critical(f"🔍 MODEL_MISMATCH: preferred='{preferred_model}' not in {models[:3]}{'...' if len(models) > 3 else ''}")
-                    
-                    # Set the selected model
+                    # Set the selected model in combo (search by UserRole data, not display text)
                     if model_to_select:
-                        index = self.model_combo.findText(model_to_select)
-                        if index >= 0:
-                            self.model_combo.setCurrentIndex(index)
+                        # Find index by matching UserRole data (clean model name)
+                        for i in range(self.model_combo.count()):
+                            stored_model = self.model_combo.itemData(i, Qt.ItemDataRole.UserRole)
+                            if stored_model == model_to_select:
+                                self.model_combo.setCurrentIndex(i)
+                                self.logger.critical(f"🔍 MODEL_SELECTED: '{model_to_select}' at index {i}")
+                                break
 
-                            # Enhanced tooltip with task preference information - Claude Generated
-                            tooltip_parts = []
+                    # Apply combo-box level styling based on selected model
+                    if model_to_select:
+                        baseline_source = self._get_baseline_source(provider, model_to_select)
 
-                            # Check if this is from step_config (task preference)
-                            if (hasattr(self.step_config, 'provider') and hasattr(self.step_config, 'model') and
-                                hasattr(self.step_config, 'selection_reason') and
-                                self.step_config.provider == provider and self.step_config.model == model_to_select):
+                        # Build combo tooltip
+                        tooltip_parts = []
+                        if baseline_source == 'task_preference':
+                            tooltip_parts.append(f"🟢 Task Preference: {provider} / {model_to_select}")
+                            tooltip_parts.append(f"Source: Settings → Task Preferences → {self.step_id}")
+                        elif baseline_source == 'provider_preference':
+                            tooltip_parts.append(f"🔵 Provider Preference: {provider} / {model_to_select}")
+                            tooltip_parts.append("Source: Settings → Provider Settings")
+                        else:
+                            tooltip_parts.append(f"Model: {model_to_select}")
 
-                                if "task preference" in self.step_config.selection_reason:
-                                    tooltip_parts.append(f"⭐ Task Preference: {model_to_select}")
-                                    tooltip_parts.append(f"Source: {self.step_config.selection_reason}")
-                                else:
-                                    tooltip_parts.append(f"🔧 {self.step_config.selection_reason}: {model_to_select}")
-                            else:
-                                # Check if this is the preferred model from provider settings
-                                preferred_model = self._get_preferred_model_for_provider(provider)
-                                if model_to_select == preferred_model:
-                                    tooltip_parts.append(f"⭐ Preferred model: {model_to_select}")
-                                    tooltip_parts.append("Source: Provider settings")
-                                else:
-                                    tooltip_parts.append(f"Model: {model_to_select}")
+                        self.model_combo.setToolTip("\n".join(tooltip_parts))
 
-                            self.model_combo.setToolTip("\n".join(tooltip_parts))
-
-                            # Set style based on preference source - Claude Generated
-                            if tooltip_parts and "Task Preference" in tooltip_parts[0]:
-                                # Task preference gets green styling
-                                self.model_combo.setStyleSheet("QComboBox { color: #2e7d32; font-weight: bold; }")
-                            elif tooltip_parts and "Preferred model" in tooltip_parts[0]:
-                                # Provider preference gets blue styling
-                                self.model_combo.setStyleSheet("QComboBox { color: #1976d2; }")
-                            else:
-                                # Reset to default styling
-                                self.model_combo.setStyleSheet("")
+                        # Apply combobox-level styling - Claude Generated
+                        if baseline_source == 'task_preference':
+                            self.model_combo.setStyleSheet(STYLE_TASK_PREFERENCE)
+                            self.provider_combo.setStyleSheet(STYLE_TASK_PREFERENCE)
+                        elif baseline_source == 'provider_preference':
+                            self.model_combo.setStyleSheet(STYLE_PROVIDER_PREFERENCE)
+                            self.provider_combo.setStyleSheet(STYLE_PROVIDER_PREFERENCE)
+                        else:
+                            self.model_combo.setStyleSheet(STYLE_OVERRIDE)
+                            self.provider_combo.setStyleSheet(STYLE_OVERRIDE)
                 else:
                     # Fallback models
                     fallback_models = {
@@ -705,22 +777,35 @@ class HybridStepConfigWidget(QWidget):
                         "openai": ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
                         "anthropic": ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
                     }
-                    self.model_combo.addItems(fallback_models.get(provider, ["default-model"]))
+                    self.model_combo.clear()
+                    for model in fallback_models.get(provider, ["default-model"]):
+                        self.model_combo.addItem(model)
+                        self.model_combo.setItemData(self.model_combo.count() - 1, model, Qt.ItemDataRole.UserRole)
         except Exception as e:
             self.logger.warning(f"Could not load models for {provider}: {e}")
         
         self._on_manual_config_changed()
     
     def _get_preferred_model_for_provider(self, provider: str) -> Optional[str]:
-        """Get preferred model for provider from direct config - Claude Generated"""
+        """Get preferred model for provider with Task Preference priority - Claude Generated"""
         try:
             if not self.config_manager:
                 return None
-            
+
             # 🔍 DEBUG: Log pipeline config dialog preference request - Claude Generated
             self.logger.critical(f"🔍 PIPELINE_DIALOG_PREF_REQUEST: provider='{provider}'")
-            
-            # Force reload to ensure we get latest saved config - Claude Generated    
+
+            # TIER 1: Check Task Preferences first (highest priority) - Claude Generated
+            try:
+                task_pref_provider, task_pref_model, reason = self._load_task_preferences_direct()
+                if task_pref_provider == provider and task_pref_model:
+                    self.logger.info(f"🎯 Using model from task preferences for {provider}: {task_pref_model} ({reason})")
+                    return task_pref_model
+            except Exception as e:
+                self.logger.debug(f"No task preference model for {provider}: {e}")
+
+            # TIER 2: Check Provider Settings - Claude Generated
+            # Force reload to ensure we get latest saved config - Claude Generated
             config = self.config_manager.load_config(force_reload=True)
             
             # 🔍 DEBUG: Log what pipeline dialog sees in loaded config - Claude Generated
@@ -815,25 +900,84 @@ class HybridStepConfigWidget(QWidget):
         return False
     
     def _get_preferred_provider_from_settings(self) -> Optional[str]:
-        """Get preferred provider from unified config settings - Claude Generated"""
+        """Get preferred provider with Task Preference priority - Claude Generated"""
         try:
             if not self.config_manager:
                 return None
-                
-            unified_config = self.config_manager.get_unified_config()
 
-            # Get preferred provider for the current task type
-            task_type = getattr(self.step_config, 'task_type', None)
-            if task_type:
-                # TODO: Implement task-specific provider selection in UnifiedProviderConfig
-                return unified_config.preferred_provider  # Fallback to general preference
-            else:
+            # TIER 1: Check Task Preferences first (highest priority) - Claude Generated
+            try:
+                task_pref_provider, _, reason = self._load_task_preferences_direct()
+                if task_pref_provider:
+                    self.logger.info(f"🎯 Using provider from task preferences: {task_pref_provider} ({reason})")
+                    return task_pref_provider
+            except Exception as e:
+                self.logger.debug(f"No task preference provider available: {e}")
+
+            # TIER 2: Fallback to global preferred_provider
+            unified_config = self.config_manager.get_unified_config()
+            if unified_config.preferred_provider:
+                self.logger.info(f"📋 Using global preferred provider: {unified_config.preferred_provider}")
                 return unified_config.preferred_provider
-                
+
+            return None
+
         except Exception as e:
             self.logger.warning(f"Error getting preferred provider from settings: {e}")
             return None
-    
+
+    def _get_baseline_source(self, provider: str, model: str) -> str:
+        """
+        Determine the source of baseline configuration for provider/model combo - Claude Generated
+
+        Args:
+            provider: Provider name to check
+            model: Model name to check
+
+        Returns:
+            'task_preference': From config.unified_config.task_preferences (highest priority)
+            'provider_preference': From provider's preferred_model setting
+            'none': Not a baseline setting (user override or default)
+        """
+        try:
+            if not self.config_manager:
+                return 'none'
+
+            config = self.config_manager.load_config()
+
+            # Map step_id to task_name for task_preferences lookup - Claude Generated
+            task_name_mapping = {
+                "initialisation": "initialisation",
+                "keywords": "keywords",
+                "classification": "classification",
+                "dk_classification": "dk_classification",
+                "image_text_extraction": "image_text_extraction"
+            }
+            task_name = task_name_mapping.get(self.step_id, "")
+
+            # TIER 1: Check task preferences (highest priority)
+            if task_name and task_name in config.unified_config.task_preferences:
+                task_data = config.unified_config.task_preferences[task_name]
+                model_priorities = task_data.model_priority if task_data else []
+
+                for priority_entry in model_priorities:
+                    if (priority_entry.get("provider_name") == provider and
+                        priority_entry.get("model_name") == model):
+                        return 'task_preference'
+
+            # TIER 2: Check provider preferred model
+            unified_config = config.unified_config
+            provider_obj = unified_config.get_provider_by_name(provider)
+            if provider_obj and provider_obj.preferred_model:
+                if provider_obj.preferred_model == model:
+                    return 'provider_preference'
+
+            return 'none'
+
+        except Exception as e:
+            self.logger.warning(f"Error determining baseline source: {e}")
+            return 'none'
+
     def _initialize_with_preferred_settings(self):
         """Initialize step config with Task Preference enhanced defaults - Claude Generated"""
         try:
@@ -1105,9 +1249,22 @@ class HybridStepConfigWidget(QWidget):
             self.logger.warning(f"Smart preview update failed: {e}")
     
     def _on_manual_config_changed(self):
-        """Handle manual configuration changes - Claude Generated"""
+        """Handle manual configuration changes with icon prefix handling - Claude Generated"""
         self.step_config.provider = self.provider_combo.currentText()
-        self.step_config.model = self.model_combo.currentText()
+
+        # Get clean model name from UserRole (without icon prefix) - Claude Generated
+        current_index = self.model_combo.currentIndex()
+        if current_index >= 0:
+            clean_model = self.model_combo.itemData(current_index, Qt.ItemDataRole.UserRole)
+            if clean_model:
+                self.step_config.model = clean_model
+            else:
+                # Fallback: remove icon prefix manually
+                display_text = self.model_combo.currentText()
+                self.step_config.model = display_text.replace("⭐ ", "").replace("💎 ", "")
+        else:
+            self.step_config.model = self.model_combo.currentText()
+
         self.step_config.task = self.task_combo.currentText()
         self.config_changed.emit()
     
@@ -1977,6 +2134,28 @@ class PipelineConfigDialog(QDialog):
                 self, "Fehler", f"Fehler beim Laden der Konfiguration: {e}"
             )
 
+    def _dict_to_pipeline_step_config(self, config_dict: dict, step_id: str) -> PipelineStepConfig:
+        """Convert dict config to PipelineStepConfig object - Claude Generated"""
+        # Handle special case for search step (no LLM params)
+        if step_id == "search":
+            # Return dict as-is for search (it doesn't use PipelineStepConfig)
+            return config_dict
+
+        # Extract fields that PipelineStepConfig expects
+        return PipelineStepConfig(
+            step_id=step_id,
+            enabled=config_dict.get("enabled", True),
+            provider=config_dict.get("provider"),
+            model=config_dict.get("model"),
+            task=config_dict.get("task"),
+            temperature=config_dict.get("temperature"),
+            top_p=config_dict.get("top_p"),
+            max_tokens=config_dict.get("max_tokens"),
+            seed=config_dict.get("seed"),
+            custom_params=config_dict.get("custom_params", {}),
+            task_type=config_dict.get("task_type"),
+        )
+
     def save_config(self):
         """Save configuration using baseline + override pattern - Claude Generated"""
         try:
@@ -2022,11 +2201,20 @@ class PipelineConfigDialog(QDialog):
                         }
                         self.logger.info(f"Step '{step_id}': using smart baseline (no overrides)")
 
-            # Step 3: Create final configuration
+            # Step 3: Convert dict configs to PipelineStepConfig objects - Claude Generated
+            step_configs_converted = {}
+            for step_id, config_data in step_configs.items():
+                if isinstance(config_data, dict):
+                    step_configs_converted[step_id] = self._dict_to_pipeline_step_config(config_data, step_id)
+                else:
+                    # Already a PipelineStepConfig object
+                    step_configs_converted[step_id] = config_data
+
+            # Step 4: Create final configuration with converted objects
             final_config = PipelineConfig(
                 auto_advance=self.auto_advance_checkbox.isChecked(),
                 stop_on_error=self.stop_on_error_checkbox.isChecked(),
-                step_configs=step_configs,
+                step_configs=step_configs_converted,
                 search_suggesters=search_suggesters,
             )
 

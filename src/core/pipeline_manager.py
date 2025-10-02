@@ -189,7 +189,27 @@ class PipelineConfig:
     def get_step_config(self, step_id: str) -> PipelineStepConfig:
         """Get step configuration with fallback to defaults - Claude Generated"""
         if self.step_configs and step_id in self.step_configs:
-            return self.step_configs[step_id]
+            config = self.step_configs[step_id]
+
+            # Handle both dict and PipelineStepConfig objects - Claude Generated
+            if isinstance(config, dict):
+                # Convert dict to PipelineStepConfig on-the-fly
+                return PipelineStepConfig(
+                    step_id=step_id,
+                    enabled=config.get("enabled", True),
+                    provider=config.get("provider"),
+                    model=config.get("model"),
+                    task=config.get("task"),
+                    temperature=config.get("temperature"),
+                    top_p=config.get("top_p"),
+                    max_tokens=config.get("max_tokens"),
+                    seed=config.get("seed"),
+                    custom_params=config.get("custom_params", {}),
+                    task_type=config.get("task_type"),
+                )
+            else:
+                # Already a PipelineStepConfig object
+                return config
 
         # Fallback: create default config
         return PipelineStepConfig(
@@ -300,8 +320,18 @@ class PipelineManager:
         # Debug: Log modern step configurations in detail
         if hasattr(config, 'step_configs') and config.step_configs:
             for step_id, step_config in config.step_configs.items():
-                config_status = "configured" if step_config.provider and step_config.model else "auto-selected"
-                self.logger.info(f"Step '{step_id}': status={config_status}, enabled={step_config.enabled}")
+                # Handle both dict and PipelineStepConfig objects - Claude Generated
+                if isinstance(step_config, dict):
+                    provider = step_config.get("provider")
+                    model = step_config.get("model")
+                    enabled = step_config.get("enabled", True)
+                else:
+                    provider = step_config.provider
+                    model = step_config.model
+                    enabled = step_config.enabled
+
+                config_status = "configured" if provider and model else "auto-selected"
+                self.logger.info(f"Step '{step_id}': status={config_status}, enabled={enabled}")
         else:
             self.logger.info("No modern step configurations found")
 

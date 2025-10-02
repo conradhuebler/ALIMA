@@ -114,8 +114,15 @@ class PromptService:
 
     def get_prompt_config(self, task: str, model: str) -> Optional[PromptConfigData]:
         """
-        Get the prompt configuration for a specific task and model.
-        Returns a PromptConfigData object or None if not found.
+        Get the prompt configuration for a specific task and model with intelligent fallback - Claude Generated
+
+        Fallback hierarchy:
+        1. Exact model match
+        2. Fuzzy/family match via _try_smart_mode_model_matching()
+        3. 'default' prompt if available
+        4. First available prompt as safety net
+
+        Returns a PromptConfigData object or None if task doesn't exist.
         """
         if task not in self.models_by_task:
             self.logger.warning(f"Task '{task}' not found in prompt configurations.")
@@ -124,19 +131,40 @@ class PromptService:
         prompt_config_list = None
         matched_model = None
 
-        # Try exact model match
+        # TIER 1: Try exact model match
         if model in self.models_by_task[task]:
-            self.logger.info(f"Found exact model '{model}' for task '{task}'.")
+            self.logger.info(f"✅ Exact model match: '{model}' for task '{task}'")
             prompt_config_list = self.models_by_task[task][model]
             matched_model = model
-        else:
-            # No match found - return None for strict behavior
-            self.logger.warning(f"No exact match for model '{model}' in task '{task}'.")
-            return None
 
+        # TIER 2: Try fuzzy/family matching - Claude Generated
         if not prompt_config_list:
+            smart_match_result = self._try_smart_mode_model_matching(model, task)
+            if smart_match_result:
+                matched_model, prompt_config_list = smart_match_result
+                self.logger.info(f"🔍 Fuzzy match: '{model}' → '{matched_model}' for task '{task}'")
+
+        # TIER 3: Try 'default' fallback - Claude Generated
+        if not prompt_config_list and "default" in self.models_by_task[task]:
+            self.logger.info(f"⚙️ Using 'default' prompt for unknown model '{model}' in task '{task}'")
+            prompt_config_list = self.models_by_task[task]["default"]
+            matched_model = "default"
+
+        # TIER 4: Use first available prompt as last resort - Claude Generated
+        if not prompt_config_list and self.models_by_task[task]:
+            available_models = list(self.models_by_task[task].keys())
+            if available_models:
+                first_model = available_models[0]
+                self.logger.warning(f"⚠️ No 'default' found, using first available prompt '{first_model}' for model '{model}' in task '{task}'")
+                prompt_config_list = self.models_by_task[task][first_model]
+                matched_model = first_model
+
+        # If still no config found, return None
+        if not prompt_config_list:
+            self.logger.error(f"❌ No prompt configuration available for task '{task}' (model: '{model}')")
             return None
 
+        # Parse seed value
         seed_value = None
         if len(prompt_config_list) > 5 and prompt_config_list[5] is not None:
             try:
@@ -146,12 +174,14 @@ class PromptService:
                     f"Could not parse seed value '{prompt_config_list[5]}'. Using None."
                 )
 
+        # Return PromptConfigData with ACTUAL requested model (not matched_model)
+        # This ensures LlmService uses the model the user selected
         return PromptConfigData(
             prompt=prompt_config_list[0],
             system=prompt_config_list[1],
             temp=float(prompt_config_list[2]),
             p_value=float(prompt_config_list[3]),
-            models=[model],
+            models=[model],  # Use actual requested model, not matched_model!
             seed=seed_value,
         )
 
