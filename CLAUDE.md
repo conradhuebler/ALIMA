@@ -71,20 +71,34 @@
 
 ## [Variable Section - Current Tasks]
 
+### ✅ COMPLETED: Unified Logging System (Claude Generated)
+- **Central Logging Infrastructure** (`src/utils/logging_utils.py`):
+  - 4-level verbosity system (0=Quiet, 1=Normal, 2=Debug, 3=Verbose)
+  - `setup_logging(level)` function with automatic third-party suppression
+  - `print_result()` function for result output that respects quiet mode
+- **CLI Integration**: `--log-level` argument (0-3, default=1)
+- **GUI Integration**: Uses level 1 (Normal) by default
+- **Migration Status**:
+  - ✅ CLI: Critical pipeline callbacks and results migrated
+  - ✅ Core: alima_manager.py debug output migrated
+  - ✅ UI: main_window.py GND import logging migrated
+  - ⏳ Future: CLI command status messages (~200+ print statements remain)
+  - ⏳ Future: Suggester modules debug output
+
 ### WIP: Token Control & Chunking
 - **AbstractTab Token Slider**: Implement token size control with slider (1-50 keywords per chunk)
 - **Keyword Chunking**: Split keywords from `self.keywords` string, keep template+abstract constant
 - **Console Logging**: Print currently processed keywords to console
 - **Keyword Highlighting**: Bold highlighting for predefined keywords and GND numbers in results
 
-### WIP: Results Processing  
+### WIP: Results Processing
 - **Final List Extraction**: Extract `<final_list>` sections from all results
 - **Keyword Matching**: Match extracted terms against keyword database
 - **Remaining Keywords Analysis**: Final analysis of unprocessed keywords from chunks
 
 ### TESTED: Three-Mode CLI System ✅
 - **Smart Mode**: Uses task preferences from config.json automatically
-- **Advanced Mode**: Manual provider|model override with `|` separator  
+- **Advanced Mode**: Manual provider|model override with `|` separator
 - **Expert Mode**: Full parameter control (temperature, top-p, seed)
 
 ## [Instructions Block - Operator-Defined Tasks]

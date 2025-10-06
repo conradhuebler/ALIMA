@@ -1460,8 +1460,9 @@ class PipelineStepConfigWidget(QWidget):
                 # Initial keyword extraction tasks
                 available_tasks = ["initialisation", "keywords", "rephrase"]
             else:  # keywords step (final analysis)
-                # Final keyword analysis tasks
-                available_tasks = ["keywords", "rephrase", "keywords_chunked"]
+                # Final keyword analysis tasks - Claude Generated
+                # NOTE: "keywords_chunked" is only for chunking_task, NOT main task!
+                available_tasks = ["keywords", "rephrase"]
 
             self.task_combo.addItems(available_tasks)
             self.task_combo.currentTextChanged.connect(self.on_task_changed)

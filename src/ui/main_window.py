@@ -407,7 +407,7 @@ class MainWindow(QMainWindow):
         # self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
         # self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
         self.abstract_tab.template_name = "abstract_analysis"  # This might be removed later if task selection is fully dynamic
-        self.abstract_tab.set_task("abstract")  # Set initial task
+        self.abstract_tab.set_task("initialisation")  # Set initial task (pipeline step name) - Claude Generated
 
         # Pass alima_manager and llm_service to AbstractTab
         self.analyse_keywords = AbstractTab(
@@ -485,11 +485,10 @@ class MainWindow(QMainWindow):
                 "Pipeline", "completed"
             )
         )
-        
-        # Connect pipeline results to specialized tab viewer methods - Claude Generated
-        self.pipeline_tab.search_results_ready.connect(self.search_tab.display_search_results)
-        self.pipeline_tab.metadata_ready.connect(self.crossref_tab.display_metadata)
-        # Note: analysis_results_ready connection would be added when AbstractTab viewer method is implemented
+
+        # Connect pipeline results to specialized tabs - Claude Generated
+        # Central distribution via on_pipeline_results_ready slot
+        self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_results_ready)
 
         # Add Pipeline tab first
         self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")
@@ -606,6 +605,92 @@ class MainWindow(QMainWindow):
         # Port changes are now handled through unified provider system
         pass
 
+    @pyqtSlot(object)
+    def on_pipeline_results_ready(self, analysis_state):
+        """Central slot for distributing pipeline results to specialized tabs - Claude Generated"""
+        self.logger.info("Distributing pipeline results to specialized tabs")
+
+        # 1. Abstract-Analyse Tab: Set abstract + initial keywords + LLM response
+        if analysis_state.original_abstract:
+            self.abstract_tab.set_abstract(analysis_state.original_abstract)
+
+        if analysis_state.initial_keywords:
+            # Robust type handling for keywords - Claude Generated
+            if isinstance(analysis_state.initial_keywords, list):
+                keywords_str = ", ".join(analysis_state.initial_keywords)
+            else:
+                # Handle case where it's already a string
+                keywords_str = str(analysis_state.initial_keywords)
+            self.abstract_tab.set_keywords(keywords_str)
+
+        if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
+            llm_response = analysis_state.initial_llm_call_details.response_full_text
+            if llm_response:
+                self.abstract_tab.display_llm_response(llm_response)
+
+        # 2. GND-Suche Tab: Set initial keywords + display search results
+        if analysis_state.initial_keywords:
+            self.search_tab.update_search_field(", ".join(analysis_state.initial_keywords))
+
+        if analysis_state.search_results:
+            # Handle both Dict and List[SearchResult] formats - Claude Generated
+            if isinstance(analysis_state.search_results, dict):
+                # Already in correct format
+                self.search_tab.display_search_results(analysis_state.search_results)
+            else:
+                # Convert List[SearchResult] to Dict format
+                search_results_dict = {
+                    sr.search_term: sr.results
+                    for sr in analysis_state.search_results
+                }
+                self.search_tab.display_search_results(search_results_dict)
+
+        # 3. Verifikation Tab (analyse_keywords): Set abstract + GND keywords + final LLM response
+        if analysis_state.original_abstract:
+            self.analyse_keywords.set_abstract(analysis_state.original_abstract)
+
+        # Extract GND keywords from search_results
+        if analysis_state.search_results:
+            gnd_keywords = []
+            # Handle both Dict and List[SearchResult] formats - Claude Generated
+            if isinstance(analysis_state.search_results, dict):
+                # Dict format: {search_term: {keyword: data}}
+                for results in analysis_state.search_results.values():
+                    for keyword, data in results.items():
+                        gnd_ids = data.get("gndid", set())
+                        for gnd_id in gnd_ids:
+                            gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
+            else:
+                # List[SearchResult] format
+                for search_result in analysis_state.search_results:
+                    for keyword, data in search_result.results.items():
+                        gnd_ids = data.get("gndid", set())
+                        for gnd_id in gnd_ids:
+                            gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
+            if gnd_keywords:
+                self.analyse_keywords.set_keywords("\n".join(gnd_keywords))
+
+        # Display final LLM analysis if available
+        if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+            if hasattr(analysis_state.final_llm_analysis, 'response_full_text'):
+                self.analyse_keywords.display_llm_response(
+                    analysis_state.final_llm_analysis.response_full_text
+                )
+
+        # 4. UB Suche Tab: Set final extracted GND keywords
+        if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+            if hasattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords'):
+                final_keywords = analysis_state.final_llm_analysis.extracted_gnd_keywords
+                if final_keywords:
+                    # Format keywords properly for UB search
+                    if isinstance(final_keywords, list):
+                        keywords_text = "\n".join(final_keywords)
+                    else:
+                        keywords_text = str(final_keywords)
+                    self.ub_search_tab.update_keywords(keywords_text)
+
+        self.logger.info("Pipeline results successfully distributed to all tabs")
+
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):
         self.logger.info(keywords)
@@ -643,7 +728,7 @@ class MainWindow(QMainWindow):
             return gnd_terms
 
         except Exception as e:
-            print(f"Fehler beim Extrahieren der GND-Terme: {str(e)}")
+            self.logger.error(f"Fehler beim Extrahieren der GND-Terme: {str(e)}")
             return []
 
     @pyqtSlot(str)
@@ -964,28 +1049,28 @@ class MainWindow(QMainWindow):
                     self.logger.info(f"Importiere GND-Datenbank: {xml_file_path}")
                     
                     # Console Progress Output - Claude Generated
-                    print("🔄 Starte GND-Datenbank Import...")
-                    print(f"📁 Datei: {xml_file_path}")
+                    self.logger.info("🔄 Starte GND-Datenbank Import...")
+                    self.logger.info(f"📁 Datei: {xml_file_path}")
 
                     # Connect parser progress signals if available
                     if hasattr(parser, "progress_updated"):
                         parser.progress_updated.connect(progress.setValue)
                         parser.status_updated.connect(progress.setLabelText)
-                        
+
                         # Also connect to console output - Claude Generated
                         def console_progress(value):
                             if value > 0:
-                                print(f"📊 Fortschritt: {value}%")
-                        
+                                self.logger.info(f"📊 Fortschritt: {value}%")
+
                         def console_status(status):
-                            print(f"ℹ️ Status: {status}")
-                            
+                            self.logger.info(f"ℹ️ Status: {status}")
+
                         parser.progress_updated.connect(console_progress)
                         parser.status_updated.connect(console_status)
 
-                    print("⚙️ Verarbeite XML-Daten...")
+                    self.logger.info("⚙️ Verarbeite XML-Daten...")
                     parser.process_file(xml_file_path)
-                    print("✅ GND-Import erfolgreich abgeschlossen!")
+                    self.logger.info("✅ GND-Import erfolgreich abgeschlossen!")
 
                     progress.close()
                     QMessageBox.information(
@@ -1035,7 +1120,7 @@ class MainWindow(QMainWindow):
             self.populate_all_tabs_from_state(state)
 
             # 3. Erfolgsmeldung
-            self.global_status_bar.show_message("✅ Analyse-Zustand erfolgreich geladen.", 5000)
+            self.global_status_bar.show_temporary_message("✅ Analyse-Zustand erfolgreich geladen.", 5000)
 
             # 4. Zur Pipeline-Ansicht wechseln für Übersicht
             self.tabs.setCurrentWidget(self.pipeline_tab)
@@ -1054,88 +1139,28 @@ class MainWindow(QMainWindow):
         """
         Verteilt die Daten aus einem KeywordAnalysisState-Objekt
         an alle relevanten UI-Tabs - Claude Generated
+
+        Uses on_pipeline_results_ready() for core distribution to avoid duplication.
         """
         from ..core.data_models import KeywordAnalysisState
 
         self.logger.info("Distributing analysis state data to all tabs...")
 
-        # Helper function to convert search results format
-        def convert_search_results_to_dict(results_list):
-            """Convert List[SearchResult] to Dict format expected by UI"""
-            search_dict = {}
-            for search_result in results_list:
-                search_dict[search_result.search_term] = search_result.results
-            return search_dict
-
-        # Helper function to extract GND keywords for display
-        def extract_gnd_keywords_from_search_results(search_results):
-            """Extract formatted GND keywords from search results"""
-            gnd_keywords = []
-            for search_result in search_results:
-                for keyword, data in search_result.results.items():
-                    gnd_ids = data.get("gndid", [])
-                    for gnd_id in gnd_ids:
-                        # Get GND title from cache if available
-                        gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
-                        if gnd_title:
-                            formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
-                        else:
-                            formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
-                        gnd_keywords.append(formatted_keyword)
-            return gnd_keywords
-
         try:
-            # 1. 🚀 Pipeline Tab - Complete workflow overview
+            # Use the centralized distribution logic for base tabs - Claude Generated
+            self.on_pipeline_results_ready(state)
+
+            # Additional loading-specific UI enhancements - Claude Generated
+
+            # 1. 🚀 Pipeline Tab - Show loaded state indicators
             if hasattr(self.pipeline_tab, 'unified_input') and state.original_abstract:
-                self.pipeline_tab.unified_input.set_text(state.original_abstract)
-                # Show visual indicators for loaded state
+                self.pipeline_tab.unified_input.set_text_directly(
+                    state.original_abstract,
+                    "Geladen aus JSON"
+                )
                 if hasattr(self.pipeline_tab, 'show_loaded_state_indicator'):
                     self.pipeline_tab.show_loaded_state_indicator(state)
-                self.logger.info("✅ Pipeline tab populated with original abstract and state indicators")
-
-            # 2. 📄 Abstract-Analyse Tab - Initial analysis playground
-            if state.original_abstract:
-                self.abstract_tab.set_abstract(state.original_abstract)
-                # Show LLM details if available and set loaded analysis context
-                if state.initial_llm_call_details:
-                    llm_details = state.initial_llm_call_details
-                    # Add loaded analysis info to results area if available
-                    if hasattr(self.abstract_tab, 'results_text'):
-                        loaded_info = (
-                            f"📁 Geladene Analyse:\n"
-                            f"Provider: {llm_details.provider_used}\n"
-                            f"Model: {llm_details.model_used}\n"
-                            f"Task: {llm_details.task_name}\n"
-                            f"Temperature: {llm_details.temperature}\n\n"
-                            f"Extrahierte Keywords:\n{', '.join(state.initial_keywords)}\n\n"
-                            f"Original LLM Response:\n{llm_details.response_full_text}"
-                        )
-                        self.abstract_tab.results_text.setPlainText(loaded_info)
-                    self.logger.info(f"📊 Initial LLM analysis used: {llm_details.provider_used}/{llm_details.model_used}")
-                self.logger.info("✅ Abstract tab populated with original text and analysis context")
-
-            # 3. 🔍 GND-Suche Tab - Search results and new searches
-            if state.initial_keywords:
-                # Fill search input with initial keywords
-                keywords_text = ", ".join(state.initial_keywords)
-                self.search_tab.update_search_field(keywords_text)
-
-                # Display search results if available
-                if state.search_results:
-                    search_results_dict = convert_search_results_to_dict(state.search_results)
-                    self.search_tab.display_search_results(search_results_dict)
-                    self.logger.info(f"✅ Search tab populated with {len(state.search_results)} search result sets")
-
-            # 4. ✅ Verifikation Tab - Final analysis and GND pool
-            if state.original_abstract:
-                self.analyse_keywords.set_abstract(state.original_abstract)
-
-                # Provide GND keyword pool for verification
-                if state.search_results:
-                    gnd_keywords = extract_gnd_keywords_from_search_results(state.search_results)
-                    if gnd_keywords:
-                        self.analyse_keywords.set_keywords("\n".join(gnd_keywords))
-                        self.logger.info(f"✅ Verification tab populated with {len(gnd_keywords)} GND keywords")
+                self.logger.info("✅ Pipeline tab: loaded state indicators shown")
 
             # 5. 📊 Analyse-Review Tab - Complete results and export
             if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
@@ -1165,7 +1190,7 @@ class MainWindow(QMainWindow):
             # 8. Show summary in status bar
             total_keywords = len(state.final_llm_analysis.extracted_gnd_keywords) if state.final_llm_analysis else len(state.initial_keywords)
             summary_message = f"📁 Geladen: {total_keywords} Schlagwörter aus {len(state.search_results)} Suchvorgängen"
-            self.global_status_bar.show_message(summary_message, 10000)
+            self.global_status_bar.show_temporary_message(summary_message, 10000)
 
             self.logger.info(f"🎯 Analysis state distribution complete: {summary_message}")
 
@@ -1187,7 +1212,7 @@ class MainWindow(QMainWindow):
             # 1. Sammle Abstract/Input Text
             original_abstract = ""
             if hasattr(self.pipeline_tab, 'unified_input'):
-                original_abstract = self.pipeline_tab.unified_input.get_text() or ""
+                original_abstract = self.pipeline_tab.unified_input.get_current_text() or ""
             elif hasattr(self.abstract_tab, 'abstract_text'):
                 original_abstract = self.abstract_tab.abstract_text.toPlainText() or ""
 
@@ -1277,7 +1302,7 @@ class MainWindow(QMainWindow):
             PipelineJsonManager.save_analysis_state(state, file_name)
 
             # 4. Erfolgsmeldung
-            self.global_status_bar.show_message("✅ GUI-Zustand erfolgreich exportiert.", 5000)
+            self.global_status_bar.show_temporary_message("✅ GUI-Zustand erfolgreich exportiert.", 5000)
             QMessageBox.information(
                 self,
                 "Export erfolgreich",
@@ -1518,16 +1543,16 @@ class MainWindow(QMainWindow):
             self.logger.info(f"Lade GND-Datenbank herunter von: {url}")
             
             # Console Progress Output - Claude Generated
-            print("🌐 Starte DNB-Download...")
-            print(f"📡 URL: {url}")
-            
+            self.logger.info("🌐 Starte DNB-Download...")
+            self.logger.info(f"📡 URL: {url}")
+
             response = requests.get(url, stream=True)
             response.raise_for_status()
 
             # Get file size if available
             total_size = int(response.headers.get("content-length", 0))
             if total_size > 0:
-                print(f"📦 Dateigröße: {total_size / (1024*1024):.1f} MB")
+                self.logger.info(f"📦 Dateigröße: {total_size / (1024*1024):.1f} MB")
 
             # Create temporary files
             temp_dir = tempfile.mkdtemp()
@@ -1537,12 +1562,12 @@ class MainWindow(QMainWindow):
             # Download with progress
             downloaded = 0
             last_console_percent = 0
-            
-            print("⬇️ Download läuft...")
+
+            self.logger.info("⬇️ Download läuft...")
             with open(temp_gz_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if progress.wasCanceled():
-                        print("❌ Download abgebrochen")
+                        self.logger.info("❌ Download abgebrochen")
                         progress.close()
                         return None
 
@@ -1552,11 +1577,11 @@ class MainWindow(QMainWindow):
                     if total_size > 0:
                         download_percent = int((downloaded / total_size) * 50)
                         progress.setValue(download_percent)  # 50% for download
-                        
+
                         # Console progress every 10% - Claude Generated
                         console_percent = (downloaded / total_size) * 100
                         if console_percent - last_console_percent >= 10:
-                            print(f"📊 Download: {console_percent:.0f}%")
+                            self.logger.info(f"📊 Download: {console_percent:.0f}%")
                             last_console_percent = console_percent
 
                     QApplication.processEvents()
@@ -1566,13 +1591,13 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
 
             # Extract gz file
-            print("📦 Entpacke GZ-Datei...")
+            self.logger.info("📦 Entpacke GZ-Datei...")
             self.logger.info(f"Entpacke {temp_gz_path} nach {temp_xml_path}")
             with gzip.open(temp_gz_path, "rb") as gz_file:
                 with open(temp_xml_path, "wb") as xml_file:
                     xml_file.write(gz_file.read())
 
-            print("✅ Download und Entpackung abgeschlossen")
+            self.logger.info("✅ Download und Entpackung abgeschlossen")
             progress.setValue(100)
             progress.close()
 

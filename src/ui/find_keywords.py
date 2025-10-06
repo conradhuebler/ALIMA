@@ -959,6 +959,33 @@ class SearchTab(QWidget):
     # finalise_catalog_search method removed - logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
 
     # determine_relation method removed - relationship logic now handled by PipelineManager - Claude Generated
+    # Stub implementation restored for backward compatibility - Claude Generated
+    def determine_relation(self, keyword: str, search_term: str) -> int:
+        """Determine relationship between keyword and search term - Claude Generated
+
+        Returns:
+            0: Exact match
+            1: Similar/partial match
+            2: Different/no match
+        """
+        keyword_lower = keyword.lower()
+        search_lower = search_term.lower()
+
+        if keyword_lower == search_lower:
+            return 0  # Exakt
+        elif search_lower in keyword_lower or keyword_lower in search_lower:
+            return 1  # Ähnlich
+        else:
+            return 2  # Unterschiedlich
+
+    def generate_initial_prompt(self, sorted_results):
+        """Generate initial prompt from results - Stub for compatibility - Claude Generated
+
+        Pipeline now handles prompt generation.
+        This is a no-op stub for backward compatibility with process_results.
+        """
+        # No-op: Pipeline handles prompt generation
+        pass
 
     def update_database_entry(self, gnd_id, title, data):
         """Aktualisiert oder erstellt einen Datenbankeintrag für eine GND-ID"""
@@ -1009,10 +1036,11 @@ class SearchTab(QWidget):
             self.results_table.setItem(row, 2, count_item)
             self.results_table.setItem(row, 3, rel_item)
 
-            entry = self.cache_manager.get_gnd_entry(gnd_id)
-            if entry:
-                gnd_system_item = QTableWidgetItem(entry.get("gnd_systems"))
-                self.results_table.setItem(row, 4, gnd_system_item)
+            # TODO replace with unified knowledge manager
+            #entry = self.cache_manager.get_gnd_entry(gnd_id)
+            #if entry:
+            #    gnd_system_item = QTableWidgetItem(entry.get("gnd_systems"))
+            #    self.results_table.setItem(row, 4, gnd_system_item)
 
     # generate_initial_prompt method removed - prompt generation now handled by PipelineManager - Claude Generated
 

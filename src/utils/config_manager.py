@@ -182,7 +182,7 @@ class ConfigManager:
         self.config_file = config_base / "config.json"
         self.legacy_config_file = config_base / "config.yaml"
 
-        self.logger.info(f"Config path: {self.config_file}")
+        self.logger.debug(f"Config path: {self.config_file}")
 
     def load_config(self, force_reload: bool = False) -> AlimaConfig:
         """Load configuration with unified provider system - Claude Generated"""
@@ -199,7 +199,7 @@ class ConfigManager:
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
-                self.logger.info(f"Loaded configuration from {self.config_file}")
+                self.logger.debug(f"Loaded configuration from {self.config_file}")
             except Exception as e:
                 self.logger.error(f"Error loading config from {self.config_file}: {e}")
 
@@ -213,7 +213,7 @@ class ConfigManager:
             is_legacy_config = self._is_legacy_config(config_data)
 
             if is_legacy_config:
-                self.logger.info("🔄 Legacy configuration detected - performing migration")
+                self.logger.debug("🔄 Legacy configuration detected - performing migration")
                 config_data = self._migrate_legacy_config(config_data)
 
             # Create main config sections
@@ -229,7 +229,7 @@ class ConfigManager:
                 unified_config = self._parse_unified_config(unified_config_data)
             else:
                 # Parse modern configuration format
-                self.logger.info("📋 Modern configuration detected - parsing provider data")
+                self.logger.debug("📋 Modern configuration detected - parsing provider data")
                 unified_config = self._parse_modern_config(config_data)
 
             # Create main config
@@ -283,7 +283,7 @@ class ConfigManager:
         try:
             with open(backup_file, 'w', encoding='utf-8') as f:
                 json.dump(legacy_data, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"📁 Backup created: {backup_file}")
+            self.logger.debug(f"📁 Backup created: {backup_file}")
         except Exception as e:
             self.logger.warning(f"Could not create backup: {e}")
 
@@ -339,7 +339,7 @@ class ConfigManager:
                         provider = OllamaProvider(**provider_data)
                         unified_provider = UnifiedProvider.from_ollama_provider(provider)
                         unified_config['providers'].append(asdict(unified_provider))
-                        self.logger.info(f"✅ Migrated Ollama provider: {provider.name}")
+                        self.logger.debug(f"✅ Migrated Ollama provider: {provider.name}")
                     except Exception as e:
                         self.logger.warning(f"Error migrating Ollama provider {provider_data.get('name', 'unknown')}: {e}")
 
@@ -351,7 +351,7 @@ class ConfigManager:
                         provider = OpenAICompatibleProvider(**provider_data)
                         unified_provider = UnifiedProvider.from_openai_compatible_provider(provider)
                         unified_config['providers'].append(asdict(unified_provider))
-                        self.logger.info(f"✅ Migrated OpenAI provider: {provider.name}")
+                        self.logger.debug(f"✅ Migrated OpenAI provider: {provider.name}")
                     except Exception as e:
                         self.logger.warning(f"Error migrating OpenAI provider {provider_data.get('name', 'unknown')}: {e}")
 
@@ -366,7 +366,7 @@ class ConfigManager:
                     )
                     unified_provider = UnifiedProvider.from_gemini_provider(gemini_provider)
                     unified_config['providers'].append(asdict(unified_provider))
-                    self.logger.info("✅ Created Gemini provider from API key")
+                    self.logger.debug("✅ Created Gemini provider from API key")
                 except Exception as e:
                     self.logger.warning(f"Error creating Gemini provider: {e}")
 
@@ -380,14 +380,14 @@ class ConfigManager:
                     )
                     unified_provider = UnifiedProvider.from_anthropic_provider(anthropic_provider)
                     unified_config['providers'].append(asdict(unified_provider))
-                    self.logger.info("✅ Created Anthropic provider from API key")
+                    self.logger.debug("✅ Created Anthropic provider from API key")
                 except Exception as e:
                     self.logger.warning(f"Error creating Anthropic provider: {e}")
 
         migrated['unified_config'] = unified_config
         migrated['config_version'] = '2.0'
 
-        self.logger.info("✅ Legacy configuration migration completed")
+        self.logger.debug("✅ Legacy configuration migration completed")
         return migrated
 
     def _parse_unified_config(self, data: Dict[str, Any]) -> UnifiedProviderConfig:
@@ -408,7 +408,7 @@ class ConfigManager:
             try:
                 provider = UnifiedProvider(**provider_dict)
                 unified_config.providers.append(provider)
-                self.logger.info(f"✅ Loaded provider: {provider.name}")
+                self.logger.debug(f"✅ Loaded provider: {provider.name}")
             except Exception as e:
                 self.logger.warning(f"Error loading provider {provider_dict.get('name', 'unknown')}: {e}")
 
@@ -500,7 +500,7 @@ class ConfigManager:
                 except Exception as e:
                     self.logger.warning(f"Error parsing task preference '{task_name}': {e}")
 
-        self.logger.info(f"✅ Parsed modern config: {len(unified_config.providers)} providers, {len(unified_config.task_preferences)} task preferences")
+        self.logger.debug(f"✅ Parsed modern config: {len(unified_config.providers)} providers, {len(unified_config.task_preferences)} task preferences")
         return unified_config
 
     def _create_providers_from_api_keys(self, unified_config: UnifiedProviderConfig) -> None:
@@ -515,7 +515,7 @@ class ConfigManager:
             )
             unified_provider = UnifiedProvider.from_gemini_provider(gemini_provider)
             unified_config.providers.append(unified_provider)
-            self.logger.info("✅ Created Gemini UnifiedProvider from API key")
+            self.logger.debug("✅ Created Gemini UnifiedProvider from API key")
 
         # Create Anthropic provider if API key exists
         if unified_config.anthropic_api_key and not unified_config.get_provider_by_name("anthropic"):
@@ -527,7 +527,7 @@ class ConfigManager:
             )
             unified_provider = UnifiedProvider.from_anthropic_provider(anthropic_provider)
             unified_config.providers.append(unified_provider)
-            self.logger.info("✅ Created Anthropic UnifiedProvider from API key")
+            self.logger.debug("✅ Created Anthropic UnifiedProvider from API key")
 
     def save_config(self, config: AlimaConfig, scope: str = 'user', preserve_unified: bool = True) -> bool:
         """Save configuration to specified scope - Claude Generated"""

@@ -8,23 +8,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PyQt6.QtWidgets import QApplication, QSplashScreen
 from PyQt6.QtGui import QPixmap
 from src.ui.main_window import MainWindow
+from src.utils.logging_utils import setup_logging
 import logging
 
 
-def setup_logging():
-    """Konfiguriert das Logging für die Anwendung"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(),  # Ausgabe in die Konsole
-            logging.FileHandler("gnd_fetcher.log"),  # Ausgabe in eine Datei
-        ],
-    )
-
-
 def main():
-    setup_logging()
+    # Setup centralized logging - Claude Generated
+    # Default to level 1 (Normal) for GUI
+    # TODO: Read from ~/.config/alima/config.json in future
+    setup_logging(level=1, log_file="alima.log")
     app = QApplication(sys.argv)
     app.setOrganizationName("TU Bergakademie Freiberg")
     app.setApplicationName("AlIma")

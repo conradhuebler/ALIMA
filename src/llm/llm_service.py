@@ -126,14 +126,14 @@ class LlmService(QObject):
         self.initialize_providers(providers)
 
     def set_ollama_url(self, url: str):
-        self.logger.info(f"Setting Ollama URL to {url}")
+        self.logger.debug(f"Setting Ollama URL to {url}")
         if not url.startswith(("http://", "https://")):
             url = "http://" + url
         self.ollama_url = url
         self.ollama_url_updated.emit()
 
     def set_ollama_port(self, port: int):
-        self.logger.info(f"Setting Ollama Port to {port}")
+        self.logger.debug(f"Setting Ollama Port to {port}")
         self.ollama_port = port
         self.ollama_port_updated.emit()
 
@@ -202,23 +202,23 @@ class LlmService(QObject):
         """DEPRECATED - Legacy method for OpenAI providers - Claude Generated"""
         # This method is now handled by _init_unified_provider_configs
         self.openai_providers = {}  # Keep for backward compatibility
-        self.logger.info("Legacy dynamic provider config method called - now handled by unified config")
+        self.logger.debug("Legacy dynamic provider config method called - now handled by unified config")
 
     def reload_providers(self):
         """Reload providers from current configuration - Claude Generated"""
-        self.logger.info("Reloading providers from configuration")
-        
+        self.logger.debug("Reloading providers from configuration")
+
         # Reload configuration
         self.alima_config = self.config_manager.load_config()
-        
+
         # Reinitialize provider configurations
         self._legacy_init_dynamic_provider_configs()
-        
+
         # Reinitialize all providers
         self.clients.clear()
         self.initialize_providers()
-        
-        self.logger.info("Provider reload completed")
+
+        self.logger.debug("Provider reload completed")
 
     def set_api_key(self, provider: str, api_key: str):
         """
@@ -378,21 +378,21 @@ class LlmService(QObject):
         # Find provider info with case-insensitive fallback and enhanced debugging - Claude Generated
         provider_info = None
 
-        self.logger.info(f"🔍 PROVIDER_INIT_LOOKUP: Searching for provider '{provider}' in supported_providers")
-        self.logger.info(f"🔍 AVAILABLE_KEYS: {list(self.supported_providers.keys())}")
+        self.logger.debug(f"🔍 PROVIDER_INIT_LOOKUP: Searching for provider '{provider}' in supported_providers")
+        self.logger.debug(f"🔍 AVAILABLE_KEYS: {list(self.supported_providers.keys())}")
 
         if provider in self.supported_providers:
             provider_info = self.supported_providers[provider]
-            self.logger.info(f"✅ PROVIDER_FOUND: '{provider}' found with exact match")
+            self.logger.debug(f"✅ PROVIDER_FOUND: '{provider}' found with exact match")
         elif provider.lower() in self.supported_providers:
             provider_info = self.supported_providers[provider.lower()]
-            self.logger.info(f"✅ PROVIDER_FOUND: '{provider}' found with lowercase match")
+            self.logger.debug(f"✅ PROVIDER_FOUND: '{provider}' found with lowercase match")
         else:
             # Try finding with case-insensitive search - Claude Generated
             for key in self.supported_providers.keys():
                 if key.lower() == provider.lower():
                     provider_info = self.supported_providers[key]
-                    self.logger.info(f"✅ PROVIDER_FOUND: '{provider}' found with case-insensitive match: '{key}'")
+                    self.logger.debug(f"✅ PROVIDER_FOUND: '{provider}' found with case-insensitive match: '{key}'")
                     break
 
             if not provider_info:
@@ -419,14 +419,14 @@ class LlmService(QObject):
             if not api_key:
                 if provider_type in ["ollama"]:
                     # Ollama providers may or may not need API keys depending on setup
-                    self.logger.info(f"No API key configured for {provider} - continuing without authentication")
+                    self.logger.debug(f"No API key configured for {provider} - continuing without authentication")
                 elif provider_type in ["gemini", "anthropic"]:
                     # API-only providers require API keys
                     self.logger.warning(f"No API key found for {provider} - initialization skipped")
                     return
                 else:
                     # Other providers: warn but continue (might not need API key)
-                    self.logger.info(f"No API key configured for {provider} - continuing without authentication")
+                    self.logger.debug(f"No API key configured for {provider} - continuing without authentication")
 
             # Call the specific initializer for this provider
             if provider_info["initializer"]:
@@ -434,7 +434,7 @@ class LlmService(QObject):
             else:
                 self.logger.warning(f"No initializer defined for {provider}")
 
-            self.logger.info(f"Successfully initialized {provider}")
+            self.logger.debug(f"Successfully initialized {provider}")
 
         except ImportError as ie:
             self.logger.warning(
@@ -463,7 +463,7 @@ class LlmService(QObject):
                     filtered_providers.append(provider)
                     continue
                 else:
-                    self.logger.info("No enabled Ollama providers, skipping legacy ollama registration")
+                    self.logger.debug("No enabled Ollama providers, skipping legacy ollama registration")
                     continue
             filtered_providers.append(provider)
 
@@ -498,8 +498,8 @@ class LlmService(QObject):
         # Map legacy provider names to actual configured providers - Claude Generated
         mapped_provider = self._map_provider_name(provider)
 
-        self.logger.info(f"🔧 ENSURE_INIT: Checking initialization for provider '{mapped_provider}' (original: '{provider}')")
-        self.logger.info(f"🔧 CLIENT_KEYS_AVAILABLE: {list(self.clients.keys())}")
+        self.logger.debug(f"🔧 ENSURE_INIT: Checking initialization for provider '{mapped_provider}' (original: '{provider}')")
+        self.logger.debug(f"🔧 CLIENT_KEYS_AVAILABLE: {list(self.clients.keys())}")
 
         if mapped_provider not in self.clients:
             self.logger.warning(f"🔧 PROVIDER_NOT_IN_CLIENTS: '{mapped_provider}' not found in self.clients")
@@ -507,15 +507,15 @@ class LlmService(QObject):
 
         # If provider is already initialized (not a string), return True
         if self.clients[mapped_provider] != "lazy_uninitialized":
-            self.logger.info(f"🔧 PROVIDER_ALREADY_INIT: '{mapped_provider}' is already initialized")
+            self.logger.debug(f"🔧 PROVIDER_ALREADY_INIT: '{mapped_provider}' is already initialized")
             return True
 
         # Initialize the provider now
-        self.logger.info(f"🔧 LAZY_INITIALIZING: Starting lazy initialization for provider '{mapped_provider}'")
+        self.logger.debug(f"🔧 LAZY_INITIALIZING: Starting lazy initialization for provider '{mapped_provider}'")
         try:
             self._initialize_single_provider(mapped_provider)
             success = mapped_provider in self.clients and self.clients[mapped_provider] != "lazy_uninitialized"
-            self.logger.info(f"🔧 LAZY_INIT_RESULT: '{mapped_provider}' initialization success: {success}")
+            self.logger.debug(f"🔧 LAZY_INIT_RESULT: '{mapped_provider}' initialization success: {success}")
             return success
         except Exception as e:
             self.logger.error(f"🔧 LAZY_INIT_FAILED: Failed to lazy-initialize provider {mapped_provider}: {e}")
@@ -541,7 +541,7 @@ class LlmService(QObject):
                     filtered_providers.append(provider)
                     continue
                 else:
-                    self.logger.info("No enabled Ollama providers, skipping legacy ollama initialization")
+                    self.logger.debug("No enabled Ollama providers, skipping legacy ollama initialization")
                     continue
             filtered_providers.append(provider)
 
@@ -599,12 +599,12 @@ class LlmService(QObject):
             # Map "ollama" to first available configured ollama provider
             for ollama_provider in self.alima_config.unified_config.get_enabled_ollama_providers():
                 if ollama_provider.name in self.clients:
-                    self.logger.info(f"🔄 PROVIDER_MAPPING: 'ollama' → '{ollama_provider.name}'")
+                    self.logger.debug(f"🔄 PROVIDER_MAPPING: 'ollama' → '{ollama_provider.name}'")
                     return ollama_provider.name
 
             # Fallback to localhost if no configured providers found
             if "localhost" in self.clients:
-                self.logger.info(f"🔄 PROVIDER_MAPPING: 'ollama' → 'localhost' (fallback)")
+                self.logger.debug(f"🔄 PROVIDER_MAPPING: 'ollama' → 'localhost' (fallback)")
                 return "localhost"
 
             self.logger.warning(f"🔄 PROVIDER_MAPPING: No available ollama providers found for 'ollama'")
@@ -679,7 +679,7 @@ class LlmService(QObject):
                 return []
 
             # Simple provider type based model loading - Claude Generated
-            self.logger.info(f"Loading models for {provider} (type: {provider_config.provider_type})")
+            self.logger.debug(f"Loading models for {provider} (type: {provider_config.provider_type})")
             if provider_config.provider_type == "gemini":
                 return [
                     model.name.split("/")[-1]
@@ -891,7 +891,7 @@ class LlmService(QObject):
             params["api_key"] = api_key
         else:
             params["api_key"] = "no-key-required"  # Placeholder for providers without authentication
-            self.logger.info(f"Initializing {provider} with placeholder API key (no authentication required)")
+            self.logger.debug(f"Initializing {provider} with placeholder API key (no authentication required)")
 
         # Add base_url if specified - Claude Generated
         provider_config = provider_info.get("config")
@@ -906,11 +906,11 @@ class LlmService(QObject):
         client_class = getattr(module, provider_info["class"])
         self.clients[provider] = client_class(**params)
 
-        self.logger.info(f"🔧 CLIENT_STORED: Provider '{provider}' client stored in self.clients")
-        self.logger.info(f"🔧 CLIENT_KEYS: Current client keys: {list(self.clients.keys())}")
+        self.logger.debug(f"🔧 CLIENT_STORED: Provider '{provider}' client stored in self.clients")
+        self.logger.debug(f"🔧 CLIENT_KEYS: Current client keys: {list(self.clients.keys())}")
 
         if "base_url" in params:
-            self.logger.info(
+            self.logger.debug(
                 f"{provider} initialized with base URL: {params['base_url']}"
             )
 
@@ -1058,18 +1058,18 @@ class LlmService(QObject):
                 client_params["headers"] = {
                     'Authorization': provider_api_key
                 }
-                self.logger.info(f"Initializing native Ollama client {provider_name} with authentication at {base_url}")
+                self.logger.debug(f"Initializing native Ollama client {provider_name} with authentication at {base_url}")
             else:
-                self.logger.info(f"Initializing native Ollama client {provider_name} without authentication at {base_url}")
-            
+                self.logger.debug(f"Initializing native Ollama client {provider_name} without authentication at {base_url}")
+
             # Create native Ollama client
             if not OLLAMA_AVAILABLE:
                 raise ImportError("ollama library not available. Please install it: pip install ollama")
-            
+
             client_instance = ollama.Client(**client_params)
             self.clients[provider] = client_instance
-            
-            self.logger.info(f"Native Ollama client {provider_name} initialized successfully at {base_url}")
+
+            self.logger.debug(f"Native Ollama client {provider_name} initialized successfully at {base_url}")
             
         except Exception as e:
             self.logger.error(f"Error initializing native Ollama client: {e}")

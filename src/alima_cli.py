@@ -38,6 +38,7 @@ from src.utils.pipeline_utils import (
 from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.config_manager import ConfigManager, OpenAICompatibleProvider
 from src.utils.config_models import PipelineMode, PipelineStepConfig
+from src.utils.logging_utils import setup_logging, print_result
 from typing import List, Tuple
 
 PROMPTS_FILE = "prompts.json"
@@ -216,6 +217,15 @@ def main():
     """
     parser = argparse.ArgumentParser(
         description="ALIMA CLI - AI-powered abstract analysis."
+    )
+
+    # Global logging level argument - Claude Generated
+    parser.add_argument(
+        "--log-level",
+        type=int,
+        choices=[0, 1, 2, 3],
+        default=1,
+        help="Set logging verbosity: 0=Quiet (results only), 1=Normal (default), 2=Debug, 3=Verbose (includes third-party)"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -699,10 +709,8 @@ EXAMPLES:
 
     args = parser.parse_args()
 
-    # Setup logging
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
+    # Setup centralized logging - Claude Generated
+    setup_logging(level=args.log_level)
     logger = logging.getLogger(__name__)
 
     # Check if prompts file exists
@@ -737,18 +745,19 @@ EXAMPLES:
         # CLI Callbacks for pipeline events - Claude Generated
         def cli_step_started(step):
             provider_info = f"{step.provider}/{step.model}" if step.provider and step.model else "Smart Mode"
-            print(f"▶ Starte Schritt: {step.name} ({provider_info})")
+            logger.info(f"▶ Starte Schritt: {step.name} ({provider_info})")
 
         def cli_step_completed(step):
-            print(f"✅ Schritt abgeschlossen: {step.name}")
+            logger.info(f"✅ Schritt abgeschlossen: {step.name}")
 
         def cli_step_error(step, error_message):
-            print(f"❌ Fehler in Schritt {step.name}: {error_message}")
+            logger.error(f"❌ Fehler in Schritt {step.name}: {error_message}")
 
         def cli_pipeline_completed(analysis_state):
-            print("\n🎉 Pipeline vollständig abgeschlossen!")
+            logger.info("\n🎉 Pipeline vollständig abgeschlossen!")
 
         def cli_stream_callback(token, step_id):
+            # Streaming output should always go to stdout for user feedback
             print(token, end="", flush=True)
         
         # Create pipeline config from Provider Preferences as baseline - Claude Generated
@@ -903,12 +912,12 @@ EXAMPLES:
                     logger.error(f"Pipeline execution failed: {e}")
                     return
 
-                print("\n--- Pipeline Results ---")
-                print(f"Initial Keywords: {analysis_state.initial_keywords}")
-                print(
+                print_result("\n--- Pipeline Results ---")
+                print_result(f"Initial Keywords: {analysis_state.initial_keywords}")
+                print_result(
                     f"Final Keywords: {analysis_state.final_llm_analysis.extracted_gnd_keywords}"
                 )
-                print(
+                print_result(
                     f"GND Classes: {analysis_state.final_llm_analysis.extracted_gnd_classes}"
                 )
                 
@@ -1004,16 +1013,16 @@ EXAMPLES:
         results = search_cli.search(args.search_terms, suggester_types)
 
         for search_term, term_results in results.items():
-            print(f"--- Results for: {search_term} ---")
+            print_result(f"--- Results for: {search_term} ---")
             if cache_manager.gnd_keyword_exists(search_term):
-                print("  (Results found in cache)")
+                print_result("  (Results found in cache)")
             else:
-                print("  (Results not found in cache)")
+                print_result("  (Results not found in cache)")
 
             for keyword, data in term_results.items():
-                print(f"  - {keyword}:")
-                print(f"    GND IDs: {data.get('gndid')}")
-                print(f"    Count: {data.get('count')}")
+                print_result(f"  - {keyword}:")
+                print_result(f"    GND IDs: {data.get('gndid')}")
+                print_result(f"    Count: {data.get('count')}")
 
     elif args.command == "list-models":
         # Setup services
@@ -1022,13 +1031,13 @@ EXAMPLES:
         )
         providers = llm_service.get_available_providers()
         for provider in providers:
-            print(f"--- {provider} ---")
+            print_result(f"--- {provider} ---")
             models = llm_service.get_available_models(provider)
             if models:
                 for model in models:
-                    print(model)
+                    print_result(model)
             else:
-                print("No models found.")
+                print_result("No models found.")
 
     elif args.command == "list-providers":
         # Claude Generated - List all configured LLM providers with details
@@ -1439,12 +1448,12 @@ EXAMPLES:
                 keyword_chunk_size=task_state_dict["keyword_chunk_size"],
             )
 
-            print("--- Loaded Analysis Result ---")
-            print(task_state.analysis_result.full_text)
-            print("--- Matched Keywords ---")
-            print(task_state.analysis_result.matched_keywords)
-            print("--- GND Systematic ---")
-            print(task_state.analysis_result.gnd_systematic)
+            print_result("--- Loaded Analysis Result ---")
+            print_result(task_state.analysis_result.full_text)
+            print_result("--- Matched Keywords ---")
+            print_result(task_state.analysis_result.matched_keywords)
+            print_result("--- GND Systematic ---")
+            print_result(task_state.analysis_result.gnd_systematic)
             logger.info(f"Task state loaded from {args.input_file}")
 
         except FileNotFoundError:

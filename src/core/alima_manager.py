@@ -72,7 +72,10 @@ class AlimaManager:
         system: Optional[str] = None,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
     ) -> TaskState:
-        self.logger.info(f"Starting analysis for task: {task}, model: {model}")
+        # Log analysis start with workflow-relevant info - Claude Generated
+        provider_display = provider if provider else "auto"
+        self.logger.info(f"🚀 Starting analysis: task={task}, provider={provider_display}, model={model}")
+        self.logger.info(f"⚙️  Parameters: temperature={temperature}, top_p={p_value}, seed={seed}")
         request_id = str(uuid.uuid4())
 
         if prompt_template:
@@ -99,6 +102,11 @@ class AlimaManager:
                 status="failed",
             )
 
+        # Log prompt template preview for workflow visibility - Claude Generated
+        if hasattr(prompt_config, 'prompt') and prompt_config.prompt:
+            prompt_preview = prompt_config.prompt[:200] + "..." if len(prompt_config.prompt) > 200 else prompt_config.prompt
+            self.logger.info(f"📝 Using prompt template: {prompt_preview}")
+
         if use_chunking_abstract or use_chunking_keywords:
             analysis_result = self._perform_chunked_analysis(
                 request_id,
@@ -123,8 +131,7 @@ class AlimaManager:
                 ),
             }
 
-            if task == "keywords":
-                print(prompt_config.prompt, task, variables)
+            # Prompt template already logged above for all tasks - Claude Generated
             analysis_result = self._perform_single_analysis(
                 request_id,
                 prompt_config,

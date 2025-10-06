@@ -225,11 +225,12 @@ class PipelineTab(QWidget):
     pipeline_started = pyqtSignal(str)  # pipeline_id
     pipeline_completed = pyqtSignal()
     step_selected = pyqtSignal(str)  # step_id
-    
+
     # Signals for pipeline result emission to other tabs - Claude Generated
     search_results_ready = pyqtSignal(dict)  # For SearchTab.display_search_results()
     metadata_ready = pyqtSignal(dict)       # For CrossrefTab.display_metadata()
     analysis_results_ready = pyqtSignal(object)  # For AbstractTab analysis results
+    pipeline_results_ready = pyqtSignal(object)  # Complete analysis_state for distribution - Claude Generated
 
     def __init__(
         self,
@@ -504,6 +505,31 @@ class PipelineTab(QWidget):
         )
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
         buttons_layout.addWidget(self.auto_pipeline_button)
+
+        # Load JSON button - Claude Generated
+        self.load_json_button = QPushButton("📁 JSON laden")
+        self.load_json_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #2196f3;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #1976d2;
+            }
+            QPushButton:pressed {
+                background-color: #0d47a1;
+            }
+        """
+        )
+        self.load_json_button.clicked.connect(self.load_json_state)
+        self.load_json_button.setToolTip("Pipeline-State aus JSON-Datei laden")
+        buttons_layout.addWidget(self.load_json_button)
 
         # Mode indicator
         self.mode_indicator_label = QLabel()
@@ -896,6 +922,13 @@ class PipelineTab(QWidget):
             "Konfiguration gespeichert",
             "Pipeline-Konfiguration wurde erfolgreich aktualisiert!",
         )
+
+    def load_json_state(self):
+        """Load pipeline state from JSON file - Claude Generated"""
+        if self.main_window and hasattr(self.main_window, 'load_analysis_state_from_file'):
+            self.main_window.load_analysis_state_from_file()
+        else:
+            self.logger.error("Cannot load JSON: MainWindow not available")
 
     def update_step_display_from_config(self):
         """Update step widgets based on current configuration - Claude Generated"""
@@ -1325,6 +1358,10 @@ class PipelineTab(QWidget):
         # Notify streaming widget
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_pipeline_completed(analysis_state)
+
+        # Emit complete analysis_state for distribution to specialized tabs - Claude Generated
+        if analysis_state:
+            self.pipeline_results_ready.emit(analysis_state)
 
         QMessageBox.information(
             self,

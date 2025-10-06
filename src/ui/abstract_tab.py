@@ -157,7 +157,8 @@ class AbstractTab(QWidget):
             if self.task_selector_combo.count() == 1:
                 self.populate_prompt_selector()
 
-        self.pdf_button.setVisible(self.task == "abstract")
+        # Show PDF button for initialisation task (formerly "abstract") - Claude Generated
+        self.pdf_button.setVisible(self.task in ["abstract", "initialisation"])
 
     def update_models(self, provider: str):
         """Update available models when provider changes."""
@@ -634,25 +635,24 @@ class AbstractTab(QWidget):
         if keywords_text.strip():
             input_text = f"{abstract_text}\n\nExisting Keywords: {keywords_text}"
 
-        # 5. Use centralized PipelineWorker with PipelineManager - Claude Generated
-        self.pipeline_worker = PipelineWorker(
+        # 5. Use SingleStepWorker for single step execution - Claude Generated
+        from .workers import SingleStepWorker
+
+        self.step_worker = SingleStepWorker(
             pipeline_manager=self.pipeline_manager,
-            input_text=input_text,
-            input_type="text"
+            step_config=adhoc_config,
+            input_data=input_text
         )
 
-        # Set the ad-hoc configuration
-        self.pipeline_worker.pipeline_manager.set_config(adhoc_config)
-
         # 6. Connect callbacks to handle PipelineStep objects - Claude Generated
-        self.pipeline_worker.step_completed.connect(self.on_analysis_completed)
-        self.pipeline_worker.step_error.connect(self.on_analysis_error)
-        self.pipeline_worker.stream_token.connect(self._update_results_text)
+        self.step_worker.step_completed.connect(self.on_analysis_completed)
+        self.step_worker.step_error.connect(self.on_analysis_error)
+        self.step_worker.stream_token.connect(self._update_results_text)
 
         # Update status when analysis actually starts
         self.status_label.setText("Verbindung zu LLM...")
 
-        self.pipeline_worker.start()
+        self.step_worker.start()
 
     def on_analysis_completed(self, step: PipelineStep):
         """Handle analysis completion with PipelineStep integration - Claude Generated"""
@@ -685,6 +685,25 @@ class AbstractTab(QWidget):
             # Send analysis data to AnalysisReviewTab - Claude Generated
             current_abstract = self.abstract_edit.toPlainText().strip()
             self.analysis_completed.emit(current_abstract, keywords_only, result.full_text)
+
+        # Handle dict-based output_data with llm_analysis (from pipeline keywords step) - Claude Generated
+        elif step.output_data and isinstance(step.output_data, dict) and 'llm_analysis' in step.output_data:
+            llm_analysis = step.output_data['llm_analysis']
+
+            # Display the full LLM response (already streamed, just keep it visible)
+            self.add_result_to_history(llm_analysis.response_full_text, self.task or "Analysis")
+            # DON'T overwrite - the text is already there from streaming
+            # self.results_edit.setPlainText(llm_analysis.response_full_text)
+
+            # Extract keywords
+            keywords_only = ", ".join(llm_analysis.extracted_gnd_keywords) if llm_analysis.extracted_gnd_keywords else ""
+            if keywords_only:
+                self.final_list.emit(keywords_only)
+
+            # Send data to AnalysisReviewTab
+            current_abstract = self.abstract_edit.toPlainText().strip()
+            self.analysis_completed.emit(current_abstract, keywords_only, llm_analysis.response_full_text)
+
         else:
             # Fallback: use step output_data directly if it's a string
             output_text = str(step.output_data) if step.output_data else "No output data"
@@ -709,8 +728,8 @@ class AbstractTab(QWidget):
 
         threading.Thread(target=reset_status, daemon=True).start()
 
-    def on_analysis_error(self, step: PipelineStep, error_message: str):
-        """Handle analysis error with PipelineStep integration - Claude Generated"""
+    def on_analysis_error(self, error_message: str):
+        """Handle analysis error - Claude Generated"""
         # Reset analysis state
         self.is_analysis_running = False
 
@@ -724,11 +743,8 @@ class AbstractTab(QWidget):
         # Restore input area if it was auto-hidden during streaming
         self.restore_input_after_streaming()
 
-        # Show error in results area with step information
-        error_details = f"❌ Fehler bei der Analyse:\nSchritt: {step.step_id}\nFehler: {error_message}"
-        if step.error_message:
-            error_details += f"\nZusätzliche Informationen: {step.error_message}"
-
+        # Show error in results area
+        error_details = f"❌ Fehler bei der Analyse:\n{error_message}"
         self.results_edit.setPlainText(error_details)
 
         # Show error dialog
@@ -768,6 +784,10 @@ class AbstractTab(QWidget):
         """Sets the keywords text in the keywords_edit QTextEdit."""
         self.keywords_edit.setPlainText(keywords)
 
+    def display_llm_response(self, response_text: str):
+        """Display LLM response in results area - Claude Generated"""
+        self.results_edit.setPlainText(response_text)
+
     def _update_results_text(self, text_chunk: str, step_id: str = None):
         """Appends text chunks to the results_edit QTextEdit with enhanced feedback - Claude Generated"""
         # Update status to show streaming is active
@@ -802,9 +822,9 @@ class AbstractTab(QWidget):
 
     def cancel_analysis(self):
         """Cancel the running analysis - Claude Generated"""
-        if hasattr(self, "analysis_worker") and self.analysis_worker.isRunning():
-            self.analysis_worker.terminate()
-            self.analysis_worker.wait()
+        if hasattr(self, "step_worker") and self.step_worker.isRunning():
+            self.step_worker.terminate()
+            self.step_worker.wait()
 
         # Reset UI state
         self.is_analysis_running = False

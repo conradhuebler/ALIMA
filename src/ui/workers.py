@@ -7,7 +7,48 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from typing import Optional
 import logging
 
-from ..core.pipeline_manager import PipelineManager
+from ..core.pipeline_manager import PipelineManager, PipelineConfig
+
+
+class SingleStepWorker(QThread):
+    """Worker thread for single pipeline step execution - Claude Generated"""
+
+    # Signals
+    step_completed = pyqtSignal(object)  # PipelineStep
+    step_error = pyqtSignal(str)  # error_message
+    stream_token = pyqtSignal(str, str)  # token, step_id
+
+    def __init__(
+        self,
+        pipeline_manager: PipelineManager,
+        step_config: PipelineConfig,
+        input_data: Optional[str] = None,
+    ):
+        super().__init__()
+        self.pipeline_manager = pipeline_manager
+        self.step_config = step_config
+        self.input_data = input_data
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        """Execute single step in background thread - Claude Generated"""
+        try:
+            # Set streaming callback
+            self.pipeline_manager.stream_callback = self.stream_token.emit
+
+            # Execute single step
+            # For now, we use the config's first enabled step
+            for step_id, config in self.step_config.step_configs.items():
+                if getattr(config, 'enabled', True):
+                    result_step = self.pipeline_manager.execute_single_step(
+                        step_id, self.step_config, self.input_data
+                    )
+                    self.step_completed.emit(result_step)
+                    break
+
+        except Exception as e:
+            self.logger.error(f"Single step worker error: {e}")
+            self.step_error.emit(str(e))
 
 
 class PipelineWorker(QThread):

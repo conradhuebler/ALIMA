@@ -578,6 +578,16 @@ class PipelineStepExecutor:
         for results in search_results.values():
             for keyword, data in results.items():
                 gnd_ids = data.get("gndid", set())
+
+                # Handle keywords without GND-IDs (user-provided plain text) - Claude Generated
+                if not gnd_ids:
+                    # Add keyword as plain text without GND notation
+                    formatted_keyword = keyword
+                    gnd_keywords_text += formatted_keyword + "\n"
+                    gnd_compliant_keywords.append(formatted_keyword)
+                    continue
+
+                # Process keywords WITH GND-IDs
                 for gnd_id in gnd_ids:
                     # Claude Generated - Use GND title with optional synonym expansion
                     gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
@@ -840,7 +850,7 @@ class PipelineStepExecutor:
 
         if stream_callback:
             stream_callback(
-                f"\n--- Finale Konsolidierung ---\n", kwargs.get("step_id", "keywords")
+                f"\n--- Deduplizierung abgeschlossen ---\n", kwargs.get("step_id", "keywords")
             )
             total_chunk_keywords = sum(len(r[0]) for r in all_chunk_results)
             stream_callback(
@@ -862,7 +872,8 @@ class PipelineStepExecutor:
                     kwargs.get("step_id", "keywords"),
                 )
 
-        # Execute final consolidation request with deduplicated results
+        # Execute final keyword analysis with deduplicated results - Claude Generated
+        # IMPORTANT: Uses 'task' (normal keywords prompt) NOT 'chunking_task' for proper Sacherschließung
         final_keywords_text = "\n".join(deduplicated_keywords)
         final_single_result = self._execute_single_keyword_analysis(
             original_abstract=original_abstract,
@@ -870,7 +881,7 @@ class PipelineStepExecutor:
             gnd_compliant_keywords=deduplicated_keywords,
             model=model,
             provider=provider,
-            task=task,  # Use original task for final analysis
+            task=task,  # Use normal keywords task, NOT chunking_task!
             stream_callback=stream_callback,
             mode=mode,
             **kwargs,

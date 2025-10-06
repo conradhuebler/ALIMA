@@ -317,6 +317,11 @@ class PipelineManager:
         self.config = config
         self.logger.info(f"Pipeline configuration updated: {config}")
 
+        # Migrate legacy "abstract" step to "initialisation" - Claude Generated
+        if hasattr(config, 'step_configs') and config.step_configs and 'abstract' in config.step_configs:
+            config.step_configs['initialisation'] = config.step_configs.pop('abstract')
+            self.logger.info("✅ Migrated legacy 'abstract' step configuration to 'initialisation'")
+
         # Debug: Log modern step configurations in detail
         if hasattr(config, 'step_configs') and config.step_configs:
             for step_id, step_config in config.step_configs.items():
@@ -564,6 +569,19 @@ class PipelineManager:
 
     def execute_step(self, step_id: str) -> bool:
         """Execute a specific pipeline step - Claude Generated"""
+        # Migrate legacy step names - Claude Generated
+        STEP_ALIASES = {"abstract": "initialisation"}
+        if step_id in STEP_ALIASES:
+            original_step_id = step_id
+            step_id = STEP_ALIASES[step_id]
+            self.logger.info(f"✅ Migrated legacy step name '{original_step_id}' → '{step_id}'")
+
+        # Auto-create pipeline steps if not exist (for individual step execution) - Claude Generated
+        if not self.pipeline_steps:
+            self.logger.info("⚙️ Creating pipeline steps for individual step execution")
+            self.pipeline_steps = self._create_pipeline_steps("text")
+            self.logger.info(f"✅ Created {len(self.pipeline_steps)} pipeline steps")
+
         step = self._get_step_by_id(step_id)
         if not step:
             self.logger.error(f"Step {step_id} not found")
@@ -845,8 +863,10 @@ class PipelineManager:
         if not self.current_analysis_state:
             raise ValueError("No analysis state available for keywords step")
 
+        # Allow empty search_results for single-step execution (user may provide text-only analysis) - Claude Generated
         if not self.current_analysis_state.search_results:
-            raise ValueError("No search results available for keywords step")
+            self.logger.warning("No search results available - proceeding with text-only analysis")
+            self.current_analysis_state.search_results = {}  # Empty dict to avoid errors in executor
 
         # Get configuration for keywords step
         step_config = self.config.get_step_config("keywords")
@@ -951,7 +971,11 @@ class PipelineManager:
             # Update analysis state with final results
             self.current_analysis_state.final_llm_analysis = llm_analysis
 
-            step.output_data = {"final_keywords": final_keywords}
+            # Store both keywords and full LLM analysis for UI display - Claude Generated
+            step.output_data = {
+                "final_keywords": final_keywords,
+                "llm_analysis": llm_analysis  # LlmKeywordAnalysis object with response_full_text
+            }
             return True
 
         except ValueError as e:
@@ -1194,9 +1218,83 @@ class PipelineManager:
         Execute a single pipeline step with ad-hoc configuration - Claude Generated
         Optimized for GUI tab single operations
         """
+        step = None  # Initialize to None to avoid scope error in exception handler - Claude Generated
+
         try:
             # Set the configuration
             self.set_config(config)
+
+            # Initialize analysis state with input data (for single step execution) - Claude Generated
+            if input_data and isinstance(input_data, str):
+                # Parse input_data for keywords step - Claude Generated
+                abstract_text = input_data
+                keywords_list = []
+                mock_search_results = {}
+
+                # Check if keywords are embedded in input (format: "abstract\n\nExisting Keywords: kw1, kw2")
+                if step_id == "keywords" and "Existing Keywords:" in input_data:
+                    parts = input_data.split("Existing Keywords:")
+                    if len(parts) == 2:
+                        abstract_text = parts[0].strip()
+                        keywords_part = parts[1].strip()
+
+                        # Parse keywords with GND-ID format - Claude Generated
+                        import re
+                        gnd_pattern = r"(.*?)\s*\(GND-ID:\s*([^)]+)\)"
+
+                        keywords_list = []
+                        mock_results = {"user_provided": {}}
+
+                        # Split by both comma and newline to support different formats - Claude Generated
+                        keyword_items = re.split(r'[,\n]+', keywords_part)
+
+                        for kw in keyword_items:
+                            kw = kw.strip()
+                            if not kw:
+                                continue
+
+                            # Try to extract GND-ID from format "Keyword (GND-ID: 123456)"
+                            match = re.match(gnd_pattern, kw)
+                            if match:
+                                keyword_text = match.group(1).strip()
+                                gnd_id = match.group(2).strip()
+
+                                # Lookup in knowledge_manager for additional data - Claude Generated
+                                gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
+                                final_keyword = gnd_title if gnd_title else keyword_text
+
+                                keywords_list.append(final_keyword)
+                                mock_results["user_provided"][final_keyword] = {
+                                    "count": 1,
+                                    "gndid": {gnd_id},  # Real GND-ID from parsed text!
+                                    "ddc": set(),
+                                    "dk": set()
+                                }
+                                self.logger.debug(f"Parsed GND keyword: '{final_keyword}' (GND-ID: {gnd_id})")
+                            else:
+                                # Plain keyword without GND-ID
+                                keywords_list.append(kw)
+                                mock_results["user_provided"][kw] = {
+                                    "count": 1,
+                                    "gndid": set(),  # No GND-ID
+                                    "ddc": set(),
+                                    "dk": set()
+                                }
+                                self.logger.debug(f"Parsed plain keyword: '{kw}'")
+
+                        mock_search_results = mock_results
+                        self.logger.info(f"✅ Parsed {len(keywords_list)} keywords (with GND lookup) for keywords step")
+
+                self.current_analysis_state = KeywordAnalysisState(
+                    original_abstract=abstract_text,
+                    initial_keywords=keywords_list,
+                    search_suggesters_used=config.search_suggesters,
+                    initial_gnd_classes=[],
+                    search_results=mock_search_results,
+                    initial_llm_call_details=None,
+                    final_llm_analysis=None,
+                )
+                self.logger.info(f"✅ Initialized analysis state with {len(abstract_text)} characters for single step execution")
 
             # Create a single step
             step = PipelineStep(
@@ -1205,11 +1303,17 @@ class PipelineManager:
                 input_data=input_data
             )
 
+            # Get provider/model from config
+            step_config = config.get_step_config(step_id)
+            step.provider = step_config.provider
+            step.model = step_config.model
+
             # Execute the step
             if self.step_started_callback:
                 self.step_started_callback(step)
 
-            success = self._execute_step(step)
+            # Use the existing execute_step logic - Claude Generated
+            success = self.execute_step(step_id)
 
             if success:
                 step.status = "completed"
@@ -1223,8 +1327,18 @@ class PipelineManager:
             return step
 
         except Exception as e:
-            step.status = "error"
-            step.error_message = str(e)
+            # Handle case where step wasn't created yet - Claude Generated
+            if step is None:
+                step = PipelineStep(
+                    step_id=step_id,
+                    name=step_id,
+                    status="error",
+                    error_message=str(e)
+                )
+            else:
+                step.status = "error"
+                step.error_message = str(e)
+
             self.logger.error(f"Single step execution failed: {e}")
 
             if self.step_error_callback:
