@@ -5,6 +5,8 @@ import gzip
 import json
 import urllib.request
 import urllib.parse
+import ssl
+import platform
 import sys
 import traceback
 from pathlib import Path
@@ -29,6 +31,38 @@ def ex_to_str(ex):
     # the string (one liner) to return
     nice_ex = f"{ex_type} ({ex_args}) raised executing '{ex_cmd}' in {ex_file}, line {ex_line}"
     return nice_ex
+
+
+def _create_ssl_context():
+    """
+    Create SSL context for urllib with proper certificate handling - Claude Generated
+
+    On Windows, Python often can't access system certificates. This function
+    tries multiple strategies to establish a working SSL context.
+
+    Returns:
+        SSL context for HTTPS connections
+    """
+    # Try certifi package first (most reliable cross-platform solution)
+    try:
+        import certifi
+        context = ssl.create_default_context(cafile=certifi.where())
+        return context
+    except ImportError:
+        pass
+
+    # On Windows, use unverified context as fallback (with warning)
+    if platform.system() == 'Windows':
+        import warnings
+        warnings.warn(
+            "SSL certificate verification disabled on Windows. "
+            "Install 'certifi' package for secure connections: pip install certifi",
+            RuntimeWarning
+        )
+        return ssl._create_unverified_context()
+
+    # On Linux/Mac, use default (should work with system certificates)
+    return ssl.create_default_context()
 
 
 class LobidSuggesterError(BaseSuggesterError):
@@ -74,6 +108,16 @@ class LobidSuggester(BaseSuggester):
             print(f"Downloading {self.subjects_file_gz}")
 
         try:
+            # Create SSL context for cross-platform certificate handling - Claude Generated
+            ssl_context = _create_ssl_context()
+
+            # Use opener with SSL context for HTTPS
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=ssl_context)
+            )
+            urllib.request.install_opener(opener)
+
+            # Now download with proper SSL handling
             urllib.request.urlretrieve(self.GND_URL, self.subjects_file_gz)
         except Exception as ex:
             raise LobidSuggesterError(ex_to_str(ex))
