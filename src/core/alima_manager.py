@@ -562,7 +562,7 @@ class AlimaManager:
                     'temperature': float(prompt_config.temp),
                     'p_value': float(prompt_config.p_value),
                     'seed': prompt_config.seed,
-                    'stream': False  # No streaming for execute_task method
+                    'stream': stream_callback is not None  # Enable streaming if callback provided - Claude Generated
                 }
                 
                 # Add image if present in context
@@ -571,20 +571,27 @@ class AlimaManager:
                 
                 # Execute LLM call
                 response = self.llm_service.generate_response(**llm_params)
-                
-                # Handle response (generator or string)
+
+                # Handle response (generator or string) with streaming support - Claude Generated
                 if hasattr(response, "__iter__") and not isinstance(response, str):
-                    # Generator response
+                    # Generator response - with streaming support
                     response_parts = []
                     for chunk in response:
                         if isinstance(chunk, str):
-                            response_parts.append(chunk)
+                            chunk_text = chunk
                         elif hasattr(chunk, 'text'):
-                            response_parts.append(chunk.text)
+                            chunk_text = chunk.text
                         elif hasattr(chunk, 'content'):
-                            response_parts.append(chunk.content)
+                            chunk_text = chunk.content
                         else:
-                            response_parts.append(str(chunk))
+                            chunk_text = str(chunk)
+
+                        response_parts.append(chunk_text)
+
+                        # Call stream callback if provided
+                        if stream_callback and chunk_text:
+                            stream_callback(chunk_text)
+
                     result = "".join(response_parts)
                 else:
                     result = str(response)

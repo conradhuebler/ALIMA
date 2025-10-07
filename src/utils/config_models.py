@@ -408,6 +408,19 @@ class UnifiedProviderConfig:
             allow_fallback=True
         )
 
+    def get_model_priority_for_task(self, task_name: str, is_chunked: bool = False) -> List[Dict[str, str]]:
+        """Get model priority for a task, with chunked variant support - Claude Generated"""
+        task_pref = self.task_preferences.get(task_name)
+
+        if not task_pref:
+            return []
+
+        # Use chunked priority if available and requested
+        if is_chunked and task_pref.chunked_model_priority:
+            return task_pref.chunked_model_priority
+
+        return task_pref.model_priority
+
     @classmethod
     def from_legacy_config(cls, legacy_data: Dict[str, Any]) -> 'UnifiedProviderConfig':
         """Create UnifiedProviderConfig from legacy configuration - Claude Generated"""

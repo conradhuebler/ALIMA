@@ -41,6 +41,7 @@ class TextExtractionWorker(QThread):
     """Worker für Textextraktion aus verschiedenen Quellen - Claude Generated"""
 
     text_extracted = pyqtSignal(str, str)  # extracted_text, source_info
+    text_chunk_received = pyqtSignal(str)  # Streaming chunks - Claude Generated
     error_occurred = pyqtSignal(str)
     progress_updated = pyqtSignal(str)
 
@@ -57,6 +58,7 @@ class TextExtractionWorker(QThread):
         self.llm_service = llm_service
         self.alima_manager = alima_manager
         self.logger = logging.getLogger(__name__)
+        self.accumulated_text = ""  # Buffer for streamed text - Claude Generated
 
     def run(self):
         """Extract text based on source type - Claude Generated"""
@@ -207,15 +209,23 @@ class TextExtractionWorker(QThread):
         try:
             if self.alima_manager:
                 self.progress_updated.emit("Verwende neue Task-Präferenz-Logik...")
-                
+
+                # Create streaming callback for real-time updates - Claude Generated
+                def stream_callback(chunk: str):
+                    self.accumulated_text += chunk
+                    self.text_chunk_received.emit(chunk)
+
+                # Reset accumulated text
+                self.accumulated_text = ""
+
                 # Create task context
                 context = {'image_data': image_path}
-                
-                # Execute task using the refactored system
+
+                # Execute task using the refactored system with streaming - Claude Generated
                 extracted_text = self.alima_manager.execute_task(
                     task_name="image_text_extraction",
                     context=context,
-                    stream_callback=None  # No streaming for images
+                    stream_callback=stream_callback  # Enable streaming
                 )
                 
                 # Clean output
@@ -1046,6 +1056,7 @@ class UnifiedInputWidget(QWidget):
         )
 
         self.current_extraction_worker.text_extracted.connect(self.on_text_extracted)
+        self.current_extraction_worker.text_chunk_received.connect(self.on_text_chunk_received)  # Claude Generated
         self.current_extraction_worker.error_occurred.connect(self.on_extraction_error)
         self.current_extraction_worker.progress_updated.connect(
             self.on_progress_updated
@@ -1065,6 +1076,28 @@ class UnifiedInputWidget(QWidget):
         self.progress_label.setVisible(False)
 
         self.set_text_directly(text, source_info)
+
+    @pyqtSlot(str)
+    def on_text_chunk_received(self, chunk: str):
+        """Handle streaming text chunk - Claude Generated"""
+        # Clear text area on first chunk
+        if not self.text_display.toPlainText():
+            self.text_display.clear()
+            # Make it read-only during streaming
+            self.text_display.setReadOnly(True)
+
+        # Append chunk to text area in real-time
+        cursor = self.text_display.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(chunk)
+        self.text_display.setTextCursor(cursor)
+
+        # Auto-scroll to bottom
+        self.text_display.ensureCursorVisible()
+
+        # Update character count
+        current_length = len(self.text_display.toPlainText())
+        self.source_info_label.setText(f"📄 Streaming... | {current_length} Zeichen")
 
     @pyqtSlot(str)
     def on_extraction_error(self, error_message: str):
