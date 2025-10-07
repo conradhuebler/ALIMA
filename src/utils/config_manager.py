@@ -558,19 +558,24 @@ class ConfigManager:
                     # Keep existing unified_config if it exists
                     if 'unified_config' in current_config:
                         preserved_providers = current_config['unified_config'].get('providers', [])
-                        self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVING_COUNT: Found {len(preserved_providers)} providers to preserve")
-                        for i, p in enumerate(preserved_providers):
-                            self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVED_PROVIDER_{i}: {p.get('name', 'NO_NAME')} ({p.get('provider_type', 'NO_TYPE')})")
-                        # CRITICAL FIX: Intelligent merge - preserve providers, update task_preferences - Claude Generated
+                        self.logger.critical(f"🔍 SAVE_CONFIG_DISK_PROVIDERS: Found {len(preserved_providers)} providers on disk")
+
+                        # CRITICAL FIX: Use INCOMING providers from input config, not preserved from disk - Claude Generated
+                        incoming_providers = config_dict.get('unified_config', {}).get('providers', [])
+                        self.logger.critical(f"🔍 SAVE_CONFIG_INPUT_PROVIDERS: Found {len(incoming_providers)} providers in input config")
+                        for i, p in enumerate(incoming_providers):
+                            self.logger.critical(f"🔍 SAVE_CONFIG_INPUT_PROVIDER_{i}: {p.get('name', 'NO_NAME')} ({p.get('provider_type', 'NO_TYPE')})")
+
                         incoming_task_prefs = config_dict.get('unified_config', {}).get('task_preferences', {})
                         preserved_unified_config = current_config['unified_config'].copy()
 
-                        # Merge new task preferences into preserved config while keeping providers
+                        # Update with NEW providers and task preferences from input config - Claude Generated
+                        preserved_unified_config['providers'] = incoming_providers  # ✅ USE NEW PROVIDERS FROM INPUT
                         if incoming_task_prefs:
                             preserved_unified_config['task_preferences'] = incoming_task_prefs
-                            self.logger.critical(f"🔒 Smart-merged unified_config: preserved providers, updated {len(incoming_task_prefs)} task preferences")
+                            self.logger.critical(f"✅ Updated unified_config: {len(incoming_providers)} providers (from input), {len(incoming_task_prefs)} task prefs")
                         else:
-                            self.logger.critical("🔒 Auto-preserved unified_config (no task preferences to merge)")
+                            self.logger.critical(f"✅ Updated unified_config: {len(incoming_providers)} providers (from input), no task prefs")
 
                         config_dict['unified_config'] = preserved_unified_config
                     else:
@@ -610,6 +615,11 @@ class ConfigManager:
             self.logger.critical(f"🔍 SAVE_CONFIG_VERIFICATION: {len(written_providers)} providers actually written to disk")
 
             self.logger.info(f"Configuration saved to {self.config_file}")
+
+            # Update internal cache with saved config - Claude Generated
+            self._config = config
+            self.logger.debug("✅ Internal config cache updated with saved configuration")
+
             return True
         except Exception as e:
             self.logger.error(f"Error saving configuration: {e}")

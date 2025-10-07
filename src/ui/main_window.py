@@ -830,31 +830,56 @@ class MainWindow(QMainWindow):
     def _refresh_components(self):
         """Refresh all components with new configuration - Claude Generated"""
         try:
-            # Refresh LLM service configuration
-            if hasattr(self, 'llm'):
-                # LLM service will automatically reload config on next use
-                pass
-            
-            # Refresh cache/database connections  
-            if hasattr(self, 'cache_manager'):
-                # Database connections will be recreated with new config
-                pass
-                
-            # Update global status bar
+            self.logger.info("Starting component refresh after configuration change...")
+
+            # 1. Reload LLM service configuration and reinitialize providers
+            if hasattr(self, 'llm_service'):
+                self.logger.info("Reloading LLM service providers...")
+                self.llm_service.reload_providers()
+                self.logger.info("✓ LLM service providers reloaded")
+
+            # 2. Refresh provider status to update reachability and available models
+            if hasattr(self, 'llm_service'):
+                self.logger.info("Refreshing provider status...")
+                self.llm_service.refresh_all_provider_status()
+                self.logger.info("✓ Provider status refreshed")
+
+            # 3. Update tabs with new provider information
+            self.logger.info("Updating tabs with provider information...")
+            self.update_tabs_with_provider_info()
+            self.logger.info("✓ Tabs updated with provider info")
+
+            # 4. Update global status bar with new provider and cache info
             if hasattr(self, 'global_status_bar'):
-                # Status bar will automatically update on next refresh
-                pass
-                
-            # Notify tabs about configuration changes
+                self.logger.info("Updating global status bar...")
+                self.global_status_bar.update_provider_info()
+                self.global_status_bar.update_cache_status()
+                self.logger.info("✓ Global status bar updated")
+
+            # 5. Notify tabs about configuration changes (custom handlers)
             for i in range(self.tabs.count()):
                 tab = self.tabs.widget(i)
                 if hasattr(tab, 'on_config_changed'):
+                    tab_name = self.tabs.tabText(i)
+                    self.logger.info(f"Notifying tab '{tab_name}' about config change...")
                     tab.on_config_changed()
-                    
-            self.logger.info("Component refresh completed successfully")
-            
+
+            self.logger.info("✅ Component refresh completed successfully - configuration is now active")
+
+            # Show user feedback
+            if hasattr(self, 'global_status_bar'):
+                self.global_status_bar.show_temporary_message(
+                    "✅ Einstellungen erfolgreich übernommen",
+                    5000
+                )
+
         except Exception as e:
-            self.logger.error(f"Error refreshing components: {e}")
+            self.logger.error(f"Error refreshing components: {e}", exc_info=True)
+            if hasattr(self, 'global_status_bar'):
+                self.global_status_bar.show_temporary_message(
+                    f"⚠️ Fehler beim Übernehmen der Einstellungen: {str(e)}",
+                    10000
+                )
 
     def export_results(self):
         """Exportiert die aktuellen Suchergebnisse"""

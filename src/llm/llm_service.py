@@ -208,11 +208,21 @@ class LlmService(QObject):
         """Reload providers from current configuration - Claude Generated"""
         self.logger.debug("Reloading providers from configuration")
 
-        # Reload configuration
-        self.alima_config = self.config_manager.load_config()
+        # Reload configuration with force_reload to bypass cache - Claude Generated
+        self.alima_config = self.config_manager.load_config(force_reload=True)
+        self.logger.debug("Configuration force-reloaded from disk")
+
+        # Clear provider status cache to force fresh checks - Claude Generated
+        self.provider_status_cache.clear()
+        self.logger.debug("Provider status cache cleared")
 
         # Reinitialize provider configurations
         self._legacy_init_dynamic_provider_configs()
+
+        # Clear unified provider configurations and reinitialize - Claude Generated
+        self.all_providers.clear()
+        self._init_unified_provider_configs()
+        self.logger.debug("Unified provider configurations reinitialized")
 
         # Reinitialize all providers
         self.clients.clear()
@@ -2232,28 +2242,34 @@ class LlmService(QObject):
     def refresh_all_provider_status(self) -> Dict[str, bool]:
         """
         Refresh reachability status for all configured providers - Claude Generated
-        
+
         Returns:
             Dict mapping provider names to reachability status
         """
         results = {}
-        
+
         # Load current configuration
         config = self.config_manager.load_config()
-        
-        # Check Ollama providers
-        if hasattr(config.unified_config, 'ollama_providers'):
-            for provider in config.unified_config.ollama_providers:
-                if provider.enabled:
-                    results[provider.name] = self.is_provider_reachable(provider.name, force_check=True)
-        
-        # Check OpenAI-compatible providers
-        if hasattr(config.unified_config, 'openai_compatible_providers'):
-            for provider in config.unified_config.openai_compatible_providers:
-                if provider.enabled:
-                    results[provider.name] = self.is_provider_reachable(provider.name, force_check=True)
-        
-        self.logger.info(f"Provider status refresh completed: {results}")
+
+        # Get ALL enabled providers using unified method - Claude Generated
+        try:
+            enabled_providers = config.unified_config.get_enabled_providers()
+            self.logger.debug(f"Checking reachability for {len(enabled_providers)} enabled providers")
+
+            for provider in enabled_providers:
+                try:
+                    is_reachable = self.is_provider_reachable(provider.name, force_check=True)
+                    results[provider.name] = is_reachable
+                    status_emoji = "✅" if is_reachable else "❌"
+                    self.logger.debug(f"{status_emoji} Provider '{provider.name}' ({provider.provider_type}): {'reachable' if is_reachable else 'unreachable'}")
+                except Exception as e:
+                    self.logger.warning(f"Error checking provider '{provider.name}': {e}")
+                    results[provider.name] = False
+
+        except Exception as e:
+            self.logger.error(f"Error getting enabled providers: {e}")
+
+        self.logger.info(f"Provider status refresh completed: {len(results)} providers checked, {sum(results.values())} reachable")
         return results
     
     def _refresh_provider_status(self):
