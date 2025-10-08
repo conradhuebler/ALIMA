@@ -887,54 +887,11 @@ class MainWindow(QMainWindow):
         if hasattr(current_tab, "export_results"):
             current_tab.export_results()
         else:
-            self.status_label.setText("Export nicht verfügbar für diesen Tab")
+            self.global_status_bar.show_temporary_message("Export nicht verfügbar für diesen Tab", 3000)
 
-    def export_current_analysis(self):
-        """Export current analysis state from GUI"""
-        try:
-            # Get abstract from abstract tab
-            abstract = self.abstract_tab.abstract_edit.toPlainText()
-
-            # Get keywords from keywords tab
-            keywords = self.analyse_keywords.keywords_edit.toPlainText()
-
-            # Get search results from search tab
-            search_results = {}
-            if hasattr(self.search_tab, "flat_results"):
-                for (
-                    gnd_id,
-                    term,
-                    count,
-                    relation,
-                    search_term,
-                ) in self.search_tab.flat_results:
-                    if search_term not in search_results:
-                        search_results[search_term] = {}
-                    search_results[search_term][term] = {
-                        "count": count,
-                        "gndid": [gnd_id],
-                        "ddc": [],
-                        "dk": [],
-                    }
-
-            # Get final keywords from verification tab
-            final_keywords = self.analyse_keywords.keywords_edit.toPlainText()
-
-            # Get GND classes if available
-            gnd_classes = ""
-            if hasattr(self.analyse_keywords, "gnd_systematic"):
-                gnd_classes = getattr(self.analyse_keywords, "gnd_systematic", "")
-
-            # Export using analysis review tab
-            self.analysis_review_tab.export_current_gui_state(
-                abstract, keywords, search_results, final_keywords, gnd_classes
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Export Error", f"Error exporting analysis: {str(e)}"
-            )
-            self.logger.error(f"Export error: {e}")
+    # Claude Generated - DELETED: export_current_analysis()
+    # This method is now obsolete - use collect_current_gui_state() + AnalysisPersistence instead
+    # Or delegate directly to analysis_review_tab.export_analysis()
 
     def import_results(self):
         """Importiert gespeicherte Suchergebnisse"""
@@ -942,7 +899,7 @@ class MainWindow(QMainWindow):
         if hasattr(current_tab, "import_results"):
             current_tab.import_results()
         else:
-            self.status_label.setText("Import nicht verfügbar für diesen Tab")
+            self.global_status_bar.show_temporary_message("Import nicht verfügbar für diesen Tab", 3000)
 
     def show_about(self):
         """Zeigt den Über-Dialog"""
@@ -1001,8 +958,8 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def update_status(self, message: str):
-        """Aktualisiert die Statusleiste"""
-        self.status_label.setText(message)
+        """Aktualisiert die Statusleiste - Claude Generated (Fixed AttributeError)"""
+        self.global_status_bar.show_temporary_message(message, 3000)
 
     def show_error(self, message: str):
         """Zeigt eine Fehlermeldung"""
@@ -1303,46 +1260,29 @@ class MainWindow(QMainWindow):
 
     def export_current_gui_state(self):
         """
-        Exportiert den aktuellen GUI-Zustand als JSON-Datei - Claude Generated
+        Exportiert den aktuellen GUI-Zustand als JSON-Datei - Claude Generated (Refactored)
         """
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from ..utils.pipeline_utils import PipelineJsonManager
+        from ..utils.pipeline_utils import AnalysisPersistence
 
         try:
             # 1. Sammle aktuellen GUI-Zustand
             state = self.collect_current_gui_state()
 
-            # 2. Datei-Dialog für Export
-            file_name, _ = QFileDialog.getSaveFileName(
-                self,
-                "GUI-Zustand exportieren",
-                f"gui_state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                "JSON Files (*.json);;All Files (*)"
+            # 2. Export mit zentraler AnalysisPersistence
+            file_path = AnalysisPersistence.save_with_dialog(
+                state=state,
+                parent_widget=self,
+                default_filename=f"gui_state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             )
 
-            if not file_name:
-                return  # Benutzer hat abgebrochen
-
-            # 3. Export durchführen
-            PipelineJsonManager.save_analysis_state(state, file_name)
-
-            # 4. Erfolgsmeldung
-            self.global_status_bar.show_temporary_message("✅ GUI-Zustand erfolgreich exportiert.", 5000)
-            QMessageBox.information(
-                self,
-                "Export erfolgreich",
-                f"GUI-Zustand wurde erfolgreich exportiert:\n{file_name}"
-            )
-
-            self.logger.info(f"GUI state successfully exported to: {file_name}")
+            # 3. Erfolgsmeldung (wenn gespeichert)
+            if file_path:
+                self.global_status_bar.show_temporary_message("✅ GUI-Zustand erfolgreich exportiert.", 5000)
+                self.logger.info(f"GUI state successfully exported to: {file_path}")
 
         except Exception as e:
             self.logger.error(f"Error exporting GUI state: {e}")
-            QMessageBox.critical(
-                self,
-                "Export-Fehler",
-                f"Der GUI-Zustand konnte nicht exportiert werden:\n\n{str(e)}"
-            )
+            # Error dialog already shown by AnalysisPersistence
 
     def compare_analysis_states(self):
         """
@@ -1834,9 +1774,9 @@ class MainWindow(QMainWindow):
         load_state_action = file_menu.addAction("📂 &Analyse-Zustand laden...")
         load_state_action.triggered.connect(self.load_analysis_state_from_file)
 
-        # Analyse-Zustand speichern - Claude Generated (renamed for clarity)
+        # Analyse-Zustand speichern - Claude Generated (Refactored to use unified persistence)
         save_state_action = file_menu.addAction("💾 Analyse-Zustand &speichern...")
-        save_state_action.triggered.connect(self.export_current_analysis)
+        save_state_action.triggered.connect(self.export_current_gui_state)
 
         file_menu.addSeparator()
 

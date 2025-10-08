@@ -11,23 +11,24 @@ from PyQt6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QSplitter,
-    QFileDialog,
     QMessageBox,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
     QComboBox,
-)
+)  # Claude Generated - Removed QFileDialog (now handled by AnalysisPersistence)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor
-import json
 import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis
+from ..utils.pipeline_utils import AnalysisPersistence
+
 
 class AnalysisReviewTab(QWidget):
-    """Tab for reviewing and exporting analysis results"""
+    """Tab for reviewing and exporting analysis results - Claude Generated (Refactored)"""
 
     # Signals
     keywords_selected = pyqtSignal(str)
@@ -36,27 +37,42 @@ class AnalysisReviewTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
-        self.current_analysis = None
+        self.current_analysis: Optional[KeywordAnalysisState] = None  # Claude Generated - Now uses KeywordAnalysisState
         self.setup_ui()
 
     def receive_analysis_data(
         self, abstract_text: str, keywords: str = "", analysis_result: str = ""
     ):
-        """Receive analysis data from AbstractTab - Claude Generated"""
-        # Create a simplified analysis structure for display
-        current_time = datetime.now().isoformat()
+        """Receive analysis data from AbstractTab - Claude Generated (Refactored)"""
+        # Create KeywordAnalysisState for unified data handling
+        keyword_list = keywords.split(", ") if keywords else []
 
-        self.current_analysis = {
-            "original_abstract": abstract_text,
-            "initial_keywords": keywords.split(", ") if keywords else [],
-            "search_suggesters_used": ["auto_transfer"],
-            "initial_gnd_classes": [],
-            "search_results": [],
-            "gnd_compliant_keywords": [],
-            "analysis_result": analysis_result,
-            "timestamp": current_time,
-            "source": "abstract_tab_transfer",
-        }
+        # Create minimal LlmKeywordAnalysis from analysis result if provided
+        final_llm_analysis = None
+        if analysis_result:
+            final_llm_analysis = LlmKeywordAnalysis(
+                task_name="abstract_analysis",
+                model_used="unknown",
+                provider_used="unknown",
+                prompt_template="",
+                filled_prompt="",
+                temperature=0.7,
+                seed=None,
+                response_full_text=analysis_result,
+                extracted_gnd_keywords=keyword_list,
+                extracted_gnd_classes=[]
+            )
+
+        self.current_analysis = KeywordAnalysisState(
+            original_abstract=abstract_text,
+            initial_keywords=keyword_list,
+            search_suggesters_used=["auto_transfer"],
+            initial_gnd_classes=[],
+            search_results=[],
+            initial_llm_call_details=None,
+            final_llm_analysis=final_llm_analysis,
+            timestamp=datetime.now().isoformat()
+        )
 
         # Update UI
         self.populate_analysis_data()
@@ -174,30 +190,21 @@ class AnalysisReviewTab(QWidget):
         self.details_tabs.addTab(self.stats_text, "Statistiken")
 
     def load_analysis(self):
-        """Load analysis from JSON file"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Analyse laden", "", "JSON Files (*.json)"
-        )
+        """Load analysis from JSON file - Claude Generated (Refactored)"""
+        # Use centralized AnalysisPersistence
+        state = AnalysisPersistence.load_with_dialog(parent_widget=self)
 
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                self.current_analysis = json.load(f)
-
+        if state:  # User selected and loaded successfully
+            self.current_analysis = state
             self.populate_analysis_data()
+            self.populate_detail_tabs()
+
+            # Enable buttons
             self.export_button.setEnabled(True)
             self.use_keywords_button.setEnabled(True)
             self.use_abstract_button.setEnabled(True)
 
-            self.logger.info(f"Analysis loaded from {file_path}")
-
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Fehler", f"Fehler beim Laden der Analyse:\n{str(e)}"
-            )
-            self.logger.error(f"Error loading analysis: {e}")
+            self.logger.info("Analysis loaded successfully")
 
     def populate_analysis_data(self):
         """Populate the UI with analysis data"""
@@ -214,7 +221,7 @@ class AnalysisReviewTab(QWidget):
         self.populate_detail_tabs()
 
     def populate_steps_tree(self):
-        """Populate the steps tree widget"""
+        """Populate the steps tree widget - Claude Generated (Refactored)"""
         if not self.current_analysis:
             return
 
@@ -226,37 +233,41 @@ class AnalysisReviewTab(QWidget):
         # Original Abstract
         abstract_item = QTreeWidgetItem(root)
         abstract_item.setText(0, "Original Abstract")
-        abstract_item.setText(
-            1, f"{len(self.current_analysis.get('original_abstract', ''))} Zeichen"
-        )
+        abstract_len = len(self.current_analysis.original_abstract or "")
+        abstract_item.setText(1, f"{abstract_len} Zeichen")
         abstract_item.setData(0, Qt.ItemDataRole.UserRole, "original_abstract")
 
         # Initial Keywords
-        initial_keywords = self.current_analysis.get("initial_keywords", [])
+        keywords_count = len(self.current_analysis.initial_keywords)
         keywords_item = QTreeWidgetItem(root)
         keywords_item.setText(0, "Initial Keywords")
-        keywords_item.setText(1, f"{len(initial_keywords)} Keywords")
+        keywords_item.setText(1, f"{keywords_count} Keywords")
         keywords_item.setData(0, Qt.ItemDataRole.UserRole, "initial_keywords")
 
         # Search Results
-        search_results = self.current_analysis.get("search_results", [])
+        search_results_count = len(self.current_analysis.search_results)
         search_item = QTreeWidgetItem(root)
         search_item.setText(0, "Such-Ergebnisse")
-        search_item.setText(1, f"{len(search_results)} Begriffe")
+        search_item.setText(1, f"{search_results_count} Begriffe")
         search_item.setData(0, Qt.ItemDataRole.UserRole, "search_results")
 
-        # GND Compliant Keywords
-        gnd_keywords = self.current_analysis.get("gnd_compliant_keywords", [])
+        # GND Keywords (extract from final_llm_analysis if available)
+        gnd_keywords_count = 0
+        if self.current_analysis.final_llm_analysis:
+            gnd_keywords_count = len(self.current_analysis.final_llm_analysis.extracted_gnd_keywords)
         gnd_item = QTreeWidgetItem(root)
         gnd_item.setText(0, "GND-konforme Keywords")
-        gnd_item.setText(1, f"{len(gnd_keywords)} Keywords")
+        gnd_item.setText(1, f"{gnd_keywords_count} Keywords")
         gnd_item.setData(0, Qt.ItemDataRole.UserRole, "gnd_keywords")
 
         # Final Analysis
-        final_analysis = self.current_analysis.get("final_llm_analysis", {})
         final_item = QTreeWidgetItem(root)
         final_item.setText(0, "Finale LLM-Analyse")
-        final_item.setText(1, f"Model: {final_analysis.get('model_used', 'N/A')}")
+        if self.current_analysis.final_llm_analysis:
+            model_used = self.current_analysis.final_llm_analysis.model_used
+            final_item.setText(1, f"Model: {model_used}")
+        else:
+            final_item.setText(1, "Model: N/A")
         final_item.setData(0, Qt.ItemDataRole.UserRole, "final_analysis")
 
         # Statistics
@@ -269,116 +280,121 @@ class AnalysisReviewTab(QWidget):
         self.steps_tree.expandAll()
 
     def populate_detail_tabs(self):
-        """Populate the detail tabs with data"""
+        """Populate the detail tabs with data - Claude Generated (Refactored)"""
         if not self.current_analysis:
             return
 
         # Original Abstract
-        original_abstract = self.current_analysis.get("original_abstract", "")
-        self.abstract_text.setPlainText(original_abstract)
+        self.abstract_text.setPlainText(self.current_analysis.original_abstract or "")
 
         # Initial Keywords
-        initial_keywords = self.current_analysis.get("initial_keywords", [])
-        self.initial_keywords_text.setPlainText("\n".join(initial_keywords))
+        self.initial_keywords_text.setPlainText("\n".join(self.current_analysis.initial_keywords))
 
         # Search Results
         self.populate_search_results_table()
 
-        # GND Compliant Keywords
-        gnd_keywords = self.current_analysis.get("gnd_compliant_keywords", [])
-        gnd_text = "\n".join(
-            [f"{kw.get('keyword', '')} ({kw.get('gnd_id', '')})" for kw in gnd_keywords]
-        )
-        self.gnd_keywords_text.setPlainText(gnd_text)
+        # GND Compliant Keywords (from final_llm_analysis)
+        gnd_keywords_list = []
+        if self.current_analysis.final_llm_analysis:
+            gnd_keywords_list = self.current_analysis.final_llm_analysis.extracted_gnd_keywords
+        self.gnd_keywords_text.setPlainText("\n".join(gnd_keywords_list))
 
         # Final Analysis
-        final_analysis = self.current_analysis.get("final_llm_analysis", {})
-        final_text = f"Model: {final_analysis.get('model_used', 'N/A')}\n"
-        final_text += f"Provider: {final_analysis.get('provider_used', 'N/A')}\n"
-        final_text += f"Task: {final_analysis.get('task_name', 'N/A')}\n\n"
-        final_text += "Response:\n"
-        final_text += final_analysis.get("response_full_text", "")
-        self.final_analysis_text.setPlainText(final_text)
+        if self.current_analysis.final_llm_analysis:
+            llm = self.current_analysis.final_llm_analysis
+            final_text = f"Model: {llm.model_used}\n"
+            final_text += f"Provider: {llm.provider_used}\n"
+            final_text += f"Task: {llm.task_name}\n"
+            final_text += f"Temperature: {llm.temperature}\n\n"
+            final_text += "Response:\n"
+            final_text += llm.response_full_text
+            self.final_analysis_text.setPlainText(final_text)
+        else:
+            self.final_analysis_text.setPlainText("Keine LLM-Analyse verfügbar")
 
         # Statistics
         self.populate_statistics()
 
     def populate_search_results_table(self):
-        """Populate the search results table"""
-        search_results = self.current_analysis.get("search_results", [])
+        """Populate the search results table - Claude Generated (Refactored)"""
+        if not self.current_analysis:
+            return
+
+        search_results = self.current_analysis.search_results
 
         # Count total results
         total_results = 0
         for result in search_results:
-            total_results += len(result.get("results", {}))
+            total_results += len(result.results)
 
         self.search_results_table.setRowCount(total_results)
 
         row = 0
         for result in search_results:
-            search_term = result.get("search_term", "")
-            results = result.get("results", {})
+            search_term = result.search_term
 
-            for keyword, data in results.items():
+            for keyword, data in result.results.items():
                 self.search_results_table.setItem(row, 0, QTableWidgetItem(search_term))
                 self.search_results_table.setItem(row, 1, QTableWidgetItem(keyword))
                 self.search_results_table.setItem(
                     row, 2, QTableWidgetItem(str(data.get("count", 0)))
                 )
-                gnd_ids = data.get("gndid", [])
-                gnd_id = gnd_ids[0] if gnd_ids else ""
-                self.search_results_table.setItem(row, 3, QTableWidgetItem(gnd_id))
+                gnd_ids = data.get("gndid", set())
+                gnd_id = list(gnd_ids)[0] if gnd_ids else ""
+                self.search_results_table.setItem(row, 3, QTableWidgetItem(str(gnd_id)))
                 row += 1
 
         # Resize columns
         self.search_results_table.resizeColumnsToContents()
 
     def populate_statistics(self):
-        """Populate statistics tab"""
+        """Populate statistics tab - Claude Generated (Refactored)"""
         if not self.current_analysis:
             return
 
         stats_text = "=== Analyse-Statistiken ===\n\n"
 
         # Basic stats
-        original_abstract = self.current_analysis.get("original_abstract", "")
-        stats_text += f"Original Abstract: {len(original_abstract)} Zeichen\n"
+        abstract_len = len(self.current_analysis.original_abstract or "")
+        stats_text += f"Original Abstract: {abstract_len} Zeichen\n"
 
-        initial_keywords = self.current_analysis.get("initial_keywords", [])
-        stats_text += f"Initial Keywords: {len(initial_keywords)} Keywords\n"
+        initial_keywords_count = len(self.current_analysis.initial_keywords)
+        stats_text += f"Initial Keywords: {initial_keywords_count} Keywords\n"
 
-        search_results = self.current_analysis.get("search_results", [])
-        total_search_results = sum(len(r.get("results", {})) for r in search_results)
+        search_results = self.current_analysis.search_results
+        total_search_results = sum(len(r.results) for r in search_results)
         stats_text += f"Such-Ergebnisse: {total_search_results} Ergebnisse für {len(search_results)} Begriffe\n"
 
-        gnd_keywords = self.current_analysis.get("gnd_compliant_keywords", [])
-        stats_text += f"GND-konforme Keywords: {len(gnd_keywords)} Keywords\n"
+        gnd_keywords_count = 0
+        if self.current_analysis.final_llm_analysis:
+            gnd_keywords_count = len(self.current_analysis.final_llm_analysis.extracted_gnd_keywords)
+        stats_text += f"GND-konforme Keywords: {gnd_keywords_count} Keywords\n"
 
         # Search suggesters used
-        suggesters = self.current_analysis.get("search_suggesters_used", [])
+        suggesters = self.current_analysis.search_suggesters_used
         stats_text += f"Verwendete Suggester: {', '.join(suggesters)}\n"
 
         # GND classes
-        initial_gnd_classes = self.current_analysis.get("initial_gnd_classes", [])
+        initial_gnd_classes = self.current_analysis.initial_gnd_classes
         stats_text += f"Initial GND-Klassen: {len(initial_gnd_classes)} Klassen\n"
 
         # Final analysis info
-        final_analysis = self.current_analysis.get("final_llm_analysis", {})
-        if final_analysis:
+        if self.current_analysis.final_llm_analysis:
+            llm = self.current_analysis.final_llm_analysis
             stats_text += f"\n=== Finale Analyse ===\n"
-            stats_text += f"Model: {final_analysis.get('model_used', 'N/A')}\n"
-            stats_text += f"Provider: {final_analysis.get('provider_used', 'N/A')}\n"
-            stats_text += f"Task: {final_analysis.get('task_name', 'N/A')}\n"
-            stats_text += f"Temperature: {final_analysis.get('temperature', 'N/A')}\n"
-            stats_text += f"Seed: {final_analysis.get('seed', 'N/A')}\n"
+            stats_text += f"Model: {llm.model_used}\n"
+            stats_text += f"Provider: {llm.provider_used}\n"
+            stats_text += f"Task: {llm.task_name}\n"
+            stats_text += f"Temperature: {llm.temperature}\n"
+            stats_text += f"Seed: {llm.seed or 'N/A'}\n"
 
-            response_text = final_analysis.get("response_full_text", "")
+            response_text = llm.response_full_text
             stats_text += f"Response Länge: {len(response_text)} Zeichen\n"
 
-            extracted_keywords = final_analysis.get("extracted_gnd_keywords", [])
+            extracted_keywords = llm.extracted_gnd_keywords
             stats_text += f"Extrahierte Keywords: {len(extracted_keywords)} Keywords\n"
 
-            extracted_classes = final_analysis.get("extracted_gnd_classes", [])
+            extracted_classes = llm.extracted_gnd_classes
             stats_text += f"Extrahierte GND-Klassen: {len(extracted_classes)} Klassen\n"
 
         self.stats_text.setPlainText(stats_text)
@@ -401,45 +417,34 @@ class AnalysisReviewTab(QWidget):
             self.details_tabs.setCurrentIndex(5)
 
     def export_analysis(self):
-        """Export current analysis to JSON"""
+        """Export current analysis to JSON - Claude Generated (Refactored)"""
         if not self.current_analysis:
             QMessageBox.warning(
                 self, "Warnung", "Keine Analyse zum Exportieren vorhanden."
             )
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Analyse exportieren",
-            f"analysis_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            "JSON Files (*.json)",
+        # Use centralized AnalysisPersistence
+        file_path = AnalysisPersistence.save_with_dialog(
+            state=self.current_analysis,
+            parent_widget=self,
+            default_filename=f"analysis_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         )
 
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(self.current_analysis, f, indent=2, ensure_ascii=False)
-
-            QMessageBox.information(
-                self, "Erfolg", f"Analyse erfolgreich exportiert nach:\n{file_path}"
-            )
+        if file_path:
             self.logger.info(f"Analysis exported to {file_path}")
 
-        except Exception as e:
-            QMessageBox.critical(self, "Fehler", f"Fehler beim Exportieren:\n{str(e)}")
-            self.logger.error(f"Error exporting analysis: {e}")
-
     def use_keywords_in_search(self):
-        """Use GND compliant keywords in search tab"""
+        """Use GND compliant keywords in search tab - Claude Generated (Refactored)"""
         if not self.current_analysis:
             return
 
-        gnd_keywords = self.current_analysis.get("gnd_compliant_keywords", [])
-        keywords_text = ", ".join(
-            [f"{kw.get('keyword', '')} ({kw.get('gnd_id', '')})" for kw in gnd_keywords]
-        )
+        # Get keywords from final_llm_analysis
+        gnd_keywords_list = []
+        if self.current_analysis.final_llm_analysis:
+            gnd_keywords_list = self.current_analysis.final_llm_analysis.extracted_gnd_keywords
+
+        keywords_text = ", ".join(gnd_keywords_list)
 
         self.keywords_selected.emit(keywords_text)
         QMessageBox.information(
@@ -447,88 +452,16 @@ class AnalysisReviewTab(QWidget):
         )
 
     def use_abstract_in_analysis(self):
-        """Use original abstract in analysis tab"""
+        """Use original abstract in analysis tab - Claude Generated (Refactored)"""
         if not self.current_analysis:
             return
 
-        original_abstract = self.current_analysis.get("original_abstract", "")
+        original_abstract = self.current_analysis.original_abstract or ""
 
         self.abstract_selected.emit(original_abstract)
         QMessageBox.information(
             self, "Info", "Abstract wurde an die Analyse übertragen."
         )
 
-    def create_analysis_export(
-        self,
-        abstract: str,
-        keywords: str,
-        search_results: dict,
-        final_keywords: str,
-        gnd_classes: str,
-    ) -> dict:
-        """Create analysis export from current GUI state"""
-        export_data = {
-            "original_abstract": abstract,
-            "initial_keywords": keywords.split(", ") if keywords else [],
-            "search_suggesters_used": ["gui"],
-            "initial_gnd_classes": gnd_classes.split("|") if gnd_classes else [],
-            "search_results": [],
-            "gnd_compliant_keywords": [],
-            "export_timestamp": datetime.now().isoformat(),
-            "export_source": "gui",
-        }
-
-        # Process search results if provided
-        if search_results:
-            for term, results in search_results.items():
-                if isinstance(results, dict):
-                    search_result = {"search_term": term, "results": results}
-                    export_data["search_results"].append(search_result)
-
-        # Process final keywords
-        if final_keywords:
-            for keyword_line in final_keywords.split("\n"):
-                if "(" in keyword_line and ")" in keyword_line:
-                    keyword = keyword_line.split("(")[0].strip()
-                    gnd_id = keyword_line.split("(")[1].split(")")[0].strip()
-                    export_data["gnd_compliant_keywords"].append(
-                        {"keyword": keyword, "gnd_id": gnd_id}
-                    )
-
-        return export_data
-
-    def export_current_gui_state(
-        self,
-        abstract: str,
-        keywords: str,
-        search_results: dict,
-        final_keywords: str,
-        gnd_classes: str = "",
-    ):
-        """Export current GUI state as analysis JSON"""
-        export_data = self.create_analysis_export(
-            abstract, keywords, search_results, final_keywords, gnd_classes
-        )
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "GUI-Zustand exportieren",
-            f"gui_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            "JSON Files (*.json)",
-        )
-
-        if not file_path:
-            return
-
-        try:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(export_data, f, indent=2, ensure_ascii=False)
-
-            QMessageBox.information(
-                self, "Erfolg", f"GUI-Zustand erfolgreich exportiert nach:\n{file_path}"
-            )
-            self.logger.info(f"GUI state exported to {file_path}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Fehler", f"Fehler beim Exportieren:\n{str(e)}")
-            self.logger.error(f"Error exporting GUI state: {e}")
+    # Claude Generated - DELETED: create_analysis_export() and export_current_gui_state()
+    # These methods are now obsolete - use AnalysisPersistence.save_with_dialog() instead

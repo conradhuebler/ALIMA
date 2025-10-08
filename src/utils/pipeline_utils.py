@@ -1943,10 +1943,10 @@ def _clean_ocr_output_pipeline(text: str) -> str:
     """Clean OCR output from common LLM artifacts for pipeline - Claude Generated"""
     if not text:
         return ""
-    
+
     lines = text.split('\n')
     cleaned_lines = []
-    
+
     for line in lines:
         line = line.strip()
         # Überspringe typische LLM-Metakommentare
@@ -1961,8 +1961,133 @@ def _clean_ocr_output_pipeline(text: str) -> str:
             'gefundener text:'
         ]):
             continue
-        
+
         if line:
             cleaned_lines.append(line)
-    
+
     return '\n'.join(cleaned_lines).strip()
+
+
+class AnalysisPersistence:
+    """
+    Unified persistence interface for KeywordAnalysisState with Qt dialog integration.
+    Eliminates code duplication across GUI components by providing a single API.
+    Claude Generated
+    """
+
+    @staticmethod
+    def save_with_dialog(
+        state: "KeywordAnalysisState",
+        parent_widget=None,
+        default_filename: str = None
+    ) -> Optional[str]:
+        """
+        Save KeywordAnalysisState with Qt file dialog.
+
+        Args:
+            state: KeywordAnalysisState object to save
+            parent_widget: Qt parent widget for dialog (optional)
+            default_filename: Default filename suggestion (optional)
+
+        Returns:
+            File path if saved successfully, None if cancelled or failed
+
+        Claude Generated
+        """
+        try:
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        except ImportError:
+            raise ImportError("PyQt6 required for GUI dialogs. Use PipelineJsonManager directly for CLI.")
+
+        # Generate default filename if not provided
+        if not default_filename:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            default_filename = f"analysis_state_{timestamp}.json"
+
+        # Open save dialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            parent_widget,
+            "Analyse-Zustand speichern",
+            default_filename,
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not file_path:
+            return None  # User cancelled
+
+        try:
+            # Use PipelineJsonManager for actual save
+            PipelineJsonManager.save_analysis_state(state, file_path)
+
+            # Success notification
+            if parent_widget:
+                QMessageBox.information(
+                    parent_widget,
+                    "Erfolg",
+                    f"Analyse-Zustand erfolgreich gespeichert:\n{file_path}"
+                )
+
+            return file_path
+
+        except Exception as e:
+            # Error notification
+            if parent_widget:
+                QMessageBox.critical(
+                    parent_widget,
+                    "Fehler",
+                    f"Fehler beim Speichern:\n\n{str(e)}"
+                )
+            raise
+
+    @staticmethod
+    def load_with_dialog(parent_widget=None) -> Optional["KeywordAnalysisState"]:
+        """
+        Load KeywordAnalysisState with Qt file dialog.
+
+        Args:
+            parent_widget: Qt parent widget for dialog (optional)
+
+        Returns:
+            KeywordAnalysisState object if loaded successfully, None if cancelled or failed
+
+        Claude Generated
+        """
+        try:
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        except ImportError:
+            raise ImportError("PyQt6 required for GUI dialogs. Use PipelineJsonManager directly for CLI.")
+
+        # Open load dialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            parent_widget,
+            "Analyse-Zustand laden",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not file_path:
+            return None  # User cancelled
+
+        try:
+            # Use PipelineJsonManager for actual load
+            state = PipelineJsonManager.load_analysis_state(file_path)
+
+            # Success notification
+            if parent_widget:
+                QMessageBox.information(
+                    parent_widget,
+                    "Erfolg",
+                    f"Analyse-Zustand erfolgreich geladen:\n{file_path}"
+                )
+
+            return state
+
+        except Exception as e:
+            # Error notification
+            if parent_widget:
+                QMessageBox.critical(
+                    parent_widget,
+                    "Fehler",
+                    f"Fehler beim Laden:\n\n{str(e)}"
+                )
+            return None
