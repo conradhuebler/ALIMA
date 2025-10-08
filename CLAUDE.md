@@ -14,6 +14,7 @@
 - **Remove bloated technical documentation and long-term outdated content** 
 - **Keep only clear instructions, current tasks, and actionable information**
 - **No usage documentation or tutorials belong here**
+- git commits have to be short and precise
 
 ## Development Guidelines
 
@@ -101,6 +102,76 @@
 - **Advanced Mode**: Manual provider|model override with `|` separator
 - **Expert Mode**: Full parameter control (temperature, top-p, seed)
 
+### ✅ PRODUCTION READY: Batch Processing System (Claude Generated)
+**Automated stapelweise Verschlagwortung von Quellenstapeln mit vollständiger Pipeline-Ausführung**
+
+**Core Components:**
+- **`src/utils/batch_processor.py`**: Complete batch processing engine (689 lines)
+  - ✅ `BatchProcessor`: Main processing class using `PipelineManager` for full pipeline execution
+  - ✅ `BatchSourceParser`: Parses batch files with syntax validation
+  - ✅ `BatchState`: Resume functionality with JSON persistence
+  - ✅ **ALL Source Types Supported:**
+    - **DOI**: Full support via `doi_resolver`
+    - **PDF**: PyPDF2 with intelligent LLM-OCR fallback for poor quality
+    - **TXT**: Direct file reading
+    - **IMG**: Vision model analysis via `execute_input_extraction()`
+    - **URL**: Web scraping with BeautifulSoup4
+
+**CLI Integration:**
+```bash
+# Basic batch processing
+python src/alima_cli.py batch --batch-file sources.txt --output-dir results/
+
+# With pipeline configuration
+python src/alima_cli.py batch --batch-file sources.txt --output-dir results/ \
+  --step initialisation=ollama|cogito:14b --step keywords=gemini|gemini-1.5-flash
+
+# Resume interrupted batch
+python src/alima_cli.py batch --resume results/.batch_state.json
+```
+
+**GUI Integration:**
+- **Menu**: Tools → Batch Processing... / Batch-Ergebnisse laden...
+- **Dialog** (`src/ui/batch_processing_dialog.py`, 668 lines):
+  - Tab 1: Batch File input
+  - Tab 2: Directory Scan with filters (file types, recursive, name patterns)
+  - Live preview list with checkboxes
+  - QThread background processing with progress bar
+  - Detailed progress log
+- **✅ NEW: Batch Review UI** (`src/ui/analysis_review_tab.py`):
+  - Toggle button "📋 Batch-Ansicht" / "📄 Einzelansicht"
+  - Table view with columns: Status, Source, Keywords, Date, Actions
+  - Double-click or "View" button to inspect individual results
+  - Seamless switch between batch overview and detail view
+  - Loads all JSONs from directory automatically
+
+**Features:**
+- ✅ **Complete Pipeline Execution**: Full ALIMA pipeline (init → search → keywords → classification)
+- ✅ **Advanced PDF Support**: PyPDF2 with intelligent LLM-OCR fallback for scanned/poor quality PDFs
+- ✅ **Image Analysis**: Vision model integration via `execute_input_extraction()`
+- ✅ **URL Web Scraping**: BeautifulSoup4-based content extraction with heuristics
+- ✅ **Batch Review Table**: GUI table view with toggle mode for reviewing all results
+- ✅ **Quality Checks**: Automatic PDF quality detection and fallback strategies
+- ✅ Continue-on-error vs. stop-on-error modes
+- ✅ Resume functionality for interrupted batches
+- ✅ Modular output (1 JSON per source)
+- ✅ Pipeline configuration inheritance from global settings
+- ✅ Real-time progress tracking and logging
+- ✅ File type filters and preview for directory scanning
+
+**Batch File Format:**
+```
+# Comments with #
+DOI:10.1234/example
+PDF:/path/to/document.pdf
+TXT:/path/to/text.txt
+IMG:/path/to/image.png
+URL:https://example.com/abstract
+
+# Extended format with custom name and overrides
+DOI:10.1234/example ; MyPaper ; {"keywords": {"temperature": 0.3}}
+```
+
 ## [Instructions Block - Operator-Defined Tasks]
 
 ### Critical Requirements
@@ -117,5 +188,8 @@
 
 ### Future Tasks
 1. **Code Restructuring**: Consolidate distributed logic from utils, core, suggestors
-2. **Pipeline Enhancement**: Batch processing, templates, advanced configuration UI
-3. **Performance Optimization**: Connection pooling, result pagination, memory optimization
+2. **✅ COMPLETED - Batch Processing**: Full batch processing with pipeline execution and review UI
+3. **✅ COMPLETED - Batch Review Table**: AnalysisReviewTab with toggle mode and batch table
+4. **Pipeline Enhancement**: Templates, advanced configuration UI
+5. **Batch Enhancement**: Image analysis and URL scraping support
+6. **Performance Optimization**: Connection pooling, result pagination, memory optimization

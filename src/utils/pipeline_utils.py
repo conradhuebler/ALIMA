@@ -574,6 +574,7 @@ class PipelineStepExecutor:
         # Prepare GND search results for prompt
         gnd_keywords_text = ""
         gnd_compliant_keywords = []
+        seen_keywords = set()  # Track added keywords to prevent duplicates - Claude Generated
 
         for results in search_results.values():
             for keyword, data in results.items():
@@ -583,8 +584,11 @@ class PipelineStepExecutor:
                 if not gnd_ids:
                     # Add keyword as plain text without GND notation
                     formatted_keyword = keyword
-                    gnd_keywords_text += formatted_keyword + "\n"
-                    gnd_compliant_keywords.append(formatted_keyword)
+                    # Check for duplicates before adding - Claude Generated
+                    if formatted_keyword not in seen_keywords:
+                        seen_keywords.add(formatted_keyword)
+                        gnd_keywords_text += formatted_keyword + "\n"
+                        gnd_compliant_keywords.append(formatted_keyword)
                     continue
 
                 # Process keywords WITH GND-IDs
@@ -612,14 +616,20 @@ class PipelineStepExecutor:
                         else:
                             # No synonym expansion
                             formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
-                            
-                        gnd_keywords_text += formatted_keyword + "\n"
-                        gnd_compliant_keywords.append(formatted_keyword)
+
+                        # Check for duplicates before adding - Claude Generated
+                        if formatted_keyword not in seen_keywords:
+                            seen_keywords.add(formatted_keyword)
+                            gnd_keywords_text += formatted_keyword + "\n"
+                            gnd_compliant_keywords.append(formatted_keyword)
                     else:
                         # Fallback to original keyword if GND title not found
                         formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
-                        gnd_keywords_text += formatted_keyword + "\n"
-                        gnd_compliant_keywords.append(formatted_keyword)
+                        # Check for duplicates before adding - Claude Generated
+                        if formatted_keyword not in seen_keywords:
+                            seen_keywords.add(formatted_keyword)
+                            gnd_keywords_text += formatted_keyword + "\n"
+                            gnd_compliant_keywords.append(formatted_keyword)
 
         # Check if chunking is needed based on keyword count
         total_keywords = len(gnd_compliant_keywords)

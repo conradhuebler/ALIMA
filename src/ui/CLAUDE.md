@@ -117,6 +117,18 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
     - `receive_analysis_data()` method in AnalysisReviewTab
     - Seamless workflow progression without manual data transfer
 
+13. **✅ Batch Processing Dialog (`batch_processing_dialog.py`)**:
+    - **Menu Integration**: Tools → Batch Processing... / Batch-Ergebnisse laden...
+    - **Tab-Based Input**: Batch File or Directory Scan with filters
+    - **File Filters**: Type patterns, recursive scan, name patterns
+    - **Live Preview**: Checkbox list of sources to process
+    - **QThread Processing**: Non-blocking batch execution with BatchProcessingWorker
+    - **Progress Tracking**: Progress bar and detailed log display
+    - **Error Handling**: Continue-on-error mode with detailed error reporting
+    - **Cancel Support**: Safe cancellation of running batches
+    - **Pipeline Integration**: Uses current pipeline configuration
+    - **Output Configuration**: Selectable output directory for results
+
 ### Current UI State
 - **Font Sizes**: Larger fonts implemented for better readability
 - **Layout System**: QSplitter-based responsive design with auto-adjustment during streaming
@@ -144,14 +156,18 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 ### Future Tasks
 1. **WIP - Pipeline Configuration UI**: Graphical configuration for pipeline steps and models
 2. **ADD - Pipeline Templates**: Save/load different pipeline workflow configurations
-3. **ADD - Batch Pipeline Processing**: Process multiple inputs through pipeline simultaneously
-4. **ADD - Drag & Drop to Pipeline**: File drag-and-drop directly to pipeline steps
-5. **ADD - Pipeline Step Editing**: Inline editing of intermediate results in pipeline
-6. **ADD - Keyboard Shortcuts**: Implement comprehensive keyboard navigation
-7. **ADD - Advanced Theming**: Dark mode and customizable UI themes
-8. **ADD - Enhanced Export**: Pipeline result export in multiple formats (PDF, Excel, etc.)
+3. **✅ ADDED - Batch Processing Dialog**: Complete batch processing UI with directory scan
+4. **ADD - Batch Review Table**: Enhanced table view for reviewing batch results
+5. **ADD - Drag & Drop to Pipeline**: File drag-and-drop directly to pipeline steps
+6. **ADD - Pipeline Step Editing**: Inline editing of intermediate results in pipeline
+7. **ADD - Keyboard Shortcuts**: Implement comprehensive keyboard navigation
+8. **ADD - Advanced Theming**: Dark mode and customizable UI themes
+9. **ADD - Enhanced Export**: Pipeline result export in multiple formats (PDF, Excel, etc.)
 
 ### Recently COMPLETED Tasks
+1. **✅ ADDED - Batch Processing Dialog**: Tab-based batch processing with filters and progress tracking
+
+### Previously COMPLETED Tasks
 1. **✅ TESTED - Vertical Pipeline UI**: Complete implementation with visual step indicators
 2. **✅ TESTED - Global Status Integration**: Real-time provider and cache monitoring  
 3. **✅ TESTED - Automated Data Transfer**: AbstractTab → AnalysisReviewTab workflow

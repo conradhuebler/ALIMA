@@ -71,9 +71,16 @@ The `src/utils/` directory provides essential configuration management and utili
    - **PipelineJsonManager**: JSON serialization/deserialization utilities
    - **PipelineResultFormatter**: Result formatting for display/prompts
    - **execute_complete_pipeline()**: End-to-end pipeline execution function
+6. **✅ ADDED: Batch Processing (`batch_processor.py`)**: Complete batch processing system
+   - **BatchProcessor**: Main engine using PipelineStepExecutor
+   - **BatchSourceParser**: Validates and parses batch file formats
+   - **BatchState**: Resume functionality with JSON persistence
+   - **SourceType Enum**: DOI, PDF, TXT, IMG, URL support
+   - **Callbacks**: on_source_start, on_source_complete, on_batch_complete
+   - **Error Handling**: Continue-on-error and stop-on-error modes
 
 ### Configuration Status
-- **Config Location**: `~/.config/gnd-fetcher/config.yaml`
+- **Config Location**: `~/.config/alima/config.json`
 - **Default Values**: Comprehensive defaults for all configuration sections
 - **Validation**: Active validation with detailed error reporting
 - **Migration**: Automatic configuration migration and updates

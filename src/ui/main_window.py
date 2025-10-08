@@ -689,6 +689,15 @@ class MainWindow(QMainWindow):
                         keywords_text = str(final_keywords)
                     self.ub_search_tab.update_keywords(keywords_text)
 
+        # 5. 📊 Analyse-Review Tab - Sende finale Ergebnisse
+        if analysis_state.final_llm_analysis:
+            self.analysis_review_tab.receive_analysis_data(
+                abstract_text=analysis_state.original_abstract or "",
+                keywords=", ".join(analysis_state.final_llm_analysis.extracted_gnd_keywords),
+                analysis_result=analysis_state.final_llm_analysis.response_full_text
+            )
+            self.logger.info("✅ Analysis review tab populated with final results from live pipeline.")
+
         self.logger.info("Pipeline results successfully distributed to all tabs")
 
     @pyqtSlot(str)
@@ -881,17 +890,9 @@ class MainWindow(QMainWindow):
                     10000
                 )
 
-    def export_results(self):
-        """Exportiert die aktuellen Suchergebnisse"""
-        current_tab = self.tabs.currentWidget()
-        if hasattr(current_tab, "export_results"):
-            current_tab.export_results()
-        else:
-            self.global_status_bar.show_temporary_message("Export nicht verfügbar für diesen Tab", 3000)
-
-    # Claude Generated - DELETED: export_current_analysis()
-    # This method is now obsolete - use collect_current_gui_state() + AnalysisPersistence instead
-    # Or delegate directly to analysis_review_tab.export_analysis()
+    # Claude Generated - DELETED: export_results() and export_current_analysis()
+    # export_results: Inconsistent tab-specific export removed
+    # export_current_analysis: Obsolete - now use analysis_review_tab.current_analysis directly
 
     def import_results(self):
         """Importiert gespeicherte Suchergebnisse"""
@@ -951,6 +952,83 @@ class MainWindow(QMainWindow):
                 "Fehler",
                 f"Fehler beim Öffnen des Datenbank-Viewers:\n{str(e)}"
             )
+
+    def show_batch_processing_dialog(self):
+        """Open batch processing dialog - Claude Generated"""
+        try:
+            from .batch_processing_dialog import BatchProcessingDialog
+
+            dialog = BatchProcessingDialog(
+                alima_manager=self.alima_manager,
+                cache_manager=self.cache_manager,
+                config_manager=self.config_manager,
+                logger=self.logger,
+                parent=self
+            )
+            dialog.exec()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Öffnen des Batch Processing Dialogs:\n{str(e)}"
+            )
+            self.logger.error(f"Failed to open batch processing dialog: {e}")
+
+    def load_batch_results(self):
+        """Load and review batch processing results - Claude Generated"""
+        try:
+            # Ask user to select output directory
+            directory = QFileDialog.getExistingDirectory(
+                self,
+                "Batch-Ergebnisse laden",
+                "",
+                QFileDialog.Option.ShowDirsOnly
+            )
+
+            if not directory:
+                return
+
+            # Find all JSON files in directory
+            from pathlib import Path
+            json_files = list(Path(directory).glob("*.json"))
+
+            # Filter out the .batch_state.json file
+            json_files = [f for f in json_files if f.name != ".batch_state.json"]
+
+            if not json_files:
+                QMessageBox.warning(
+                    self,
+                    "Keine Ergebnisse",
+                    f"Keine JSON-Dateien in {directory} gefunden."
+                )
+                return
+
+            # Switch to analysis review tab
+            for i in range(self.tabs.count()):
+                if isinstance(self.tabs.widget(i), type(self.analysis_review_tab)):
+                    self.tabs.setCurrentIndex(i)
+                    break
+
+            # Load batch directory into analysis review tab - Claude Generated
+            self.analysis_review_tab.load_batch_directory(directory)
+
+            self.update_status(f"Loaded {len(json_files)} batch result(s) from {directory}")
+
+            QMessageBox.information(
+                self,
+                "Batch-Ergebnisse geladen",
+                f"Geladen: {len(json_files)} Ergebnis-Dateien aus {directory}\n\n"
+                f"Verwenden Sie die Batch-Tabelle um einzelne Ergebnisse anzuzeigen."
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Laden der Batch-Ergebnisse:\n{str(e)}"
+            )
+            self.logger.error(f"Failed to load batch results: {e}")
 
     def closeEvent(self, event):
         """Wird beim Schließen des Fensters aufgerufen"""
@@ -1180,109 +1258,43 @@ class MainWindow(QMainWindow):
             self.logger.error(f"Error distributing analysis state: {e}")
             raise  # Re-raise to be handled by calling method
 
-    def collect_current_gui_state(self):
-        """
-        Sammelt den aktuellen Zustand der GUI-Tabs zu einem KeywordAnalysisState-Objekt
-        für Export oder Vergleichszwecke - Claude Generated
-        """
-        from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis, SearchResult
-        from ..utils.pipeline_utils import PipelineJsonManager
-
-        try:
-            self.logger.info("Collecting current GUI state for export...")
-
-            # 1. Sammle Abstract/Input Text
-            original_abstract = ""
-            if hasattr(self.pipeline_tab, 'unified_input'):
-                original_abstract = self.pipeline_tab.unified_input.get_current_text() or ""
-            elif hasattr(self.abstract_tab, 'abstract_text'):
-                original_abstract = self.abstract_tab.abstract_text.toPlainText() or ""
-
-            # 2. Sammle initiale Keywords (aus Abstract Tab oder Search Tab Input)
-            initial_keywords = []
-            if hasattr(self.search_tab, 'search_field') and self.search_tab.search_field.text():
-                keywords_text = self.search_tab.search_field.text()
-                initial_keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
-
-            # 3. Sammle Suchergebnisse (aus Search Tab)
-            search_results = []
-            if hasattr(self.search_tab, 'flat_results') and self.search_tab.flat_results:
-                # Convert flat results back to SearchResult format
-                # This is a simplified conversion - in a full implementation we'd need more logic
-                search_results.append(SearchResult(
-                    search_term="current_search",
-                    results={"gui_results": {"count": len(self.search_tab.flat_results)}}
-                ))
-
-            # 4. Sammle finale Keywords (aus Analysis Review Tab oder Verification Tab)
-            final_keywords = []
-            final_response = ""
-            if hasattr(self.analysis_review_tab, 'keywords_text') and self.analysis_review_tab.keywords_text.toPlainText():
-                keywords_text = self.analysis_review_tab.keywords_text.toPlainText()
-                final_keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
-            if hasattr(self.analysis_review_tab, 'response_text') and self.analysis_review_tab.response_text.toPlainText():
-                final_response = self.analysis_review_tab.response_text.toPlainText()
-
-            # 5. Erstelle LLM Analysis Objekt für finale Analyse
-            final_llm_analysis = None
-            if final_keywords or final_response:
-                final_llm_analysis = LlmKeywordAnalysis(
-                    task_name="gui_collection",
-                    model_used="unknown",  # Could be enhanced to track current model
-                    provider_used="unknown",  # Could be enhanced to track current provider
-                    prompt_template="",
-                    filled_prompt="",
-                    temperature=0.7,
-                    seed=None,
-                    response_full_text=final_response,
-                    extracted_gnd_keywords=final_keywords,
-                    extracted_gnd_classes=[]
-                )
-
-            # 6. Erstelle KeywordAnalysisState
-            state = KeywordAnalysisState(
-                original_abstract=original_abstract,
-                initial_keywords=initial_keywords,
-                search_suggesters_used=["gui_collection"],
-                initial_gnd_classes=[],
-                search_results=search_results,
-                initial_llm_call_details=None,
-                final_llm_analysis=final_llm_analysis,
-                pipeline_step_completed="gui_collected"
-            )
-
-            self.logger.info(f"GUI state collected: {len(initial_keywords)} initial keywords, {len(final_keywords)} final keywords")
-            return state
-
-        except Exception as e:
-            self.logger.error(f"Error collecting GUI state: {e}")
-            raise
+    # Claude Generated - DELETED: collect_current_gui_state()
+    # This UI-scraping method is now obsolete and removed.
+    # Reason: Single Source of Truth architecture - we now use analysis_review_tab.current_analysis directly.
+    # All export operations now access the canonical data object instead of scraping UI elements.
 
     def export_current_gui_state(self):
         """
-        Exportiert den aktuellen GUI-Zustand als JSON-Datei - Claude Generated (Refactored)
+        Exportiert den aktuellen Analyse-Zustand aus dem Analyse-Review-Tab.
+        Claude Generated - Refactored to use Single Source of Truth (analysis_review_tab.current_analysis)
         """
         from ..utils.pipeline_utils import AnalysisPersistence
 
-        try:
-            # 1. Sammle aktuellen GUI-Zustand
-            state = self.collect_current_gui_state()
+        # 1. Prüfe, ob der Analyse-Review-Tab ein gültiges Ergebnis hat
+        if self.analysis_review_tab and self.analysis_review_tab.current_analysis:
+            # 2. Das "echte" Datenobjekt direkt holen (Single Source of Truth)
+            state_to_save = self.analysis_review_tab.current_analysis
+            self.logger.info("Exporting current analysis state from AnalysisReviewTab.")
 
-            # 2. Export mit zentraler AnalysisPersistence
+            # 3. Den bewährten Speicher-Dialog mit dem korrekten Objekt aufrufen
             file_path = AnalysisPersistence.save_with_dialog(
-                state=state,
+                state=state_to_save,
                 parent_widget=self,
-                default_filename=f"gui_state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                default_filename=f"analysis_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             )
 
-            # 3. Erfolgsmeldung (wenn gespeichert)
             if file_path:
-                self.global_status_bar.show_temporary_message("✅ GUI-Zustand erfolgreich exportiert.", 5000)
-                self.logger.info(f"GUI state successfully exported to: {file_path}")
-
-        except Exception as e:
-            self.logger.error(f"Error exporting GUI state: {e}")
-            # Error dialog already shown by AnalysisPersistence
+                self.global_status_bar.show_temporary_message("✅ Analyse-Zustand erfolgreich exportiert.", 5000)
+                self.logger.info(f"Analysis state successfully exported to: {file_path}")
+        else:
+            # 4. Fehlerbehandlung, wenn keine Daten zum Speichern da sind
+            self.logger.warning("Export triggered, but no analysis state available in Review-Tab.")
+            QMessageBox.information(
+                self,
+                "Keine Daten zum Speichern",
+                "Es ist keine abgeschlossene Analyse vorhanden, die gespeichert werden könnte.\n\n"
+                "Bitte führen Sie zuerst eine Analyse durch oder laden Sie ein Ergebnis in den 'Analyse-Review'-Tab."
+            )
 
     def compare_analysis_states(self):
         """
@@ -1780,12 +1792,6 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        # Export results
-        export_action = file_menu.addAction("📤 &Ergebnisse exportieren...")
-        export_action.triggered.connect(self.export_results)
-
-        file_menu.addSeparator()
-
         # Beenden-Aktion
         exit_action = file_menu.addAction("🚪 &Beenden")
         exit_action.triggered.connect(self.close)
@@ -1800,6 +1806,15 @@ class MainWindow(QMainWindow):
         # Database viewer action - Claude Generated
         db_viewer_action = tools_menu.addAction("📊 &Datenbank-Viewer")
         db_viewer_action.triggered.connect(self.show_database_viewer)
+
+        tools_menu.addSeparator()
+
+        # Batch processing actions - Claude Generated
+        batch_process_action = tools_menu.addAction("📦 &Batch Processing...")
+        batch_process_action.triggered.connect(self.show_batch_processing_dialog)
+
+        batch_review_action = tools_menu.addAction("📋 Batch-Ergebnisse &laden...")
+        batch_review_action.triggered.connect(self.load_batch_results)
 
         tools_menu.addSeparator()
 

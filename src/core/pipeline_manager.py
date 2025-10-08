@@ -840,8 +840,8 @@ class PipelineManager:
                 stream_callback=stream_callback,
             )
 
-            # Update analysis state
-            self.current_analysis_state.search_results = search_results
+            # Update analysis state - Convert Dict to List[SearchResult] for data model consistency
+            self.current_analysis_state.search_results = self._convert_search_results_to_objects(search_results)
 
             self.logger.info(
                 f"Search completed. Found {len(search_results)} result sets"
@@ -866,7 +866,7 @@ class PipelineManager:
         # Allow empty search_results for single-step execution (user may provide text-only analysis) - Claude Generated
         if not self.current_analysis_state.search_results:
             self.logger.warning("No search results available - proceeding with text-only analysis")
-            self.current_analysis_state.search_results = {}  # Empty dict to avoid errors in executor
+            self.current_analysis_state.search_results = []  # Empty list (List[SearchResult]) to match data model
 
         # Get configuration for keywords step
         step_config = self.config.get_step_config("keywords")
@@ -953,10 +953,15 @@ class PipelineManager:
                 filtered_config["system"] = step_config.system_prompt
                 self.logger.info(f"Keywords: Mapped system_prompt to system parameter")
 
+            # Convert List[SearchResult] back to Dict for executor compatibility
+            search_results_dict = self._convert_search_results_to_dict(
+                self.current_analysis_state.search_results
+            ) if self.current_analysis_state.search_results else {}
+
             final_keywords, _, llm_analysis = (
                 self.pipeline_executor.execute_final_keyword_analysis(
                     original_abstract=self.current_analysis_state.original_abstract,
-                    search_results=self.current_analysis_state.search_results,
+                    search_results=search_results_dict,
                     model=step.model,
                     provider=step.provider,
                     task=task,
@@ -1152,6 +1157,47 @@ class PipelineManager:
         }
         return task_mapping.get(step_id, "keywords")
 
+    def _convert_search_results_to_objects(
+        self, search_results: Dict[str, Dict[str, Any]]
+    ) -> List[SearchResult]:
+        """
+        Convert dict search results to SearchResult objects - Claude Generated
+
+        This ensures consistency with the KeywordAnalysisState data model which expects
+        a List[SearchResult], not a raw Dict. This fixes CLI/GUI JSON compatibility.
+
+        Args:
+            search_results: Dict mapping search_term to results dict
+
+        Returns:
+            List of SearchResult objects
+        """
+        from ..core.data_models import SearchResult
+        return [
+            SearchResult(search_term=term, results=results)
+            for term, results in search_results.items()
+        ]
+
+    def _convert_search_results_to_dict(
+        self, search_results: List[SearchResult]
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Convert SearchResult objects back to dict format - Claude Generated
+
+        PipelineStepExecutor expects Dict format for processing, but KeywordAnalysisState
+        stores List[SearchResult] for proper data modeling. This converts back when needed.
+
+        Args:
+            search_results: List of SearchResult objects
+
+        Returns:
+            Dict mapping search_term to results dict
+        """
+        return {
+            result.search_term: result.results
+            for result in search_results
+        }
+
     def get_current_step(self) -> Optional[PipelineStep]:
         """Get currently executing step - Claude Generated"""
         if 0 <= self.current_step_index < len(self.pipeline_steps):
@@ -1285,12 +1331,15 @@ class PipelineManager:
                         mock_search_results = mock_results
                         self.logger.info(f"✅ Parsed {len(keywords_list)} keywords (with GND lookup) for keywords step")
 
+                # Convert mock_search_results Dict to List[SearchResult] for data model consistency
+                search_result_objects = self._convert_search_results_to_objects(mock_search_results)
+
                 self.current_analysis_state = KeywordAnalysisState(
                     original_abstract=abstract_text,
                     initial_keywords=keywords_list,
                     search_suggesters_used=config.search_suggesters,
                     initial_gnd_classes=[],
-                    search_results=mock_search_results,
+                    search_results=search_result_objects,
                     initial_llm_call_details=None,
                     final_llm_analysis=None,
                 )

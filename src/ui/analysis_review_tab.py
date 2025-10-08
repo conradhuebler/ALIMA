@@ -38,6 +38,11 @@ class AnalysisReviewTab(QWidget):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self.current_analysis: Optional[KeywordAnalysisState] = None  # Claude Generated - Now uses KeywordAnalysisState
+
+        # Batch review mode - Claude Generated
+        self.batch_mode = False
+        self.batch_results: List[tuple[str, KeywordAnalysisState]] = []  # (filename, state)
+
         self.setup_ui()
 
     def receive_analysis_data(
@@ -98,6 +103,12 @@ class AnalysisReviewTab(QWidget):
         self.load_button.clicked.connect(self.load_analysis)
         button_layout.addWidget(self.load_button)
 
+        # Batch mode toggle button - Claude Generated
+        self.batch_toggle_button = QPushButton("📋 Batch-Ansicht")
+        self.batch_toggle_button.clicked.connect(self.toggle_batch_mode)
+        self.batch_toggle_button.setCheckable(True)
+        button_layout.addWidget(self.batch_toggle_button)
+
         self.export_button = QPushButton("Als JSON exportieren")
         self.export_button.clicked.connect(self.export_analysis)
         self.export_button.setEnabled(False)
@@ -115,6 +126,10 @@ class AnalysisReviewTab(QWidget):
 
         button_layout.addStretch()
         main_layout.addLayout(button_layout)
+
+        # Batch review table - Claude Generated (initially hidden)
+        self.setup_batch_table()
+        main_layout.addWidget(self.batch_table_widget)
 
         # Main content splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -465,3 +480,154 @@ class AnalysisReviewTab(QWidget):
 
     # Claude Generated - DELETED: create_analysis_export() and export_current_gui_state()
     # These methods are now obsolete - use AnalysisPersistence.save_with_dialog() instead
+
+    # ==================== Batch Review Mode Methods - Claude Generated ====================
+
+    def setup_batch_table(self):
+        """Setup the batch review table widget - Claude Generated"""
+        self.batch_table_widget = QWidget()
+        batch_layout = QVBoxLayout(self.batch_table_widget)
+
+        # Info label
+        info_label = QLabel("📋 Batch-Ergebnisse - Klicken Sie auf eine Zeile, um Details anzuzeigen")
+        info_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        batch_layout.addWidget(info_label)
+
+        # Table
+        self.batch_table = QTableWidget()
+        self.batch_table.setColumnCount(5)
+        self.batch_table.setHorizontalHeaderLabels([
+            "Status", "Quelle", "Keywords", "Datum", "Aktionen"
+        ])
+        self.batch_table.horizontalHeader().setStretchLastSection(False)
+        self.batch_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.batch_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.batch_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.batch_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.batch_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+
+        self.batch_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.batch_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.batch_table.cellDoubleClicked.connect(self.on_batch_row_double_clicked)
+
+        batch_layout.addWidget(self.batch_table)
+
+        # Initially hidden
+        self.batch_table_widget.setVisible(False)
+
+    def toggle_batch_mode(self):
+        """Toggle between single and batch view - Claude Generated"""
+        self.batch_mode = not self.batch_mode
+
+        # Update UI visibility
+        self.batch_table_widget.setVisible(self.batch_mode)
+        self.main_splitter.setVisible(not self.batch_mode)
+
+        # Update button text
+        if self.batch_mode:
+            self.batch_toggle_button.setText("📄 Einzelansicht")
+            self.batch_toggle_button.setChecked(True)
+        else:
+            self.batch_toggle_button.setText("📋 Batch-Ansicht")
+            self.batch_toggle_button.setChecked(False)
+
+        self.logger.info(f"Batch mode {'enabled' if self.batch_mode else 'disabled'}")
+
+    def load_batch_directory(self, directory: str):
+        """Load all JSON files from directory - Claude Generated"""
+        from pathlib import Path
+        from ..utils.pipeline_utils import PipelineJsonManager
+
+        json_files = list(Path(directory).glob("*.json"))
+
+        # Filter out the .batch_state.json file
+        json_files = [f for f in json_files if f.name != ".batch_state.json"]
+
+        if not json_files:
+            self.logger.warning(f"No JSON files found in {directory}")
+            return
+
+        self.batch_results = []
+        for json_file in json_files:
+            try:
+                state = PipelineJsonManager.load_analysis_state(str(json_file))
+                self.batch_results.append((json_file.name, state))
+            except Exception as e:
+                self.logger.error(f"Failed to load {json_file}: {e}")
+
+        self.populate_batch_table()
+        self.logger.info(f"Loaded {len(self.batch_results)} batch results from {directory}")
+
+        # Automatically switch to batch mode
+        if not self.batch_mode:
+            self.toggle_batch_mode()
+
+    def populate_batch_table(self):
+        """Fill batch table with loaded results - Claude Generated"""
+        self.batch_table.setRowCount(len(self.batch_results))
+
+        for row, (filename, state) in enumerate(self.batch_results):
+            # Status
+            status_icon = "✅" if state.final_llm_analysis else "⚠️"
+            status_item = QTableWidgetItem(status_icon)
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.batch_table.setItem(row, 0, status_item)
+
+            # Source
+            source_item = QTableWidgetItem(filename)
+            self.batch_table.setItem(row, 1, source_item)
+
+            # Keywords count
+            keyword_count = 0
+            if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
+                keyword_count = len(state.final_llm_analysis.extracted_gnd_keywords)
+            keyword_item = QTableWidgetItem(str(keyword_count))
+            keyword_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.batch_table.setItem(row, 2, keyword_item)
+
+            # Date
+            date_str = state.timestamp or ""
+            if date_str:
+                try:
+                    # Format datetime for display
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(date_str)
+                    date_str = dt.strftime("%Y-%m-%d %H:%M")
+                except:
+                    pass
+            date_item = QTableWidgetItem(date_str)
+            date_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.batch_table.setItem(row, 3, date_item)
+
+            # Actions button
+            view_btn = QPushButton("View")
+            view_btn.clicked.connect(lambda checked, r=row: self.view_batch_result(r))
+            self.batch_table.setCellWidget(row, 4, view_btn)
+
+    def on_batch_row_double_clicked(self, row: int, column: int):
+        """Handle double-click on batch table row - Claude Generated"""
+        self.view_batch_result(row)
+
+    def view_batch_result(self, row: int):
+        """View detailed result from batch table - Claude Generated"""
+        if row < 0 or row >= len(self.batch_results):
+            return
+
+        filename, state = self.batch_results[row]
+        self.logger.info(f"Viewing batch result: {filename}")
+
+        # Load the state into current analysis
+        self.current_analysis = state
+
+        # Switch to single view
+        if self.batch_mode:
+            self.toggle_batch_mode()
+
+        # Populate the detail views
+        self.populate_analysis_data()
+        self.populate_detail_tabs()
+
+        # Enable buttons
+        self.export_button.setEnabled(True)
+        self.use_keywords_button.setEnabled(True)
+        self.use_abstract_button.setEnabled(True)

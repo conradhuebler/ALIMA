@@ -394,6 +394,126 @@ EXAMPLES:
         help="Minimum occurrence count for DK classifications to be included in LLM analysis (default: 10). Only classifications appearing >= N times in catalog will be passed to LLM.",
     )
 
+    # Batch command - Claude Generated
+    batch_parser = subparsers.add_parser(
+        "batch",
+        help="Process multiple sources through the ALIMA pipeline in batch mode.",
+        description="""
+ALIMA Batch Processing Command:
+
+Process multiple sources (DOIs, PDFs, text files, images, URLs) through the complete
+ALIMA pipeline in an automated batch workflow. Results are saved as individual JSON
+files and can be reviewed in the GUI.
+
+BATCH FILE FORMAT:
+  Each line defines a source with format: TYPE:VALUE
+  Supported types: DOI, PDF, TXT, IMG, URL
+  Lines starting with # are comments
+
+EXAMPLES:
+  DOI:10.1234/example
+  PDF:/path/to/document.pdf
+  TXT:/path/to/text.txt
+  IMG:/path/to/image.png
+  URL:https://example.com/abstract
+
+EXTENDED FORMAT (optional):
+  SOURCE ; custom_name ; {"step": "override"}
+
+  Example:
+  DOI:10.1234/example ; MyPaper ; {"keywords": {"temperature": 0.3}}
+
+USAGE EXAMPLES:
+  # Basic batch processing
+  python alima_cli.py batch --batch-file sources.txt --output-dir results/
+
+  # With pipeline configuration
+  python alima_cli.py batch --batch-file sources.txt --output-dir results/ \\
+    --step initialisation=ollama|cogito:14b --step keywords=gemini|gemini-1.5-flash
+
+  # Resume interrupted batch
+  python alima_cli.py batch --resume results/.batch_state.json
+
+  # Stop on first error (default: continue on error)
+  python alima_cli.py batch --batch-file sources.txt --output-dir results/ --stop-on-error
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # Input: batch file or resume
+    batch_input_group = batch_parser.add_mutually_exclusive_group(required=True)
+    batch_input_group.add_argument(
+        "--batch-file",
+        help="Path to batch file containing sources to process"
+    )
+    batch_input_group.add_argument(
+        "--resume",
+        help="Path to .batch_state.json to resume interrupted batch"
+    )
+
+    # Output directory
+    batch_parser.add_argument(
+        "--output-dir",
+        help="Directory for output JSON files (required if not resuming)"
+    )
+
+    # Error handling
+    batch_parser.add_argument(
+        "--stop-on-error",
+        action="store_true",
+        help="Stop processing on first error (default: continue)"
+    )
+    batch_parser.add_argument(
+        "--continue-on-error",
+        action="store_true",
+        default=True,
+        help="Continue processing even if sources fail (default)"
+    )
+
+    # Pipeline configuration (same as pipeline command)
+    batch_parser.add_argument(
+        "--mode",
+        choices=["smart", "advanced", "expert"],
+        default="smart",
+        help="Configuration mode: smart (uses task_preferences), advanced (manual provider|model), expert (full parameter control)"
+    )
+    batch_parser.add_argument(
+        "--step",
+        action="append",
+        help="Set provider|model for specific step: STEP=PROVIDER|MODEL"
+    )
+    batch_parser.add_argument(
+        "--step-task",
+        action="append",
+        help="Set prompt task for specific step: STEP=TASK"
+    )
+    batch_parser.add_argument(
+        "--step-temperature",
+        action="append",
+        help="Set temperature for specific step: STEP=VALUE"
+    )
+    batch_parser.add_argument(
+        "--step-top-p",
+        action="append",
+        help="Set top-p for specific step: STEP=VALUE"
+    )
+    batch_parser.add_argument(
+        "--step-seed",
+        action="append",
+        help="Set seed for specific step: STEP=VALUE"
+    )
+    batch_parser.add_argument(
+        "--suggesters",
+        nargs="+",
+        default=["lobid", "swb"],
+        help="Search suggesters to use"
+    )
+    batch_parser.add_argument(
+        "--disable-dk-classification",
+        action="store_true",
+        help="Disable DK classification step"
+    )
+
     # Search command
     search_parser = subparsers.add_parser(
         "search", help="Search for keywords using various suggesters."
@@ -994,6 +1114,140 @@ EXAMPLES:
 
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
+
+    elif args.command == "batch":
+        # Batch processing command - Claude Generated
+        from src.utils.config_manager import ConfigManager as CM
+        from src.core.pipeline_manager import PipelineConfig
+        from src.utils.batch_processor import BatchProcessor
+
+        # Validate arguments
+        if args.batch_file and not args.output_dir and not args.resume:
+            logger.error("--output-dir is required when using --batch-file")
+            return
+
+        # Setup services
+        config_manager = CM()
+        llm_service = LlmService(
+            providers=None,
+            config_manager=config_manager,
+        )
+        prompt_service = PromptService(PROMPTS_FILE, logger)
+        alima_manager = AlimaManager(llm_service, prompt_service, config_manager, logger)
+        cache_manager = UnifiedKnowledgeManager()
+
+        # Create PipelineStepExecutor for batch processing
+        executor = PipelineStepExecutor(
+            alima_manager=alima_manager,
+            cache_manager=cache_manager,
+            logger=logger,
+            config_manager=config_manager
+        )
+
+        # Determine output directory
+        if args.resume:
+            # Load state to get output directory
+            from src.utils.batch_processor import BatchState
+            try:
+                state = BatchState.load(args.resume)
+                output_dir = state.output_dir
+                logger.info(f"Resuming batch from: {args.resume}")
+            except Exception as e:
+                logger.error(f"Failed to load resume state: {e}")
+                return
+        else:
+            output_dir = args.output_dir
+
+        # Create BatchProcessor
+        batch_processor = BatchProcessor(
+            pipeline_executor=executor,
+            cache_manager=cache_manager,
+            output_dir=output_dir,
+            logger=logger,
+            continue_on_error=not args.stop_on_error
+        )
+
+        # Setup callbacks for progress reporting
+        def on_source_start(source, current, total):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"[{current}/{total}] Processing: {source.source_type.value}")
+            logger.info(f"Source: {source.source_value}")
+            if source.custom_name:
+                logger.info(f"Custom name: {source.custom_name}")
+            logger.info(f"{'='*60}")
+
+        def on_source_complete(result):
+            if result.success:
+                logger.info(f"✅ Completed: {result.output_file}")
+            else:
+                logger.error(f"❌ Failed: {result.error_message}")
+
+        def on_batch_complete(results):
+            logger.info(f"\n{'='*60}")
+            logger.info("🎉 Batch Processing Complete!")
+            logger.info(f"{'='*60}")
+
+            summary = batch_processor.get_batch_summary()
+            logger.info(f"Total sources: {summary['total_sources']}")
+            logger.info(f"Processed: {summary['processed']}")
+            logger.info(f"Successful: {summary['successful']}")
+            logger.info(f"Failed: {summary['failed']}")
+            logger.info(f"Success rate: {summary['success_rate']:.1f}%")
+            logger.info(f"Output directory: {summary['output_dir']}")
+
+            if summary['failed'] > 0:
+                logger.info("\n❌ Failed sources:")
+                for fail in batch_processor.batch_state.failed_sources:
+                    logger.info(f"  - {fail['source']}: {fail['error']}")
+
+        batch_processor.on_source_start = on_source_start
+        batch_processor.on_source_complete = on_source_complete
+        batch_processor.on_batch_complete = on_batch_complete
+
+        # Build pipeline configuration (same as pipeline command)
+        try:
+            pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
+            logger.info("Pipeline configuration loaded from Provider Preferences")
+        except Exception as e:
+            logger.warning(f"Failed to load Provider Preferences, using defaults: {e}")
+            pipeline_config = PipelineConfig()
+
+        # Apply CLI overrides
+        pipeline_config = apply_cli_overrides(pipeline_config, args)
+
+        # Convert pipeline_config to dict for batch processor
+        pipeline_config_dict = {
+            "step_configs": {
+                step_id: {
+                    "provider": step_config.provider,
+                    "model": step_config.model,
+                    "task": step_config.task,
+                    "temperature": step_config.temperature,
+                    "top_p": step_config.top_p,
+                    "enabled": step_config.enabled,
+                }
+                for step_id, step_config in pipeline_config.step_configs.items()
+            }
+        }
+
+        # Process batch
+        try:
+            logger.info(f"Starting batch processing...")
+            if args.batch_file:
+                logger.info(f"Batch file: {args.batch_file}")
+            logger.info(f"Output directory: {output_dir}")
+            logger.info(f"Continue on error: {not args.stop_on_error}")
+
+            results = batch_processor.process_batch_file(
+                batch_file=args.batch_file if args.batch_file else batch_processor.batch_state.batch_file,
+                pipeline_config=pipeline_config_dict,
+                resume_state=args.resume
+            )
+
+        except Exception as e:
+            logger.error(f"Batch processing failed: {e}")
+            import traceback
+            traceback.print_exc()
 
     elif args.command == "search":
         cache_manager = UnifiedKnowledgeManager()
