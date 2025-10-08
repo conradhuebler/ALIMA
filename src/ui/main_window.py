@@ -1824,84 +1824,86 @@ class MainWindow(QMainWindow):
     # In der MainWindow Klasse - füge folgende Methoden hinzu
 
     def create_menu_bar(self):
-        """Erstellt die Menüleiste"""
+        """Erstellt die Menüleiste - Claude Generated (Reorganized)"""
         menubar = self.menuBar()
 
-        # Datei-Menü
+        # ========== Datei-Menü (Workflow-fokussiert) ==========
         file_menu = menubar.addMenu("&Datei")
 
-        # Export-Aktion
-        export_action = file_menu.addAction("&Exportieren...")
-        export_action.triggered.connect(self.export_results)
-
-        # Export Analysis
-        export_analysis_action = file_menu.addAction(
-            "&Aktuelle Verschlagwortung als JSON..."
-        )
-        export_analysis_action.triggered.connect(self.export_current_analysis)
-
-        # Import-Aktion
-        import_action = file_menu.addAction("&Importieren...")
-        import_action.triggered.connect(self.import_gnd_database)
-
         # Analyse-Zustand laden - Claude Generated
-        load_state_action = file_menu.addAction("&Analyse-Zustand laden...")
+        load_state_action = file_menu.addAction("📂 &Analyse-Zustand laden...")
         load_state_action.triggered.connect(self.load_analysis_state_from_file)
 
-        # GUI-Zustand exportieren - Claude Generated
-        export_gui_state_action = file_menu.addAction("&GUI-Zustand exportieren...")
-        export_gui_state_action.triggered.connect(self.export_current_gui_state)
+        # Analyse-Zustand speichern - Claude Generated (renamed for clarity)
+        save_state_action = file_menu.addAction("💾 Analyse-Zustand &speichern...")
+        save_state_action.triggered.connect(self.export_current_analysis)
 
-        # Analysis-States vergleichen - Claude Generated
-        compare_states_action = file_menu.addAction("&Analysis-States vergleichen...")
-        compare_states_action.triggered.connect(self.compare_analysis_states)
+        file_menu.addSeparator()
+
+        # Export results
+        export_action = file_menu.addAction("📤 &Ergebnisse exportieren...")
+        export_action.triggered.connect(self.export_results)
 
         file_menu.addSeparator()
 
         # Beenden-Aktion
-        exit_action = file_menu.addAction("&Beenden")
+        exit_action = file_menu.addAction("🚪 &Beenden")
         exit_action.triggered.connect(self.close)
 
-        # Bearbeiten-Menü
+        # ========== Extras/Tools-Menü (Datenbank und Debug) ==========
+        tools_menu = menubar.addMenu("E&xtras")
+
+        # GND-Datenbank importieren (moved from Datei)
+        import_action = tools_menu.addAction("📥 &GND-Datenbank importieren...")
+        import_action.triggered.connect(self.import_gnd_database)
+
+        # Database viewer action - Claude Generated
+        db_viewer_action = tools_menu.addAction("📊 &Datenbank-Viewer")
+        db_viewer_action.triggered.connect(self.show_database_viewer)
+
+        tools_menu.addSeparator()
+
+        # Analysis-States vergleichen - Claude Generated
+        compare_states_action = tools_menu.addAction("🔍 Analysis-States &vergleichen...")
+        compare_states_action.triggered.connect(self.compare_analysis_states)
+
+        # GUI-Zustand exportieren - Claude Generated (marked as debug)
+        export_gui_state_action = tools_menu.addAction("🐛 GUI-Debug: Zustand &exportieren...")
+        export_gui_state_action.triggered.connect(self.export_current_gui_state)
+
+        # ========== Bearbeiten-Menü ==========
         edit_menu = menubar.addMenu("&Bearbeiten")
 
         # Einstellungen-Aktion
-        settings_action = edit_menu.addAction("&Einstellungen")
+        settings_action = edit_menu.addAction("⚙️ &Einstellungen")
         settings_action.triggered.connect(self.show_settings)
 
         # Prompt-Konfiguration-Aktion
-        prompt_config_action = edit_menu.addAction("&Prompt-Konfiguration")
+        prompt_config_action = edit_menu.addAction("📝 &Prompt-Konfiguration")
         prompt_config_action.triggered.connect(self.show_prompt_editor)
 
-        # Cache-Menü
-        cache_menu = menubar.addMenu("&Cache")
-
-        # Database viewer action - Claude Generated
-        db_viewer_action = cache_menu.addAction("📊 &Datenbank anzeigen")
-        db_viewer_action.triggered.connect(self.show_database_viewer)
-
-        # Update-Menü hinzufügen/aktualisieren
+        # ========== Update-Menü ==========
         update_menu = menubar.addMenu("&Updates")
 
         # Nach Updates suchen
-        check_update_action = update_menu.addAction("Nach &Updates suchen")
+        check_update_action = update_menu.addAction("🔄 Nach &Updates suchen")
         check_update_action.triggered.connect(self.check_for_updates)
 
         # NEUE OPTION: Zu spezifischem Commit wechseln
         specific_commit_action = update_menu.addAction(
-            "Zu &spezifischem Commit wechseln"
+            "🎯 Zu &spezifischem Commit wechseln"
         )
         specific_commit_action.triggered.connect(self.checkout_specific_commit)
 
-        # Hilfe-Menü
+        # ========== Hilfe-Menü ==========
         help_menu = menubar.addMenu("&Hilfe")
 
         # Über-Dialog
-        about_action = help_menu.addAction("Ü&ber")
+        about_action = help_menu.addAction("ℹ️ Ü&ber")
         about_action.triggered.connect(self.show_about)
 
         # Hilfe-Dialog
-        help_action = help_menu.addAction("&Hilfe")
+        help_action = help_menu.addAction("❓ &Hilfe")
         help_action.triggered.connect(self.show_help)
 
     def checkout_specific_commit(self):
