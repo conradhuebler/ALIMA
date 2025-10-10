@@ -46,9 +46,10 @@ class AnalysisReviewTab(QWidget):
         self.setup_ui()
 
     def receive_analysis_data(
-        self, abstract_text: str, keywords: str = "", analysis_result: str = ""
+        self, abstract_text: str, keywords: str = "", analysis_result: str = "",
+        dk_classifications: list = None, dk_search_results: list = None
     ):
-        """Receive analysis data from AbstractTab - Claude Generated (Refactored)"""
+        """Receive analysis data from AbstractTab or Pipeline - Claude Generated (Refactored, Extended for DK)"""
         # Create KeywordAnalysisState for unified data handling
         keyword_list = keywords.split(", ") if keywords else []
 
@@ -76,7 +77,9 @@ class AnalysisReviewTab(QWidget):
             search_results=[],
             initial_llm_call_details=None,
             final_llm_analysis=final_llm_analysis,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            dk_classifications=dk_classifications or [],
+            dk_search_results=dk_search_results or []
         )
 
         # Update UI
@@ -196,6 +199,14 @@ class AnalysisReviewTab(QWidget):
         self.final_analysis_text.setFont(font)
         self.details_tabs.addTab(self.final_analysis_text, "Finale Analyse")
 
+        # DK/RVK Classifications tab - Claude Generated
+        self.dk_classification_display = QTextEdit()
+        self.dk_classification_display.setReadOnly(True)
+        font = self.dk_classification_display.font()
+        font.setPointSize(11)
+        self.dk_classification_display.setFont(font)
+        self.details_tabs.addTab(self.dk_classification_display, "DK/RVK-Klassifikationen")
+
         # Statistics tab
         self.stats_text = QTextEdit()
         self.stats_text.setReadOnly(True)
@@ -285,6 +296,13 @@ class AnalysisReviewTab(QWidget):
             final_item.setText(1, "Model: N/A")
         final_item.setData(0, Qt.ItemDataRole.UserRole, "final_analysis")
 
+        # DK/RVK Classifications - Claude Generated
+        dk_count = len(self.current_analysis.dk_classifications)
+        dk_item = QTreeWidgetItem(root)
+        dk_item.setText(0, "DK/RVK-Klassifikationen")
+        dk_item.setText(1, f"{dk_count} Klassifikationen")
+        dk_item.setData(0, Qt.ItemDataRole.UserRole, "dk_classifications")
+
         # Statistics
         stats_item = QTreeWidgetItem(root)
         stats_item.setText(0, "Statistiken")
@@ -293,6 +311,38 @@ class AnalysisReviewTab(QWidget):
 
         # Expand all
         self.steps_tree.expandAll()
+
+    def _get_titles_for_classification(self, dk_code: str, max_titles: int = 20) -> tuple[list, int]:
+        """
+        Extract titles for a specific DK classification from search results - Claude Generated
+
+        Args:
+            dk_code: DK classification code (e.g., "DK 504.064" or "504.064")
+            max_titles: Maximum number of titles to return (default: 20)
+
+        Returns:
+            Tuple of (list of titles, total count)
+        """
+        if not self.current_analysis or not self.current_analysis.dk_search_results:
+            return ([], 0)
+
+        # Normalize DK code (remove "DK " prefix if present)
+        normalized_code = dk_code.replace("DK ", "").strip()
+
+        # Search for matching entry in dk_search_results
+        for result in self.current_analysis.dk_search_results:
+            result_code = str(result.get("dk", "")).strip()
+
+            if result_code == normalized_code:
+                titles = result.get("titles", [])
+                total_count = len(titles)
+
+                # Limit to max_titles
+                limited_titles = titles[:max_titles] if len(titles) > max_titles else titles
+
+                return (limited_titles, total_count)
+
+        return ([], 0)
 
     def populate_detail_tabs(self):
         """Populate the detail tabs with data - Claude Generated (Refactored)"""
@@ -326,6 +376,60 @@ class AnalysisReviewTab(QWidget):
             self.final_analysis_text.setPlainText(final_text)
         else:
             self.final_analysis_text.setPlainText("Keine LLM-Analyse verfügbar")
+
+        # DK/RVK Classifications - Claude Generated (HTML-formatted for better readability)
+        if self.current_analysis.dk_classifications:
+            html_parts = []
+            html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
+
+            for dk_code in self.current_analysis.dk_classifications:
+                # Get titles for this classification
+                titles, total_count = self._get_titles_for_classification(dk_code)
+
+                # Classification header with background
+                html_parts.append(
+                    f"<div style='background-color: #e8f4f8; padding: 12px; margin-bottom: 8px; "
+                    f"border-left: 4px solid #0066cc; border-radius: 4px;'>"
+                    f"<h2 style='color: #0066cc; margin: 0; font-size: 14pt;'>{dk_code}</h2>"
+                )
+
+                if total_count > 0:
+                    html_parts.append(
+                        f"<p style='color: #666; margin: 5px 0 0 0; font-size: 9pt;'>"
+                        f"📚 {total_count} zugehörige Titel aus dem Bibliotheksbestand</p>"
+                    )
+                html_parts.append("</div>")
+
+                # Titles list
+                if titles:
+                    html_parts.append("<div style='padding-left: 20px; margin-bottom: 20px;'>")
+                    html_parts.append("<ol style='font-size: 9pt; line-height: 1.6;'>")
+
+                    for title in titles:
+                        # Escape HTML special characters
+                        safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                        html_parts.append(f"<li>{safe_title}</li>")
+
+                    html_parts.append("</ol>")
+
+                    if total_count > len(titles):
+                        html_parts.append(
+                            f"<p style='color: #888; font-style: italic; font-size: 9pt;'>"
+                            f"... und {total_count - len(titles)} weitere Titel</p>"
+                        )
+
+                    html_parts.append("</div>")
+                else:
+                    html_parts.append(
+                        "<div style='padding-left: 20px; margin-bottom: 20px;'>"
+                        "<p style='color: #888; font-style: italic; font-size: 9pt;'>Keine Titel gefunden</p>"
+                        "</div>"
+                    )
+
+            html_parts.append("</body></html>")
+            self.dk_classification_display.setHtml("".join(html_parts))
+        else:
+            self.dk_classification_display.setPlainText("Keine DK/RVK-Klassifikationen vorhanden")
 
         # Statistics
         self.populate_statistics()
@@ -393,6 +497,18 @@ class AnalysisReviewTab(QWidget):
         initial_gnd_classes = self.current_analysis.initial_gnd_classes
         stats_text += f"Initial GND-Klassen: {len(initial_gnd_classes)} Klassen\n"
 
+        # DK/RVK Classifications - Claude Generated (Extended with title count)
+        dk_classifications = self.current_analysis.dk_classifications
+        total_titles = 0
+        for dk_code in dk_classifications:
+            _, count = self._get_titles_for_classification(dk_code, max_titles=999999)
+            total_titles += count
+
+        stats_text += f"DK/RVK-Klassifikationen: {len(dk_classifications)} Klassifikationen"
+        if total_titles > 0:
+            stats_text += f" (insgesamt {total_titles} zugehörige Titel)"
+        stats_text += "\n"
+
         # Final analysis info
         if self.current_analysis.final_llm_analysis:
             llm = self.current_analysis.final_llm_analysis
@@ -415,7 +531,7 @@ class AnalysisReviewTab(QWidget):
         self.stats_text.setPlainText(stats_text)
 
     def on_step_selected(self, item, column):
-        """Handle step selection in tree"""
+        """Handle step selection in tree - Claude Generated (Updated for DK classifications)"""
         step_type = item.data(0, Qt.ItemDataRole.UserRole)
 
         if step_type == "original_abstract":
@@ -428,8 +544,10 @@ class AnalysisReviewTab(QWidget):
             self.details_tabs.setCurrentIndex(3)
         elif step_type == "final_analysis":
             self.details_tabs.setCurrentIndex(4)
-        elif step_type == "statistics":
+        elif step_type == "dk_classifications":
             self.details_tabs.setCurrentIndex(5)
+        elif step_type == "statistics":
+            self.details_tabs.setCurrentIndex(6)
 
     def export_analysis(self):
         """Export current analysis to JSON - Claude Generated (Refactored)"""

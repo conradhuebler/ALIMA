@@ -703,7 +703,9 @@ class MainWindow(QMainWindow):
             self.analysis_review_tab.receive_analysis_data(
                 abstract_text=analysis_state.original_abstract or "",
                 keywords=keywords_text,
-                analysis_result=analysis_state.final_llm_analysis.response_full_text
+                analysis_result=analysis_state.final_llm_analysis.response_full_text,
+                dk_classifications=analysis_state.dk_classifications,
+                dk_search_results=analysis_state.dk_search_results
             )
             self.logger.info("✅ Analysis review tab populated with final results from live pipeline.")
 
@@ -1256,7 +1258,9 @@ class MainWindow(QMainWindow):
                 self.analysis_review_tab.receive_analysis_data(
                     state.original_abstract or "",
                     final_keywords,
-                    full_response
+                    full_response,
+                    state.dk_classifications,
+                    state.dk_search_results
                 )
                 self.logger.info("✅ Analysis review tab populated with final results")
 
