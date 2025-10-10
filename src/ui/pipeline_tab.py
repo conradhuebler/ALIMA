@@ -1047,13 +1047,15 @@ class PipelineTab(QWidget):
             steps = ["input", "initialisation", "search", "keywords", "dk_search", "dk_classification"]
             for i, step_id in enumerate(steps):
                 if step_id in self.step_progress_labels:
+                    # Claude Generated - Fixed step name mapping with fallback for DK steps
                     step_name = {
                         "input": "Input",
                         "initialisation": "Initialisierung",
                         "search": "Suche",
                         "keywords": "Schlagworte",
-                        "classification": "Klassifikation",
-                    }[step_id]
+                        "dk_search": "DK-Katalog-Suche",
+                        "dk_classification": "DK-Klassifikation",
+                    }.get(step_id, step_id.title())  # Use .get() with fallback
 
                     self.step_progress_labels[step_id].setText(
                         f"{i+1}. {step_name}: ⏳"
@@ -1069,8 +1071,13 @@ class PipelineTab(QWidget):
             self.search_result.clear()
         if hasattr(self, "keywords_result"):
             self.keywords_result.clear()
-        if hasattr(self, "classification_result"):
-            self.classification_result.clear()
+        # DK-related widgets - Claude Generated (Fixed widget names)
+        if hasattr(self, "dk_classification_results"):
+            self.dk_classification_results.clear()
+        if hasattr(self, "dk_search_results"):
+            self.dk_search_results.clear()
+        if hasattr(self, "dk_input_summary"):
+            self.dk_input_summary.clear()
 
         # Reset status
         self.pipeline_status_label.setText("Bereit für Pipeline-Start")
@@ -1501,7 +1508,10 @@ class PipelineTab(QWidget):
 
                 # Populate results displays with loaded data
                 if state.initial_keywords and hasattr(self, 'initialisation_result'):
-                    keywords_text = ", ".join(state.initial_keywords)
+                    # Type-safe join - Claude Generated (Fix for string parsing bug)
+                    keywords_text = (", ".join(state.initial_keywords)
+                                     if isinstance(state.initial_keywords, list)
+                                     else str(state.initial_keywords))
                     self.initialisation_result.setPlainText(f"📁 Geladene Keywords:\n{keywords_text}")
 
                 if state.search_results and hasattr(self, 'search_result'):
@@ -1512,12 +1522,42 @@ class PipelineTab(QWidget):
                     )
 
                 if state.final_llm_analysis and hasattr(self, 'keywords_result'):
-                    final_keywords = ", ".join(state.final_llm_analysis.extracted_gnd_keywords)
+                    # Type-safe join - Claude Generated (Fix for string parsing bug)
+                    final_kw = state.final_llm_analysis.extracted_gnd_keywords
+                    final_keywords = (", ".join(final_kw)
+                                      if isinstance(final_kw, list)
+                                      else str(final_kw))
                     self.keywords_result.setPlainText(f"📁 Finale Schlagwörter:\n{final_keywords}")
 
-                if state.dk_classifications and hasattr(self, 'classification_result'):
-                    dk_text = ", ".join(state.dk_classifications)
-                    self.classification_result.setPlainText(f"📁 DK-Klassifikationen:\n{dk_text}")
+                # DK Classification Results Display - Claude Generated (Fixed widget name)
+                if state.dk_classifications and hasattr(self, 'dk_classification_results'):
+                    # Type-safe join - Claude Generated (Fix for string parsing bug)
+                    dk_text = (", ".join(state.dk_classifications)
+                               if isinstance(state.dk_classifications, list)
+                               else str(state.dk_classifications))
+                    self.dk_classification_results.setPlainText(f"📁 DK-Klassifikationen:\n{dk_text}")
+
+                # DK Search Results Display - Claude Generated (New logic for loaded states)
+                if state.dk_search_results and hasattr(self, 'dk_search_results'):
+                    # Format search results like in on_step_completed (lines 1217-1239)
+                    result_lines = []
+                    for result in state.dk_search_results:
+                        dk_code = result.get("dk", "")
+                        count = result.get("count", 0)
+                        titles = result.get("titles", [])
+                        keywords = result.get("keywords", [])
+                        classification_type = result.get("classification_type", "DK")
+
+                        # Show titles (up to 3 per entry)
+                        sample_titles = titles[:3]
+                        titles_text = " | ".join(sample_titles)
+                        if len(titles) > 3:
+                            titles_text += f" | ... (und {len(titles) - 3} weitere)"
+
+                        result_line = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nBeispieltitel: {titles_text}\nKeywords: {', '.join(keywords)}\n"
+                        result_lines.append(result_line)
+
+                    self.dk_search_results.setPlainText(f"📁 Geladene DK-Suchergebnisse:\n\n" + "\n".join(result_lines))
 
             self.logger.info(f"Pipeline tab updated with loaded state indicators: {loaded_steps}")
 

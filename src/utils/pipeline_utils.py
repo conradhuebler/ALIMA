@@ -1503,6 +1503,20 @@ class PipelineJsonManager:
             if data.get("final_llm_analysis"):
                 data["final_llm_analysis"] = LlmKeywordAnalysis(**data["final_llm_analysis"])
 
+            # Ensure list fields are actually lists - Claude Generated (Fix for string parsing bug)
+            # This prevents "B, a, t, t, e, r, i, e" issue when JSON contains strings instead of lists
+            if "initial_keywords" in data and isinstance(data["initial_keywords"], str):
+                # Split comma-separated string back to list
+                data["initial_keywords"] = [kw.strip() for kw in data["initial_keywords"].split(",") if kw.strip()]
+
+            if data.get("final_llm_analysis") and hasattr(data["final_llm_analysis"], "extracted_gnd_keywords"):
+                if isinstance(data["final_llm_analysis"].extracted_gnd_keywords, str):
+                    kw_str = data["final_llm_analysis"].extracted_gnd_keywords
+                    data["final_llm_analysis"].extracted_gnd_keywords = [kw.strip() for kw in kw_str.split(",") if kw.strip()]
+
+            if "dk_classifications" in data and isinstance(data["dk_classifications"], str):
+                data["dk_classifications"] = [dk.strip() for dk in data["dk_classifications"].split(",") if dk.strip()]
+
             return KeywordAnalysisState(**data)
 
         except FileNotFoundError:

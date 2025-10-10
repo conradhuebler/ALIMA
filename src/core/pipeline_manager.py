@@ -340,6 +340,20 @@ class PipelineManager:
         else:
             self.logger.info("No modern step configurations found")
 
+    def reload_config(self):
+        """Reload pipeline configuration from provider preferences - Claude Generated"""
+        if not self.config_manager:
+            self.logger.warning("Cannot reload config: no ConfigManager available")
+            return
+
+        try:
+            self.logger.info("Reloading pipeline configuration from provider preferences...")
+            new_config = PipelineConfig.create_from_provider_preferences(self.config_manager)
+            self.set_config(new_config)
+            self.logger.info("✅ Pipeline configuration reloaded successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to reload pipeline configuration: {e}")
+
     def set_callbacks(
         self,
         step_started: Optional[Callable] = None,
@@ -1025,8 +1039,13 @@ class PipelineManager:
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
             )
-            
+
             step.output_data = {"dk_search_results": dk_search_results}
+
+            # Transfer DK search results to analysis state - Claude Generated
+            if self.current_analysis_state:
+                self.current_analysis_state.dk_search_results = dk_search_results
+
             return True
             
         except Exception as e:
@@ -1070,14 +1089,19 @@ class PipelineManager:
             search_summary_lines = []
             for result in dk_search_results[:5]:  # Show first 5 for summary
                 dk_code = result.get("dk", "")
-                count = result.get("count", 0)  
+                count = result.get("count", 0)
                 classification_type = result.get("classification_type", "DK")
                 search_summary_lines.append(f"{classification_type}: {dk_code} (Häufigkeit: {count})")
-            
+
             step.output_data = {
                 "dk_classifications": dk_classifications,
                 "dk_search_summary": "\n".join(search_summary_lines)
             }
+
+            # Transfer DK classifications to analysis state - Claude Generated
+            if self.current_analysis_state:
+                self.current_analysis_state.dk_classifications = dk_classifications
+
             return True
             
         except Exception as e:

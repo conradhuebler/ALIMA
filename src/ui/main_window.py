@@ -630,7 +630,12 @@ class MainWindow(QMainWindow):
 
         # 2. GND-Suche Tab: Set initial keywords + display search results
         if analysis_state.initial_keywords:
-            self.search_tab.update_search_field(", ".join(analysis_state.initial_keywords))
+            # Type-safe join - Claude Generated (Fix for string parsing bug)
+            if isinstance(analysis_state.initial_keywords, list):
+                keywords_str = ", ".join(analysis_state.initial_keywords)
+            else:
+                keywords_str = str(analysis_state.initial_keywords)
+            self.search_tab.update_search_field(keywords_str)
 
         if analysis_state.search_results:
             # Handle both Dict and List[SearchResult] formats - Claude Generated
@@ -691,12 +696,25 @@ class MainWindow(QMainWindow):
 
         # 5. 📊 Analyse-Review Tab - Sende finale Ergebnisse
         if analysis_state.final_llm_analysis:
+            # Type-safe join - Claude Generated (Fix for string parsing bug)
+            final_kw = analysis_state.final_llm_analysis.extracted_gnd_keywords
+            keywords_text = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
+
             self.analysis_review_tab.receive_analysis_data(
                 abstract_text=analysis_state.original_abstract or "",
-                keywords=", ".join(analysis_state.final_llm_analysis.extracted_gnd_keywords),
+                keywords=keywords_text,
                 analysis_result=analysis_state.final_llm_analysis.response_full_text
             )
             self.logger.info("✅ Analysis review tab populated with final results from live pipeline.")
+
+        # 6. 📚 DK-Klassifikation (Optional) - Claude Generated
+        # Note: DK search results and classifications are handled by show_loaded_state_indicator()
+        # when called from populate_all_tabs_from_state(). For live pipeline results, they are
+        # displayed directly in pipeline_tab via on_step_completed() callbacks.
+        if analysis_state.dk_search_results:
+            self.logger.info(f"DK search results available: {len(analysis_state.dk_search_results)} entries")
+        if analysis_state.dk_classifications:
+            self.logger.info(f"DK classifications available: {len(analysis_state.dk_classifications)} entries")
 
         self.logger.info("Pipeline results successfully distributed to all tabs")
 
@@ -853,19 +871,25 @@ class MainWindow(QMainWindow):
                 self.llm_service.refresh_all_provider_status()
                 self.logger.info("✓ Provider status refreshed")
 
-            # 3. Update tabs with new provider information
+            # 3. Reload pipeline configuration to use updated provider preferences
+            if hasattr(self, 'pipeline_manager'):
+                self.logger.info("Reloading pipeline configuration...")
+                self.pipeline_manager.reload_config()
+                self.logger.info("✓ Pipeline configuration reloaded")
+
+            # 4. Update tabs with new provider information
             self.logger.info("Updating tabs with provider information...")
             self.update_tabs_with_provider_info()
             self.logger.info("✓ Tabs updated with provider info")
 
-            # 4. Update global status bar with new provider and cache info
+            # 5. Update global status bar with new provider and cache info
             if hasattr(self, 'global_status_bar'):
                 self.logger.info("Updating global status bar...")
                 self.global_status_bar.update_provider_info()
                 self.global_status_bar.update_cache_status()
                 self.logger.info("✓ Global status bar updated")
 
-            # 5. Notify tabs about configuration changes (custom handlers)
+            # 6. Notify tabs about configuration changes (custom handlers)
             for i in range(self.tabs.count()):
                 tab = self.tabs.widget(i)
                 if hasattr(tab, 'on_config_changed'):
@@ -1224,7 +1248,9 @@ class MainWindow(QMainWindow):
 
             # 5. 📊 Analyse-Review Tab - Complete results and export
             if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
-                final_keywords = ", ".join(state.final_llm_analysis.extracted_gnd_keywords)
+                # Type-safe join - Claude Generated (Fix for string parsing bug)
+                final_kw = state.final_llm_analysis.extracted_gnd_keywords
+                final_keywords = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
                 full_response = state.final_llm_analysis.response_full_text
 
                 self.analysis_review_tab.receive_analysis_data(
@@ -1236,7 +1262,9 @@ class MainWindow(QMainWindow):
 
             # 6. 🏛️ UB Suche Tab - Keywords for library catalog search
             if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
-                final_keywords = ", ".join(state.final_llm_analysis.extracted_gnd_keywords)
+                # Type-safe join - Claude Generated (Fix for string parsing bug)
+                final_kw = state.final_llm_analysis.extracted_gnd_keywords
+                final_keywords = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
                 if hasattr(self.ub_search_tab, 'update_keywords'):
                     self.ub_search_tab.update_keywords(final_keywords)
                 if hasattr(self.ub_search_tab, 'set_abstract') and state.original_abstract:
