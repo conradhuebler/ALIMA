@@ -60,7 +60,7 @@ from ..llm.llm_service import LlmService
 from ..utils.config import Config, ConfigSection, AIConfig
 from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
-from ..core.data_models import AbstractData, AnalysisResult
+from ..core.data_models import AbstractData, AnalysisResult, KeywordAnalysisState
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..utils.config_models import PipelineStepConfig, PipelineMode
@@ -466,14 +466,57 @@ class AbstractTab(QWidget):
         self.populate_task_selector()
 
     def load_result_from_history(self, item):
-        """Load a result from the history list."""
+        """Load a result from the history list - Claude Generated (Enhanced for full state restoration)"""
         try:
-            index = self.results_list.row(item)
-            if 0 <= index < len(self.results_history):
-                result_data = self.results_history[index]
-                self.results_edit.setPlainText(result_data["result"])
+            # DEFENSIVE: Clear only abstract and results, preserve keywords (user input) - Claude Generated
+            self.abstract_edit.clear()
+            # self.keywords_edit.clear()  # REMOVED - preserve user input
+            self.results_edit.clear()
+
+            # Try to get full state object from item data - Claude Generated
+            state = item.data(Qt.ItemDataRole.UserRole)
+
+            if state and isinstance(state, KeywordAnalysisState):
+                # Full state restoration - Claude Generated
+                self.logger.info("Restoring full analysis state from history")
+
+                # 1. Restore abstract
+                if state.original_abstract:
+                    self.abstract_edit.setPlainText(state.original_abstract)
+
+                # 2. DO NOT restore keywords - preserve user input - Claude Generated
+                # (Keywords from analysis are visible in results_edit)
+
+                # 3. Restore LLM response in results area
+                result_text = ""
+                if state.final_llm_analysis:
+                    result_text = state.final_llm_analysis.response_full_text
+                elif state.initial_llm_call_details:
+                    result_text = state.initial_llm_call_details.response_full_text
+
+                # DEBUG: Log what we're restoring - Claude Generated
+                self.logger.info(f"History restore: result_text length = {len(result_text) if result_text else 0}")
+                self.logger.info(f"History restore: has final_llm = {state.final_llm_analysis is not None}")
+                self.logger.info(f"History restore: has initial_llm = {state.initial_llm_call_details is not None}")
+
+                if result_text:
+                    self.results_edit.setPlainText(result_text)
+                    self.logger.info("✅ Results successfully restored")
+                else:
+                    self.logger.warning("⚠️ No result text to restore - state may be incomplete")
+
+                self.logger.info("Successfully restored analysis state from history")
+            else:
+                # Fallback: Old string-based mechanism for backward compatibility - Claude Generated
+                index = self.results_list.row(item)
+                if 0 <= index < len(self.results_history):
+                    result_data = self.results_history[index]
+                    # Only restore results, not keywords (preserve user input) - Claude Generated
+                    self.results_edit.setPlainText(result_data["result"])
+                    self.logger.info("Restored result from old history format (text only)")
+
         except Exception as e:
-            self.logger.error(f"Error loading result from history: {e}")
+            self.logger.error(f"Error loading result from history: {e}", exc_info=True)
 
     def clear_results_history(self):
         """Clear the results history."""
@@ -481,8 +524,8 @@ class AbstractTab(QWidget):
         self.results_list.clear()
         self.results_edit.clear()
 
-    def add_result_to_history(self, result_text, prompt_info=""):
-        """Add a result to the history."""
+    def add_result_to_history(self, result_text, prompt_info="", state_object: Optional[KeywordAnalysisState] = None):
+        """Add a result to the history - Claude Generated (Extended for full state storage)"""
         import datetime
 
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -501,12 +544,87 @@ class AbstractTab(QWidget):
         if prompt_info:
             display_text += f" ({prompt_info[:30]}...)"
 
-        self.results_list.addItem(display_text)
+        item = QListWidgetItem(display_text)
+
+        # Store full state object if provided - Claude Generated
+        if state_object:
+            item.setData(Qt.ItemDataRole.UserRole, state_object)
+
+        self.results_list.addItem(item)
+
+        # Auto-select newest entry for visual consistency - Claude Generated
+        self.results_list.setCurrentItem(item)
 
         # Keep only last 10 results
         if len(self.results_history) > 10:
             self.results_history.pop(0)
             self.results_list.takeItem(0)
+
+    def add_external_analysis_to_history(self, state: KeywordAnalysisState):
+        """Add externally loaded analysis to tab history - Claude Generated"""
+        import datetime
+
+        # Extract display information from state
+        timestamp_display = datetime.datetime.now().strftime("%H:%M:%S")
+
+        # Count keywords
+        keyword_count = 0
+        if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
+            keyword_count = len(state.final_llm_analysis.extracted_gnd_keywords)
+        elif state.initial_keywords:
+            keyword_count = len(state.initial_keywords)
+
+        # Create display info
+        prompt_info = f"Loaded: {keyword_count} keywords"
+
+        # Extract result text
+        result_text = ""
+        if state.final_llm_analysis:
+            result_text = state.final_llm_analysis.response_full_text
+        elif state.initial_llm_call_details:
+            result_text = state.initial_llm_call_details.response_full_text
+        else:
+            result_text = f"Abstract: {state.original_abstract[:200]}..." if state.original_abstract else "No content"
+
+        # Add to history with full state object
+        self.add_result_to_history(result_text, prompt_info, state_object=state)
+
+        # Ensure the loaded entry is visually selected - Claude Generated
+        if self.results_list.count() > 0:
+            self.results_list.setCurrentRow(self.results_list.count() - 1)
+
+        self.logger.info(f"Added external analysis to history: {keyword_count} keywords")
+
+    def _create_state_from_current_analysis(self, llm_analysis=None, keywords_list=None) -> KeywordAnalysisState:
+        """Create KeywordAnalysisState from current tab state - Claude Generated"""
+        import datetime
+        from ..core.data_models import LlmKeywordAnalysis
+
+        # Get current abstract and keywords
+        current_abstract = self.abstract_edit.toPlainText().strip()
+        current_keywords = self.keywords_edit.toPlainText().strip()
+
+        # Parse keywords into list
+        if keywords_list:
+            initial_keywords = keywords_list
+        elif current_keywords:
+            initial_keywords = [kw.strip() for kw in current_keywords.split(",") if kw.strip()]
+        else:
+            initial_keywords = []
+
+        # Create state object
+        state = KeywordAnalysisState(
+            original_abstract=current_abstract,
+            initial_keywords=initial_keywords,
+            search_suggesters_used=["live_analysis"],
+            initial_gnd_classes=[],
+            search_results=[],
+            initial_llm_call_details=llm_analysis,
+            final_llm_analysis=llm_analysis,
+            timestamp=datetime.datetime.now().isoformat()
+        )
+
+        return state
 
     def populate_task_selector(self):
         self.task_selector_combo.clear()
@@ -656,6 +774,24 @@ class AbstractTab(QWidget):
 
     def on_analysis_completed(self, step: PipelineStep):
         """Handle analysis completion with PipelineStep integration - Claude Generated"""
+
+        # DEBUG: Log step.output_data structure - Claude Generated
+        self.logger.info("=" * 50)
+        self.logger.info("🔍 DEBUG: on_analysis_completed called")
+        self.logger.info(f"step.output_data type: {type(step.output_data)}")
+        self.logger.info(f"step.output_data is None: {step.output_data is None}")
+        if step.output_data:
+            self.logger.info(f"step.output_data attributes: {dir(step.output_data)}")
+            if hasattr(step.output_data, '__dict__'):
+                self.logger.info(f"step.output_data.__dict__: {step.output_data.__dict__}")
+            if isinstance(step.output_data, dict):
+                self.logger.info(f"step.output_data keys: {list(step.output_data.keys())}")
+
+        # Get currently displayed text (from streaming) - Claude Generated
+        current_results_text = self.results_edit.toPlainText()
+        self.logger.info(f"📝 Current results_edit text length: {len(current_results_text)}")
+        self.logger.info("=" * 50)
+
         # Reset analysis state
         self.is_analysis_running = False
 
@@ -673,12 +809,29 @@ class AbstractTab(QWidget):
         if step.output_data and hasattr(step.output_data, 'analysis_result'):
             result = step.output_data.analysis_result
 
-            # Add result to history
-            self.add_result_to_history(result.full_text, self.task or "Analysis")
+            # Extract keywords list
+            keywords_only = ", ".join(result.matched_keywords.keys())
+            keywords_list = list(result.matched_keywords.keys())
+
+            # Create state object for history - Claude Generated
+            from ..core.data_models import LlmKeywordAnalysis
+            minimal_llm_analysis = LlmKeywordAnalysis(
+                task_name=self.task or "analysis",
+                model_used=self.model_combo.currentText(),
+                provider_used=self.provider_combo.currentText(),
+                prompt_template=self.prompt_edit.toPlainText().strip(),
+                filled_prompt="",
+                temperature=self.temp_spinbox.value(),
+                seed=self.seed_spinbox.value(),
+                response_full_text=result.full_text,
+                extracted_gnd_keywords=keywords_list
+            )
+            state_object = self._create_state_from_current_analysis(llm_analysis=minimal_llm_analysis, keywords_list=keywords_list)
+
+            # Add result to history with full state - Claude Generated
+            self.add_result_to_history(result.full_text, self.task or "Analysis", state_object=state_object)
             self.results_edit.setPlainText(result.full_text)
 
-            # Extract only the keywords from the dictionary and join them into a comma-separated string
-            keywords_only = ", ".join(result.matched_keywords.keys())
             self.final_list.emit(keywords_only)
             self.gnd_systematic.emit(result.gnd_systematic)
 
@@ -690,8 +843,12 @@ class AbstractTab(QWidget):
         elif step.output_data and isinstance(step.output_data, dict) and 'llm_analysis' in step.output_data:
             llm_analysis = step.output_data['llm_analysis']
 
+            # Create state object for history - Claude Generated
+            keywords_list = llm_analysis.extracted_gnd_keywords if llm_analysis.extracted_gnd_keywords else []
+            state_object = self._create_state_from_current_analysis(llm_analysis=llm_analysis, keywords_list=keywords_list)
+
             # Display the full LLM response (already streamed, just keep it visible)
-            self.add_result_to_history(llm_analysis.response_full_text, self.task or "Analysis")
+            self.add_result_to_history(llm_analysis.response_full_text, self.task or "Analysis", state_object=state_object)
             # DON'T overwrite - the text is already there from streaming
             # self.results_edit.setPlainText(llm_analysis.response_full_text)
 
@@ -705,10 +862,32 @@ class AbstractTab(QWidget):
             self.analysis_completed.emit(current_abstract, keywords_only, llm_analysis.response_full_text)
 
         else:
-            # Fallback: use step output_data directly if it's a string
-            output_text = str(step.output_data) if step.output_data else "No output data"
-            self.add_result_to_history(output_text, self.task or "Analysis")
-            self.results_edit.setPlainText(output_text)
+            # Fallback: step.output_data is None, but text was streamed - Claude Generated
+            # Get the text that was streamed to results_edit instead
+            output_text = current_results_text if current_results_text else "No output data"
+
+            self.logger.info(f"🔧 Fallback: Using streamed text from results_edit ({len(output_text)} chars)")
+
+            # Create minimal LLM analysis object for fallback case - Claude Generated
+            from ..core.data_models import LlmKeywordAnalysis
+            minimal_llm_analysis = LlmKeywordAnalysis(
+                task_name=self.task or "analysis",
+                model_used=self.model_combo.currentText(),
+                provider_used=self.provider_combo.currentText(),
+                prompt_template=self.prompt_edit.toPlainText().strip(),
+                filled_prompt="",
+                temperature=self.temp_spinbox.value(),
+                seed=self.seed_spinbox.value(),
+                response_full_text=output_text,
+                extracted_gnd_keywords=[]
+            )
+
+            # Create state object WITH llm_analysis - Claude Generated
+            state_object = self._create_state_from_current_analysis(llm_analysis=minimal_llm_analysis)
+
+            self.add_result_to_history(output_text, self.task or "Analysis", state_object=state_object)
+            # DON'T overwrite results_edit - text is already there from streaming - Claude Generated
+            # self.results_edit.setPlainText(output_text)
 
             # Send basic data to AnalysisReviewTab
             current_abstract = self.abstract_edit.toPlainText().strip()

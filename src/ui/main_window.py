@@ -455,10 +455,12 @@ class MainWindow(QMainWindow):
         #     self.abstract_tab.set_abstract
         # )
 
-        # Connect AbstractTab analysis completion to AnalysisReviewTab - Claude Generated
-        self.abstract_tab.analysis_completed.connect(
-            self.analysis_review_tab.receive_analysis_data
-        )
+        # TAB ISOLATION: Live-Analysen bleiben im jeweiligen Tab - Claude Generated
+        # Pipeline-Ergebnisse werden weiterhin via on_pipeline_results_ready() verteilt
+        # TODO: Implement "Update Pipeline"-Button for manual data transfer from tab to pipeline
+        # self.abstract_tab.analysis_completed.connect(
+        #     self.analysis_review_tab.receive_analysis_data
+        # )
 
         # Image Analysis Tab
         self.image_analysis_tab = ImageAnalysisTab(
@@ -1235,6 +1237,11 @@ class MainWindow(QMainWindow):
         try:
             # Use the centralized distribution logic for base tabs - Claude Generated
             self.on_pipeline_results_ready(state)
+
+            # Add loaded analysis to tab-local history - Claude Generated
+            self.abstract_tab.add_external_analysis_to_history(state)
+            self.analyse_keywords.add_external_analysis_to_history(state)
+            self.logger.info("Added loaded analysis to tab histories")
 
             # Additional loading-specific UI enhancements - Claude Generated
 
