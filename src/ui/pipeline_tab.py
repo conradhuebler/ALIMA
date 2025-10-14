@@ -785,11 +785,25 @@ class PipelineTab(QWidget):
         max_results_layout.addWidget(QLabel("Max. Ergebnisse:"))
         self.dk_search_max_results = QSpinBox()
         self.dk_search_max_results.setRange(5, 100)
-        self.dk_search_max_results.setValue(20)
+        from ..utils.pipeline_defaults import DEFAULT_DK_MAX_RESULTS
+        self.dk_search_max_results.setValue(DEFAULT_DK_MAX_RESULTS)
+        self.dk_search_max_results.setToolTip("Max. Katalog-Suchergebnisse pro Keyword")
         max_results_layout.addWidget(self.dk_search_max_results)
         max_results_layout.addStretch()
         config_layout.addLayout(max_results_layout)
-        
+
+        # Frequency threshold control - Claude Generated
+        freq_layout = QHBoxLayout()
+        freq_layout.addWidget(QLabel("Min. Häufigkeit:"))
+        self.dk_frequency_threshold = QSpinBox()
+        self.dk_frequency_threshold.setRange(1, 50)
+        from ..utils.pipeline_defaults import DEFAULT_DK_FREQUENCY_THRESHOLD
+        self.dk_frequency_threshold.setValue(DEFAULT_DK_FREQUENCY_THRESHOLD)
+        self.dk_frequency_threshold.setToolTip("Nur DK-Codes mit >= N Vorkommen im Katalog werden an LLM übergeben")
+        freq_layout.addWidget(self.dk_frequency_threshold)
+        freq_layout.addStretch()
+        config_layout.addLayout(freq_layout)
+
         layout.addWidget(config_group)
 
         # Search results display
@@ -855,6 +869,9 @@ class PipelineTab(QWidget):
             )
             return
 
+        # Update DK configuration from GUI widgets - Claude Generated
+        self._update_dk_config_from_gui()
+
         # Stop any existing worker
         if self.pipeline_worker and self.pipeline_worker.isRunning():
             self.pipeline_worker.quit()
@@ -887,6 +904,33 @@ class PipelineTab(QWidget):
         # Notify streaming widget
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_pipeline_started("pipeline_thread")
+
+    def _update_dk_config_from_gui(self):
+        """
+        Update DK pipeline configuration from GUI widgets - Claude Generated
+        Applies current GUI spinner values to PipelineManager configuration
+        """
+        if not hasattr(self.pipeline_manager, 'config') or not self.pipeline_manager.config:
+            return
+
+        config = self.pipeline_manager.config
+
+        # Update dk_search step config
+        if 'dk_search' in config.step_configs:
+            dk_search_config = config.step_configs['dk_search']
+            if hasattr(self, 'dk_search_max_results'):
+                dk_search_config.custom_params['max_results'] = self.dk_search_max_results.value()
+
+        # Update dk_classification step config
+        if 'dk_classification' in config.step_configs:
+            dk_classification_config = config.step_configs['dk_classification']
+            if hasattr(self, 'dk_frequency_threshold'):
+                dk_classification_config.custom_params['dk_frequency_threshold'] = self.dk_frequency_threshold.value()
+
+        self.logger.info(
+            f"✅ DK config updated from GUI: max_results={self.dk_search_max_results.value()}, "
+            f"frequency_threshold={self.dk_frequency_threshold.value()}"
+        )
 
     def show_pipeline_config(self):
         """Show pipeline configuration dialog - Claude Generated"""
@@ -1082,6 +1126,15 @@ class PipelineTab(QWidget):
         # Reset status
         self.pipeline_status_label.setText("Bereit für Pipeline-Start")
         self.auto_pipeline_button.setEnabled(True)
+
+    def on_config_changed(self):
+        """Handle configuration changes - Claude Generated (Webcam Feature)"""
+        self.logger.info("Pipeline tab: Handling config change")
+
+        # Update webcam frame visibility in unified input widget
+        if hasattr(self, 'unified_input') and self.unified_input:
+            self.unified_input._update_webcam_frame_visibility()
+            self.logger.info("Webcam frame visibility updated")
 
     @pyqtSlot(object)
     def on_step_started(self, step: PipelineStep):

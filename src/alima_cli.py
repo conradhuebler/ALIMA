@@ -388,17 +388,18 @@ EXAMPLES:
         "--auto-save-path",
         help="Path for automatic intermediate state saves (default: temp file).",
     )
+    from src.utils.pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
     pipeline_parser.add_argument(
         "--dk-max-results",
         type=int,
-        default=20,
-        help="Maximum results for DK classification search (default: 20).",
+        default=DEFAULT_DK_MAX_RESULTS,
+        help=f"Maximum results for DK classification search (default: {DEFAULT_DK_MAX_RESULTS}).",
     )
     pipeline_parser.add_argument(
         "--dk-frequency-threshold",
         type=int,
-        default=10,
-        help="Minimum occurrence count for DK classifications to be included in LLM analysis (default: 10). Only classifications appearing >= N times in catalog will be passed to LLM.",
+        default=DEFAULT_DK_FREQUENCY_THRESHOLD,
+        help=f"Minimum occurrence count for DK classifications to be included in LLM analysis (default: {DEFAULT_DK_FREQUENCY_THRESHOLD}). Only classifications appearing >= N times in catalog will be passed to LLM.",
     )
 
     # Batch command - Claude Generated

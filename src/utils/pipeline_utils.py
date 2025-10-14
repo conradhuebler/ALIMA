@@ -25,6 +25,7 @@ from ..core.processing_utils import (
     extract_gnd_system_from_response,
 )
 from .smart_provider_selector import SmartProviderSelector, TaskType
+from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
 
 
 class PipelineStepExecutor:
@@ -1069,7 +1070,7 @@ class PipelineStepExecutor:
         model: str = None,
         provider: str = None,
         stream_callback: Optional[callable] = None,
-        dk_frequency_threshold: int = 10,  # Claude Generated - Only pass classifications with >= N occurrences
+        dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,  # Claude Generated - Only pass classifications with >= N occurrences
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
     ) -> List[str]:
@@ -1286,7 +1287,7 @@ class PipelineStepExecutor:
         self,
         keywords: List[str],
         stream_callback: Optional[callable] = None,
-        max_results: int = 20,
+        max_results: int = DEFAULT_DK_MAX_RESULTS,
         catalog_token: str = None,
         catalog_search_url: str = None,
         catalog_details_url: str = None,

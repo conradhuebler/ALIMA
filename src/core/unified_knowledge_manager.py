@@ -435,9 +435,94 @@ class UnifiedKnowledgeManager:
     # DKCacheManager compatibility methods
     
     def search_by_keywords(self, keywords: List[str], fuzzy_threshold: int = 80) -> List:
-        """DKCacheManager compatibility - Claude Generated"""
-        # For now, return empty - will be enhanced in Week 2
-        return []
+        """
+        Search cached DK classifications by keywords - Claude Generated
+
+        Args:
+            keywords: List of keywords to search for
+            fuzzy_threshold: Minimum similarity threshold (not used for now)
+
+        Returns:
+            List of cached classification results with metadata
+        """
+        try:
+            results = []
+
+            for keyword in keywords:
+                # Clean keyword for search
+                clean_keyword = keyword.split('(')[0].strip()
+
+                # Lookup in search_mappings table with full data - Claude Generated
+                query = """
+                    SELECT DISTINCT
+                        c.code,
+                        c.type,
+                        sm.search_term,
+                        sm.found_classifications,
+                        sm.created_at
+                    FROM search_mappings sm
+                    CROSS JOIN classifications c
+                    WHERE (sm.search_term LIKE ? OR sm.search_term LIKE ?)
+                      AND sm.suggester_type = 'catalog'
+                      AND sm.found_classifications LIKE '%' || c.code || '%'
+                    LIMIT 50
+                """
+
+                rows = self.db_manager.fetch_all(query, (f"%{clean_keyword}%", f"{clean_keyword}%"))
+
+                if rows:
+                    self.logger.debug(f"Cache hit: {len(rows)} results for '{clean_keyword}'")
+
+                    # Group by classification code and extract metadata - Claude Generated
+                    code_groups = {}
+                    for row in rows:
+                        code = row["code"]
+                        if code not in code_groups:
+                            # Parse found_classifications JSON to extract titles and metadata
+                            try:
+                                classifications = json.loads(row["found_classifications"] or "[]")
+                                # Find classification entry matching this code
+                                titles = []
+                                count = 1
+                                avg_confidence = 0.8
+                                for cls in classifications:
+                                    if cls.get("code") == code:
+                                        titles = cls.get("titles", [])
+                                        count = cls.get("count", 1)
+                                        avg_confidence = cls.get("avg_confidence", 0.8)
+                                        break
+                            except (json.JSONDecodeError, KeyError):
+                                titles = []
+                                count = 1
+                                avg_confidence = 0.8
+
+                            code_groups[code] = {
+                                "dk": code,
+                                "classification_type": row["type"],
+                                "matched_keywords": [clean_keyword],
+                                "titles": titles,
+                                "count": count,
+                                "avg_confidence": avg_confidence,
+                                "total_confidence": avg_confidence
+                            }
+                        else:
+                            code_groups[code]["count"] += 1
+                            code_groups[code]["total_confidence"] += 0.8
+
+                    # Calculate averages and add to results
+                    for code_data in code_groups.values():
+                        if code_data["count"] > 0:
+                            code_data["avg_confidence"] = code_data["total_confidence"] / code_data["count"]
+                        results.extend([code_data])
+                else:
+                    self.logger.debug(f"Cache miss: No results for '{clean_keyword}'")
+
+            self.logger.info(f"📊 Cache search: {len(results)} classifications found for {len(keywords)} keywords")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Cache search failed: {e}")
+            return []
     
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get unified cache statistics - Claude Generated"""
@@ -486,19 +571,27 @@ class UnifiedKnowledgeManager:
             # Store classification fact
             code = result.get('dk', '')
             classification_type = result.get('classification_type', 'DK')
-            
+
             if code:
                 self.store_classification_fact(code, classification_type)
-                
-                # Store titles as search mapping (simplified for now)
+
+                # Store titles with classification in search mapping - Claude Generated
                 titles = result.get('titles', [])
                 keywords = result.get('keywords', [])
-                
+                count = result.get('count', 1)
+                avg_confidence = result.get('avg_confidence', 0.8)
+
                 for keyword in keywords:
                     self.update_search_mapping(
                         search_term=keyword,
                         suggester_type="catalog",
-                        found_classifications=[{"code": code, "type": classification_type}]
+                        found_classifications=[{
+                            "code": code,
+                            "type": classification_type,
+                            "titles": titles[:5],  # Store up to 5 sample titles
+                            "count": count,
+                            "avg_confidence": avg_confidence
+                        }]
                     )
     
     def insert_gnd_entry(

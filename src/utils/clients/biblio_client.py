@@ -9,6 +9,13 @@ import sys
 import logging
 import base64
 
+# Import default configuration values - Claude Generated
+try:
+    from ..pipeline_defaults import DEFAULT_DK_MAX_RESULTS
+except ImportError:
+    # Fallback if import fails (standalone usage)
+    DEFAULT_DK_MAX_RESULTS = 20
+
 # Konfiguriere Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -545,7 +552,7 @@ class BiblioClient:
 
         return processed_items
 
-    def search_subjects(self, search_terms: List[str], max_results: int = 20) -> Dict[str, Dict[str, Any]]:
+    def search_subjects(self, search_terms: List[str], max_results: int = DEFAULT_DK_MAX_RESULTS) -> Dict[str, Dict[str, Any]]:
         """
         Claude Generated - Search catalog for subjects and return in suggester format.
         
@@ -658,25 +665,22 @@ class BiblioClient:
         from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
         
         dk_cache = UnifiedKnowledgeManager()
-        
-        # First try to get results from cache
+
+        # First try to get results from cache - Claude Generated
+        logger.info(f"🔍 Checking cache for {len(keywords)} keywords: {keywords[:3]}{'...' if len(keywords) > 3 else ''}")
         cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
-        
+        logger.info(f"📊 Cache returned {len(cached_results) if cached_results else 0} results")
+
         if cached_results:
-            logger.info(f"Found {len(cached_results)} cached DK classifications for keywords: {keywords}")
-            # Convert cached results to expected format
-            cache_results = []
-            for cached_result in cached_results:
-                cache_results.append({
-                    "dk": cached_result.dk,
-                    "classification_type": cached_result.classification_type,
-                    "keywords": cached_result.matched_keywords,
-                    "titles": cached_result.titles,
-                    "count": cached_result.count,
-                    "avg_confidence": cached_result.avg_confidence,
-                    "total_confidence": cached_result.total_confidence
-                })
-            return cache_results
+            # Check if cached results have titles - Claude Generated
+            has_titles = any(result.get("titles") for result in cached_results)
+
+            if has_titles:
+                logger.info(f"✅ Using {len(cached_results)} cached DK classifications with titles for keywords: {keywords[:3]}")
+                return cached_results
+            else:
+                logger.warning(f"⚠️ Cached results exist but have NO titles - performing live search to populate cache")
+                # Fall through to live catalog search to get titles
         
         # No cache hits - perform live catalog search
         logger.info(f"No cache hits - performing live catalog search for {len(keywords)} keywords")

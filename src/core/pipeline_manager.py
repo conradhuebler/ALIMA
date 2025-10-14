@@ -40,6 +40,10 @@ from ..utils.config_models import (
     TaskType as UnifiedTaskType,
     PipelineStepConfig
 )
+from ..utils.pipeline_defaults import (
+    DEFAULT_DK_MAX_RESULTS,
+    DEFAULT_DK_FREQUENCY_THRESHOLD,
+)
 
 
 @dataclass
@@ -139,7 +143,7 @@ class PipelineConfig:
                     task_type=UnifiedTaskType.DK_SEARCH,
                     enabled=True,
                     custom_params={
-                        "max_results": 20,
+                        "max_results": DEFAULT_DK_MAX_RESULTS,
                         "catalog_token": "",  # Will be updated from config
                         "catalog_search_url": None,
                         "catalog_details_url": None,
@@ -155,7 +159,7 @@ class PipelineConfig:
                     top_p=0.1,
                     task="dk_class",
                     custom_params={
-                        "dk_frequency_threshold": 10,
+                        "dk_frequency_threshold": DEFAULT_DK_FREQUENCY_THRESHOLD,
                     }
                 ),
             }
@@ -1058,7 +1062,7 @@ class PipelineManager:
             dk_search_results = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
                 stream_callback=self._stream_callback_adapter,
-                max_results=getattr(step_config, 'max_results', 20),
+                max_results=getattr(step_config, 'max_results', DEFAULT_DK_MAX_RESULTS),
                 catalog_token=catalog_token,
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
@@ -1106,7 +1110,7 @@ class PipelineManager:
                 stream_callback=self._stream_callback_adapter,
                 temperature=step_config.temperature or 0.7,
                 top_p=step_config.top_p or 0.1,
-                dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', 10),  # Claude Generated
+                dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),  # Claude Generated
             )
             
             # Prepare search summary for display
