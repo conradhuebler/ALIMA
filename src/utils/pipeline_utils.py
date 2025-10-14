@@ -1833,8 +1833,8 @@ def _extract_from_image_pipeline(
             stream_callback(f"🖼️ Verwende {provider} ({model}) für Bilderkennung...")
         
         request_id = str(uuid.uuid4())
-        
-        # LLM-Aufruf für Bilderkennung
+
+        # LLM-Aufruf für Bilderkennung mit Streaming - Claude Generated
         response = llm_service.generate_response(
             provider=provider,
             model=model,
@@ -1845,23 +1845,30 @@ def _extract_from_image_pipeline(
             p_value=float(prompt_config.get('top_p', 0.1)),
             seed=prompt_config.get('seed'),
             image=image_path,
-            stream=False
+            stream=True  # Enable streaming for live feedback - Claude Generated
         )
-        
-        # Handle verschiedene Response-Typen
+
+        # Handle streaming response with live callback - Claude Generated
         extracted_text = ""
         if hasattr(response, "__iter__") and not isinstance(response, str):
-            # Generator response
+            # Generator response with live streaming
             text_parts = []
             for chunk in response:
+                chunk_text = ""
                 if isinstance(chunk, str):
-                    text_parts.append(chunk)
+                    chunk_text = chunk
                 elif hasattr(chunk, 'text'):
-                    text_parts.append(chunk.text)
+                    chunk_text = chunk.text
                 elif hasattr(chunk, 'content'):
-                    text_parts.append(chunk.content)
+                    chunk_text = chunk.content
                 else:
-                    text_parts.append(str(chunk))
+                    chunk_text = str(chunk)
+
+                # Send to live callback if available - Claude Generated
+                if chunk_text and stream_callback:
+                    stream_callback(chunk_text)
+
+                text_parts.append(chunk_text)
             extracted_text = "".join(text_parts)
         else:
             extracted_text = str(response)
@@ -1910,14 +1917,17 @@ def _get_best_vision_provider_pipeline(llm_service, logger=None) -> Tuple[Option
     """Get best available provider for vision tasks using SmartProviderSelector - Claude Generated"""
     try:
         from .smart_provider_selector import SmartProviderSelector, TaskType
-        
-        selector = SmartProviderSelector()
+        from .config_manager import ConfigManager
+
+        # Initialize ConfigManager for task_preferences access - Claude Generated
+        config_manager = ConfigManager()
+        selector = SmartProviderSelector(config_manager)
         selection = selector.select_provider(
             task_type=TaskType.VISION,
-            required_capabilities=["vision"],
-            prefer_fast=False
+            prefer_fast=False,
+            task_name="image_text_extraction"  # Task preferences define explicit provider - no capability filtering needed - Claude Generated
         )
-        
+
         if logger:
             logger.info(f"SmartProviderSelector chose {selection.provider} with {selection.model} for vision task (fallback_used: {selection.fallback_used})")
         

@@ -259,8 +259,11 @@ PIPELINE STEPS:
   - classification: LLM DDC/DK/RVK classification (optional)
 
 EXAMPLES:
-  # Smart mode (default)
+  # Smart mode with text input (default)
   python alima_cli.py pipeline --input-text "Your text here"
+
+  # Smart mode with image input (OCR analysis)
+  python alima_cli.py pipeline --input-image document.jpg
 
   # Advanced mode with specific models
   python alima_cli.py pipeline --mode advanced --input-text "Text" \\
@@ -273,12 +276,16 @@ EXAMPLES:
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    # Input options - either text or DOI (mutually exclusive)
+    # Input options - either text, DOI, or image (mutually exclusive) - Claude Generated
     input_group = pipeline_parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument("--input-text", help="Input text for analysis.")
     input_group.add_argument(
         "--doi",
         help="DOI or URL to resolve and analyze (e.g., 10.1007/978-3-031-47390-6, https://link.springer.com/book/...).",
+    )
+    input_group.add_argument(
+        "--input-image",
+        help="Path to image file for OCR analysis (e.g., document.png, scan.jpg). Supported formats: PNG, JPG, JPEG, GIF, BMP, TIFF.",
     )
     # Configuration mode selection - Claude Generated
     pipeline_parser.add_argument(
@@ -953,7 +960,7 @@ USAGE EXAMPLES:
                 else:
                     print("Final analysis not yet completed")
             else:
-                # Resolve input text (either from --input-text or --doi)
+                # Resolve input text (from --input-text, --doi, or --input-image) - Claude Generated
                 if args.doi:
                     logger.info(f"Resolving input: {args.doi}")
                     success, input_text, error_msg = resolve_input_to_text(
@@ -968,6 +975,45 @@ USAGE EXAMPLES:
                     print(
                         f"Resolved '{args.doi}' to text content ({len(input_text)} chars)"
                     )
+                elif args.input_image:
+                    # Image OCR analysis - Claude Generated
+                    logger.info(f"Analyzing image: {args.input_image}")
+
+                    if not os.path.exists(args.input_image):
+                        logger.error(f"Image file not found: {args.input_image}")
+                        return
+
+                    print(f"🖼️ Analyzing image: {args.input_image}")
+
+                    from src.utils.pipeline_utils import execute_input_extraction
+
+                    # Define streaming callback for live OCR output - Claude Generated
+                    def image_stream_callback(text):
+                        print(text, end="", flush=True)
+
+                    try:
+                        input_text, source_info, extraction_method = execute_input_extraction(
+                            llm_service=llm_service,
+                            input_source=args.input_image,
+                            input_type="image",
+                            stream_callback=image_stream_callback,
+                            logger=logger
+                        )
+
+                        logger.info(f"Image analysis completed: {extraction_method}")
+                        print(f"✓ {source_info} ({len(input_text)} characters extracted)")
+
+                        # Display extracted text - Claude Generated
+                        print("\n" + "="*60)
+                        print("EXTRAHIERTER TEXT")
+                        print("="*60)
+                        print(input_text)
+                        print("="*60 + "\n")
+
+                    except Exception as e:
+                        logger.error(f"Image analysis failed: {e}")
+                        print(f"❌ Error analyzing image: {e}")
+                        return
                 else:
                     input_text = args.input_text
 
