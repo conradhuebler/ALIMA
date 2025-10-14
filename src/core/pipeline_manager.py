@@ -995,6 +995,19 @@ class PipelineManager:
                 "final_keywords": final_keywords,
                 "llm_analysis": llm_analysis  # LlmKeywordAnalysis object with response_full_text
             }
+
+            # Debug: Log extracted keywords - Claude Generated
+            self.logger.info(f"🔍 Keywords step completed: {len(final_keywords)} keywords extracted")
+            if final_keywords:
+                for i, kw in enumerate(final_keywords[:5], 1):
+                    self.logger.info(f"  {i}. {kw[:80]}")
+                if len(final_keywords) > 5:
+                    self.logger.info(f"  ... und {len(final_keywords)-5} weitere")
+            else:
+                self.logger.warning("⚠️ NO KEYWORDS EXTRACTED! Check LLM response format.")
+                if llm_analysis and llm_analysis.response_full_text:
+                    self.logger.warning(f"LLM Response preview: {llm_analysis.response_full_text[:200]}")
+
             return True
 
         except ValueError as e:
@@ -1011,7 +1024,18 @@ class PipelineManager:
                 return True
             
             final_keywords = previous_step.output_data.get("final_keywords", [])
-            
+
+            # Debug: Log keywords received from previous step - Claude Generated
+            self.logger.info(f"🔍 DK Search received {len(final_keywords)} keywords from keywords step")
+            if final_keywords:
+                for i, kw in enumerate(final_keywords[:5], 1):
+                    self.logger.info(f"  {i}. {kw[:80]}")
+                if len(final_keywords) > 5:
+                    self.logger.info(f"  ... und {len(final_keywords)-5} weitere")
+            else:
+                self.logger.error("❌ DK Search: NO KEYWORDS received from keywords step!")
+                self.logger.error(f"previous_step.output_data keys: {list(previous_step.output_data.keys())}")
+
             # Use the shared pipeline executor for DK search
             step_config = self.config.get_step_config("dk_search")
             

@@ -1357,8 +1357,20 @@ class PipelineStepExecutor:
 def extract_keywords_from_descriptive_text(
     text: str, gnd_compliant_keywords: List[str]
 ) -> Tuple[List[str], List[str]]:
-    """Extract keywords from LLM descriptive text - Claude Generated"""
+    """
+    Extract keywords from LLM descriptive text with robust fallback - Claude Generated
 
+    Supports two formats:
+    1. Primary: "Keyword (1234567-8)" format
+    2. Fallback: "<final_list>Keyword1|Keyword2|...</final_list>" format
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Debug: Log input for diagnosis - Claude Generated
+    logger.info(f"🔍 extract_keywords: input={len(text)} chars, available_gnd={len(gnd_compliant_keywords)}")
+
+    # PRIMARY METHOD: Regex for "Keyword (1234567-8)" format
     pattern = re.compile(r"\b([A-Za-zäöüÄÖÜß\s-]+?)\s*\((\d{7}-\d|\d{7}-\d{1,2})\)")
     matches = pattern.findall(text)
 
@@ -1368,15 +1380,102 @@ def extract_keywords_from_descriptive_text(
     # Convert gnd_compliant_keywords to set for faster lookup
     gnd_compliant_set = set(gnd_compliant_keywords)
 
-    for keyword_part, gnd_id_part in matches:
-        formatted_keyword = f"{keyword_part.strip()} ({gnd_id_part})"
-        all_extracted_keywords.append(formatted_keyword)
+    if matches:
+        logger.info(f"✅ Regex found {len(matches)} keyword matches")
 
-        # Check if formatted keyword from LLM output is in gnd_compliant_keywords list
-        if formatted_keyword in gnd_compliant_set:
-            exact_matches.append(formatted_keyword)
+        # Build lookup maps for flexible matching - Claude Generated
+        gnd_id_lookup = {}  # gnd_id -> full_keyword
+        text_lookup = {}    # keyword_text_lower -> full_keyword
 
-    return all_extracted_keywords, exact_matches
+        for gnd_kw in gnd_compliant_keywords:
+            # Extract GND-ID if present (format: "Keyword (GND-ID: 1234567-8)")
+            gnd_match = re.search(r'GND-ID:\s*([0-9-]+)', gnd_kw)
+            if gnd_match:
+                gnd_id = gnd_match.group(1)
+                gnd_id_lookup[gnd_id] = gnd_kw
+
+            # Extract keyword text (before first parenthesis)
+            keyword_text = gnd_kw.split('(')[0].strip().lower()
+            text_lookup[keyword_text] = gnd_kw
+
+        logger.info(f"🔍 Built lookups: {len(gnd_id_lookup)} GND-IDs, {len(text_lookup)} text entries")
+
+        # Match extracted keywords using dual strategy - Claude Generated
+        for keyword_part, gnd_id_part in matches:
+            formatted_keyword = f"{keyword_part.strip()} ({gnd_id_part})"
+            all_extracted_keywords.append(formatted_keyword)
+
+            matched = False
+
+            # Strategy 1: GND-ID match (e.g. "1234567-8")
+            if gnd_id_part in gnd_id_lookup:
+                full_keyword = gnd_id_lookup[gnd_id_part]
+                exact_matches.append(full_keyword)
+                logger.info(f"  ✅ GND-ID match: '{keyword_part}' ({gnd_id_part}) → {full_keyword[:60]}")
+                matched = True
+
+            # Strategy 2: Text match (e.g. "cadmium")
+            elif keyword_part.strip().lower() in text_lookup:
+                full_keyword = text_lookup[keyword_part.strip().lower()]
+                exact_matches.append(full_keyword)
+                logger.info(f"  ✅ Text match: '{keyword_part}' → {full_keyword[:60]}")
+                matched = True
+
+            if not matched:
+                logger.warning(f"  ❌ No match: '{keyword_part}' ({gnd_id_part})")
+
+        logger.info(f"✅ Matched {len(exact_matches)} keywords from {len(matches)} regex matches")
+        return all_extracted_keywords, exact_matches
+
+    # FALLBACK METHOD: Parse <final_list> format - Claude Generated
+    logger.warning("⚠️ Regex found NO matches - trying <final_list> fallback")
+
+    final_list_match = re.search(r'<final_list>\s*([^<]+)\s*</final_list>', text, re.DOTALL)
+    if final_list_match:
+        final_list_content = final_list_match.group(1).strip()
+        logger.info(f"✅ Found <final_list>: {final_list_content[:100]}")
+
+        # Split by pipe separator
+        raw_keywords = [kw.strip() for kw in final_list_content.split('|') if kw.strip()]
+        logger.info(f"✅ Extracted {len(raw_keywords)} raw keywords from <final_list>")
+
+        # Build lookup map: keyword_text_lower -> full_gnd_keyword
+        gnd_lookup = {}
+        for gnd_kw in gnd_compliant_keywords:
+            # Extract keyword text before (GND-ID: ...)
+            if "(GND-ID:" in gnd_kw:
+                keyword_text = gnd_kw.split("(GND-ID:")[0].strip().lower()
+                gnd_lookup[keyword_text] = gnd_kw
+
+        # Match raw keywords against GND lookup
+        for raw_kw in raw_keywords:
+            raw_kw_lower = raw_kw.lower()
+
+            # Exact match
+            if raw_kw_lower in gnd_lookup:
+                matched_gnd_kw = gnd_lookup[raw_kw_lower]
+                exact_matches.append(matched_gnd_kw)
+                logger.info(f"  ✅ Matched '{raw_kw}' -> {matched_gnd_kw[:60]}")
+            else:
+                # Fuzzy match: check if raw_kw is contained in any GND keyword
+                found = False
+                for gnd_kw_text, full_gnd_kw in gnd_lookup.items():
+                    if raw_kw_lower in gnd_kw_text or gnd_kw_text in raw_kw_lower:
+                        exact_matches.append(full_gnd_kw)
+                        logger.info(f"  ⚠️ Fuzzy matched '{raw_kw}' -> {full_gnd_kw[:60]}")
+                        found = True
+                        break
+
+                if not found:
+                    logger.warning(f"  ❌ No GND match for '{raw_kw}'")
+
+        logger.info(f"✅ Fallback extraction: {len(exact_matches)} keywords matched with GND-IDs")
+        return exact_matches, exact_matches  # Return same list for both
+
+    # NO EXTRACTION SUCCESSFUL
+    logger.error("❌ NO keyword extraction successful (neither regex nor <final_list>)")
+    logger.error(f"Text preview: {text[:300]}")
+    return [], []
 
 
 def extract_keywords_from_descriptive_text_simple(
