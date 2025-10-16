@@ -747,12 +747,24 @@ class BiblioClient:
                         "dk": dk,
                         "classification_type": classification_type,
                         "keywords": set(),
+                        "gnd_ids": set(),  # Claude Generated - Store GND-IDs separately
                         "titles": [],
                         "total_confidence": 0.0,
                         "count": 0
                     }
-                
-                result_groups[key]["keywords"].add(result["keyword"])
+
+                # Extract keyword and GND-ID - Claude Generated
+                keyword = result["keyword"]
+                result_groups[key]["keywords"].add(keyword)
+
+                # Extract GND-ID from keyword if present (format: "Keyword (GND-ID: 1234567-8)")
+                if "(GND-ID:" in keyword:
+                    try:
+                        gnd_id = keyword.split("(GND-ID:")[1].split(")")[0].strip()
+                        result_groups[key]["gnd_ids"].add(gnd_id)
+                        logger.debug(f"Extracted GND-ID {gnd_id} from keyword '{keyword}'")
+                    except (IndexError, AttributeError) as e:
+                        logger.warning(f"Failed to extract GND-ID from '{keyword}': {e}")
                 # Filter empty titles before adding - Claude Generated
                 title = result["source_title"]
                 if title and title.strip():
@@ -765,6 +777,7 @@ class BiblioClient:
             # Convert to cache format
             for group_data in result_groups.values():
                 group_data["keywords"] = list(group_data["keywords"])
+                group_data["gnd_ids"] = list(group_data["gnd_ids"])  # Claude Generated - Convert GND-IDs set to list
                 group_data["avg_confidence"] = group_data["total_confidence"] / group_data["count"]
                 # Remove duplicates and filter whitespace - Claude Generated
                 raw_titles = group_data["titles"]

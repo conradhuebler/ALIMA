@@ -594,6 +594,11 @@ class UnifiedKnowledgeManager:
                 if len(new_titles) != len(valid_new_titles):
                     self.logger.warning(f"Filtered {len(new_titles) - len(valid_new_titles)} empty titles for {code}")
 
+                # Skip classification if no valid titles remain - Claude Generated
+                if not valid_new_titles:
+                    self.logger.warning(f"⚠️ Skipping classification {code} ({classification_type}): no valid titles to store")
+                    continue
+
                 for keyword in keywords:
                     # Check if mapping already exists - Claude Generated
                     existing_mapping = self.get_search_mapping(keyword, "catalog")
@@ -922,3 +927,196 @@ class UnifiedKnowledgeManager:
         except Exception as e:
             self.logger.error(f"Error getting mapping statistics: {e}")
             return {"error": str(e)}
+
+    def get_dk_for_gnd_id(self, gnd_id: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """
+        Retrieve DK classifications for a given GND-ID - Claude Generated
+
+        Searches through catalog search mappings to find all DK classifications
+        associated with a specific GND-ID, including titles and frequency information.
+
+        Args:
+            gnd_id: The GND-ID to search for (e.g., "4061694-5")
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of dictionaries with structure:
+            [
+                {
+                    "dk": "614.7",
+                    "type": "DK",
+                    "titles": ["Title 1", "Title 2"],
+                    "count": 5,
+                    "avg_confidence": 0.85
+                },
+                ...
+            ]
+        """
+        try:
+            # Search in search_mappings where suggester_type is 'catalog'
+            rows = self.db_manager.fetch_all("""
+                SELECT found_classifications
+                FROM search_mappings
+                WHERE suggester_type = 'catalog'
+                AND found_classifications LIKE ?
+            """, [f'%"{gnd_id}"%'])
+
+            if not rows:
+                self.logger.debug(f"No DK classifications found for GND-ID {gnd_id}")
+                return []
+
+            # Parse JSON and collect matching classifications
+            classifications = {}  # Use dict to deduplicate by code
+
+            for row in rows:
+                try:
+                    found_classifications = json.loads(row['found_classifications'] or '[]')
+
+                    for cls in found_classifications:
+                        # Check if this classification contains the GND-ID
+                        gnd_ids = cls.get('gnd_ids', [])
+                        if gnd_id in gnd_ids:
+                            code = cls.get('code')
+
+                            # Deduplicate: merge if code already exists
+                            if code in classifications:
+                                # Merge titles (avoid duplicates)
+                                existing_titles = set(classifications[code]['titles'])
+                                new_titles = cls.get('titles', [])
+                                for title in new_titles:
+                                    if title not in existing_titles and len(classifications[code]['titles']) < max_results:
+                                        classifications[code]['titles'].append(title)
+
+                                # Update count and confidence
+                                classifications[code]['count'] += cls.get('count', 1)
+                                classifications[code]['avg_confidence'] = (
+                                    classifications[code]['avg_confidence'] +
+                                    cls.get('avg_confidence', 0.8)
+                                ) / 2
+                            else:
+                                # New classification entry
+                                classifications[code] = {
+                                    'dk': code,
+                                    'type': cls.get('type', 'DK'),
+                                    'titles': cls.get('titles', [])[:max_results],  # Limit titles
+                                    'count': cls.get('count', 1),
+                                    'avg_confidence': cls.get('avg_confidence', 0.8)
+                                }
+
+                except (json.JSONDecodeError, KeyError) as e:
+                    self.logger.warning(f"Failed to parse classification JSON: {e}")
+                    continue
+
+            # Convert to list and sort by count (descending)
+            results = list(classifications.values())
+            results.sort(key=lambda x: x['count'], reverse=True)
+
+            if results:
+                self.logger.info(f"✅ Found {len(results)} DK classifications for GND-ID {gnd_id}")
+
+            return results[:max_results]
+
+        except Exception as e:
+            self.logger.error(f"Error searching DK for GND-ID {gnd_id}: {e}")
+            return []
+
+    def cleanup_titleless_classifications(self, dry_run: bool = True) -> Dict[str, int]:
+        """
+        Remove cached classifications without titles from search_mappings - Claude Generated
+
+        Cleans up the database by removing classification entries that have empty
+        titles arrays. This helps maintain data quality and reduces prompt bloat.
+
+        Args:
+            dry_run: If True, only report what would be cleaned without making changes
+
+        Returns:
+            Dictionary with statistics:
+            {
+                "mappings_processed": int,
+                "classifications_removed": int,
+                "classifications_kept": int,
+                "mappings_updated": int
+            }
+        """
+        try:
+            stats = {
+                "mappings_processed": 0,
+                "classifications_removed": 0,
+                "classifications_kept": 0,
+                "mappings_updated": 0
+            }
+
+            # Get all catalog search mappings
+            rows = self.db_manager.fetch_all("""
+                SELECT search_term, found_classifications
+                FROM search_mappings
+                WHERE suggester_type = 'catalog'
+            """)
+
+            self.logger.info(f"{'[DRY RUN] ' if dry_run else ''}Processing {len(rows)} catalog search mappings...")
+
+            for row in rows:
+                stats["mappings_processed"] += 1
+                search_term = row['search_term']
+
+                try:
+                    classifications = json.loads(row['found_classifications'] or '[]')
+
+                    if not classifications:
+                        continue  # Skip empty mappings
+
+                    # Filter out classifications without titles
+                    cleaned_classifications = []
+                    for cls in classifications:
+                        titles = cls.get('titles', [])
+                        # Check if at least one valid title exists
+                        if titles and any(t.strip() for t in titles if t):
+                            cleaned_classifications.append(cls)
+                            stats["classifications_kept"] += 1
+                        else:
+                            stats["classifications_removed"] += 1
+                            if dry_run:
+                                self.logger.debug(f"[DRY RUN] Would remove {cls.get('type', 'DK')}: {cls.get('code')} from '{search_term}' (no titles)")
+
+                    # Update mapping if classifications were removed
+                    if len(cleaned_classifications) < len(classifications):
+                        stats["mappings_updated"] += 1
+
+                        if not dry_run:
+                            # Update the search mapping with cleaned data
+                            self.update_search_mapping(
+                                search_term=search_term,
+                                suggester_type="catalog",
+                                found_classifications=cleaned_classifications
+                            )
+                            self.logger.debug(f"✅ Cleaned '{search_term}': kept {len(cleaned_classifications)}/{len(classifications)} classifications")
+                        else:
+                            self.logger.debug(f"[DRY RUN] Would clean '{search_term}': keep {len(cleaned_classifications)}/{len(classifications)} classifications")
+
+                except (json.JSONDecodeError, KeyError) as e:
+                    self.logger.warning(f"Failed to process mapping for '{search_term}': {e}")
+                    continue
+
+            # Log summary
+            action_verb = "Would remove" if dry_run else "Removed"
+            self.logger.info(f"{'[DRY RUN] ' if dry_run else ''}Cleanup summary:")
+            self.logger.info(f"  - Mappings processed: {stats['mappings_processed']}")
+            self.logger.info(f"  - Classifications kept: {stats['classifications_kept']}")
+            self.logger.info(f"  - Classifications {action_verb.lower()}: {stats['classifications_removed']}")
+            self.logger.info(f"  - Mappings updated: {stats['mappings_updated']}")
+
+            if dry_run and stats['classifications_removed'] > 0:
+                self.logger.info(f"💡 Run with dry_run=False to apply these changes")
+
+            return stats
+
+        except Exception as e:
+            self.logger.error(f"Error during cleanup: {e}")
+            return {
+                "mappings_processed": 0,
+                "classifications_removed": 0,
+                "classifications_kept": 0,
+                "mappings_updated": 0,
+                "error": str(e)
+            }

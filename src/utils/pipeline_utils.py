@@ -1138,9 +1138,45 @@ class PipelineStepExecutor:
             else:
                 stream_callback(f"Verwende alle {len(filtered_results)} DK-Einträge (keine Häufigkeits-Filterung nötig)\n", "dk_classification")
 
+        # Filter out results without titles - Claude Generated
+        results_with_titles = []
+        titleless_count = 0
+
+        for result in filtered_results:
+            # Check if result has titles (aggregated format)
+            if "titles" in result:
+                if result.get("titles") and any(t.strip() for t in result.get("titles", [])):
+                    results_with_titles.append(result)
+                else:
+                    titleless_count += 1
+            # Check if result has source_title (individual format)
+            elif "source_title" in result:
+                if result.get("source_title", "").strip():
+                    results_with_titles.append(result)
+                else:
+                    titleless_count += 1
+            # Check if result has title (legacy format)
+            elif "title" in result:
+                if result.get("title", "").strip():
+                    results_with_titles.append(result)
+                else:
+                    titleless_count += 1
+            else:
+                # No title field found - skip this result
+                titleless_count += 1
+
+        if stream_callback:
+            if titleless_count > 0:
+                stream_callback(f"⚠️ Filtere titel-lose Einträge: {len(results_with_titles)} mit Titeln, {titleless_count} ohne Titel ausgeschlossen\n", "dk_classification")
+            else:
+                stream_callback(f"✅ Alle {len(results_with_titles)} Einträge haben Titel\n", "dk_classification")
+
+        if self.logger:
+            self.logger.info(f"DK title filter: {len(results_with_titles)} with titles, {titleless_count} without titles excluded")
+
         # Format catalog results for LLM prompt with aggregated data
         catalog_results = []
-        for result in filtered_results:
+        for result in results_with_titles:
             # Handle aggregated format from _aggregate_dk_results
             if "dk" in result and "count" in result and "titles" in result:
                 # Aggregated format with count and titles
