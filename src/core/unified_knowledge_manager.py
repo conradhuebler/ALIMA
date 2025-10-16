@@ -248,18 +248,26 @@ class UnifiedKnowledgeManager:
         try:
             normalized_term = self._normalize_term(search_term)
 
+            # Use INSERT OR REPLACE with subquery to preserve created_at - Claude Generated
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO search_mappings
                 (search_term, normalized_term, suggester_type, found_gnd_ids,
-                 found_classifications, result_count, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                 found_classifications, result_count, last_updated, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
+                    COALESCE(
+                        (SELECT created_at FROM search_mappings
+                         WHERE search_term = ? AND suggester_type = ?),
+                        CURRENT_TIMESTAMP
+                    ))
             """, [
                 search_term,
                 normalized_term,
                 suggester_type,
                 json.dumps(found_gnd_ids or []),
                 json.dumps(found_classifications or []),
-                len(found_gnd_ids or []) + len(found_classifications or [])
+                len(found_gnd_ids or []) + len(found_classifications or []),
+                search_term,  # For subquery
+                suggester_type  # For subquery
             ])
 
         except Exception as e:
@@ -566,7 +574,7 @@ class UnifiedKnowledgeManager:
             }
     
     def store_classification_results(self, results: List[Dict]):
-        """DKCacheManager compatibility - Claude Generated"""
+        """DKCacheManager compatibility with title merging - Claude Generated"""
         for result in results:
             # Store classification fact
             code = result.get('dk', '')
@@ -576,22 +584,106 @@ class UnifiedKnowledgeManager:
                 self.store_classification_fact(code, classification_type)
 
                 # Store titles with classification in search mapping - Claude Generated
-                titles = result.get('titles', [])
+                new_titles = result.get('titles', [])
                 keywords = result.get('keywords', [])
                 count = result.get('count', 1)
                 avg_confidence = result.get('avg_confidence', 0.8)
 
+                # Debug log for incoming titles - Claude Generated
+                valid_new_titles = [t for t in new_titles if t and t.strip()]
+                if len(new_titles) != len(valid_new_titles):
+                    self.logger.warning(f"Filtered {len(new_titles) - len(valid_new_titles)} empty titles for {code}")
+
                 for keyword in keywords:
-                    self.update_search_mapping(
-                        search_term=keyword,
-                        suggester_type="catalog",
-                        found_classifications=[{
+                    # Check if mapping already exists - Claude Generated
+                    existing_mapping = self.get_search_mapping(keyword, "catalog")
+
+                    merged_classifications = []
+
+                    if existing_mapping and existing_mapping.found_classifications:
+                        # Merge titles with existing classifications
+                        try:
+                            existing_classifications = existing_mapping.found_classifications
+
+                            # Find classification entry for this code
+                            code_found = False
+                            for existing_cls in existing_classifications:
+                                if existing_cls.get("code") == code:
+                                    # Merge titles: new titles first, then existing (avoiding duplicates)
+                                    existing_titles = existing_cls.get("titles", [])
+                                    merged_titles = []
+
+                                    # Add new titles first (filter empty, max 10 total) - Claude Generated
+                                    for title in new_titles:
+                                        if title and title.strip() and title not in merged_titles:
+                                            if len(merged_titles) < 10:
+                                                merged_titles.append(title)
+                                            else:
+                                                break  # Reached limit
+
+                                    # Add existing titles (avoiding duplicates, max 10 total) - Claude Generated
+                                    for title in existing_titles:
+                                        if title and title.strip() and title not in merged_titles:
+                                            if len(merged_titles) < 10:
+                                                merged_titles.append(title)
+                                            else:
+                                                break  # Reached limit
+
+                                    # Create merged classification entry
+                                    merged_classifications.append({
+                                        "code": code,
+                                        "type": classification_type,
+                                        "titles": merged_titles,
+                                        "count": count + existing_cls.get("count", 0),
+                                        "avg_confidence": (avg_confidence + existing_cls.get("avg_confidence", 0.8)) / 2
+                                    })
+                                    code_found = True
+                                    self.logger.info(f"✅ Merged titles for {code}: {len(valid_new_titles)} new + {len(existing_titles)} existing = {len(merged_titles)} final (max 10)")
+                                else:
+                                    # Keep other classifications unchanged
+                                    merged_classifications.append(existing_cls)
+
+                            # If code not found in existing classifications, add it
+                            if not code_found:
+                                # Filter and limit to 10 titles - Claude Generated
+                                filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
+                                merged_classifications.append({
+                                    "code": code,
+                                    "type": classification_type,
+                                    "titles": filtered_new_titles,
+                                    "count": count,
+                                    "avg_confidence": avg_confidence
+                                })
+                                self.logger.info(f"✅ Added new classification {code}: {len(filtered_new_titles)} titles")
+
+                        except Exception as e:
+                            self.logger.error(f"Error merging titles for '{keyword}': {e}")
+                            # Fallback: use new classification - Claude Generated
+                            filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
+                            merged_classifications = [{
+                                "code": code,
+                                "type": classification_type,
+                                "titles": filtered_new_titles,
+                                "count": count,
+                                "avg_confidence": avg_confidence
+                            }]
+                    else:
+                        # No existing mapping, create new one - Claude Generated
+                        filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
+                        merged_classifications = [{
                             "code": code,
                             "type": classification_type,
-                            "titles": titles[:5],  # Store up to 5 sample titles
+                            "titles": filtered_new_titles,
                             "count": count,
                             "avg_confidence": avg_confidence
                         }]
+                        self.logger.info(f"✅ Created new mapping for '{keyword}': {code} with {len(filtered_new_titles)} titles")
+
+                    # Update mapping with merged classifications
+                    self.update_search_mapping(
+                        search_term=keyword,
+                        suggester_type="catalog",
+                        found_classifications=merged_classifications
                     )
     
     def insert_gnd_entry(
@@ -647,24 +739,48 @@ class UnifiedKnowledgeManager:
     
     # === WEEK 2: SMART SEARCH INTEGRATION ===
     
-    def search_with_mappings_first(self, search_term: str, suggester_type: str, 
-                                 max_age_hours: int = 24, 
-                                 live_search_fallback: callable = None) -> tuple[List[str], bool]:
+    def search_with_mappings_first(self, search_term: str, suggester_type: str,
+                                 max_age_hours: int = 24,
+                                 live_search_fallback: callable = None,
+                                 force_update: bool = False) -> tuple[List[str], bool]:
         """
         Week 2: Smart search with mappings-first strategy - Claude Generated
-        
+
         Args:
             search_term: Term to search for
             suggester_type: Type of suggester (lobid, swb, catalog)
             max_age_hours: Maximum age of cached mappings in hours
             live_search_fallback: Function to call for live search if mapping miss
-            
+            force_update: If True, ignore cache and force live search - Claude Generated
+
         Returns:
             Tuple of (found_gnd_ids, was_from_cache)
         """
         from datetime import datetime, timedelta
-        
-        # Step 1: Check for existing mapping
+
+        # Step 1: Force live search if force_update is True - Claude Generated
+        if force_update:
+            if hasattr(self, 'debug_mapping') and self.debug_mapping:
+                self.logger.info(f"⚠️ Force update: skipping cache for '{search_term}' ({suggester_type})")
+            # Skip cache check and go directly to live search
+            if live_search_fallback:
+                try:
+                    live_results = live_search_fallback(search_term)
+                    if live_results:
+                        gnd_ids = self._extract_gnd_ids_from_results(live_results, suggester_type)
+                        # Update mapping with fresh results (merging will be handled in store_classification_results)
+                        self.update_search_mapping(
+                            search_term=search_term,
+                            suggester_type=suggester_type,
+                            found_gnd_ids=gnd_ids
+                        )
+                        self.logger.info(f"✅ Force update complete for '{search_term}': {len(gnd_ids)} results")
+                        return gnd_ids, False
+                except Exception as e:
+                    self.logger.error(f"Force update failed for '{search_term}': {e}")
+            return [], False
+
+        # Step 2: Normal cache-first logic
         mapping = self.get_search_mapping(search_term, suggester_type)
         
         if mapping:

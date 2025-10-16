@@ -804,6 +804,16 @@ class PipelineTab(QWidget):
         freq_layout.addStretch()
         config_layout.addLayout(freq_layout)
 
+        # Force update checkbox - Claude Generated
+        from PyQt6.QtWidgets import QCheckBox
+        self.force_update_checkbox = QCheckBox("Katalog-Cache ignorieren")
+        self.force_update_checkbox.setToolTip(
+            "Erzwingt Live-Suche im Katalog und ignoriert gecachte Ergebnisse.\n"
+            "Neue Titel werden mit bestehenden zusammengeführt (keine Ersetzung)."
+        )
+        self.force_update_checkbox.setChecked(False)
+        config_layout.addWidget(self.force_update_checkbox)
+
         layout.addWidget(config_group)
 
         # Search results display
@@ -885,8 +895,14 @@ class PipelineTab(QWidget):
         self.pipeline_status_label.setText("Pipeline läuft...")
         self.auto_pipeline_button.setEnabled(False)
 
-        # Create and start worker thread
-        self.pipeline_worker = PipelineWorker(self.pipeline_manager, input_text, "text")
+        # Get force_update flag from checkbox - Claude Generated
+        force_update = getattr(self, 'force_update_checkbox', None)
+        force_update_enabled = force_update.isChecked() if force_update else False
+
+        # Create and start worker thread - Claude Generated (added force_update parameter)
+        self.pipeline_worker = PipelineWorker(
+            self.pipeline_manager, input_text, "text", force_update=force_update_enabled
+        )
 
         # Connect worker signals
         self.pipeline_worker.step_started.connect(self.on_step_started)

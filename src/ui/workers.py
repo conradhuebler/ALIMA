@@ -66,11 +66,13 @@ class PipelineWorker(QThread):
         pipeline_manager: PipelineManager,
         input_text: str,
         input_type: str = "text",
+        force_update: bool = False,  # Claude Generated
     ):
         super().__init__()
         self.pipeline_manager = pipeline_manager
         self.input_text = input_text
         self.input_type = input_type
+        self.force_update = force_update  # Claude Generated
         self.logger = logging.getLogger(__name__)
 
     def run(self):
@@ -85,9 +87,9 @@ class PipelineWorker(QThread):
                 stream_callback=self.stream_token.emit,
             )
 
-            # Start pipeline
+            # Start pipeline - Claude Generated (added force_update parameter)
             pipeline_id = self.pipeline_manager.start_pipeline(
-                self.input_text, self.input_type
+                self.input_text, self.input_type, force_update=self.force_update
             )
             self.logger.info(f"Pipeline {pipeline_id} completed in worker thread")
 

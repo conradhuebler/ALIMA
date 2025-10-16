@@ -442,7 +442,7 @@ class BatchProcessor:
         """
         if source.source_type == SourceType.DOI:
             # Use doi_resolver
-            return resolve_input_to_text(source.source_value, None, self.logger)
+            return resolve_input_to_text(source.source_value, self.logger)
 
         elif source.source_type == SourceType.TXT:
             # Read text file

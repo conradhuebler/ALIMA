@@ -274,16 +274,20 @@ class LlmService(QObject):
             return  # Watchdog läuft bereits
 
         def watchdog_func():
+            timeout_triggered = False  # Claude Generated - Prevent spam logging
             while self.stream_running:
                 # Prüfe, ob wir länger als timeout auf Chunks gewartet haben
                 if (
                     self.last_chunk_time > 0
                     and time.time() - self.last_chunk_time > self.request_timeout
+                    and not timeout_triggered  # Claude Generated - Only trigger once
                 ):
+                    timeout_triggered = True  # Claude Generated - Mark as triggered
                     self.logger.warning(
                         f"Request timed out after {self.request_timeout} seconds without response"
                     )
                     self.cancel_generation(reason="timeout")
+                    break  # Claude Generated - Exit watchdog after timeout
                 time.sleep(1)  # Überprüfe jede Sekunde
 
         self.watchdog_thread = threading.Thread(target=watchdog_func, daemon=True)
@@ -304,6 +308,7 @@ class LlmService(QObject):
             return False
 
         self.cancel_requested = True
+        self.stream_running = False  # Claude Generated - Stop watchdog thread
         self.logger.info(f"Cancellation requested (reason: {reason})")
 
         # Versuche serverseitigen Abbruch basierend auf dem Provider
@@ -1148,7 +1153,8 @@ class LlmService(QObject):
 
                 model = f"models/{model_name}"
                 self.logger.info(f"Verwende vollqualifiziertes Gemini Modell: {model}")
-
+                #TODO Altlast, hier ist noch zeugs, das muss aufgeräumt werden
+                
             # Create model instance with system instruction if provided
             system_instruction = system if system else None
             model_instance = self.clients["gemini"].GenerativeModel(

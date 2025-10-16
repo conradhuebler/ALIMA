@@ -17,7 +17,7 @@ import logging
 from enum import Enum
 # Import centralized data models
 from .config_models import (
-    AlimaConfig, DatabaseConfig, CatalogConfig, PromptConfig,
+    AlimaConfig, DatabaseConfig, CatalogConfig, PromptConfig, UIConfig,
     UnifiedProviderConfig, UnifiedProvider, TaskPreference, PipelineStepConfig,
     OllamaProvider, OpenAICompatibleProvider, GeminiProvider, AnthropicProvider,
     TaskType, PipelineMode
@@ -222,6 +222,10 @@ class ConfigManager:
             prompt_config = PromptConfig(**config_data.get("prompt_config", config_data.get("prompt", {})))
             system_config = SystemConfig(**config_data.get("system_config", config_data.get("system", {})))
 
+            # Parse UI config - Claude Generated (Webcam Feature Fix)
+            ui_config_data = config_data.get("ui_config", {})
+            ui_config = UIConfig(**ui_config_data) if ui_config_data else UIConfig()
+
             # Create unified provider config
             if "unified_config" in config_data:
                 # Already in unified format
@@ -238,6 +242,7 @@ class ConfigManager:
                 catalog_config=catalog_config,
                 prompt_config=prompt_config,
                 system_config=system_config,
+                ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
                 unified_config=unified_config,
                 config_version=config_data.get("config_version", "2.0")
             )
@@ -662,6 +667,10 @@ class ConfigManager:
         """Get prompt configuration - Claude Generated"""
         return self.load_config().prompt_config
 
+    def get_ui_config(self) -> UIConfig:
+        """Get UI configuration - Claude Generated"""
+        return self.load_config().ui_config
+
     def update_database_config(self, database_config: DatabaseConfig) -> bool:
         """Update database configuration - Claude Generated"""
         config = self.load_config()
@@ -672,6 +681,12 @@ class ConfigManager:
         """Update catalog configuration - Claude Generated"""
         config = self.load_config()
         config.catalog_config = catalog_config
+        return self.save_config(config)
+
+    def update_ui_config(self, ui_config: UIConfig) -> bool:
+        """Update UI configuration - Claude Generated"""
+        config = self.load_config()
+        config.ui_config = ui_config
         return self.save_config(config)
 
     # ============================================================================

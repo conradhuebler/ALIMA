@@ -401,6 +401,11 @@ EXAMPLES:
         default=DEFAULT_DK_FREQUENCY_THRESHOLD,
         help=f"Minimum occurrence count for DK classifications to be included in LLM analysis (default: {DEFAULT_DK_FREQUENCY_THRESHOLD}). Only classifications appearing >= N times in catalog will be passed to LLM.",
     )
+    pipeline_parser.add_argument(
+        "--force-update",
+        action="store_true",
+        help="Force catalog cache update: ignore existing cached catalog search results and perform live search. New titles will be merged with existing ones (no replacement).",
+    )
 
     # Batch command - Claude Generated
     batch_parser = subparsers.add_parser(
@@ -1054,8 +1059,13 @@ USAGE EXAMPLES:
 
                 # Execute pipeline
                 print(f"🚀 Starting {args.mode} mode pipeline...")
+                if hasattr(args, 'force_update') and args.force_update:
+                    print("⚠️ Force update enabled: catalog cache will be ignored")
                 try:
-                    pipeline_manager.start_pipeline(input_text=input_text)
+                    pipeline_manager.start_pipeline(
+                        input_text=input_text,
+                        force_update=getattr(args, 'force_update', False)
+                    )
 
                     # Wait for pipeline completion (synchronous mode for CLI)
                     import time

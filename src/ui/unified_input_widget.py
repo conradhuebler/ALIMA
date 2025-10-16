@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QMimeData, QUrl, pyqtSlot
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 import os
@@ -597,6 +597,7 @@ class UnifiedInputWidget(QWidget):
         self.alima_manager = alima_manager
         self.logger = logging.getLogger(__name__)
         self.current_extraction_worker: Optional[TextExtractionWorker] = None
+        self.webcam_temp_file: Optional[str] = None  # Claude Generated - Track webcam temp files for cleanup
 
         # Enable drag and drop
         self.setAcceptDrops(True)
@@ -641,17 +642,21 @@ class UnifiedInputWidget(QWidget):
         layout.addWidget(self.progress_bar)
 
     def create_main_input_area(self, layout):
-        """Create main input area with drop zone and input methods side by side - Claude Generated"""
-        main_input_layout = QHBoxLayout()
-        main_input_layout.setSpacing(15)
+        """Create main input area with capture frames and input methods - Claude Generated (Webcam Feature)"""
+        # Top area: Capture Frames (horizontal)
+        frames_layout = QHBoxLayout()
+        frames_layout.setSpacing(15)
 
-        # Left side: Drop Zone
-        self.create_drop_zone_compact(main_input_layout)
+        # Left: Drop Zone
+        self.create_drop_zone_compact(frames_layout)
 
-        # Right side: Input Methods (vertical layout)
-        self.create_input_methods_vertical(main_input_layout)
+        # Right: Webcam Capture Frame (conditionally visible)
+        self.create_webcam_capture_frame(frames_layout)
 
-        layout.addLayout(main_input_layout)
+        layout.addLayout(frames_layout)
+
+        # Bottom area: Input Methods (horizontal button bar)
+        self.create_input_methods_horizontal(layout)
 
     def create_drop_zone_compact(self, layout):
         """Create compact drop zone - Claude Generated"""
@@ -695,10 +700,59 @@ class UnifiedInputWidget(QWidget):
         drop_zone_layout.addWidget(self.drop_frame)
         layout.addWidget(drop_zone_group)
 
-    def create_input_methods_vertical(self, layout):
-        """Create vertical input methods - Claude Generated"""
+    def create_webcam_capture_frame(self, layout):
+        """Create webcam capture frame - Claude Generated (Webcam Feature)"""
+        webcam_group = QGroupBox("📷 Webcam Capture")
+        webcam_layout = QVBoxLayout(webcam_group)
+
+        # Clickable frame (similar to drop zone)
+        self.webcam_frame = QFrame()
+        self.webcam_frame.setFrameStyle(QFrame.Shape.Box)
+        self.webcam_frame.setLineWidth(2)
+        self.webcam_frame.setMinimumHeight(120)
+        self.webcam_frame.setStyleSheet(
+            """
+            QFrame {
+                border: 2px dashed #2196f3;
+                border-radius: 8px;
+                background-color: #e3f2fd;
+                padding: 20px;
+            }
+            QFrame:hover {
+                border-color: #1976d2;
+                background-color: #bbdefb;
+                cursor: pointer;
+            }
+        """
+        )
+
+        # Make frame clickable
+        self.webcam_frame.mousePressEvent = lambda event: self.capture_from_webcam()
+
+        frame_layout = QVBoxLayout(self.webcam_frame)
+        frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Icon + Text
+        webcam_label = QLabel("Klicken für Aufnahme")
+        webcam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        webcam_label.setStyleSheet("color: #1976d2; font-size: 14px; font-weight: bold;")
+        frame_layout.addWidget(webcam_label)
+
+        info_label = QLabel("Webcam-Bild aufnehmen")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_label.setStyleSheet("color: #666; font-size: 11px;")
+        frame_layout.addWidget(info_label)
+
+        webcam_layout.addWidget(self.webcam_frame)
+        layout.addWidget(webcam_group)
+
+        # Set visibility based on config
+        self._update_webcam_frame_visibility()
+
+    def create_input_methods_horizontal(self, layout):
+        """Create horizontal input methods bar - Claude Generated (Webcam Feature)"""
         methods_group = QGroupBox("🔧 Eingabemethoden")
-        methods_layout = QVBoxLayout(methods_group)
+        methods_layout = QHBoxLayout(methods_group)
         methods_layout.setSpacing(10)
 
         # File selection button
@@ -706,29 +760,22 @@ class UnifiedInputWidget(QWidget):
         file_button.clicked.connect(self.select_file)
         methods_layout.addWidget(file_button)
 
-        # DOI/URL input with auto-detection
-        doi_url_layout = QHBoxLayout()
+        # DOI/URL input with inline button
         self.doi_url_input = QLineEdit()
-        self.doi_url_input.setPlaceholderText(
-            "DOI oder URL eingeben (z.B. 10.1007/... oder https://...)"
-        )
+        self.doi_url_input.setPlaceholderText("DOI oder URL eingeben...")
         self.doi_url_input.returnPressed.connect(self.process_doi_url_input)
-        doi_url_layout.addWidget(self.doi_url_input)
+        methods_layout.addWidget(self.doi_url_input)
 
         resolve_button = QPushButton("🔍 Auflösen")
         resolve_button.clicked.connect(self.process_doi_url_input)
-        resolve_button.setMaximumWidth(80)
-        doi_url_layout.addWidget(resolve_button)
-
-        methods_layout.addLayout(doi_url_layout)
+        resolve_button.setMaximumWidth(100)
+        methods_layout.addWidget(resolve_button)
 
         # Paste button
-        paste_button = QPushButton("📋 Aus Zwischenablage einfügen")
+        paste_button = QPushButton("📋 Paste")
         paste_button.clicked.connect(self.paste_from_clipboard)
+        paste_button.setMaximumWidth(100)
         methods_layout.addWidget(paste_button)
-
-        # Add stretch to push everything to the top
-        methods_layout.addStretch()
 
         layout.addWidget(methods_group)
 
@@ -1077,6 +1124,18 @@ class UnifiedInputWidget(QWidget):
 
         self.set_text_directly(text, source_info)
 
+        # Cleanup webcam temp file if present - Claude Generated (Webcam Feature)
+        if self.webcam_temp_file:
+            try:
+                import os
+                if os.path.exists(self.webcam_temp_file):
+                    os.unlink(self.webcam_temp_file)
+                    self.logger.info(f"Cleaned up webcam temp file: {self.webcam_temp_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to cleanup webcam temp file: {e}")
+            finally:
+                self.webcam_temp_file = None
+
     @pyqtSlot(str)
     def on_text_chunk_received(self, chunk: str):
         """Handle streaming text chunk - Claude Generated"""
@@ -1104,6 +1163,18 @@ class UnifiedInputWidget(QWidget):
         """Handle extraction error - Claude Generated"""
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
+
+        # Cleanup webcam temp file if present - Claude Generated (Webcam Feature)
+        if self.webcam_temp_file:
+            try:
+                import os
+                if os.path.exists(self.webcam_temp_file):
+                    os.unlink(self.webcam_temp_file)
+                    self.logger.info(f"Cleaned up webcam temp file after error: {self.webcam_temp_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to cleanup webcam temp file after error: {e}")
+            finally:
+                self.webcam_temp_file = None
 
         QMessageBox.critical(self, "Extraction Error", error_message)
 
@@ -1151,3 +1222,84 @@ class UnifiedInputWidget(QWidget):
     def get_source_info(self) -> str:
         """Get current source info - Claude Generated"""
         return self.source_info_label.text()
+
+    def _update_webcam_frame_visibility(self):
+        """Update webcam frame visibility based on config - Claude Generated (Webcam Feature)"""
+        try:
+            # Try to get config manager
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            ui_config = config_manager.get_ui_config()
+
+            # Set frame visibility (frame is inside a group box, so hide the parent)
+            if hasattr(self, 'webcam_frame'):
+                # Find parent QGroupBox
+                parent = self.webcam_frame.parent()
+                if parent:
+                    parent.setVisible(ui_config.enable_webcam_input)
+                    self.logger.info(f"Webcam frame visibility: {ui_config.enable_webcam_input}")
+        except Exception as e:
+            self.logger.error(f"Error updating webcam frame visibility: {e}")
+            # Default to hidden on error
+            if hasattr(self, 'webcam_frame'):
+                parent = self.webcam_frame.parent()
+                if parent:
+                    parent.setVisible(False)
+
+    def capture_from_webcam(self):
+        """Open webcam capture dialog - Claude Generated (Webcam Feature)"""
+        try:
+            from .webcam_capture_dialog import WebcamCaptureDialog
+
+            dialog = WebcamCaptureDialog(parent=self)
+            dialog.image_captured.connect(self.on_webcam_image_captured)
+
+            dialog.exec()
+
+        except ImportError as e:
+            self.logger.error(f"Failed to import webcam dialog: {e}")
+            QMessageBox.critical(
+                self,
+                "Import-Fehler",
+                "Webcam-Dialog konnte nicht geladen werden.\n"
+                "Bitte stellen Sie sicher, dass PyQt6.QtMultimedia installiert ist:\n"
+                "pip install PyQt6-Multimedia PyQt6-MultimediaWidgets"
+            )
+        except Exception as e:
+            self.logger.error(f"Error opening webcam dialog: {e}")
+            QMessageBox.critical(
+                self,
+                "Webcam-Fehler",
+                f"Fehler beim Öffnen des Webcam-Dialogs:\n{str(e)}"
+            )
+
+    def on_webcam_image_captured(self, image: QImage):
+        """Handle captured webcam image - Claude Generated (Webcam Feature)"""
+        try:
+            import tempfile
+            import os
+
+            # Save image to temporary file
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                temp_path = temp_file.name
+                self.logger.info(f"Saving webcam image to: {temp_path}")
+
+                # Save QImage to temporary file
+                if not image.save(temp_path, 'PNG'):
+                    raise Exception("Failed to save image to temporary file")
+
+            # Store temp file path for cleanup after extraction
+            self.webcam_temp_file = temp_path
+
+            # Extract text from image using existing pipeline
+            self.extract_text("image", temp_path)
+
+            # Note: temp file will be cleaned up in on_text_extracted or on_extraction_error
+
+        except Exception as e:
+            self.logger.error(f"Error processing webcam image: {e}")
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler bei der Verarbeitung des Webcam-Bildes:\n{str(e)}"
+            )

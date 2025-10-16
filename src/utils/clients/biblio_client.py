@@ -650,39 +650,44 @@ class BiblioClient:
 
         return results
 
-    def extract_dk_classifications_for_keywords(self, keywords: List[str], max_results: int = 50) -> List[Dict[str, Any]]:
+    def extract_dk_classifications_for_keywords(self, keywords: List[str], max_results: int = 50, force_update: bool = False) -> List[Dict[str, Any]]:
         """
         Claude Generated - Extract DK classifications for given GND keywords using intelligent caching.
-        
+
         Args:
             keywords: List of GND keywords to search for
             max_results: Maximum search results to process per keyword
-            
+            force_update: If True, bypass cache and perform live search with title merging
+
         Returns:
             List of DK classification results with metadata
         """
         # Use new caching system - Claude Generated
         from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
-        
+
         dk_cache = UnifiedKnowledgeManager()
 
-        # First try to get results from cache - Claude Generated
-        logger.info(f"🔍 Checking cache for {len(keywords)} keywords: {keywords[:3]}{'...' if len(keywords) > 3 else ''}")
-        cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
-        logger.info(f"📊 Cache returned {len(cached_results) if cached_results else 0} results")
+        # Skip cache check if force_update is enabled - Claude Generated
+        if force_update:
+            logger.info(f"⚠️ Force update enabled: skipping cache, performing live search for {len(keywords)} keywords")
+        else:
+            # First try to get results from cache - Claude Generated
+            logger.info(f"🔍 Checking cache for {len(keywords)} keywords: {keywords[:3]}{'...' if len(keywords) > 3 else ''}")
+            cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
+            logger.info(f"📊 Cache returned {len(cached_results) if cached_results else 0} results")
 
-        if cached_results:
-            # Check if cached results have titles - Claude Generated
-            has_titles = any(result.get("titles") for result in cached_results)
+            if cached_results:
+                # Check if cached results have titles - Claude Generated
+                has_titles = any(result.get("titles") for result in cached_results)
 
-            if has_titles:
-                logger.info(f"✅ Using {len(cached_results)} cached DK classifications with titles for keywords: {keywords[:3]}")
-                return cached_results
-            else:
-                logger.warning(f"⚠️ Cached results exist but have NO titles - performing live search to populate cache")
-                # Fall through to live catalog search to get titles
-        
-        # No cache hits - perform live catalog search
+                if has_titles:
+                    logger.info(f"✅ Using {len(cached_results)} cached DK classifications with titles for keywords: {keywords[:3]}")
+                    return cached_results
+                else:
+                    logger.warning(f"⚠️ Cached results exist but have NO titles - performing live search to populate cache")
+                    # Fall through to live catalog search to get titles
+
+        # No cache hits or force_update enabled - perform live catalog search
         logger.info(f"No cache hits - performing live catalog search for {len(keywords)} keywords")
         dk_results = []
         
@@ -748,16 +753,24 @@ class BiblioClient:
                     }
                 
                 result_groups[key]["keywords"].add(result["keyword"])
-                result_groups[key]["titles"].append(result["source_title"])
+                # Filter empty titles before adding - Claude Generated
+                title = result["source_title"]
+                if title and title.strip():
+                    result_groups[key]["titles"].append(title)
+                else:
+                    logger.debug(f"Skipping empty title for {dk} (keyword: {result['keyword']})")
                 result_groups[key]["total_confidence"] += result["confidence"]
                 result_groups[key]["count"] += 1
-            
+
             # Convert to cache format
             for group_data in result_groups.values():
                 group_data["keywords"] = list(group_data["keywords"])
                 group_data["avg_confidence"] = group_data["total_confidence"] / group_data["count"]
-                # Remove duplicates from titles
-                group_data["titles"] = list(dict.fromkeys(group_data["titles"]))
+                # Remove duplicates and filter whitespace - Claude Generated
+                raw_titles = group_data["titles"]
+                filtered_titles = [t.strip() for t in raw_titles if t and t.strip()]
+                group_data["titles"] = list(dict.fromkeys(filtered_titles))
+                logger.info(f"DK {group_data['dk']}: {len(group_data['titles'])} unique titles (from {len(raw_titles)} raw)")
                 cache_results.append(group_data)
             
             # Store in cache

@@ -469,6 +469,13 @@ class SystemConfig:
     temp_dir: str = '/tmp'
 
 
+@dataclass
+class UIConfig:
+    """UI-specific configuration - Claude Generated"""
+    enable_webcam_input: bool = False  # Enable webcam capture in Pipeline tab
+    # Future UI options can be added here
+
+
 # ============================================================================
 # MAIN CONFIGURATION CLASS
 # ============================================================================
@@ -481,6 +488,7 @@ class AlimaConfig:
     catalog_config: CatalogConfig = field(default_factory=CatalogConfig)
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
     system_config: SystemConfig = field(default_factory=SystemConfig)
+    ui_config: UIConfig = field(default_factory=UIConfig)  # Claude Generated - Webcam Feature
 
     # UNIFIED PROVIDER CONFIGURATION - single source of truth
     unified_config: UnifiedProviderConfig = field(default_factory=UnifiedProviderConfig)

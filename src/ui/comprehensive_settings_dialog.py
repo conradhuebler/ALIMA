@@ -959,7 +959,13 @@ class ComprehensiveSettingsDialog(QDialog):
         
         self.debug_mode = QCheckBox("Enable debug mode")
         system_layout.addRow("Debug:", self.debug_mode)
-        
+
+        # Webcam input option - Claude Generated
+        self.enable_webcam_input = QCheckBox("📷 Enable webcam capture in Pipeline tab")
+        self.enable_webcam_input.setToolTip("Enable/disable the webcam button for capturing images directly from camera")
+        # Note: Saved on dialog close via _get_config_from_ui() - Claude Generated
+        system_layout.addRow("Webcam:", self.enable_webcam_input)
+
         self.log_level = QComboBox()
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         system_layout.addRow("Log Level:", self.log_level)
@@ -1899,7 +1905,10 @@ class ComprehensiveSettingsDialog(QDialog):
         self.cache_dir.setText(config.system.cache_dir)
         self.data_dir.setText(config.system.data_dir)
         self.temp_dir.setText(config.system.temp_dir)
-        
+
+        # UI settings - Claude Generated
+        self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
+
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
         
@@ -2152,7 +2161,7 @@ class ComprehensiveSettingsDialog(QDialog):
         else:
             self.sqlite_group.setVisible(False)
             self.mysql_group.setVisible(True)
-    
+
     def _browse_sqlite_path(self):
         """Browse for SQLite database path - Claude Generated"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -2348,6 +2357,12 @@ class ComprehensiveSettingsDialog(QDialog):
             cache_dir=self.cache_dir.text(),
             data_dir=self.data_dir.text(),
             temp_dir=self.temp_dir.text()
+        )
+
+        # UI configuration - Claude Generated (Webcam Feature)
+        from ..utils.config_models import UIConfig
+        config.ui_config = UIConfig(
+            enable_webcam_input=self.enable_webcam_input.isChecked()
         )
 
         # Task preferences are already up-to-date in config_to_edit from UnifiedProviderTab - Claude Generated (Refactoring)

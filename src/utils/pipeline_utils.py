@@ -1291,8 +1291,27 @@ class PipelineStepExecutor:
         catalog_token: str = None,
         catalog_search_url: str = None,
         catalog_details_url: str = None,
+        force_update: bool = False,  # Claude Generated
     ) -> List[Dict[str, Any]]:
-        """Execute catalog search for DK classification data - Claude Generated"""
+        """
+        Execute catalog search for DK classification data - Claude Generated
+
+        Args:
+            keywords: List of keywords to search
+            stream_callback: Optional callback for progress updates
+            max_results: Maximum results per keyword
+            catalog_token: Catalog API token
+            catalog_search_url: Catalog search endpoint URL
+            catalog_details_url: Catalog details endpoint URL
+            force_update: If True, results will be merged with existing cache (used by store_classification_results)
+
+        Returns:
+            List of classification results with titles, counts, and metadata
+        """
+
+        # Log force_update status - Claude Generated
+        if force_update and self.logger:
+            self.logger.info("⚠️ Force update enabled: new titles will be merged with existing")
 
         # Use provided catalog configuration or skip
         if not catalog_token or not catalog_token.strip():
@@ -1340,8 +1359,9 @@ class PipelineStepExecutor:
             dk_search_results = extractor.extract_dk_classifications_for_keywords(
                 keywords=clean_keywords,
                 max_results=max_results,
+                force_update=force_update,  # Claude Generated - Pass force_update to BiblioClient
             )
-            
+
             if stream_callback:
                 stream_callback(f"DK-Suche abgeschlossen: {len(dk_search_results)} Katalog-Einträge gefunden\n", "dk_search")
                 

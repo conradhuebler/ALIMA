@@ -373,9 +373,14 @@ class PipelineManager:
         self.pipeline_completed_callback = pipeline_completed
         self.stream_callback = stream_callback
 
-    def start_pipeline(self, input_text: str, input_type: str = "text") -> str:
+    def start_pipeline(self, input_text: str, input_type: str = "text", force_update: bool = False) -> str:
         """Start a new pipeline execution - Claude Generated"""
         pipeline_id = str(uuid.uuid4())
+
+        # Store force_update flag for use during pipeline execution - Claude Generated
+        self.force_update = force_update
+        if force_update:
+            self.logger.info("⚠️ Force update enabled: catalog cache will be ignored")
 
         # Initialize pipeline state
         self.current_analysis_state = KeywordAnalysisState(
@@ -1066,6 +1071,7 @@ class PipelineManager:
                 catalog_token=catalog_token,
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
+                force_update=getattr(self, 'force_update', False),  # Claude Generated
             )
 
             step.output_data = {"dk_search_results": dk_search_results}
