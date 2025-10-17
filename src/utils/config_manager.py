@@ -22,6 +22,8 @@ from .config_models import (
     OllamaProvider, OpenAICompatibleProvider, GeminiProvider, AnthropicProvider,
     TaskType, PipelineMode
 )
+# Import path resolution utilities - Claude Generated
+from .path_utils import resolve_path
 
 # Re-export all config_models classes for backward compatibility
 # This allows "from config_manager import AlimaConfig" to still work
@@ -221,6 +223,23 @@ class ConfigManager:
             catalog_config = CatalogConfig(**config_data.get("catalog_config", config_data.get("catalog", {})))
             prompt_config = PromptConfig(**config_data.get("prompt_config", config_data.get("prompt", {})))
             system_config = SystemConfig(**config_data.get("system_config", config_data.get("system", {})))
+
+            # Resolve file paths from system_config - Claude Generated
+            try:
+                # Resolve database path (supports absolute, relative, and ~)
+                system_config.database_path = resolve_path(system_config.database_path)
+
+                # Resolve prompts path
+                system_config.prompts_path = resolve_path(system_config.prompts_path)
+
+                # Update database_config with resolved path (for SQLite only)
+                if database_config.db_type.lower() in ['sqlite', 'sqlite3']:
+                    database_config.sqlite_path = system_config.database_path
+                    self.logger.debug(f"✅ Resolved database path: {database_config.sqlite_path}")
+
+                self.logger.debug(f"✅ Resolved prompts path: {system_config.prompts_path}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Path resolution error: {e}. Using default paths.")
 
             # Parse UI config - Claude Generated (Webcam Feature Fix)
             ui_config_data = config_data.get("ui_config", {})
@@ -860,6 +879,204 @@ class ConfigManager:
             'user_config': str(self.config_file),
             'system_config': 'Not used'
         }
+
+    # ============================================================================
+    # CONFIGURATION IMPORT/EXPORT - Deploy and migrate configurations
+    # ============================================================================
+
+    def import_configuration(self, source_dir: str, create_backup: bool = True) -> Tuple[bool, str]:
+        """
+        Import ALIMA configuration from a source directory - Claude Generated
+
+        Copies config.json, prompts.json, and database file from source directory
+        to the OS-specific configuration directory, with automatic path adjustment.
+
+        Args:
+            source_dir: Source directory containing config files to import
+            create_backup: Create backup of current configuration before importing
+
+        Returns:
+            Tuple of (success: bool, message: str)
+
+        Example:
+            ```python
+            success, msg = config_manager.import_configuration("/tmp/alima_config")
+            if success:
+                print("Configuration imported successfully")
+            ```
+        """
+        try:
+            from .config_validator import ConfigValidator
+            from shutil import copy2
+            import shutil
+
+            source_path = Path(source_dir)
+            target_dir = self.config_file.parent
+
+            # === STEP 1: VALIDATE SOURCE DIRECTORY ===
+            self.logger.info(f"🔍 Validating source directory: {source_dir}")
+            validator = ConfigValidator(self.logger)
+            is_valid, errors = validator.validate_config_directory(source_dir)
+
+            if not is_valid:
+                error_msg = f"❌ Source directory validation failed:\n" + "\n".join(errors)
+                self.logger.error(error_msg)
+                return False, error_msg
+
+            self.logger.debug(f"✅ Source directory valid")
+
+            # === STEP 2: CREATE BACKUP (OPTIONAL) ===
+            if create_backup:
+                backup_time = int(time.time())
+
+                self.logger.info("📁 Creating backup of current configuration...")
+
+                # Backup config.json
+                if self.config_file.exists():
+                    backup_config = target_dir / f"config_backup_{backup_time}.json"
+                    try:
+                        copy2(self.config_file, backup_config)
+                        self.logger.debug(f"✅ Backed up: {backup_config}")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Could not backup config.json: {e}")
+
+                # Backup prompts.json
+                prompts_target = target_dir / "prompts.json"
+                if prompts_target.exists():
+                    backup_prompts = target_dir / f"prompts_backup_{backup_time}.json"
+                    try:
+                        copy2(prompts_target, backup_prompts)
+                        self.logger.debug(f"✅ Backed up: {backup_prompts}")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Could not backup prompts.json: {e}")
+
+                # Backup database
+                db_target = target_dir / "alima_knowledge.db"
+                if db_target.exists():
+                    backup_db = target_dir / f"alima_knowledge_backup_{backup_time}.db"
+                    try:
+                        copy2(db_target, backup_db)
+                        self.logger.debug(f"✅ Backed up: {backup_db}")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Could not backup database: {e}")
+
+            # === STEP 3: COPY FILES ===
+            self.logger.info("📋 Copying configuration files...")
+
+            # Copy config.json (required)
+            source_config = source_path / "config.json"
+            if source_config.exists():
+                copy2(source_config, self.config_file)
+                self.logger.debug(f"✅ Copied config.json")
+            else:
+                return False, "❌ Source config.json not found"
+
+            # Copy prompts.json (optional)
+            source_prompts = source_path / "prompts.json"
+            if source_prompts.exists():
+                target_prompts = target_dir / "prompts.json"
+                copy2(source_prompts, target_prompts)
+                self.logger.debug(f"✅ Copied prompts.json")
+
+            # Copy database file (optional)
+            db_files = list(source_path.glob("*.db"))
+            if db_files:
+                source_db = db_files[0]
+                target_db = target_dir / "alima_knowledge.db"
+                copy2(source_db, target_db)
+                self.logger.debug(f"✅ Copied database: {source_db.name}")
+
+            # === STEP 4: ADJUST PATHS IN CONFIG ===
+            self.logger.info("🔧 Adjusting paths in configuration...")
+
+            # Load the copied config
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+
+            # Ensure system_config exists
+            if 'system_config' not in config_data:
+                config_data['system_config'] = {}
+
+            system_config_data = config_data['system_config']
+
+            # Set absolute paths for database and prompts
+            abs_db_path = str(target_dir / "alima_knowledge.db")
+            abs_prompts_path = str(target_dir / "prompts.json")
+
+            system_config_data['database_path'] = abs_db_path
+            system_config_data['prompts_path'] = abs_prompts_path
+
+            # Save adjusted config
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
+
+            self.logger.debug(f"✅ Updated database_path → {abs_db_path}")
+            self.logger.debug(f"✅ Updated prompts_path → {abs_prompts_path}")
+
+            # === STEP 5: RELOAD CONFIGURATION ===
+            self.logger.info("🔄 Reloading configuration...")
+            self._config = None  # Clear cache
+            self.load_config()
+
+            success_msg = f"✅ Configuration successfully imported to {target_dir}"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except Exception as e:
+            error_msg = f"❌ Configuration import failed: {e}"
+            self.logger.error(error_msg)
+            self.logger.error(f"Stack trace: {e}", exc_info=True)
+            return False, error_msg
+
+    def export_configuration(self, target_dir: str) -> Tuple[bool, str]:
+        """
+        Export current ALIMA configuration to a directory - Claude Generated
+
+        Exports config.json, prompts.json, and database file with relative paths
+        suitable for deployment to other systems.
+
+        Args:
+            target_dir: Target directory where configuration files will be exported
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        try:
+            from shutil import copy2
+
+            target_path = Path(target_dir)
+
+            # Create target directory if it doesn't exist
+            target_path.mkdir(parents=True, exist_ok=True)
+
+            self.logger.info(f"📦 Exporting configuration to: {target_dir}")
+
+            # Copy config.json
+            if self.config_file.exists():
+                copy2(self.config_file, target_path / "config.json")
+                self.logger.debug("✅ Exported config.json")
+
+            # Copy prompts.json
+            prompts_file = self.config_file.parent / "prompts.json"
+            if prompts_file.exists():
+                copy2(prompts_file, target_path / "prompts.json")
+                self.logger.debug("✅ Exported prompts.json")
+
+            # Copy database
+            db_file = self.config_file.parent / "alima_knowledge.db"
+            if db_file.exists():
+                copy2(db_file, target_path / "alima_knowledge.db")
+                size_mb = db_file.stat().st_size / (1024 * 1024)
+                self.logger.debug(f"✅ Exported database ({size_mb:.1f} MB)")
+
+            success_msg = f"✅ Configuration successfully exported to {target_dir}"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except Exception as e:
+            error_msg = f"❌ Configuration export failed: {e}"
+            self.logger.error(error_msg)
+            return False, error_msg
 
 
 # ============================================================================

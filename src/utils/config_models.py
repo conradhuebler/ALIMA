@@ -468,6 +468,13 @@ class SystemConfig:
     data_dir: str = 'data'
     temp_dir: str = '/tmp'
 
+    # Configurable file paths (can be absolute or relative to project root) - Claude Generated
+    database_path: str = 'alima_knowledge.db'  # Path to SQLite database
+    prompts_path: str = 'prompts.json'          # Path to prompts configuration file
+
+    # First-run check can be disabled via config - Claude Generated
+    skip_first_run_check: bool = False  # Set to true to disable first-run dialog on empty config
+
 
 @dataclass
 class UIConfig:

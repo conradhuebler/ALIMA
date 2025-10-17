@@ -41,7 +41,7 @@ from src.utils.config_models import PipelineMode, PipelineStepConfig
 from src.utils.logging_utils import setup_logging, print_result
 from typing import List, Tuple
 
-PROMPTS_FILE = "prompts.json"
+# PROMPTS_FILE removed - now using config.system_config.prompts_path - Claude Generated
 
 
 # Use shared JSON utilities from pipeline_utils
@@ -840,29 +840,52 @@ USAGE EXAMPLES:
     migrate_import_parser.add_argument("--clear", action="store_true", help="Clear destination database before import")
     migrate_import_parser.add_argument("--dry-run", action="store_true", help="Validate import file without importing")
 
+    # Import configuration command - Claude Generated
+    import_config_parser = subparsers.add_parser(
+        "import-config", help="Import ALIMA configuration from a directory"
+    )
+    import_config_parser.add_argument(
+        "--source", required=True, help="Source directory containing config.json, prompts.json, and database file"
+    )
+    import_config_parser.add_argument(
+        "--no-backup", action="store_true", help="Do not create backup of current configuration"
+    )
+
     args = parser.parse_args()
 
     # Setup centralized logging - Claude Generated
     setup_logging(level=args.log_level)
     logger = logging.getLogger(__name__)
 
-    # Check if prompts file exists
-    if not os.path.exists(PROMPTS_FILE) and args.command not in ["list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
-        logger.error(f"Prompts file not found at: {PROMPTS_FILE}")
-        return
+    # Check if prompts file exists (load from config) - Claude Generated
+    if args.command not in ["list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
+        from src.utils.config_manager import ConfigManager as CM
+        temp_config_manager = CM()
+        temp_config = temp_config_manager.load_config()
+        prompts_file_path = temp_config.system_config.prompts_path
+
+        if not os.path.exists(prompts_file_path):
+            logger.error(f"Prompts file not found at: {prompts_file_path}")
+            logger.error("Please check your config.json or create prompts.json in the project directory.")
+            return
 
     if args.command == "pipeline":
-        # Setup services with Provider Preferences integration - Claude Generated  
+        # Setup services with Provider Preferences integration - Claude Generated
         from src.utils.config_manager import ConfigManager as CM
         from src.core.pipeline_manager import PipelineConfig
         config_manager = CM()
+
+        # Load prompts path from config - Claude Generated
+        config = config_manager.load_config()
+        prompts_path = config.system_config.prompts_path
+
         llm_service = LlmService(
             providers=None,  # Initialize without specific providers, they'll be resolved dynamically
             config_manager=config_manager,
             ollama_url=args.ollama_host,
             ollama_port=args.ollama_port,
         )
-        prompt_service = PromptService(PROMPTS_FILE, logger)
+        prompt_service = PromptService(prompts_path, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, config_manager, logger)
         cache_manager = UnifiedKnowledgeManager()
 
@@ -1185,11 +1208,16 @@ USAGE EXAMPLES:
 
         # Setup services
         config_manager = CM()
+
+        # Load prompts path from config - Claude Generated
+        config = config_manager.load_config()
+        prompts_path = config.system_config.prompts_path
+
         llm_service = LlmService(
             providers=None,
             config_manager=config_manager,
         )
-        prompt_service = PromptService(PROMPTS_FILE, logger)
+        prompt_service = PromptService(prompts_path, logger)
         alima_manager = AlimaManager(llm_service, prompt_service, config_manager, logger)
         cache_manager = UnifiedKnowledgeManager()
 
@@ -2434,6 +2462,51 @@ USAGE EXAMPLES:
 
         except Exception as e:
             logger.error(f"❌ Migration operation failed: {e}")
+
+    elif args.command == "import-config":
+        # Configuration import command - Claude Generated
+        print("🔍 Importing ALIMA configuration...")
+        print(f"   Source: {args.source}")
+
+        try:
+            from src.utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+
+            # Perform import
+            create_backup = not args.no_backup
+            success, message = config_manager.import_configuration(args.source, create_backup=create_backup)
+
+            if success:
+                print()
+                print("✅ Configuration import successful!")
+                print()
+                print(f"📂 Configuration directory: {config_manager.config_file.parent}")
+                print(f"📝 Config file: {config_manager.config_file}")
+                print()
+                print("📋 Imported files:")
+                print(f"   • config.json")
+
+                # Check what was imported
+                prompts_file = config_manager.config_file.parent / "prompts.json"
+                if prompts_file.exists():
+                    size_kb = prompts_file.stat().st_size / 1024
+                    print(f"   • prompts.json ({size_kb:.1f} KB)")
+
+                db_file = config_manager.config_file.parent / "alima_knowledge.db"
+                if db_file.exists():
+                    size_mb = db_file.stat().st_size / (1024 * 1024)
+                    print(f"   • alima_knowledge.db ({size_mb:.1f} MB)")
+
+                print()
+                print("🚀 ALIMA is now configured with the imported settings.")
+                print("   You can start the application immediately.")
+            else:
+                print()
+                print(message)
+
+        except Exception as e:
+            print(f"❌ Configuration import failed: {e}")
+            logger.error(f"Configuration import error: {e}", exc_info=True)
 
     else:
         parser.print_help()

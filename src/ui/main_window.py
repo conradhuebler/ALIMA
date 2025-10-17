@@ -330,15 +330,20 @@ class MainWindow(QMainWindow):
 
         self.config_manager = ConfigManager(logger=self.logger)
 
+        # Check for first run and offer configuration import - Claude Generated
+        self.check_first_run()
+
+        # Load prompts path from config - Claude Generated
+        config = self.config_manager.load_config()
+        prompts_path = config.system_config.prompts_path
+
         # Instantiate core services with lazy initialization for faster GUI startup - Claude Generated
         self.llm_service = LlmService(
             config_manager=self.config_manager, # Pass config manager
             lazy_initialization=True,  # Don't test providers during GUI startup
         )
         self.llm = self.llm_service  # Assign llm here
-        self.prompt_service = PromptService(
-            "prompts.json"
-        )  # Pass the path to prompts.json
+        self.prompt_service = PromptService(prompts_path)
         self.alima_manager = AlimaManager(
             llm_service=self.llm_service,
             prompt_service=self.prompt_service,
@@ -1812,6 +1817,164 @@ class MainWindow(QMainWindow):
         # Show dialog and wait for completion
         progress_dialog.exec()
 
+    def import_configuration(self):
+        """Öffnet den Konfigurations-Import-Dialog - Claude Generated"""
+        try:
+            from .import_config_dialog import ImportConfigDialog
+
+            dialog = ImportConfigDialog(
+                config_manager=self.config_manager,
+                parent=self
+            )
+
+            if dialog.exec():
+                # Erfolgreicher Import
+                QMessageBox.information(
+                    self,
+                    "Import erfolgreich",
+                    "Konfiguration wurde erfolgreich importiert.\n\n"
+                    "Die Anwendung wird neu gestartet, um die neuen Einstellungen zu laden."
+                )
+
+                # Restart application
+                self.restart_application()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Importieren der Konfiguration:\n{str(e)}"
+            )
+            self.logger.error(f"Configuration import error: {e}", exc_info=True)
+
+    def export_configuration(self):
+        """Exportiert die aktuelle Konfiguration - Claude Generated"""
+        try:
+            directory = QFileDialog.getExistingDirectory(
+                self,
+                "Konfiguration exportieren",
+                "",
+                QFileDialog.Option.ShowDirsOnly
+            )
+
+            if not directory:
+                return
+
+            success, message = self.config_manager.export_configuration(directory)
+
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Export erfolgreich",
+                    f"Konfiguration erfolgreich exportiert nach:\n{directory}"
+                )
+                self.logger.info(f"Configuration exported to: {directory}")
+            else:
+                QMessageBox.warning(self, "Export fehlgeschlagen", message)
+                self.logger.warning(f"Configuration export failed: {message}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Exportieren:\n{str(e)}"
+            )
+            self.logger.error(f"Configuration export error: {e}", exc_info=True)
+
+    def restart_application(self):
+        """Startet ALIMA neu - Claude Generated"""
+        try:
+            self.logger.info("Restarting application...")
+            self.save_settings()
+
+            # Restart Python process
+            python = sys.executable
+            os.execl(python, python, *sys.argv)
+
+        except Exception as e:
+            self.logger.error(f"Application restart failed: {e}")
+            QMessageBox.warning(
+                self,
+                "Neustart fehlgeschlagen",
+                "Die Anwendung konnte nicht automatisch neu gestartet werden.\n"
+                "Bitte starten Sie ALIMA manuell neu."
+            )
+
+    def check_first_run(self):
+        """Prüft ob dies der erste Start ist und bietet Config-Import an - Claude Generated"""
+        try:
+            config = self.config_manager.load_config()
+
+            # Check if first-run check is disabled via config flag - Claude Generated
+            if config.system_config.skip_first_run_check:
+                self.logger.info("✓ First-run check disabled via config flag (skip_first_run_check=true)")
+                return
+
+            # Prüfe ob Config "leer" ist
+            is_empty_config = self._is_empty_config(config)
+
+            if is_empty_config:
+                self.logger.info("🔔 First run detected - showing config import dialog")
+                self.show_first_run_dialog()
+            else:
+                self.logger.info("✓ Configuration appears valid, skipping first-run dialog")
+
+        except Exception as e:
+            self.logger.warning(f"⚠️ First-run check failed: {e}", exc_info=True)
+
+    def _is_empty_config(self, config) -> bool:
+        """Prüft ob Config leer ist - Claude Generated"""
+
+        # Prüfung 0: config.json existiert im Config-Verzeichnis? - Claude Generated
+        config_file_exists = self.config_manager.config_file.exists()
+        self.logger.info(f"  🔍 First-run check - config.json exists: {config_file_exists} (path={self.config_manager.config_file})")
+
+        if not config_file_exists:
+            self.logger.info("  ✗ config.json missing - definite first-run condition")
+            return True  # Definit First-Run
+
+        # Prüfung 1: Keine Provider konfiguriert
+        no_providers = len(config.unified_config.providers) == 0
+        self.logger.info(f"  🔍 no_providers: {no_providers} (provider_count={len(config.unified_config.providers)})")
+
+        # Prüfung 2: prompts.json existiert nicht
+        prompts_missing = not Path(config.system_config.prompts_path).exists()
+        self.logger.info(f"  🔍 prompts_missing: {prompts_missing} (path={config.system_config.prompts_path})")
+
+        # Prüfung 3: Datenbank existiert nicht
+        db_missing = not Path(config.system_config.database_path).exists()
+        self.logger.info(f"  🔍 db_missing: {db_missing} (path={config.system_config.database_path})")
+
+        # First-Run wenn mindestens 2 von 3 fehlen
+        missing_count = sum([no_providers, prompts_missing, db_missing])
+        self.logger.info(f"  🔍 missing_count: {missing_count}/3")
+
+        is_empty = missing_count >= 2
+        if is_empty:
+            self.logger.info("  ✗ Configuration is empty - first-run condition detected")
+        else:
+            self.logger.info("  ✓ Configuration appears valid")
+
+        return is_empty
+
+    def show_first_run_dialog(self):
+        """Zeigt First-Run Dialog mit Import-Option - Claude Generated"""
+
+        reply = QMessageBox.question(
+            self,
+            "🎉 Willkommen bei ALIMA!",
+            "Dies scheint der erste Start von ALIMA zu sein.\n\n"
+            "Möchten Sie eine bestehende Konfiguration importieren?\n\n"
+            "• JA: Bestehende Konfiguration aus einem Verzeichnis importieren\n"
+            "• NEIN: Mit der Standardkonfiguration starten",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Öffne Import-Dialog
+            self.import_configuration()
+
     # In der MainWindow Klasse - füge folgende Methoden hinzu
 
     def create_menu_bar(self):
@@ -1828,6 +1991,16 @@ class MainWindow(QMainWindow):
         # Analyse-Zustand speichern - Claude Generated (Refactored to use unified persistence)
         save_state_action = file_menu.addAction("💾 Analyse-Zustand &speichern...")
         save_state_action.triggered.connect(self.export_current_gui_state)
+
+        file_menu.addSeparator()
+
+        # Konfiguration importieren - Claude Generated
+        import_config_action = file_menu.addAction("📥 &Konfiguration importieren...")
+        import_config_action.triggered.connect(self.import_configuration)
+
+        # Konfiguration exportieren - Claude Generated
+        export_config_action = file_menu.addAction("📤 Konfiguration &exportieren...")
+        export_config_action.triggered.connect(self.export_configuration)
 
         file_menu.addSeparator()
 

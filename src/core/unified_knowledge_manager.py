@@ -57,9 +57,22 @@ class SearchMapping:
 class UnifiedKnowledgeManager:
     """Unified knowledge database manager with Facts/Mappings separation - Claude Generated"""
 
-    def __init__(self, db_path: str = "alima_knowledge.db", database_config: Optional[DatabaseConfig] = None):
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[str] = None, database_config: Optional[DatabaseConfig] = None):
         self.logger = logging.getLogger(__name__)
+
+        # Load database path from config if not provided - Claude Generated
+        if db_path is None and database_config is None:
+            try:
+                from ..utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                config = config_manager.load_config()
+                db_path = config.system_config.database_path
+                self.logger.debug(f"✅ Database path loaded from config: {db_path}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Could not load database path from config: {e}. Using default.")
+                db_path = "alima_knowledge.db"
+
+        self.db_path = db_path
 
         # Use provided config or create default SQLite config
         if database_config is None:

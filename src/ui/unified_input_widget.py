@@ -261,10 +261,12 @@ class TextExtractionWorker(QThread):
         try:
             import uuid
             from ..llm.prompt_service import PromptService
-            
-            # Lade OCR-Prompt
-            import os
-            prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
+
+            # Lade OCR-Prompt from config - Claude Generated
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            config = config_manager.load_config()
+            prompts_path = config.system_config.prompts_path
             prompt_service = PromptService(prompts_path, self.logger)
             
             # Verwende image_text_extraction Task
