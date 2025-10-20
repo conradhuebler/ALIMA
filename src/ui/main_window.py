@@ -325,8 +325,6 @@ class MainWindow(QMainWindow):
         self.cache_manager = UnifiedKnowledgeManager()
         self.search_engine = SearchEngine(self.cache_manager)
         self.logger = logging.getLogger(__name__)
-        self.ollama_url_default = self.settings.value("ollama_url", "http://localhost")
-        self.ollama_port_default = self.settings.value("ollama_port", "11434")
 
         self.config_manager = ConfigManager(logger=self.logger)
 
@@ -516,29 +514,6 @@ class MainWindow(QMainWindow):
         # Initialize status bar with services
         self.global_status_bar.set_services(self.llm_service, self.cache_manager)
 
-        # Cache-Info Widget
-        self.ollama_url = QLineEdit()  # Eingabefeld für Ollama URL
-        self.ollama_url.setText(self.ollama_url_default)
-        self.ollama_url.textChanged.connect(
-            lambda: self.llm.set_ollama_url(self.ollama_url.text())
-        )
-        self.ollama_port = QLineEdit()  # Eingabefeld für Ollama Port
-        self.ollama_port.setText("11434")
-        self.ollama_port.textChanged.connect(
-            lambda: self.llm.set_ollama_port(self.ollama_port.text())
-        )
-
-        # Layout für Ollama-Einstellungen
-        ollama_layout = QHBoxLayout()
-        ollama_layout.addWidget(QLabel("Ollama URL:"))
-        ollama_layout.addWidget(self.ollama_url)
-        ollama_layout.addWidget(QLabel("Ollama Port:"))
-        ollama_layout.addWidget(self.ollama_port)
-        ollama_widget = QWidget()
-        ollama_widget.setLayout(ollama_layout)
-        # self.cache_info = QLabel()
-        self.global_status_bar.addPermanentWidget(ollama_widget)
-
     def get_provider_info(self):
         """Get cached provider information from ProviderStatusService - Claude Generated"""
         if hasattr(self.alima_manager, 'provider_status_service') and self.alima_manager.provider_status_service:
@@ -599,18 +574,6 @@ class MainWindow(QMainWindow):
         # Signal connections removed to prevent deadlock/hang issues
         # Ollama provider changes now handled through unified provider system
         self.logger.info("Ollama signal connections disabled to prevent app hangs")
-
-    def on_central_ollama_url_updated(self):
-        """Central handler for Ollama URL updates - NEUTRALIZED to prevent app hang - Claude Generated"""
-        # CRITICAL FIX: Remove hardcoded refresh_all to prevent deadlock/hang
-        # URL changes are now handled through unified provider system
-        pass
-
-    def on_central_ollama_port_updated(self):
-        """Central handler for Ollama Port updates - NEUTRALIZED to prevent app hang - Claude Generated"""
-        # CRITICAL FIX: Remove hardcoded refresh_all to prevent deadlock/hang
-        # Port changes are now handled through unified provider system
-        pass
 
     @pyqtSlot(object)
     def on_pipeline_results_ready(self, analysis_state):
@@ -847,16 +810,9 @@ class MainWindow(QMainWindow):
 
         self.tabs.setCurrentIndex(0)
 
-        self.ollama_url.setText(self.settings.value("ollama_url", "http://localhost"))
-        self.llm.set_ollama_url(self.ollama_url.text())
-        self.ollama_port.setText(self.settings.value("ollama_port", "11434"))
-        self.llm.set_ollama_port(self.ollama_port.text())
-
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("ollama_url", self.ollama_url.text())
-        self.settings.setValue("ollama_port", self.ollama_port.text())
 
     def _on_config_changed(self):
         """Handle configuration changes from comprehensive settings dialog - Claude Generated"""
