@@ -339,13 +339,19 @@ class PipelineStepExecutor:
                 search_results, stream_callback
             )
 
-        # Stream completion info if callback provided
+        # Stream detailed results per keyword if callback provided - Claude Generated
         if stream_callback:
-            total_hits = sum(len(results) for results in search_results.values())
-            stream_callback(
-                f"Suche abgeschlossen: {total_hits} Treffer in {len(search_results)} Kategorien\n",
-                "search",
-            )
+            stream_callback("--> Auswertung der Suchergebnisse:\n", "search")
+
+            for search_term, gnd_results in search_results.items():
+                # Sum up all count values for this initial keyword
+                total_hits = sum(details.get('count', 0) for details in gnd_results.values())
+                stream_callback(
+                    f"    - Freies Schlagwort '{search_term}': {total_hits} Treffer in Katalogen gefunden.\n",
+                    "search"
+                )
+
+            stream_callback("--> Suche abgeschlossen.\n", "search")
 
         return search_results
 
