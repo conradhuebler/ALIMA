@@ -317,10 +317,10 @@ class PipelineStepExecutor:
         else:
             keywords_list = keywords
 
-        # Stream search progress if callback provided
+        # Stream search progress if callback provided - Claude Generated
         if stream_callback:
             stream_callback(
-                f"Suche mit {len(keywords_list)} Keywords: {', '.join(keywords_list[:3])}{'...' if len(keywords_list) > 3 else ''}\n",
+                f"Suche mit {len(keywords_list)} Keywords: {', '.join(keywords_list)}\n",
                 "search",
             )
             stream_callback(
@@ -404,10 +404,8 @@ class PipelineStepExecutor:
             # Claude Generated - Debug information for SWB fallback
             if self.logger:
                 self.logger.info(f"SWB-Fallback: Searching for {len(unknown_subjects)} unknown subjects:")
-                for i, subject in enumerate(unknown_subjects[:10]):  # Show first 10
+                for i, subject in enumerate(unknown_subjects):  # Show all - Claude Generated
                     self.logger.info(f"  {i+1}. '{subject}'")
-                if len(unknown_subjects) > 10:
-                    self.logger.info(f"  ... und {len(unknown_subjects) - 10} weitere")
             
             try:
                 # Use SWB suggester for validation
@@ -544,10 +542,8 @@ class PipelineStepExecutor:
         # Claude Generated - Debug unmatched subjects
         if self.logger and unmatched_swb_subjects:
             self.logger.warning(f"SWB: {len(unmatched_swb_subjects)} subjects couldn't be matched to catalog:")
-            for i, unmatched in enumerate(unmatched_swb_subjects[:5]):  # Show first 5
+            for i, unmatched in enumerate(unmatched_swb_subjects):  # Show all - Claude Generated
                 self.logger.warning(f"  {i+1}. {unmatched}")
-            if len(unmatched_swb_subjects) > 5:
-                self.logger.warning(f"  ... und {len(unmatched_swb_subjects) - 5} weitere")
         
         if stream_callback:
             stream_callback(f"SWB-Validierung: {swb_matches} neue GND-IDs zugeordnet\n", "search")
@@ -875,15 +871,12 @@ class PipelineStepExecutor:
                 kwargs.get("step_id", "keywords"),
             )
 
-            # Show current deduplicated list for debugging
+            # Show current deduplicated list for debugging - Claude Generated
             if deduplicated_keywords:
-                preview = deduplicated_keywords[:5]
-                if len(deduplicated_keywords) > 5:
-                    preview_text = f"{', '.join([kw.split(' (GND-ID:')[0] for kw in preview])}... (+{len(deduplicated_keywords)-5} weitere)"
-                else:
-                    preview_text = ", ".join(
-                        [kw.split(" (GND-ID:")[0] for kw in preview]
-                    )
+                # Show all deduplicated keywords - Claude Generated
+                preview_text = ", ".join(
+                    [kw.split(" (GND-ID:")[0] for kw in deduplicated_keywords]
+                )
                 stream_callback(
                     f"Deduplizierte Liste: {preview_text}\n",
                     kwargs.get("step_id", "keywords"),
@@ -1040,14 +1033,10 @@ class PipelineStepExecutor:
                 "keywords",
             )
             if found_keywords:
-                # Show first few keywords for debugging
-                preview = found_keywords[:5]
-                if len(found_keywords) > 5:
-                    preview_text = f"{', '.join([kw.split(' (GND-ID:')[0] for kw in preview])}... (+{len(found_keywords)-5} weitere)"
-                else:
-                    preview_text = ", ".join(
-                        [kw.split(" (GND-ID:")[0] for kw in preview]
-                    )
+                # Show all found keywords for debugging - Claude Generated
+                preview_text = ", ".join(
+                    [kw.split(" (GND-ID:")[0] for kw in found_keywords]
+                )
                 stream_callback(
                     f"{chunk_id} Aktuelle Liste: {preview_text}\n", "keywords"
                 )
