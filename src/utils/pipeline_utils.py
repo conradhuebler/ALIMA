@@ -1302,31 +1302,70 @@ class PipelineStepExecutor:
             return []
 
     def _extract_dk_from_response(self, response_text: str) -> List[str]:
-        """Extract DK and RVK classifications from LLM response - Claude Generated"""
+        """Extract DK and RVK classifications from LLM response - Claude Generated
+
+        PRIMARY: Extract from <final_list> tag (like keywords extraction)
+        FALLBACK: Use regex patterns only if <final_list> not found
+        """
         import re
-        
+
         classification_codes = []
-        
-        # Look for DK patterns like "610.3", "004.5", etc.
-        dk_pattern = r'\b\d{1,3}(?:\.\d+)*\b'
-        dk_matches = re.findall(dk_pattern, response_text)
-        
-        # Filter to keep only valid DK codes (usually have 2-3 digits + optional decimal)
+
+        # PRIMARY METHOD: Extract from <final_list> tag (preferred and most reliable)
+        final_list_match = re.search(r'<final_list>\s*(.*?)\s*</final_list>', response_text, re.DOTALL | re.IGNORECASE)
+
+        if final_list_match:
+            # Extract and split by pipe separator
+            final_list_content = final_list_match.group(1).strip()
+            raw_codes = [code.strip() for code in final_list_content.split('|') if code.strip()]
+
+            if self.logger:
+                self.logger.info(f"✅ Extracted {len(raw_codes)} classifications from <final_list>")
+
+            # Parse each code (format: "DK 615.9" or "RVK QC 130")
+            for code in raw_codes:
+                code_clean = code.strip()
+                code_upper = code_clean.upper()
+
+                # Keep DK and RVK prefixes intact
+                if code_upper.startswith('DK ') or code_upper.startswith('RVK '):
+                    classification_codes.append(code_clean)
+                elif re.match(r'^\d+(?:\.\d+)*$', code_clean):
+                    # Plain number without prefix -> assume DK
+                    classification_codes.append(f"DK {code_clean}")
+                elif re.match(r'^[A-Z]{1,2}\s*\d+', code_clean):
+                    # Letter-number pattern -> assume RVK
+                    classification_codes.append(f"RVK {code_clean}")
+                else:
+                    # Unknown format, keep as-is
+                    classification_codes.append(code_clean)
+
+            if self.logger:
+                self.logger.info(f"✅ Parsed {len(classification_codes)} valid classifications from <final_list>")
+
+            return classification_codes
+
+        # FALLBACK METHOD: Use regex patterns (legacy, less reliable)
+        if self.logger:
+            self.logger.warning("⚠️  No <final_list> found in DK response, using regex fallback (may produce false positives)")
+
+        # Look for DK patterns explicitly prefixed with "DK" (not arbitrary numbers)
+        dk_pattern = r'\bDK\s+(\d{1,3}(?:\.\d+)*)\b'
+        dk_matches = re.findall(dk_pattern, response_text, re.IGNORECASE)
+
         for match in dk_matches:
-            if len(match.split('.')[0]) >= 2:  # At least 2 digits before decimal
-                classification_codes.append(f"DK {match}")
-        
-        # Look for RVK patterns like "Q12", "QC 130", "QB 910", etc.
-        rvk_pattern = r'\b[A-Z]{1,2}\s*\d{1,4}(?:\s*[A-Z]*)?'
-        rvk_matches = re.findall(rvk_pattern, response_text)
-        
-        # Filter RVK codes (especially Q* codes for economics)
+            classification_codes.append(f"DK {match}")
+
+        # Look for RVK patterns explicitly prefixed with "RVK"
+        rvk_pattern = r'\bRVK\s+([A-Z]{1,2}\s*\d{1,4}(?:\s*[A-Z]*)?)\b'
+        rvk_matches = re.findall(rvk_pattern, response_text, re.IGNORECASE)
+
         for match in rvk_matches:
-            match_clean = match.strip()
-            # Focus on Q codes for economics, but allow other RVK codes too
-            if match_clean.startswith('Q') or len(match_clean) >= 3:
-                classification_codes.append(f"RVK {match_clean}")
-        
+            classification_codes.append(f"RVK {match.strip()}")
+
+        if self.logger and not classification_codes:
+            self.logger.warning("⚠️  No classifications found using regex fallback either")
+
         # Remove duplicates while preserving order
         return list(dict.fromkeys(classification_codes))
 
