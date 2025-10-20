@@ -3,11 +3,60 @@ Centralized Worker Threads for ALIMA UI Components
 Claude Generated - Provides shared worker threads to avoid code duplication
 """
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
 from typing import Optional
 import logging
+import threading
 
 from ..core.pipeline_manager import PipelineManager, PipelineConfig
+
+
+class StoppableWorker(QThread):
+    """Generic base class for stoppable worker threads - Claude Generated
+
+    Provides interrupt mechanism for graceful worker termination.
+    Child classes should check is_interrupted() at appropriate points.
+    """
+
+    # Signal emitted when worker is aborted by user request
+    aborted = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._is_interrupted = False
+        self._interrupt_lock = threading.Lock()  # Use threading.Lock instead of QMutex for simplicity
+        self.logger = logging.getLogger(__name__)
+
+    def request_stop(self):
+        """Request worker to stop gracefully - Claude Generated
+
+        Sets interrupt flag. Worker should check this flag periodically
+        and exit cleanly when interrupted.
+        """
+        with self._interrupt_lock:
+            self._is_interrupted = True
+            self.logger.debug(f"{self.__class__.__name__}: Stop requested")
+
+    def is_interrupted(self) -> bool:
+        """Check if interruption was requested - Claude Generated
+
+        Thread-safe check of interrupt flag.
+
+        Returns:
+            bool: True if stop has been requested, False otherwise
+        """
+        with self._interrupt_lock:
+            return self._is_interrupted
+
+    def check_interruption(self):
+        """Check and raise exception if interrupted - Claude Generated
+
+        Raises:
+            InterruptedError: If interruption was requested
+        """
+        if self.is_interrupted():
+            self.logger.debug(f"{self.__class__.__name__}: Interruption detected, raising InterruptedError")
+            raise InterruptedError("Operation cancelled by user")
 
 
 class SingleStepWorker(QThread):
@@ -51,8 +100,11 @@ class SingleStepWorker(QThread):
             self.step_error.emit(str(e))
 
 
-class PipelineWorker(QThread):
-    """Worker thread for pipeline execution - Claude Generated"""
+class PipelineWorker(StoppableWorker):
+    """Worker thread for pipeline execution - Claude Generated
+
+    Extends StoppableWorker to support graceful pipeline interruption.
+    """
 
     # Signals for pipeline events
     step_started = pyqtSignal(object)  # PipelineStep
@@ -78,6 +130,9 @@ class PipelineWorker(QThread):
     def run(self):
         """Execute pipeline in background thread - Claude Generated"""
         try:
+            # Check for interruption before starting
+            self.check_interruption()
+
             # Set up callbacks to emit signals
             self.pipeline_manager.set_callbacks(
                 step_started=self.step_started.emit,
@@ -87,12 +142,19 @@ class PipelineWorker(QThread):
                 stream_callback=self.stream_token.emit,
             )
 
+            # Set interrupt flag in pipeline manager for step-level checks
+            if hasattr(self.pipeline_manager, 'set_interrupt_flag'):
+                self.pipeline_manager.set_interrupt_flag(self._interrupt_lock, self.is_interrupted)
+
             # Start pipeline - Claude Generated (added force_update parameter)
             pipeline_id = self.pipeline_manager.start_pipeline(
                 self.input_text, self.input_type, force_update=self.force_update
             )
             self.logger.info(f"Pipeline {pipeline_id} completed in worker thread")
 
+        except InterruptedError:
+            self.logger.info("Pipeline interrupted by user")
+            self.aborted.emit()
         except Exception as e:
             self.logger.error(f"Pipeline worker error: {e}")
             # Emit error signal if needed

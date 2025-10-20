@@ -548,6 +548,32 @@ class PipelineTab(QWidget):
         reset_button.clicked.connect(self.reset_pipeline)
         buttons_layout.addWidget(reset_button)
 
+        # Stop button - Claude Generated
+        self.stop_pipeline_button = QPushButton("⏹️ Stop")
+        self.stop_pipeline_button.setMaximumWidth(80)
+        self.stop_pipeline_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+            }
+        """
+        )
+        self.stop_pipeline_button.setVisible(False)  # Hidden until pipeline starts
+        self.stop_pipeline_button.clicked.connect(self.on_stop_pipeline_requested)
+        buttons_layout.addWidget(self.stop_pipeline_button)
+
         # Pause button (TODO: implement)
         pause_button = QPushButton("⏸️ Pause")
         pause_button.setMaximumWidth(80)
@@ -894,6 +920,8 @@ class PipelineTab(QWidget):
         # Update status
         self.pipeline_status_label.setText("Pipeline läuft...")
         self.auto_pipeline_button.setEnabled(False)
+        self.stop_pipeline_button.setVisible(True)  # Show stop button - Claude Generated
+        self.stop_pipeline_button.setEnabled(True)
 
         # Get force_update flag from checkbox - Claude Generated
         force_update = getattr(self, 'force_update_checkbox', None)
@@ -910,6 +938,7 @@ class PipelineTab(QWidget):
         self.pipeline_worker.step_error.connect(self.on_step_error)
         self.pipeline_worker.pipeline_completed.connect(self.on_pipeline_completed)
         self.pipeline_worker.stream_token.connect(self.on_llm_stream_token)
+        self.pipeline_worker.aborted.connect(self.on_pipeline_aborted)  # Claude Generated
 
         # Start the worker
         self.pipeline_worker.start()
@@ -1420,6 +1449,7 @@ class PipelineTab(QWidget):
 
         self.pipeline_status_label.setText("Pipeline abgeschlossen ✓")
         self.auto_pipeline_button.setEnabled(True)
+        self.stop_pipeline_button.setVisible(False)  # Hide stop button - Claude Generated
         self.pipeline_completed.emit()
 
         # Stop status bar timer and progress
@@ -1444,6 +1474,43 @@ class PipelineTab(QWidget):
             "Pipeline abgeschlossen",
             "Die komplette Analyse-Pipeline wurde erfolgreich abgeschlossen!",
         )
+
+    def on_stop_pipeline_requested(self):
+        """Handle stop button click - Claude Generated"""
+        if self.pipeline_worker and self.pipeline_worker.isRunning():
+            self.logger.info("User requested pipeline stop")
+            self.stop_pipeline_button.setEnabled(False)
+            self.stop_pipeline_button.setText("⏹️ Stopping...")
+            self.pipeline_status_label.setText("Beende Pipeline...")
+            self.pipeline_worker.request_stop()
+
+    @pyqtSlot()
+    def on_pipeline_aborted(self):
+        """Handle pipeline abort signal - Claude Generated"""
+        self.logger.info("Pipeline aborted by user")
+
+        # Stop any running timer
+        self.duration_update_timer.stop()
+        self.current_running_step = None
+
+        # Reset button states
+        self.auto_pipeline_button.setEnabled(True)
+        self.stop_pipeline_button.setVisible(False)
+        self.stop_pipeline_button.setText("⏹️ Stop")
+        self.stop_pipeline_button.setEnabled(True)
+
+        # Update status
+        self.pipeline_status_label.setText("Pipeline abgebrochen")
+        self.pipeline_status_label.setStyleSheet(
+            "color: #FF9800; font-weight: bold; padding: 5px; "
+            "background-color: #FFF3E0; border: 1px solid #FFB74D; border-radius: 3px;"
+        )
+
+        # End any active streaming
+        if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:
+            self.stream_widget.end_llm_streaming()
+
+        # Note: Removed QMessageBox - status label provides sufficient feedback - Claude Generated
 
     @pyqtSlot(str, str)
     def on_llm_stream_token(self, token: str, step_id: str):

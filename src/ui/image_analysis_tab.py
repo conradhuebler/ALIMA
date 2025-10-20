@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
+from .workers import StoppableWorker
 from PyQt6.QtGui import QPixmap, QFont
 import PIL.Image
 import json
@@ -38,8 +39,11 @@ Gib nur den Text zurück, ohne zusätzliche Formatierung oder Kommentare.
 Achte darauf, dass der Text genau so ausgegeben wird, wie er im Bild steht."""
 
 
-class ImageAnalysisWorker(QThread):
-    """Worker thread for image analysis"""
+class ImageAnalysisWorker(StoppableWorker):
+    """Worker thread for image analysis - Claude Generated
+
+    Extends StoppableWorker to support graceful analysis interruption.
+    """
 
     analysis_finished = pyqtSignal(str)
     analysis_error = pyqtSignal(str)
@@ -62,10 +66,18 @@ class ImageAnalysisWorker(QThread):
         self.image_path = image_path
         self.temperature = temperature
         self.seed = seed
+        self.logger = logging.getLogger(__name__)
 
     def run(self):
         try:
+            # Check for interruption before starting analysis
+            self.check_interruption()
+
             request_id = str(uuid.uuid4())
+
+            # Check for interruption before making LLM request
+            self.check_interruption()
+
             response = self.llm_service.generate_response(
                 provider=self.provider,
                 model=self.model,
@@ -77,11 +89,17 @@ class ImageAnalysisWorker(QThread):
                 stream=False,
             )
 
+            # Check for interruption after receiving response
+            self.check_interruption()
+
             # Handle generator objects (e.g., from Ollama)
             if hasattr(response, "__iter__") and not isinstance(response, str):
                 # If response is a generator, collect all chunks
                 full_response = ""
                 for chunk in response:
+                    # Check for interruption during iteration
+                    self.check_interruption()
+
                     if isinstance(chunk, str):
                         full_response += chunk
                     elif hasattr(chunk, "text"):
@@ -93,7 +111,12 @@ class ImageAnalysisWorker(QThread):
                 response = full_response
 
             self.analysis_finished.emit(response)
+
+        except InterruptedError:
+            self.logger.info("Image analysis interrupted by user")
+            self.aborted.emit()
         except Exception as e:
+            self.logger.error(f"Image analysis error: {e}")
             self.analysis_error.emit(str(e))
 
 
@@ -111,6 +134,7 @@ class ImageAnalysisTab(QWidget):
 
         self.image_path = None
         self.current_worker = None
+        self._analysis_was_aborted = False  # Claude Generated - Track if analysis was aborted by user
 
         self.setup_ui()
         self.load_providers_and_models()
@@ -253,6 +277,31 @@ class ImageAnalysisTab(QWidget):
         self.analyze_button.setStyleSheet(get_button_styles()["primary"])
         button_layout.addWidget(self.analyze_button)
 
+        # Stop button - Claude Generated
+        self.stop_analysis_button = QPushButton("⏹️ Stop")
+        self.stop_analysis_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+            }
+        """
+        )
+        self.stop_analysis_button.setVisible(False)  # Hidden until analysis starts
+        self.stop_analysis_button.clicked.connect(self.on_stop_analysis_requested)
+        button_layout.addWidget(self.stop_analysis_button)
+
         self.send_to_abstract_button = QPushButton("📤 An Abstract-Tab senden")
         self.send_to_abstract_button.clicked.connect(self.send_to_abstract_tab)
         self.send_to_abstract_button.setEnabled(False)
@@ -374,6 +423,9 @@ class ImageAnalysisTab(QWidget):
 
     def analyze_image(self):
         """Analyze the selected image"""
+        # Reset abort flag for new analysis - Claude Generated
+        self._analysis_was_aborted = False
+
         if not self.image_path:
             QMessageBox.warning(
                 self, "Warnung", "Bitte wählen Sie zuerst ein Bild aus!"
@@ -396,6 +448,8 @@ class ImageAnalysisTab(QWidget):
 
         # Disable UI during analysis
         self.analyze_button.setEnabled(False)
+        self.stop_analysis_button.setVisible(True)  # Show stop button - Claude Generated
+        self.stop_analysis_button.setEnabled(True)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
         self.status_label.setText(
@@ -416,6 +470,7 @@ class ImageAnalysisTab(QWidget):
 
         self.current_worker.analysis_finished.connect(self.on_analysis_finished)
         self.current_worker.analysis_error.connect(self.on_analysis_error)
+        self.current_worker.aborted.connect(self.on_analysis_aborted)  # Claude Generated
         self.current_worker.start()
 
     @pyqtSlot(str)
@@ -426,6 +481,7 @@ class ImageAnalysisTab(QWidget):
 
         # Re-enable UI
         self.analyze_button.setEnabled(True)
+        self.stop_analysis_button.setVisible(False)  # Hide stop button - Claude Generated
         self.progress_bar.setVisible(False)
         self.status_label.setText("Status: Analyse erfolgreich abgeschlossen")
         self.status_label.setStyleSheet(get_status_label_styles()["success"])
@@ -439,12 +495,50 @@ class ImageAnalysisTab(QWidget):
 
         # Re-enable UI
         self.analyze_button.setEnabled(True)
+        self.stop_analysis_button.setVisible(False)  # Hide stop button - Claude Generated
         self.progress_bar.setVisible(False)
         self.status_label.setText("Status: Fehler bei der Analyse")
         self.status_label.setStyleSheet(get_status_label_styles()["error"])
 
+        # Don't show error dialog if analysis was aborted - Claude Generated
+        if self._analysis_was_aborted:
+            self._analysis_was_aborted = False  # Reset flag
+            self.logger.info("Suppressing error dialog - analysis was aborted by user")
+            return
+
         self.logger.error(f"Image analysis error: {error}")
         QMessageBox.critical(self, "Fehler", f"Fehler bei der Bildanalyse:\n{error}")
+
+    def on_stop_analysis_requested(self):
+        """Handle stop button click - Claude Generated"""
+        if self.current_worker and self.current_worker.isRunning():
+            self.logger.info("User requested image analysis stop")
+            self.stop_analysis_button.setEnabled(False)
+            self.stop_analysis_button.setText("⏹️ Stopping...")
+            self.status_label.setText("Status: Beende Analyse...")
+            self.current_worker.request_stop()
+
+    @pyqtSlot()
+    def on_analysis_aborted(self):
+        """Handle analysis abort signal - Claude Generated"""
+        self.logger.info("Image analysis aborted by user")
+
+        # Set abort flag to suppress error dialog - Claude Generated
+        self._analysis_was_aborted = True
+
+        # Reset UI
+        self.analyze_button.setEnabled(True)
+        self.stop_analysis_button.setVisible(False)
+        self.stop_analysis_button.setText("⏹️ Stop")
+        self.stop_analysis_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+
+        # Update status
+        self.status_label.setText("Status: Analyse abgebrochen")
+        self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+
+        # Show abort message
+        self.output_field.setText("⏹️ Analyse wurde vom Benutzer abgebrochen")
 
     def send_to_abstract_tab(self):
         """Send extracted text to abstract tab"""

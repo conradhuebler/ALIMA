@@ -21,10 +21,14 @@ from ..utils.pipeline_utils import PipelineStepExecutor
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.alima_manager import AlimaManager
 from ..core.pipeline_manager import PipelineConfig
+from .workers import StoppableWorker
 
 
-class BatchProcessingWorker(QThread):
-    """Background worker for batch processing - Claude Generated"""
+class BatchProcessingWorker(StoppableWorker):
+    """Background worker for batch processing - Claude Generated
+
+    Extends StoppableWorker to support graceful batch processing interruption.
+    """
 
     # Signals
     source_started = pyqtSignal(str, int, int)  # source_name, current, total
@@ -45,25 +49,23 @@ class BatchProcessingWorker(QThread):
         self.batch_file = batch_file
         self.resume_state = resume_state
         self.pipeline_config = pipeline_config
-        self._should_cancel = False
+        self.logger = logging.getLogger(__name__)
 
     def cancel(self):
-        """Cancel batch processing - Claude Generated"""
-        self._should_cancel = True
+        """Cancel batch processing (backward compatible with previous implementation) - Claude Generated"""
+        self.request_stop()
 
     def run(self):
         """Execute batch processing in background - Claude Generated"""
         try:
             # Setup callbacks
             def on_source_start(source, current, total):
-                if self._should_cancel:
-                    raise InterruptedError("Batch processing cancelled by user")
+                self.check_interruption()
                 self.source_started.emit(source.source_value, current, total)
                 self.progress_updated.emit(int((current - 1) / total * 100))
 
             def on_source_complete(result):
-                if self._should_cancel:
-                    raise InterruptedError("Batch processing cancelled by user")
+                self.check_interruption()
                 self.source_completed.emit(
                     result.source.source_value,
                     result.success,
@@ -87,8 +89,11 @@ class BatchProcessingWorker(QThread):
             )
 
         except InterruptedError as e:
+            self.logger.info("Batch processing interrupted by user")
+            self.aborted.emit()
             self.error_occurred.emit(str(e))
         except Exception as e:
+            self.logger.error(f"Batch processing error: {e}")
             self.error_occurred.emit(f"Batch processing error: {str(e)}")
 
 

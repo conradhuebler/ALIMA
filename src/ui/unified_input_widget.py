@@ -33,11 +33,12 @@ from datetime import datetime
 from ..llm.llm_service import LlmService
 from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
+from .workers import StoppableWorker
 from ..core.alima_manager import AlimaManager
 from ..utils.doi_resolver import resolve_input_to_text
 
 
-class TextExtractionWorker(QThread):
+class TextExtractionWorker(StoppableWorker):
     """Worker für Textextraktion aus verschiedenen Quellen - Claude Generated"""
 
     text_extracted = pyqtSignal(str, str)  # extracted_text, source_info
@@ -63,6 +64,9 @@ class TextExtractionWorker(QThread):
     def run(self):
         """Extract text based on source type - Claude Generated"""
         try:
+            # Check for interruption before starting
+            self.check_interruption()
+
             if self.source_type == "pdf":
                 self._extract_from_pdf()
             elif self.source_type == "image":
@@ -74,6 +78,9 @@ class TextExtractionWorker(QThread):
             else:
                 self.error_occurred.emit(f"Unbekannter Quelltyp: {self.source_type}")
 
+        except InterruptedError:
+            self.logger.info(f"Text extraction from {self.source_type} interrupted by user")
+            self.aborted.emit()
         except Exception as e:
             self.logger.error(f"Error extracting text from {self.source_type}: {e}")
             self.error_occurred.emit(str(e))
@@ -207,11 +214,16 @@ class TextExtractionWorker(QThread):
         self.progress_updated.emit("Bild wird mit LLM analysiert...")
 
         try:
+            # Check for interruption before starting LLM analysis - Claude Generated
+            self.check_interruption()
+
             if self.alima_manager:
                 self.progress_updated.emit("Verwende neue Task-Präferenz-Logik...")
 
                 # Create streaming callback for real-time updates - Claude Generated
                 def stream_callback(chunk: str):
+                    # Check for interruption during streaming - Claude Generated
+                    self.check_interruption()
                     self.accumulated_text += chunk
                     self.text_chunk_received.emit(chunk)
 
@@ -221,23 +233,29 @@ class TextExtractionWorker(QThread):
                 # Create task context
                 context = {'image_data': image_path}
 
+                # Check for interruption before LLM call - Claude Generated
+                self.check_interruption()
+
                 # Execute task using the refactored system with streaming - Claude Generated
                 extracted_text = self.alima_manager.execute_task(
                     task_name="image_text_extraction",
                     context=context,
                     stream_callback=stream_callback  # Enable streaming
                 )
-                
+
+                # Check for interruption after LLM returns - Claude Generated
+                self.check_interruption()
+
                 # Clean output
                 extracted_text = self._clean_ocr_output(extracted_text)
-                
+
                 # Cleanup temp file
                 if cleanup_temp:
                     try:
                         os.unlink(image_path)
                     except:
                         pass
-                
+
                 if extracted_text.strip():
                     self.text_extracted.emit(extracted_text, source_info)
                     return
@@ -246,6 +264,15 @@ class TextExtractionWorker(QThread):
             else:
                 self.error_occurred.emit("alima_manager not found")
 
+        except InterruptedError:
+            self.logger.info("Image extraction interrupted by user")
+            # Cleanup temporäre Datei auch bei Abbruch
+            if cleanup_temp:
+                try:
+                    os.unlink(image_path)
+                except:
+                    pass
+            self.aborted.emit()
         except Exception as e:
             # Cleanup temporäre Datei auch bei Fehlern
             if cleanup_temp:
@@ -600,6 +627,7 @@ class UnifiedInputWidget(QWidget):
         self.logger = logging.getLogger(__name__)
         self.current_extraction_worker: Optional[TextExtractionWorker] = None
         self.webcam_temp_file: Optional[str] = None  # Claude Generated - Track webcam temp files for cleanup
+        self._extraction_was_aborted = False  # Claude Generated - Track if extraction was aborted by user
 
         # Enable drag and drop
         self.setAcceptDrops(True)
@@ -915,6 +943,30 @@ class UnifiedInputWidget(QWidget):
         use_button.clicked.connect(self.use_current_text)
         text_actions.addWidget(use_button)
 
+        # Stop button for extraction - Claude Generated
+        self.stop_extraction_button = QPushButton("⏹️ Stoppen")
+        self.stop_extraction_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:disabled {
+                background-color: #ccc;
+            }
+        """
+        )
+        self.stop_extraction_button.setVisible(False)  # Hidden until extraction starts
+        self.stop_extraction_button.clicked.connect(self.on_stop_extraction_requested)
+        text_actions.addWidget(self.stop_extraction_button)
+
         text_actions.addStretch()
 
         edit_button = QPushButton("✏️ Bearbeiten")
@@ -1090,6 +1142,9 @@ class UnifiedInputWidget(QWidget):
 
     def extract_text(self, source_type: str, source_data: Any):
         """Start text extraction worker - Claude Generated"""
+        # Reset abort flag for new extraction - Claude Generated
+        self._extraction_was_aborted = False
+
         if (
             self.current_extraction_worker
             and self.current_extraction_worker.isRunning()
@@ -1110,11 +1165,16 @@ class UnifiedInputWidget(QWidget):
         self.current_extraction_worker.progress_updated.connect(
             self.on_progress_updated
         )
+        self.current_extraction_worker.aborted.connect(self.on_extraction_aborted)  # Claude Generated
 
         # Show progress
         self.progress_bar.setVisible(True)
         self.progress_label.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate
+
+        # Show stop button - Claude Generated
+        self.stop_extraction_button.setVisible(True)
+        self.stop_extraction_button.setEnabled(True)
 
         self.current_extraction_worker.start()
 
@@ -1123,6 +1183,7 @@ class UnifiedInputWidget(QWidget):
         """Handle extracted text - Claude Generated"""
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
+        self.stop_extraction_button.setVisible(False)  # Hide stop button - Claude Generated
 
         self.set_text_directly(text, source_info)
 
@@ -1165,6 +1226,13 @@ class UnifiedInputWidget(QWidget):
         """Handle extraction error - Claude Generated"""
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
+        self.stop_extraction_button.setVisible(False)  # Hide stop button - Claude Generated
+
+        # Don't show error dialog if extraction was aborted - Claude Generated
+        if self._extraction_was_aborted:
+            self._extraction_was_aborted = False  # Reset flag
+            self.logger.info("Suppressing error dialog - extraction was aborted by user")
+            return
 
         # Cleanup webcam temp file if present - Claude Generated (Webcam Feature)
         if self.webcam_temp_file:
@@ -1184,6 +1252,34 @@ class UnifiedInputWidget(QWidget):
     def on_progress_updated(self, message: str):
         """Handle progress update - Claude Generated"""
         self.progress_label.setText(message)
+
+    def on_stop_extraction_requested(self):
+        """Handle stop button click - Claude Generated"""
+        if self.current_extraction_worker and self.current_extraction_worker.isRunning():
+            self.logger.info("User requested extraction stop")
+            self.stop_extraction_button.setEnabled(False)
+            self.stop_extraction_button.setText("⏹️ Stopping...")
+            self.progress_label.setText("Beende Extraktion...")
+            self.current_extraction_worker.request_stop()
+
+    @pyqtSlot()
+    def on_extraction_aborted(self):
+        """Handle extraction abort signal - Claude Generated"""
+        self.logger.info("Text extraction aborted by user")
+
+        # Set abort flag to suppress error dialog - Claude Generated
+        self._extraction_was_aborted = True
+
+        # Reset UI
+        self.progress_bar.setVisible(False)
+        self.progress_label.setVisible(False)
+        self.stop_extraction_button.setVisible(False)
+        self.stop_extraction_button.setText("⏹️ Stoppen")
+        self.stop_extraction_button.setEnabled(True)
+
+        # Show abort message
+        self.text_display.setPlainText("⏹️ Textextraktion wurde vom Benutzer abgebrochen")
+        self.source_info_label.setText("Status: Abgebrochen")
 
     def set_text_directly(self, text: str, source_info: str):
         """Set text directly in display - Claude Generated"""

@@ -315,6 +315,11 @@ class PipelineManager:
             None  # Callback for LLM streaming tokens
         )
 
+        # Interrupt handling - Claude Generated
+        self._interrupt_check_func: Optional[Callable] = None
+        self._is_interrupted = False
+        self.logger.info("Pipeline manager initialized with interrupt support")
+
 
     def set_config(self, config: PipelineConfig):
         """Set pipeline configuration - Claude Generated"""
@@ -372,6 +377,30 @@ class PipelineManager:
         self.step_error_callback = step_error
         self.pipeline_completed_callback = pipeline_completed
         self.stream_callback = stream_callback
+
+    def set_interrupt_flag(self, lock, is_interrupted_func: Callable) -> None:
+        """Set interrupt check function from worker - Claude Generated
+
+        Called by PipelineWorker to provide interrupt checking capability.
+        Allows the pipeline manager to check if the worker has been interrupted.
+
+        Args:
+            lock: Threading lock (unused, for compatibility)
+            is_interrupted_func: Callable that returns True if interrupted
+        """
+        self._interrupt_check_func = is_interrupted_func
+        self.logger.debug("Interrupt check function registered with PipelineManager")
+
+    def _check_interruption(self):
+        """Check if pipeline should be interrupted - Claude Generated
+
+        Raises:
+            InterruptedError: If interruption was requested
+        """
+        if self._interrupt_check_func and self._interrupt_check_func():
+            self.logger.info("Pipeline interruption detected")
+            self._is_interrupted = True
+            raise InterruptedError("Pipeline interrupted by user")
 
     def start_pipeline(self, input_text: str, input_type: str = "text", force_update: bool = False) -> str:
         """Start a new pipeline execution - Claude Generated"""
@@ -1158,43 +1187,59 @@ class PipelineManager:
 
     def _execute_next_step(self):
         """Execute the next step in the pipeline - Claude Generated"""
-        self.logger.info(
-            f"Executing next step: index {self.current_step_index} of {len(self.pipeline_steps)}"
-        )
+        try:
+            # Check for interruption before processing next step
+            self._check_interruption()
 
-        if self.current_step_index < len(self.pipeline_steps):
-            current_step = self.pipeline_steps[self.current_step_index]
             self.logger.info(
-                f"Processing step: {current_step.step_id} (status: {current_step.status})"
+                f"Executing next step: index {self.current_step_index} of {len(self.pipeline_steps)}"
             )
 
-            if current_step.status == "pending":
-                current_step.status = "running"
-
-                if self.step_started_callback:
-                    self.step_started_callback(current_step)
-
-                success = self.execute_step(current_step.step_id)
+            if self.current_step_index < len(self.pipeline_steps):
+                current_step = self.pipeline_steps[self.current_step_index]
                 self.logger.info(
-                    f"Step {current_step.step_id} completed with success: {success}"
+                    f"Processing step: {current_step.step_id} (status: {current_step.status})"
                 )
 
-                if success:
-                    current_step.status = "completed"
-                    if self.step_completed_callback:
-                        self.step_completed_callback(current_step)
+                if current_step.status == "pending":
+                    # Check for interruption before starting step
+                    self._check_interruption()
 
-            self.current_step_index += 1
+                    current_step.status = "running"
 
-            # Continue to next step if auto-advance is enabled
-            if self.config.auto_advance:
-                self.logger.info("Auto-advancing to next step")
-                self._execute_next_step()
-        else:
-            # Pipeline completed
-            self.logger.info("Pipeline completed - all steps finished")
-            if self.pipeline_completed_callback:
-                self.pipeline_completed_callback(self.current_analysis_state)
+                    if self.step_started_callback:
+                        self.step_started_callback(current_step)
+
+                    success = self.execute_step(current_step.step_id)
+                    self.logger.info(
+                        f"Step {current_step.step_id} completed with success: {success}"
+                    )
+
+                    if success:
+                        current_step.status = "completed"
+                        if self.step_completed_callback:
+                            self.step_completed_callback(current_step)
+
+                self.current_step_index += 1
+
+                # Continue to next step if auto-advance is enabled
+                if self.config.auto_advance:
+                    self.logger.info("Auto-advancing to next step")
+                    self._execute_next_step()
+            else:
+                # Pipeline completed
+                self.logger.info("Pipeline completed - all steps finished")
+                if self.pipeline_completed_callback:
+                    self.pipeline_completed_callback(self.current_analysis_state)
+
+        except InterruptedError:
+            self.logger.info("Pipeline execution interrupted by user")
+            # Save current state for resume functionality - Claude Generated
+            current_step = self.pipeline_steps[self.current_step_index] if self.current_step_index < len(self.pipeline_steps) else None
+            if current_step:
+                self.logger.info(f"Pipeline interrupted at step: {current_step.step_id}")
+            # Re-raise to let worker handle it
+            raise
 
     def _get_step_by_id(self, step_id: str) -> Optional[PipelineStep]:
         """Get step by ID - Claude Generated"""
