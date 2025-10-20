@@ -961,9 +961,15 @@ class PipelineStepExecutor:
                     word = match.group(1).strip()
                     gnd_id = match.group(2).strip()
 
-                    # Check for duplicates
-                    word_lower = word.lower()
-                    if word_lower not in seen_words and gnd_id not in seen_gnd_ids:
+                    # Deduplicate by GND-ID only - Claude Generated
+                    # GND-ID is the primary identifier for concepts
+                    # Different GND-IDs = different concepts, even with similar names
+                    if gnd_id not in seen_gnd_ids:
+                        word_lower = word.lower()
+                        # Check if same word exists with different GND-ID (log for diagnosis)
+                        if word_lower in seen_words and self.logger:
+                            self.logger.debug(f"⚠️  Multiple GND-IDs for similar term: '{word}' ({gnd_id})")
+
                         seen_words.add(word_lower)
                         seen_gnd_ids.add(gnd_id)
                         deduplicated.append(keyword)
@@ -988,9 +994,10 @@ class PipelineStepExecutor:
         if not response_text or not reference_keywords:
             return []
 
-        # Parse reference keywords to create lookup dictionaries
-        word_to_full = {}  # clean_word_lower -> full_formatted_keyword
-        gnd_to_full = {}  # gnd_id -> full_formatted_keyword
+        # Parse reference keywords to create lookup dictionaries - Claude Generated
+        # Use GND-ID as primary key (no overwriting), store multiple keywords per word
+        word_to_full = {}  # clean_word_lower -> List[full_formatted_keywords]
+        gnd_to_full = {}  # gnd_id -> full_formatted_keyword (unique by design)
 
         for keyword in reference_keywords:
             # Parse format: "Keyword (GND-ID: 123456789)"
@@ -998,18 +1005,27 @@ class PipelineStepExecutor:
             if match:
                 word = match.group(1).strip()
                 gnd_id = match.group(2).strip()
-                word_to_full[word.lower()] = keyword
+
+                # Primary: Store by GND-ID (guaranteed unique, no overwriting)
                 gnd_to_full[gnd_id] = keyword
+
+                # Secondary: Store by word (as list to avoid overwriting)
+                word_lower = word.lower()
+                if word_lower not in word_to_full:
+                    word_to_full[word_lower] = []
+                word_to_full[word_lower].append(keyword)
 
         # Search for matches in response text
         found_keywords = []
         response_lower = response_text.lower()
 
-        # Method 1: Search for exact keyword strings
-        for clean_word, full_keyword in word_to_full.items():
+        # Method 1: Search for exact keyword strings (now handling lists) - Claude Generated
+        for clean_word, full_keywords_list in word_to_full.items():
             if clean_word in response_lower:
-                if full_keyword not in found_keywords:
-                    found_keywords.append(full_keyword)
+                # Iterate over list of keywords with same word
+                for full_keyword in full_keywords_list:
+                    if full_keyword not in found_keywords:
+                        found_keywords.append(full_keyword)
 
         # Method 2: Search for GND-IDs
         for gnd_id, full_keyword in gnd_to_full.items():
