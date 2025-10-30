@@ -183,6 +183,77 @@ TXT:/home/user/docs/abstract.txt
 python3 src/alima_cli.py batch --batch-file batch_sources.txt --output-dir ./results
 ```
 
+#### 2.3. Protokoll-Anzeige (`show-protocol`-Befehl)
+
+Der `show-protocol`-Befehl zeigt Pipeline-Ergebnisse aus JSON-Protokolldateien direkt auf der Konsole an – wahlweise detailliert formatiert oder kompakt als CSV für Batch-Analysen mit grep und awk.
+
+**Argumente:**
+*   `json_file`: Pfad zur JSON-Protokolldatei (erforderlich)
+*   `--format <detailliert|compact>`: Ausgabeformat (Standard: `detailed`)
+*   `--steps <step1> <step2>`: Auszugebende Pipeline-Schritte (Standard: alle)
+*   `--header`: CSV-Header ausgeben (nur mit `--format compact`)
+
+**Verfügbare Pipeline-Schritte:**
+*   `input` – Eingabetext-Verarbeitung (100 Zeichen Preview)
+*   `initialisation` – Freie Schlagwort-Extraktion
+*   `search` – GND/SWB/LOBID-Suchergebnisse mit Hit-Counts
+*   `keywords` – Finale GND-Schlagworte mit GND-IDs
+*   `dk_search` – DK-Katalogsuche mit Klassifikationen
+*   `dk_classification` – Zugewiesene DK-Codes
+
+**Beispiele:**
+
+**Detaillierte Anzeige (Standard):**
+```bash
+# Alle Schritte anzeigen
+python3 src/alima_cli.py show-protocol ergebnis.json
+
+# Nur finale Keywords und DK-Codes
+python3 src/alima_cli.py show-protocol ergebnis.json --steps keywords dk_classification
+```
+
+**Kompakte CSV-Ausgabe (für Batch-Analysen):**
+```bash
+# Einzelne Datei als CSV (eine Zeile pro Step)
+python3 src/alima_cli.py show-protocol ergebnis.json --format compact
+
+# Ausgabe:
+# ergebnis.json,initialisation,Cadmium|Bodenverschmutzung|Umweltschutz
+# ergebnis.json,keywords,Cadmium (4009274-4)|Bodenverschmutzung (4206275-5)
+# ergebnis.json,dk_classification,628.5|333.3
+```
+
+**Batch-Verarbeitung von 100+ Dateien:**
+```bash
+# Header + alle Ergebnisse in CSV-Datei
+python3 src/alima_cli.py show-protocol datei1.json --format compact --header > tabelle.csv
+for json in results/*.json; do
+    python3 src/alima_cli.py show-protocol "$json" --format compact >> tabelle.csv
+done
+
+# Nur finale Schlagworte extrahieren (grep + cut)
+grep ",keywords," tabelle.csv | cut -d, -f3
+
+# DOI → Keywords Tabelle (wenn Dateien DOI-basiert benannt sind)
+awk -F, '{gsub(/_/,"/",$1); gsub(/\.json/,""); print $1 " → " $3}' tabelle.csv
+```
+
+**CSV-Datenformat:**
+```csv
+filename,step,data
+datei.json,initialisation,Keyword1|Keyword2|Keyword3
+datei.json,search,Term1:150|Term2:85
+datei.json,keywords,Cadmium (4009274-4)|Bodenverschmutzung (4206275-5)
+datei.json,dk_classification,628.5|333.3
+```
+
+**Anwendungsfälle:**
+*   Schnelle Überprüfung von Analyseergebnissen ohne JSON-Parser
+*   Batch-Export aller finalen Schlagworte in Tabellenformat
+*   Grep-basierte Suche über hunderte Ergebnisdateien
+*   DOI/Keyword-Tabellen für Publikationslisten
+*   Pipeline-Debugging mit Step-by-Step-Anzeige
+
 ## Lizenz
 LGPL v3
 

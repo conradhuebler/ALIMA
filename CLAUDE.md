@@ -15,6 +15,7 @@
 - **Keep only clear instructions, current tasks, and actionable information**
 - **No usage documentation or tutorials belong here**
 - git commits have to be short and precise
+- new features need a precise dokumentation in the readme, in special cases a comprehensive documention separatly and a note in claude.md that this feature exists, only for main and important features, not for updates and improvments
 
 ## Development Guidelines
 
@@ -171,6 +172,11 @@ URL:https://example.com/abstract
 # Extended format with custom name and overrides
 DOI:10.1234/example ; MyPaper ; {"keywords": {"temperature": 0.3}}
 ```
+
+### ✅ PRODUCTION READY: Protocol Display (`show-protocol` CLI Command) (Claude Generated)
+CLI-Befehl zur Anzeige von Pipeline-Ergebnissen aus JSON-Dateien. Zwei Modi: `--format detailed` (lesbar) und `--format compact` (CSV für Batch-Analysen mit grep/awk).
+- **Implementation:** `src/alima_cli.py` (Zeilen 530-576)
+- **User Documentation:** README.md Section 2.3
 
 ## [Instructions Block - Operator-Defined Tasks]
 

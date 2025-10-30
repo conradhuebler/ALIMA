@@ -197,6 +197,383 @@ def apply_cli_overrides(pipeline_config, args):
     return pipeline_config
 
 
+def display_protocol(json_file: str, steps: List[str]):
+    """Display pipeline results from a JSON protocol file - Claude Generated
+
+    Args:
+        json_file: Path to JSON protocol file
+        steps: List of steps to display (or ["all"] for all steps)
+    """
+    import os
+    from pathlib import Path
+
+    # Check if file exists
+    if not os.path.exists(json_file):
+        print(f"❌ Error: File not found: {json_file}")
+        return
+
+    try:
+        # Load JSON file
+        with open(json_file, 'r', encoding='utf-8') as f:
+            state_dict = json.load(f)
+
+        # Convert to KeywordAnalysisState object
+        state = KeywordAnalysisState(
+            original_abstract=state_dict.get('original_abstract'),
+            initial_keywords=state_dict.get('initial_keywords', []),
+            search_suggesters_used=state_dict.get('search_suggesters_used', []),
+            initial_gnd_classes=state_dict.get('initial_gnd_classes', []),
+            initial_llm_call_details=state_dict.get('initial_llm_call_details'),
+            final_llm_analysis=state_dict.get('final_llm_analysis'),
+            dk_search_results=state_dict.get('dk_search_results', []),
+            dk_classifications=state_dict.get('dk_classifications', []),
+            timestamp=state_dict.get('timestamp'),
+        )
+
+        # Handle search_results - reconstruct SearchResult objects if needed
+        search_results = []
+        for sr in state_dict.get('search_results', []):
+            if isinstance(sr, dict):
+                search_results.append(sr)
+            else:
+                search_results.append(sr)
+        state.search_results = search_results
+
+        # Determine which steps to display
+        display_steps = steps if steps != ["all"] else [
+            "input", "initialisation", "search", "keywords", "dk_search", "dk_classification"
+        ]
+
+        # Header
+        print("\n" + "="*70)
+        print(f"ALIMA Pipeline Protocol")
+        print(f"File: {json_file}")
+        print(f"Timestamp: {state.timestamp}")
+        print("="*70)
+
+        # Display each requested step
+        for step in display_steps:
+            if step == "input":
+                format_step_input(state)
+            elif step == "initialisation":
+                format_step_initialisation(state)
+            elif step == "search":
+                format_step_search(state)
+            elif step == "keywords":
+                format_step_keywords(state)
+            elif step == "dk_search":
+                format_step_dk_search(state)
+            elif step == "dk_classification":
+                format_step_dk_classification(state)
+
+        print("\n" + "="*70 + "\n")
+
+    except json.JSONDecodeError as e:
+        print(f"❌ Error: Invalid JSON file: {e}")
+    except Exception as e:
+        print(f"❌ Error reading protocol: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def format_step_input(state: KeywordAnalysisState):
+    """Format and display input step results - Claude Generated"""
+    print("\n[STEP: INPUT]")
+    print("─" * 70)
+
+    if state.original_abstract:
+        abstract_preview = state.original_abstract[:500]
+        if len(state.original_abstract) > 500:
+            abstract_preview += f" ... ({len(state.original_abstract) - 500} more chars)"
+        print(f"Input Text ({len(state.original_abstract)} chars):")
+        print(f"  {abstract_preview}")
+    else:
+        print("  (No input text)")
+
+
+def format_step_initialisation(state: KeywordAnalysisState):
+    """Format and display initialisation step results - Claude Generated"""
+    print("\n[STEP: INITIALISATION]")
+    print("─" * 70)
+
+    if state.initial_llm_call_details:
+        details = state.initial_llm_call_details
+        print(f"Model Used: {details.get('model_used', 'unknown')}")
+        print(f"Provider: {details.get('provider_used', 'unknown')}")
+        print()
+
+    print(f"Free Keywords ({len(state.initial_keywords)} found):")
+    if state.initial_keywords:
+        for kw in state.initial_keywords:
+            print(f"  • {kw}")
+    else:
+        print("  (No keywords extracted)")
+
+    if state.initial_gnd_classes:
+        print(f"\nInitial GND Classes ({len(state.initial_gnd_classes)} found):")
+        for gnd_class in state.initial_gnd_classes:
+            print(f"  • {gnd_class}")
+
+
+def format_step_search(state: KeywordAnalysisState):
+    """Format and display search step results - Claude Generated"""
+    print("\n[STEP: SEARCH]")
+    print("─" * 70)
+
+    if state.search_suggesters_used:
+        print(f"Suggesters Used: {', '.join(state.search_suggesters_used)}")
+
+    if not state.search_results:
+        print("  (No search results)")
+        return
+
+    print(f"\nSearch Results ({len(state.search_results)} search terms):")
+
+    for result in state.search_results:
+        if isinstance(result, dict):
+            search_term = result.get('search_term', 'unknown')
+            results = result.get('results', {})
+
+            print(f"\n  Search Term: {search_term}")
+            print(f"  ─" * 20)
+
+            if results:
+                for keyword, data in results.items():
+                    gndids = data.get('gndid', [])
+                    count = data.get('count', 0)
+
+                    if isinstance(gndids, list):
+                        gndid_str = ", ".join(gndids)
+                    else:
+                        gndid_str = str(gndids)
+
+                    print(f"    → {keyword}")
+                    print(f"      GND ID: {gndid_str}")
+                    print(f"      Hits: {count}")
+            else:
+                print("    (No results for this term)")
+
+
+def format_step_keywords(state: KeywordAnalysisState):
+    """Format and display keywords step results - Claude Generated"""
+    print("\n[STEP: KEYWORDS]")
+    print("─" * 70)
+
+    if not state.final_llm_analysis:
+        print("  (No final LLM analysis performed)")
+        return
+
+    analysis = state.final_llm_analysis
+
+    if isinstance(analysis, dict):
+        model = analysis.get('model_used', 'unknown')
+        provider = analysis.get('provider_used', 'unknown')
+        keywords = analysis.get('extracted_gnd_keywords', [])
+    else:
+        model = getattr(analysis, 'model_used', 'unknown')
+        provider = getattr(analysis, 'provider_used', 'unknown')
+        keywords = getattr(analysis, 'extracted_gnd_keywords', [])
+
+    print(f"Model Used: {model}")
+    print(f"Provider: {provider}")
+    print(f"\nFinal GND Keywords ({len(keywords)} found):")
+
+    if keywords:
+        for kw in keywords:
+            # Parse keyword and GND ID
+            if isinstance(kw, str) and '(' in kw and ')' in kw:
+                parts = kw.rsplit('(', 1)
+                term = parts[0].strip()
+                gndid = parts[1].rstrip(')')
+                print(f"  ✓ {term}")
+                print(f"    GND ID: {gndid}")
+            else:
+                print(f"  ✓ {kw}")
+    else:
+        print("  (No keywords extracted)")
+
+
+def format_step_dk_search(state: KeywordAnalysisState):
+    """Format and display DK search step results - Claude Generated"""
+    print("\n[STEP: DK_SEARCH]")
+    print("─" * 70)
+
+    if not state.dk_search_results:
+        print("  (No DK search results)")
+        return
+
+    print(f"DK Search Results ({len(state.dk_search_results)} results):")
+
+    for result in state.dk_search_results:
+        if isinstance(result, dict):
+            keyword = result.get('keyword', 'unknown')
+            hits = result.get('hits', 0)
+            classifications = result.get('classifications', [])
+
+            print(f"\n  Keyword: {keyword}")
+            print(f"  Total Hits: {hits}")
+
+            if classifications:
+                print(f"  Classifications ({len(classifications)}):")
+                for cls in classifications[:10]:  # Show first 10
+                    code = cls.get('code', 'unknown') if isinstance(cls, dict) else cls
+                    freq = cls.get('frequency', 0) if isinstance(cls, dict) else 0
+                    print(f"    • {code} (frequency: {freq})")
+
+                if len(classifications) > 10:
+                    print(f"    ... and {len(classifications) - 10} more")
+
+
+def format_step_dk_classification(state: KeywordAnalysisState):
+    """Format and display DK classification step results - Claude Generated"""
+    print("\n[STEP: DK_CLASSIFICATION]")
+    print("─" * 70)
+
+    if not state.dk_classifications:
+        print("  (No DK classifications assigned)")
+        return
+
+    print(f"DK Classifications ({len(state.dk_classifications)} assigned):")
+
+    for classification in state.dk_classifications:
+        if isinstance(classification, str):
+            print(f"  • {classification}")
+        elif isinstance(classification, dict):
+            code = classification.get('code', 'unknown')
+            label = classification.get('label', '')
+            print(f"  • {code}" + (f" - {label}" if label else ""))
+
+
+def display_protocol_compact(json_file: str, steps: List[str]):
+    """Display pipeline results in compact CSV format - Claude Generated
+
+    Output format: filename,step,data
+    One line per step with pipe-separated values
+    """
+    import os
+    from pathlib import Path
+
+    # Check if file exists
+    if not os.path.exists(json_file):
+        print(f"❌ Error: File not found: {json_file}", file=sys.stderr)
+        return
+
+    try:
+        # Load JSON file
+        with open(json_file, 'r', encoding='utf-8') as f:
+            state_dict = json.load(f)
+
+        # Convert to KeywordAnalysisState object
+        state = KeywordAnalysisState(
+            original_abstract=state_dict.get('original_abstract'),
+            initial_keywords=state_dict.get('initial_keywords', []),
+            search_suggesters_used=state_dict.get('search_suggesters_used', []),
+            initial_gnd_classes=state_dict.get('initial_gnd_classes', []),
+            initial_llm_call_details=state_dict.get('initial_llm_call_details'),
+            final_llm_analysis=state_dict.get('final_llm_analysis'),
+            dk_search_results=state_dict.get('dk_search_results', []),
+            dk_classifications=state_dict.get('dk_classifications', []),
+            timestamp=state_dict.get('timestamp'),
+        )
+
+        # Handle search_results
+        search_results = []
+        for sr in state_dict.get('search_results', []):
+            if isinstance(sr, dict):
+                search_results.append(sr)
+        state.search_results = search_results
+
+        # Get filename for output
+        filename = Path(json_file).name
+
+        # Determine which steps to display
+        display_steps = steps if steps != ["all"] else [
+            "input", "initialisation", "search", "keywords", "dk_search", "dk_classification"
+        ]
+
+        # Display each requested step
+        for step in display_steps:
+            csv_line = format_step_compact_csv(step, state, filename)
+            if csv_line:
+                print(csv_line)
+
+    except json.JSONDecodeError as e:
+        print(f"❌ Error: Invalid JSON file: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"❌ Error reading protocol: {e}", file=sys.stderr)
+
+
+def format_step_compact_csv(step: str, state: KeywordAnalysisState, filename: str) -> str:
+    """Generate CSV line for a pipeline step - Claude Generated
+
+    Format: filename,step,data (pipe-separated values)
+    """
+    import csv
+    from io import StringIO
+
+    if step == "input":
+        # Input text (truncated to first 100 chars)
+        text_preview = state.original_abstract[:100].replace('\n', ' ').replace('"', '\'') if state.original_abstract else ""
+        data = text_preview
+
+    elif step == "initialisation":
+        # Free keywords
+        data = "|".join(state.initial_keywords) if state.initial_keywords else ""
+
+    elif step == "search":
+        # Search results: keyword:hits|keyword:hits
+        result_parts = []
+        for result in state.search_results:
+            if isinstance(result, dict):
+                for keyword, info in result.get('results', {}).items():
+                    count = info.get('count', 0)
+                    result_parts.append(f"{keyword}:{count}")
+        data = "|".join(result_parts) if result_parts else ""
+
+    elif step == "keywords":
+        # Final GND keywords with IDs
+        if state.final_llm_analysis:
+            analysis = state.final_llm_analysis
+            if isinstance(analysis, dict):
+                keywords = analysis.get('extracted_gnd_keywords', [])
+            else:
+                keywords = getattr(analysis, 'extracted_gnd_keywords', [])
+            data = "|".join(keywords) if keywords else ""
+        else:
+            data = ""
+
+    elif step == "dk_search":
+        # DK search: keyword:hits|keyword:hits
+        result_parts = []
+        for result in state.dk_search_results:
+            if isinstance(result, dict):
+                keyword = result.get('keyword', '')
+                hits = result.get('hits', 0)
+                if keyword:
+                    result_parts.append(f"{keyword}:{hits}")
+        data = "|".join(result_parts) if result_parts else ""
+
+    elif step == "dk_classification":
+        # DK codes
+        dk_parts = []
+        for classification in state.dk_classifications:
+            if isinstance(classification, str):
+                # Extract just the code part (e.g., "628.5" from "628.5 - Label")
+                code = classification.split(' - ')[0].strip() if ' - ' in classification else classification
+                dk_parts.append(code)
+            elif isinstance(classification, dict):
+                code = classification.get('code', '')
+                if code:
+                    dk_parts.append(code)
+        data = "|".join(dk_parts) if dk_parts else ""
+    else:
+        return ""
+
+    # Create CSV line with proper quoting for data with commas/quotes
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([filename, step, data])
+    return output.getvalue().rstrip('\r\n')
 
 
 def main():
@@ -525,6 +902,56 @@ USAGE EXAMPLES:
         "--disable-dk-classification",
         action="store_true",
         help="Disable DK classification step"
+    )
+
+    # Show-protocol command - Claude Generated
+    show_protocol_parser = subparsers.add_parser(
+        "show-protocol",
+        help="Display pipeline results from JSON protocol file",
+        description="""
+Display pipeline analysis results from a JSON protocol file without external parsing tools.
+
+STEPS:
+  - input: Input text processing
+  - initialisation: Free keyword extraction from text
+  - search: GND/SWB/LOBID search results
+  - keywords: Final verified GND keywords
+  - dk_search: DK catalog search results
+  - dk_classification: DK classification assignments
+
+EXAMPLES:
+  # Show all steps
+  python alima_cli.py show-protocol results.json
+
+  # Show specific steps only
+  python alima_cli.py show-protocol results.json --steps initialisation keywords
+
+  # Show only search results
+  python alima_cli.py show-protocol results.json --steps search
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    show_protocol_parser.add_argument(
+        "json_file",
+        help="Path to JSON protocol/results file"
+    )
+    show_protocol_parser.add_argument(
+        "--steps",
+        nargs="+",
+        choices=["all", "input", "initialisation", "search", "keywords", "dk_search", "dk_classification"],
+        default=["all"],
+        help="Which pipeline steps to display (default: all)"
+    )
+    show_protocol_parser.add_argument(
+        "--format",
+        choices=["detailed", "compact"],
+        default="detailed",
+        help="Output format: detailed (full display) or compact (CSV one-liner per step)"
+    )
+    show_protocol_parser.add_argument(
+        "--header",
+        action="store_true",
+        help="Print CSV header line (only with --format compact)"
     )
 
     # Search command
@@ -2507,6 +2934,16 @@ USAGE EXAMPLES:
         except Exception as e:
             print(f"❌ Configuration import failed: {e}")
             logger.error(f"Configuration import error: {e}", exc_info=True)
+
+    elif args.command == "show-protocol":
+        # Show protocol command - Claude Generated
+        if args.header and args.format == "compact":
+            print("filename,step,data")
+
+        if args.format == "compact":
+            display_protocol_compact(args.json_file, args.steps)
+        else:
+            display_protocol(args.json_file, args.steps)
 
     else:
         parser.print_help()
