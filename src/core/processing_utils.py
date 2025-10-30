@@ -81,7 +81,7 @@ def extract_keywords_from_response(text: str) -> str:
     match = re.search(r"<final_list>(.*?)</final_list>", cleaned_text, re.DOTALL)
     if match:
         keywords = match.group(1).split("|")
-        result = ", ".join([keyword.strip() for keyword in keywords if keyword.strip()])
+        result = ", ".join([keyword.strip().replace("_", " ") for keyword in keywords if keyword.strip()])
         logger.debug(f"Extracted keywords: {result}")
         return result
     logger.debug("No <final_list> tag found.")
