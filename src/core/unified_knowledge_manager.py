@@ -502,6 +502,13 @@ class UnifiedKnowledgeManager:
                             # Parse found_classifications JSON to extract titles and metadata
                             try:
                                 classifications = json.loads(row["found_classifications"] or "[]")
+
+                                # DEBUG: Check if classifications have required fields - Claude Generated
+                                if classifications and not any(c.get('titles') for c in classifications):
+                                    self.logger.warning(f"⚠️ WARNING: Loaded classifications for '{clean_keyword}' have NO titles field:")
+                                    for c in classifications[:2]:
+                                        self.logger.warning(f"    {c}")
+
                                 # Find classification entry matching this code
                                 titles = []
                                 count = 1
@@ -512,7 +519,8 @@ class UnifiedKnowledgeManager:
                                         count = cls.get("count", 1)
                                         avg_confidence = cls.get("avg_confidence", 0.8)
                                         break
-                            except (json.JSONDecodeError, KeyError):
+                            except (json.JSONDecodeError, KeyError) as e:
+                                self.logger.error(f"❌ ERROR parsing classifications: {e}")
                                 titles = []
                                 count = 1
                                 avg_confidence = 0.8
@@ -527,6 +535,20 @@ class UnifiedKnowledgeManager:
                                 "total_confidence": avg_confidence
                             }
                         else:
+                            # Merge titles from subsequent rows for the same code - Claude Generated (Bug Fix)
+                            try:
+                                classifications = json.loads(row["found_classifications"] or "[]")
+                                for cls in classifications:
+                                    if cls.get("code") == code:
+                                        new_titles = cls.get("titles", [])
+                                        existing_titles = code_groups[code]["titles"]
+                                        for title in new_titles:
+                                            if title and title.strip() and title not in existing_titles:
+                                                existing_titles.append(title)
+                                        break  # Found the right classification, stop searching this row
+                            except (json.JSONDecodeError, KeyError):
+                                pass  # Ignore if JSON is invalid for this row
+
                             code_groups[code]["count"] += 1
                             code_groups[code]["total_confidence"] += 0.8
 
@@ -631,21 +653,15 @@ class UnifiedKnowledgeManager:
                                     existing_titles = existing_cls.get("titles", [])
                                     merged_titles = []
 
-                                    # Add new titles first (filter empty, max 10 total) - Claude Generated
+                                    # Add new titles first (filter empty) - Claude Generated
                                     for title in new_titles:
                                         if title and title.strip() and title not in merged_titles:
-                                            if len(merged_titles) < 10:
-                                                merged_titles.append(title)
-                                            else:
-                                                break  # Reached limit
+                                            merged_titles.append(title)
 
-                                    # Add existing titles (avoiding duplicates, max 10 total) - Claude Generated
+                                    # Add existing titles (avoiding duplicates) - Claude Generated
                                     for title in existing_titles:
                                         if title and title.strip() and title not in merged_titles:
-                                            if len(merged_titles) < 10:
-                                                merged_titles.append(title)
-                                            else:
-                                                break  # Reached limit
+                                            merged_titles.append(title)
 
                                     # Create merged classification entry
                                     merged_classifications.append({
@@ -664,7 +680,7 @@ class UnifiedKnowledgeManager:
                             # If code not found in existing classifications, add it
                             if not code_found:
                                 # Filter and limit to 10 titles - Claude Generated
-                                filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
+                                filtered_new_titles = [t for t in new_titles if t and t.strip()]
                                 merged_classifications.append({
                                     "code": code,
                                     "type": classification_type,
@@ -698,6 +714,24 @@ class UnifiedKnowledgeManager:
                         self.logger.info(f"✅ Created new mapping for '{keyword}': {code} with {len(filtered_new_titles)} titles")
 
                     # Update mapping with merged classifications
+                    # CRITICAL: Ensure merged_classifications has all required fields - Claude Generated
+                    if not merged_classifications:
+                        self.logger.error(f"⚠️ CRITICAL: merged_classifications is EMPTY for keyword '{keyword}', code '{code}'")
+                        continue
+
+                    # Validate that all classifications have required fields
+                    for cls in merged_classifications:
+                        required_fields = {'code', 'type', 'titles', 'count', 'avg_confidence'}
+                        missing_fields = required_fields - set(cls.keys())
+                        if missing_fields:
+                            self.logger.error(f"⚠️ CRITICAL: Classification {cls.get('code')} missing fields: {missing_fields}")
+                            self.logger.debug(f"   Actual data: {cls}")
+
+                    # Debug: Log the exact data being stored
+                    self.logger.info(f"📊 Storing {len(merged_classifications)} classification(s) for keyword '{keyword}':")
+                    for cls in merged_classifications:
+                        self.logger.info(f"   - {cls.get('code')}: {len(cls.get('titles', []))} titles, count={cls.get('count')}, confidence={cls.get('avg_confidence'):.2f}")
+
                     self.update_search_mapping(
                         search_term=keyword,
                         suggester_type="catalog",

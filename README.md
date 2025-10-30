@@ -254,6 +254,96 @@ datei.json,dk_classification,628.5|333.3
 *   DOI/Keyword-Tabellen für Publikationslisten
 *   Pipeline-Debugging mit Step-by-Step-Anzeige
 
+#### 2.4. DK-Klassifikation Transparenz
+
+Die ALIMA-Pipeline zeigt automatisch an, **welche Katalog-Titel** zu jeder DK-Klassifikation führten - für maximale Nachvollziehbarkeit der automatischen Verschlagwortung.
+
+**GUI - Real-time während Pipeline-Ausführung:**
+```
+[DK_SEARCH] 🔍 DK-Suche: 2 Klassifikationen gefunden (45 Titel)
+  📊 DK 628.5 (45 Titel): Cadmium in der Umwelt | Bodenverschmutzung | ...
+  📊 DK 333.3 (8 Titel): Umweltschutzmaßnahmen | Nachhaltiger Umgang | ...
+```
+
+**GUI - Detaillierte Ansicht im Analysis Review Tab:**
+- Tab "DK/RVK-Klassifikationen" zeigt farbcodierte Klassifikationen
+- Grün (>50 Titel): Hohe Konfidenz
+- Teal (20-50): Mittlere Konfidenz
+- Orange (<20): Niedrige Konfidenz
+- Expandierbare Titellisten unter jeder Klassifikation
+
+**CLI - Detaillierte Ausgabe:**
+```bash
+python3 src/alima_cli.py show-protocol ergebnis.json --format detailed --steps dk_search
+
+[STEP: DK_SEARCH]
+DK Search Results (2 classifications found):
+
+  📊 DK 628.5
+     Keywords: Cadmium, Umweltschutz
+     Katalogisiert in 45 Titeln
+     Sample Titel (5/5):
+       1. Cadmium in der Umwelt: Quellen, Verteilung und Auswirkungen
+       2. Bodenverschmutzung durch Schwermetalle: Ein Überblick
+       ...
+```
+
+**CLI - Kompakte CSV-Ausgabe:**
+```bash
+python3 src/alima_cli.py show-protocol ergebnis.json --format compact --steps dk_search
+
+file.json,dk_search,"628.5:45:Cadmium in der Umwelt...|Bodenverschmutzung...|..."
+```
+
+#### 2.5. K10+/WinIBW Katalog-Export
+
+Direkter Export von Analyseergebnissen im K10+/WinIBW-Format für nahtlose Integration in Bibliothekskataloge.
+
+**Format:**
+```
+5550 Schlagwort
+6700 DK CODE
+```
+
+**GUI - K10+ Export Tab:**
+Die "Analysis Review" hat einen neuen Tab "K10+ Export" mit:
+- Automatisch generierte K10+/WinIBW-konforme Zeilen
+- "In Zwischenablage kopieren" Button für direktes Einfügen in WinIBW
+- GND-IDs entfernt, nur Begriffe und DK-Codes
+
+**CLI - K10+ Export:**
+```bash
+# Einfacher Export für direktes Copy-Paste in WinIBW
+python3 src/alima_cli.py show-protocol ergebnis.json --format k10plus
+
+5550 Cadmium
+5550 Bodenverschmutzung
+5550 Umweltverschmutzung
+6700 DK 628.5
+6700 DK 333.3
+```
+
+**Batch-Verarbeitung mit K10+ Export:**
+```bash
+# Für 100+ Dateien: Alle K10+ Zeilen in eine Textdatei
+for json in results/*.json; do
+    python3 src/alima_cli.py show-protocol "$json" --format k10plus
+done > k10plus_export.txt
+
+# Dann in WinIBW einfügen: Copy → Paste → Speichern
+```
+
+**Konfigurierbarkeit:**
+Die Tags (5550, 6700) können später in config.json konfiguriert werden:
+```json
+{
+  "k10plus_export": {
+    "keyword_tag": "5550",
+    "classification_tag": "6700"
+  }
+}
+```
+
 ## Lizenz
 LGPL v3
 

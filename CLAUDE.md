@@ -174,9 +174,24 @@ DOI:10.1234/example ; MyPaper ; {"keywords": {"temperature": 0.3}}
 ```
 
 ### ✅ PRODUCTION READY: Protocol Display (`show-protocol` CLI Command) (Claude Generated)
-CLI-Befehl zur Anzeige von Pipeline-Ergebnissen aus JSON-Dateien. Zwei Modi: `--format detailed` (lesbar) und `--format compact` (CSV für Batch-Analysen mit grep/awk).
-- **Implementation:** `src/alima_cli.py` (Zeilen 530-576)
-- **User Documentation:** README.md Section 2.3
+CLI-Befehl zur Anzeige von Pipeline-Ergebnissen aus JSON-Dateien. Drei Modi: `--format detailed` (lesbar), `--format compact` (CSV), `--format k10plus` (Katalog-Export).
+- **Implementation:** `src/alima_cli.py` (Zeilen 46-49: K10+ tags, 517-584: display_protocol_k10plus)
+- **User Documentation:** README.md Sections 2.3, 2.4, 2.5
+
+### ✅ PRODUCTION READY: DK Classification Transparency (Claude Generated)
+Automatische Anzeige welche Katalog-Titel zu jeder DK-Klassifikation führten.
+- **GUI**: PipelineStreamWidget zeigt Sample-Titel während DK-Suche, AnalysisReviewTab mit Farbcodierung (Konfidenz)
+- **CLI**: show-protocol mit DK-Titeln in detailed/compact/k10plus format
+- **Implementation:** `src/ui/pipeline_stream_widget.py` (256-310), `src/ui/analysis_review_tab.py` (389-399)
+- **User Documentation:** README.md Section 2.4
+
+### ✅ PRODUCTION READY: K10+/WinIBW Catalog Export (Claude Generated)
+Direct export in K10+/WinIBW format für nahtlose Katalog-Integration.
+- **GUI**: Neuer "K10+ Export" Tab mit Copy-Button
+- **CLI**: --format k10plus für direktes Copy-Paste
+- **Implementation:** `src/alima_cli.py` (48-49: K10+ tags, 517-584), `src/ui/analysis_review_tab.py` (29-32: K10+ tags, 215-235: K10+ tab, 342-375: _generate_k10plus_format)
+- **Configuration**: K10PLUS_KEYWORD_TAG, K10PLUS_CLASSIFICATION_TAG (später in config.json)
+- **User Documentation:** README.md Section 2.5
 
 ## [Instructions Block - Operator-Defined Tasks]
 

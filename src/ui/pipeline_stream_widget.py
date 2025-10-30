@@ -248,6 +248,67 @@ class PipelineStreamWidget(QWidget):
                     f"Verifiziert: {len(verified)} Keywords", "info", step.step_id
                 )
 
+            elif step.step_id == "dk_search" and "dk_search_results" in step.output_data:
+                # Display DK search results with sample titles - Claude Generated
+                dk_results = step.output_data["dk_search_results"]
+                self._display_dk_search_results(dk_results, step.step_id)
+
+    def _display_dk_search_results(self, dk_results: List[Dict[str, Any]], step_id: str):
+        """Display DK search results with sample titles - Claude Generated
+
+        Args:
+            dk_results: List of DK search result dictionaries, each containing:
+                - "dk": DK classification code
+                - "titles": List of catalog titles with this classification
+                - "count": Total count of titles
+            step_id: Pipeline step ID for message formatting
+        """
+        if not dk_results:
+            self.add_pipeline_message("Keine DK-Klassifikationen gefunden", "info", step_id)
+            return
+
+        # Group results by DK code and count total titles
+        total_titles = 0
+        dk_summary = []
+
+        for result in dk_results:
+            if isinstance(result, dict):
+                dk_code = result.get("dk", "unknown")
+                titles = result.get("titles", [])
+                total_count = result.get("count", len(titles))
+
+                if titles:
+                    total_titles += total_count
+                    # Get first 3 titles as sample
+                    sample_titles = titles[:3]
+                    dk_summary.append((dk_code, total_count, sample_titles))
+
+        # Display summary
+        self.add_pipeline_message(
+            f"🔍 DK-Suche: {len(dk_summary)} Klassifikationen gefunden ({total_titles} Titel)",
+            "info",
+            step_id,
+        )
+
+        # Display each DK code with sample titles
+        for dk_code, total_count, sample_titles in dk_summary:
+            titles_preview = " | ".join(sample_titles)
+            # Add ellipsis if there are more titles than shown in preview
+            if total_count > len(sample_titles):
+                titles_display = f"{titles_preview} ... (+{total_count - len(sample_titles)} weitere)"
+            else:
+                titles_display = titles_preview
+
+            # Truncate long title preview to fit in one line
+            if len(titles_display) > 100:
+                titles_display = titles_display[:97] + "..."
+
+            self.add_pipeline_message(
+                f"  📊 DK {dk_code} ({total_count} Titel): {titles_display}",
+                "info",
+                step_id,
+            )
+
     @pyqtSlot(object, str)
     def on_step_error(self, step: PipelineStep, error_message: str):
         """Handle step error - Claude Generated"""

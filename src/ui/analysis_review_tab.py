@@ -26,6 +26,11 @@ from typing import Dict, List, Any, Optional
 from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis
 from ..utils.pipeline_utils import AnalysisPersistence
 
+# K10+/WinIBW export format tags - Claude Generated
+# These can be moved to config later for configurability
+K10PLUS_KEYWORD_TAG = "5550"
+K10PLUS_CLASSIFICATION_TAG = "6700"
+
 
 class AnalysisReviewTab(QWidget):
     """Tab for reviewing and exporting analysis results - Claude Generated (Refactored)"""
@@ -207,6 +212,28 @@ class AnalysisReviewTab(QWidget):
         self.dk_classification_display.setFont(font)
         self.details_tabs.addTab(self.dk_classification_display, "DK/RVK-Klassifikationen")
 
+        # K10+ Export tab - Claude Generated
+        k10plus_widget = QWidget()
+        k10plus_layout = QVBoxLayout(k10plus_widget)
+
+        k10plus_label = QLabel("K10+/WinIBW Katalog-Export Format:")
+        k10plus_label.setFont(QFont("Arial", 10))
+        k10plus_layout.addWidget(k10plus_label)
+
+        self.k10plus_text = QTextEdit()
+        self.k10plus_text.setReadOnly(True)
+        font = self.k10plus_text.font()
+        font.setPointSize(11)
+        font.setFamily("Courier")  # Monospace for better readability
+        self.k10plus_text.setFont(font)
+        k10plus_layout.addWidget(self.k10plus_text)
+
+        copy_button = QPushButton("📋 In Zwischenablage kopieren")
+        copy_button.clicked.connect(self.copy_k10plus_to_clipboard)
+        k10plus_layout.addWidget(copy_button)
+
+        self.details_tabs.addTab(k10plus_widget, "K10+ Export")
+
         # Statistics tab
         self.stats_text = QTextEdit()
         self.stats_text.setReadOnly(True)
@@ -312,6 +339,51 @@ class AnalysisReviewTab(QWidget):
         # Expand all
         self.steps_tree.expandAll()
 
+    def _generate_k10plus_format(self) -> List[str]:
+        """Generate K10+/WinIBW export lines - Claude Generated
+
+        Format: TAG TERM (no GND-IDs, no PPNs)
+        """
+        lines = []
+
+        # GND Keywords (5550)
+        if self.current_analysis and self.current_analysis.final_llm_analysis:
+            analysis = self.current_analysis.final_llm_analysis
+            if isinstance(analysis, dict):
+                keywords = analysis.get('extracted_gnd_keywords', [])
+            else:
+                keywords = getattr(analysis, 'extracted_gnd_keywords', [])
+
+            for keyword in keywords:
+                # Remove GND-ID from "Keyword (GNDID)" format
+                if "(" in keyword and ")" in keyword:
+                    term = keyword.split("(")[0].strip()
+                else:
+                    term = keyword.strip()
+
+                lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
+
+        # DK Classifications (6700)
+        if self.current_analysis:
+            for dk in self.current_analysis.dk_classifications:
+                # Remove label if present ("628.5 - Label" → "628.5")
+                dk_code = dk.split(" - ")[0].strip() if " - " in dk else dk.strip()
+                # Remove "DK " prefix if present
+                dk_clean = dk_code.replace("DK ", "").strip()
+                lines.append(f"{K10PLUS_CLASSIFICATION_TAG} DK {dk_clean}")
+
+        return lines
+
+    def copy_k10plus_to_clipboard(self):
+        """Copy K10+ format to clipboard - Claude Generated"""
+        from PyQt6.QtWidgets import QApplication
+
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.k10plus_text.toPlainText())
+
+        # Optional: Show status message (if parent has statusBar)
+        # This is handled by global status bar now
+
     def _get_titles_for_classification(self, dk_code: str, max_titles: int = 20) -> tuple[list, int]:
         """
         Extract titles for a specific DK classification from search results - Claude Generated
@@ -377,26 +449,46 @@ class AnalysisReviewTab(QWidget):
         else:
             self.final_analysis_text.setPlainText("Keine LLM-Analyse verfügbar")
 
-        # DK/RVK Classifications - Claude Generated (HTML-formatted for better readability)
+        # DK/RVK Classifications - Claude Generated (HTML-formatted with enhanced transparency)
         if self.current_analysis.dk_classifications:
             html_parts = []
             html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
 
-            for dk_code in self.current_analysis.dk_classifications:
+            for idx, dk_code in enumerate(self.current_analysis.dk_classifications, 1):
                 # Get titles for this classification
                 titles, total_count = self._get_titles_for_classification(dk_code)
 
+                # Determine color based on frequency (confidence level)
+                # More titles = higher confidence in this classification
+                if total_count > 50:
+                    color = "#2d5016"  # Dark green - very confident
+                    bg_color = "#d4edda"
+                elif total_count > 20:
+                    color = "#0c5460"  # Teal - confident
+                    bg_color = "#d1ecf1"
+                else:
+                    color = "#664d03"  # Brown/orange - low confidence
+                    bg_color = "#fff3cd"
+
                 # Classification header with background
                 html_parts.append(
-                    f"<div style='background-color: #e8f4f8; padding: 12px; margin-bottom: 8px; "
-                    f"border-left: 4px solid #0066cc; border-radius: 4px;'>"
-                    f"<h2 style='color: #0066cc; margin: 0; font-size: 14pt;'>{dk_code}</h2>"
+                    f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
+                    f"border-left: 4px solid {color}; border-radius: 4px;'>"
+                    f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+                    f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
                 )
 
                 if total_count > 0:
+                    confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
                     html_parts.append(
-                        f"<p style='color: #666; margin: 5px 0 0 0; font-size: 9pt;'>"
-                        f"📚 {total_count} zugehörige Titel aus dem Bibliotheksbestand</p>"
+                        f"<span style='color: {color}; font-weight: bold; font-size: 10pt;'>{confidence_bar} {total_count}</span>"
+                    )
+                html_parts.append("</div>")
+
+                if total_count > 0:
+                    html_parts.append(
+                        f"<p style='color: {color}; margin: 5px 0 0 0; font-size: 9pt; opacity: 0.8;'>"
+                        f"📚 Katalogisiert in {total_count} Titel{'n' if total_count != 1 else ''}</p>"
                     )
                 html_parts.append("</div>")
 
@@ -430,6 +522,10 @@ class AnalysisReviewTab(QWidget):
             self.dk_classification_display.setHtml("".join(html_parts))
         else:
             self.dk_classification_display.setPlainText("Keine DK/RVK-Klassifikationen vorhanden")
+
+        # K10+ Export - Claude Generated
+        k10plus_lines = self._generate_k10plus_format()
+        self.k10plus_text.setPlainText("\n".join(k10plus_lines))
 
         # Statistics
         self.populate_statistics()

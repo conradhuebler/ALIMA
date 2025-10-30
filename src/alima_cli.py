@@ -43,6 +43,10 @@ from typing import List, Tuple
 
 # PROMPTS_FILE removed - now using config.system_config.prompts_path - Claude Generated
 
+# K10+/WinIBW export format tags - Claude Generated
+# These can be moved to config.json later for configurability
+K10PLUS_KEYWORD_TAG = "5550"
+K10PLUS_CLASSIFICATION_TAG = "6700"
 
 # Use shared JSON utilities from pipeline_utils
 _task_state_to_dict = PipelineJsonManager.task_state_to_dict
@@ -394,7 +398,7 @@ def format_step_keywords(state: KeywordAnalysisState):
 
 
 def format_step_dk_search(state: KeywordAnalysisState):
-    """Format and display DK search step results - Claude Generated"""
+    """Format and display DK search step results with titles - Claude Generated"""
     print("\n[STEP: DK_SEARCH]")
     print("─" * 70)
 
@@ -402,26 +406,33 @@ def format_step_dk_search(state: KeywordAnalysisState):
         print("  (No DK search results)")
         return
 
-    print(f"DK Search Results ({len(state.dk_search_results)} results):")
+    print(f"DK Search Results ({len(state.dk_search_results)} classifications found):")
 
     for result in state.dk_search_results:
         if isinstance(result, dict):
-            keyword = result.get('keyword', 'unknown')
-            hits = result.get('hits', 0)
-            classifications = result.get('classifications', [])
+            # Support both old and new data formats
+            dk_code = result.get('dk', result.get('code', 'unknown'))
+            titles = result.get('titles', [])
+            total_count = result.get('count', len(titles))
+            keywords = result.get('keywords', [])
 
-            print(f"\n  Keyword: {keyword}")
-            print(f"  Total Hits: {hits}")
+            # Display DK code with count
+            print(f"\n  📊 DK {dk_code}")
+            if keywords:
+                print(f"     Keywords: {', '.join(keywords[:3])}{'...' if len(keywords) > 3 else ''}")
+            print(f"     Katalogisiert in {total_count} Titel{'n' if total_count != 1 else ''}")
 
-            if classifications:
-                print(f"  Classifications ({len(classifications)}):")
-                for cls in classifications[:10]:  # Show first 10
-                    code = cls.get('code', 'unknown') if isinstance(cls, dict) else cls
-                    freq = cls.get('frequency', 0) if isinstance(cls, dict) else 0
-                    print(f"    • {code} (frequency: {freq})")
+            # Display sample titles (first 5)
+            if titles:
+                sample_size = min(5, len(titles))
+                print(f"     Sample Titel ({sample_size}/{len(titles)}):")
+                for i, title in enumerate(titles[:sample_size], 1):
+                    # Truncate long titles to 70 characters
+                    short_title = (title[:67] + "...") if len(title) > 70 else title
+                    print(f"       {i}. {short_title}")
 
-                if len(classifications) > 10:
-                    print(f"    ... and {len(classifications) - 10} more")
+                if len(titles) > 5:
+                    print(f"       ... und {len(titles) - 5} weitere Titel")
 
 
 def format_step_dk_classification(state: KeywordAnalysisState):
@@ -503,6 +514,76 @@ def display_protocol_compact(json_file: str, steps: List[str]):
         print(f"❌ Error reading protocol: {e}", file=sys.stderr)
 
 
+def display_protocol_k10plus(json_file: str):
+    """Display protocol in K10+/WinIBW catalog export format - Claude Generated
+
+    Format:
+        5550 Schlagwort
+        6700 DK CODE
+    """
+    import os
+
+    # Check if file exists
+    if not os.path.exists(json_file):
+        print(f"❌ Error: File not found: {json_file}", file=sys.stderr)
+        return
+
+    try:
+        # Load JSON file
+        with open(json_file, 'r', encoding='utf-8') as f:
+            state_dict = json.load(f)
+
+        # Convert to KeywordAnalysisState object
+        state = KeywordAnalysisState(
+            original_abstract=state_dict.get('original_abstract'),
+            initial_keywords=state_dict.get('initial_keywords', []),
+            search_suggesters_used=state_dict.get('search_suggesters_used', []),
+            initial_gnd_classes=state_dict.get('initial_gnd_classes', []),
+            initial_llm_call_details=state_dict.get('initial_llm_call_details'),
+            final_llm_analysis=state_dict.get('final_llm_analysis'),
+            dk_search_results=state_dict.get('dk_search_results', []),
+            dk_classifications=state_dict.get('dk_classifications', []),
+            timestamp=state_dict.get('timestamp'),
+        )
+
+        # Generate K10+ export lines
+        lines = []
+
+        # GND Keywords (5550 - Schlagworte)
+        if state.final_llm_analysis:
+            analysis = state.final_llm_analysis
+            if isinstance(analysis, dict):
+                keywords = analysis.get('extracted_gnd_keywords', [])
+            else:
+                keywords = getattr(analysis, 'extracted_gnd_keywords', [])
+
+            for keyword in keywords:
+                # Remove GND-ID from "Keyword (GNDID)" format
+                if "(" in keyword and ")" in keyword:
+                    term = keyword.split("(")[0].strip()
+                else:
+                    term = keyword.strip()
+
+                lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
+
+        # DK Classifications (6700 - Systematiken)
+        for dk in state.dk_classifications:
+            # Remove label if present ("628.5 - Label" → "628.5")
+            dk_code = dk.split(" - ")[0].strip() if " - " in dk else dk.strip()
+            # Remove "DK " prefix if present
+            dk_clean = dk_code.replace("DK ", "").strip()
+            lines.append(f"{K10PLUS_CLASSIFICATION_TAG} DK {dk_clean}")
+
+        # Print all lines
+        for line in lines:
+            print(line)
+
+    except json.JSONDecodeError as e:
+        print(f"❌ Error: Invalid JSON file: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"❌ Error reading protocol: {e}", file=sys.stderr)
+
+
 def format_step_compact_csv(step: str, state: KeywordAnalysisState, filename: str) -> str:
     """Generate CSV line for a pipeline step - Claude Generated
 
@@ -543,15 +624,23 @@ def format_step_compact_csv(step: str, state: KeywordAnalysisState, filename: st
             data = ""
 
     elif step == "dk_search":
-        # DK search: keyword:hits|keyword:hits
+        # DK search: dk_code:count:sample_titles or keyword:hits (legacy format)
         result_parts = []
         for result in state.dk_search_results:
             if isinstance(result, dict):
-                keyword = result.get('keyword', '')
-                hits = result.get('hits', 0)
-                if keyword:
-                    result_parts.append(f"{keyword}:{hits}")
-        data = "|".join(result_parts) if result_parts else ""
+                # Support both formats
+                dk_code = result.get('dk', result.get('keyword', ''))
+                titles = result.get('titles', [])
+                total_count = result.get('count', result.get('hits', 0))
+
+                if dk_code:
+                    # New format with titles
+                    if titles:
+                        sample_titles = "|".join(titles[:3])  # First 3 titles
+                        result_parts.append(f"{dk_code}:{total_count}:{sample_titles}")
+                    else:
+                        result_parts.append(f"{dk_code}:{total_count}")
+        data = "||".join(result_parts) if result_parts else ""  # Use || to separate DK results
 
     elif step == "dk_classification":
         # DK codes
@@ -944,9 +1033,9 @@ EXAMPLES:
     )
     show_protocol_parser.add_argument(
         "--format",
-        choices=["detailed", "compact"],
+        choices=["detailed", "compact", "k10plus"],
         default="detailed",
-        help="Output format: detailed (full display) or compact (CSV one-liner per step)"
+        help="Output format: detailed (full display), compact (CSV), or k10plus (catalog export)"
     )
     show_protocol_parser.add_argument(
         "--header",
@@ -2940,7 +3029,9 @@ EXAMPLES:
         if args.header and args.format == "compact":
             print("filename,step,data")
 
-        if args.format == "compact":
+        if args.format == "k10plus":
+            display_protocol_k10plus(args.json_file)
+        elif args.format == "compact":
             display_protocol_compact(args.json_file, args.steps)
         else:
             display_protocol(args.json_file, args.steps)
