@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import hashlib
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
@@ -55,31 +56,94 @@ class SearchMapping:
 
 
 class UnifiedKnowledgeManager:
-    """Unified knowledge database manager with Facts/Mappings separation - Claude Generated"""
+    """Unified knowledge database manager with Facts/Mappings separation - Claude Generated
+
+    Singleton Pattern: Only one instance per application lifecycle
+    - Use UnifiedKnowledgeManager() or UnifiedKnowledgeManager.get_instance() to get the singleton
+    - Thread-safe with automatic locking
+    - Call reset() only for testing
+    """
+
+    # Singleton implementation - Claude Generated
+    _instance = None
+    _lock = threading.Lock()
+    _initialized = False
+
+    def __new__(cls, db_path: Optional[str] = None, database_config: Optional[DatabaseConfig] = None):
+        """Create or return singleton instance - Claude Generated"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    instance = super().__new__(cls)
+                    cls._instance = instance
+        return cls._instance
 
     def __init__(self, db_path: Optional[str] = None, database_config: Optional[DatabaseConfig] = None):
         self.logger = logging.getLogger(__name__)
 
-        # Load database path from config if not provided - Claude Generated
-        if db_path is None and database_config is None:
+        # Skip re-initialization of existing singleton - Claude Generated
+        if UnifiedKnowledgeManager._initialized:
+            self.logger.debug("⚠️ UnifiedKnowledgeManager is singleton - skipping re-initialization")
+            return
+
+        # Load database config if not provided - Claude Generated (UNIFIED PATH RESOLUTION)
+        if database_config is None:
             try:
                 from ..utils.config_manager import ConfigManager
                 config_manager = ConfigManager()
                 config = config_manager.load_config()
-                db_path = config.system_config.database_path
-                self.logger.debug(f"✅ Database path loaded from config: {db_path}")
+                # UNIFIED SINGLE SOURCE OF TRUTH: database_config.sqlite_path
+                database_config = config.database_config
+                self.logger.debug(f"✅ Database config loaded from config: {database_config.sqlite_path}")
             except Exception as e:
-                self.logger.warning(f"⚠️ Could not load database path from config: {e}. Using default.")
-                db_path = "alima_knowledge.db"
+                self.logger.warning(f"⚠️ Could not load database config from config: {e}. Using default.")
+                # Create default config with OS-specific path
+                database_config = DatabaseConfig(db_type='sqlite')
 
-        self.db_path = db_path
+        # Legacy parameter support (db_path) - deprecated
+        if db_path is not None:
+            self.logger.warning(f"⚠️ db_path parameter is deprecated, use database_config instead")
+            if database_config.db_type.lower() in ['sqlite', 'sqlite3']:
+                database_config.sqlite_path = db_path
 
-        # Use provided config or create default SQLite config
-        if database_config is None:
-            database_config = DatabaseConfig(db_type='sqlite', sqlite_path=db_path)
+        self.db_path = database_config.sqlite_path
 
         self.db_manager = DatabaseManager(database_config, f"unified_knowledge_{id(self)}")
         self._init_database()
+
+        # Mark as initialized - Claude Generated
+        UnifiedKnowledgeManager._initialized = True
+
+    @classmethod
+    def get_instance(cls, database_config: Optional[DatabaseConfig] = None) -> "UnifiedKnowledgeManager":
+        """Get or create singleton instance - Claude Generated
+
+        Thread-safe factory method. Use this instead of __init__() for clarity.
+
+        Args:
+            database_config: Optional DatabaseConfig. Ignored if instance already exists.
+
+        Returns:
+            UnifiedKnowledgeManager: Singleton instance
+        """
+        return cls(database_config=database_config)
+
+    @classmethod
+    def reset(cls):
+        """Reset singleton instance (for testing only) - Claude Generated
+
+        WARNING: This should only be called during unit tests!
+        Closes the database connection and clears the singleton.
+        """
+        with cls._lock:
+            if cls._instance is not None:
+                try:
+                    cls._instance.db_manager.close()
+                    cls.logger.info("✅ Database connection closed")
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"⚠️ Error closing database: {e}")
+            cls._instance = None
+            cls._initialized = False
     
     def _init_database(self):
         """Initialize unified database schema - Claude Generated"""

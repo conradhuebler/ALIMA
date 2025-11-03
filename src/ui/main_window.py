@@ -1898,8 +1898,9 @@ class MainWindow(QMainWindow):
         self.logger.info(f"  🔍 prompts_missing: {prompts_missing} (path={config.system_config.prompts_path})")
 
         # Prüfung 3: Datenbank existiert nicht
-        db_missing = not Path(config.system_config.database_path).exists()
-        self.logger.info(f"  🔍 db_missing: {db_missing} (path={config.system_config.database_path})")
+        # UNIFIED: Use database_config.sqlite_path as single source of truth - Claude Generated
+        db_missing = not Path(config.database_config.sqlite_path).exists()
+        self.logger.info(f"  🔍 db_missing: {db_missing} (path={config.database_config.sqlite_path})")
 
         # First-Run wenn mindestens 2 von 3 fehlen
         missing_count = sum([no_providers, prompts_missing, db_missing])

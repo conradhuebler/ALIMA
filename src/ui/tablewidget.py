@@ -33,9 +33,18 @@ class TableWidget(QWidget):
         """
         super().__init__(parent)
 
-        # Use default SQLite config if none provided
+        # Use centralized config if none provided - Claude Generated (UNIFIED DB CONFIG)
         if database_config is None:
-            database_config = DatabaseConfig(db_type='sqlite', sqlite_path='alima_knowledge.db')
+            try:
+                from ..utils.config_manager import ConfigManager
+                config_manager = ConfigManager()
+                config = config_manager.load_config()
+                database_config = config.database_config
+            except Exception as e:
+                # Fallback to default with OS-specific path only if config loading fails
+                import logging
+                logging.warning(f"⚠️ Could not load config: {e}. Using default database config.")
+                database_config = DatabaseConfig(db_type='sqlite')
 
         self.database_config = database_config
         self.current_table = table_name

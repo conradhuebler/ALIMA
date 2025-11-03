@@ -218,25 +218,34 @@ class ConfigManager:
                 self.logger.debug("🔄 Legacy configuration detected - performing migration")
                 config_data = self._migrate_legacy_config(config_data)
 
-            # Create main config sections
-            database_config = DatabaseConfig(**config_data.get("database_config", config_data.get("database", {})))
+            # Handle database path migration (supports old configs with system_config.database_path)
+            # MIGRATION: Old configs may have database_path in system_config, migrate to DatabaseConfig
+            system_config_data = config_data.get("system_config", config_data.get("system", {}))
+            database_config_data = config_data.get("database_config", config_data.get("database", {}))
+
+            # If old config has system_config.database_path, migrate it to database_config.sqlite_path
+            if "database_path" in system_config_data:
+                old_db_path = system_config_data.pop("database_path")
+                if "sqlite_path" not in database_config_data:
+                    database_config_data["sqlite_path"] = old_db_path
+                    self.logger.debug(f"🔄 Migrated database_path from system_config to database_config: {old_db_path}")
+
+            # Create main config sections - Claude Generated
+            database_config = DatabaseConfig(**database_config_data)
             catalog_config = CatalogConfig(**config_data.get("catalog_config", config_data.get("catalog", {})))
             prompt_config = PromptConfig(**config_data.get("prompt_config", config_data.get("prompt", {})))
-            system_config = SystemConfig(**config_data.get("system_config", config_data.get("system", {})))
+            system_config = SystemConfig(**system_config_data)
 
-            # Resolve file paths from system_config - Claude Generated
+            # Resolve file paths - Claude Generated (UNIFIED PATH RESOLUTION)
             try:
+                # UNIFIED SINGLE SOURCE OF TRUTH: database_config.sqlite_path
                 # Resolve database path (supports absolute, relative, and ~)
-                system_config.database_path = resolve_path(system_config.database_path)
+                if database_config.db_type.lower() in ['sqlite', 'sqlite3']:
+                    database_config.sqlite_path = resolve_path(database_config.sqlite_path)
+                    self.logger.debug(f"✅ Resolved database path: {database_config.sqlite_path}")
 
                 # Resolve prompts path
                 system_config.prompts_path = resolve_path(system_config.prompts_path)
-
-                # Update database_config with resolved path (for SQLite only)
-                if database_config.db_type.lower() in ['sqlite', 'sqlite3']:
-                    database_config.sqlite_path = system_config.database_path
-                    self.logger.debug(f"✅ Resolved database path: {database_config.sqlite_path}")
-
                 self.logger.debug(f"✅ Resolved prompts path: {system_config.prompts_path}")
             except Exception as e:
                 self.logger.warning(f"⚠️ Path resolution error: {e}. Using default paths.")
@@ -993,24 +1002,28 @@ class ConfigManager:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
 
-            # Ensure system_config exists
+            # Ensure database_config and system_config exist
+            if 'database_config' not in config_data:
+                config_data['database_config'] = {}
             if 'system_config' not in config_data:
                 config_data['system_config'] = {}
 
+            database_config_data = config_data['database_config']
             system_config_data = config_data['system_config']
 
-            # Set absolute paths for database and prompts
+            # Set absolute paths for database and prompts - Claude Generated (UNIFIED PATH)
             abs_db_path = str(target_dir / "alima_knowledge.db")
             abs_prompts_path = str(target_dir / "prompts.json")
 
-            system_config_data['database_path'] = abs_db_path
+            # UNIFIED SINGLE SOURCE OF TRUTH: database_config.sqlite_path
+            database_config_data['sqlite_path'] = abs_db_path
             system_config_data['prompts_path'] = abs_prompts_path
 
             # Save adjusted config
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
 
-            self.logger.debug(f"✅ Updated database_path → {abs_db_path}")
+            self.logger.debug(f"✅ Updated database sqlite_path → {abs_db_path}")
             self.logger.debug(f"✅ Updated prompts_path → {abs_prompts_path}")
 
             # === STEP 5: RELOAD CONFIGURATION ===

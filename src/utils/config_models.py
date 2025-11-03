@@ -8,6 +8,7 @@ Claude Generated
 
 import json
 import os
+import platform
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List, Tuple
 from dataclasses import dataclass, asdict, field
@@ -41,16 +42,51 @@ class TaskType(Enum):
 
 
 # ============================================================================
+# HELPER FUNCTIONS FOR DATABASE CONFIGURATION
+# ============================================================================
+
+def get_default_db_path() -> str:
+    r"""Get OS-specific default database path - Claude Generated
+
+    Returns:
+        str: Default database path for current OS
+        - Windows: C:\Users\{user}\AppData\Local\ALIMA\alima_knowledge.db
+        - macOS: ~/Library/Application Support/ALIMA/alima_knowledge.db
+        - Linux/Other: ~/.config/alima/alima_knowledge.db
+    """
+    system = platform.system()
+
+    if system == "Windows":
+        app_data = os.getenv("APPDATA")
+        if app_data:
+            base_path = os.path.join(app_data, "ALIMA")
+        else:
+            base_path = os.path.expanduser("~/AppData/Local/ALIMA")
+    elif system == "Darwin":
+        base_path = os.path.expanduser("~/Library/Application Support/ALIMA")
+    else:
+        # Linux and others
+        base_path = os.path.expanduser("~/.config/alima")
+
+    os.makedirs(base_path, exist_ok=True)
+    return os.path.join(base_path, "alima_knowledge.db")
+
+
+# ============================================================================
 # DATABASE CONFIGURATION
 # ============================================================================
 
 @dataclass
 class DatabaseConfig:
-    """Database configuration - Claude Generated"""
+    """Database configuration - Claude Generated
+
+    UNIFIED SINGLE SOURCE OF TRUTH for database configuration.
+    The sqlite_path is now the only database path definition.
+    """
     db_type: str = 'sqlite'  # 'sqlite' or 'mysql'/'mariadb'
 
-    # SQLite specific
-    sqlite_path: str = 'alima_knowledge.db'
+    # SQLite specific - THIS IS THE SINGLE SOURCE OF TRUTH FOR DB PATH
+    sqlite_path: str = field(default_factory=get_default_db_path)
 
     # MySQL/MariaDB specific
     host: str = 'localhost'
@@ -461,7 +497,11 @@ class PromptConfig:
 
 @dataclass
 class SystemConfig:
-    """System-wide configuration - Claude Generated"""
+    """System-wide configuration - Claude Generated
+
+    NOTE: database_path has been moved to DatabaseConfig.sqlite_path
+    This is now the single source of truth for database configuration.
+    """
     debug: bool = False
     log_level: str = 'INFO'
     cache_dir: str = 'cache'
@@ -469,7 +509,6 @@ class SystemConfig:
     temp_dir: str = '/tmp'
 
     # Configurable file paths (can be absolute or relative to project root) - Claude Generated
-    database_path: str = 'alima_knowledge.db'  # Path to SQLite database
     prompts_path: str = 'prompts.json'          # Path to prompts configuration file
 
     # First-run check can be disabled via config - Claude Generated
