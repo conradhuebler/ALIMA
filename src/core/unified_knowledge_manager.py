@@ -321,21 +321,21 @@ class UnifiedKnowledgeManager:
     def update_search_mapping(self, search_term: str, suggester_type: str,
                             found_gnd_ids: List[str] = None,
                             found_classifications: List[Dict[str, str]] = None):
-        """Update or create search mapping - Claude Generated"""
+        """Update or create search mapping - Claude Generated (Fixed PyQt6 QtSql subquery issue)"""
         try:
             normalized_term = self._normalize_term(search_term)
 
-            # Use INSERT OR REPLACE with subquery to preserve created_at - Claude Generated
+            # FIX: Replace nested subquery with pre-fetch to avoid QtSql parameter binding issues - Claude Generated
+            # PyQt6's QtSql has problems with complex nested queries after cache clear
+            existing_mapping = self.get_search_mapping(search_term, suggester_type)
+            created_at_value = existing_mapping.created_at if existing_mapping else None
+
+            # Simple INSERT OR REPLACE without subquery - Claude Generated
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO search_mappings
                 (search_term, normalized_term, suggester_type, found_gnd_ids,
                  found_classifications, result_count, last_updated, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
-                    COALESCE(
-                        (SELECT created_at FROM search_mappings
-                         WHERE search_term = ? AND suggester_type = ?),
-                        CURRENT_TIMESTAMP
-                    ))
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, COALESCE(?, CURRENT_TIMESTAMP))
             """, [
                 search_term,
                 normalized_term,
@@ -343,13 +343,14 @@ class UnifiedKnowledgeManager:
                 json.dumps(found_gnd_ids or []),
                 json.dumps(found_classifications or []),
                 len(found_gnd_ids or []) + len(found_classifications or []),
-                search_term,  # For subquery
-                suggester_type  # For subquery
+                created_at_value  # Pre-fetched value instead of subquery
             ])
 
         except Exception as e:
             self.logger.error(f"Error updating search mapping {search_term}: {e}")
-            raise
+            # FIX: Graceful degradation instead of crash - Claude Generated
+            self.logger.warning(f"⚠️ Continuing despite search mapping error for '{search_term}'")
+            # Don't raise exception - allow application to continue
     
     def _normalize_term(self, term: str) -> str:
         """Normalize search term for fuzzy matching - Claude Generated"""
@@ -434,7 +435,39 @@ class UnifiedKnowledgeManager:
         except Exception as e:
             self.logger.error(f"Error clearing database: {e}")
             raise
-    
+
+    def clear_search_cache(self) -> tuple[bool, str]:
+        """Clear only search mappings cache while preserving GND entries and classifications - Claude Generated
+
+        This removes old/cached search results without losing the knowledge base.
+        Useful for cleaning up malformed cache entries from schema migrations.
+
+        Returns:
+            tuple[bool, str]: (success, message)
+        """
+        try:
+            # Execute DELETE query
+            self.db_manager.execute_query("DELETE FROM search_mappings")
+
+            # FIX: Ensure transaction is committed before next operations - Claude Generated
+            # This prevents QtSql timing/state issues when immediately inserting after delete
+            self.db_manager.commit_transaction()
+
+            # Count remaining entries to verify (optional)
+            query = "SELECT COUNT(*) FROM search_mappings"
+            result = self.db_manager.fetch_one(query)
+            remaining = result[0] if result else 0
+
+            success_msg = f"✅ Search cache cleared. {remaining} entries remaining."
+            self.logger.info(success_msg)
+
+            return True, success_msg
+
+        except Exception as e:
+            error_msg = f"❌ Error clearing search cache: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
     # === COMPATIBILITY ADAPTERS ===
     # These methods provide compatibility with existing CacheManager and DKCacheManager interfaces
     
@@ -575,18 +608,18 @@ class UnifiedKnowledgeManager:
 
                                 # Find classification entry matching this code
                                 titles = []
-                                count = 1
+                                count = 0  # FIX: Default to 0 (no titles found), not 1 - Claude Generated
                                 avg_confidence = 0.8
                                 for cls in classifications:
                                     if cls.get("code") == code:
                                         titles = cls.get("titles", [])
-                                        count = cls.get("count", 1)
+                                        count = cls.get("count", 0)  # FIX: Default to 0 if not specified - Claude Generated
                                         avg_confidence = cls.get("avg_confidence", 0.8)
                                         break
                             except (json.JSONDecodeError, KeyError) as e:
                                 self.logger.error(f"❌ ERROR parsing classifications: {e}")
                                 titles = []
-                                count = 1
+                                count = 0  # FIX: Default to 0 (no titles found), not 1 - Claude Generated
                                 avg_confidence = 0.8
 
                             code_groups[code] = {
@@ -685,7 +718,7 @@ class UnifiedKnowledgeManager:
                 # Store titles with classification in search mapping - Claude Generated
                 new_titles = result.get('titles', [])
                 keywords = result.get('keywords', [])
-                count = result.get('count', 1)
+                count = result.get('count', 0)  # FIX: Default to 0 (no titles), not 1 - Claude Generated
                 avg_confidence = result.get('avg_confidence', 0.8)
 
                 # Debug log for incoming titles - Claude Generated
@@ -783,12 +816,13 @@ class UnifiedKnowledgeManager:
                         self.logger.error(f"⚠️ CRITICAL: merged_classifications is EMPTY for keyword '{keyword}', code '{code}'")
                         continue
 
-                    # Validate that all classifications have required fields
+                    # Validate that all classifications have required fields - Claude Generated (Fixed log level)
                     for cls in merged_classifications:
                         required_fields = {'code', 'type', 'titles', 'count', 'avg_confidence'}
                         missing_fields = required_fields - set(cls.keys())
                         if missing_fields:
-                            self.logger.error(f"⚠️ CRITICAL: Classification {cls.get('code')} missing fields: {missing_fields}")
+                            # WARNING only: indicates old cache entry from before schema upgrade
+                            self.logger.warning(f"⚠️ Classification {cls.get('code')} missing fields: {missing_fields} (likely old cache entry)")
                             self.logger.debug(f"   Actual data: {cls}")
 
                     # Debug: Log the exact data being stored
@@ -1099,7 +1133,7 @@ class UnifiedKnowledgeManager:
                                         classifications[code]['titles'].append(title)
 
                                 # Update count and confidence
-                                classifications[code]['count'] += cls.get('count', 1)
+                                classifications[code]['count'] += cls.get('count', 0)  # FIX: Default to 0 (no titles), not 1 - Claude Generated
                                 classifications[code]['avg_confidence'] = (
                                     classifications[code]['avg_confidence'] +
                                     cls.get('avg_confidence', 0.8)

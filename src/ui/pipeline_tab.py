@@ -1331,13 +1331,17 @@ class PipelineTab(QWidget):
                     titles = result.get("titles", [])
                     keywords = result.get("keywords", [])
                     classification_type = result.get("classification_type", "DK")
-                    
+
+                    # FIX: Skip DKs with no titles or count=0 - Claude Generated
+                    if not titles or count == 0:
+                        continue
+
                     # Show titles (up to 3 per entry)
                     sample_titles = titles[:3]
                     titles_text = " | ".join(sample_titles)
                     if len(titles) > 3:
                         titles_text += f" | ... (und {len(titles) - 3} weitere)"
-                    
+
                     result_line = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nBeispieltitel: {titles_text}\nKeywords: {', '.join(keywords)}\n"
                     result_lines.append(result_line)
                 
