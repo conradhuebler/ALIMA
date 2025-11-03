@@ -68,3 +68,49 @@ The primary objective is to re-architect ALIMA to operate seamlessly across both
     *   Update `README.md` and other documentation to reflect the new architecture and usage.
 *   **GUI Integration:**
     *   Integrate the new JSON-based state management into the GUI to enable saving and loading tasks from the GUI.
+
+## 5. Reproducibility & Determinism Issues
+
+**Status:** Analysis Complete - [See detailed report: `REPRODUCIBILITY_ANALYSIS.md`](REPRODUCIBILITY_ANALYSIS.md)
+
+### Critical Issues (Must Fix)
+1. **Temperature Override Bug** (`src/core/alima_manager.py:93`)
+   - Explicit temperature parameters are ignored when using PromptService
+   - Hardcoded values from `prompts.json` override all user input
+   - Fix: Apply explicit parameters and respect parameter hierarchy
+
+2. **Hardcoded Seed Values** (`prompts.json` - lines 26, 36, 46, 56, 68, 78, 92)
+   - All initialization task variants have `"seed": "0"` hardcoded
+   - Seeds are not configurable by any parameter
+   - Fix: Make seeds configurable, add to configuration UI
+
+3. **Gemini Provider Missing Seed Support** (`src/llm/llm_service.py:1143-1145`)
+   - Gemini's `_generate_gemini()` doesn't include seed in generation_config
+   - Gemini-based initialization is ALWAYS non-deterministic
+   - Fix: Add seed parameter to Gemini generation_config
+
+### High Priority Issues
+4. **Dynamic Provider Selection** (`src/utils/pipeline_utils.py:67-97`)
+   - SmartProviderSelector routes to different providers based on availability/latency
+   - Same input may produce different results on different runs
+   - Fix: Add `--deterministic` flag to disable smart selection
+
+5. **Inconsistent Parameter Passing**
+   - Different code paths have different parameter precedence
+   - Template-path respects temperature, PromptService-path ignores it
+   - Fix: Unified parameter handling across all paths
+
+### Provider Reproducibility Matrix
+| Provider | Temperature | Top_P | Seed | Status |
+|----------|-------------|-------|------|--------|
+| Gemini | ✅ | ✅ | ❌ | Non-deterministic |
+| Ollama Native | ✅ | ✅ | ✅ | Model-dependent |
+| OpenAI Compatible | ✅ | ✅ | ✅ | Newer models only |
+| Anthropic | ✅ | ✅ | ✅ | Model-dependent |
+
+### Implementation Priority
+- [ ] Fix temperature override bug (alima_manager.py)
+- [ ] Make seeds configurable (prompts.json + UI)
+- [ ] Add seed support to Gemini provider
+- [ ] Implement `--deterministic` mode for pipeline
+- [ ] Create reproducibility test suite
