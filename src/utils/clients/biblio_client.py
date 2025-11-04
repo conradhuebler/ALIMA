@@ -666,6 +666,7 @@ class BiblioClient:
         from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
 
         dk_cache = UnifiedKnowledgeManager()
+        cached_results = []  # FIX: Initialize to merge with live results later - Claude Generated
 
         # Skip cache check if force_update is enabled - Claude Generated
         if force_update:
@@ -676,21 +677,37 @@ class BiblioClient:
             cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
             logger.info(f"📊 Cache returned {len(cached_results) if cached_results else 0} results")
 
+            # Ultra-Deep Diagnostic Logging - Claude Generated
             if cached_results:
-                # Check if cached results have titles - Claude Generated
-                has_titles = any(result.get("titles") for result in cached_results)
+                for i, result in enumerate(cached_results):
+                    titles_count = len(result.get("titles", []))
+                    logger.debug(f"   Cache[{i}]: dk={result.get('dk')}, count={result.get('count')}, titles={titles_count}, keywords={len(result.get('keywords', []))}")
+            else:
+                logger.debug("   No results in cache")
 
-                if has_titles:
-                    logger.info(f"✅ Using {len(cached_results)} cached DK classifications with titles for keywords: {keywords[:3]}")
+            if cached_results:
+                # FIX: Track which keywords are in cache - Claude Generated
+                cached_keywords = set()
+                for result in cached_results:
+                    cached_keywords.update(result.get("keywords", []))
+
+                # Find keywords that need live search - Claude Generated
+                uncached_keywords = [k for k in keywords if k not in cached_keywords]
+
+                if not uncached_keywords:
+                    # All keywords found in cache - Claude Generated
+                    logger.info(f"✅ All {len(keywords)} keywords found in cache - returning {len(cached_results)} DK classifications")
                     return cached_results
                 else:
-                    logger.warning(f"⚠️ Cached results exist but have NO titles - performing live search to populate cache")
-                    # Fall through to live catalog search to get titles
+                    logger.info(f"⚠️ {len(uncached_keywords)} of {len(keywords)} keywords not in cache: {uncached_keywords[:3]}{'...' if len(uncached_keywords) > 3 else ''}")
+                    logger.info(f"Performing live search for {len(uncached_keywords)} uncached keywords to augment cache")
+                    # Update keywords list to only search for uncached ones - Claude Generated
+                    keywords = uncached_keywords
 
         # No cache hits or force_update enabled - perform live catalog search
-        logger.info(f"No cache hits - performing live catalog search for {len(keywords)} keywords")
+        logger.info(f"Performing live catalog search for {len(keywords)} keywords")
         dk_results = []
-        
+
         for keyword in keywords:
             logger.info(f"Searching DK classifications for keyword: {keyword}")
             
@@ -765,12 +782,14 @@ class BiblioClient:
                         logger.debug(f"Extracted GND-ID {gnd_id} from keyword '{keyword}'")
                     except (IndexError, AttributeError) as e:
                         logger.warning(f"Failed to extract GND-ID from '{keyword}': {e}")
-                # Filter empty titles before adding - Claude Generated
-                title = result["source_title"]
-                if title and title.strip():
-                    result_groups[key]["titles"].append(title)
+                # Filter empty/None titles before adding - Claude Generated (Defensive)
+                title = result.get("source_title")
+                if title is not None and isinstance(title, str) and title.strip():
+                    result_groups[key]["titles"].append(title.strip())
+                elif title is None:
+                    logger.debug(f"Skipping None title for {dk} (keyword: {result.get('keyword')})")
                 else:
-                    logger.debug(f"Skipping empty title for {dk} (keyword: {result['keyword']})")
+                    logger.debug(f"Skipping empty/invalid title for {dk} (keyword: {result.get('keyword')})")
                 result_groups[key]["total_confidence"] += result["confidence"]
                 result_groups[key]["count"] += 1
 
@@ -789,12 +808,21 @@ class BiblioClient:
             # Store in cache
             dk_cache.store_classification_results(cache_results)
             logger.info(f"Stored {len(cache_results)} new DK classifications in cache")
-            
+
+            # Merge cached and live results - Claude Generated FIX
+            all_results = cached_results + cache_results
+            logger.info(f"Merged {len(cached_results)} cached + {len(cache_results)} live = {len(all_results)} total DK classifications")
+
             # Sort by count and confidence
-            cache_results.sort(key=lambda x: (x["count"], x["avg_confidence"]), reverse=True)
-            
-            return cache_results
-        
+            all_results.sort(key=lambda x: (x["count"], x["avg_confidence"]), reverse=True)
+
+            return all_results
+
+        # Return cached results if no new live results were generated - Claude Generated FIX
+        if cached_results:
+            logger.info(f"No new live search results, returning {len(cached_results)} cached classifications")
+            return cached_results
+
         return []
     
     def _calculate_dk_confidence(self, item: Dict[str, Any], keyword: str) -> float:

@@ -1542,8 +1542,16 @@ def extract_keywords_from_descriptive_text(
         final_list_content = final_list_match.group(1).strip()
         logger.info(f"✅ Found <final_list>: {final_list_content[:100]}")
 
-        # Split by pipe separator
+        # FIXME: Parser robustness - LLM sometimes returns comma-separated instead of pipe-separated keywords
+        # Split by pipe separator (preferred), fall back to comma if needed - Claude Generated
         raw_keywords = [kw.strip() for kw in final_list_content.split('|') if kw.strip()]
+
+        # Fallback: if pipe split yields only one keyword, try comma separator - Claude Generated
+        if len(raw_keywords) == 1 and ',' in final_list_content:
+            logger.warning(f"⚠️ Pipe separator yielded only 1 keyword, attempting comma fallback")
+            raw_keywords = [kw.strip() for kw in final_list_content.split(',') if kw.strip()]
+            logger.info(f"✅ Comma fallback: {len(raw_keywords)} keywords extracted")
+
         logger.info(f"✅ Extracted {len(raw_keywords)} raw keywords from <final_list>")
 
         # Build lookup map: keyword_text_lower -> full_gnd_keyword

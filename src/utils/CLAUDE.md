@@ -91,6 +91,9 @@ The `src/utils/` directory provides essential configuration management and utili
 - Type hints maintained for better IDE integration
 - Environment variable support for containerized deployments
 
+### Known Issues & Improvements
+- **FIXME: Keyword Parser Robustness** (`pipeline_utils.py:1545-1553`): LLM inconsistently outputs comma-separated keywords instead of pipe-separated. Added fallback to handle both formats. **Future improvement**: Make prompt templates more explicit about format requirements and standardize LLM instructions across all models.
+
 ### Current Prompt Templates
 - `abstract_analysis`: Schlagwort extraction from abstracts
 - `results_verification`: GND keyword quality verification

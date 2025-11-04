@@ -468,6 +468,79 @@ class UnifiedKnowledgeManager:
             self.logger.error(error_msg)
             return False, error_msg
 
+    def cleanup_malformed_classifications(self) -> tuple[bool, str]:
+        """Remove malformed classification entries (count>0 but no titles) - Claude Generated
+
+        These entries can block live searches. This cleanup removes entries where:
+        - count > 0 but titles list is empty
+        - These are typically from old data before the ultra-deep fix
+
+        Returns:
+            tuple[bool, str]: (success, message)
+        """
+        try:
+            # Query all search_mappings entries
+            query = "SELECT search_term, found_classifications FROM search_mappings"
+            rows = self.db_manager.fetch_all(query)
+
+            if not rows:
+                msg = "✅ No entries to cleanup"
+                self.logger.info(msg)
+                return True, msg
+
+            cleaned_count = 0
+            updated_entries = 0
+
+            for search_term, found_classifications_json in rows:
+                try:
+                    classifications = json.loads(found_classifications_json) if found_classifications_json else []
+
+                    # Filter out malformed entries - Claude Generated
+                    valid_classifications = [
+                        cls for cls in classifications
+                        if cls.get("count", 0) > 0 and cls.get("titles")  # Must have count AND titles
+                    ]
+
+                    if len(valid_classifications) < len(classifications):
+                        removed = len(classifications) - len(valid_classifications)
+                        cleaned_count += removed
+
+                        # Update or delete the entry - Claude Generated
+                        if valid_classifications:
+                            # Update with cleaned data
+                            update_query = """
+                                UPDATE search_mappings
+                                SET found_classifications = ?
+                                WHERE search_term = ?
+                            """
+                            self.db_manager.execute_query(update_query, [
+                                json.dumps(valid_classifications),
+                                search_term
+                            ])
+                            updated_entries += 1
+                            self.logger.debug(f"Cleaned {removed} malformed entries for '{search_term}'")
+                        else:
+                            # Delete entire entry if no valid classifications remain
+                            delete_query = "DELETE FROM search_mappings WHERE search_term = ?"
+                            self.db_manager.execute_query(delete_query, [search_term])
+                            self.logger.debug(f"Deleted search_mappings entry for '{search_term}' (no valid classifications)")
+
+                except json.JSONDecodeError as e:
+                    self.logger.warning(f"⚠️ Could not parse classifications for '{search_term}': {e}")
+                    continue
+
+            # Commit changes
+            self.db_manager.commit_transaction()
+
+            success_msg = f"✅ Cleaned {cleaned_count} malformed entries ({updated_entries} entries updated/deleted)"
+            self.logger.info(success_msg)
+            return True, success_msg
+
+        except Exception as e:
+            error_msg = f"❌ Error cleaning malformed entries: {str(e)}"
+            self.logger.error(error_msg)
+            return False, error_msg
+
     # === COMPATIBILITY ADAPTERS ===
     # These methods provide compatibility with existing CacheManager and DKCacheManager interfaces
     
@@ -732,10 +805,10 @@ class UnifiedKnowledgeManager:
                 if len(new_titles) != len(valid_new_titles):
                     self.logger.warning(f"Filtered {len(new_titles) - len(valid_new_titles)} empty titles for {code}")
 
-                # FIX: Skip if count=0 AND no valid titles - Claude Generated
-                # This prevents storing empty cache entries that would block live search
-                if count == 0 and not valid_new_titles:
-                    self.logger.info(f"⚠️ Skipping empty classification {code}: count=0, no valid titles")
+                # FIX: Skip if count=0 OR no valid titles - Claude Generated (Ultra-Deep Fix)
+                # This prevents storing malformed entries (count>0 but no titles, or count=0)
+                if count == 0 or not valid_new_titles:
+                    self.logger.info(f"⚠️ Skipping malformed classification {code}: count={count}, titles={len(valid_new_titles)}")
                     continue
 
                 # Skip classification if no valid titles remain - Claude Generated

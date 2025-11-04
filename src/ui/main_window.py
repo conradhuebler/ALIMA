@@ -942,6 +942,100 @@ class MainWindow(QMainWindow):
                 f"Fehler beim Öffnen des Datenbank-Viewers:\n{str(e)}"
             )
 
+    def clear_search_cache(self):
+        """Clear search mappings cache (with confirmation) - Claude Generated"""
+        try:
+            # Confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Such-Cache leeren?",
+                "Alle gespeicherten Suchergebnisse werden gelöscht.\n\n"
+                "GND-Einträge und Klassifikationen bleiben erhalten.\n\n"
+                "Fortfahren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No  # Default to No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                # Get singleton instance and clear cache - Claude Generated (Enhanced error handling)
+                try:
+                    from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
+                    uk_manager = UnifiedKnowledgeManager.get_instance()
+                    success, message = uk_manager.clear_search_cache()
+
+                    if success:
+                        QMessageBox.information(
+                            self,
+                            "Erfolg",
+                            message
+                        )
+                        self.logger.info(f"Search cache cleared successfully: {message}")
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Warnung",
+                            message
+                        )
+                        self.logger.warning(f"Cache clear warning: {message}")
+
+                except Exception as cache_error:
+                    # FIX: Better error handling for cache clear operations - Claude Generated
+                    error_msg = f"Fehler beim Leeren des Caches:\n{str(cache_error)}\n\nVersuchen Sie später erneut."
+                    QMessageBox.critical(self, "Fehler", error_msg)
+                    self.logger.error(f"Cache clear failed with exception: {cache_error}", exc_info=True)
+
+        except Exception as e:
+            # FIX: Catch outer exceptions (dialog, etc.) - Claude Generated
+            error_msg = f"Unerwarteter Fehler:\n{str(e)}"
+            QMessageBox.critical(self, "Fehler", error_msg)
+            self.logger.error(f"Unexpected error in clear_search_cache: {e}", exc_info=True)
+
+    def cleanup_malformed_entries(self):
+        """Clean up malformed classification entries (count>0 but no titles) - Claude Generated (Ultra-Deep Fix)"""
+        try:
+            # Confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Malformed Einträge bereinigen?",
+                "Entfernt DK-Einträge mit count>0 aber ohne Titel.\n\n"
+                "Diese Einträge können Live-Suchen blockieren.\n\n"
+                "Fortfahren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No  # Default to No
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                # Get singleton instance and cleanup - Claude Generated
+                try:
+                    from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
+                    uk_manager = UnifiedKnowledgeManager.get_instance()
+                    success, message = uk_manager.cleanup_malformed_classifications()
+
+                    if success:
+                        QMessageBox.information(
+                            self,
+                            "Erfolg",
+                            message
+                        )
+                        self.logger.info(f"Malformed entries cleaned: {message}")
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Warnung",
+                            message
+                        )
+                        self.logger.warning(f"Cleanup warning: {message}")
+
+                except Exception as cleanup_error:
+                    error_msg = f"Fehler beim Bereinigen:\n{str(cleanup_error)}\n\nVersuchen Sie später erneut."
+                    QMessageBox.critical(self, "Fehler", error_msg)
+                    self.logger.error(f"Cleanup failed with exception: {cleanup_error}", exc_info=True)
+
+        except Exception as e:
+            error_msg = f"Unerwarteter Fehler:\n{str(e)}"
+            QMessageBox.critical(self, "Fehler", error_msg)
+            self.logger.error(f"Unexpected error in cleanup_malformed_entries: {e}", exc_info=True)
+
     def show_batch_processing_dialog(self):
         """Open batch processing dialog - Claude Generated"""
         try:
@@ -1975,6 +2069,14 @@ class MainWindow(QMainWindow):
         # Database viewer action - Claude Generated
         db_viewer_action = tools_menu.addAction("📊 &Datenbank-Viewer")
         db_viewer_action.triggered.connect(self.show_database_viewer)
+
+        # Clear search cache action - Claude Generated
+        clear_cache_action = tools_menu.addAction("🗑️ Such-&Cache leeren...")
+        clear_cache_action.triggered.connect(self.clear_search_cache)
+
+        # Cleanup malformed entries action - Claude Generated (Ultra-Deep Fix)
+        cleanup_action = tools_menu.addAction("🧹 &Malformed Einträge bereinigen...")
+        cleanup_action.triggered.connect(self.cleanup_malformed_entries)
 
         tools_menu.addSeparator()
 
