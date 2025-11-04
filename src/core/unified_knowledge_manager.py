@@ -649,11 +649,17 @@ class UnifiedKnowledgeManager:
                             code_groups[code]["count"] += 1
                             code_groups[code]["total_confidence"] += 0.8
 
-                    # Calculate averages and add to results
+                    # Calculate averages and add to results - Claude Generated (Fixed count=0 filtering)
                     for code_data in code_groups.values():
                         if code_data["count"] > 0:
                             code_data["avg_confidence"] = code_data["total_confidence"] / code_data["count"]
-                        results.extend([code_data])
+
+                        # FIX: Only return entries with count > 0 AND titles - Claude Generated
+                        # This prevents cache returning empty results which block live search
+                        if code_data["count"] > 0 and code_data["titles"]:
+                            results.extend([code_data])
+                        else:
+                            self.logger.debug(f"Skipping cache entry {code_data['dk']}: count={code_data['count']}, titles={len(code_data['titles'])}")
                 else:
                     self.logger.debug(f"Cache miss: No results for '{clean_keyword}'")
 
@@ -725,6 +731,12 @@ class UnifiedKnowledgeManager:
                 valid_new_titles = [t for t in new_titles if t and t.strip()]
                 if len(new_titles) != len(valid_new_titles):
                     self.logger.warning(f"Filtered {len(new_titles) - len(valid_new_titles)} empty titles for {code}")
+
+                # FIX: Skip if count=0 AND no valid titles - Claude Generated
+                # This prevents storing empty cache entries that would block live search
+                if count == 0 and not valid_new_titles:
+                    self.logger.info(f"⚠️ Skipping empty classification {code}: count=0, no valid titles")
+                    continue
 
                 # Skip classification if no valid titles remain - Claude Generated
                 if not valid_new_titles:
