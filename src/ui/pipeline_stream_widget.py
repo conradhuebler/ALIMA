@@ -290,14 +290,21 @@ class PipelineStreamWidget(QWidget):
             step_id,
         )
 
-        # Display each DK code with sample titles
+        # Display each DK code with sample titles - Claude Generated (Fixed None-handling)
         for dk_code, total_count, sample_titles in dk_summary:
-            titles_preview = " | ".join(sample_titles)
-            # Add ellipsis if there are more titles than shown in preview
-            if total_count > len(sample_titles):
-                titles_display = f"{titles_preview} ... (+{total_count - len(sample_titles)} weitere)"
+            # Filter None values and convert to strings - Claude Generated
+            filtered_titles = [str(t).strip() for t in sample_titles if t is not None and str(t).strip()]
+
+            if not filtered_titles:
+                # No valid titles available
+                titles_display = "(keine Titel verfügbar)"
             else:
-                titles_display = titles_preview
+                titles_preview = " | ".join(filtered_titles)
+                # Add ellipsis if there are more titles than shown in preview
+                if total_count > len(filtered_titles):
+                    titles_display = f"{titles_preview} ... (+{total_count - len(filtered_titles)} weitere)"
+                else:
+                    titles_display = titles_preview
 
             # Truncate long title preview to fit in one line
             if len(titles_display) > 100:

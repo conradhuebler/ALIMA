@@ -1562,7 +1562,8 @@ def extract_keywords_from_descriptive_text(
                 keyword_text = gnd_kw.split("(GND-ID:")[0].strip().lower()
                 gnd_lookup[keyword_text] = gnd_kw
 
-        # Match raw keywords against GND lookup
+        # Match raw keywords against GND lookup - Claude Generated FIX
+        unmatched_keywords = []  # FIX: Track keywords without GND matches for DK search
         for raw_kw in raw_keywords:
             raw_kw_lower = raw_kw.lower()
 
@@ -1582,10 +1583,17 @@ def extract_keywords_from_descriptive_text(
                         break
 
                 if not found:
-                    logger.warning(f"  ❌ No GND match for '{raw_kw}'")
+                    # FIXME: Investigate why GND lookup fails for valid keywords - Claude Generated
+                    # Some keywords (e.g., "Molekül", "Festkörper") don't match any GND entries from the cache
+                    # This could mean: (1) Cache is outdated, (2) Keyword not in GND system, (3) Search cache incomplete
+                    # For now, keep plain keyword for DK catalog search which may still find results
+                    logger.warning(f"  ⚠️ No GND match for '{raw_kw}' - adding as plain keyword for DK search")
+                    unmatched_keywords.append(raw_kw)
 
-        logger.info(f"✅ Fallback extraction: {len(exact_matches)} keywords matched with GND-IDs")
-        return exact_matches, exact_matches  # Return same list for both
+        # Combine GND-matched and plain keywords for complete DK search - Claude Generated FIX
+        all_keywords = exact_matches + unmatched_keywords
+        logger.info(f"✅ Fallback extraction: {len(exact_matches)} GND-matched + {len(unmatched_keywords)} plain keywords = {len(all_keywords)} total")
+        return all_keywords, exact_matches  # Return combined list for DK search, GND-only list for history
 
     # NO EXTRACTION SUCCESSFUL
     logger.error("❌ NO keyword extraction successful (neither regex nor <final_list>)")

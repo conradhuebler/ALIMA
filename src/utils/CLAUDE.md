@@ -93,6 +93,7 @@ The `src/utils/` directory provides essential configuration management and utili
 
 ### Known Issues & Improvements
 - **FIXME: Keyword Parser Robustness** (`pipeline_utils.py:1545-1553`): LLM inconsistently outputs comma-separated keywords instead of pipe-separated. Added fallback to handle both formats. **Future improvement**: Make prompt templates more explicit about format requirements and standardize LLM instructions across all models.
+- **FIX: Non-Matched Keywords for DK Search** (`pipeline_utils.py:1565-1596`): Keywords without GND cache matches (e.g., "Molekül", "Festkörper") are now included in DK catalog search as plain keywords. FIXME: Investigate why some valid keywords fail GND lookup - could indicate cache staleness or incomplete GND system coverage.
 
 ### Current Prompt Templates
 - `abstract_analysis`: Schlagwort extraction from abstracts

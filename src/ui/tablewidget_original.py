@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
 )
 from PyQt6.QtSql import QSqlDatabase, QSqlTableModel, QSqlQuery
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSortFilterProxyModel, QRegularExpression, QTimer as DebounceTimer, QCoreApplication
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
 from ..core.database_manager import DatabaseManager
 from ..utils.config_models import DatabaseConfig
@@ -63,17 +63,12 @@ class TableWidget(QWidget):
         # Initialize DatabaseManager
         self.db_manager = DatabaseManager(database_config, f"tablewidget_{id(self)}")
 
-
         # Get the Qt SQL connection for QSqlTableModel
         self.db_connection = self.db_manager.get_connection()
 
-        # Initialize filter proxy model for proper filtering
-        self.filter_proxy = QSortFilterProxyModel(self)
-        self.filter_proxy.setFilterKeyColumn(-1)  # Filter all columns
-        self.filter_proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-
         # Layout einrichten
         self.setup_ui()
+
         # Tabellendaten laden
         self.load_table_data()
 
@@ -105,23 +100,7 @@ class TableWidget(QWidget):
         header_layout.addStretch()
         header_layout.addWidget(self.title_label)
         header_layout.addWidget(self.info_label)
-
-        # Search layout
-        search_layout = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 Durchsuchen Sie alle Spalten...")
-        self.search_input.textChanged.connect(self.on_search_text_changed)
-        
-        self.clear_search_button = QPushButton("✖")
-        self.clear_search_button.setMaximumWidth(30)
-        self.clear_search_button.setToolTip("Suche löschen")
-        self.clear_search_button.clicked.connect(self.clear_search)
-        
-        search_layout.addWidget(QLabel("Suchen:"))
-        search_layout.addWidget(self.search_input)
-        search_layout.addWidget(self.clear_search_button)
-        main_layout.addLayout(search_layout)
-
+        main_layout.addLayout(header_layout)
 
         # Tabellen-View
         self.table_view = QTableView()
@@ -161,11 +140,12 @@ class TableWidget(QWidget):
     def load_table_data(self):
         """Load database table data using DatabaseManager - Claude Generated"""
         try:
-
             # Create model with our database connection
             self.model = QSqlTableModel(self, self.db_connection)
             self.model.setTable(self.current_table)
 
+            # Set edit strategy (read-only for safety)
+            self.model.setEditStrategy(QSqlTableModel.EditStrategy.OnManualSubmit)
 
             # Load data
             if not self.model.select():
@@ -180,9 +160,8 @@ class TableWidget(QWidget):
             row_count = self.model.rowCount()
             self.info_label.setText(f"{row_count:,} Datensätze")
 
-            # Set up filtering and assign model to view via proxy
-            self.filter_proxy.setSourceModel(self.model)
-            self.table_view.setModel(self.filter_proxy)
+            # Assign model to view
+            self.table_view.setModel(self.model)
 
             # Auto-resize columns to content
             self.table_view.resizeColumnsToContents()
@@ -231,52 +210,6 @@ class TableWidget(QWidget):
             field_name = self.model.record().fieldName(i)
             if field_name in headers:
                 self.model.setHeaderData(i, Qt.Orientation.Horizontal, headers[field_name])
-
-    def ensure_all_data_loaded(self):
-        """Ensure all data is loaded using processEvents for complete search functionality - Claude Generated"""
-        # Process all events to ensure all data is loaded
-        QCoreApplication.processEvents()
-        
-        # Additionally try fetching more data if needed
-        try:
-            while self.model.canFetchMore():
-                self.model.fetchMore()
-                QCoreApplication.processEvents()  # Process events after each fetch
-        except Exception:
-            pass  # Some models don't support fetchMore
-    
-    def check_all_data_loaded(self, parent, first, last):
-        """Check if more data needs to be loaded - Claude Generated"""
-        if self.model.canFetchMore():
-            self.model.fetchMore()
-    def on_search_text_changed(self, text):
-        """Handle search text changes - Use processEvents to ensure all data is loaded"""
-        if text.strip():
-            # Simple text search - no complex regex needed for umlauts
-            self.filter_proxy.setFilterRegularExpression(QRegularExpression(text.strip()))
-        else:
-            # Clear filter
-            self.filter_proxy.setFilterRegularExpression(QRegularExpression())
-        
-        # Ensure all data is loaded before updating count
-        QCoreApplication.processEvents()
-    
-    def clear_search(self):
-        """Clear search input and filter - Claude Generated"""
-        self.search_input.clear()
-        
-    def update_filtered_count(self):
-        """Update info label with filtered results count - Claude Generated"""
-        # Ensure all data is loaded before counting
-        QCoreApplication.processEvents()
-        
-        total_rows = self.model.rowCount()
-        filtered_rows = self.filter_proxy.rowCount()
-        
-        if filtered_rows != total_rows:
-            self.info_label.setText(f"{filtered_rows:,} von {total_rows:,} Datensätzen")
-        else:
-            self.info_label.setText(f"{total_rows:,} Datensätze")
 
     def closeEvent(self, event):
         """Clean up database connection - Claude Generated"""
