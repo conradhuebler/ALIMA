@@ -668,52 +668,106 @@ class BiblioClient:
         dk_cache = UnifiedKnowledgeManager()
         cached_results = []  # FIX: Initialize to merge with live results later - Claude Generated
 
+        # Track source (cache vs live) for each keyword - Claude Generated - Keyword-centric restructuring
+        keyword_sources = {}  # keyword -> "cache" or "live"
+        keyword_timings = {}  # keyword -> time_ms
+
         # Skip cache check if force_update is enabled - Claude Generated
+        # FIXED: Removed force_update bypass - always use cache first - Claude Generated
+        # Log force_update status but don't skip cache
         if force_update:
-            logger.info(f"⚠️ Force update enabled: skipping cache, performing live search for {len(keywords)} keywords")
+            logger.warning(f"⚠️ Force update flag set (but cache is still checked first)")
+
+        # First try to get results from cache with timing - Claude Generated
+        import time
+        cache_start = time.time()
+        logger.info(f"🔍 Checking cache for {len(keywords)} keywords: {keywords[:3]}{'...' if len(keywords) > 3 else ''}")
+        cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
+        cache_time = (time.time() - cache_start) * 1000  # Convert to ms
+        logger.info(f"📊 Cache returned {len(cached_results) if cached_results else 0} results in {cache_time:.1f}ms")
+
+        # Ultra-Deep Diagnostic Logging - Claude Generated
+        if cached_results:
+            for i, result in enumerate(cached_results):
+                titles_count = len(result.get("titles", []))
+                matched_keywords_count = len(result.get("matched_keywords", []))
+                logger.debug(f"   Cache[{i}]: dk={result.get('dk')}, count={result.get('count')}, titles={titles_count}, matched_keywords={matched_keywords_count}")
         else:
-            # First try to get results from cache - Claude Generated
-            logger.info(f"🔍 Checking cache for {len(keywords)} keywords: {keywords[:3]}{'...' if len(keywords) > 3 else ''}")
-            cached_results = dk_cache.search_by_keywords(keywords, fuzzy_threshold=80)
-            logger.info(f"📊 Cache returned {len(cached_results) if cached_results else 0} results")
+            logger.debug("   No results in cache")
 
-            # Ultra-Deep Diagnostic Logging - Claude Generated
-            if cached_results:
-                for i, result in enumerate(cached_results):
-                    titles_count = len(result.get("titles", []))
-                    logger.debug(f"   Cache[{i}]: dk={result.get('dk')}, count={result.get('count')}, titles={titles_count}, keywords={len(result.get('keywords', []))}")
-            else:
-                logger.debug("   No results in cache")
+        # FIXED: Normalize keywords for cache comparison - Claude Generated
+        # BUG FIX: Input keywords have format "Keyword (GND-ID: xxx)" but cached keywords are normalized
+        # Need to normalize both for proper comparison
 
-            if cached_results:
-                # FIX: Track which keywords are in cache - Claude Generated
-                cached_keywords = set()
-                for result in cached_results:
-                    cached_keywords.update(result.get("keywords", []))
+        # Create mapping: normalized_keyword -> original_keyword
+        normalized_to_original = {}
+        for kw in keywords:
+            normalized = kw.split('(')[0].strip().lower()
+            if normalized not in normalized_to_original:
+                normalized_to_original[normalized] = kw
 
-                # Find keywords that need live search - Claude Generated
-                uncached_keywords = [k for k in keywords if k not in cached_keywords]
+        # FIXED: Collect cached keywords WITH quality check (must have titles) - Claude Generated
+        # Only mark keywords as cached if they have BOTH keyword AND non-empty titles
+        # Empty cached results should trigger live search to get proper data
+        cached_normalized_with_titles = set()
+        if cached_results:
+            for result in cached_results:
+                # Cached keywords are already normalized (lowercase, no GND-ID)
+                matched_kws = result.get("matched_keywords", [])
+                titles = result.get("titles", [])  # FIXED: Check for titles
 
-                if not uncached_keywords:
-                    # All keywords found in cache - Claude Generated
-                    logger.info(f"✅ All {len(keywords)} keywords found in cache - returning {len(cached_results)} DK classifications")
-                    return cached_results
+                # Only mark as cached if it has BOTH keyword AND non-empty titles
+                if titles:  # FIXED: Quality check - only if titles exist!
+                    for kw in matched_kws:
+                        normalized = kw.strip().lower()
+                        cached_normalized_with_titles.add(normalized)
+
+                        # Track source using ORIGINAL keyword format if available
+                        if normalized in normalized_to_original:
+                            original_kw = normalized_to_original[normalized]
+                            keyword_sources[original_kw] = "cache"
+                            keyword_timings[original_kw] = cache_time / len(matched_kws)
                 else:
-                    logger.info(f"⚠️ {len(uncached_keywords)} of {len(keywords)} keywords not in cache: {uncached_keywords[:3]}{'...' if len(uncached_keywords) > 3 else ''}")
-                    logger.info(f"Performing live search for {len(uncached_keywords)} uncached keywords to augment cache")
-                    # Update keywords list to only search for uncached ones - Claude Generated
-                    keywords = uncached_keywords
+                    # Empty titles - log for debugging
+                    if matched_kws:
+                        logger.warning(f"⚠️ Cached keywords without titles: {matched_kws} (will trigger live search)")
 
-        # No cache hits or force_update enabled - perform live catalog search
-        logger.info(f"Performing live catalog search for {len(keywords)} keywords")
+        # FIXED: Find uncached keywords - includes both missing keywords AND keywords with empty titles
+        uncached_keywords = [
+            original_kw
+            for normalized, original_kw in normalized_to_original.items()
+            if normalized not in cached_normalized_with_titles
+        ]
+
+        if not uncached_keywords:
+            # All keywords found in cache - Claude Generated
+            logger.info(f"✅ CACHE HIT: All {len(keywords)} keywords found in cache!")
+            logger.info(f"✅ CACHE STATISTICS: {len(cached_results)} cached DK classifications, Cache lookup {cache_time:.1f}ms")
+            logger.info(f"   Cache hit rate: {len(keywords)}/{len(keywords)} keywords (100%)")
+            return cached_results
+
+        # FIXED: Partial cache - perform live search ONLY for uncached keywords
+        logger.info(f"⚠️ {len(uncached_keywords)} of {len(keywords)} keywords not in cache: {uncached_keywords[:3]}{'...' if len(uncached_keywords) > 3 else ''}")
+        logger.info(f"Performing live search for {len(uncached_keywords)} uncached keywords to augment {len(cached_results)} cached results")
+
+        # Perform live catalog search ONLY for uncached keywords with timing
+        logger.info(f"Performing live catalog search for {len(uncached_keywords)} keywords")
+        live_search_start = time.time()
         dk_results = []
 
-        for keyword in keywords:
+        for keyword in uncached_keywords:
             logger.info(f"Searching DK classifications for keyword: {keyword}")
-            
+
+            # Track timing per keyword for keyword-centric restructuring
+            keyword_search_start = time.time()
+
             # Search catalog for this keyword
             search_results = self.search(keyword, search_type="ku")
-            
+
+            keyword_time = (time.time() - keyword_search_start) * 1000
+            keyword_timings[keyword] = keyword_time
+            keyword_sources[keyword] = "live"
+
             if not search_results:
                 continue
                 
@@ -763,7 +817,7 @@ class BiblioClient:
                     result_groups[key] = {
                         "dk": dk,
                         "classification_type": classification_type,
-                        "keywords": set(),
+                        "matched_keywords": set(),  # FIXED: Consistent field name with unified_knowledge_manager
                         "gnd_ids": set(),  # Claude Generated - Store GND-IDs separately
                         "titles": [],
                         "total_confidence": 0.0,
@@ -772,7 +826,7 @@ class BiblioClient:
 
                 # Extract keyword and GND-ID - Claude Generated
                 keyword = result["keyword"]
-                result_groups[key]["keywords"].add(keyword)
+                result_groups[key]["matched_keywords"].add(keyword)
 
                 # Extract GND-ID from keyword if present (format: "Keyword (GND-ID: 1234567-8)")
                 if "(GND-ID:" in keyword:
@@ -795,7 +849,7 @@ class BiblioClient:
 
             # Convert to cache format
             for group_data in result_groups.values():
-                group_data["keywords"] = list(group_data["keywords"])
+                group_data["matched_keywords"] = list(group_data["matched_keywords"])  # FIXED: Consistent field name
                 group_data["gnd_ids"] = list(group_data["gnd_ids"])  # Claude Generated - Convert GND-IDs set to list
                 group_data["avg_confidence"] = group_data["total_confidence"] / group_data["count"]
                 # Remove duplicates and filter whitespace - Claude Generated
@@ -807,24 +861,173 @@ class BiblioClient:
             
             # Store in cache
             dk_cache.store_classification_results(cache_results)
-            logger.info(f"Stored {len(cache_results)} new DK classifications in cache")
+            live_search_time = (time.time() - live_search_start) * 1000
+            logger.info(f"Stored {len(cache_results)} new DK classifications in cache (live search took {live_search_time:.1f}ms)")
 
-            # Merge cached and live results - Claude Generated FIX
+            # Merge cached and live results - Claude Generated FIX with improved logging
             all_results = cached_results + cache_results
-            logger.info(f"Merged {len(cached_results)} cached + {len(cache_results)} live = {len(all_results)} total DK classifications")
+            logger.info(f"✅ CACHE STATISTICS: {len(cached_results)} cached + {len(cache_results)} live = {len(all_results)} total DK classifications")
+            if keywords:
+                cache_hit_count = len(keywords) - len(uncached_keywords)
+                cache_hit_rate = (100 * cache_hit_count) // len(keywords)
+                logger.info(f"   Cache hit rate: {cache_hit_count}/{len(keywords)} keywords ({cache_hit_rate}%)")
+            logger.info(f"   Performance: Cache lookup {cache_time:.1f}ms, Live search {live_search_time:.1f}ms")
 
             # Sort by count and confidence
             all_results.sort(key=lambda x: (x["count"], x["avg_confidence"]), reverse=True)
 
-            return all_results
+            # Convert to keyword-centric structure - Claude Generated - Keyword-centric restructuring
+            keyword_centric_results = self._restructure_to_keyword_centric(
+                all_results, keyword_sources, keyword_timings
+            )
+            # Convert back to DK-centric for backward compatibility with Classification step
+            dk_centric_results = self._flatten_to_dk_centric(keyword_centric_results)
+            return dk_centric_results
 
         # Return cached results if no new live results were generated - Claude Generated FIX
         if cached_results:
-            logger.info(f"No new live search results, returning {len(cached_results)} cached classifications")
-            return cached_results
+            live_search_time = (time.time() - live_search_start) * 1000
+            logger.info(f"⚠️ No new live search results (searched {len(uncached_keywords)} keywords in {live_search_time:.1f}ms)")
+            logger.info(f"✅ CACHE STATISTICS: Returning {len(cached_results)} cached DK classifications (100% from cache)")
 
+            # Convert to keyword-centric structure - Claude Generated - Keyword-centric restructuring
+            keyword_centric_results = self._restructure_to_keyword_centric(
+                cached_results, keyword_sources, keyword_timings
+            )
+            # Convert back to DK-centric for backward compatibility with Classification step
+            dk_centric_results = self._flatten_to_dk_centric(keyword_centric_results)
+            return dk_centric_results
+
+        logger.warning(f"❌ No results from cache or live search for {len(keywords)} keywords")
         return []
     
+    def _flatten_to_dk_centric(
+        self,
+        keyword_centric_results: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Convert keyword-centric results back to DK-centric format
+        Claude Generated - Backward compatibility converter
+
+        Converts from keyword-grouped format to DK-code grouped format
+        for compatibility with downstream Classification step
+
+        Args:
+            keyword_centric_results: List of keyword-grouped results
+
+        Returns:
+            List of DK-code grouped results (old format)
+        """
+        dk_centric_map = {}
+
+        # Group by DK code, collecting all keywords that led to each DK
+        for kw_result in keyword_centric_results:
+            keyword = kw_result.get("keyword", "unknown")
+            source = kw_result.get("source", "unknown")
+
+            for cls in kw_result.get("classifications", []):
+                dk_code = cls.get("dk", "unknown")
+
+                if dk_code not in dk_centric_map:
+                    # First occurrence of this DK code
+                    dk_centric_map[dk_code] = {
+                        "dk": dk_code,
+                        "classification_type": cls.get("type", "DK"),
+                        "titles": cls.get("titles", []),
+                        "count": cls.get("count", 0),
+                        "avg_confidence": cls.get("avg_confidence", 0.8),
+                        "gnd_ids": cls.get("gnd_ids", []),
+                        "matched_keywords": [],
+                        "sources": []  # Track which keywords came from cache vs live
+                    }
+
+                # Add keyword to this DK code's keyword list
+                if keyword not in dk_centric_map[dk_code]["matched_keywords"]:
+                    dk_centric_map[dk_code]["matched_keywords"].append(keyword)
+
+                # Track source
+                if source not in dk_centric_map[dk_code]["sources"]:
+                    dk_centric_map[dk_code]["sources"].append(source)
+
+        # Convert to list
+        result_list = list(dk_centric_map.values())
+
+        # Sort by count and confidence (same as original)
+        result_list.sort(key=lambda x: (x["count"], x["avg_confidence"]), reverse=True)
+
+        return result_list
+
+    def _restructure_to_keyword_centric(
+        self,
+        dk_results: List[Dict[str, Any]],
+        keyword_sources: Dict[str, str],
+        keyword_timings: Dict[str, float]
+    ) -> List[Dict[str, Any]]:
+        """
+        Restructure DK-centric results to keyword-centric format
+        Claude Generated - Keyword-centric restructuring
+
+        Converts from DK-code grouped results to keyword-grouped results,
+        maintaining classification details nested under keywords
+
+        Args:
+            dk_results: List of DK-code grouped results
+            keyword_sources: Dict mapping keyword to "cache" or "live"
+            keyword_timings: Dict mapping keyword to search time in ms
+
+        Returns:
+            List of keyword-centric result dicts with nested classifications
+        """
+        keyword_results = {}
+
+        # Initialize keyword entries from sources
+        for keyword, source in keyword_sources.items():
+            if keyword not in keyword_results:
+                keyword_results[keyword] = {
+                    "keyword": keyword,
+                    "source": source,
+                    "search_time_ms": keyword_timings.get(keyword, 0),
+                    "classifications": [],
+                    "total_titles": 0
+                }
+
+        # Group DK results by keyword - each DK result maps to multiple keywords
+        for dk_result in dk_results:
+            matched_keywords = dk_result.get("matched_keywords", [])
+
+            for keyword in matched_keywords:
+                if keyword not in keyword_results:
+                    # Initialize if missing (shouldn't happen, but defensive)
+                    keyword_results[keyword] = {
+                        "keyword": keyword,
+                        "source": keyword_sources.get(keyword, "unknown"),
+                        "search_time_ms": keyword_timings.get(keyword, 0),
+                        "classifications": [],
+                        "total_titles": 0
+                    }
+
+                # Add DK classification to this keyword
+                classification = {
+                    "dk": dk_result.get("dk", ""),
+                    "type": dk_result.get("classification_type", "DK"),
+                    "titles": dk_result.get("titles", []),
+                    "count": dk_result.get("count", 0),
+                    "avg_confidence": dk_result.get("avg_confidence", 0.8),
+                    "gnd_ids": dk_result.get("gnd_ids", [])
+                }
+                keyword_results[keyword]["classifications"].append(classification)
+
+        # Calculate total titles per keyword
+        for keyword_data in keyword_results.values():
+            total_titles = sum(c.get("count", 0) for c in keyword_data["classifications"])
+            keyword_data["total_titles"] = total_titles
+
+        # Return as list, sorted by source (cache first, then by title count)
+        result_list = list(keyword_results.values())
+        result_list.sort(key=lambda x: (x["source"] != "cache", -x["total_titles"]))
+
+        return result_list
+
     def _calculate_dk_confidence(self, item: Dict[str, Any], keyword: str) -> float:
         """Claude Generated - Calculate confidence score for DK classification"""
         confidence = 0.5  # Base confidence

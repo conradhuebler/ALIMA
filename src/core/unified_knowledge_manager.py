@@ -193,12 +193,26 @@ class UnifiedKnowledgeManager:
                 )
             """)
 
+            # Create dedicated catalog DK cache table (separate from GND/SWB/LOBID searches) - Claude Generated
+            self.db_manager.execute_query("""
+                CREATE TABLE IF NOT EXISTS catalog_dk_cache (
+                    search_term TEXT PRIMARY KEY,
+                    normalized_term TEXT NOT NULL,
+                    found_classifications TEXT NOT NULL,
+                    result_count INTEGER DEFAULT 0,
+                    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Create indexes for performance
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_normalized ON search_mappings(normalized_term)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_term ON search_mappings(search_term)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_gnd_title ON gnd_entries(title)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_code ON classifications(code)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_type ON classifications(type)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_normalized ON catalog_dk_cache(normalized_term)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_updated ON catalog_dk_cache(last_updated)")
 
             self.logger.info("Unified knowledge database schema initialized")
 
@@ -628,6 +642,7 @@ class UnifiedKnowledgeManager:
     def search_by_keywords(self, keywords: List[str], fuzzy_threshold: int = 80) -> List:
         """
         Search cached DK classifications by keywords - Claude Generated
+        MODIFIED: Now redirects to dedicated catalog_dk_cache table
 
         Args:
             keywords: List of keywords to search for
@@ -636,122 +651,20 @@ class UnifiedKnowledgeManager:
         Returns:
             List of cached classification results with metadata
         """
-        try:
-            results = []
-
-            for keyword in keywords:
-                # Clean keyword for search
-                clean_keyword = keyword.split('(')[0].strip()
-
-                # Lookup in search_mappings table with full data - Claude Generated
-                query = """
-                    SELECT DISTINCT
-                        c.code,
-                        c.type,
-                        sm.search_term,
-                        sm.found_classifications,
-                        sm.created_at
-                    FROM search_mappings sm
-                    CROSS JOIN classifications c
-                    WHERE (sm.search_term LIKE ? OR sm.search_term LIKE ?)
-                      AND sm.suggester_type = 'catalog'
-                      AND sm.found_classifications LIKE '%' || c.code || '%'
-                    LIMIT 50
-                """
-
-                rows = self.db_manager.fetch_all(query, (f"%{clean_keyword}%", f"{clean_keyword}%"))
-
-                if rows:
-                    self.logger.debug(f"Cache hit: {len(rows)} results for '{clean_keyword}'")
-
-                    # Group by classification code and extract metadata - Claude Generated
-                    code_groups = {}
-                    for row in rows:
-                        code = row["code"]
-                        if code not in code_groups:
-                            # Parse found_classifications JSON to extract titles and metadata
-                            try:
-                                classifications = json.loads(row["found_classifications"] or "[]")
-
-                                # DEBUG: Check if classifications have required fields - Claude Generated
-                                if classifications and not any(c.get('titles') for c in classifications):
-                                    self.logger.warning(f"⚠️ WARNING: Loaded classifications for '{clean_keyword}' have NO titles field:")
-                                    for c in classifications[:2]:
-                                        self.logger.warning(f"    {c}")
-
-                                # Find classification entry matching this code
-                                titles = []
-                                count = 0  # FIX: Default to 0 (no titles found), not 1 - Claude Generated
-                                avg_confidence = 0.8
-                                for cls in classifications:
-                                    if cls.get("code") == code:
-                                        titles = cls.get("titles", [])
-                                        count = cls.get("count", 0)  # FIX: Default to 0 if not specified - Claude Generated
-                                        avg_confidence = cls.get("avg_confidence", 0.8)
-                                        break
-                            except (json.JSONDecodeError, KeyError) as e:
-                                self.logger.error(f"❌ ERROR parsing classifications: {e}")
-                                titles = []
-                                count = 0  # FIX: Default to 0 (no titles found), not 1 - Claude Generated
-                                avg_confidence = 0.8
-
-                            code_groups[code] = {
-                                "dk": code,
-                                "classification_type": row["type"],
-                                "matched_keywords": [clean_keyword],
-                                "titles": titles,
-                                "count": count,
-                                "avg_confidence": avg_confidence,
-                                "total_confidence": avg_confidence
-                            }
-                        else:
-                            # Merge titles from subsequent rows for the same code - Claude Generated (Bug Fix)
-                            try:
-                                classifications = json.loads(row["found_classifications"] or "[]")
-                                for cls in classifications:
-                                    if cls.get("code") == code:
-                                        new_titles = cls.get("titles", [])
-                                        existing_titles = code_groups[code]["titles"]
-                                        for title in new_titles:
-                                            if title and title.strip() and title not in existing_titles:
-                                                existing_titles.append(title)
-                                        break  # Found the right classification, stop searching this row
-                            except (json.JSONDecodeError, KeyError):
-                                pass  # Ignore if JSON is invalid for this row
-
-                            code_groups[code]["count"] += 1
-                            code_groups[code]["total_confidence"] += 0.8
-
-                    # Calculate averages and add to results - Claude Generated (Fixed count=0 filtering)
-                    for code_data in code_groups.values():
-                        if code_data["count"] > 0:
-                            code_data["avg_confidence"] = code_data["total_confidence"] / code_data["count"]
-
-                        # FIX: Only return entries with count > 0 AND titles - Claude Generated
-                        # This prevents cache returning empty results which block live search
-                        if code_data["count"] > 0 and code_data["titles"]:
-                            results.extend([code_data])
-                        else:
-                            self.logger.debug(f"Skipping cache entry {code_data['dk']}: count={code_data['count']}, titles={len(code_data['titles'])}")
-                else:
-                    self.logger.debug(f"Cache miss: No results for '{clean_keyword}'")
-
-            self.logger.info(f"📊 Cache search: {len(results)} classifications found for {len(keywords)} keywords")
-            return results
-
-        except Exception as e:
-            self.logger.error(f"Cache search failed: {e}")
-            return []
+        # Redirect to dedicated catalog cache
+        return self.search_catalog_dk_cache(keywords)
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get unified cache statistics - Claude Generated"""
+        """Get unified cache statistics - Claude Generated
+        MODIFIED: Now includes catalog_dk_cache statistics"""
         try:
             # Count entries across all tables
             gnd_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM gnd_entries")
             classification_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM classifications")
             mapping_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM search_mappings")
+            catalog_cache_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM catalog_dk_cache")
 
-            total_entries = gnd_count + classification_count + mapping_count
+            total_entries = gnd_count + classification_count + mapping_count + catalog_cache_count
 
             # Get database file size (only for SQLite)
             import os
@@ -769,6 +682,7 @@ class UnifiedKnowledgeManager:
                 "gnd_entries": gnd_count,
                 "classification_entries": classification_count,
                 "search_mappings": mapping_count,
+                "catalog_dk_cache": catalog_cache_count,
                 "size_mb": round(size_mb, 2),
                 "file_path": self.db_path
             }
@@ -780,10 +694,143 @@ class UnifiedKnowledgeManager:
                 "gnd_entries": 0,
                 "classification_entries": 0,
                 "search_mappings": 0,
+                "catalog_dk_cache": 0,
                 "size_mb": 0.0,
                 "file_path": self.db_path
             }
-    
+
+    # === DEDICATED CATALOG DK CACHE MANAGEMENT === Claude Generated
+
+    def get_catalog_dk_cache(self, search_term: str) -> Optional[List[Dict[str, Any]]]:
+        """Retrieve catalog DK classifications from dedicated cache - Claude Generated"""
+        try:
+            row = self.db_manager.fetch_one("""
+                SELECT found_classifications
+                FROM catalog_dk_cache
+                WHERE search_term = ?
+            """, [search_term])
+
+            if row:
+                classifications = json.loads(row['found_classifications'] or '[]')
+                self.logger.debug(f"✅ Catalog cache hit for '{search_term}': {len(classifications)} classifications")
+                return classifications
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving catalog cache for '{search_term}': {e}")
+            return None
+
+    def store_catalog_dk_cache(self, search_term: str, classifications: List[Dict[str, Any]]) -> bool:
+        """Store catalog DK classifications in dedicated cache - Claude Generated"""
+        try:
+            normalized_term = self._normalize_term(search_term)
+            result_count = len(classifications)
+
+            self.db_manager.execute_query("""
+                INSERT OR REPLACE INTO catalog_dk_cache
+                (search_term, normalized_term, found_classifications, result_count, last_updated, created_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP,
+                        COALESCE((SELECT created_at FROM catalog_dk_cache WHERE search_term = ?), CURRENT_TIMESTAMP))
+            """, [
+                search_term,
+                normalized_term,
+                json.dumps(classifications),
+                result_count,
+                search_term
+            ])
+
+            self.logger.info(f"✅ Stored {result_count} classifications in catalog cache for '{search_term}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error storing catalog cache for '{search_term}': {e}")
+            return False
+
+    def search_catalog_dk_cache(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """Search catalog DK cache for multiple keywords - Claude Generated"""
+        try:
+            results = []
+
+            for keyword in keywords:
+                clean_keyword = keyword.split('(')[0].strip()
+
+                # Try exact match first
+                cached = self.get_catalog_dk_cache(clean_keyword)
+                if cached:
+                    # Add keyword info to each classification
+                    for cls in cached:
+                        if 'matched_keywords' not in cls:
+                            cls['matched_keywords'] = []
+                        if clean_keyword not in cls['matched_keywords']:
+                            cls['matched_keywords'].append(clean_keyword)
+                    results.extend(cached)
+                    continue
+
+                # Try fuzzy match on normalized term
+                normalized = self._normalize_term(clean_keyword)
+                rows = self.db_manager.fetch_all("""
+                    SELECT search_term, found_classifications
+                    FROM catalog_dk_cache
+                    WHERE normalized_term LIKE ?
+                    LIMIT 10
+                """, [f"%{normalized}%"])
+
+                for row in rows:
+                    cached = json.loads(row['found_classifications'] or '[]')
+                    for cls in cached:
+                        if 'matched_keywords' not in cls:
+                            cls['matched_keywords'] = []
+                        if clean_keyword not in cls['matched_keywords']:
+                            cls['matched_keywords'].append(clean_keyword)
+                    results.extend(cached)
+
+            # Deduplicate by DK code
+            unique_results = {}
+            for result in results:
+                code = result.get('dk')
+                if code in unique_results:
+                    # Merge titles and keywords
+                    existing = unique_results[code]
+                    existing['titles'] = list(set(existing['titles'] + result['titles']))
+                    existing['matched_keywords'] = list(set(existing['matched_keywords'] + result['matched_keywords']))
+                    existing['count'] += result.get('count', 0)
+                else:
+                    unique_results[code] = result
+
+            self.logger.info(f"📊 Catalog cache search: {len(unique_results)} unique classifications from {len(keywords)} keywords")
+            return list(unique_results.values())
+
+        except Exception as e:
+            self.logger.error(f"Catalog cache search failed: {e}")
+            return []
+
+    def _merge_catalog_classifications(self, existing: List[Dict], new_cls: Dict) -> List[Dict]:
+        """Helper to merge classification entries - Claude Generated"""
+        code = new_cls['code']
+
+        # Find existing entry for this code
+        for i, ex_cls in enumerate(existing):
+            if ex_cls.get('code') == code:
+                # Merge titles (deduplicate)
+                all_titles = ex_cls.get('titles', []) + new_cls.get('titles', [])
+                unique_titles = list(dict.fromkeys(all_titles))[:10]  # Keep top 10
+
+                # Update entry
+                existing[i] = {
+                    "code": code,
+                    "type": new_cls.get('type', 'DK'),
+                    "titles": unique_titles,
+                    "count": ex_cls.get('count', 0) + new_cls.get('count', 0),
+                    "avg_confidence": (ex_cls.get('avg_confidence', 0.8) + new_cls.get('avg_confidence', 0.8)) / 2,
+                    "gnd_ids": list(set(ex_cls.get('gnd_ids', []) + new_cls.get('gnd_ids', [])))
+                }
+                return existing
+
+        # Not found - add new entry
+        existing.append(new_cls)
+        return existing
+
     def store_classification_results(self, results: List[Dict]):
         """DKCacheManager compatibility with title merging - Claude Generated"""
         for result in results:
@@ -796,7 +843,9 @@ class UnifiedKnowledgeManager:
 
                 # Store titles with classification in search mapping - Claude Generated
                 new_titles = result.get('titles', [])
-                keywords = result.get('keywords', [])
+                # FIXED: Check both "keywords" and "matched_keywords" field names - Claude Generated
+                # Different code paths store under different names, need to support both
+                keywords = result.get('matched_keywords', result.get('keywords', []))
                 count = result.get('count', 0)  # FIX: Default to 0 (no titles), not 1 - Claude Generated
                 avg_confidence = result.get('avg_confidence', 0.8)
 
@@ -915,10 +964,10 @@ class UnifiedKnowledgeManager:
                     for cls in merged_classifications:
                         self.logger.info(f"   - {cls.get('code')}: {len(cls.get('titles', []))} titles, count={cls.get('count')}, confidence={cls.get('avg_confidence'):.2f}")
 
-                    self.update_search_mapping(
+                    # MODIFIED: Use dedicated catalog cache instead of search_mappings - Claude Generated
+                    self.store_catalog_dk_cache(
                         search_term=keyword,
-                        suggester_type="catalog",
-                        found_classifications=merged_classifications
+                        classifications=merged_classifications
                     )
     
     def insert_gnd_entry(

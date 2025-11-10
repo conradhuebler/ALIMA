@@ -254,67 +254,92 @@ class PipelineStreamWidget(QWidget):
                 self._display_dk_search_results(dk_results, step.step_id)
 
     def _display_dk_search_results(self, dk_results: List[Dict[str, Any]], step_id: str):
-        """Display DK search results with sample titles - Claude Generated
+        """Display DK search results with keyword-centric format - Claude Generated
 
         Args:
-            dk_results: List of DK search result dictionaries, each containing:
-                - "dk": DK classification code
-                - "titles": List of catalog titles with this classification
-                - "count": Total count of titles
+            dk_results: List of keyword-centric result dictionaries:
+                - "keyword": GND keyword with ID
+                - "source": "cache" or "live"
+                - "search_time_ms": Search time in milliseconds
+                - "total_titles": Total catalog titles found
+                - "classifications": List of DK codes with details
             step_id: Pipeline step ID for message formatting
         """
         if not dk_results:
             self.add_pipeline_message("Keine DK-Klassifikationen gefunden", "info", step_id)
             return
 
-        # Group results by DK code and count total titles
-        total_titles = 0
-        dk_summary = []
+        # Calculate total statistics
+        total_keywords = len(dk_results)
+        total_titles = sum(r.get("total_titles", 0) for r in dk_results)
+        total_classifications = sum(len(r.get("classifications", [])) for r in dk_results)
+        cache_count = sum(1 for r in dk_results if r.get("source") == "cache")
+        live_count = total_keywords - cache_count
 
-        for result in dk_results:
-            if isinstance(result, dict):
-                dk_code = result.get("dk", "unknown")
-                titles = result.get("titles", [])
-                total_count = result.get("count", len(titles))
-
-                if titles:
-                    total_titles += total_count
-                    # Get first 3 titles as sample
-                    sample_titles = titles[:3]
-                    dk_summary.append((dk_code, total_count, sample_titles))
-
-        # Display summary
+        # Display summary header - Claude Generated (Keyword-centric restructuring)
         self.add_pipeline_message(
-            f"🔍 DK-Suche: {len(dk_summary)} Klassifikationen gefunden ({total_titles} Titel)",
+            f"🔍 DK-Suche: {total_keywords} Schlagwörter → {total_titles} Titel → {total_classifications} Klassifikationen",
             "info",
             step_id,
         )
 
-        # Display each DK code with sample titles - Claude Generated (Fixed None-handling)
-        for dk_code, total_count, sample_titles in dk_summary:
-            # Filter None values and convert to strings - Claude Generated
-            filtered_titles = [str(t).strip() for t in sample_titles if t is not None and str(t).strip()]
+        if cache_count > 0 and live_count > 0:
+            self.add_pipeline_message(
+                f"   Cache: {cache_count} | Live: {live_count}",
+                "debug",
+                step_id,
+            )
 
-            if not filtered_titles:
-                # No valid titles available
-                titles_display = "(keine Titel verfügbar)"
-            else:
-                titles_preview = " | ".join(filtered_titles)
-                # Add ellipsis if there are more titles than shown in preview
-                if total_count > len(filtered_titles):
-                    titles_display = f"{titles_preview} ... (+{total_count - len(filtered_titles)} weitere)"
-                else:
-                    titles_display = titles_preview
+        # Display per-keyword results - Claude Generated (Keyword-centric format)
+        for keyword_result in dk_results:
+            keyword = keyword_result.get("keyword", "unknown")
+            source = keyword_result.get("source", "unknown")
+            search_time = keyword_result.get("search_time_ms", 0)
+            total_titles_kw = keyword_result.get("total_titles", 0)
+            classifications = keyword_result.get("classifications", [])
 
-            # Truncate long title preview to fit in one line
-            if len(titles_display) > 100:
-                titles_display = titles_display[:97] + "..."
+            # Display keyword header with source indicator
+            source_icon = "📦" if source == "cache" else "🔍"
+            source_text = f"[{source.upper()}]" if source else ""
+            timing_text = f"({search_time:.1f}ms)" if search_time > 0 else ""
 
             self.add_pipeline_message(
-                f"  📊 DK {dk_code} ({total_count} Titel): {titles_display}",
+                f"{source_icon} {keyword} {source_text} {timing_text}",
                 "info",
                 step_id,
             )
+
+            if not classifications:
+                continue
+
+            # Display DK codes for this keyword
+            for cls in classifications:
+                dk_code = cls.get("dk", "unknown")
+                count = cls.get("count", 0)
+                titles = cls.get("titles", [])
+
+                # Get first 2 titles as sample
+                sample_titles = titles[:2]
+                filtered_titles = [str(t).strip() for t in sample_titles if t is not None and str(t).strip()]
+
+                if not filtered_titles:
+                    titles_display = "(keine Titel)"
+                else:
+                    titles_preview = " | ".join(filtered_titles)
+                    if count > len(filtered_titles):
+                        titles_display = f"{titles_preview} ... (+{count - len(filtered_titles)})"
+                    else:
+                        titles_display = titles_preview
+
+                # Truncate long preview
+                if len(titles_display) > 85:
+                    titles_display = titles_display[:82] + "..."
+
+                self.add_pipeline_message(
+                    f"   DK {dk_code} ({count} Titel): {titles_display}",
+                    "debug",
+                    step_id,
+                )
 
     @pyqtSlot(object, str)
     def on_step_error(self, step: PipelineStep, error_message: str):
