@@ -897,12 +897,11 @@ class PipelineStepExecutor:
             **kwargs,
         )
 
-        # Extract final keywords with enhanced recognition
-        final_keywords = self._extract_keywords_enhanced(
+        # Extract final keywords from <final_list> tag - Claude Generated (Fix: Use <final_list> as source of truth)
+        # This ensures that the LLM's explicit final list is used, not text-matching which causes duplicates
+        final_keywords_all, final_keywords = extract_keywords_from_descriptive_text(
             final_single_result[2].response_full_text,
-            deduplicated_keywords,
-            stream_callback,
-            chunk_id="Finale Auswahl",
+            deduplicated_keywords
         )
 
         # Update the LlmKeywordAnalysis to include chunk information
@@ -914,11 +913,10 @@ class PipelineStepExecutor:
             filled_prompt=final_single_result[2].filled_prompt,
             temperature=kwargs.get("temperature", 0.7),
             seed=kwargs.get("seed", 0),
-            response_full_text=f"CHUNKED ANALYSIS ({len(chunks)} chunks):\n\n"
-            + "\n\n---CHUNK SEPARATOR---\n\n".join(combined_responses)
-            + f"\n\n---FINAL CONSOLIDATION---\n\n{final_single_result[2].response_full_text}",
+            response_full_text=final_single_result[2].response_full_text,  # Only final consolidation response
             extracted_gnd_keywords=final_keywords,  # Use enhanced extraction results
             extracted_gnd_classes=final_single_result[1],
+            chunk_responses=combined_responses,  # Store chunk responses separately - Claude Generated
         )
 
         return final_keywords, final_single_result[1], final_llm_analysis
@@ -1369,6 +1367,19 @@ class PipelineStepExecutor:
         # Remove duplicates while preserving order
         return list(dict.fromkeys(classification_codes))
 
+    def _is_gnd_validated_keyword(self, keyword: str) -> bool:
+        """
+        Check if a keyword has been validated against GND system (contains GND-ID)
+        Claude Generated - GND validation helper for strict filtering
+
+        Args:
+            keyword: Keyword string to validate
+
+        Returns:
+            True if keyword contains "(GND-ID:..." format, False for plain text keywords
+        """
+        return "(GND-ID:" in keyword
+
     def execute_dk_search(
         self,
         keywords: List[str],
@@ -1427,25 +1438,58 @@ class PipelineStepExecutor:
                 stream_callback(f"BiblioExtractor-Fehler: {str(e)}\n", "dk_search")
             return []
 
-        # Convert keywords to simple strings if they contain GND-IDs
-        clean_keywords = []
+        # STRICT GND-ONLY FILTERING: Only use keywords with validated GND-IDs - Claude Generated
+        # This prevents irrelevant catalog titles from plain text keywords (e.g., "Molekül")
+        gnd_validated_keywords = []
+        plain_keywords_filtered = []
+
         for keyword in keywords:
-            if "(GND-ID:" in keyword:
+            if self._is_gnd_validated_keyword(keyword):
                 # Extract just the keyword part before (GND-ID:...)
                 clean_keyword = keyword.split("(GND-ID:")[0].strip()
-                clean_keywords.append(clean_keyword)
+                gnd_validated_keywords.append(clean_keyword)
             else:
-                clean_keywords.append(keyword)
+                # Plain text keyword without GND-ID validation - exclude from DK search
+                plain_keywords_filtered.append(keyword)
+
+        # Log filtering results
+        if plain_keywords_filtered:
+            if self.logger:
+                self.logger.info(
+                    f"🔍 DK Search Filtering: {len(gnd_validated_keywords)} GND-validated keywords used, "
+                    f"{len(plain_keywords_filtered)} plain keywords excluded"
+                )
+            if stream_callback:
+                stream_callback(
+                    f"Filter: {len(gnd_validated_keywords)} GND-validierte + {len(plain_keywords_filtered)} ignoriert\n",
+                    "dk_search"
+                )
+
+        # Handle edge case: all keywords filtered
+        if not gnd_validated_keywords:
+            if self.logger:
+                self.logger.warning(
+                    f"⚠️ DK Search: All {len(keywords)} keywords lack GND validation - skipping catalog search"
+                )
+            if stream_callback:
+                stream_callback(
+                    "⚠️ Keine GND-validierten Keywords für DK-Suche vorhanden\n",
+                    "dk_search"
+                )
+            return []
 
         if stream_callback:
-            stream_callback(f"Suche Katalog-Einträge für {len(clean_keywords)} Keywords (max {max_results})\n", "dk_search")
+            stream_callback(
+                f"Suche Katalog-Einträge für {len(gnd_validated_keywords)} GND-validierte Keywords (max {max_results})\n",
+                "dk_search"
+            )
 
-        # Execute catalog search
+        # Execute catalog search with GND-validated keywords only
         try:
             dk_search_results = extractor.extract_dk_classifications_for_keywords(
-                keywords=clean_keywords,
+                keywords=gnd_validated_keywords,  # Use only GND-validated keywords (strict filtering)
                 max_results=max_results,
-                force_update=force_update,  # Claude Generated - Pass force_update to BiblioClient
+                force_update=force_update,
             )
 
             if stream_callback:
@@ -1470,6 +1514,9 @@ def extract_keywords_from_descriptive_text(
     Supports two formats:
     1. Primary: "Keyword (1234567-8)" format
     2. Fallback: "<final_list>Keyword1|Keyword2|...</final_list>" format
+
+    Note: Returns both all_keywords and exact_matches for pipeline compatibility.
+    DK search should use ONLY exact_matches (GND-validated keywords) to avoid irrelevant results.
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -1583,12 +1630,13 @@ def extract_keywords_from_descriptive_text(
                         break
 
                 if not found:
-                    # FIXME: Investigate why GND lookup fails for valid keywords - Claude Generated
-                    # Some keywords (e.g., "Molekül", "Festkörper") don't match any GND entries from the cache
-                    # This could mean: (1) Cache is outdated, (2) Keyword not in GND system, (3) Search cache incomplete
-                    # For now, keep plain keyword for DK catalog search which may still find results
-                    logger.warning(f"  ⚠️ No GND match for '{raw_kw}' - adding as plain keyword for DK search")
-                    unmatched_keywords.append(raw_kw)
+                    # FIXED: Keywords without GND validation are now excluded from DK search - Claude Generated
+                    # Plain text keywords (e.g., "Molekül", "Festkörper") that don't match GND entries:
+                    # - Are NOT added to DK search (strict GND-only filtering)
+                    # - Reduces irrelevant catalog titles and improves LLM classification accuracy
+                    # - If all keywords are filtered, DK search step returns empty results
+                    logger.warning(f"  ⚠️ No GND match for '{raw_kw}' - excluded from DK search (strict GND-only filtering)")
+                    unmatched_keywords.append(raw_kw)  # Track for logging only
 
         # Combine GND-matched and plain keywords for complete DK search - Claude Generated FIX
         all_keywords = exact_matches + unmatched_keywords

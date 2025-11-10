@@ -69,6 +69,7 @@ class LlmKeywordAnalysis:
     response_full_text: str
     extracted_gnd_keywords: List[str] = field(default_factory=list)
     extracted_gnd_classes: List[str] = field(default_factory=list)
+    chunk_responses: List[str] = field(default_factory=list)  # Intermediate responses from chunked analysis - Claude Generated
 
 
 @dataclass

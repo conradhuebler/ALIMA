@@ -204,6 +204,14 @@ class AnalysisReviewTab(QWidget):
         self.final_analysis_text.setFont(font)
         self.details_tabs.addTab(self.final_analysis_text, "Finale Analyse")
 
+        # Chunk Details tab - Claude Generated (shows intermediate chunked analysis responses)
+        self.chunk_details_text = QTextEdit()
+        self.chunk_details_text.setReadOnly(True)
+        font = self.chunk_details_text.font()
+        font.setPointSize(11)
+        self.chunk_details_text.setFont(font)
+        self.details_tabs.addTab(self.chunk_details_text, "Chunk-Details (Zwischenergebnisse)")
+
         # DK/RVK Classifications tab - Claude Generated
         self.dk_classification_display = QTextEdit()
         self.dk_classification_display.setReadOnly(True)
@@ -446,8 +454,23 @@ class AnalysisReviewTab(QWidget):
             final_text += "Response:\n"
             final_text += llm.response_full_text
             self.final_analysis_text.setPlainText(final_text)
+
+            # Chunk Details - Claude Generated (show intermediate chunked analysis responses)
+            if hasattr(llm, 'chunk_responses') and llm.chunk_responses:
+                chunk_text = f"Chunked Analysis ({len(llm.chunk_responses)} chunks):\n"
+                chunk_text += "=" * 70 + "\n\n"
+
+                for i, chunk_response in enumerate(llm.chunk_responses, 1):
+                    chunk_text += f"--- Chunk {i}/{len(llm.chunk_responses)} ---\n"
+                    chunk_text += chunk_response
+                    chunk_text += "\n\n---CHUNK SEPARATOR---\n\n"
+
+                self.chunk_details_text.setPlainText(chunk_text)
+            else:
+                self.chunk_details_text.setPlainText("Keine Chunk-Zwischenergebnisse verfügbar\n(Analyse wurde nicht gechunked)")
         else:
             self.final_analysis_text.setPlainText("Keine LLM-Analyse verfügbar")
+            self.chunk_details_text.setPlainText("Keine LLM-Analyse verfügbar")
 
         # DK/RVK Classifications - Claude Generated (HTML-formatted with enhanced transparency)
         if self.current_analysis.dk_classifications:
