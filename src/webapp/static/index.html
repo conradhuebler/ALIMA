@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALIMA Webapp - Pipeline Analysis</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 ALIMA Pipeline</h1>
+            <p>Automatic Library Indexing and Metadata Analysis</p>
+        </header>
+
+        <main>
+            <div class="layout">
+                <!-- Input Panel (Left) -->
+                <div class="input-panel">
+                    <h2>📥 Input & Datenquellen</h2>
+
+                    <div class="input-tabs">
+                        <button class="tab-btn active" data-tab="text-tab">Text</button>
+                        <button class="tab-btn" data-tab="doi-tab">DOI/URL</button>
+                        <button class="tab-btn" data-tab="file-tab">Datei</button>
+                    </div>
+
+                    <!-- Text Input -->
+                    <div id="text-tab" class="tab-content active">
+                        <textarea id="text-input"
+                                  placeholder="Geben Sie einen Abstract oder beliebigen Text ein..."
+                                  rows="8"></textarea>
+                    </div>
+
+                    <!-- DOI/URL Input -->
+                    <div id="doi-tab" class="tab-content">
+                        <input type="text" id="doi-input"
+                               placeholder="z.B. 10.1007/... oder https://...">
+                    </div>
+
+                    <!-- File Upload -->
+                    <div id="file-tab" class="tab-content">
+                        <div class="file-upload">
+                            <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt">
+                            <label for="file-input" class="file-label">
+                                📁 Datei auswählen (PDF, Bild, TXT)
+                            </label>
+                            <span id="file-name" class="file-name"></span>
+                        </div>
+                    </div>
+
+                    <button id="analyze-btn" class="btn btn-primary">
+                        🚀 Auto-Pipeline
+                    </button>
+                </div>
+
+                <!-- Pipeline Panel (Right) -->
+                <div class="pipeline-panel">
+                    <h2>📊 Pipeline-Ausführung</h2>
+
+                    <div id="pipeline-steps" class="pipeline-steps">
+                        <!-- Steps werden hier dynamisch eingefügt -->
+                    </div>
+
+                    <div id="stream-output" class="stream-output">
+                        <h3>📝 Live-Feedback</h3>
+                        <pre id="stream-text"></pre>
+                    </div>
+
+                    <div id="results-panel" class="results-panel" style="display: none;">
+                        <h3>✅ Analyse Abgeschlossen</h3>
+                        <button id="export-btn" class="btn btn-secondary">
+                            💾 JSON Exportieren
+                        </button>
+                        <button id="clear-btn" class="btn btn-secondary">
+                            🔄 Neue Analyse
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
