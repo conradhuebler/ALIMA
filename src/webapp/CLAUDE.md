@@ -31,11 +31,12 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 ✅ **Input Modes** - Text, DOI/URL, PDF, Images, Webcam capture
 ✅ **Drag & Drop Upload** - Intuitive file upload with visual feedback
 ✅ **Webcam Integration** - Capture images directly from browser
+✅ **Extracted Text Display** - Shows text from PDF/image OCR extraction separately from LLM output
 ✅ **Live Feedback** - WebSocket streaming of progress updates with large output window
 ✅ **Session Management** - Individual analysis sessions with IDs
 ✅ **JSON Export** - Complete results downloadable
 ✅ **Responsive Design** - Works on desktop, tablet, and mobile
-✅ **Modern UI** - Clean, professional design without unnecessary decorations
+✅ **Modern UI** - Clean, professional German interface without unnecessary decorations
 
 ## API Endpoints
 
@@ -55,10 +56,12 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 - **Initialization Sequence**: ConfigManager → LlmService → PromptService → AlimaManager → UnifiedKnowledgeManager → PipelineManager (6-step pattern)
 - **Callbacks**: `step_started`, `step_completed`, `step_error`, `pipeline_completed`, `stream_callback`
 - **WebSocket**: Live progress updates via callbacks (with HTTP polling fallback)
-- **File Handling**: Uploaded files saved to temp directory with per-session cleanup
+- **File Handling**: Uploaded files read immediately in request handler (prevents "read of closed file" error)
 - **Drag & Drop**: Uses dragenter/dragover/drop events for file upload with visual feedback
 - **Webcam**: getUserMedia API for camera access, canvas for image capture, converted to JPEG
 - **Token Streaming**: Tokens buffered per step, transmitted every 500ms without extra whitespace
+- **Extracted Text**: Displayed in separate panel from LLM output, extracted from input step's `original_abstract`
+- **Input Type Routing**: Correct input_type (text/doi/pdf/img) passed to pipeline for proper processing
 
 ## Usage
 
@@ -78,10 +81,9 @@ Then visit `http://localhost:8000` in browser.
 
 ## Future Enhancements
 
-- Drag & drop file upload
-- Webcam image capture
 - Persistent session storage (database backend)
 - Authentication/user accounts
 - Batch processing UI
 - Result history/session recall
 - Docker containerization
+- Dark/light theme toggle
