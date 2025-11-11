@@ -320,20 +320,36 @@ class AlimaWebapp {
         };
     }
 
-    // Update pipeline status from WebSocket
+    // Update pipeline status from WebSocket - Claude Generated
     updatePipelineStatus(msg) {
         if (msg.current_step) {
-            this.updateStepStatus(msg.current_step, 'running');
+            console.log(`📊 Step update: ${msg.current_step}`);
+            this.appendStreamText(`→ Current Step: ${msg.current_step}`);
+
+            // Map backend step names to frontend
+            const stepMap = {
+                'initialisation': 'initialisation',
+                'search': 'search',
+                'dk_search': 'search',  // dk_search maps to search visually
+                'keywords': 'keywords',
+                'classification': 'classification'
+            };
+
+            const displayStep = stepMap[msg.current_step] || msg.current_step;
+            this.updateStepStatus(displayStep, 'running');
 
             // Mark previous steps as completed
-            const stepIndex = this.steps.findIndex(s => s.id === msg.current_step);
+            const stepIndex = this.steps.findIndex(s => s.id === displayStep);
+            console.log(`Step index: ${stepIndex} for ${displayStep}`);
+
             for (let i = 0; i < stepIndex; i++) {
                 this.updateStepStatus(this.steps[i].id, 'completed');
             }
         }
 
         // Update stream with results
-        if (msg.results) {
+        if (msg.results && Object.keys(msg.results).length > 0) {
+            console.log('Results available:', Object.keys(msg.results));
             this.displayResults(msg.results);
         }
     }

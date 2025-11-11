@@ -250,6 +250,7 @@ async def run_analysis(
     """Execute pipeline analysis via CLI - Claude Generated"""
 
     session = sessions[session_id]
+    session.status = "running"  # Mark as running IMMEDIATELY - Claude Generated
 
     try:
         # Prepare input for CLI
@@ -287,9 +288,9 @@ async def run_analysis(
         # Run CLI command with step simulation - Claude Generated
         logger.info(f"Running: {' '.join(cli_args)}")
 
-        # Pipeline steps for progress simulation
+        # Pipeline steps for progress simulation - Claude Generated
         pipeline_steps = ["initialisation", "search", "keywords", "dk_search", "classification"]
-        step_durations = [3, 2, 5, 2, 2]  # Estimated seconds per step
+        step_durations = [5, 3, 8, 3, 2]  # Estimated seconds per step (more realistic)
 
         process = await asyncio.create_subprocess_exec(
             *cli_args,
