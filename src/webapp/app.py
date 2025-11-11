@@ -19,7 +19,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.base import BaseHTTPMiddleware
 import uvicorn
 
 # Setup logging
