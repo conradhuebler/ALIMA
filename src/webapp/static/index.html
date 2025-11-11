@@ -10,17 +10,19 @@
     <div class="container">
         <header>
             <div class="header-content">
-                <h1>ALIMA</h1>
-                <p>Automatic Library Indexing and Metadata Analysis</p>
+                <div class="header-title">
+                    <h1>ALIMA</h1>
+                    <p class="header-subtitle">Automatische Katalogerschließung und Metadaten-Analyse</p>
+                </div>
             </div>
         </header>
 
         <main>
             <div class="layout">
-                <!-- Input Panel (Top) -->
+                <!-- Input Panel (Left) -->
                 <div class="input-panel">
                     <div class="input-section">
-                        <h2>Input</h2>
+                        <h2>Eingabe</h2>
 
                         <div class="input-tabs">
                             <button class="tab-btn active" data-tab="text-tab">Text</button>
@@ -78,8 +80,8 @@
                     </div>
                 </div>
 
-                <!-- Output Panel (Bottom) -->
-                <div class="output-panel">
+                <!-- Pipeline Panel (Right) -->
+                <div class="pipeline-panel">
                     <div class="pipeline-section">
                         <h2>Pipeline</h2>
                         <div id="pipeline-steps" class="pipeline-steps">
@@ -87,13 +89,9 @@
                         </div>
                     </div>
 
-                    <div id="stream-output" class="stream-output">
-                        <h3>Ausgabe</h3>
-                        <pre id="stream-text"></pre>
-                    </div>
-
                     <div id="results-panel" class="results-panel" style="display: none;">
-                        <h3>Analyse abgeschlossen</h3>
+                        <h3>Zusammenfassung</h3>
+                        <div id="results-summary" class="results-summary"></div>
                         <div class="results-buttons">
                             <button id="export-btn" class="btn btn-secondary">
                                 Exportieren
@@ -103,6 +101,12 @@
                             </button>
                         </div>
                     </div>
+                </div>
+
+                <!-- Output Panel (Full Width Bottom) -->
+                <div id="stream-output" class="stream-output">
+                    <h3>Ausgabe</h3>
+                    <pre id="stream-text"></pre>
                 </div>
             </div>
         </main>

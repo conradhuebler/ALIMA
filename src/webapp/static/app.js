@@ -11,6 +11,7 @@ class AlimaWebapp {
         this.ws = null;
         this.cameraStream = null;
         this.capturedCameraImage = null;
+        this.cameraBlob = null;
 
         this.setupPipelineSteps();
         this.setupEventListeners();
@@ -26,11 +27,11 @@ class AlimaWebapp {
     // Pipeline step definitions
     setupPipelineSteps() {
         this.steps = [
-            { id: 'input', name: 'Input', description: 'Processing' },
-            { id: 'initialisation', name: 'Init', description: 'Keywords' },
-            { id: 'search', name: 'Search', description: 'Catalog' },
-            { id: 'keywords', name: 'Refine', description: 'Subjects' },
-            { id: 'classification', name: 'Classify', description: 'Codes' }
+            { id: 'input', name: 'Eingabe', description: 'Verarbeitung' },
+            { id: 'initialisation', name: 'Initialisierung', description: 'Schlagworte' },
+            { id: 'search', name: 'Katalogsuche', description: 'GND/SWB' },
+            { id: 'keywords', name: 'Erschließung', description: 'Finale Worte' },
+            { id: 'classification', name: 'Klassifikation', description: 'Codes' }
         ];
 
         this.renderPipelineSteps();
@@ -256,16 +257,21 @@ class AlimaWebapp {
             }
         } else if (activeTab.id === 'camera-tab') {
             if (!this.capturedCameraImage) {
-                alert('Please take a photo first');
+                alert('Bitte machen Sie zuerst ein Foto');
                 return;
             }
             inputType = 'img';
-            // Convert data URL to Blob
-            const response = await fetch(this.capturedCameraImage);
-            const blob = await response.blob();
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(new File([blob], 'camera_photo.jpg', { type: 'image/jpeg' }));
-            file = dataTransfer.files[0];
+            // Convert data URL to Blob for file submission
+            try {
+                const response = await fetch(this.capturedCameraImage);
+                const blob = await response.blob();
+                // Store in form data as blob (handled in submitAnalysis)
+                this.cameraBlob = blob;
+            } catch (error) {
+                console.error('Error processing camera image:', error);
+                alert('Fehler beim Verarbeiten des Fotos: ' + error.message);
+                return;
+            }
         }
 
         await this.submitAnalysis(inputType, content, file);
@@ -287,6 +293,9 @@ class AlimaWebapp {
             }
             if (file) {
                 formData.append('file', file);
+            } else if (this.cameraBlob) {
+                formData.append('file', this.cameraBlob, 'camera_photo.jpg');
+                this.cameraBlob = null;
             }
 
             const response = await fetch(`/api/analyze/${this.sessionId}`, {
@@ -529,13 +538,13 @@ class AlimaWebapp {
 
         // Display original abstract
         if (results.original_abstract) {
-            this.appendStreamText(`\n[${this.getTime()}] 📄 Original Abstract:`);
+            this.appendStreamText(`\n[${this.getTime()}] Originalabstract:`);
             this.appendStreamText(`  ${results.original_abstract.substring(0, 150)}${results.original_abstract.length > 150 ? '...' : ''}`);
         }
 
         // Display initial keywords
         if (results.initial_keywords && results.initial_keywords.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] 🔤 Initial Keywords (free):`);
+            this.appendStreamText(`\n[${this.getTime()}] Initiale Schlagworte (frei):`);
             results.initial_keywords.forEach(kw => {
                 this.appendStreamText(`  • ${kw}`);
             });
@@ -543,7 +552,7 @@ class AlimaWebapp {
 
         // Display final GND-compliant keywords
         if (results.final_keywords && results.final_keywords.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] 📚 Final GND Keywords:`);
+            this.appendStreamText(`\n[${this.getTime()}] GND-Schlagworte:`);
             results.final_keywords.forEach(kw => {
                 this.appendStreamText(`  ✓ ${kw}`);
             });
@@ -551,20 +560,51 @@ class AlimaWebapp {
 
         // Display DK/RVK classifications
         if (results.dk_classifications && results.dk_classifications.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] 📊 DK/RVK Classifications:`);
+            this.appendStreamText(`\n[${this.getTime()}] DK/RVK Klassifikationen:`);
             results.dk_classifications.forEach(cls => {
-                this.appendStreamText(`  📋 ${cls}`);
+                this.appendStreamText(`  ${cls}`);
             });
         }
 
         // Display DK search results summary
         if (results.dk_search_results && results.dk_search_results.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] 🔍 DK Search Results:`);
+            this.appendStreamText(`\n[${this.getTime()}] DK-Suche:`);
             results.dk_search_results.forEach(result => {
-                const keyword = result.keyword || 'unknown';
+                const keyword = result.keyword || 'unbekannt';
                 const count = result.count || 0;
-                this.appendStreamText(`  🔎 ${keyword}: ${count} titles`);
+                this.appendStreamText(`  ${keyword}: ${count} Titel`);
             });
+        }
+
+        // Populate summary panel
+        this.populateSummary(results);
+    }
+
+    populateSummary(results) {
+        const summaryDiv = document.getElementById('results-summary');
+        if (!summaryDiv) return;
+
+        summaryDiv.innerHTML = '';
+
+        if (results.final_keywords && results.final_keywords.length > 0) {
+            const item = document.createElement('div');
+            item.className = 'results-summary-item keyword';
+            item.innerHTML = `<strong>GND-Schlagworte:</strong> ${results.final_keywords.slice(0, 3).join(', ')}${results.final_keywords.length > 3 ? '...' : ''}`;
+            summaryDiv.appendChild(item);
+        }
+
+        if (results.dk_classifications && results.dk_classifications.length > 0) {
+            const item = document.createElement('div');
+            item.className = 'results-summary-item classification';
+            item.innerHTML = `<strong>Klassifikationen:</strong> ${results.dk_classifications.slice(0, 3).join(', ')}${results.dk_classifications.length > 3 ? '...' : ''}`;
+            summaryDiv.appendChild(item);
+        }
+
+        if (results.initial_keywords && results.initial_keywords.length > 0) {
+            const item = document.createElement('div');
+            item.className = 'results-summary-item';
+            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${results.initial_keywords.slice(0, 3).join(', ')}${results.initial_keywords.length > 3 ? '...' : ''}`;
+            summaryDiv.appendChild(item);
         }
     }
 
@@ -575,7 +615,7 @@ class AlimaWebapp {
         try {
             const response = await fetch(`/api/export/${this.sessionId}?format=json`);
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             // Get filename from Content-Disposition header
@@ -586,6 +626,10 @@ class AlimaWebapp {
 
             // Download file
             const blob = await response.blob();
+            if (blob.size === 0) {
+                throw new Error('Exportierte Datei ist leer');
+            }
+
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -595,11 +639,11 @@ class AlimaWebapp {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
 
-            this.appendStreamText(`✅ Exported: ${filename}`);
+            this.appendStreamText(`Exportiert: ${filename}`);
 
         } catch (error) {
             console.error('Export error:', error);
-            alert(`Export failed: ${error.message}`);
+            alert(`Export fehlgeschlagen: ${error.message}`);
         }
     }
 
@@ -649,7 +693,7 @@ class AlimaWebapp {
     // Update button state
     updateButtonState() {
         document.getElementById('analyze-btn').disabled = this.isAnalyzing;
-        document.getElementById('analyze-btn').textContent = this.isAnalyzing ? '⏳ Analyzing...' : '🚀 Auto-Pipeline';
+        document.getElementById('analyze-btn').textContent = this.isAnalyzing ? 'Wird analysiert...' : 'Analyse starten';
     }
 
     // Get current time string
