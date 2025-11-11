@@ -505,13 +505,14 @@ async def run_analysis(
                     stream_callback=on_stream_token,
                 )
 
-                # Start pipeline
-                logger.info("Starting pipeline execution...")
+                # Start pipeline with correct input_type - Claude Generated (FIX: Use actual input_type, not always "text")
+                # This ensures PDFs use LLM-OCR and images use vision models
+                logger.info(f"Starting pipeline execution with input_type={input_type}")
                 pipeline_id = pipeline_manager.start_pipeline(
                     input_text,
-                    input_type="text",
+                    input_type=input_type,  # FIXED: Use actual input_type (pdf, img, text, doi) not hardcoded "text"
                 )
-                logger.info(f"Pipeline {pipeline_id} started")
+                logger.info(f"Pipeline {pipeline_id} started with input_type={input_type}")
 
             except Exception as e:
                 logger.error(f"Pipeline execution error: {str(e)}", exc_info=True)
