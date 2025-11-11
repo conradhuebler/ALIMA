@@ -21,6 +21,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 
+# Import ALIMA Pipeline components - Claude Generated
+from src.core.pipeline_manager import PipelineManager, PipelineConfig
+from src.core.alima_manager import AlimaManager
+from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+from src.utils.config_manager import ConfigManager
+from src.utils.doi_resolver import resolve_input_to_text
+from src.utils.pipeline_utils import PipelineJsonManager
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -247,124 +255,104 @@ async def run_analysis(
     content: Optional[str],
     file: Optional[UploadFile],
 ):
-    """Execute pipeline analysis via CLI - Claude Generated"""
+    """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
     session = sessions[session_id]
-    session.status = "running"  # Mark as running IMMEDIATELY - Claude Generated
+    session.status = "running"
 
     try:
-        # Prepare input for CLI
-        cli_args = [sys.executable, "src/alima_cli.py", "pipeline"]
+        # Resolve input to text - Claude Generated
+        input_text = None
 
         if input_type == "text" and content:
-            cli_args.extend(["--input-text", content])
+            input_text = content
         elif input_type == "doi" and content:
-            cli_args.extend(["--doi", content])
+            logger.info(f"Resolving DOI: {content}")
+            input_text = await asyncio.to_thread(resolve_input_to_text, content)
         elif input_type == "pdf" and file:
-            # Save uploaded file temporarily
+            # Save and extract from PDF
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             contents = await file.read()
             temp_file.write(contents)
             temp_file.close()
             session.add_temp_file(temp_file.name)
-            cli_args.extend(["--pdf", temp_file.name])
+            logger.info(f"Extracting text from PDF: {temp_file.name}")
+            input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
         elif input_type == "img" and file:
-            # Save uploaded file temporarily
+            # Save and extract from image
             temp_file = tempfile.NamedTemporaryFile(delete=False)
             contents = await file.read()
             temp_file.write(contents)
             temp_file.close()
             session.add_temp_file(temp_file.name)
-            cli_args.extend(["--image", temp_file.name])
+            logger.info(f"Analyzing image: {temp_file.name}")
+            input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
         else:
             raise ValueError(f"Invalid input type: {input_type}")
 
-        # Output to temp JSON file
-        output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
-        output_file.close()
-        session.add_temp_file(output_file.name)
-        cli_args.extend(["--output-json", output_file.name])
+        if not input_text:
+            raise ValueError("Could not extract text from input")
 
-        # Run CLI command with step simulation - Claude Generated
-        logger.info(f"Running: {' '.join(cli_args)}")
+        logger.info(f"Input text extracted ({len(input_text)} chars)")
+        session.input_data = {"type": input_type, "text_preview": input_text[:100]}
 
-        # Pipeline steps for progress simulation - Claude Generated
-        pipeline_steps = ["initialisation", "search", "keywords", "dk_search", "classification"]
-        step_durations = [5, 3, 8, 3, 2]  # Estimated seconds per step (more realistic)
+        # Initialize Pipeline Components - Claude Generated
+        config_manager = ConfigManager()
+        alima_manager = AlimaManager(config_manager)
+        pipeline_manager = PipelineManager(alima_manager, config_manager)
+        cache_manager = UnifiedKnowledgeManager()
 
-        process = await asyncio.create_subprocess_exec(
-            *cli_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(PROJECT_ROOT),
-        )
+        # Create pipeline config from preferences
+        pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
 
-        session.process = process
-        start_time = asyncio.get_event_loop().time()
+        # Define stream callback for WebSocket updates - Claude Generated
+        stream_tokens = []
+        current_step_ref = [None]
 
-        # Monitor process while updating steps - Claude Generated
-        session.current_step = "initialisation"
-        step_index = 0
-        cumulative_time = 0
+        def on_stream_token(token: str):
+            """Collect tokens for display - Claude Generated"""
+            stream_tokens.append(token)
+            if len(stream_tokens) >= 10:  # Batch tokens for efficiency
+                batch = "".join(stream_tokens)
+                logger.debug(f"Token batch: {batch[:50]}...")
+                stream_tokens.clear()
 
-        # Create task to wait for process output
-        communicate_task = asyncio.create_task(process.communicate())
-
-        while not communicate_task.done():
-            # Simulate step progression based on elapsed time
-            elapsed = asyncio.get_event_loop().time() - start_time
-            cumulative_time = 0
-
-            for i, duration in enumerate(step_durations):
-                cumulative_time += duration
-                if elapsed < cumulative_time and i < len(pipeline_steps):
-                    if i != step_index and i < len(pipeline_steps):
-                        session.current_step = pipeline_steps[i]
-                        step_index = i
-                        logger.info(f"Progressed to step: {session.current_step}")
-                    break
-
-            # Small delay to prevent busy-waiting
-            await asyncio.sleep(0.2)
-
-        # Get the output from the completed task
-        stdout, stderr = await communicate_task
-        logger.info(f"CLI process finished with return code {process.returncode}")
-
-        if stderr:
-            stderr_text = stderr.decode('utf-8', errors='replace')
-            if "error" in stderr_text.lower():
-                logger.warning(f"CLI stderr: {stderr_text[:200]}")
-
-        if process.returncode != 0:
-            error_msg = stderr.decode('utf-8', errors='replace')
-            logger.error(f"CLI error: {error_msg}")
-            session.status = "error"
-            session.error_message = error_msg
-            return
-
-        # Read results from output file
-        if os.path.exists(output_file.name):
+        # Run pipeline in background thread - Claude Generated
+        def execute_pipeline():
             try:
-                with open(output_file.name, 'r', encoding='utf-8') as f:
-                    session.results = json.load(f)
-                logger.info(f"Loaded results from {output_file.name}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON results: {e}")
-                session.status = "error"
-                session.error_message = f"Invalid JSON output: {e}"
-                return
-        else:
-            logger.error(f"Output file not found: {output_file.name}")
-            session.status = "error"
-            session.error_message = "No output file generated"
-            return
+                # Set stream callback
+                pipeline_manager.stream_callback = on_stream_token
 
-        session.status = "completed"
-        session.current_step = "classification"
+                # Execute full pipeline
+                logger.info("Starting pipeline execution...")
+                result = pipeline_manager.run_full_pipeline(
+                    input_text,
+                    config=pipeline_config,
+                    on_step_update=lambda step_id: logger.info(f"Step update: {step_id}"),
+                )
+
+                # Store results
+                session.results = {
+                    "keywords": result.get("keywords", []),
+                    "dk_classification": result.get("dk_classification", []),
+                    "final_gnd": result.get("final_gnd", []),
+                    "all_steps": result,
+                }
+
+                logger.info(f"Pipeline completed: {len(session.results['keywords'])} keywords found")
+                session.status = "completed"
+                session.current_step = "classification"
+
+            except Exception as e:
+                logger.error(f"Pipeline execution error: {str(e)}", exc_info=True)
+                session.status = "error"
+                session.error_message = str(e)
+
+        # Run in executor to avoid blocking
+        await asyncio.to_thread(execute_pipeline)
 
     except Exception as e:
-        logger.error(f"Analysis error: {str(e)}", exc_info=True)
+        logger.error(f"Analysis setup error: {str(e)}", exc_info=True)
         session.status = "error"
         session.error_message = str(e)
     finally:
