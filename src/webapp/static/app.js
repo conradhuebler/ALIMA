@@ -12,7 +12,13 @@ class AlimaWebapp {
 
         this.setupPipelineSteps();
         this.setupEventListeners();
-        this.createNewSession();
+        this.initializeSession();
+    }
+
+    // Initialize session when app loads - Claude Generated
+    async initializeSession() {
+        await this.createNewSession();
+        console.log('Ready for analysis');
     }
 
     // Pipeline step definitions
@@ -109,6 +115,11 @@ class AlimaWebapp {
 
     // Start analysis
     async startAnalysis() {
+        if (!this.sessionId) {
+            alert('Session not initialized. Please refresh the page.');
+            return;
+        }
+
         if (this.isAnalyzing) {
             alert('Analysis is already running');
             return;
@@ -159,6 +170,9 @@ class AlimaWebapp {
             this.clearStreamText();
             this.resetSteps();
 
+            this.appendStreamText(`[${this.getTime()}] Submitting analysis request...`);
+            this.appendStreamText(`Input Type: ${inputType}`);
+
             // Create FormData for multipart request
             const formData = new FormData();
             formData.append('input_type', inputType);
@@ -169,16 +183,20 @@ class AlimaWebapp {
                 formData.append('file', file);
             }
 
-            const response = await fetch(`/api/analyze/${this.sessionId}`, {
+            const url = `/api/analyze/${this.sessionId}`;
+            this.appendStreamText(`POST ${url}`);
+
+            const response = await fetch(url, {
                 method: 'POST',
                 body: formData
             });
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
             const data = await response.json();
+            console.log('Analysis started:', data);
             this.appendStreamText(`[${this.getTime()}] Started analysis...`);
 
             // Connect WebSocket for live updates
@@ -197,10 +215,19 @@ class AlimaWebapp {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/${this.sessionId}`;
 
+        console.log(`Connecting to WebSocket: ${wsUrl}`);
+        this.appendStreamText(`[${this.getTime()}] Connecting to live updates...`);
+
         this.ws = new WebSocket(wsUrl);
+
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            this.appendStreamText(`[${this.getTime()}] Connected to live updates`);
+        };
 
         this.ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
+            console.log('WebSocket message:', msg);
 
             if (msg.type === 'status') {
                 this.updatePipelineStatus(msg);
@@ -211,11 +238,12 @@ class AlimaWebapp {
 
         this.ws.onerror = (error) => {
             console.error('WebSocket error:', error);
-            this.appendStreamText(`⚠️ Connection error`);
+            this.appendStreamText(`⚠️ WebSocket connection error`);
         };
 
         this.ws.onclose = () => {
             console.log('WebSocket closed');
+            this.appendStreamText(`[${this.getTime()}] Connection closed`);
         };
     }
 
