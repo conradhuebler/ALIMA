@@ -306,12 +306,10 @@ async def run_analysis(
         step_index = 0
         cumulative_time = 0
 
-        while True:
-            # Check if process finished
-            if process.poll() is not None:
-                logger.info(f"CLI process finished with return code {process.returncode}")
-                break
+        # Create task to wait for process output
+        communicate_task = asyncio.create_task(process.communicate())
 
+        while not communicate_task.done():
             # Simulate step progression based on elapsed time
             elapsed = asyncio.get_event_loop().time() - start_time
             cumulative_time = 0
@@ -328,8 +326,10 @@ async def run_analysis(
             # Small delay to prevent busy-waiting
             await asyncio.sleep(0.2)
 
-        # Read process output for debugging
-        stdout, stderr = await process.communicate()
+        # Get the output from the completed task
+        stdout, stderr = await communicate_task
+        logger.info(f"CLI process finished with return code {process.returncode}")
+
         if stderr:
             stderr_text = stderr.decode('utf-8', errors='replace')
             if "error" in stderr_text.lower():
