@@ -45,15 +45,37 @@ header {
     margin: 0 auto;
 }
 
+.header-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.logo {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.logo svg {
+    width: 100%;
+    height: 100%;
+}
+
 header h1 {
     font-size: 1.8em;
     font-weight: 600;
     margin-bottom: 4px;
+    margin: 0;
 }
 
-header p {
+.header-subtitle {
     font-size: 0.9em;
     color: var(--light-text);
+    margin: 0;
 }
 
 main {

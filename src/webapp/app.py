@@ -446,6 +446,10 @@ async def run_analysis(
                     "has_final_llm_analysis": bool(hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis),
                 }
             }
+
+            # Log extracted results
+            logger.info(f"Extracted results - keywords: {len(final_keywords)}, classifications: {len(dk_classifications)}, initial: {len(initial_keywords)}")
+
             session.status = "completed"
             session.current_step = "classification"
 
