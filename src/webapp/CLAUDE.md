@@ -8,8 +8,9 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 
 **Backend** (`app.py`):
 - FastAPI REST API with WebSocket support
-- Calls ALIMA CLI for analysis execution
-- Session management (in-memory for now)
+- Direct PipelineManager integration (same as CLI/GUI)
+- AppContext singleton for lazy service initialization
+- Session management (in-memory, per-request lifecycle)
 - JSON export of results
 - CORS enabled for development
 
@@ -46,10 +47,12 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 
 ## Implementation Notes
 
-- **CLI Integration**: Backend calls `alima_cli.py pipeline` with input arguments
-- **Output Capture**: JSON results written to temp file, then returned to frontend
-- **Streaming**: WebSocket sends status updates every 500ms during analysis
-- **File Handling**: Uploaded files saved to temp directory with cleanup on session delete
+- **Pipeline Integration**: Direct PipelineManager with callbacks (shared with CLI/GUI)
+- **Service Initialization**: AppContext singleton initializes services on first use (lazy init)
+- **Initialization Sequence**: ConfigManager → LlmService → PromptService → AlimaManager → UnifiedKnowledgeManager → PipelineManager (6-step pattern)
+- **Callbacks**: `step_started`, `step_completed`, `step_error`, `pipeline_completed`, `stream_callback`
+- **WebSocket**: Live progress updates via callbacks (with HTTP polling fallback)
+- **File Handling**: Uploaded files saved to temp directory with per-session cleanup
 
 ## Usage
 
@@ -60,12 +63,19 @@ python3 src/alima_webapp.py
 
 Then visit `http://localhost:8000` in browser.
 
+## Testing & Deployment
+
+- **Requirements**: Install all dependencies with `pip install -r requirements.txt`
+- **Headless Environments**: PyQt6.QtSql requires graphics libraries (libEGL)
+  - Run with xvfb: `xvfb-run -a python3 src/alima_webapp.py`
+  - Or in environment with display server
+
 ## Future Enhancements
 
 - Drag & drop file upload
 - Webcam image capture
-- Persistent session storage (database)
+- Persistent session storage (database backend)
 - Authentication/user accounts
 - Batch processing UI
-- Result history
-- Docker deployment support
+- Result history/session recall
+- Docker containerization
