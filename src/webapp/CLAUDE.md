@@ -28,11 +28,14 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 ## Current Features
 
 ✅ **Pipeline Widget as Webapp** - Full visualization of 5 analysis steps
-✅ **Input Modes** - Text, DOI/URL, PDF, Images (uploaded via file input)
-✅ **Live Feedback** - WebSocket streaming of progress updates
+✅ **Input Modes** - Text, DOI/URL, PDF, Images, Webcam capture
+✅ **Drag & Drop Upload** - Intuitive file upload with visual feedback
+✅ **Webcam Integration** - Capture images directly from browser
+✅ **Live Feedback** - WebSocket streaming of progress updates with large output window
 ✅ **Session Management** - Individual analysis sessions with IDs
 ✅ **JSON Export** - Complete results downloadable
-✅ **Responsive Design** - Works on desktop and tablets
+✅ **Responsive Design** - Works on desktop, tablet, and mobile
+✅ **Modern UI** - Clean, professional design without unnecessary decorations
 
 ## API Endpoints
 
@@ -53,6 +56,9 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 - **Callbacks**: `step_started`, `step_completed`, `step_error`, `pipeline_completed`, `stream_callback`
 - **WebSocket**: Live progress updates via callbacks (with HTTP polling fallback)
 - **File Handling**: Uploaded files saved to temp directory with per-session cleanup
+- **Drag & Drop**: Uses dragenter/dragover/drop events for file upload with visual feedback
+- **Webcam**: getUserMedia API for camera access, canvas for image capture, converted to JPEG
+- **Token Streaming**: Tokens buffered per step, transmitted every 500ms without extra whitespace
 
 ## Usage
 
