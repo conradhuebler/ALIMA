@@ -138,9 +138,31 @@ class AlimaWebapp {
         const video = document.getElementById('camera-video');
         const canvas = document.getElementById('camera-canvas');
 
+        // Check if browser supports camera API - Claude Generated (Defensive)
+        const hasCameraSupport = navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+        if (!hasCameraSupport) {
+            startBtn.disabled = true;
+            startBtn.textContent = '❌ Kamera nicht unterstützt';
+            const errorMsg = window.location.protocol === 'http:'
+                ? 'Kamera benötigt HTTPS (Sicherheit)'
+                : 'Ihr Browser unterstützt keine Kamera-API';
+            console.warn('Camera not available:', errorMsg);
+            return;
+        }
+
         startBtn.addEventListener('click', async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                // Try to get camera stream with better error handling - Claude Generated
+                const constraints = {
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
                 video.style.display = 'block';
                 this.cameraStream = stream;
@@ -148,7 +170,21 @@ class AlimaWebapp {
                 captureBtn.style.display = 'block';
                 stopBtn.style.display = 'block';
             } catch (error) {
-                alert('Kamera nicht verfügbar: ' + error.message);
+                // Provide helpful error messages - Claude Generated
+                let errorMsg = 'Kamera nicht verfügbar: ' + error.message;
+
+                if (error.name === 'NotAllowedError') {
+                    errorMsg = 'Kamera-Zugriff wurde verweigert. Bitte Berechtigung erteilen.';
+                } else if (error.name === 'NotFoundError') {
+                    errorMsg = 'Keine Kamera auf diesem Gerät gefunden.';
+                } else if (error.name === 'NotReadableError') {
+                    errorMsg = 'Kamera wird bereits von einer anderen Anwendung verwendet.';
+                } else if (window.location.protocol === 'http:') {
+                    errorMsg = 'Kamera benötigt HTTPS (Sicherheit). Bitte verwende https://.';
+                }
+
+                console.error('Camera error:', error);
+                alert(errorMsg);
             }
         });
 
