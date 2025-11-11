@@ -144,10 +144,28 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     await websocket.accept()
     session = sessions[session_id]
+    logger.info(f"WebSocket connected for session {session_id}")
 
     try:
-        while session.status in ["running"]:
-            # Send current state
+        last_step = None
+        idle_count = 0
+        max_idle = 600  # 5 minutes of inactivity = timeout (600 * 0.5s)
+
+        while True:
+            # Check if analysis is complete
+            if session.status not in ["running", "idle"]:
+                logger.info(f"Session {session_id} status changed to {session.status}")
+                # Send final update
+                await websocket.send_json({
+                    "type": "complete",
+                    "status": session.status,
+                    "results": session.results,
+                    "error": session.error_message,
+                    "current_step": session.current_step,
+                })
+                break
+
+            # Always send status update (every 500ms)
             await websocket.send_json({
                 "type": "status",
                 "status": session.status,
@@ -155,19 +173,30 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "results": session.results,
             })
 
+            # Track idle time (no step change)
+            if session.current_step == last_step:
+                idle_count += 1
+            else:
+                idle_count = 0
+                last_step = session.current_step
+                logger.info(f"Step changed: {session.current_step}")
+
+            # Timeout if idle too long
+            if idle_count > max_idle:
+                logger.warning(f"Session {session_id} idle timeout")
+                await websocket.send_json({
+                    "type": "error",
+                    "error": "Analysis timeout",
+                })
+                break
+
             # Wait before next update
             await asyncio.sleep(0.5)
 
-        # Final update
-        await websocket.send_json({
-            "type": "complete",
-            "status": session.status,
-            "results": session.results,
-            "error": session.error_message,
-        })
-
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {session_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error for {session_id}: {e}", exc_info=True)
 
 
 @app.get("/api/export/{session_id}")
@@ -255,10 +284,12 @@ async def run_analysis(
         session.add_temp_file(output_file.name)
         cli_args.extend(["--output-json", output_file.name])
 
-        # Run CLI command
-        session.current_step = "initialisation"
-
+        # Run CLI command with step simulation - Claude Generated
         logger.info(f"Running: {' '.join(cli_args)}")
+
+        # Pipeline steps for progress simulation
+        pipeline_steps = ["initialisation", "search", "keywords", "dk_search", "classification"]
+        step_durations = [3, 2, 5, 2, 2]  # Estimated seconds per step
 
         process = await asyncio.create_subprocess_exec(
             *cli_args,
@@ -268,7 +299,41 @@ async def run_analysis(
         )
 
         session.process = process
+        start_time = asyncio.get_event_loop().time()
+
+        # Monitor process while updating steps - Claude Generated
+        session.current_step = "initialisation"
+        step_index = 0
+        cumulative_time = 0
+
+        while True:
+            # Check if process finished
+            if process.poll() is not None:
+                logger.info(f"CLI process finished with return code {process.returncode}")
+                break
+
+            # Simulate step progression based on elapsed time
+            elapsed = asyncio.get_event_loop().time() - start_time
+            cumulative_time = 0
+
+            for i, duration in enumerate(step_durations):
+                cumulative_time += duration
+                if elapsed < cumulative_time and i < len(pipeline_steps):
+                    if i != step_index and i < len(pipeline_steps):
+                        session.current_step = pipeline_steps[i]
+                        step_index = i
+                        logger.info(f"Progressed to step: {session.current_step}")
+                    break
+
+            # Small delay to prevent busy-waiting
+            await asyncio.sleep(0.2)
+
+        # Read process output for debugging
         stdout, stderr = await process.communicate()
+        if stderr:
+            stderr_text = stderr.decode('utf-8', errors='replace')
+            if "error" in stderr_text.lower():
+                logger.warning(f"CLI stderr: {stderr_text[:200]}")
 
         if process.returncode != 0:
             error_msg = stderr.decode('utf-8', errors='replace')
@@ -279,8 +344,20 @@ async def run_analysis(
 
         # Read results from output file
         if os.path.exists(output_file.name):
-            with open(output_file.name, 'r', encoding='utf-8') as f:
-                session.results = json.load(f)
+            try:
+                with open(output_file.name, 'r', encoding='utf-8') as f:
+                    session.results = json.load(f)
+                logger.info(f"Loaded results from {output_file.name}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON results: {e}")
+                session.status = "error"
+                session.error_message = f"Invalid JSON output: {e}"
+                return
+        else:
+            logger.error(f"Output file not found: {output_file.name}")
+            session.status = "error"
+            session.error_message = "No output file generated"
+            return
 
         session.status = "completed"
         session.current_step = "classification"
