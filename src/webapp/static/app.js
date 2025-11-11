@@ -9,6 +9,8 @@ class AlimaWebapp {
         this.isAnalyzing = false;
         this.currentStep = 0;
         this.ws = null;
+        this.cameraStream = null;
+        this.capturedCameraImage = null;
 
         this.setupPipelineSteps();
         this.setupEventListeners();
@@ -24,11 +26,11 @@ class AlimaWebapp {
     // Pipeline step definitions
     setupPipelineSteps() {
         this.steps = [
-            { id: 'input', name: '📥 Input & Datenquellen', description: 'Eingabe verarbeiten' },
-            { id: 'initialisation', name: '🔍 Initialisierung', description: 'Freie Schlagworte generieren' },
-            { id: 'search', name: '🔎 GND/SWB Suche', description: 'Katalogsuche durchführen' },
-            { id: 'keywords', name: '📚 Verbale Erschließung', description: 'Finale GND-Schlagworte' },
-            { id: 'classification', name: '📊 Klassifikation', description: 'DK/RVK-Codes zuweisen' }
+            { id: 'input', name: 'Input', description: 'Processing' },
+            { id: 'initialisation', name: 'Init', description: 'Keywords' },
+            { id: 'search', name: 'Search', description: 'Catalog' },
+            { id: 'keywords', name: 'Refine', description: 'Subjects' },
+            { id: 'classification', name: 'Classify', description: 'Codes' }
         ];
 
         this.renderPipelineSteps();
@@ -82,6 +84,101 @@ class AlimaWebapp {
         document.getElementById('file-input').addEventListener('change', (e) => {
             const fileName = e.target.files[0]?.name || '';
             document.getElementById('file-name').textContent = fileName ? `✓ ${fileName}` : '';
+        });
+
+        // Drag and drop
+        this.setupDragAndDrop();
+
+        // Camera controls
+        this.setupCamera();
+    }
+
+    setupDragAndDrop() {
+        const uploadArea = document.getElementById('file-upload-area');
+        const fileInput = document.getElementById('file-input');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.add('dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => {
+                uploadArea.classList.remove('dragover');
+            });
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                const event = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(event);
+            }
+        });
+
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+    }
+
+    setupCamera() {
+        const startBtn = document.getElementById('camera-start-btn');
+        const captureBtn = document.getElementById('camera-capture-btn');
+        const stopBtn = document.getElementById('camera-stop-btn');
+        const video = document.getElementById('camera-video');
+        const canvas = document.getElementById('camera-canvas');
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                this.cameraStream = stream;
+                startBtn.style.display = 'none';
+                captureBtn.style.display = 'block';
+                stopBtn.style.display = 'block';
+            } catch (error) {
+                alert('Kamera nicht verfügbar: ' + error.message);
+            }
+        });
+
+        captureBtn.addEventListener('click', () => {
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+            document.getElementById('camera-image').src = imageData;
+            document.getElementById('camera-preview').style.display = 'flex';
+            this.capturedCameraImage = imageData;
+
+            video.style.display = 'none';
+            captureBtn.style.display = 'none';
+            stopBtn.textContent = 'Neue Aufnahme';
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (this.cameraStream) {
+                this.cameraStream.getTracks().forEach(track => track.stop());
+            }
+            video.style.display = 'none';
+            video.srcObject = null;
+            document.getElementById('camera-preview').style.display = 'none';
+            this.capturedCameraImage = null;
+            startBtn.style.display = 'block';
+            captureBtn.style.display = 'none';
+            stopBtn.style.display = 'none';
+            stopBtn.textContent = 'Beenden';
         });
     }
 
@@ -157,6 +254,18 @@ class AlimaWebapp {
             } else {
                 inputType = 'txt';
             }
+        } else if (activeTab.id === 'camera-tab') {
+            if (!this.capturedCameraImage) {
+                alert('Please take a photo first');
+                return;
+            }
+            inputType = 'img';
+            // Convert data URL to Blob
+            const response = await fetch(this.capturedCameraImage);
+            const blob = await response.blob();
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(new File([blob], 'camera_photo.jpg', { type: 'image/jpeg' }));
+            file = dataTransfer.files[0];
         }
 
         await this.submitAnalysis(inputType, content, file);
