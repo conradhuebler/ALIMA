@@ -57,7 +57,8 @@ class TableWidget(QWidget):
         self.available_tables = {
             "gnd_entries": "GND-Einträge (Facts)",
             "classifications": "Klassifikationen (DK/RVK)",
-            "search_mappings": "Such-Mappings (Cache)"
+            "search_mappings": "Such-Mappings (Cache)",
+            "catalog_dk_cache": "Katalog DK/RVK-Zwischenspeicher"
         }
 
         # Initialize DatabaseManager
@@ -105,6 +106,8 @@ class TableWidget(QWidget):
         header_layout.addStretch()
         header_layout.addWidget(self.title_label)
         header_layout.addWidget(self.info_label)
+        
+        main_layout.addLayout(header_layout)
 
         # Search layout
         search_layout = QHBoxLayout()

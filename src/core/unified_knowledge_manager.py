@@ -727,6 +727,12 @@ class UnifiedKnowledgeManager:
             normalized_term = self._normalize_term(search_term)
             result_count = len(classifications)
 
+            # DEBUG: Log what we're about to store
+            self.logger.info(f"📥 Storing catalog cache for '{search_term}': {result_count} classifications")
+            for cls in classifications:
+                titles_count = len(cls.get('titles', []))
+                self.logger.debug(f"   - DK {cls.get('dk')}: {titles_count} titles, count={cls.get('count')}")
+
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO catalog_dk_cache
                 (search_term, normalized_term, found_classifications, result_count, last_updated, created_at)
@@ -740,11 +746,22 @@ class UnifiedKnowledgeManager:
                 search_term
             ])
 
-            self.logger.info(f"✅ Stored {result_count} classifications in catalog cache for '{search_term}'")
-            return True
+            # VERIFY: Check that it was actually stored
+            verify_row = self.db_manager.fetch_one(
+                "SELECT result_count FROM catalog_dk_cache WHERE search_term = ?",
+                [search_term]
+            )
+            if verify_row:
+                self.logger.info(f"✅ Verified: Stored {result_count} classifications in catalog cache for '{search_term}'")
+                return True
+            else:
+                self.logger.error(f"❌ FAILED: Could not verify storage for '{search_term}'")
+                return False
 
         except Exception as e:
-            self.logger.error(f"Error storing catalog cache for '{search_term}': {e}")
+            self.logger.error(f"❌ Error storing catalog cache for '{search_term}': {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     def search_catalog_dk_cache(self, keywords: List[str]) -> List[Dict[str, Any]]:
@@ -894,9 +911,9 @@ class UnifiedKnowledgeManager:
                                         if title and title.strip() and title not in merged_titles:
                                             merged_titles.append(title)
 
-                                    # Create merged classification entry
+                                    # Create merged classification entry - FIXED: Use "dk" for consistency
                                     merged_classifications.append({
-                                        "code": code,
+                                        "dk": code,
                                         "type": classification_type,
                                         "titles": merged_titles,
                                         "count": count + existing_cls.get("count", 0),
@@ -913,7 +930,7 @@ class UnifiedKnowledgeManager:
                                 # Filter and limit to 10 titles - Claude Generated
                                 filtered_new_titles = [t for t in new_titles if t and t.strip()]
                                 merged_classifications.append({
-                                    "code": code,
+                                    "dk": code,
                                     "type": classification_type,
                                     "titles": filtered_new_titles,
                                     "count": count,
@@ -923,20 +940,20 @@ class UnifiedKnowledgeManager:
 
                         except Exception as e:
                             self.logger.error(f"Error merging titles for '{keyword}': {e}")
-                            # Fallback: use new classification - Claude Generated
+                            # Fallback: use new classification - Claude Generated - FIXED: Use "dk"
                             filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
                             merged_classifications = [{
-                                "code": code,
+                                "dk": code,
                                 "type": classification_type,
                                 "titles": filtered_new_titles,
                                 "count": count,
                                 "avg_confidence": avg_confidence
                             }]
                     else:
-                        # No existing mapping, create new one - Claude Generated
+                        # No existing mapping, create new one - Claude Generated - FIXED: Use "dk"
                         filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
                         merged_classifications = [{
-                            "code": code,
+                            "dk": code,
                             "type": classification_type,
                             "titles": filtered_new_titles,
                             "count": count,
