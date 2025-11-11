@@ -229,18 +229,28 @@ class AlimaWebapp {
                 const data = await response.json();
                 console.log('Poll response:', data);
 
-                // Simulate WebSocket message format
+                // Simulate WebSocket message format (Claude Generated - include streaming tokens)
                 const msg = {
                     type: 'status',
                     status: data.status,
                     current_step: data.current_step,
-                    results: data.results
+                    results: data.results,
+                    streaming_tokens: data.streaming_tokens || {}  // Include tokens from polling
                 };
 
                 if (data.status === 'running') {
                     this.updatePipelineStatus(msg);
                     lastStep = data.current_step;
                 } else if (data.status === 'completed' || data.status === 'error') {
+                    // Display final streaming tokens before completing (Claude Generated)
+                    if (data.streaming_tokens && Object.keys(data.streaming_tokens).length > 0) {
+                        for (const [stepId, tokens] of Object.entries(data.streaming_tokens)) {
+                            if (Array.isArray(tokens) && tokens.length > 0) {
+                                this.appendStreamText(tokens.join(''));
+                            }
+                        }
+                    }
+
                     this.handleAnalysisComplete({
                         type: 'complete',
                         status: data.status,
@@ -344,6 +354,18 @@ class AlimaWebapp {
 
             for (let i = 0; i < stepIndex; i++) {
                 this.updateStepStatus(this.steps[i].id, 'completed');
+            }
+        }
+
+        // Display streaming tokens (Claude Generated - Real-time LLM output)
+        if (msg.streaming_tokens && Object.keys(msg.streaming_tokens).length > 0) {
+            for (const [stepId, tokens] of Object.entries(msg.streaming_tokens)) {
+                if (Array.isArray(tokens) && tokens.length > 0) {
+                    // Concatenate and display tokens for this step
+                    const tokenText = tokens.join('');
+                    // Use purple color for streaming tokens like GUI does
+                    this.appendStreamText(`${tokenText}`);
+                }
             }
         }
 

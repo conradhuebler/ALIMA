@@ -138,10 +138,23 @@ class Session:
         self.error_message = None
         self.process = None
         self.temp_files = []
+        self.streaming_buffer = {}  # Buffer for streaming tokens by step_id - Claude Generated
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
         self.temp_files.append(path)
+
+    def add_streaming_token(self, token: str, step_id: str):
+        """Add token to streaming buffer - Claude Generated"""
+        if step_id not in self.streaming_buffer:
+            self.streaming_buffer[step_id] = []
+        self.streaming_buffer[step_id].append(token)
+
+    def get_and_clear_streaming_buffer(self) -> dict:
+        """Get all buffered tokens and clear - Claude Generated"""
+        result = dict(self.streaming_buffer)
+        self.streaming_buffer.clear()
+        return result
 
     def cleanup(self):
         """Clean up temporary files - Claude Generated"""
@@ -175,6 +188,9 @@ async def get_session(session_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Session not found")
 
     session = sessions[session_id]
+    # Get streaming tokens for polling clients
+    streaming_tokens = session.get_and_clear_streaming_buffer()
+
     return {
         "session_id": session.session_id,
         "status": session.status,
@@ -182,6 +198,7 @@ async def get_session(session_id: str) -> dict:
         "created_at": session.created_at,
         "results": session.results,
         "error_message": session.error_message,
+        "streaming_tokens": streaming_tokens,  # Include for polling clients
     }
 
 
@@ -242,12 +259,16 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
                 break
 
-            # Always send status update (every 500ms)
+            # Always send status update (every 500ms) - Claude Generated
+            # Include streaming tokens buffered since last update
+            streaming_tokens = session.get_and_clear_streaming_buffer()
+
             await websocket.send_json({
                 "type": "status",
                 "status": session.status,
                 "current_step": session.current_step,
                 "results": session.results,
+                "streaming_tokens": streaming_tokens,  # Dict[step_id -> List[tokens]]
             })
 
             # Track idle time (no step change)
@@ -429,8 +450,11 @@ async def run_analysis(
             session.current_step = "classification"
 
         def on_stream_token(token: str, step_id: str = ""):
-            """Handle token streaming - Claude Generated"""
-            logger.debug(f"Token [{step_id}]: {token[:30]}...")
+            """Handle token streaming - buffer tokens for WebSocket - Claude Generated"""
+            # Buffer tokens by step for periodic transmission via WebSocket
+            if step_id:
+                session.add_streaming_token(token, step_id)
+            logger.debug(f"Token [{step_id}]: {token[:30] if len(token) > 30 else token}...")
 
         # Run pipeline in background thread - Claude Generated
         def execute_pipeline():
