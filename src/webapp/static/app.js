@@ -334,7 +334,6 @@ class AlimaWebapp {
     updatePipelineStatus(msg) {
         if (msg.current_step) {
             console.log(`📊 Step update: ${msg.current_step}`);
-            this.appendStreamText(`→ Current Step: ${msg.current_step}`);
 
             // Map backend step names to frontend
             const stepMap = {
@@ -350,7 +349,6 @@ class AlimaWebapp {
 
             // Mark previous steps as completed
             const stepIndex = this.steps.findIndex(s => s.id === displayStep);
-            console.log(`Step index: ${stepIndex} for ${displayStep}`);
 
             for (let i = 0; i < stepIndex; i++) {
                 this.updateStepStatus(this.steps[i].id, 'completed');
