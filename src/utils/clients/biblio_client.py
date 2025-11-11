@@ -1189,9 +1189,14 @@ class BiblioClient:
             
             # Extract DK and RVK classifications from each item
             for item in processed_items:
-                dk_classifications = item.get("decimal_classifications", [])
-                rvk_classifications = item.get("rvk_classifications", [])
-                
+                # Ensure classifications are lists, not None
+                dk_classifications = item.get("decimal_classifications") or []
+                rvk_classifications = item.get("rvk_classifications") or []
+
+                # Filter out None/empty values from classifications
+                dk_classifications = [dk for dk in dk_classifications if dk]
+                rvk_classifications = [rvk for rvk in rvk_classifications if rvk]
+
                 # Add DK classifications
                 for dk in dk_classifications:
                     dk_results.append({
@@ -1202,7 +1207,7 @@ class BiblioClient:
                         "source_rsn": item.get("rsn", ""),
                         "confidence": self._calculate_dk_confidence(item, keyword)
                     })
-                
+
                 # Add RVK classifications - Claude Generated
                 for rvk in rvk_classifications:
                     dk_results.append({
@@ -1222,7 +1227,11 @@ class BiblioClient:
             # Group results by classification for proper caching
             result_groups = {}
             for result in dk_results:
-                dk = result["dk"]
+                dk = result.get("dk")
+                # Skip results with None dk values - Claude Generated (Defensive)
+                if not dk:
+                    logger.warning(f"Skipping result with None/empty dk value: {result}")
+                    continue
                 classification_type = result.get("classification_type", "DK")
                 key = f"{classification_type}:{dk}"
                 
