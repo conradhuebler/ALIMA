@@ -210,19 +210,90 @@ class AlimaWebapp {
         }
     }
 
-    // Connect WebSocket for live updates
+    // Connect via Polling (fallback from WebSocket) - Claude Generated
+    connectViaPolling() {
+        console.log('Using polling instead of WebSocket');
+        this.appendStreamText(`[${this.getTime()}] Using polling for live updates...`);
+
+        let lastStep = null;
+        let pollCount = 0;
+        const maxPolls = 300; // 2.5 minutes max (300 * 0.5s)
+
+        const pollInterval = setInterval(async () => {
+            pollCount++;
+
+            try {
+                const response = await fetch(`/api/session/${this.sessionId}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                console.log('Poll response:', data);
+
+                // Simulate WebSocket message format
+                const msg = {
+                    type: 'status',
+                    status: data.status,
+                    current_step: data.current_step,
+                    results: data.results
+                };
+
+                if (data.status === 'running') {
+                    this.updatePipelineStatus(msg);
+                    lastStep = data.current_step;
+                } else if (data.status === 'completed' || data.status === 'error') {
+                    this.handleAnalysisComplete({
+                        type: 'complete',
+                        status: data.status,
+                        results: data.results,
+                        error: data.error_message,
+                        current_step: data.current_step
+                    });
+                    clearInterval(pollInterval);
+                }
+            } catch (error) {
+                console.error('Poll error:', error);
+                this.appendStreamText(`⚠️ Poll error: ${error.message}`);
+            }
+
+            // Timeout after max polls
+            if (pollCount > maxPolls) {
+                clearInterval(pollInterval);
+                this.appendStreamText(`⚠️ Polling timeout`);
+                this.isAnalyzing = false;
+                this.updateButtonState();
+            }
+        }, 500); // Poll every 500ms
+    }
+
+    // Try WebSocket, fallback to polling - Claude Generated
     connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/${this.sessionId}`;
 
-        console.log(`Connecting to WebSocket: ${wsUrl}`);
+        console.log(`Trying WebSocket: ${wsUrl}`);
         this.appendStreamText(`[${this.getTime()}] Connecting to live updates...`);
 
         this.ws = new WebSocket(wsUrl);
+        let wsConnected = false;
+
+        // Set timeout for WebSocket connection attempt
+        const wsTimeout = setTimeout(() => {
+            if (!wsConnected) {
+                console.log('WebSocket timeout, falling back to polling');
+                try {
+                    this.ws.close();
+                } catch (e) {
+                    // Ignore
+                }
+                this.connectViaPolling();
+            }
+        }, 2000); // 2 second timeout
 
         this.ws.onopen = () => {
+            wsConnected = true;
+            clearTimeout(wsTimeout);
             console.log('WebSocket connected');
-            this.appendStreamText(`[${this.getTime()}] Connected to live updates`);
+            this.appendStreamText(`[${this.getTime()}] Connected via WebSocket`);
         };
 
         this.ws.onmessage = (event) => {
@@ -237,13 +308,15 @@ class AlimaWebapp {
         };
 
         this.ws.onerror = (error) => {
+            wsConnected = true; // Prevent timeout from firing
+            clearTimeout(wsTimeout);
             console.error('WebSocket error:', error);
-            this.appendStreamText(`⚠️ WebSocket connection error`);
+            this.appendStreamText(`⚠️ WebSocket error, using polling...`);
+            this.connectViaPolling();
         };
 
         this.ws.onclose = () => {
             console.log('WebSocket closed');
-            this.appendStreamText(`[${this.getTime()}] Connection closed`);
         };
     }
 
