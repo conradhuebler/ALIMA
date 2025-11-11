@@ -405,23 +405,47 @@ class AlimaWebapp {
         });
     }
 
-    // Display results in stream
+    // Display results in stream (Claude Generated - Updated for full results)
     displayResults(results) {
         if (!results) return;
 
-        // Display keywords
-        if (results.keywords && results.keywords.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] Keywords found:`);
-            results.keywords.forEach(kw => {
+        // Display original abstract
+        if (results.original_abstract) {
+            this.appendStreamText(`\n[${this.getTime()}] 📄 Original Abstract:`);
+            this.appendStreamText(`  ${results.original_abstract.substring(0, 150)}${results.original_abstract.length > 150 ? '...' : ''}`);
+        }
+
+        // Display initial keywords
+        if (results.initial_keywords && results.initial_keywords.length > 0) {
+            this.appendStreamText(`\n[${this.getTime()}] 🔤 Initial Keywords (free):`);
+            results.initial_keywords.forEach(kw => {
                 this.appendStreamText(`  • ${kw}`);
             });
         }
 
-        // Display classifications
-        if (results.dk_classification && results.dk_classification.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] Classifications:`);
-            results.dk_classification.forEach(cls => {
-                this.appendStreamText(`  📊 ${cls}`);
+        // Display final GND-compliant keywords
+        if (results.final_keywords && results.final_keywords.length > 0) {
+            this.appendStreamText(`\n[${this.getTime()}] 📚 Final GND Keywords:`);
+            results.final_keywords.forEach(kw => {
+                this.appendStreamText(`  ✓ ${kw}`);
+            });
+        }
+
+        // Display DK/RVK classifications
+        if (results.dk_classifications && results.dk_classifications.length > 0) {
+            this.appendStreamText(`\n[${this.getTime()}] 📊 DK/RVK Classifications:`);
+            results.dk_classifications.forEach(cls => {
+                this.appendStreamText(`  📋 ${cls}`);
+            });
+        }
+
+        // Display DK search results summary
+        if (results.dk_search_results && results.dk_search_results.length > 0) {
+            this.appendStreamText(`\n[${this.getTime()}] 🔍 DK Search Results:`);
+            results.dk_search_results.forEach(result => {
+                const keyword = result.keyword || 'unknown';
+                const count = result.count || 0;
+                this.appendStreamText(`  🔎 ${keyword}: ${count} titles`);
             });
         }
     }

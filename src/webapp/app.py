@@ -391,11 +391,39 @@ async def run_analysis(
 
         def on_pipeline_completed(analysis_state):
             logger.info(f"Pipeline completed, storing results")
-            # Extract results from analysis state
+            # Extract results from analysis state (same as GUI) - Claude Generated
+
+            # Extract final GND keywords from LLM analysis
+            final_keywords = []
+            if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+                final_keywords = getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
+
+            # Extract DK classifications
+            dk_classifications = getattr(analysis_state, 'dk_classifications', [])
+
+            # Extract initial keywords
+            initial_keywords = getattr(analysis_state, 'initial_keywords', [])
+
+            # Extract original abstract
+            original_abstract = getattr(analysis_state, 'original_abstract', '')
+
+            # Extract search results
+            search_results = getattr(analysis_state, 'search_results', [])
+
+            # Extract DK search results
+            dk_search_results = getattr(analysis_state, 'dk_search_results', [])
+
+            # Store formatted results for JSON export
             session.results = {
-                "keywords": analysis_state.final_gnd_schlagworte if hasattr(analysis_state, 'final_gnd_schlagworte') else [],
-                "dk_classification": analysis_state.classifications if hasattr(analysis_state, 'classifications') else [],
-                "analysis_state": analysis_state,
+                "original_abstract": original_abstract,
+                "initial_keywords": initial_keywords,
+                "final_keywords": final_keywords,
+                "dk_classifications": dk_classifications,
+                "dk_search_results": dk_search_results,
+                "search_results_count": len(search_results) if isinstance(search_results, list) else 0,
+                "full_analysis_state": {
+                    "has_final_llm_analysis": bool(hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis),
+                }
             }
             session.status = "completed"
             session.current_step = "classification"
