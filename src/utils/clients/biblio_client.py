@@ -34,20 +34,28 @@ class BiblioClient:
     DETAILS_URL = (
         "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.LibraryAPI.cls"
     )
+    # Web catalog URLs for fallback - Claude Generated
+    WEB_SEARCH_URL = "https://katalog.ub.tu-freiberg.de/Search/Results"
+    WEB_RECORD_BASE_URL = "https://katalog.ub.tu-freiberg.de/Record/"
 
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
 
-    def __init__(self, token: str = "", debug: bool = False):
+    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True):
         """
         Initialize the extractor with the given token.
 
         Args:
             token: The authentication token for the library API
             debug: Enable detailed debug output
+            save_xml_path: Directory to save raw XML responses for debugging (empty string = disabled)
+            enable_web_fallback: Enable web scraping fallback when SOAP fails (Claude Generated)
         """
         self.token = token
         self.debug = debug
+        self.save_xml_path = save_xml_path
+        self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
+        self._using_web_mode = False  # Claude Generated - Track if we switched to web pipeline
         self.session = requests.Session()
         self.headers = {"Content-Type": "text/xml;charset=UTF-8", "SOAPAction": ""}
 
@@ -91,6 +99,25 @@ class BiblioClient:
                 logger.error(
                     f"Error searching: {response.status_code} - {response.text}"
                 )
+                return []
+
+            # Check for SOAP Fault response - Claude Generated
+            soap_fault = self._extract_soap_fault(response.text)
+            if soap_fault:
+                logger.error(f"SOAP Fault during search for '{term}': {soap_fault}")
+
+                # Try web scraping fallback immediately - Claude Generated
+                if self.enable_web_fallback:
+                    logger.info(f"Attempting web scraping fallback for search term: {term}")
+                    self._using_web_mode = True  # Claude Generated - Switch to web mode permanently
+                    logger.info("🔄 Switched to web pipeline mode for all subsequent requests")
+                    web_results = self._search_web(term)
+                    if web_results:
+                        logger.info(f"✅ Web fallback search successful: {len(web_results)} results")
+                        return web_results
+                    else:
+                        logger.warning(f"⚠️ Web fallback also returned no results for '{term}'")
+
                 return []
 
         except requests.exceptions.RequestException as e:
@@ -172,6 +199,11 @@ class BiblioClient:
         Returns:
             A dictionary with title details or None if an error occurred
         """
+        # If web mode is active, use web scraping directly - Claude Generated
+        if self._using_web_mode:
+            logger.debug(f"Web mode active: Using web scraping for RSN {rsn}")
+            return self._get_title_details_web(rsn)
+
         details_envelope = f"""
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lib="http://libero.com.au">
            <soapenv:Header/>
@@ -200,10 +232,48 @@ class BiblioClient:
             if self.debug:
                 logger.debug(f"Details response content: {response.text}")
 
+            # Save raw XML response for debugging - Claude Generated
+            if self.save_xml_path:
+                self._save_xml_response(rsn, response.text)
+
             if response.status_code != 200:
                 logger.error(
                     f"Error getting details: {response.status_code} - {response.text}"
                 )
+
+                # Try web fallback for 400 Bad Request (Web Record ID passed to SOAP) - Claude Generated
+                if response.status_code == 400 and self.enable_web_fallback:
+                    logger.info(
+                        f"HTTP 400 for RSN {rsn}: Likely web record ID, trying web fallback"
+                    )
+                    fallback_details = self._get_title_details_web(rsn)
+                    if fallback_details:
+                        logger.info(f"✅ Web fallback successful for RSN {rsn}")
+                        return fallback_details
+
+                return None
+
+            # Check for SOAP Fault response - Claude Generated
+            soap_fault = self._extract_soap_fault(response.text)
+            if soap_fault:
+                logger.error(f"SOAP Fault for RSN {rsn}: {soap_fault}")
+
+                # Try web scraping fallback - Claude Generated
+                if self.enable_web_fallback:
+                    logger.info(
+                        f"Attempting web scraping fallback for RSN {rsn}"
+                    )
+                    fallback_details = self._get_title_details_web(rsn)
+                    if fallback_details:
+                        logger.info(
+                            f"✅ Web scraping fallback successful for RSN {rsn}"
+                        )
+                        return fallback_details
+                    else:
+                        logger.warning(
+                            f"⚠️ Web scraping fallback also failed for RSN {rsn}"
+                        )
+
                 return None
 
         except requests.exceptions.RequestException as e:
@@ -229,8 +299,14 @@ class BiblioClient:
                 logger.debug(f"Found {len(mab_subjects)} MAB subjects: {mab_subjects}")
                 details["mab_subjects"] = mab_subjects
             else:
-                logger.debug("No MAB subjects found")
+                logger.debug("No MAB subjects found in XML")
                 details["mab_subjects"] = []
+
+            # Early diagnostic: check if root has any content - Claude Generated
+            if len(root) == 0:
+                logger.warning(f"⚠️ XML root has no children - possible empty SOAP response for RSN {rsn}")
+            else:
+                logger.debug(f"XML root has {len(root)} children for RSN {rsn}")
 
             # Register namespaces
             namespaces = {
@@ -238,10 +314,16 @@ class BiblioClient:
                 "lib": "http://libero.com.au",
             }
 
-            # Try different possible paths for classifications
+            # Try different possible paths for classifications - ENHANCED with additional paths
             classification_paths = [
                 ".//Classification/Classifications/Classification",
                 ".//{http://libero.com.au}Classification/{http://libero.com.au}Classifications/{http://libero.com.au}Classification",
+                ".//Classifications/Classification",  # Shorter path variant
+                ".//{http://libero.com.au}Classifications/{http://libero.com.au}Classification",  # Namespace variant
+                ".//DK",  # Direct DK tag
+                ".//{http://libero.com.au}DK",  # Namespaced DK tag
+                ".//Dewey",  # Alternative name
+                ".//{http://libero.com.au}Dewey",  # Namespaced Dewey
             ]
 
             classifications = []
@@ -253,7 +335,12 @@ class BiblioClient:
                         logger.debug(f"Found classification: {classification.text}")
 
                 if classifications:
+                    logger.info(f"✅ Found {len(classifications)} classifications using path: {path}")
                     break
+
+            # Log if no classifications found to help debugging
+            if not classifications and self.debug:
+                logger.warning(f"❌ No classifications found for RSN {rsn} using any of {len(classification_paths)} paths")
 
             details["classifications"] = classifications
 
@@ -281,8 +368,12 @@ class BiblioClient:
             # Extract basic information using multiple paths
             title_paths = [".//Title", ".//{http://libero.com.au}Title"]
             details["title"] = self._extract_text_multiple_paths(root, title_paths)
+            if not details["title"]:
+                logger.warning(f"⚠️ No title found for RSN {rsn} - checked paths: {title_paths}")
 
             details["author"] = self._extract_authors(root)
+            if not details["author"]:
+                logger.debug(f"No authors found for RSN {rsn}")
 
             publication_paths = [
                 ".//Publication",
@@ -291,11 +382,39 @@ class BiblioClient:
             details["publication"] = self._extract_text_multiple_paths(
                 root, publication_paths
             )
+            if not details["publication"]:
+                logger.debug(f"No publication found for RSN {rsn}")
 
             isbn_paths = [".//ISBN", ".//{http://libero.com.au}ISBN"]
             details["isbn"] = self._extract_text_multiple_paths(root, isbn_paths)
+            if not details["isbn"]:
+                logger.debug(f"No ISBN found for RSN {rsn}")
 
             details["rsn"] = rsn
+
+            # ADDED: Try to extract DK numbers from title text if classifications field is empty - Claude Generated
+            if not details.get("classifications"):
+                title_text = details.get("title", "")
+                dk_from_title = self._extract_dk_from_text(title_text)
+                if dk_from_title:
+                    logger.info(f"Extracted DK numbers from title text for RSN {rsn}: {dk_from_title}")
+                    details["classifications"] = dk_from_title
+                    details["_source"] = "extracted_from_title"  # Mark as fallback source
+
+            # Diagnostic: log extraction summary - Claude Generated
+            extracted_fields = sum([
+                bool(details.get("title")),
+                bool(details.get("author")),
+                bool(details.get("publication")),
+                bool(details.get("isbn")),
+                bool(details.get("classifications")),
+                bool(details.get("subjects")),
+                bool(details.get("mab_subjects"))
+            ])
+            if extracted_fields == 0:
+                logger.warning(f"⚠️ No data extracted for RSN {rsn} - SOAP response may be empty or malformed")
+            elif extracted_fields < 3:
+                logger.info(f"⚠️ Partial data for RSN {rsn}: {extracted_fields}/7 fields populated")
 
             return details
 
@@ -304,6 +423,222 @@ class BiblioClient:
             if hasattr(response, "text"):
                 logger.error(f"Response content: {response.text}")
             return None
+
+    def _search_web(self, term: str, search_type: str = "AllFields") -> List[Dict[str, Any]]:
+        """
+        Search web catalog when SOAP search fails - Complete fallback - Claude Generated
+
+        Args:
+            term: Search term (keyword)
+            search_type: Search type (default: AllFields)
+
+        Returns:
+            List of search results with rsn (web record ID) and title
+        """
+        try:
+            from bs4 import BeautifulSoup
+
+            logger.info(f"Web search fallback for term: {term}")
+
+            # Build search parameters - Claude Generated
+            params = {
+                "hiddenFilters[]": [
+                    'institution:"DE-105"',
+                    '-format:"Article"',
+                    '-format:"ElectronicArticle"',
+                ],
+                "join": "AND",
+                "bool0[]": "AND",
+                "lookfor0[]": term,
+                "type0[]": search_type,
+                "filter[]": 'facet_avail:"Local"',
+                "limit": 50,  # Get up to 50 results
+            }
+
+            # Make request - Claude Generated
+            response = self.session.get(self.WEB_SEARCH_URL, params=params, timeout=30)
+            if response.status_code != 200:
+                logger.warning(f"Web search: HTTP {response.status_code} for '{term}'")
+                return []
+
+            # Parse HTML - Claude Generated
+            soup = BeautifulSoup(response.text, "html.parser")
+            results = []
+
+            # Extract record IDs and titles - Claude Generated
+            for title_link in soup.find_all("a", class_="title getFull"):
+                try:
+                    record_id = title_link.get("id", "").split("|")[-1]
+                    title_text = title_link.text.strip()
+
+                    if record_id and title_text:
+                        results.append({"rsn": record_id, "title": title_text})
+                except Exception as e:
+                    logger.debug(f"Error extracting record: {e}")
+                    continue
+
+            logger.info(f"Web search found {len(results)} results for '{term}'")
+            return results
+
+        except Exception as e:
+            logger.error(f"Web search failed for '{term}': {e}")
+            return []
+
+    def _get_title_details_web(self, rsn: str) -> Optional[Dict[str, Any]]:
+        """
+        Get title details via web scraping fallback when SOAP fails - Claude Generated
+
+        Args:
+            rsn: Record Serial Number
+
+        Returns:
+            Dictionary with title details (same format as SOAP response) or None
+        """
+        try:
+            from bs4 import BeautifulSoup
+
+            # Fetch record page - Claude Generated
+            url = f"{self.WEB_RECORD_BASE_URL}{rsn}"
+            logger.debug(f"Web fallback: Fetching {url}")
+
+            response = self.session.get(url, timeout=30)
+            if response.status_code != 200:
+                logger.warning(f"Web fallback: HTTP {response.status_code} for RSN {rsn}")
+                return None
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            details = {"rsn": rsn}
+
+            # Extract title - Claude Generated
+            title_element = soup.find("h1", attrs={"property": "name"})
+            details["title"] = title_element.text.strip() if title_element else ""
+
+            # Extract authors - Claude Generated
+            authors = []
+            for author_link in soup.find_all("a", href=re.compile(r"search.*author")):
+                author_text = author_link.text.strip()
+                if author_text and author_text not in authors:
+                    authors.append(author_text)
+            details["author"] = authors
+
+            # Extract DK classifications - Claude Generated
+            classifications = []
+            dk_links = soup.find_all("a", href=re.compile(r"lookfor=DK.*?&type=udk_raw_de105"))
+            for dk_link in dk_links:
+                dk_match = re.search(r"DK\s+([\d\.:]+)", dk_link.text)
+                if dk_match:
+                    dk_number = dk_match.group(1)
+                    classification_str = f"DK {dk_number}"
+                    if classification_str not in classifications:
+                        classifications.append(classification_str)
+
+            # Extract Q/RVK classifications - Claude Generated
+            q_links = soup.find_all("a", href=re.compile(r"lookfor=Q[A-Z]?\s*\d+.*?&type=udk_raw_de105"))
+            for q_link in q_links:
+                q_match = re.search(r"Q[A-Z]?\s*[\d\s]+", q_link.text)
+                if q_match:
+                    q_number = q_match.group().strip()
+                    classification_str = f"Q {q_number}"
+                    if classification_str not in classifications:
+                        classifications.append(classification_str)
+
+            details["classifications"] = classifications
+
+            # Extract publication, ISBN, subjects - Claude Generated (minimal from HTML)
+            details["publication"] = ""
+            details["isbn"] = ""
+            details["subjects"] = []
+            details["mab_subjects"] = []
+
+            logger.debug(
+                f"Web fallback for RSN {rsn}: title='{details['title']}', "
+                f"classifications={details['classifications']}"
+            )
+
+            return details if details.get("title") or details.get("classifications") else None
+
+        except Exception as e:
+            logger.warning(f"Web fallback failed for RSN {rsn}: {e}")
+            return None
+
+    def _extract_soap_fault(self, response_text: str) -> Optional[str]:
+        """
+        Extract SOAP Fault message from response if present - Claude Generated
+
+        Args:
+            response_text: Raw response text from SOAP server
+
+        Returns:
+            Fault message string if SOAP Fault found, None otherwise
+        """
+        import xml.etree.ElementTree as ET
+
+        try:
+            # Try multiple common fault string patterns
+            fault_patterns = [
+                r'<soap:Fault>.*?<faultstring>(.*?)</faultstring>',
+                r'<soap:faultstring>(.*?)</soap:faultstring>',
+                r'<faultstring>(.*?)</faultstring>',
+                r'<ns2:faultstring>(.*?)</ns2:faultstring>',
+            ]
+
+            for pattern in fault_patterns:
+                match = re.search(pattern, response_text, re.DOTALL | re.IGNORECASE)
+                if match:
+                    return match.group(1).strip()
+
+            # Also try XML parsing
+            if '<soap:Fault>' in response_text or '<Fault>' in response_text:
+                root = ET.fromstring(response_text)
+                # Try different namespace variants
+                namespaces = {
+                    'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
+                    'ns': 'http://schemas.xmlsoap.org/soap/envelope/',
+                }
+                fault_string = root.find('.//faultstring')
+                if fault_string is not None and fault_string.text:
+                    return fault_string.text
+                # Try with namespace
+                for ns_prefix, ns_uri in namespaces.items():
+                    fault_string = root.find(f'.//{{{ns_uri}}}faultstring')
+                    if fault_string is not None and fault_string.text:
+                        return fault_string.text
+
+        except Exception as e:
+            logger.debug(f"Could not parse SOAP Fault: {e}")
+
+        return None
+
+    def _save_xml_response(self, rsn: str, xml_content: str) -> None:
+        """
+        Save raw XML response to file for debugging - Claude Generated
+
+        Args:
+            rsn: Record Serial Number (used in filename)
+            xml_content: Raw XML response content
+        """
+        import os
+        from pathlib import Path
+        from datetime import datetime
+
+        try:
+            # Create directory if it doesn't exist
+            save_dir = Path(self.save_xml_path)
+            save_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"rsn_{rsn}_{timestamp}.xml"
+            filepath = save_dir / filename
+
+            # Write XML to file
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(xml_content)
+
+            logger.info(f"✅ Saved XML response to: {filepath}")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Could not save XML response: {e}")
 
     def _extract_mab_subjects(self, root) -> List[str]:
         """
@@ -398,6 +733,40 @@ class BiblioClient:
                 break
 
         return authors
+
+    def _extract_dk_from_text(self, text: str) -> List[str]:
+        """
+        Extract DK (Dewey Decimal) classification numbers from text using regex.
+        Fallback method when DK numbers are not in XML structure but embedded in title.
+        Claude Generated
+
+        Args:
+            text: Text to search for DK numbers (usually title)
+
+        Returns:
+            List of extracted DK numbers (e.g., ["543.42", "620.5"])
+        """
+        if not text:
+            return []
+
+        # Pattern 1: "DK 543.42" (space-separated)
+        # Pattern 2: "[DK 543.42]" (in brackets)
+        # Pattern 3: "(DK 543.42)" (in parentheses)
+        patterns = [
+            r'DK\s+(\d+(?:\.\d+)*)',  # DK 543 or DK 543.42
+            r'\[DK\s+(\d+(?:\.\d+)*)\]',  # [DK 543.42]
+            r'\(DK\s+(\d+(?:\.\d+)*)\)',  # (DK 543.42)
+        ]
+
+        extracted = []
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                if match and match not in extracted:
+                    extracted.append(match)
+                    logger.debug(f"Found DK number in text: {match} (from pattern: {pattern})")
+
+        return extracted
 
     def extract_decimal_classifications(self, classifications: List[str]) -> List[str]:
         """
@@ -515,6 +884,10 @@ class BiblioClient:
         Returns:
             List of processed items with details
         """
+        # Log if web mode is active - Claude Generated
+        if self._using_web_mode:
+            logger.info(f"Processing {len(results)} search results in WEB MODE (no SOAP calls)")
+
         processed_items = []
 
         logger.info(f"Processing {min(len(results), max_items)} items...")
@@ -537,18 +910,45 @@ class BiblioClient:
             if not details:
                 logger.warning(f"Could not get details for RSN: {rsn}")
                 continue
-            logger.info(f"Details for RSN {rsn}: {details}")
+
+            # MERGE DATA: Start with search result data, overlay with server details - Claude Generated
+            # FIX: Preserve search result data (which contains title) when server details are empty
+            merged_details = dict(item)  # Copy search result data as base
+
+            # Overlay non-empty fields from server details (details take priority for populated fields)
+            for key, value in details.items():
+                if key == "rsn":
+                    # Always use the RSN from details
+                    merged_details[key] = value
+                elif isinstance(value, list):
+                    if value:  # Only use non-empty lists from details
+                        merged_details[key] = value
+                elif isinstance(value, str):
+                    if value and value.strip():  # Only use non-empty strings from details
+                        merged_details[key] = value
+                elif isinstance(value, dict):
+                    if value:  # Only use non-empty dicts from details
+                        merged_details[key] = value
+                # Skip empty values - keep search result data as fallback
+
+            # Log merged result with field counts for diagnostic
+            title_merged = merged_details.get("title", "")
+            classifications_count = len(merged_details.get("classifications", []))
+            subjects_count = len(merged_details.get("subjects", []))
+            authors_count = len(merged_details.get("author", []))
+            logger.info(f"Merged details for RSN {rsn}: title='{title_merged}', classifications={classifications_count}, subjects={subjects_count}, authors={authors_count}")
+
             # Add decimal classifications
-            details["decimal_classifications"] = self.extract_decimal_classifications(
-                details.get("classifications", [])
-            )
-            
-            # Add RVK classifications - Claude Generated
-            details["rvk_classifications"] = self.extract_rvk_classifications(
-                details.get("classifications", [])
+            merged_details["decimal_classifications"] = self.extract_decimal_classifications(
+                merged_details.get("classifications", [])
             )
 
-            processed_items.append(details)
+            # Add RVK classifications - Claude Generated
+            merged_details["rvk_classifications"] = self.extract_rvk_classifications(
+                merged_details.get("classifications", [])
+            )
+
+            processed_items.append(merged_details)
 
         return processed_items
 
@@ -577,9 +977,15 @@ class BiblioClient:
         
         for search_term in search_terms:
             logger.info(f"Searching catalog subjects for: {search_term}")
-            
+
             # Search catalog for this term
             search_results = self.search(search_term)
+
+            # Web fallback for search_subjects if SOAP fails - Claude Generated
+            if not search_results and self.enable_web_fallback:
+                logger.info(f"SOAP search failed for subjects '{search_term}', trying web fallback")
+                search_results = self._search_web(search_term)
+
             #logger.info(f"Found {(search_results)} results for '{search_term}'")
             if not search_results:
                 results[search_term] = {}
@@ -764,9 +1170,16 @@ class BiblioClient:
             # Search catalog for this keyword
             search_results = self.search(keyword, search_type="ku")
 
+            # Web fallback for search if SOAP fails - Claude Generated
+            if not search_results and self.enable_web_fallback:
+                logger.info(f"SOAP search failed for '{keyword}', trying web fallback")
+                search_results = self._search_web(keyword)
+                keyword_sources[keyword] = "web_fallback"
+            else:
+                keyword_sources[keyword] = "live"
+
             keyword_time = (time.time() - keyword_search_start) * 1000
             keyword_timings[keyword] = keyword_time
-            keyword_sources[keyword] = "live"
 
             if not search_results:
                 continue

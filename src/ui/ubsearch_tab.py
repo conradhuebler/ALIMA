@@ -15,14 +15,20 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QSlider,
     QTabWidget,
+    QComboBox,
+    QCheckBox,
+    QLineEdit,
+    QGroupBox,
+    QFileDialog,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtGui import QFont
 import logging
 from .abstract_tab import AbstractTab
 from ..core.katalog_subject import SubjectExtractor
 from ..llm.llm_service import LlmService
 from ..core.alima_manager import AlimaManager
-from ..core.alima_manager import AlimaManager
+from ..utils.clients.biblio_client import BiblioClient  # Claude Generated - SOAP API testing
 
 
 class AdditionalTitlesWorker(QThread):
@@ -218,6 +224,108 @@ class UBSearchWorker(QThread):
             return []
 
 
+class BiblioClientWorker(QThread):
+    """Worker-Thread für BiblioClient (SOAP API) Suche - Claude Generated"""
+
+    progress_updated = pyqtSignal(int, int)  # current, total
+    result_ready = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
+    status_updated = pyqtSignal(str)
+    raw_response = pyqtSignal(str)  # Raw SOAP response for debugging
+
+    def __init__(self, keywords: list, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True):
+        super().__init__()
+        self.keywords = keywords
+        self.token = token
+        self.debug = debug
+        self.save_xml_path = save_xml_path  # Claude Generated - XML debug export
+        self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback
+        self.logger = logging.getLogger(__name__)
+        self.num_results = 20
+
+    def setNumResults(self, num_results):
+        self.num_results = num_results
+
+    def run(self):
+        try:
+            client = BiblioClient(
+                token=self.token,
+                debug=self.debug,
+                save_xml_path=self.save_xml_path,
+                enable_web_fallback=self.enable_web_fallback,
+            )  # Claude Generated - Pass all parameters
+            classification_info = {}
+
+            for keyword_idx, keyword in enumerate(self.keywords):
+                self.status_updated.emit(f"Searching for: {keyword}")
+                self.progress_updated.emit(keyword_idx, len(self.keywords))
+
+                # Search catalog
+                search_results = client.search(keyword, search_type="ku")
+
+                if not search_results:
+                    self.logger.info(f"No results for keyword: {keyword}")
+                    continue
+
+                # Process each result to extract details and classifications
+                for item in search_results[: self.num_results]:
+                    rsn = item.get("rsn")
+                    if not rsn:
+                        continue
+
+                    # Get title details (includes classifications extraction)
+                    details = client.get_title_details(rsn)
+
+                    if details and details.get("classifications"):
+                        classifications = details.get("classifications", [])
+
+                        # Extract decimal classifications
+                        decimal_classes = client.extract_decimal_classifications(
+                            classifications
+                        )
+
+                        for dk in decimal_classes:
+                            key = f"DK {dk}"
+                            if key not in classification_info:
+                                classification_info[key] = {
+                                    "count": 0,
+                                    "titles": [],
+                                    "details": [],
+                                }
+                            classification_info[key]["count"] += 1
+                            title = details.get("title", "")
+                            if title and title not in classification_info[key]["titles"]:
+                                classification_info[key]["titles"].append(title)
+                            classification_info[key]["details"].append(details)
+
+                    # Emit raw response for debugging
+                    if self.debug:
+                        self.raw_response.emit(
+                            f"RSN {rsn}: title={details.get('title')}, "
+                            f"classifications={details.get('classifications')}"
+                        )
+
+            # Prepare final result
+            result_data = {
+                "method": "BiblioClient SOAP API",
+                "keywords": self.keywords,
+                "classifications": classification_info,
+                "total_unique_classifications": len(classification_info),
+            }
+
+            # Log XML export status - Claude Generated
+            if self.save_xml_path:
+                self.raw_response.emit(
+                    f"✅ XML responses saved to: {self.save_xml_path}"
+                )
+
+            self.result_ready.emit(result_data)
+
+        except Exception as e:
+            self.logger.error(f"BiblioClient search failed: {str(e)}", exc_info=True)
+            self.error_occurred.emit(f"BiblioClient error: {str(e)}")
+
+
 class UBSearchTab(QWidget):
     """Tab für die UB-Suche"""
 
@@ -232,11 +340,74 @@ class UBSearchTab(QWidget):
         self.llm = llm_service
         self.alima_manager = alima_manager  # Add this line to initialize alima_manager
         self.main_window = main_window
+        self.current_worker = None  # Claude Generated - Track current worker
         self.init_ui()
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
         layout = QVBoxLayout()
+
+        # Mode Selection - Claude Generated SOAP API Testing
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Suchmethod:"))
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems(["Web-Katalog (HTML)", "SOAP API (BiblioClient)"])
+        self.mode_selector.currentIndexChanged.connect(self.on_mode_changed)
+        mode_layout.addWidget(self.mode_selector)
+        layout.addLayout(mode_layout)
+
+        # SOAP API Configuration Panel - Claude Generated
+        self.soap_config_group = QGroupBox("SOAP API Einstellungen")
+        soap_config_layout = QVBoxLayout()
+
+        token_layout = QHBoxLayout()
+        token_layout.addWidget(QLabel("API Token:"))
+        self.token_input = QLineEdit()
+        self.token_input.setPlaceholderText("Katalog-API Token (optional)")
+        self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        token_layout.addWidget(self.token_input)
+        soap_config_layout.addLayout(token_layout)
+
+        debug_layout = QHBoxLayout()
+        self.debug_checkbox = QCheckBox("Debug-Modus (zeige XML-Response)")
+        self.debug_checkbox.setChecked(False)
+        debug_layout.addWidget(self.debug_checkbox)
+        self.show_raw_response_checkbox = QCheckBox("Zeige Rohdaten")
+        self.show_raw_response_checkbox.setChecked(True)
+        debug_layout.addWidget(self.show_raw_response_checkbox)
+        debug_layout.addStretch()
+        soap_config_layout.addLayout(debug_layout)
+
+        # Fallback Option - Claude Generated
+        fallback_layout = QHBoxLayout()
+        self.enable_web_fallback_checkbox = QCheckBox("Web-Scraping Fallback (bei SOAP-Fehler)")
+        self.enable_web_fallback_checkbox.setChecked(True)
+        fallback_layout.addWidget(self.enable_web_fallback_checkbox)
+        fallback_layout.addStretch()
+        soap_config_layout.addLayout(fallback_layout)
+
+        # XML Export Options - Claude Generated
+        xml_layout = QHBoxLayout()
+        self.save_xml_checkbox = QCheckBox("XML-Responses speichern (Debug)")
+        self.save_xml_checkbox.setChecked(False)
+        self.save_xml_checkbox.toggled.connect(self.on_save_xml_toggled)
+        xml_layout.addWidget(self.save_xml_checkbox)
+
+        self.xml_path_display = QLineEdit()
+        self.xml_path_display.setReadOnly(True)
+        self.xml_path_display.setPlaceholderText("Pfad für XML-Dateien (optional)")
+        xml_layout.addWidget(self.xml_path_display)
+
+        self.xml_browse_button = QPushButton("📁 Durchsuchen...")
+        self.xml_browse_button.clicked.connect(self.select_xml_save_path)
+        self.xml_browse_button.setEnabled(False)
+        xml_layout.addWidget(self.xml_browse_button)
+
+        soap_config_layout.addLayout(xml_layout)
+
+        self.soap_config_group.setLayout(soap_config_layout)
+        self.soap_config_group.setVisible(False)  # Hidden by default
+        layout.addWidget(self.soap_config_group)
 
         # Input-Bereich
         input_layout = QVBoxLayout()
@@ -292,6 +463,18 @@ class UBSearchTab(QWidget):
         self.detail_view.setReadOnly(True)
         splitter.addWidget(self.detail_view)
 
+        # Raw Response Debug Viewer - Claude Generated
+        self.debug_tabs = QTabWidget()
+        self.raw_response_view = QTextEdit()
+        self.raw_response_view.setReadOnly(True)
+        self.raw_response_view.setMaximumHeight(150)
+        font = QFont("Courier")
+        font.setPointSize(9)
+        self.raw_response_view.setFont(font)
+        self.debug_tabs.addTab(self.raw_response_view, "🔍 Raw Responses (Debug)")
+        self.debug_tabs.setVisible(False)  # Hidden by default
+        layout.addWidget(self.debug_tabs)
+
         # Remove AI tabs and replace with direct calls
         # self.ai_tabs = QTabWidget()
         # self.ai_search = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
@@ -334,8 +517,26 @@ class UBSearchTab(QWidget):
         self.logger.info(keywords)
         self.keywords_input.append(keywords)
 
+    def on_mode_changed(self, index):
+        """Handle search method change - Claude Generated"""
+        is_soap_mode = index == 1  # SOAP API (BiblioClient) is second option
+        self.soap_config_group.setVisible(is_soap_mode)
+
+    def on_save_xml_toggled(self, checked):
+        """Enable/disable XML path selector - Claude Generated"""
+        self.xml_browse_button.setEnabled(checked)
+
+    def select_xml_save_path(self):
+        """Select directory for XML file export - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Verzeichnis für XML-Debug-Dateien wählen", ""
+        )
+        if directory:
+            self.xml_path_display.setText(directory)
+            self.logger.info(f"XML save path set to: {directory}")
+
     def start_search(self):
-        """Startet die Suche"""
+        """Startet die Suche mit aktuell ausgewählter Methode - Claude Generated"""
         keywords_text = self.keywords_input.toPlainText().strip()
         if not keywords_text:
             QMessageBox.warning(
@@ -352,16 +553,34 @@ class UBSearchTab(QWidget):
         self.detail_view.clear()
         self.status_label.setText("Suche wird gestartet...")
 
-        self.worker = UBSearchWorker(unique_keywords)
-        self.worker.progress_updated.connect(self.update_progress)
-        self.worker.result_ready.connect(self.display_results)
-        self.worker.error_occurred.connect(self.handle_error)
-        self.worker.status_updated.connect(self.update_status)
-        self.worker.finished.connect(self.search_finished)
-        self.worker.setNumResults(self.num_results.value())
-        self.worker.start()
-        self.ai_search.set_keywords(keywords_text)
-        self.ai_classification.set_keywords(keywords_text)
+        # Choose worker based on selected mode - Claude Generated
+        if self.mode_selector.currentIndex() == 1:  # SOAP API mode
+            token = self.token_input.text().strip() or ""
+            debug = self.debug_checkbox.isChecked()
+            save_xml = self.xml_path_display.text() if self.save_xml_checkbox.isChecked() else ""
+            enable_web_fallback = self.enable_web_fallback_checkbox.isChecked()
+            self.current_worker = BiblioClientWorker(
+                unique_keywords,
+                token=token,
+                debug=debug,
+                save_xml_path=save_xml,
+                enable_web_fallback=enable_web_fallback,
+            )  # Claude Generated - Pass all parameters
+            self.current_worker.raw_response.connect(self.append_raw_response)
+            self.logger.info(
+                f"Starting SOAP API search with debug={debug}, save_xml={bool(save_xml)}, web_fallback={enable_web_fallback}"
+            )
+        else:  # Web Catalog mode (default)
+            self.current_worker = UBSearchWorker(unique_keywords)
+            self.logger.info("Starting Web Catalog search")
+
+        self.current_worker.progress_updated.connect(self.update_progress)
+        self.current_worker.result_ready.connect(self.display_results)
+        self.current_worker.error_occurred.connect(self.handle_error)
+        self.current_worker.status_updated.connect(self.update_status)
+        self.current_worker.finished.connect(self.search_finished)
+        self.current_worker.setNumResults(self.num_results.value())
+        self.current_worker.start()
 
     def update_progress(self, current, total):
         """Aktualisiert die Fortschrittsanzeige"""
@@ -373,10 +592,66 @@ class UBSearchTab(QWidget):
         self.status_label.setText(status)
 
     def display_results(self, results):
-        """Zeigt die Ergebnisse gruppiert nach DK/Q-Nummern an"""
+        """Zeigt die Ergebnisse gruppiert nach DK/Q-Nummern an - Claude Generated (supports both Web and SOAP)"""
         self.detail_view.clear()
         html_results = ["<h3>Suchergebnisse:</h3>"]
 
+        # Detect result type and handle accordingly - Claude Generated
+        if isinstance(results, dict) and "method" in results:
+            # BiblioClient SOAP API results
+            self._display_biblio_results(results, html_results)
+        else:
+            # Web Catalog results (original format)
+            self._display_web_results(results, html_results)
+
+        self.results_view.setHtml("".join(html_results))
+
+        # Update tree view based on result type - Claude Generated
+        if isinstance(results, dict) and "method" in results:
+            # BiblioClient SOAP API results
+            self.update_tree_view_biblio(results)
+        else:
+            # Web Catalog results
+            self.update_tree_view(results)
+
+        if hasattr(self, "ai_classification"):
+            self.ai_classification.set_keywords(self.results_view.toPlainText())
+            self.ai_classification.set_abstract(self.abstract)
+
+    def _display_biblio_results(self, results: dict, html_results: list):
+        """Display BiblioClient SOAP API results - Claude Generated"""
+        html_results.append(f"<p><b>Method:</b> {results.get('method', 'Unknown')}</p>")
+
+        classifications = results.get("classifications", {})
+        keywords_list = results.get("keywords", [])
+
+        if not classifications:
+            html_results.append("<p>Keine Klassifikationen gefunden.</p>")
+            return
+
+        html_results.append(f"<p><b>Schlagworte:</b> {', '.join(keywords_list)}</p>")
+        html_results.append(
+            f"<p><b>Gefundene Klassifikationen:</b> {len(classifications)}</p>"
+        )
+        html_results.append("<h4>Klassifikationen:</h4>")
+
+        for class_key in sorted(classifications.keys()):
+            class_data = classifications[class_key]
+            count = class_data.get("count", 0)
+            titles = class_data.get("titles", [])
+            html_results.append(
+                f"<p><b>{class_key}</b> ({count} Titel): {', '.join(titles[:3])}"
+            )
+            if len(titles) > 3:
+                html_results.append(f" ... und {len(titles) - 3} weitere")
+            html_results.append("</p>")
+
+        self.append_raw_response(
+            f"✅ Displayed BiblioClient results: {len(classifications)} classifications"
+        )
+
+    def _display_web_results(self, results: dict, html_results: list):
+        """Display Web Catalog results (original format) - Claude Generated"""
         # Sammle Statistiken für Keywords
         keyword_stats = {}
         classification_counts = {}  # Zählt Häufigkeit pro Klassifikation pro Keyword
@@ -490,12 +765,35 @@ class UBSearchTab(QWidget):
 
         self.results_view.setHtml("".join(html_results))
         self.update_tree_view(results)
-        self.ai_classification.set_keywords(self.results_view.toPlainText())
-        self.ai_classification.set_abstract(self.abstract)
+
+        # Update AI classification if available - Claude Generated
+        if hasattr(self, "ai_classification"):
+            self.ai_classification.set_keywords(self.results_view.toPlainText())
+            self.ai_classification.set_abstract(self.abstract)
+
+    def append_raw_response(self, response_text):
+        """Append raw response to debug viewer - Claude Generated"""
+        if not self.show_raw_response_checkbox.isChecked():
+            return
+
+        # Show debug panel if hidden
+        self.debug_tabs.setVisible(True)
+
+        # Append with timestamp
+        import datetime
+
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        self.raw_response_view.append(f"[{timestamp}] {response_text}")
+
+        # Auto-scroll to bottom
+        self.raw_response_view.verticalScrollBar().setValue(
+            self.raw_response_view.verticalScrollBar().maximum()
+        )
 
     def handle_error(self, error_message):
         """Behandelt Fehler"""
         self.logger.error(f"Fehler aufgetreten: {error_message}")
+        self.append_raw_response(f"❌ ERROR: {error_message}")
         QMessageBox.critical(self, "Fehler", error_message)
         self.status_label.setText("Fehler bei der Suche")
 
@@ -503,7 +801,18 @@ class UBSearchTab(QWidget):
         """Wird aufgerufen, wenn die Suche abgeschlossen ist"""
         self.search_button.setEnabled(True)
         self.progress_bar.setVisible(False)
-        self.status_label.setText("Suche abgeschlossen")
+
+        # Show XML export location if enabled - Claude Generated
+        if (
+            self.mode_selector.currentIndex() == 1
+            and self.save_xml_checkbox.isChecked()
+            and self.xml_path_display.text()
+        ):
+            status = f"Suche abgeschlossen - XML-Dateien: {self.xml_path_display.text()}"
+        else:
+            status = "Suche abgeschlossen"
+
+        self.status_label.setText(status)
 
     def update_tree_view(self, results):
         """Aktualisiert die TreeView mit den Suchergebnissen"""
@@ -543,11 +852,80 @@ class UBSearchTab(QWidget):
             )  # Speichere den key für später
             self.tree_widget.addTopLevelItem(item)
 
+    def update_tree_view_biblio(self, results: dict):
+        """Aktualisiert die TreeView mit BiblioClient SOAP API Ergebnissen - Claude Generated"""
+        self.tree_widget.clear()
+        self.biblio_results = results  # Store for later access - Claude Generated
+
+        classifications = results.get("classifications", {})
+        self.logger.info(f"TreeView: Updating with {len(classifications)} BiblioClient classifications")
+
+        for class_key in sorted(classifications.keys()):
+            class_data = classifications[class_key]
+            count = class_data.get("count", 0)
+            titles = class_data.get("titles", [])
+
+            item = QTreeWidgetItem([class_key, str(count)])
+            # Store classification key AND type for later
+            item.setData(0, Qt.ItemDataRole.UserRole, class_key)
+            # Store method type to distinguish from web results
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, "biblio")
+
+            self.tree_widget.addTopLevelItem(item)
+
     def on_tree_item_clicked(self, item, column):
-        """Handler für Klicks auf TreeView-Items"""
+        """Handler für Klicks auf TreeView-Items - Claude Generated (supports both Web and BiblioClient)"""
         key = item.data(0, Qt.ItemDataRole.UserRole)
+        method_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
+
         if key:
-            self.fetch_additional_titles(key)
+            if method_type == "biblio":
+                # BiblioClient results
+                self.display_biblio_titles(key)
+            else:
+                # Web Catalog results
+                self.fetch_additional_titles(key)
+
+    def display_biblio_titles(self, classification_key: str):
+        """Display titles for selected BiblioClient classification - Claude Generated"""
+        self.detail_view.clear()
+
+        if not hasattr(self, "biblio_results"):
+            self.detail_view.append("Keine BiblioClient-Ergebnisse verfügbar")
+            return
+
+        classifications = self.biblio_results.get("classifications", {})
+        class_data = classifications.get(classification_key)
+
+        if not class_data:
+            self.detail_view.append(f"Keine Daten für {classification_key} gefunden")
+            return
+
+        titles = class_data.get("titles", [])
+        details = class_data.get("details", [])
+
+        html = [f"<h3>Titel für {classification_key}:</h3>"]
+        html.append(f"<p><b>Anzahl:</b> {class_data.get('count', 0)}</p>")
+
+        if titles:
+            html.append("<h4>Titelliste:</h4><ul>")
+            for i, title in enumerate(titles):
+                # Show title, optionally with details
+                detail_info = ""
+                if i < len(details):
+                    detail = details[i]
+                    author_list = detail.get("author", [])
+                    isbn = detail.get("isbn", "")
+                    author_str = ", ".join(author_list[:2]) if author_list else ""
+                    if author_str or isbn:
+                        detail_info = f" <small>({author_str}{' ISBN: ' + isbn if isbn else ''})</small>"
+
+                html.append(f"<li>{title}{detail_info}</li>")
+            html.append("</ul>")
+        else:
+            html.append("<p><i>Keine Titel verfügbar</i></p>")
+
+        self.detail_view.setHtml("".join(html))
 
     def fetch_additional_titles(self, classification):
         """Holt weitere Titel für die gewählte Klassifikation"""
@@ -579,4 +957,7 @@ class UBSearchTab(QWidget):
         html.append("</ul>")
 
         self.detail_view.setHtml("".join(html))
-        self.ai_search.set_abstract(" ".join(abstract))
+
+        # Update AI search if available - Claude Generated
+        if hasattr(self, "ai_search"):
+            self.ai_search.set_abstract(" ".join(abstract))
