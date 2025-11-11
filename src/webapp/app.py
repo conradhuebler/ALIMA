@@ -39,6 +39,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files BEFORE routes - Claude Generated
+static_dir = Path(__file__).parent / "static"
+static_dir.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 # Store active sessions and their results
 sessions: dict = {}
 
@@ -308,12 +313,5 @@ async def health_check() -> dict:
 
 
 if __name__ == "__main__":
-    # Create static files directory if it doesn't exist
-    static_dir = Path(__file__).parent / "static"
-    static_dir.mkdir(exist_ok=True)
-
-    # Serve static files
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
     # Run server
     uvicorn.run(app, host="0.0.0.0", port=8000)
