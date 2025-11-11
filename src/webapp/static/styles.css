@@ -85,7 +85,7 @@ main {
 
 .layout {
     display: grid;
-    grid-template-columns: 350px 1fr;
+    grid-template-columns: 1fr 1fr;
     grid-template-rows: auto 1fr;
     gap: 20px;
     padding: 20px;
@@ -111,6 +111,7 @@ main {
     flex-direction: column;
     gap: 16px;
     height: 100%;
+    overflow-y: auto;
 }
 
 .input-panel h2 {
@@ -149,10 +150,14 @@ main {
 
 .tab-content {
     display: none;
+    flex: 1;
+    min-height: 150px;
+    overflow-y: auto;
 }
 
 .tab-content.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
     animation: fadeIn 0.2s ease;
 }
 
@@ -171,6 +176,8 @@ textarea {
     resize: vertical;
     transition: border-color 0.2s ease;
     color: var(--text-color);
+    flex: 1;
+    min-height: 150px;
 }
 
 textarea:focus {
@@ -186,6 +193,7 @@ input[type="text"] {
     border-radius: 6px;
     font-size: 0.9em;
     transition: border-color 0.2s ease;
+    flex: 1;
 }
 
 input[type="text"]:focus {
@@ -519,7 +527,7 @@ input[type="text"]:focus {
 /* Responsive Design */
 @media (max-width: 1200px) {
     .layout {
-        grid-template-columns: 300px 1fr;
+        grid-template-columns: 1fr 1fr;
     }
 
     .pipeline-steps {
