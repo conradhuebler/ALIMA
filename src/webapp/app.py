@@ -25,6 +25,8 @@ import uvicorn
 from src.core.pipeline_manager import PipelineManager, PipelineConfig
 from src.core.alima_manager import AlimaManager
 from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+from src.llm.llm_service import LlmService
+from src.llm.prompt_service import PromptService
 from src.utils.config_manager import ConfigManager
 from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.pipeline_utils import PipelineJsonManager
@@ -54,6 +56,73 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Store active sessions and their results
 sessions: dict = {}
+
+
+class AppContext:
+    """Global application context with lazy-initialized services - Claude Generated"""
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def init_services(self):
+        """Initialize ALIMA services on first use"""
+        if self._initialized:
+            return
+
+        logger.info("Initializing ALIMA services...")
+
+        # Step 1: ConfigManager (load config.json)
+        self.config_manager = ConfigManager(logger=logger)
+        config = self.config_manager.load_config()
+        prompts_path = config.system_config.prompts_path
+
+        # Step 2: LlmService (with lazy initialization for webapp responsiveness)
+        self.llm_service = LlmService(
+            config_manager=self.config_manager,
+            lazy_initialization=True
+        )
+
+        # Step 3: PromptService (load prompts.json)
+        self.prompt_service = PromptService(prompts_path, logger=logger)
+
+        # Step 4: AlimaManager (core business logic)
+        self.alima_manager = AlimaManager(
+            llm_service=self.llm_service,
+            prompt_service=self.prompt_service,
+            config_manager=self.config_manager,
+            logger=logger
+        )
+
+        # Step 5: UnifiedKnowledgeManager (singleton database)
+        self.cache_manager = UnifiedKnowledgeManager()
+
+        # Step 6: PipelineManager (pipeline orchestration)
+        self.pipeline_manager = PipelineManager(
+            alima_manager=self.alima_manager,
+            cache_manager=self.cache_manager,
+            logger=logger,
+            config_manager=self.config_manager
+        )
+
+        AppContext._initialized = True
+        logger.info("✅ ALIMA services initialized")
+
+    def get_services(self):
+        """Get or initialize services"""
+        if not self._initialized:
+            self.init_services()
+        return {
+            'config_manager': self.config_manager,
+            'llm_service': self.llm_service,
+            'prompt_service': self.prompt_service,
+            'alima_manager': self.alima_manager,
+            'cache_manager': self.cache_manager,
+            'pipeline_manager': self.pipeline_manager
+        }
 
 
 class Session:
@@ -296,11 +365,12 @@ async def run_analysis(
         logger.info(f"Input text extracted ({len(input_text)} chars)")
         session.input_data = {"type": input_type, "text_preview": input_text[:100]}
 
-        # Initialize Pipeline Components - Claude Generated
-        config_manager = ConfigManager()
-        alima_manager = AlimaManager(config_manager)
-        pipeline_manager = PipelineManager(alima_manager, config_manager)
-        cache_manager = UnifiedKnowledgeManager()
+        # Get or initialize services (singleton pattern - Claude Generated)
+        app_context = AppContext()
+        services = app_context.get_services()
+
+        config_manager = services['config_manager']
+        pipeline_manager = services['pipeline_manager']
 
         # Create pipeline config from preferences
         pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
