@@ -222,8 +222,21 @@ async def start_analysis(
     session.status = "running"
     session.input_data = {"type": input_type, "content": content}
 
-    # Start analysis in background
-    asyncio.create_task(run_analysis(session_id, input_type, content, file))
+    # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
+    # This prevents "read of closed file" error that occurs when UploadFile is passed to background task
+    file_contents = None
+    if file:
+        try:
+            file_contents = await file.read()
+            if not file_contents:
+                raise HTTPException(status_code=400, detail="File is empty")
+            logger.info(f"File read successfully: {len(file_contents)} bytes")
+        except Exception as e:
+            logger.error(f"Failed to read file: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    # Start analysis in background with file contents, not the UploadFile object
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, file.filename if file else None))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -343,7 +356,8 @@ async def run_analysis(
     session_id: str,
     input_type: str,
     content: Optional[str],
-    file: Optional[UploadFile],
+    file_contents: Optional[bytes],
+    filename: Optional[str],
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -359,24 +373,43 @@ async def run_analysis(
         elif input_type == "doi" and content:
             logger.info(f"Resolving DOI: {content}")
             input_text = await asyncio.to_thread(resolve_input_to_text, content)
-        elif input_type == "pdf" and file:
-            # Save and extract from PDF
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-            contents = await file.read()
-            temp_file.write(contents)
-            temp_file.close()
-            session.add_temp_file(temp_file.name)
-            logger.info(f"Extracting text from PDF: {temp_file.name}")
-            input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
-        elif input_type == "img" and file:
-            # Save and extract from image
-            temp_file = tempfile.NamedTemporaryFile(delete=False)
-            contents = await file.read()
-            temp_file.write(contents)
-            temp_file.close()
-            session.add_temp_file(temp_file.name)
-            logger.info(f"Analyzing image: {temp_file.name}")
-            input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
+        elif input_type == "pdf" and file_contents:
+            # Save and extract from PDF - Claude Generated (File contents already read)
+            try:
+                suffix = ".pdf" if filename and filename.endswith(".pdf") else ".pdf"
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                temp_file.write(file_contents)
+                temp_file.close()
+                session.add_temp_file(temp_file.name)
+                logger.info(f"Extracting text from PDF: {temp_file.name} ({len(file_contents)} bytes)")
+                input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
+            except Exception as e:
+                logger.error(f"PDF processing error: {e}")
+                raise
+        elif input_type == "img" and file_contents:
+            # Save and extract from image - Claude Generated (File contents already read)
+            try:
+                # Determine extension from filename or default to jpg
+                suffix = ""
+                if filename:
+                    if filename.lower().endswith(".png"):
+                        suffix = ".png"
+                    elif filename.lower().endswith(".jpeg"):
+                        suffix = ".jpeg"
+                    else:
+                        suffix = ".jpg"
+                else:
+                    suffix = ".jpg"
+
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                temp_file.write(file_contents)
+                temp_file.close()
+                session.add_temp_file(temp_file.name)
+                logger.info(f"Analyzing image: {temp_file.name} ({len(file_contents)} bytes)")
+                input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
+            except Exception as e:
+                logger.error(f"Image processing error: {e}")
+                raise
         else:
             raise ValueError(f"Invalid input type: {input_type}")
 
