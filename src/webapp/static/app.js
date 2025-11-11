@@ -170,9 +170,6 @@ class AlimaWebapp {
             this.clearStreamText();
             this.resetSteps();
 
-            this.appendStreamText(`[${this.getTime()}] Submitting analysis request...`);
-            this.appendStreamText(`Input Type: ${inputType}`);
-
             // Create FormData for multipart request
             const formData = new FormData();
             formData.append('input_type', inputType);
@@ -183,10 +180,7 @@ class AlimaWebapp {
                 formData.append('file', file);
             }
 
-            const url = `/api/analyze/${this.sessionId}`;
-            this.appendStreamText(`POST ${url}`);
-
-            const response = await fetch(url, {
+            const response = await fetch(`/api/analyze/${this.sessionId}`, {
                 method: 'POST',
                 body: formData
             });
@@ -197,7 +191,6 @@ class AlimaWebapp {
 
             const data = await response.json();
             console.log('Analysis started:', data);
-            this.appendStreamText(`[${this.getTime()}] Started analysis...`);
 
             // Connect WebSocket for live updates
             this.connectWebSocket();
@@ -213,7 +206,6 @@ class AlimaWebapp {
     // Connect via Polling (fallback from WebSocket) - Claude Generated
     connectViaPolling() {
         console.log('Using polling instead of WebSocket');
-        this.appendStreamText(`[${this.getTime()}] Using polling for live updates...`);
 
         let lastStep = null;
         let pollCount = 0;
@@ -246,7 +238,7 @@ class AlimaWebapp {
                     if (data.streaming_tokens && Object.keys(data.streaming_tokens).length > 0) {
                         for (const [stepId, tokens] of Object.entries(data.streaming_tokens)) {
                             if (Array.isArray(tokens) && tokens.length > 0) {
-                                this.appendStreamText(tokens.join(''));
+                                this.appendStreamToken(tokens.join(''));
                             }
                         }
                     }
@@ -268,7 +260,7 @@ class AlimaWebapp {
             // Timeout after max polls
             if (pollCount > maxPolls) {
                 clearInterval(pollInterval);
-                this.appendStreamText(`⚠️ Polling timeout`);
+                console.warn('Polling timeout after', maxPolls, 'attempts');
                 this.isAnalyzing = false;
                 this.updateButtonState();
             }
@@ -281,7 +273,6 @@ class AlimaWebapp {
         const wsUrl = `${protocol}//${window.location.host}/ws/${this.sessionId}`;
 
         console.log(`Trying WebSocket: ${wsUrl}`);
-        this.appendStreamText(`[${this.getTime()}] Connecting to live updates...`);
 
         this.ws = new WebSocket(wsUrl);
         let wsConnected = false;
@@ -303,7 +294,6 @@ class AlimaWebapp {
             wsConnected = true;
             clearTimeout(wsTimeout);
             console.log('WebSocket connected');
-            this.appendStreamText(`[${this.getTime()}] Connected via WebSocket`);
         };
 
         this.ws.onmessage = (event) => {
@@ -359,10 +349,9 @@ class AlimaWebapp {
         if (msg.streaming_tokens && Object.keys(msg.streaming_tokens).length > 0) {
             for (const [stepId, tokens] of Object.entries(msg.streaming_tokens)) {
                 if (Array.isArray(tokens) && tokens.length > 0) {
-                    // Concatenate and display tokens for this step
+                    // Concatenate and display tokens for this step (no extra newlines)
                     const tokenText = tokens.join('');
-                    // Use purple color for streaming tokens like GUI does
-                    this.appendStreamText(`${tokenText}`);
+                    this.appendStreamToken(tokenText);
                 }
             }
         }
@@ -525,6 +514,13 @@ class AlimaWebapp {
     appendStreamText(text) {
         const streamEl = document.getElementById('stream-text');
         streamEl.textContent += text + '\n';
+        streamEl.parentElement.scrollTop = streamEl.parentElement.scrollHeight;
+    }
+
+    appendStreamToken(text) {
+        // Append token without adding newline (for streaming output)
+        const streamEl = document.getElementById('stream-text');
+        streamEl.textContent += text;
         streamEl.parentElement.scrollTop = streamEl.parentElement.scrollHeight;
     }
 
