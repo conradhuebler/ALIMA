@@ -305,43 +305,54 @@ async def run_analysis(
         # Create pipeline config from preferences
         pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
 
-        # Define stream callback for WebSocket updates - Claude Generated
-        stream_tokens = []
-        current_step_ref = [None]
+        # Define callbacks for live updates - Claude Generated
+        def on_step_started(step):
+            session.current_step = step.step_id
+            logger.info(f"Step started: {step.step_id}")
 
-        def on_stream_token(token: str):
-            """Collect tokens for display - Claude Generated"""
-            stream_tokens.append(token)
-            if len(stream_tokens) >= 10:  # Batch tokens for efficiency
-                batch = "".join(stream_tokens)
-                logger.debug(f"Token batch: {batch[:50]}...")
-                stream_tokens.clear()
+        def on_step_completed(step):
+            session.current_step = step.step_id
+            logger.info(f"Step completed: {step.step_id}")
+
+        def on_step_error(step, error_msg):
+            session.current_step = step.step_id
+            session.error_message = error_msg
+            logger.error(f"Step error: {step.step_id}: {error_msg}")
+
+        def on_pipeline_completed(analysis_state):
+            logger.info(f"Pipeline completed, storing results")
+            # Extract results from analysis state
+            session.results = {
+                "keywords": analysis_state.final_gnd_schlagworte if hasattr(analysis_state, 'final_gnd_schlagworte') else [],
+                "dk_classification": analysis_state.classifications if hasattr(analysis_state, 'classifications') else [],
+                "analysis_state": analysis_state,
+            }
+            session.status = "completed"
+            session.current_step = "classification"
+
+        def on_stream_token(token: str, step_id: str = ""):
+            """Handle token streaming - Claude Generated"""
+            logger.debug(f"Token [{step_id}]: {token[:30]}...")
 
         # Run pipeline in background thread - Claude Generated
         def execute_pipeline():
             try:
-                # Set stream callback
-                pipeline_manager.stream_callback = on_stream_token
-
-                # Execute full pipeline
-                logger.info("Starting pipeline execution...")
-                result = pipeline_manager.run_full_pipeline(
-                    input_text,
-                    config=pipeline_config,
-                    on_step_update=lambda step_id: logger.info(f"Step update: {step_id}"),
+                # Set up callbacks
+                pipeline_manager.set_callbacks(
+                    step_started=on_step_started,
+                    step_completed=on_step_completed,
+                    step_error=on_step_error,
+                    pipeline_completed=on_pipeline_completed,
+                    stream_callback=on_stream_token,
                 )
 
-                # Store results
-                session.results = {
-                    "keywords": result.get("keywords", []),
-                    "dk_classification": result.get("dk_classification", []),
-                    "final_gnd": result.get("final_gnd", []),
-                    "all_steps": result,
-                }
-
-                logger.info(f"Pipeline completed: {len(session.results['keywords'])} keywords found")
-                session.status = "completed"
-                session.current_step = "classification"
+                # Start pipeline
+                logger.info("Starting pipeline execution...")
+                pipeline_id = pipeline_manager.start_pipeline(
+                    input_text,
+                    input_type="text",
+                )
+                logger.info(f"Pipeline {pipeline_id} started")
 
             except Exception as e:
                 logger.error(f"Pipeline execution error: {str(e)}", exc_info=True)
