@@ -360,6 +360,7 @@ input[type="text"]:focus {
     flex-direction: column;
     gap: 16px;
     height: 100%;
+    overflow-y: auto;
 }
 
 .pipeline-section {
@@ -367,6 +368,35 @@ input[type="text"]:focus {
     border-radius: 8px;
     border: 1px solid var(--border-color);
     padding: 16px;
+    flex-shrink: 0;
+}
+
+.extracted-text-section {
+    background: var(--bg-white);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    padding: 16px;
+    flex-shrink: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.extracted-text-section h3 {
+    font-size: 0.95em;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--primary-color);
+}
+
+.extracted-text {
+    color: var(--text-color);
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 0.85em;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+    padding: 0;
 }
 
 .pipeline-section h2 {

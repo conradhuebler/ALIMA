@@ -527,10 +527,15 @@ class AlimaWebapp {
                 this.updateStepStatus(step.id, 'completed');
             });
 
-            this.appendStreamText(`\n✅ Analysis completed successfully!`);
+            // Display extracted text if available (from input step) - Claude Generated
+            if (msg.results && msg.results.original_abstract) {
+                this.showExtractedText(msg.results.original_abstract);
+            }
+
+            this.appendStreamText(`\n✅ Analyse erfolgreich abgeschlossen!`);
             this.showResultsPanel();
         } else if (msg.status === 'error') {
-            this.appendStreamText(`\n❌ Error: ${msg.error}`);
+            this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
             this.updateStepStatus(msg.current_step, 'error');
         }
 
@@ -539,6 +544,18 @@ class AlimaWebapp {
 
         if (this.ws) {
             this.ws.close();
+        }
+    }
+
+    // Show extracted text from input step - Claude Generated
+    showExtractedText(text) {
+        const section = document.getElementById('extracted-text-section');
+        const textEl = document.getElementById('extracted-text');
+
+        if (text && text.trim()) {
+            textEl.textContent = text;
+            section.style.display = 'block';
+            console.log(`Extracted text shown: ${text.substring(0, 100)}...`);
         }
     }
 
@@ -688,6 +705,13 @@ class AlimaWebapp {
         this.clearStreamText();
         this.resetSteps();
         this.hideResultsPanel();
+
+        // Hide extracted text section - Claude Generated
+        const extractedSection = document.getElementById('extracted-text-section');
+        if (extractedSection) {
+            extractedSection.style.display = 'none';
+            document.getElementById('extracted-text').textContent = '';
+        }
 
         // Cleanup old session
         if (this.sessionId) {

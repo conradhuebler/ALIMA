@@ -89,13 +89,18 @@
                     </div>
                 </div>
 
-                <!-- Pipeline Panel (Right) -->
+                <!-- Pipeline & Results Panel (Right) -->
                 <div class="pipeline-panel">
                     <div class="pipeline-section">
                         <h2>Pipeline</h2>
                         <div id="pipeline-steps" class="pipeline-steps">
                             <!-- Steps werden hier dynamisch eingefügt -->
                         </div>
+                    </div>
+
+                    <div class="extracted-text-section" id="extracted-text-section" style="display: none;">
+                        <h3>Extrahierter Text (aus Input)</h3>
+                        <pre id="extracted-text" class="extracted-text"></pre>
                     </div>
 
                     <div id="results-panel" class="results-panel" style="display: none;">
@@ -114,7 +119,7 @@
 
                 <!-- Output Panel (Full Width Bottom) -->
                 <div id="stream-output" class="stream-output">
-                    <h3>Ausgabe</h3>
+                    <h3>Ausgabe (LLM-Streaming)</h3>
                     <pre id="stream-text"></pre>
                 </div>
             </div>
