@@ -1058,6 +1058,119 @@ class BiblioClient:
 
     def extract_dk_classifications_for_keywords(self, keywords: List[str], max_results: int = 50, force_update: bool = False) -> List[Dict[str, Any]]:
         """
+        RESTRUCTURED - Extract DK/RVK classifications for keywords using title-centric caching.
+
+        Flow:
+        1. Cache lookup → get title list
+        2. On cache miss → live search → extract titles → cache titles
+        3. Extract classifications from title list (on-demand)
+
+        Returns title-based structures (not classification-based)
+        """
+        from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
+
+        dk_cache = UnifiedKnowledgeManager()
+        all_titles = []  # Accumulated titles from cache and live search
+
+        # Normalize keywords for cache lookup
+        normalized_keywords = {}
+        for kw in keywords:
+            clean = kw.split('(')[0].strip()
+            if clean not in normalized_keywords:
+                normalized_keywords[clean] = kw
+
+        # Track which keywords came from cache vs live search
+        cached_keywords = set()
+
+        # Try cache for each keyword
+        cached_count = 0
+        for clean_kw in normalized_keywords.keys():
+            cached_titles = dk_cache.get_catalog_dk_cache(clean_kw)
+            if cached_titles:
+                all_titles.extend(cached_titles)
+                cached_keywords.add(clean_kw)  # Track as cached
+                cached_count += 1
+                logger.info(f"✅ Cache HIT for '{clean_kw}': {len(cached_titles)} titles")
+                continue
+
+            # Cache miss - perform live search
+            logger.info(f"⚠️ Cache MISS for '{clean_kw}': performing live search")
+            search_results = self.search(clean_kw, search_type="ku")
+
+            # Fallback to web if SOAP fails
+            if not search_results and self.enable_web_fallback:
+                logger.info(f"SOAP failed, trying web fallback for '{clean_kw}'")
+                search_results = self._search_web(clean_kw)
+
+            if not search_results:
+                logger.warning(f"No results found for '{clean_kw}'")
+                continue
+
+            # Build title list with classifications
+            title_list = []
+            processed = self.process_search_results(search_results, max_items=max_results)
+
+            for item in processed:
+                rsn = item.get("rsn")
+                title = item.get("title")
+
+                # Extract DK and RVK classifications as strings
+                classifications = []
+
+                # Add DK classifications
+                for dk in item.get("decimal_classifications", []):
+                    classifications.append(f"DK {dk}")
+
+                # Add RVK classifications
+                for rvk in item.get("rvk_classifications", []):
+                    classifications.append(f"RVK {rvk}")
+
+                if title and classifications:
+                    title_list.append({
+                        "rsn": rsn,
+                        "title": title,
+                        "classifications": classifications
+                    })
+
+            # Cache the titles
+            if title_list:
+                dk_cache.store_catalog_dk_cache(clean_kw, title_list)
+                all_titles.extend(title_list)
+                logger.info(f"💾 Cached {len(title_list)} titles for '{clean_kw}'")
+
+        # Extract classifications from all accumulated titles
+        logger.info(f"📊 Extracting classifications from {len(all_titles)} total titles")
+        classifications = dk_cache.extract_classifications_from_titles(
+            all_titles,
+            matched_keywords=list(normalized_keywords.keys())
+        )
+
+        logger.info(f"✅ Extracted {len(classifications)} unique classifications ({cached_count}/{len(normalized_keywords)} keywords from cache)")
+
+        # Build keyword-centric results for GUI display
+        keyword_results = []
+        for clean_kw, original_kw in normalized_keywords.items():
+            # Get classifications for this keyword
+            kw_classifications = [
+                c for c in classifications
+                if clean_kw in c.get("matched_keywords", [])
+            ]
+
+            if kw_classifications:  # Only add if keyword has classifications
+                keyword_results.append({
+                    "keyword": original_kw,
+                    "source": "cache" if clean_kw in cached_keywords else "live",
+                    "search_time_ms": 0.0,  # TODO: Track actual timing
+                    "classifications": kw_classifications
+                })
+
+        logger.info(f"📊 Returning {len(keyword_results)} keyword-centric results for GUI display")
+        return keyword_results
+
+    def extract_dk_classifications_for_keywords_OLD(self, keywords: List[str], max_results: int = 50, force_update: bool = False) -> List[Dict[str, Any]]:
+        """
+        ⚠️ DEPRECATED - Use extract_dk_classifications_for_keywords() instead
+
         Claude Generated - Extract DK classifications for given GND keywords using intelligent caching.
 
         Args:

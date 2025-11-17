@@ -1103,7 +1103,21 @@ class PipelineManager:
                 force_update=getattr(self, 'force_update', False),  # Claude Generated
             )
 
-            step.output_data = {"dk_search_results": dk_search_results}
+            # Flatten keyword-centric format to DK-centric for prompt building - Claude Generated
+            dk_search_results_flattened = dk_search_results
+            if dk_search_results and isinstance(dk_search_results[0], dict):
+                if "classifications" in dk_search_results[0]:
+                    # Detected new keyword-centric format: flatten it for LLM prompt
+                    dk_search_results_flattened = self.pipeline_executor._flatten_keyword_centric_results(
+                        dk_search_results
+                    )
+                    self.logger.info(f"Flattened keyword-centric format: {len(dk_search_results)} keywords → {len(dk_search_results_flattened)} classifications")
+
+            # Store both formats: original for GUI, flattened for LLM prompts - Claude Generated
+            step.output_data = {
+                "dk_search_results": dk_search_results,  # Keyword-centric for GUI (PipelineStreamWidget, pipeline_tab)
+                "dk_search_results_flattened": dk_search_results_flattened  # DK-centric for LLM prompts
+            }
 
             # Transfer DK search results to analysis state - Claude Generated
             if self.current_analysis_state:
@@ -1126,8 +1140,11 @@ class PipelineManager:
                 self.logger.warning("No DK search results available for classification")
                 step.output_data = {"dk_classifications": []}
                 return True
-                
-            dk_search_results = previous_step.output_data.get("dk_search_results", [])
+
+            # Use flattened DK-centric format for LLM prompt building - Claude Generated
+            # Falls back to original format if flattened not available (backward compatibility)
+            dk_search_results = previous_step.output_data.get("dk_search_results_flattened",
+                                                               previous_step.output_data.get("dk_search_results", []))
             
             # Get original abstract text
             input_step = self._get_previous_step("input")

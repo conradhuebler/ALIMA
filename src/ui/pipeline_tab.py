@@ -1321,7 +1321,9 @@ class PipelineTab(QWidget):
 
         elif step.step_id == "dk_search" and step.output_data:
             # Display DK search results with counts and titles - Claude Generated
-            dk_search_results = step.output_data.get("dk_search_results", [])
+            # Use flattened DK-centric format for display (backward compatibility fallback to original)
+            dk_search_results = step.output_data.get("dk_search_results_flattened",
+                                                      step.output_data.get("dk_search_results", []))
             if hasattr(self, "dk_search_results") and dk_search_results:
                 # Format aggregated results for display
                 result_lines = []
