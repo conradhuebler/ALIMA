@@ -582,63 +582,108 @@ async def run_input_extraction(
     session.status = "running"
 
     try:
-        # Resolve input to text - Claude Generated
-        input_text = None
+        # For text and DOI, use resolve_input_to_text - Claude Generated
+        if (input_type == "text" and content) or (input_type == "doi" and content):
+            input_text = None
+            if input_type == "text":
+                input_text = content
+            elif input_type == "doi":
+                logger.info(f"Resolving DOI: {content}")
+                input_text = await asyncio.to_thread(resolve_input_to_text, content)
 
-        if input_type == "text" and content:
-            input_text = content
-        elif input_type == "doi" and content:
-            logger.info(f"Resolving DOI: {content}")
-            input_text = await asyncio.to_thread(resolve_input_to_text, content)
-        elif input_type == "pdf" and file_contents:
-            # Save and extract from PDF - Claude Generated
+            # Store the extracted text in results
+            session.results = {
+                "original_abstract": input_text,
+                "input_type": input_type,
+                "input_mode": "extraction_only"
+            }
+
+            logger.info(f"Input extraction completed: {len(input_text)} characters extracted")
+            session.current_step = "input"
+            session.status = "completed"
+
+        # For PDF and Image, use Pipeline with input step only - Claude Generated
+        elif (input_type == "pdf" or input_type == "img") and file_contents:
+            # Save file temporarily - Claude Generated
             try:
-                suffix = ".pdf" if filename and filename.endswith(".pdf") else ".pdf"
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-                temp_file.write(file_contents)
-                temp_file.close()
-                session.add_temp_file(temp_file.name)
-                logger.info(f"Extracting text from PDF: {temp_file.name} ({len(file_contents)} bytes)")
-                input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
-            except Exception as e:
-                logger.error(f"PDF processing error: {e}")
-                raise
-        elif input_type == "img" and file_contents:
-            # Save and extract from image - Claude Generated
-            try:
-                suffix = ""
-                if filename:
-                    if filename.lower().endswith(".png"):
-                        suffix = ".png"
-                    elif filename.lower().endswith(".jpeg"):
-                        suffix = ".jpeg"
+                if input_type == "pdf":
+                    suffix = ".pdf"
+                elif input_type == "img":
+                    suffix = ""
+                    if filename:
+                        if filename.lower().endswith(".png"):
+                            suffix = ".png"
+                        elif filename.lower().endswith(".jpeg"):
+                            suffix = ".jpeg"
+                        else:
+                            suffix = ".jpg"
                     else:
                         suffix = ".jpg"
-                else:
-                    suffix = ".jpg"
 
                 temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
                 temp_file.write(file_contents)
                 temp_file.close()
                 session.add_temp_file(temp_file.name)
-                logger.info(f"Extracting text from image: {temp_file.name} ({len(file_contents)} bytes)")
-                input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
+                logger.info(f"Extracting text from {input_type.upper()}: {temp_file.name} ({len(file_contents)} bytes)")
+
+                # Use Pipeline for PDF/Image extraction with LLM-OCR - Claude Generated
+                def execute_input_pipeline():
+                    from src.core.pipeline_manager import PipelineManager
+                    from src.core.alima_manager import AlimaManager
+                    from src.llm.llm_service import LlmService
+                    from src.core.config_manager import ConfigManager
+                    from src.core.prompt_service import PromptService
+                    from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+
+                    # Initialize pipeline - Claude Generated
+                    config_manager = ConfigManager()
+                    llm_service = LlmService(config_manager)
+                    prompt_service = PromptService()
+                    alima_manager = AlimaManager(llm_service, prompt_service)
+                    knowledge_manager = UnifiedKnowledgeManager(config_manager)
+                    pipeline_manager = PipelineManager(config_manager, alima_manager, knowledge_manager)
+
+                    # Track input extraction - Claude Generated
+                    extracted_text = None
+
+                    def on_step_completed(step):
+                        nonlocal extracted_text
+                        if step.step_id == "input" and hasattr(step, 'output_data') and step.output_data:
+                            extracted_text = step.output_data.get("text", "")
+                            logger.info(f"Input step completed, extracted {len(extracted_text)} characters")
+
+                    # Setup callbacks - Claude Generated
+                    pipeline_manager.on_step_completed = on_step_completed
+
+                    # Execute pipeline - Claude Generated
+                    logger.info(f"Starting pipeline with input_type={input_type} for {temp_file.name}")
+                    pipeline_id = pipeline_manager.start_pipeline(
+                        temp_file.name,
+                        input_type=input_type,
+                    )
+                    logger.info(f"Pipeline {pipeline_id} completed")
+
+                    return extracted_text
+
+                # Run pipeline in executor - Claude Generated
+                extracted_text = await asyncio.to_thread(execute_input_pipeline)
+
+                # Store extracted text in results - Claude Generated
+                session.results = {
+                    "original_abstract": extracted_text or "",
+                    "input_type": input_type,
+                    "input_mode": "extraction_only"
+                }
+
+                logger.info(f"Input extraction completed: {len(extracted_text) if extracted_text else 0} characters extracted")
+                session.current_step = "input"
+                session.status = "completed"
+
             except Exception as e:
-                logger.error(f"Image processing error: {e}")
+                logger.error(f"PDF/Image processing error: {e}", exc_info=True)
                 raise
         else:
             raise ValueError(f"Invalid input: type={input_type}, has_content={bool(content)}, has_file={bool(file_contents)}")
-
-        # Store the extracted text in results - Claude Generated
-        session.results = {
-            "original_abstract": input_text,
-            "input_type": input_type,
-            "input_mode": "extraction_only"
-        }
-
-        logger.info(f"Input extraction completed: {len(input_text)} characters extracted")
-        session.current_step = "input"
-        session.status = "completed"
 
     except Exception as e:
         logger.error(f"Input extraction error: {str(e)}", exc_info=True)
