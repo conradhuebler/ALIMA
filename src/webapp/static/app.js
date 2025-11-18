@@ -597,8 +597,26 @@ class AlimaWebapp {
                 document.getElementById('text-input').value = msg.results.original_abstract;
             }
 
-            if (!isExtractionOnly) {
-                this.showResultsPanel();
+            // Show results panel for both extraction-only and full pipeline - Claude Generated
+            this.showResultsPanel();
+
+            // For extraction-only, display simplified results - Claude Generated
+            if (isExtractionOnly && msg.results) {
+                const resultsSummary = document.getElementById('results-summary');
+                if (resultsSummary) {
+                    const summaryHTML = `
+                        <div class="result-item">
+                            <strong>Eingabemethode:</strong> ${msg.results.input_type || 'unbekannt'}
+                        </div>
+                        <div class="result-item">
+                            <strong>Extraktionsmethode:</strong> ${msg.results.extraction_method || 'text'}
+                        </div>
+                        <div class="result-item">
+                            <strong>Textlänge:</strong> ${msg.results.original_abstract?.length || 0} Zeichen
+                        </div>
+                    `;
+                    resultsSummary.innerHTML = summaryHTML;
+                }
             }
         } else if (msg.status === 'error') {
             this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
