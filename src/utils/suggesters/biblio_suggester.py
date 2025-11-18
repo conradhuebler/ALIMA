@@ -47,10 +47,11 @@ class BiblioSuggester(BaseSuggester):
         """
         super().__init__(data_dir, debug)
         
-        # Initialize BiblioExtractor with provided configuration
+        # Initialize BiblioExtractor with provided configuration - Claude Generated
         self.extractor = BiblioClient(
-            token=token,
-            debug=debug
+            token=token or "",  # Ensure string, not None
+            debug=debug,
+            enable_web_fallback=True  # Claude Generated - Enable web fallback
         )
         
         # Set URLs if provided

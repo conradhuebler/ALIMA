@@ -1380,6 +1380,34 @@ class PipelineStepExecutor:
         """
         return "(GND-ID:" in keyword
 
+    def _flatten_keyword_centric_results(
+        self, keyword_results: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Flatten keyword-centric format to DK-centric for prompt building - Claude Generated
+
+        The new BiblioClient.extract_dk_classifications_for_keywords() returns keyword-centric format:
+        [{"keyword": "...", "source": "cache", "classifications": [{"dk": "681.3", ...}]}]
+
+        But the prompt builder expects DK-centric format:
+        [{"dk": "681.3", "titles": [...], "count": N, ...}]
+
+        This function flattens the nested structure.
+
+        Args:
+            keyword_results: List of keyword-centric results from BiblioClient
+
+        Returns:
+            Flattened list of DK-centric classification results
+        """
+        flattened = []
+        for kw_result in keyword_results:
+            # Extract classifications from keyword wrapper
+            classifications = kw_result.get("classifications", [])
+            # Add each classification to flattened list
+            flattened.extend(classifications)
+        return flattened
+
     def execute_dk_search(
         self,
         keywords: List[str],
@@ -1410,19 +1438,22 @@ class PipelineStepExecutor:
         if force_update and self.logger:
             self.logger.info("⚠️ Force update enabled: new titles will be merged with existing")
 
-        # Use provided catalog configuration or skip
+        # Use provided catalog configuration or allow web fallback - Claude Generated
         if not catalog_token or not catalog_token.strip():
+            if self.logger:
+                self.logger.warning("No catalog token provided - BiblioClient will use web scraping fallback")
             if stream_callback:
-                stream_callback("Kein Katalog-Token verfügbar - DK-Suche übersprungen\n", "dk_search")
-            return []
+                stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
+            catalog_token = ""  # Empty token triggers automatic web fallback
 
         # Initialize BiblioExtractor
         try:
             from .clients.biblio_client import BiblioClient
-            
+
             extractor = BiblioClient(
-                token=catalog_token, 
-                debug=self.logger.level <= 10 if self.logger else False
+                token=catalog_token or "",  # Ensure string, not None
+                debug=self.logger.level <= 10 if self.logger else False,
+                enable_web_fallback=True  # Claude Generated - Explicitly enable web fallback
             )
             
             # Set URLs if available
@@ -1494,7 +1525,8 @@ class PipelineStepExecutor:
 
             if stream_callback:
                 stream_callback(f"DK-Suche abgeschlossen: {len(dk_search_results)} Katalog-Einträge gefunden\n", "dk_search")
-                
+
+            # Return keyword-centric format - PipelineManager will flatten for prompts
             return dk_search_results
             
         except Exception as e:

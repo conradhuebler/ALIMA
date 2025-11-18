@@ -702,18 +702,18 @@ class UnifiedKnowledgeManager:
     # === DEDICATED CATALOG DK CACHE MANAGEMENT === Claude Generated
 
     def get_catalog_dk_cache(self, search_term: str) -> Optional[List[Dict[str, Any]]]:
-        """Retrieve catalog DK classifications from dedicated cache - Claude Generated"""
+        """Retrieve catalog titles from dedicated cache - Claude Generated"""
         try:
             row = self.db_manager.fetch_one("""
-                SELECT found_classifications
+                SELECT found_titles
                 FROM catalog_dk_cache
                 WHERE search_term = ?
             """, [search_term])
 
             if row:
-                classifications = json.loads(row['found_classifications'] or '[]')
-                self.logger.debug(f"✅ Catalog cache hit for '{search_term}': {len(classifications)} classifications")
-                return classifications
+                titles = json.loads(row['found_titles'] or '[]')
+                self.logger.debug(f"✅ Catalog cache hit for '{search_term}': {len(titles)} titles")
+                return titles
 
             return None
 
@@ -721,27 +721,27 @@ class UnifiedKnowledgeManager:
             self.logger.error(f"Error retrieving catalog cache for '{search_term}': {e}")
             return None
 
-    def store_catalog_dk_cache(self, search_term: str, classifications: List[Dict[str, Any]]) -> bool:
-        """Store catalog DK classifications in dedicated cache - Claude Generated"""
+    def store_catalog_dk_cache(self, search_term: str, titles: List[Dict[str, Any]]) -> bool:
+        """Store catalog titles in dedicated cache - Claude Generated"""
         try:
             normalized_term = self._normalize_term(search_term)
-            result_count = len(classifications)
+            result_count = len(titles)
 
             # DEBUG: Log what we're about to store
-            self.logger.info(f"📥 Storing catalog cache for '{search_term}': {result_count} classifications")
-            for cls in classifications:
-                titles_count = len(cls.get('titles', []))
-                self.logger.debug(f"   - DK {cls.get('dk')}: {titles_count} titles, count={cls.get('count')}")
+            self.logger.info(f"📥 Storing catalog cache for '{search_term}': {result_count} titles")
+            for title in titles:
+                classifications_count = len(title.get('classifications', []))
+                self.logger.debug(f"   - {title.get('title')[:50]}...: {classifications_count} classifications (RSN: {title.get('rsn')})")
 
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO catalog_dk_cache
-                (search_term, normalized_term, found_classifications, result_count, last_updated, created_at)
+                (search_term, normalized_term, found_titles, result_count, last_updated, created_at)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP,
                         COALESCE((SELECT created_at FROM catalog_dk_cache WHERE search_term = ?), CURRENT_TIMESTAMP))
             """, [
                 search_term,
                 normalized_term,
-                json.dumps(classifications),
+                json.dumps(titles),
                 result_count,
                 search_term
             ])
@@ -752,7 +752,7 @@ class UnifiedKnowledgeManager:
                 [search_term]
             )
             if verify_row:
-                self.logger.info(f"✅ Verified: Stored {result_count} classifications in catalog cache for '{search_term}'")
+                self.logger.info(f"✅ Verified: Stored {result_count} titles in catalog cache for '{search_term}'")
                 return True
             else:
                 self.logger.error(f"❌ FAILED: Could not verify storage for '{search_term}'")
@@ -764,62 +764,66 @@ class UnifiedKnowledgeManager:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    def search_catalog_dk_cache(self, keywords: List[str]) -> List[Dict[str, Any]]:
-        """Search catalog DK cache for multiple keywords - Claude Generated"""
+    def extract_classifications_from_titles(self, titles: List[Dict[str, Any]], matched_keywords: List[str] = None) -> List[Dict[str, Any]]:
+        """Extract and group classifications from title list - Claude Generated
+
+        Input: [{"rsn": "123", "title": "...", "classifications": ["DK 681.3", "RVK UP 5400"]}, ...]
+        Output: [{"dk": "681.3", "type": "DK", "titles": ["..."], "matched_keywords": [...], "count": N}, ...]
+        """
         try:
-            results = []
+            if not titles:
+                return []
 
-            for keyword in keywords:
-                clean_keyword = keyword.split('(')[0].strip()
+            # Group by classification code
+            grouped = {}
 
-                # Try exact match first
-                cached = self.get_catalog_dk_cache(clean_keyword)
-                if cached:
-                    # Add keyword info to each classification
-                    for cls in cached:
-                        if 'matched_keywords' not in cls:
-                            cls['matched_keywords'] = []
-                        if clean_keyword not in cls['matched_keywords']:
-                            cls['matched_keywords'].append(clean_keyword)
-                    results.extend(cached)
-                    continue
+            for title in titles:
+                title_str = title.get('title', '')
+                classifications = title.get('classifications', [])
 
-                # Try fuzzy match on normalized term
-                normalized = self._normalize_term(clean_keyword)
-                rows = self.db_manager.fetch_all("""
-                    SELECT search_term, found_classifications
-                    FROM catalog_dk_cache
-                    WHERE normalized_term LIKE ?
-                    LIMIT 10
-                """, [f"%{normalized}%"])
+                # Parse each classification string: "DK 681.3" or "RVK UP 5400"
+                for cls_str in classifications:
+                    parts = cls_str.strip().split(None, 1)  # Split on first space
+                    if len(parts) == 2:
+                        cls_type, code = parts
+                    else:
+                        self.logger.warning(f"Invalid classification format: '{cls_str}'")
+                        continue
 
-                for row in rows:
-                    cached = json.loads(row['found_classifications'] or '[]')
-                    for cls in cached:
-                        if 'matched_keywords' not in cls:
-                            cls['matched_keywords'] = []
-                        if clean_keyword not in cls['matched_keywords']:
-                            cls['matched_keywords'].append(clean_keyword)
-                    results.extend(cached)
+                    key = f"{cls_type}:{code}"
 
-            # Deduplicate by DK code
-            unique_results = {}
-            for result in results:
-                code = result.get('dk')
-                if code in unique_results:
-                    # Merge titles and keywords
-                    existing = unique_results[code]
-                    existing['titles'] = list(set(existing['titles'] + result['titles']))
-                    existing['matched_keywords'] = list(set(existing['matched_keywords'] + result['matched_keywords']))
-                    existing['count'] += result.get('count', 0)
-                else:
-                    unique_results[code] = result
+                    if key not in grouped:
+                        grouped[key] = {
+                            "dk": code,  # Use "dk" for backward compatibility
+                            "type": cls_type,
+                            "classification_type": cls_type,  # Also support classification_type field
+                            "titles": [],
+                            "matched_keywords": matched_keywords or [],
+                            "keywords": matched_keywords or [],  # Alias for UI compatibility
+                            "count": 0
+                        }
 
-            self.logger.info(f"📊 Catalog cache search: {len(unique_results)} unique classifications from {len(keywords)} keywords")
-            return list(unique_results.values())
+                    # Add title if not already in list (deduplicate)
+                    if title_str and title_str not in grouped[key]["titles"]:
+                        grouped[key]["titles"].append(title_str)
+
+                    grouped[key]["count"] += 1
+
+            # Convert to list and calculate confidence
+            result = []
+            for cls_data in grouped.values():
+                # Calculate confidence based on count: more titles = higher confidence
+                # Range: 0.5 (1 title) to 1.0 (10+ titles)
+                count = cls_data["count"]
+                avg_confidence = min(0.5 + (count * 0.05), 1.0)  # Max 1.0
+                cls_data["avg_confidence"] = avg_confidence
+                result.append(cls_data)
+
+            self.logger.info(f"✅ Extracted {len(result)} unique classifications from {len(titles)} titles")
+            return result
 
         except Exception as e:
-            self.logger.error(f"Catalog cache search failed: {e}")
+            self.logger.error(f"Error extracting classifications from titles: {e}")
             return []
 
     def _merge_catalog_classifications(self, existing: List[Dict], new_cls: Dict) -> List[Dict]:
