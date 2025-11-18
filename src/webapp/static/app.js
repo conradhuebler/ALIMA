@@ -568,11 +568,8 @@ class AlimaWebapp {
             }
         }
 
-        // Update stream with results
-        if (msg.results && Object.keys(msg.results).length > 0) {
-            console.log('Results available:', Object.keys(msg.results));
-            this.displayResults(msg.results);
-        }
+        // NOTE: Results are displayed in handleAnalysisComplete() only, not during polling
+        // This prevents duplicate display of extracted text - Claude Generated
     }
 
     // Handle analysis completion

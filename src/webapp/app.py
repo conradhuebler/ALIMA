@@ -350,6 +350,7 @@ async def process_input_only(
     return {"session_id": session_id, "status": "started", "mode": "input_extraction"}
 
 
+@app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket for live progress updates - Claude Generated"""
 
@@ -382,7 +383,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             # Always send status update (every 500ms) - Claude Generated
             # Include streaming tokens buffered since last update
-            streaming_tokens = session.get_and_clear_streaming_buffer()
+            # Use get_new_streaming_tokens to avoid losing tokens during long runs - Claude Generated
+            if session.status == "running":
+                streaming_tokens = session.get_new_streaming_tokens()
+            else:
+                streaming_tokens = session.get_and_clear_streaming_buffer()
 
             await websocket.send_json({
                 "type": "status",
