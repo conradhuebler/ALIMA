@@ -585,7 +585,8 @@ async def run_analysis(
             # Buffer tokens by step for periodic transmission via WebSocket
             if step_id:
                 session.add_streaming_token(token, step_id)
-            logger.debug(f"Token [{step_id}]: {token[:30] if len(token) > 30 else token}...")
+            # Use info level for visibility (same as input extraction) - Claude Generated
+            logger.info(f"Token [{step_id}]: {token[:30] if len(token) > 30 else token}...")
 
         # Run pipeline in background thread - Claude Generated
         def execute_pipeline():

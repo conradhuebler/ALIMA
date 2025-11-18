@@ -435,6 +435,10 @@ class AlimaWebapp {
                     if (data.streaming_tokens && Object.keys(data.streaming_tokens).length > 0) {
                         for (const [stepId, tokens] of Object.entries(data.streaming_tokens)) {
                             if (Array.isArray(tokens) && tokens.length > 0) {
+                                // Add step separator between different steps - Claude Generated
+                                if (stepId && stepId !== 'input') {
+                                    this.appendStreamText(`\n───────────────────\n[${stepId}]\n───────────────────`);
+                                }
                                 this.appendStreamToken(tokens.join(''));
                             }
                         }
@@ -544,8 +548,19 @@ class AlimaWebapp {
 
         // Display streaming tokens (Claude Generated - Real-time LLM output)
         if (msg.streaming_tokens && Object.keys(msg.streaming_tokens).length > 0) {
+            // Track last displayed step to add separators - Claude Generated
+            if (!this.lastDisplayedStep) {
+                this.lastDisplayedStep = null;
+            }
+
             for (const [stepId, tokens] of Object.entries(msg.streaming_tokens)) {
                 if (Array.isArray(tokens) && tokens.length > 0) {
+                    // Add step separator if step changed - Claude Generated
+                    if (stepId && stepId !== this.lastDisplayedStep && stepId !== 'input') {
+                        this.appendStreamText(`\n═══ [${stepId}] ═══`);
+                        this.lastDisplayedStep = stepId;
+                    }
+
                     // Concatenate and display tokens for this step (no extra newlines)
                     const tokenText = tokens.join('');
                     this.appendStreamToken(tokenText);
@@ -796,6 +811,7 @@ class AlimaWebapp {
 
     clearStreamText() {
         document.getElementById('stream-text').textContent = '';
+        this.lastDisplayedStep = null;  // Reset step tracking - Claude Generated
     }
 
     // Results panel
