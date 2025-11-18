@@ -139,6 +139,7 @@ class Session:
         self.process = None
         self.temp_files = []
         self.streaming_buffer = {}  # Buffer for streaming tokens by step_id - Claude Generated
+        self.streaming_buffer_sent_count = {}  # Track how many tokens sent per step - Claude Generated
         self.abort_requested = False  # Flag to signal pipeline abort - Claude Generated
 
     def add_temp_file(self, path: str):
@@ -157,6 +158,17 @@ class Session:
         self.streaming_buffer.clear()
         return result
 
+    def get_new_streaming_tokens(self) -> dict:
+        """Get only newly added tokens since last retrieval - Claude Generated"""
+        result = {}
+        for step_id, tokens in self.streaming_buffer.items():
+            sent_count = self.streaming_buffer_sent_count.get(step_id, 0)
+            new_tokens = tokens[sent_count:]
+            if new_tokens:
+                result[step_id] = new_tokens
+                self.streaming_buffer_sent_count[step_id] = len(tokens)
+        return result
+
     def clear(self):
         """Complete session reset - clear all data - Claude Generated"""
         self.status = "idle"
@@ -165,6 +177,7 @@ class Session:
         self.results = {}
         self.error_message = None
         self.streaming_buffer.clear()
+        self.streaming_buffer_sent_count.clear()  # Reset token tracking - Claude Generated
         self.abort_requested = False
         self.cleanup()
         logger.info(f"Session {self.session_id} cleared")
@@ -202,8 +215,13 @@ async def get_session(session_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Session not found")
 
     session = sessions[session_id]
-    # Get streaming tokens for polling clients
-    streaming_tokens = session.get_and_clear_streaming_buffer()
+    # Get only new streaming tokens since last retrieval - Claude Generated
+    # This prevents tokens from being lost when session is still running
+    if session.status == "running":
+        streaming_tokens = session.get_new_streaming_tokens()
+    else:
+        # Session finished, return all remaining unsent tokens
+        streaming_tokens = session.get_and_clear_streaming_buffer()
 
     return {
         "session_id": session.session_id,
