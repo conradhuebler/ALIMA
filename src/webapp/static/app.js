@@ -555,18 +555,29 @@ class AlimaWebapp {
         console.log('Analysis complete:', msg);
 
         if (msg.status === 'completed') {
-            // Mark all steps as completed
-            this.steps.forEach(step => {
-                this.updateStepStatus(step.id, 'completed');
-            });
+            // Check if this is input extraction only or full pipeline - Claude Generated
+            const isExtractionOnly = msg.results && msg.results.input_mode === 'extraction_only';
+
+            if (isExtractionOnly) {
+                // Only mark input step as completed for extraction-only
+                this.updateStepStatus('input', 'completed');
+                this.appendStreamText(`\n✅ Text erfolgreich extrahiert!`);
+            } else {
+                // Mark all steps as completed for full pipeline
+                this.steps.forEach(step => {
+                    this.updateStepStatus(step.id, 'completed');
+                });
+                this.appendStreamText(`\n✅ Analyse erfolgreich abgeschlossen!`);
+            }
 
             // Display extracted text if available (from input step) - Claude Generated
             if (msg.results && msg.results.original_abstract) {
-                this.showExtractedText(msg.results.original_abstract);
+                document.getElementById('text-input').value = msg.results.original_abstract;
             }
 
-            this.appendStreamText(`\n✅ Analyse erfolgreich abgeschlossen!`);
-            this.showResultsPanel();
+            if (!isExtractionOnly) {
+                this.showResultsPanel();
+            }
         } else if (msg.status === 'error') {
             this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
             this.updateStepStatus(msg.current_step, 'error');
@@ -800,13 +811,10 @@ class AlimaWebapp {
             return;
         }
 
-        // Determine input type based on content
+        // Always use 'doi' type - backend handles both DOI and URL - Claude Generated
         let inputType = 'doi';
-        if (doiUrl.startsWith('http://') || doiUrl.startsWith('https://')) {
-            inputType = 'url';
-        }
 
-        console.log(`Processing ${inputType}: ${doiUrl}`);
+        console.log(`Processing DOI/URL: ${doiUrl}`);
         await this.submitInitializationOnly(inputType, doiUrl);
     }
 
@@ -844,7 +852,8 @@ class AlimaWebapp {
                 formData.append('file', file);
             }
 
-            const response = await fetch(`/api/analyze/${this.sessionId}`, {
+            // Use /api/input endpoint for text extraction only (not full pipeline) - Claude Generated
+            const response = await fetch(`/api/input/${this.sessionId}`, {
                 method: 'POST',
                 body: formData
             });
@@ -854,7 +863,7 @@ class AlimaWebapp {
             }
 
             const data = await response.json();
-            console.log('Initialization started:', data);
+            console.log('Input extraction started:', data);
 
             // Connect WebSocket for live updates
             this.connectWebSocket();
@@ -882,7 +891,8 @@ class AlimaWebapp {
                 formData.append('file', this.cameraBlob, 'camera_photo.jpg');
             }
 
-            const response = await fetch(`/api/analyze/${this.sessionId}`, {
+            // Use /api/input endpoint for image extraction only - Claude Generated
+            const response = await fetch(`/api/input/${this.sessionId}`, {
                 method: 'POST',
                 body: formData
             });
@@ -892,7 +902,7 @@ class AlimaWebapp {
             }
 
             const data = await response.json();
-            console.log('Camera initialization started:', data);
+            console.log('Camera extraction started:', data);
 
             // Connect WebSocket for live updates
             this.connectWebSocket();

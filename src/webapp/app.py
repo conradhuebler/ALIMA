@@ -241,7 +241,44 @@ async def start_analysis(
     return {"session_id": session_id, "status": "started"}
 
 
-@app.websocket("/ws/{session_id}")
+@app.post("/api/input/{session_id}")
+async def process_input_only(
+    session_id: str,
+    input_type: str = Form(...),  # "text", "doi", "pdf", "img"
+    content: Optional[str] = Form(None),  # For text/doi
+    file: Optional[UploadFile] = File(None),  # For pdf/img
+) -> dict:
+    """Process only the input step (text extraction/OCR) - Claude Generated"""
+
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+
+    if session.status == "running":
+        raise HTTPException(status_code=400, detail="Analysis already running")
+
+    session.status = "running"
+    session.input_data = {"type": input_type, "content": content}
+
+    # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
+    file_contents = None
+    if file:
+        try:
+            file_contents = await file.read()
+            if not file_contents:
+                raise HTTPException(status_code=400, detail="File is empty")
+            logger.info(f"File read successfully: {len(file_contents)} bytes")
+        except Exception as e:
+            logger.error(f"Failed to read file: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    # Start input-only processing in background - Claude Generated
+    asyncio.create_task(run_input_extraction(session_id, input_type, content, file_contents, file.filename if file else None))
+
+    return {"session_id": session_id, "status": "started", "mode": "input_extraction"}
+
+
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket for live progress updates - Claude Generated"""
 
@@ -524,6 +561,87 @@ async def run_analysis(
 
     except Exception as e:
         logger.error(f"Analysis setup error: {str(e)}", exc_info=True)
+        session.status = "error"
+        session.error_message = str(e)
+    finally:
+        # Cleanup
+        if session_id in sessions:
+            session.cleanup()
+
+
+async def run_input_extraction(
+    session_id: str,
+    input_type: str,
+    content: Optional[str],
+    file_contents: Optional[bytes],
+    filename: Optional[str],
+):
+    """Execute only the input extraction step (text extraction/OCR) - Claude Generated"""
+
+    session = sessions[session_id]
+    session.status = "running"
+
+    try:
+        # Resolve input to text - Claude Generated
+        input_text = None
+
+        if input_type == "text" and content:
+            input_text = content
+        elif input_type == "doi" and content:
+            logger.info(f"Resolving DOI: {content}")
+            input_text = await asyncio.to_thread(resolve_input_to_text, content)
+        elif input_type == "pdf" and file_contents:
+            # Save and extract from PDF - Claude Generated
+            try:
+                suffix = ".pdf" if filename and filename.endswith(".pdf") else ".pdf"
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                temp_file.write(file_contents)
+                temp_file.close()
+                session.add_temp_file(temp_file.name)
+                logger.info(f"Extracting text from PDF: {temp_file.name} ({len(file_contents)} bytes)")
+                input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
+            except Exception as e:
+                logger.error(f"PDF processing error: {e}")
+                raise
+        elif input_type == "img" and file_contents:
+            # Save and extract from image - Claude Generated
+            try:
+                suffix = ""
+                if filename:
+                    if filename.lower().endswith(".png"):
+                        suffix = ".png"
+                    elif filename.lower().endswith(".jpeg"):
+                        suffix = ".jpeg"
+                    else:
+                        suffix = ".jpg"
+                else:
+                    suffix = ".jpg"
+
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                temp_file.write(file_contents)
+                temp_file.close()
+                session.add_temp_file(temp_file.name)
+                logger.info(f"Extracting text from image: {temp_file.name} ({len(file_contents)} bytes)")
+                input_text = await asyncio.to_thread(resolve_input_to_text, temp_file.name)
+            except Exception as e:
+                logger.error(f"Image processing error: {e}")
+                raise
+        else:
+            raise ValueError(f"Invalid input: type={input_type}, has_content={bool(content)}, has_file={bool(file_contents)}")
+
+        # Store the extracted text in results - Claude Generated
+        session.results = {
+            "original_abstract": input_text,
+            "input_type": input_type,
+            "input_mode": "extraction_only"
+        }
+
+        logger.info(f"Input extraction completed: {len(input_text)} characters extracted")
+        session.current_step = "input"
+        session.status = "completed"
+
+    except Exception as e:
+        logger.error(f"Input extraction error: {str(e)}", exc_info=True)
         session.status = "error"
         session.error_message = str(e)
     finally:
