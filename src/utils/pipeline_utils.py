@@ -2108,16 +2108,16 @@ def _extract_from_image_pipeline(
         config = config_manager.load_config()
         prompts_path = config.system_config.prompts_path
         prompt_service = PromptService(prompts_path, logger)
-        
+
         # Verwende image_text_extraction Task
         prompt_config_data = prompt_service.get_prompt_config(
             task="image_text_extraction",
             model="default"
         )
-        
+
         if not prompt_config_data:
             raise Exception("OCR-Prompt 'image_text_extraction' nicht gefunden in prompts.json")
-        
+
         # Konvertiere PromptConfigData zu Dictionary für Kompatibilität
         prompt_config = {
             'prompt': prompt_config_data.prompt,
@@ -2126,13 +2126,29 @@ def _extract_from_image_pipeline(
             'top_p': prompt_config_data.p_value,
             'seed': prompt_config_data.seed
         }
-        
+
+        # Check if vision model is configured for image_text_extraction - Claude Generated
+        task_prefs = config.task_preferences.get('image_text_extraction', {})
+        preferred_providers = task_prefs.get('preferred_providers', [])
+        model_priority = task_prefs.get('model_priority', [])
+
+        if not preferred_providers and not model_priority:
+            error_msg = (
+                "❌ Kein Vision-Modell für Bilderkennung konfiguriert!\n"
+                "Bitte in der Config file unter 'task_preferences.image_text_extraction' "
+                "einen 'preferred_providers' eintrag hinzufügen.\n"
+                "Beispiel: 'preferred_providers': ['openai:gpt-4o'] oder ['anthropic:claude-3-5-sonnet']"
+            )
+            if logger:
+                logger.error(error_msg)
+            raise Exception(error_msg)
+
         # Bestimme besten Provider für Bilderkennung
         provider, model = _get_best_vision_provider_pipeline(llm_service, logger)
-        
+
         if not provider:
             raise Exception("Kein Provider mit Bilderkennung verfügbar")
-        
+
         if stream_callback:
             stream_callback(f"🖼️ Verwende {provider} ({model}) für Bilderkennung...")
         
