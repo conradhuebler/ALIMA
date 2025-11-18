@@ -2128,16 +2128,20 @@ def _extract_from_image_pipeline(
         }
 
         # Check if vision model is configured for image_text_extraction - Claude Generated
-        task_prefs = config.task_preferences.get('image_text_extraction', {})
-        preferred_providers = task_prefs.get('preferred_providers', [])
-        model_priority = task_prefs.get('model_priority', [])
+        task_prefs = config.unified_config.task_preferences.get('image_text_extraction')
 
-        if not preferred_providers and not model_priority:
+        # Validate that vision model is explicitly configured
+        has_providers = False
+        if task_prefs:
+            # Check both legacy and new formats
+            has_providers = bool(task_prefs.preferred_providers or task_prefs.model_priority)
+
+        if not has_providers:
             error_msg = (
                 "❌ Kein Vision-Modell für Bilderkennung konfiguriert!\n"
                 "Bitte in der Config file unter 'task_preferences.image_text_extraction' "
-                "einen 'preferred_providers' eintrag hinzufügen.\n"
-                "Beispiel: 'preferred_providers': ['openai:gpt-4o'] oder ['anthropic:claude-3-5-sonnet']"
+                "einen 'model_priority' eintrag hinzufügen.\n"
+                "Beispiel: 'model_priority': [{'provider_name': 'openai', 'model_name': 'gpt-4o'}]"
             )
             if logger:
                 logger.error(error_msg)
