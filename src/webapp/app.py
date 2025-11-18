@@ -628,17 +628,11 @@ async def run_input_extraction(
 
                 # Use Pipeline for PDF/Image extraction with LLM-OCR - Claude Generated
                 def execute_input_pipeline():
-                    from src.core.pipeline_manager import PipelineConfig
-
                     # Get or initialize services via AppContext (singleton) - Claude Generated
                     app_context = AppContext()
                     services = app_context.get_services()
 
-                    config_manager = services['config_manager']
                     pipeline_manager = services['pipeline_manager']
-
-                    # Create pipeline config from preferences - Claude Generated
-                    pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
 
                     # Track input extraction - Claude Generated
                     extracted_text = None
@@ -657,7 +651,6 @@ async def run_input_extraction(
                     pipeline_id = pipeline_manager.start_pipeline(
                         temp_file.name,
                         input_type=input_type,
-                        config=pipeline_config,
                     )
                     logger.info(f"Pipeline {pipeline_id} completed")
 
