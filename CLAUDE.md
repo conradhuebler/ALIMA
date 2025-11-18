@@ -165,3 +165,15 @@
 ✅ **Catalog Integration**: Direct export in K10+/WinIBW format for seamless integration
 - GUI: K10+ Export Tab with Copy-Button
 - CLI: `--format k10plus` mode
+
+### First-Start Setup Wizard
+✅ **Complete Implementation**: Interactive setup guides for new users on first launch
+- **GUI Wizard** (`src/ui/first_start_wizard.py`): PyQt6 multi-page wizard with LLM provider setup and optional GND database download
+  - Optional LLM connection testing (doesn't block proceeding)
+  - GND skip confirmation dialog to prevent accidental skipping
+- **CLI Wizard** (`src/utils/cli_setup_wizard.py`): Terminal-based interactive setup with provider selection, connection testing, and configuration saving
+- **Shared Utilities** (`src/utils/setup_utils.py`): Reusable validation and setup functions (Ollama, OpenAI, Gemini, Anthropic, GND download)
+  - Fixed: Correct UnifiedProvider initialization with proper parameters
+  - Fixed: Proper TaskPreference creation with model_priority structure
+- **Auto-Detection**: Both GUI and CLI check `first_run_completed` flag and prompt setup if needed
+- **Provider Support**: Ollama (local/remote), OpenAI-compatible APIs, Google Gemini, Anthropic Claude

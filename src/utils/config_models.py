@@ -515,7 +515,8 @@ class SystemConfig:
     # Configurable file paths (can be absolute or relative to project root) - Claude Generated
     prompts_path: str = 'prompts.json'          # Path to prompts configuration file
 
-    # First-run check can be disabled via config - Claude Generated
+    # First-run wizard tracking - Claude Generated
+    first_run_completed: bool = False  # Set to true after wizard completion
     skip_first_run_check: bool = False  # Set to true to disable first-run dialog on empty config
 
 
