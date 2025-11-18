@@ -662,13 +662,22 @@ async def run_input_extraction(
             if session.abort_requested:
                 raise Exception("Pipeline execution cancelled by user")
 
-            # Prepare input source - Claude Generated
+            # Prepare input source and normalize input_type - Claude Generated
             input_source = None
+            normalized_input_type = input_type  # Will change for doi->text after resolution
 
             if input_type == "text" and content:
                 input_source = content
             elif input_type == "doi" and content:
-                input_source = content
+                # Resolve DOI/URL to text first - Claude Generated
+                logger.info(f"Resolving DOI/URL: {content}")
+                success, text_content, error = resolve_input_to_text(content, logger)
+                if not success or not text_content:
+                    error_msg = error or "Could not resolve DOI/URL"
+                    raise ValueError(f"DOI resolution failed: {error_msg}")
+                input_source = text_content
+                normalized_input_type = "text"  # Now treat as text
+                logger.info(f"✅ DOI resolved to {len(text_content)} characters")
             elif input_type == "pdf" and file_contents:
                 # Save PDF temporarily - Claude Generated
                 suffix = ".pdf"
@@ -705,12 +714,12 @@ async def run_input_extraction(
             services = app_context.get_services()
             llm_service = services['llm_service']
 
-            # Call execute_input_extraction (same as pipeline does) - Claude Generated
-            logger.info(f"Executing input extraction with input_type={input_type} from {input_source[:50]}...")
+            # Call execute_input_extraction with normalized input_type - Claude Generated
+            logger.info(f"Executing input extraction with input_type={normalized_input_type} from {str(input_source)[:50]}...")
             extracted_text, source_info, extraction_method = execute_input_extraction(
                 llm_service=llm_service,
                 input_source=input_source,
-                input_type=input_type if input_type != "img" else "image",  # pipeline uses "image" not "img"
+                input_type=normalized_input_type if normalized_input_type != "img" else "image",  # pipeline uses "image" not "img"
                 stream_callback=stream_callback_wrapper,
                 logger=logger,
             )
