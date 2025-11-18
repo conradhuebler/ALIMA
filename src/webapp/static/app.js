@@ -95,7 +95,17 @@ class AlimaWebapp {
 
         // Clear button (clear results panel)
         document.getElementById('clear-btn').addEventListener('click', () => {
-            this.clearResults();
+            this.clearSession();
+        });
+
+        // Cancel button (cancel running pipeline)
+        document.getElementById('cancel-btn').addEventListener('click', () => {
+            this.cancelAnalysis();
+        });
+
+        // Clear logs button
+        document.getElementById('clear-logs-btn').addEventListener('click', () => {
+            document.getElementById('stream-text').textContent = '';
         });
 
         // File input
@@ -801,6 +811,45 @@ class AlimaWebapp {
     updateButtonState() {
         document.getElementById('analyze-btn').disabled = this.isAnalyzing;
         document.getElementById('analyze-btn').textContent = this.isAnalyzing ? 'Wird analysiert...' : 'Analyse starten';
+
+        // Show/hide cancel button - Claude Generated
+        document.getElementById('cancel-btn').style.display = this.isAnalyzing ? 'block' : 'none';
+    }
+
+    // Clear session (rename of clearResults) - Claude Generated
+    async clearSession() {
+        await this.clearResults();
+    }
+
+    // Cancel running analysis - Claude Generated
+    async cancelAnalysis() {
+        if (!this.isAnalyzing || !this.sessionId) {
+            alert('Keine Analyse läuft');
+            return;
+        }
+
+        try {
+            // Request cancellation from backend
+            const response = await fetch(`/api/session/${this.sessionId}/cancel`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to cancel: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Cancellation response:', data);
+            this.appendStreamText('\n❌ Analyse durch Benutzer abgebrochen\n');
+
+            // Stop polling
+            this.isAnalyzing = false;
+            this.updateButtonState();
+
+        } catch (error) {
+            console.error('Error cancelling analysis:', error);
+            alert('Fehler beim Abbrechen: ' + error.message);
+        }
     }
 
     // Process DOI/URL input and run initialization - Claude Generated

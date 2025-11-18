@@ -91,9 +91,14 @@
                             </div>
                         </div>
 
-                        <button id="analyze-btn" class="btn btn-primary">
-                            ▶ Analyse starten
-                        </button>
+                        <div class="button-group">
+                            <button id="analyze-btn" class="btn btn-primary">
+                                ▶ Analyse starten
+                            </button>
+                            <button id="cancel-btn" class="btn btn-danger" style="display: none;">
+                                ⏹ Abbrechen
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -127,7 +132,10 @@
 
                 <!-- Output Panel (Full Width Bottom) -->
                 <div id="stream-output" class="stream-output">
-                    <h3>Ausgabe (LLM-Streaming)</h3>
+                    <div class="stream-header">
+                        <h3>Ausgabe (LLM-Streaming)</h3>
+                        <button id="clear-logs-btn" class="btn btn-small">🗑 Logs löschen</button>
+                    </div>
                     <pre id="stream-text"></pre>
                 </div>
             </div>

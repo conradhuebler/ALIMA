@@ -420,6 +420,26 @@ input[type="text"]:focus {
     background: var(--border-color);
 }
 
+.btn-danger {
+    background: var(--error-color);
+    color: var(--bg-white);
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #b91c1c;
+}
+
+.button-group {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.button-group .btn {
+    flex: 1;
+}
+
 /* Pipeline Panel */
 .pipeline-panel {
     display: flex;
@@ -547,11 +567,19 @@ input[type="text"]:focus {
     grid-column: 1 / -1;
 }
 
+.stream-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
 .stream-output h3 {
     color: white;
     font-size: 0.95em;
     font-weight: 600;
-    margin-bottom: 12px;
+    margin: 0;
 }
 
 #stream-text {

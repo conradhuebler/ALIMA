@@ -139,6 +139,7 @@ class Session:
         self.process = None
         self.temp_files = []
         self.streaming_buffer = {}  # Buffer for streaming tokens by step_id - Claude Generated
+        self.abort_requested = False  # Flag to signal pipeline abort - Claude Generated
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -156,6 +157,18 @@ class Session:
         self.streaming_buffer.clear()
         return result
 
+    def clear(self):
+        """Complete session reset - clear all data - Claude Generated"""
+        self.status = "idle"
+        self.current_step = None
+        self.input_data = None
+        self.results = {}
+        self.error_message = None
+        self.streaming_buffer.clear()
+        self.abort_requested = False
+        self.cleanup()
+        logger.info(f"Session {self.session_id} cleared")
+
     def cleanup(self):
         """Clean up temporary files - Claude Generated"""
         for temp_file in self.temp_files:
@@ -164,6 +177,7 @@ class Session:
                     os.remove(temp_file)
             except Exception as e:
                 logger.warning(f"Could not cleanup {temp_file}: {e}")
+        self.temp_files.clear()
 
 
 @app.get("/")
@@ -200,6 +214,45 @@ async def get_session(session_id: str) -> dict:
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
     }
+
+
+@app.post("/api/session/{session_id}/clear")
+async def clear_session(session_id: str) -> dict:
+    """Clear session state and reset for new analysis - Claude Generated"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+    session.clear()
+
+    return {
+        "session_id": session_id,
+        "status": "cleared",
+        "message": "Session cleared and reset"
+    }
+
+
+@app.post("/api/session/{session_id}/cancel")
+async def cancel_session(session_id: str) -> dict:
+    """Request cancellation of running pipeline - Claude Generated"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+    if session.status == "running":
+        session.abort_requested = True
+        logger.info(f"Cancellation requested for session {session_id}")
+        return {
+            "session_id": session_id,
+            "status": "cancel_requested",
+            "message": "Cancellation requested"
+        }
+    else:
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "message": "Session is not running"
+        }
 
 
 @app.post("/api/analyze/{session_id}")
@@ -525,6 +578,10 @@ async def run_analysis(
 
         def on_stream_token(token: str, step_id: str = ""):
             """Handle token streaming - buffer tokens for WebSocket - Claude Generated"""
+            # Check for abort request - Claude Generated
+            if session.abort_requested:
+                raise Exception("Pipeline execution cancelled by user")
+
             # Buffer tokens by step for periodic transmission via WebSocket
             if step_id:
                 session.add_streaming_token(token, step_id)
@@ -533,6 +590,10 @@ async def run_analysis(
         # Run pipeline in background thread - Claude Generated
         def execute_pipeline():
             try:
+                # Check for abort before starting - Claude Generated
+                if session.abort_requested:
+                    raise Exception("Pipeline execution cancelled by user")
+
                 # Set up callbacks
                 pipeline_manager.set_callbacks(
                     step_started=on_step_started,
@@ -587,12 +648,20 @@ async def run_input_extraction(
 
         def stream_callback_wrapper(message: str):
             """Wrap stream callback for live progress - Claude Generated"""
+            # Check for abort before updating - Claude Generated
+            if session.abort_requested:
+                raise Exception("Pipeline execution cancelled by user")
+
             session.current_step = "input"
             # Use existing add_streaming_token method - correct parameter order: (token, step_id) - Claude Generated
             session.add_streaming_token(message, "input")
             logger.info(f"[Stream] {message}")
 
         def execute_extraction():
+            # Check for abort before starting - Claude Generated
+            if session.abort_requested:
+                raise Exception("Pipeline execution cancelled by user")
+
             # Prepare input source - Claude Generated
             input_source = None
 
