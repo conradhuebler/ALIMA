@@ -628,20 +628,17 @@ async def run_input_extraction(
 
                 # Use Pipeline for PDF/Image extraction with LLM-OCR - Claude Generated
                 def execute_input_pipeline():
-                    from src.core.pipeline_manager import PipelineManager
-                    from src.core.alima_manager import AlimaManager
-                    from src.llm.llm_service import LlmService
-                    from src.core.config_manager import ConfigManager
-                    from src.core.prompt_service import PromptService
-                    from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+                    from src.core.pipeline_manager import PipelineConfig
 
-                    # Initialize pipeline - Claude Generated
-                    config_manager = ConfigManager()
-                    llm_service = LlmService(config_manager)
-                    prompt_service = PromptService()
-                    alima_manager = AlimaManager(llm_service, prompt_service)
-                    knowledge_manager = UnifiedKnowledgeManager(config_manager)
-                    pipeline_manager = PipelineManager(config_manager, alima_manager, knowledge_manager)
+                    # Get or initialize services via AppContext (singleton) - Claude Generated
+                    app_context = AppContext()
+                    services = app_context.get_services()
+
+                    config_manager = services['config_manager']
+                    pipeline_manager = services['pipeline_manager']
+
+                    # Create pipeline config from preferences - Claude Generated
+                    pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
 
                     # Track input extraction - Claude Generated
                     extracted_text = None
@@ -660,6 +657,7 @@ async def run_input_extraction(
                     pipeline_id = pipeline_manager.start_pipeline(
                         temp_file.name,
                         input_type=input_type,
+                        config=pipeline_config,
                     )
                     logger.info(f"Pipeline {pipeline_id} completed")
 
