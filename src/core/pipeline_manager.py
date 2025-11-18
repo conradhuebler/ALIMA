@@ -1082,17 +1082,19 @@ class PipelineManager:
                 from ..utils.config_manager import ConfigManager
                 config_manager = ConfigManager()
                 catalog_config = config_manager.get_catalog_config()
-                
+
                 catalog_token = getattr(step_config, 'catalog_token', '') or getattr(catalog_config, "catalog_token", "")
                 catalog_search_url = getattr(step_config, 'catalog_search_url', '') or getattr(catalog_config, "catalog_search_url", "")
                 catalog_details_url = getattr(step_config, 'catalog_details_url', '') or getattr(catalog_config, "catalog_details_url", "")
-                
+                strict_gnd_validation = getattr(catalog_config, "strict_gnd_validation_for_dk_search", True)
+
             except Exception as e:
                 self.logger.warning(f"Failed to load catalog config: {e}")
                 catalog_token = getattr(step_config, 'catalog_token', '')
                 catalog_search_url = getattr(step_config, 'catalog_search_url', '')
                 catalog_details_url = getattr(step_config, 'catalog_details_url', '')
-            
+                strict_gnd_validation = True
+
             dk_search_results = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
                 stream_callback=self._stream_callback_adapter,
@@ -1101,9 +1103,18 @@ class PipelineManager:
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
                 force_update=getattr(self, 'force_update', False),  # Claude Generated
+                strict_gnd_validation=strict_gnd_validation,  # EXPERT OPTION - Claude Generated
             )
 
-            # Flatten keyword-centric format to DK-centric for prompt building - Claude Generated
+            # DUAL FORMAT ARCHITECTURE - Claude Generated
+            # Two complementary formats for different purposes:
+            # 1. Keyword-centric: Shows "Keyword X → DK Y, DK Z" (for user understanding)
+            # 2. DK-centric: Shows "DK Y from Keywords [X, ...], DK Z from Keywords [...]" (for LLM analysis)
+            # Both formats coexist for valid reasons:
+            # - keyword-centric: Preserves which keywords led to which DKs (transparency for GUI/export)
+            # - DK-centric: Groups DKs with all their source keywords (required for LLM prompt building)
+            # Trade-off: Minor redundancy ↔ Clear separation of concerns and better UI/LLM data
+
             dk_search_results_flattened = dk_search_results
             if dk_search_results and isinstance(dk_search_results[0], dict):
                 if "classifications" in dk_search_results[0]:
@@ -1113,10 +1124,10 @@ class PipelineManager:
                     )
                     self.logger.info(f"Flattened keyword-centric format: {len(dk_search_results)} keywords → {len(dk_search_results_flattened)} classifications")
 
-            # Store both formats: original for GUI, flattened for LLM prompts - Claude Generated
+            # Store both formats: original for GUI, flattened for LLM prompts
             step.output_data = {
-                "dk_search_results": dk_search_results,  # Keyword-centric for GUI (PipelineStreamWidget, pipeline_tab)
-                "dk_search_results_flattened": dk_search_results_flattened  # DK-centric for LLM prompts
+                "dk_search_results": dk_search_results,  # Keyword-centric: what each keyword found (GUI transparency)
+                "dk_search_results_flattened": dk_search_results_flattened  # DK-centric: aggregated view (LLM analysis)
             }
 
             # Transfer DK search results to analysis state - Claude Generated

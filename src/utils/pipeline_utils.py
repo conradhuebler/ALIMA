@@ -1335,7 +1335,9 @@ class PipelineStepExecutor:
                     # Letter-number pattern -> assume RVK
                     classification_codes.append(f"RVK {code_clean}")
                 else:
-                    # Unknown format, keep as-is
+                    # Unknown format, keep as-is and log - Claude Generated
+                    if self.logger:
+                        self.logger.debug(f"⚠️ Unknown format: '{code_clean}' (not DK/RVK prefixed, not number pattern)")
                     classification_codes.append(code_clean)
 
             if self.logger:
@@ -1417,6 +1419,7 @@ class PipelineStepExecutor:
         catalog_search_url: str = None,
         catalog_details_url: str = None,
         force_update: bool = False,  # Claude Generated
+        strict_gnd_validation: bool = True,  # EXPERT OPTION: Allow disabling strict GND validation
     ) -> List[Dict[str, Any]]:
         """
         Execute catalog search for DK classification data - Claude Generated
@@ -1429,6 +1432,7 @@ class PipelineStepExecutor:
             catalog_search_url: Catalog search endpoint URL
             catalog_details_url: Catalog details endpoint URL
             force_update: If True, results will be merged with existing cache (used by store_classification_results)
+            strict_gnd_validation: If True (default), only use GND-validated keywords. If False, include plain text keywords.
 
         Returns:
             List of classification results with titles, counts, and metadata
@@ -1469,10 +1473,12 @@ class PipelineStepExecutor:
                 stream_callback(f"BiblioExtractor-Fehler: {str(e)}\n", "dk_search")
             return []
 
-        # STRICT GND-ONLY FILTERING: Only use keywords with validated GND-IDs - Claude Generated
-        # This prevents irrelevant catalog titles from plain text keywords (e.g., "Molekül")
+        # GND VALIDATION FILTERING - Claude Generated
+        # Default (strict_gnd_validation=True): Only use keywords with validated GND-IDs
+        #   This prevents irrelevant catalog titles from plain text keywords (e.g., "Molekül")
+        # Expert mode (strict_gnd_validation=False): Include plain text keywords too
         gnd_validated_keywords = []
-        plain_keywords_filtered = []
+        plain_keywords = []
 
         for keyword in keywords:
             if self._is_gnd_validated_keyword(keyword):
@@ -1480,45 +1486,60 @@ class PipelineStepExecutor:
                 clean_keyword = keyword.split("(GND-ID:")[0].strip()
                 gnd_validated_keywords.append(clean_keyword)
             else:
-                # Plain text keyword without GND-ID validation - exclude from DK search
-                plain_keywords_filtered.append(keyword)
+                # Plain text keyword without GND-ID validation
+                plain_keywords.append(keyword)
 
-        # Log filtering results
-        if plain_keywords_filtered:
+        # Decide which keywords to use based on strict_gnd_validation setting - Claude Generated
+        if strict_gnd_validation:
+            final_search_keywords = gnd_validated_keywords
+            filtered_keywords = plain_keywords
+        else:
+            final_search_keywords = gnd_validated_keywords + plain_keywords
+            filtered_keywords = []
+
+        # Log filtering results - Claude Generated: Enhanced user feedback
+        if filtered_keywords and strict_gnd_validation:
+            # Build list of excluded keyword texts for user feedback
+            excluded_list = ", ".join([kw[:40] for kw in filtered_keywords[:5]])
+            if len(filtered_keywords) > 5:
+                excluded_list += f", +{len(filtered_keywords)-5} weitere"
+
             if self.logger:
                 self.logger.info(
-                    f"🔍 DK Search Filtering: {len(gnd_validated_keywords)} GND-validated keywords used, "
-                    f"{len(plain_keywords_filtered)} plain keywords excluded"
+                    f"🔍 DK Search (strict GND mode): {len(gnd_validated_keywords)} GND-validated keywords used, "
+                    f"{len(filtered_keywords)} plain keywords excluded: {excluded_list}"
                 )
             if stream_callback:
                 stream_callback(
-                    f"Filter: {len(gnd_validated_keywords)} GND-validierte + {len(plain_keywords_filtered)} ignoriert\n",
+                    f"⚠️ DK-Suche-Filter: {len(gnd_validated_keywords)} GND-validierte Keywords, "
+                    f"{len(filtered_keywords)} ohne GND ausgeschlossen\n   Ausgeschlossen: {excluded_list}\n",
                     "dk_search"
                 )
 
         # Handle edge case: all keywords filtered
-        if not gnd_validated_keywords:
+        if not final_search_keywords:
             if self.logger:
                 self.logger.warning(
                     f"⚠️ DK Search: All {len(keywords)} keywords lack GND validation - skipping catalog search"
                 )
             if stream_callback:
                 stream_callback(
-                    "⚠️ Keine GND-validierten Keywords für DK-Suche vorhanden\n",
+                    "⚠️ Keine Keywords für DK-Suche vorhanden\n",
                     "dk_search"
                 )
             return []
 
         if stream_callback:
+            mode_info = "(strict GND mode)" if strict_gnd_validation else "(including plain keywords)"
             stream_callback(
-                f"Suche Katalog-Einträge für {len(gnd_validated_keywords)} GND-validierte Keywords (max {max_results})\n",
+                f"Suche Katalog-Einträge für {len(final_search_keywords)} Keywords {mode_info} (max {max_results})\n",
                 "dk_search"
             )
 
-        # Execute catalog search with GND-validated keywords only
+        # Execute catalog search with selected keywords
         try:
             dk_search_results = extractor.extract_dk_classifications_for_keywords(
-                keywords=gnd_validated_keywords,  # Use only GND-validated keywords (strict filtering)
+                keywords=final_search_keywords,
                 max_results=max_results,
                 force_update=force_update,
             )
@@ -1638,24 +1659,31 @@ def extract_keywords_from_descriptive_text(
         for gnd_kw in gnd_compliant_keywords:
             # Extract keyword text before (GND-ID: ...)
             if "(GND-ID:" in gnd_kw:
-                keyword_text = gnd_kw.split("(GND-ID:")[0].strip().lower()
+                # ROBUST: Normalize whitespace (multiple spaces, tabs, newlines) - Claude Generated
+                keyword_text = " ".join(gnd_kw.split("(GND-ID:")[0].split()).lower()
                 gnd_lookup[keyword_text] = gnd_kw
 
         # Match raw keywords against GND lookup - Claude Generated FIX
         unmatched_keywords = []  # FIX: Track keywords without GND matches for DK search
         for raw_kw in raw_keywords:
-            raw_kw_lower = raw_kw.lower()
+            # ROBUST: Normalize whitespace and strip GND-ID label if LLM added it literally - Claude Generated
+            raw_kw_normalized = " ".join(raw_kw.split()).lower()
+
+            # Fallback: If LLM returned "Keyword (GND-ID)" without actual ID, strip the label
+            if raw_kw_normalized.endswith("(gnd-id)"):
+                raw_kw_normalized = raw_kw_normalized[:-9].strip()
+                logger.info(f"  ℹ️ Stripped literal '(GND-ID)' label from '{raw_kw}'")
 
             # Exact match
-            if raw_kw_lower in gnd_lookup:
-                matched_gnd_kw = gnd_lookup[raw_kw_lower]
+            if raw_kw_normalized in gnd_lookup:
+                matched_gnd_kw = gnd_lookup[raw_kw_normalized]
                 exact_matches.append(matched_gnd_kw)
                 logger.info(f"  ✅ Matched '{raw_kw}' -> {matched_gnd_kw[:60]}")
             else:
                 # Fuzzy match: check if raw_kw is contained in any GND keyword
                 found = False
                 for gnd_kw_text, full_gnd_kw in gnd_lookup.items():
-                    if raw_kw_lower in gnd_kw_text or gnd_kw_text in raw_kw_lower:
+                    if raw_kw_normalized in gnd_kw_text or gnd_kw_text in raw_kw_normalized:
                         exact_matches.append(full_gnd_kw)
                         logger.info(f"  ⚠️ Fuzzy matched '{raw_kw}' -> {full_gnd_kw[:60]}")
                         found = True

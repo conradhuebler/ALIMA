@@ -41,7 +41,7 @@ class BiblioClient:
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
 
-    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True):
+    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 30):
         """
         Initialize the extractor with the given token.
 
@@ -50,18 +50,20 @@ class BiblioClient:
             debug: Enable detailed debug output
             save_xml_path: Directory to save raw XML responses for debugging (empty string = disabled)
             enable_web_fallback: Enable web scraping fallback when SOAP fails (Claude Generated)
+            timeout: Request timeout in seconds (default: 30) - Claude Generated
         """
         self.token = token
         self.debug = debug
         self.save_xml_path = save_xml_path
         self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
         self._using_web_mode = False  # Claude Generated - Track if we switched to web pipeline
+        self.timeout = timeout  # Claude Generated - Configurable timeout
         self.session = requests.Session()
         self.headers = {"Content-Type": "text/xml;charset=UTF-8", "SOAPAction": ""}
 
     def search(self, term: str, search_type: str = "ku") -> List[Dict[str, Any]]:
         """
-        Search for items in the catalog.
+        Search for items in the catalog with retry logic for transient errors.
 
         Args:
             term: The search term
@@ -70,6 +72,62 @@ class BiblioClient:
         Returns:
             A list of search result items
         """
+        # Retry configuration - Claude Generated
+        max_retries = 3
+        backoff_base = 1  # Start at 1 second
+
+        for attempt in range(max_retries):
+            try:
+                return self._search_attempt(term, search_type)
+
+            except requests.exceptions.ConnectionError as e:
+                # Transient connection error - retry with exponential backoff - Claude Generated
+                if attempt < max_retries - 1:
+                    backoff_time = backoff_base * (2 ** attempt)  # Exponential: 1s, 2s, 4s
+                    logger.warning(
+                        f"⚠️ Connection error for '{term}' (attempt {attempt + 1}/{max_retries}), "
+                        f"retrying in {backoff_time}s: {e}"
+                    )
+                    time.sleep(backoff_time)
+                else:
+                    logger.error(f"❌ Connection failed after {max_retries} attempts: {e}")
+                    return []
+
+            except requests.exceptions.Timeout as e:
+                # Timeout - retry - Claude Generated
+                if attempt < max_retries - 1:
+                    backoff_time = backoff_base * (2 ** attempt)
+                    logger.warning(
+                        f"⚠️ Timeout for '{term}' (attempt {attempt + 1}/{max_retries}), "
+                        f"retrying in {backoff_time}s"
+                    )
+                    time.sleep(backoff_time)
+                else:
+                    logger.error(f"❌ Timeout after {max_retries} attempts")
+                    return []
+
+            except requests.exceptions.HTTPError as e:
+                # HTTP errors that should NOT retry (4xx client errors) - Claude Generated
+                if 400 <= e.response.status_code < 500:
+                    logger.error(f"❌ Client error {e.response.status_code} (not retrying): {e}")
+                    return []
+                # Server error (5xx) - retry - Claude Generated
+                else:
+                    if attempt < max_retries - 1:
+                        backoff_time = backoff_base * (2 ** attempt)
+                        logger.warning(
+                            f"⚠️ Server error {e.response.status_code} (attempt {attempt + 1}/{max_retries}), "
+                            f"retrying in {backoff_time}s"
+                        )
+                        time.sleep(backoff_time)
+                    else:
+                        logger.error(f"❌ Server error after {max_retries} attempts")
+                        return []
+
+        return []
+
+    def _search_attempt(self, term: str, search_type: str) -> List[Dict[str, Any]]:
+        """Single search attempt without retry logic - Claude Generated"""
         search_envelope = f"""
         <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lib="http://libero.com.au">
            <soapenv:Header/>
@@ -85,46 +143,41 @@ class BiblioClient:
         logger.debug(f"Sending search request to {self.SEARCH_URL}")
         logger.debug(f"Search envelope: {search_envelope}")
 
-        try:
-            response = self.session.post(
-                self.SEARCH_URL, headers=self.headers, data=search_envelope, timeout=300
+        response = self.session.post(
+            self.SEARCH_URL, headers=self.headers, data=search_envelope, timeout=self.timeout
+        )
+
+        logger.debug(f"Search response status: {response.status_code}")
+
+        if self.debug:
+            logger.debug(f"Search response content: {response.text}")
+
+        if response.status_code != 200:
+            logger.error(
+                f"Error searching: {response.status_code} - {response.text}"
             )
-
-            logger.debug(f"Search response status: {response.status_code}")
-
-            if self.debug:
-                logger.debug(f"Search response content: {response.text}")
-
-            if response.status_code != 200:
-                logger.error(
-                    f"Error searching: {response.status_code} - {response.text}"
-                )
-                return []
-
-            # Check for SOAP Fault response - Claude Generated
-            soap_fault = self._extract_soap_fault(response.text)
-            if soap_fault:
-                logger.error(f"SOAP Fault during search for '{term}': {soap_fault}")
-
-                # Try web scraping fallback immediately - Claude Generated
-                if self.enable_web_fallback:
-                    logger.info(f"Attempting web scraping fallback for search term: {term}")
-                    self._using_web_mode = True  # Claude Generated - Switch to web mode permanently
-                    logger.info("🔄 Switched to web pipeline mode for all subsequent requests")
-                    web_results = self._search_web(term)
-                    if web_results:
-                        logger.info(f"✅ Web fallback search successful: {len(web_results)} results")
-                        return web_results
-                    else:
-                        logger.warning(f"⚠️ Web fallback also returned no results for '{term}'")
-
-                return []
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {e}")
             return []
 
-        # Parse the response XML
+        # Check for SOAP Fault response - Claude Generated
+        soap_fault = self._extract_soap_fault(response.text)
+        if soap_fault:
+            logger.error(f"SOAP Fault during search for '{term}': {soap_fault}")
+
+            # Try web scraping fallback immediately - Claude Generated
+            if self.enable_web_fallback:
+                logger.info(f"Attempting web scraping fallback for search term: {term}")
+                self._using_web_mode = True  # Claude Generated - Switch to web mode permanently
+                logger.info("🔄 Switched to web pipeline mode for all subsequent requests")
+                web_results = self._search_web(term)
+                if web_results:
+                    logger.info(f"✅ Web fallback search successful: {len(web_results)} results")
+                    return web_results
+                else:
+                    logger.warning(f"⚠️ Web fallback also returned no results for '{term}'")
+
+            return []
+
+        # Parse the response XML (if no SOAP fault, parse successfully) - Claude Generated
         try:
             root = ET.fromstring(response.content)
 
@@ -1138,23 +1191,25 @@ class BiblioClient:
                 all_titles.extend(title_list)
                 logger.info(f"💾 Cached {len(title_list)} titles for '{clean_kw}'")
 
-        # Extract classifications from all accumulated titles
-        logger.info(f"📊 Extracting classifications from {len(all_titles)} total titles")
-        classifications = dk_cache.extract_classifications_from_titles(
-            all_titles,
-            matched_keywords=list(normalized_keywords.keys())
-        )
-
-        logger.info(f"✅ Extracted {len(classifications)} unique classifications ({cached_count}/{len(normalized_keywords)} keywords from cache)")
-
-        # Build keyword-centric results for GUI display
+        # Process each keyword INDIVIDUALLY to maintain correct keyword-classification associations - Claude Generated
+        # FIX: Previous implementation mixed titles from different keywords, causing wrong matched_keywords assignments
+        # Now each keyword gets only its own titles and classifications
         keyword_results = []
+
         for clean_kw, original_kw in normalized_keywords.items():
-            # Get classifications for this keyword
-            kw_classifications = [
-                c for c in classifications
-                if clean_kw in c.get("matched_keywords", [])
-            ]
+            # Get titles for THIS keyword only (from cache - all keywords have been searched/cached by now)
+            kw_titles = dk_cache.get_catalog_dk_cache(clean_kw)
+
+            if not kw_titles:
+                logger.warning(f"⚠️ No titles cached for keyword '{clean_kw}' after search/cache operations")
+                continue
+
+            # Extract classifications for THIS keyword only - Claude Generated
+            # Pass ONLY this keyword to avoid mixing with other keywords' classifications
+            kw_classifications = dk_cache.extract_classifications_from_titles(
+                kw_titles,
+                matched_keywords=[clean_kw]  # ✅ FIXED: Only this specific keyword
+            )
 
             if kw_classifications:  # Only add if keyword has classifications
                 keyword_results.append({
@@ -1163,8 +1218,17 @@ class BiblioClient:
                     "search_time_ms": 0.0,  # TODO: Track actual timing
                     "classifications": kw_classifications
                 })
+                logger.info(f"✅ Keyword '{clean_kw}': {len(kw_classifications)} classifications from {len(kw_titles)} titles")
+            else:
+                logger.debug(f"⚠️ Keyword '{clean_kw}': {len(kw_titles)} titles but no classifications extracted")
 
-        logger.info(f"📊 Returning {len(keyword_results)} keyword-centric results for GUI display")
+        # Cache statistics - Claude Generated
+        total_keywords = len(normalized_keywords)
+        cache_hit_rate = (cached_count / total_keywords * 100) if total_keywords > 0 else 0
+        logger.info(
+            f"📊 Cache Statistics: {cached_count}/{total_keywords} hits ({cache_hit_rate:.0f}%) "
+            f"| Returning {len(keyword_results)} keyword-centric results for GUI display"
+        )
         return keyword_results
 
     def extract_dk_classifications_for_keywords_OLD(self, keywords: List[str], max_results: int = 50, force_update: bool = False) -> List[Dict[str, Any]]:

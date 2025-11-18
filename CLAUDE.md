@@ -4,8 +4,15 @@
 
 **ALIMA** (Automatic Library Indexing and Metadata Analysis) is a comprehensive pipeline for library science workflows combining LLM-powered text analysis with GND/SWB keyword search and DK/RVK classification.
 
-## General Instructions
+## Very General Instructions for AI Coding
+- Avoid flattery, compliments, or positive language. Be clear and concise. Do not use agreeable language to deceive.
+- Do comprehensive verification before claiming completion
+- Show me proof of completion, don’t just assert it
+- Prioritize thoroughness over speed
+- If I correct you, adapt your method for the rest of the task
+- No completion claims until you can demonstrate zero remaining instances
 
+## General Instructions
 - Each source code dir has a CLAUDE.md with basic information and logic
 - **Keep CLAUDE.md files FOCUSED and CONCISE** - ONE clear idea per bullet, max 1-2 lines
   - ❌ DON'T: Multi-paragraph explanations, code examples, historical details
