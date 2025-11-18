@@ -148,6 +148,72 @@ main {
     color: var(--primary-color);
 }
 
+/* Input Text Box - Always Visible at Top - Claude Generated */
+.input-text-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+}
+
+.input-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.input-header h2 {
+    margin: 0;
+    font-size: 1.1em;
+}
+
+.btn-small {
+    padding: 4px 8px;
+    font-size: 0.85em;
+}
+
+/* Input Methods Section - Tabs Below Text Box - Claude Generated */
+.input-methods-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 16px;
+}
+
+.input-methods-section h3 {
+    font-size: 0.95em;
+    font-weight: 600;
+    margin: 0;
+    color: var(--primary-color);
+}
+
+/* Tab Input Group - Claude Generated */
+.tab-input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.tab-input-group input[type="text"] {
+    flex: 1;
+}
+
+.btn-tab {
+    padding: 8px 16px;
+    background-color: var(--secondary-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.btn-tab:hover {
+    background-color: #0052a3;
+}
+
 .tab-content {
     display: none;
     flex: 1;

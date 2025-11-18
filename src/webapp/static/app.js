@@ -66,9 +66,26 @@ class AlimaWebapp {
             });
         });
 
-        // Analyze button
+        // Analyze button (full pipeline)
         document.getElementById('analyze-btn').addEventListener('click', () => {
             this.startAnalysis();
+        });
+
+        // Clear text button - Claude Generated
+        document.getElementById('clear-text-btn').addEventListener('click', () => {
+            document.getElementById('text-input').value = '';
+        });
+
+        // DOI/URL Resolve button - Claude Generated
+        document.getElementById('doi-resolve-btn').addEventListener('click', () => {
+            this.processDoiUrl();
+        });
+
+        // DOI/URL Enter key - Claude Generated
+        document.getElementById('doi-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.processDoiUrl();
+            }
         });
 
         // Export button
@@ -76,7 +93,7 @@ class AlimaWebapp {
             this.exportResults();
         });
 
-        // Clear button
+        // Clear button (clear results panel)
         document.getElementById('clear-btn').addEventListener('click', () => {
             this.clearResults();
         });
@@ -85,6 +102,10 @@ class AlimaWebapp {
         document.getElementById('file-input').addEventListener('change', (e) => {
             const fileName = e.target.files[0]?.name || '';
             document.getElementById('file-name').textContent = fileName ? `✓ ${fileName}` : '';
+            // Auto-process file on selection - Claude Generated
+            if (e.target.files[0]) {
+                this.processFileInput(e.target.files[0]);
+            }
         });
 
         // Drag and drop
@@ -188,7 +209,7 @@ class AlimaWebapp {
             }
         });
 
-        captureBtn.addEventListener('click', () => {
+        captureBtn.addEventListener('click', async () => {
             const ctx = canvas.getContext('2d');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -198,6 +219,18 @@ class AlimaWebapp {
             document.getElementById('camera-image').src = imageData;
             document.getElementById('camera-preview').style.display = 'flex';
             this.capturedCameraImage = imageData;
+
+            // Convert data URL to Blob for file submission - Claude Generated
+            try {
+                const response = await fetch(imageData);
+                const blob = await response.blob();
+                this.cameraBlob = blob;
+
+                // Auto-start initialization with camera image - Claude Generated
+                await this.submitInitializationOnlyCameraBlob();
+            } catch (error) {
+                console.error('Error processing camera image:', error);
+            }
 
             video.style.display = 'none';
             captureBtn.style.display = 'none';
@@ -591,6 +624,9 @@ class AlimaWebapp {
 
         // Display original abstract
         if (results.original_abstract) {
+            // Update input text field with extracted text - Claude Generated
+            document.getElementById('text-input').value = results.original_abstract;
+
             this.appendStreamText(`\n[${this.getTime()}] Originalabstract:`);
             this.appendStreamText(`  ${results.original_abstract.substring(0, 150)}${results.original_abstract.length > 150 ? '...' : ''}`);
         }
@@ -754,6 +790,119 @@ class AlimaWebapp {
     updateButtonState() {
         document.getElementById('analyze-btn').disabled = this.isAnalyzing;
         document.getElementById('analyze-btn').textContent = this.isAnalyzing ? 'Wird analysiert...' : 'Analyse starten';
+    }
+
+    // Process DOI/URL input and run initialization - Claude Generated
+    async processDoiUrl() {
+        const doiUrl = document.getElementById('doi-input').value.trim();
+        if (!doiUrl) {
+            alert('Geben Sie eine DOI oder URL ein');
+            return;
+        }
+
+        // Determine input type based on content
+        let inputType = 'doi';
+        if (doiUrl.startsWith('http://') || doiUrl.startsWith('https://')) {
+            inputType = 'url';
+        }
+
+        console.log(`Processing ${inputType}: ${doiUrl}`);
+        await this.submitInitializationOnly(inputType, doiUrl);
+    }
+
+    // Process file input and run initialization - Claude Generated
+    async processFileInput(file) {
+        if (!file) return;
+
+        // Determine input type
+        let inputType = 'txt';
+        if (file.type.includes('pdf')) {
+            inputType = 'pdf';
+        } else if (file.type.includes('image')) {
+            inputType = 'img';
+        }
+
+        console.log(`Processing file: ${file.name} (${inputType})`);
+        await this.submitInitializationOnly(inputType, null, file);
+    }
+
+    // Submit initialization only (not full pipeline) - Claude Generated
+    async submitInitializationOnly(inputType, content, file) {
+        try {
+            this.isAnalyzing = true;
+            this.updateButtonState();
+            this.clearStreamText();
+            this.resetSteps();
+
+            // Create FormData for multipart request
+            const formData = new FormData();
+            formData.append('input_type', inputType);
+            if (content) {
+                formData.append('content', content);
+            }
+            if (file) {
+                formData.append('file', file);
+            }
+
+            const response = await fetch(`/api/analyze/${this.sessionId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Initialization started:', data);
+
+            // Connect WebSocket for live updates
+            this.connectWebSocket();
+
+        } catch (error) {
+            console.error('Initialization error:', error);
+            this.appendStreamText(`❌ Fehler: ${error.message}`);
+            this.isAnalyzing = false;
+            this.updateButtonState();
+        }
+    }
+
+    // Submit initialization with camera blob - Claude Generated
+    async submitInitializationOnlyCameraBlob() {
+        try {
+            this.isAnalyzing = true;
+            this.updateButtonState();
+            this.clearStreamText();
+            this.resetSteps();
+
+            // Create FormData for multipart request with camera blob
+            const formData = new FormData();
+            formData.append('input_type', 'img');
+            if (this.cameraBlob) {
+                formData.append('file', this.cameraBlob, 'camera_photo.jpg');
+            }
+
+            const response = await fetch(`/api/analyze/${this.sessionId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Camera initialization started:', data);
+
+            // Connect WebSocket for live updates
+            this.connectWebSocket();
+
+        } catch (error) {
+            console.error('Camera initialization error:', error);
+            this.appendStreamText(`❌ Fehler: ${error.message}`);
+            this.isAnalyzing = false;
+            this.updateButtonState();
+        }
     }
 
     // Get current time string

@@ -31,60 +31,68 @@
                 <!-- Input Panel (Left) -->
                 <div class="input-panel">
                     <div class="input-section">
-                        <h2>Eingabe</h2>
-
-                        <div class="input-tabs">
-                            <button class="tab-btn active" data-tab="text-tab">Text</button>
-                            <button class="tab-btn" data-tab="doi-tab">DOI/URL</button>
-                            <button class="tab-btn" data-tab="file-tab">Datei</button>
-                            <button class="tab-btn" data-tab="camera-tab">Kamera</button>
-                        </div>
-
-                        <!-- Text Input -->
-                        <div id="text-tab" class="tab-content active">
-                            <textarea id="text-input"
-                                      placeholder="Geben Sie einen Abstract oder beliebigen Text ein..."
-                                      rows="6"></textarea>
-                        </div>
-
-                        <!-- DOI/URL Input -->
-                        <div id="doi-tab" class="tab-content">
-                            <input type="text" id="doi-input"
-                                   placeholder="z.B. 10.1007/... oder https://...">
-                        </div>
-
-                        <!-- File Upload with Drag & Drop -->
-                        <div id="file-tab" class="tab-content">
-                            <div class="file-upload" id="file-upload-area">
-                                <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt">
-                                <div class="file-upload-content">
-                                    <p class="file-upload-icon">⬆</p>
-                                    <p class="file-upload-text">Datei hier ablegen oder klicken</p>
-                                    <p class="file-upload-hint">PDF, Bild oder TXT</p>
-                                </div>
-                                <span id="file-name" class="file-name"></span>
+                        <!-- INPUT TEXT FIELD - ALWAYS VISIBLE AT TOP -->
+                        <div class="input-text-box">
+                            <div class="input-header">
+                                <h2>Eingabetext</h2>
+                                <button id="clear-text-btn" class="btn btn-small">🗑 Leeren</button>
                             </div>
+                            <textarea id="text-input"
+                                      placeholder="Extrahierter Text wird hier angezeigt. Sie können ihn auch direkt eingeben..."
+                                      rows="8"></textarea>
                         </div>
 
-                        <!-- Camera Input -->
-                        <div id="camera-tab" class="tab-content">
-                            <div class="camera-container">
-                                <video id="camera-video" playsinline></video>
-                                <canvas id="camera-canvas" style="display: none;"></canvas>
-                                <div class="camera-controls">
-                                    <button id="camera-start-btn" class="btn btn-camera">Kamera starten</button>
-                                    <button id="camera-capture-btn" class="btn btn-camera" style="display: none;">Foto machen</button>
-                                    <button id="camera-stop-btn" class="btn btn-camera" style="display: none;">Beenden</button>
+                        <!-- INPUT METHODS IN TABS -->
+                        <div class="input-methods-section">
+                            <h3>Eingabequellen</h3>
+                            <div class="input-tabs">
+                                <button class="tab-btn active" data-tab="doi-tab">📄 DOI/URL</button>
+                                <button class="tab-btn" data-tab="file-tab">📁 Datei</button>
+                                <button class="tab-btn" data-tab="camera-tab">📷 Kamera</button>
+                            </div>
+
+                            <!-- DOI/URL Input Tab -->
+                            <div id="doi-tab" class="tab-content active">
+                                <div class="tab-input-group">
+                                    <input type="text" id="doi-input"
+                                           placeholder="z.B. 10.1007/... oder https://...">
+                                    <button id="doi-resolve-btn" class="btn btn-tab">🔍 Auflösen</button>
                                 </div>
-                                <div id="camera-preview" class="camera-preview" style="display: none;">
-                                    <img id="camera-image" src="" alt="Vorschau">
-                                    <p class="preview-hint">Bereit zur Analyse</p>
+                            </div>
+
+                            <!-- File Upload with Drag & Drop Tab -->
+                            <div id="file-tab" class="tab-content">
+                                <div class="file-upload" id="file-upload-area">
+                                    <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt">
+                                    <div class="file-upload-content">
+                                        <p class="file-upload-icon">⬆</p>
+                                        <p class="file-upload-text">Datei hier ablegen oder klicken</p>
+                                        <p class="file-upload-hint">PDF, Bild oder TXT</p>
+                                    </div>
+                                    <span id="file-name" class="file-name"></span>
+                                </div>
+                            </div>
+
+                            <!-- Camera Input Tab -->
+                            <div id="camera-tab" class="tab-content">
+                                <div class="camera-container">
+                                    <video id="camera-video" playsinline></video>
+                                    <canvas id="camera-canvas" style="display: none;"></canvas>
+                                    <div class="camera-controls">
+                                        <button id="camera-start-btn" class="btn btn-camera">Kamera starten</button>
+                                        <button id="camera-capture-btn" class="btn btn-camera" style="display: none;">Foto machen</button>
+                                        <button id="camera-stop-btn" class="btn btn-camera" style="display: none;">Beenden</button>
+                                    </div>
+                                    <div id="camera-preview" class="camera-preview" style="display: none;">
+                                        <img id="camera-image" src="" alt="Vorschau">
+                                        <p class="preview-hint">Bereit zur Analyse</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <button id="analyze-btn" class="btn btn-primary">
-                            Analyse starten
+                            ▶ Analyse starten
                         </button>
                     </div>
                 </div>
