@@ -588,8 +588,8 @@ async def run_input_extraction(
         def stream_callback_wrapper(message: str):
             """Wrap stream callback for live progress - Claude Generated"""
             session.current_step = "input"
-            # Use existing add_streaming_token method to avoid KeyError - Claude Generated
-            session.add_streaming_token("input", message)
+            # Use existing add_streaming_token method - correct parameter order: (token, step_id) - Claude Generated
+            session.add_streaming_token(message, "input")
             logger.info(f"[Stream] {message}")
 
         def execute_extraction():
