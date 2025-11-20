@@ -252,7 +252,8 @@ class LLMSetupPage(QWizardPage):
         # Base URL (for OpenAI-compatible)
         self.base_url_label = QLabel("API Base URL:")
         self.base_url_input = QLineEdit()
-        self.base_url_input.setText("http://localhost:8000/v1")
+        self.base_url_input.setText("https://api.openai.com/v1")
+        self.base_url_input.setToolTip("OpenAI: https://api.openai.com/v1 | Local: http://localhost:8000/v1")
         self.base_url_input.setVisible(False)
         self.base_url_label.setVisible(False)
         self.config_layout.addWidget(self.base_url_label)
@@ -275,7 +276,7 @@ class LLMSetupPage(QWizardPage):
         self.setLayout(layout)
 
     def _on_provider_changed(self):
-        """Update UI when provider selection changes - Claude Generated"""
+        """Update UI when provider selection changes - Claude Generated (fixed visibility)"""
         selected = self.provider_group.checkedId()
 
         # Ollama settings
@@ -284,16 +285,19 @@ class LLMSetupPage(QWizardPage):
         self.ollama_port_label.setVisible(selected == 0)
         self.ollama_port_input.setVisible(selected == 0)
 
-        # OpenAI-compatible settings
+        # OpenAI-compatible settings (selected == 1)
         self.base_url_label.setVisible(selected == 1)
         self.base_url_input.setVisible(selected == 1)
-        self.api_key_label.setVisible(selected == 1)
-        self.api_key_input.setVisible(selected == 1)
 
-        # Cloud API settings (Gemini, Anthropic)
-        self.api_key_label.setVisible(selected in [2, 3])
-        self.api_key_input.setVisible(selected in [2, 3])
-        self.api_key_label.setText("API Key:" if selected in [2, 3] else "API Key:")
+        # Cloud API settings (Gemini=2, Anthropic=3, OpenAI-Compatible=1)
+        self.api_key_label.setVisible(selected in [1, 2, 3])
+        self.api_key_input.setVisible(selected in [1, 2, 3])
+
+        # Update API Key label text for clarity - Claude Generated
+        if selected == 1:
+            self.api_key_label.setText("API Key (optional for compatibility mode):")
+        elif selected in [2, 3]:
+            self.api_key_label.setText("API Key:")
 
         self.status_label.setText("")
 
