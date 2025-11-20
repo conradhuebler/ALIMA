@@ -1199,19 +1199,19 @@ class UnifiedProviderTab(QWidget):
     
     def _on_task_category_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         """Handle task category selection change - Claude Generated"""
-        # CRITICAL FIX: Save previous task's changes before switching using explicit task name - Claude Generated
+        # Save previous task's changes in memory (no signals/toast) - Claude Generated
         if previous and previous.data(Qt.ItemDataRole.UserRole) and self.current_editing_task:
-            # Save the previous task preferences using the explicit task name
+            # Preserve the previous task preferences in memory only
             previous_task_data = previous.data(Qt.ItemDataRole.UserRole)
             previous_task_name = previous_task_data["task_name"]
-            self.logger.info(f"Saving preferences for previous task: {previous_task_name}")
-            self._save_current_task_preferences(explicit_task_name=previous_task_name)
+            self.logger.debug(f"Preserving preferences for previous task: {previous_task_name}")
+            self._save_current_task_preferences(explicit_task_name=previous_task_name, emit_signals=False)
 
-        # CRITICAL FIX: Use safe task clearing to preserve changes - Claude Generated
+        # Preserve current task changes in memory before clearing - Claude Generated
         if self.current_editing_task and self.task_ui_dirty:
-            # Save current task before clearing
-            self.logger.info(f"Auto-saving changes for {self.current_editing_task} before clearing selection")
-            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+            # Save current task in memory only (no toast/signals for task switches)
+            self.logger.debug(f"Preserving changes for {self.current_editing_task} before clearing selection")
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task, emit_signals=False)
 
         self.current_editing_task = None
         self.task_ui_dirty = False
@@ -1682,7 +1682,7 @@ class UnifiedProviderTab(QWidget):
         # They are already updated by individual UI operations
         # No additional UI → config sync needed here
     
-    def _save_current_task_preferences(self, explicit_task_name: str = None):
+    def _save_current_task_preferences(self, explicit_task_name: str = None, emit_signals: bool = True):
         """Save current task priority lists to ProviderPreferences - Claude Generated"""
         try:
             # CRITICAL FIX: Always use explicit task name or current_editing_task for isolation - Claude Generated
@@ -1763,18 +1763,21 @@ class UnifiedProviderTab(QWidget):
             # Save proper TaskPreference object
             self.config.unified_config.task_preferences[task_name] = task_preference
 
-            # Configuration changed in memory - parent dialog will handle save
-            self.config_changed.emit()
-
             # Mark UI as clean after successful change - Claude Generated
             self.task_ui_dirty = False
 
-            # Show toast notification for task preference save - Claude Generated
-            self._show_save_toast(f"✅ {task_name} preferences saved")
-            self.logger.info(f"Task preferences saved for '{task_name}': {len(model_priority)} models, chunked: {chunked_model_priority is not None}")
+            # Conditionally emit signals and show toast (only for explicit user saves, not task switches)
+            if emit_signals:
+                # Configuration changed in memory - parent dialog will handle save
+                self.config_changed.emit()
 
-            # Emit signal to notify other components about task preference changes - Claude Generated
-            self.task_preferences_changed.emit()
+                # Show toast notification for task preference save - Claude Generated
+                self._show_save_toast(f"✅ {task_name} preferences saved")
+
+                # Emit signal to notify other components about task preference changes - Claude Generated
+                self.task_preferences_changed.emit()
+
+            self.logger.info(f"Task preferences {'saved' if emit_signals else 'updated in memory'} for '{task_name}': {len(model_priority)} models, chunked: {chunked_model_priority is not None}")
             
         except Exception as e:
             self._show_save_toast(f"❌ Save failed: {str(e)[:30]}", error=True)
@@ -1883,9 +1886,10 @@ class UnifiedProviderTab(QWidget):
                     removed_entries.append(f"Incomplete entry: {entry}")
                     continue
                 
-                # Check if provider is available
+                # Provider offline? Still show it (user should see configured preferences)
                 if provider_name not in available_providers:
-                    removed_entries.append(f"{provider_name}/{model_name} (provider offline)")
+                    self.logger.debug(f"Provider {provider_name} offline, but keeping preference visible")
+                    validated_priority.append(entry)
                     continue
                 
                 # Special case: "auto" is always valid
