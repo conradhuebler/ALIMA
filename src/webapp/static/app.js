@@ -845,8 +845,10 @@ class AlimaWebapp {
     // Process DOI/URL input and run initialization - Claude Generated
     async processDoiUrl() {
         const doiUrl = document.getElementById('doi-input').value.trim();
+
+        // Validation only in tab context - Claude Generated
         if (!doiUrl) {
-            alert('Geben Sie eine DOI oder URL ein');
+            this.appendStreamText(`⚠️ Bitte geben Sie eine DOI oder URL ein`);
             return;
         }
 
@@ -856,7 +858,11 @@ class AlimaWebapp {
 
     // Process file input and extract text to textfield - Claude Generated
     async processFileInput(file) {
-        if (!file) return;
+        // Validation only in tab context - Claude Generated
+        if (!file) {
+            this.appendStreamText(`⚠️ Bitte wählen Sie eine Datei aus`);
+            return;
+        }
 
         // Determine input type
         let inputType = 'txt';
