@@ -236,8 +236,8 @@ class AlimaWebapp {
                 const blob = await response.blob();
                 this.cameraBlob = blob;
 
-                // Auto-start initialization with camera image - Claude Generated
-                await this.submitInitializationOnlyCameraBlob();
+                // Auto-extract text from camera image and fill textfield - Claude Generated
+                await this.extractAndFillTextField('img', null, blob);
             } catch (error) {
                 console.error('Error processing camera image:', error);
             }
@@ -302,58 +302,17 @@ class AlimaWebapp {
             return;
         }
 
-        // Get active tab and input
-        const activeTab = document.querySelector('.tab-content.active');
-        let inputType, content, file;
-
-        if (activeTab.id === 'text-tab') {
-            inputType = 'text';
-            content = document.getElementById('text-input').value;
-            if (!content.trim()) {
-                alert('Please enter some text');
-                return;
-            }
-        } else if (activeTab.id === 'doi-tab') {
-            inputType = 'doi';
-            content = document.getElementById('doi-input').value;
-            if (!content.trim()) {
-                alert('Please enter a DOI or URL');
-                return;
-            }
-        } else if (activeTab.id === 'file-tab') {
-            const fileInput = document.getElementById('file-input');
-            if (!fileInput.files.length) {
-                alert('Please select a file');
-                return;
-            }
-            file = fileInput.files[0];
-            if (file.type.includes('pdf')) {
-                inputType = 'pdf';
-            } else if (file.type.includes('image')) {
-                inputType = 'img';
-            } else {
-                inputType = 'txt';
-            }
-        } else if (activeTab.id === 'camera-tab') {
-            if (!this.capturedCameraImage) {
-                alert('Bitte machen Sie zuerst ein Foto');
-                return;
-            }
-            inputType = 'img';
-            // Convert data URL to Blob for file submission
-            try {
-                const response = await fetch(this.capturedCameraImage);
-                const blob = await response.blob();
-                // Store in form data as blob (handled in submitAnalysis)
-                this.cameraBlob = blob;
-            } catch (error) {
-                console.error('Error processing camera image:', error);
-                alert('Fehler beim Verarbeiten des Fotos: ' + error.message);
-                return;
-            }
+        // Read ALWAYS from the main text field - Claude Generated
+        const textContent = document.getElementById('text-input').value.trim();
+        if (!textContent) {
+            alert('Bitte geben Sie Text ein oder laden Sie eine Quelle');
+            return;
         }
 
-        await this.submitAnalysis(inputType, content, file);
+        // Always use text input type for analysis - Claude Generated
+        // The text field is the primary source for analysis
+        // Input methods (DOI, File, Webcam) just populate this field
+        await this.submitAnalysis('text', textContent, null);
     }
 
     // Submit analysis request
@@ -891,14 +850,11 @@ class AlimaWebapp {
             return;
         }
 
-        // Always use 'doi' type - backend handles both DOI and URL - Claude Generated
-        let inputType = 'doi';
-
-        console.log(`Processing DOI/URL: ${doiUrl}`);
-        await this.submitInitializationOnly(inputType, doiUrl);
+        console.log(`Extracting text from DOI/URL: ${doiUrl}`);
+        await this.extractAndFillTextField('doi', doiUrl, null);
     }
 
-    // Process file input and run initialization - Claude Generated
+    // Process file input and extract text to textfield - Claude Generated
     async processFileInput(file) {
         if (!file) return;
 
@@ -910,17 +866,15 @@ class AlimaWebapp {
             inputType = 'img';
         }
 
-        console.log(`Processing file: ${file.name} (${inputType})`);
-        await this.submitInitializationOnly(inputType, null, file);
+        console.log(`Extracting text from file: ${file.name} (${inputType})`);
+        await this.extractAndFillTextField(inputType, null, file);
     }
 
-    // Submit initialization only (not full pipeline) - Claude Generated
-    async submitInitializationOnly(inputType, content, file) {
+    // Extract text from various sources and fill the main text field - Claude Generated
+    async extractAndFillTextField(inputType, content, file) {
         try {
-            this.isAnalyzing = true;
-            this.updateButtonState();
-            this.clearStreamText();
-            this.resetSteps();
+            // Show extraction progress in stream
+            this.appendStreamText(`\n🔄 Extrahiere Text aus ${inputType === 'doi' ? 'DOI/URL' : inputType}...`);
 
             // Create FormData for multipart request
             const formData = new FormData();
@@ -943,56 +897,60 @@ class AlimaWebapp {
             }
 
             const data = await response.json();
-            console.log('Input extraction started:', data);
+            console.log('Text extraction completed:', data);
 
-            // Connect WebSocket for live updates
-            this.connectWebSocket();
+            // Wait for extraction to complete
+            await this.waitForExtractionCompletion();
+
+            // Get the extracted text from session results
+            if (data.results && data.results.original_abstract) {
+                // Fill the main text field with extracted text - Claude Generated
+                document.getElementById('text-input').value = data.results.original_abstract;
+                this.appendStreamText(`✅ Text erfolgreich extrahiert (${data.results.extraction_method})`);
+            } else {
+                throw new Error('Keine Textextraktion möglich');
+            }
+
+            // Clear extraction-specific UI
+            this.isAnalyzing = false;
+            this.updateButtonState();
 
         } catch (error) {
-            console.error('Initialization error:', error);
-            this.appendStreamText(`❌ Fehler: ${error.message}`);
+            console.error('Extraction error:', error);
+            this.appendStreamText(`❌ Fehler bei der Textextraktion: ${error.message}`);
             this.isAnalyzing = false;
             this.updateButtonState();
         }
     }
 
-    // Submit initialization with camera blob - Claude Generated
-    async submitInitializationOnlyCameraBlob() {
-        try {
-            this.isAnalyzing = true;
-            this.updateButtonState();
-            this.clearStreamText();
-            this.resetSteps();
+    // Wait for extraction to complete - Claude Generated
+    async waitForExtractionCompletion() {
+        return new Promise((resolve, reject) => {
+            let attempts = 0;
+            const maxAttempts = 60; // 30 seconds max (60 * 500ms)
 
-            // Create FormData for multipart request with camera blob
-            const formData = new FormData();
-            formData.append('input_type', 'img');
-            if (this.cameraBlob) {
-                formData.append('file', this.cameraBlob, 'camera_photo.jpg');
-            }
+            const checkStatus = async () => {
+                try {
+                    const response = await fetch(`/api/session/${this.sessionId}`);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-            // Use /api/input endpoint for image extraction only - Claude Generated
-            const response = await fetch(`/api/input/${this.sessionId}`, {
-                method: 'POST',
-                body: formData
-            });
+                    const data = await response.json();
 
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
+                    if (data.status === 'completed' || data.status === 'error') {
+                        resolve(data);
+                    } else if (attempts < maxAttempts) {
+                        attempts++;
+                        setTimeout(checkStatus, 500);
+                    } else {
+                        reject(new Error('Extraction timeout'));
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            };
 
-            const data = await response.json();
-            console.log('Camera extraction started:', data);
-
-            // Connect WebSocket for live updates
-            this.connectWebSocket();
-
-        } catch (error) {
-            console.error('Camera initialization error:', error);
-            this.appendStreamText(`❌ Fehler: ${error.message}`);
-            this.isAnalyzing = false;
-            this.updateButtonState();
-        }
+            checkStatus();
+        });
     }
 
     // Get current time string

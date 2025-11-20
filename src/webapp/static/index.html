@@ -31,20 +31,20 @@
                 <!-- Input Panel (Left) -->
                 <div class="input-panel">
                     <div class="input-section">
-                        <!-- INPUT TEXT FIELD - ALWAYS VISIBLE AT TOP -->
+                        <!-- INPUT TEXT FIELD - ALWAYS VISIBLE AT TOP (PRIMARY SOURCE) -->
                         <div class="input-text-box">
                             <div class="input-header">
-                                <h2>Eingabetext</h2>
+                                <h2>📝 Eingabetext (Primäre Quelle)</h2>
                                 <button id="clear-text-btn" class="btn btn-small">🗑 Leeren</button>
                             </div>
                             <textarea id="text-input"
-                                      placeholder="Extrahierter Text wird hier angezeigt. Sie können ihn auch direkt eingeben..."
+                                      placeholder="Geben Sie Text ein oder laden Sie eine Quelle unten..."
                                       rows="8"></textarea>
                         </div>
 
-                        <!-- INPUT METHODS IN TABS -->
+                        <!-- INPUT METHODS IN TABS (zum Befüllen des Textfeldes) -->
                         <div class="input-methods-section">
-                            <h3>Eingabequellen</h3>
+                            <h3>Eingabequellen (befüllen das Textfeld)</h3>
                             <div class="input-tabs">
                                 <button class="tab-btn active" data-tab="doi-tab">📄 DOI/URL</button>
                                 <button class="tab-btn" data-tab="file-tab">📁 Datei</button>
@@ -56,8 +56,9 @@
                                 <div class="tab-input-group">
                                     <input type="text" id="doi-input"
                                            placeholder="z.B. 10.1007/... oder https://...">
-                                    <button id="doi-resolve-btn" class="btn btn-tab">🔍 Auflösen</button>
+                                    <button id="doi-resolve-btn" class="btn btn-tab">🔍 Text laden</button>
                                 </div>
+                                <p style="font-size: 0.85em; color: #666; margin-top: 8px;">Text wird ins Eingabefeld übernommen</p>
                             </div>
 
                             <!-- File Upload with Drag & Drop Tab -->
@@ -71,6 +72,7 @@
                                     </div>
                                     <span id="file-name" class="file-name"></span>
                                 </div>
+                                <p style="font-size: 0.85em; color: #666; margin-top: 8px;">Text wird extrahiert und ins Eingabefeld übernommen</p>
                             </div>
 
                             <!-- Camera Input Tab -->
@@ -85,7 +87,7 @@
                                     </div>
                                     <div id="camera-preview" class="camera-preview" style="display: none;">
                                         <img id="camera-image" src="" alt="Vorschau">
-                                        <p class="preview-hint">Bereit zur Analyse</p>
+                                        <p class="preview-hint">Text wird extrahiert und ins Eingabefeld übernommen</p>
                                     </div>
                                 </div>
                             </div>
