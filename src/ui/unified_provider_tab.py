@@ -1143,39 +1143,41 @@ class UnifiedProviderTab(QWidget):
         pipeline_header.setFont(QFont("", -1, QFont.Weight.Bold))
         self.task_categories_list.addItem(pipeline_header)
         
-        # Load available tasks dynamically from prompts.json - Claude Generated
+        # Define task categories before try block for scope availability
         available_tasks = self._get_available_prompt_tasks()
+        vision_tasks = ["image_text_extraction"]
+
+        # Load available tasks dynamically from prompts.json - Claude Generated
         for task in available_tasks:
             item = QListWidgetItem(f"  📋 {task}")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "llm_task"})
             self.task_categories_list.addItem(item)
-        
-        # Vision tasks section  
+
+        # Vision tasks section
         vision_header = QListWidgetItem("👁️ Vision Tasks")
         vision_header.setFlags(vision_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         vision_header.setBackground(QPalette().alternateBase())
         vision_header.setFont(QFont("", -1, QFont.Weight.Bold))
         self.task_categories_list.addItem(vision_header)
-        
-        vision_tasks = ["image_text_extraction"]
+
         for task in vision_tasks:
             item = QListWidgetItem(f"  👁️ {task}")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
             self.task_categories_list.addItem(item)
-        
+
         # Load additional tasks from prompts.json
         other_tasks = []
         try:
             import os
             import json
             prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
-            
+
             if os.path.exists(prompts_path):
                 with open(prompts_path, 'r', encoding='utf-8') as f:
                     prompts_data = json.load(f)
-                
+
                 for task_name in prompts_data.keys():
-                    if (task_name not in pipeline_tasks and 
+                    if (task_name not in available_tasks and
                         task_name not in vision_tasks and
                         not task_name.startswith('_')):
                         other_tasks.append(task_name)
@@ -1246,12 +1248,12 @@ class UnifiedProviderTab(QWidget):
         self.task_model_priority_list.clear()
         self.chunked_task_model_priority_list.clear()
         self.task_ui_dirty = False  # Loading fresh data, UI is now clean
-        
+
         try:
-            # Get model priority for this task from root-level config.unified_config.task_preferences - Claude Generated
-            if task_name in self.config.unified_config.task_preferences:
+            # Get model priority for this task from working copy (not disk) - Claude Generated
+            if task_name in self.unified_config.task_preferences:
                 # Task has specific preferences - validate and use them
-                task_pref_data = self.config.unified_config.task_preferences[task_name]
+                task_pref_data = self.unified_config.task_preferences[task_name]
                 raw_model_priority = task_pref_data.model_priority if task_pref_data else []
                 model_priority = self._validate_and_filter_model_priority(raw_model_priority)
             else:
@@ -1280,9 +1282,9 @@ class UnifiedProviderTab(QWidget):
                     item.setData(Qt.ItemDataRole.UserRole, model_config)
                     self.task_model_priority_list.addItem(item)
             
-            # Check if task has chunked support - use config.unified_config.task_preferences - Claude Generated
-            if task_name in self.config.unified_config.task_preferences:
-                task_pref_data = self.config.unified_config.task_preferences[task_name]
+            # Check if task has chunked support - use working copy (unified_config) - Claude Generated
+            if task_name in self.unified_config.task_preferences:
+                task_pref_data = self.unified_config.task_preferences[task_name]
                 if task_pref_data and task_pref_data.chunked_model_priority:
                     self.chunked_tasks_checkbox.setChecked(True)
                     self._on_chunked_tasks_toggled(True)

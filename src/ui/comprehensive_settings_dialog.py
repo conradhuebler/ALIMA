@@ -1289,7 +1289,7 @@ class ComprehensiveSettingsDialog(QDialog):
         try:
             # Get provider detection service and preferences
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             
             # Populate provider status table
             self._populate_provider_status_table()
@@ -1352,7 +1352,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate priority settings - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             available_providers = detection_service.get_available_providers()
             
             # Populate preferred provider combo
@@ -1381,8 +1381,6 @@ class ComprehensiveSettingsDialog(QDialog):
             
             # Fallback settings
             self.auto_fallback_checkbox.setChecked(unified_config.auto_fallback)
-            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
-            # self.fallback_timeout_spin.setValue(unified_config.fallback_timeout)
             
         except Exception as e:
             self.logger.error(f"Error populating priority settings: {e}")
@@ -1391,7 +1389,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate task overrides - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             available_providers = detection_service.get_available_providers()
             
             # Common items for all combos
@@ -1400,23 +1398,14 @@ class ComprehensiveSettingsDialog(QDialog):
             # Vision provider combo
             self.vision_provider_combo.clear()
             self.vision_provider_combo.addItems(combo_items)
-            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-            # if unified_config.vision_provider:
-            #     self.vision_provider_combo.setCurrentText(unified_config.vision_provider)
-            
+
             # Text provider combo
             self.text_provider_combo.clear()
             self.text_provider_combo.addItems(combo_items)
-            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-            # if unified_config.text_provider:
-            #     self.text_provider_combo.setCurrentText(unified_config.text_provider)
-            
+
             # Classification provider combo
             self.classification_provider_combo.clear()
             self.classification_provider_combo.addItems(combo_items)
-            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-            # if unified_config.classification_provider:
-            #     self.classification_provider_combo.setCurrentText(unified_config.classification_provider)
             
             # Update capabilities reference
             self._update_capabilities_reference()
@@ -1428,7 +1417,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate model preferences table - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             available_providers = detection_service.get_available_providers()
             
             self.models_table.setRowCount(len(available_providers))
@@ -1439,10 +1428,8 @@ class ComprehensiveSettingsDialog(QDialog):
                 provider_item.setFlags(provider_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.models_table.setItem(row, 0, provider_item)
                 
-                # Current preferred model
-                # TODO: Implement preferred_models in UnifiedProviderConfig
-                current_model = ""  # Disabled until proper implementation
-                current_item = QLineEdit(current_model)
+                # Current preferred model (empty - future feature)
+                current_item = QLineEdit("")
                 self.models_table.setCellWidget(row, 1, current_item)
                 
                 # Available models combo
@@ -1499,40 +1486,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 # Clear any caches in the LLM service
                 pass
             
-            # Auto-validate and cleanup current preferences - Claude Generated
-            unified_config = self.config_manager.get_unified_config()
-            # TODO: Implement validation in UnifiedProviderConfig if needed
-            # validation_issues = unified_config.validate_preferences(detection_service)
-            #
-            # if any(validation_issues.values()):
-            #     self.logger.info("Auto-cleanup during refresh - found preference validation issues")
-            #     cleanup_report = unified_config.auto_cleanup(detection_service)
-            #
-            #     cleanup_actions = []
-            #     for category, actions in cleanup_report.items():
-            #         if actions:
-            #             if isinstance(actions, list):
-            #                 cleanup_actions.extend(actions)
-            #             else:
-            #                 cleanup_actions.append(actions)
-            #
-            #     if cleanup_actions:
-            #         # Save cleaned preferences
-            #         self.config_manager.update_provider_preferences(preferences)
-            #
-            #         # Show summary of auto-cleanup
-            #         cleanup_summary = f"🔧 Auto-cleanup performed ({len(cleanup_actions)} changes):\n\n"
-            #         for action in cleanup_actions[:5]:  # Show first 5 actions
-            #             cleanup_summary += f"  • {action}\n"
-            #
-            #         if len(cleanup_actions) > 5:
-            #             cleanup_summary += f"  ... and {len(cleanup_actions) - 5} more changes"
-            #
-            #         QMessageBox.information(self, "Refresh Complete",
-            #                               f"Provider status refreshed successfully.\n\n{cleanup_summary}")
-            #     else:
-            #         QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
-            # else:
+            # Show refresh complete message
             QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
             
             # Reload all data
@@ -1911,13 +1865,9 @@ class ComprehensiveSettingsDialog(QDialog):
 
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
-        
+
         # Load prompts
         self._load_prompts_list()
-        
-        # OpenAI-compatible providers are now managed by the unified provider tab
-        
-        # Ollama providers are now managed by the unified provider tab
     
     def _load_providers_list(self):
         """Load OpenAI-compatible providers into the list widget - Claude Generated"""
@@ -2724,33 +2674,35 @@ class ComprehensiveSettingsDialog(QDialog):
     def _populate_tasks_list(self):
         """Populate the tasks list with pipeline and vision tasks - Claude Generated"""
         self.tasks_list.clear()
-        
+
+        # Define task lists before try block for scope availability
+        pipeline_tasks = ["initialisation", "keywords", "classification"]
+        vision_tasks = ["image_text_extraction"]
+
         # Pipeline tasks section
         pipeline_header = QListWidgetItem("🔥 Pipeline Tasks")
         pipeline_header.setFlags(pipeline_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         pipeline_header.setBackground(QPalette().alternateBase())
         pipeline_header.setFont(QFont("", -1, QFont.Weight.Bold))
         self.tasks_list.addItem(pipeline_header)
-        
-        pipeline_tasks = ["initialisation", "keywords", "classification"]
+
         for task in pipeline_tasks:
             item = QListWidgetItem(f"  📋 {task}")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "pipeline"})
             self.tasks_list.addItem(item)
-        
-        # Vision tasks section  
+
+        # Vision tasks section
         vision_header = QListWidgetItem("👁️ Vision Tasks")
         vision_header.setFlags(vision_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         vision_header.setBackground(QPalette().alternateBase())
         vision_header.setFont(QFont("", -1, QFont.Weight.Bold))
         self.tasks_list.addItem(vision_header)
-        
-        vision_tasks = ["image_text_extraction"]
+
         for task in vision_tasks:
             item = QListWidgetItem(f"  👁️ {task}")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
             self.tasks_list.addItem(item)
-        
+
         # Load additional tasks from prompts.json
         other_tasks = []
         try:
@@ -2812,10 +2764,10 @@ class ComprehensiveSettingsDialog(QDialog):
         """Load model priorities for the selected task - Claude Generated"""
         self.model_priority_list.clear()
         self.chunked_model_priority_list.clear()
-        
+
         try:
-            # Get unified config directly
-            unified_config = self.config_manager.get_unified_config()
+            # Get unified config from current edit state (not from disk)
+            unified_config = self.config_to_edit.unified_config
 
             # Get model priority for this task
             model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked=False)
@@ -2864,8 +2816,8 @@ class ComprehensiveSettingsDialog(QDialog):
             QMessageBox.information(self, "No Task Selected", "Please select a task first.")
             return
         
-        # Create dialog for model selection
-        dialog = ModelSelectionDialog(self.config_manager, parent=self)
+        # Create dialog for model selection (pass working copy, not disk config)
+        dialog = ModelSelectionDialog(self.config_to_edit.unified_config, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             provider_name, model_name = dialog.get_selected_model()
             if provider_name and model_name:
@@ -2942,14 +2894,22 @@ class ComprehensiveSettingsDialog(QDialog):
 
 class ModelSelectionDialog(QDialog):
     """Dialog for selecting provider and model - Claude Generated"""
-    
-    def __init__(self, config_manager, parent=None):
+
+    def __init__(self, config_manager_or_unified_config, parent=None):
         super().__init__(parent)
-        self.config_manager = config_manager
+        # Support both config_manager (legacy) and UnifiedProviderConfig (new) - Claude Generated
+        from ..utils.config_models import UnifiedProviderConfig
+        if isinstance(config_manager_or_unified_config, UnifiedProviderConfig):
+            self.unified_config = config_manager_or_unified_config
+        else:
+            # Legacy: config_manager - load from disk
+            self.config_manager = config_manager_or_unified_config
+            self.unified_config = self.config_manager.get_unified_config()
+
         self.setWindowTitle("Modell auswählen")
         self.setModal(True)
         self.resize(400, 300)
-        
+
         self.setup_ui()
         self.load_providers()
     
@@ -2997,15 +2957,13 @@ class ModelSelectionDialog(QDialog):
     def load_providers(self):
         """Load available providers - Claude Generated"""
         self.provider_combo.clear()
-        
+
         try:
             # Add common providers
             providers = ["ollama", "gemini", "openai", "anthropic"]
-            
-            # Add configured providers from unified config
-            unified_config = self.config_manager.get_unified_config()
 
-            for provider in unified_config.get_enabled_providers():
+            # Add configured providers from unified config (use stored instance, not disk)
+            for provider in self.unified_config.get_enabled_providers():
                 if provider.name not in providers:
                     providers.append(provider.name)
             
