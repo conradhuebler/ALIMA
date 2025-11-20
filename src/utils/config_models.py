@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, Union, List, Tuple
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import logging
+import uuid  # P2.11: For ProviderId system - Claude Generated
 
 
 # ============================================================================
@@ -316,6 +317,7 @@ class UnifiedProvider:
     """Unified provider representation for all provider types - Claude Generated"""
     name: str
     provider_type: str  # 'ollama', 'openai_compatible', 'gemini', 'anthropic'
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))  # P2.11: Unique provider ID - Claude Generated
     enabled: bool = True
     api_key: str = ''
     base_url: str = ''
@@ -417,12 +419,20 @@ class UnifiedProviderConfig:
     auto_fallback: bool = True
     prefer_faster_models: bool = False  # Legacy compatibility for smart_provider_selector
 
-    # Direct preferred provider attribute (config.md Phase 1) - Claude Generated
-    preferred_provider: str = "localhost"  # Explicit user choice, independent of provider_priority
+    # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog, pipeline_config_dialog
+    preferred_provider: str = ""  # Explicit user choice, independent of provider_priority
 
     def get_enabled_providers(self) -> List[UnifiedProvider]:
         """Get list of enabled providers - Claude Generated"""
         return [p for p in self.providers if p.enabled and p.name not in self.disabled_providers]
+
+    def get_enabled_ollama_providers(self) -> List[UnifiedProvider]:
+        """Get enabled Ollama providers - Claude Generated (BUGFIX: Restored from bridge layer)"""
+        return [p for p in self.get_enabled_providers() if p.provider_type == "ollama"]
+
+    def get_enabled_openai_providers(self) -> List[UnifiedProvider]:
+        """Get enabled OpenAI-compatible providers - Claude Generated (BUGFIX: Restored from bridge layer)"""
+        return [p for p in self.get_enabled_providers() if p.provider_type == "openai_compatible"]
 
     def get_provider_by_name(self, name: str) -> Optional[UnifiedProvider]:
         """Get provider by name - Claude Generated"""

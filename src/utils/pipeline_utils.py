@@ -87,8 +87,22 @@ class PipelineStepExecutor:
                 final_provider = provider or selection.provider
                 final_model = model or selection.model
 
+                # P1.5: Enhanced runtime feedback - Claude Generated
                 if self.logger:
-                    self.logger.info(f"SmartProvider selection: {final_provider}/{final_model} (task_type={task_type}, prefer_fast={prefer_fast})")
+                    if provider and model:
+                        # Explicit parameters already logged above
+                        pass
+                    elif provider or model:
+                        # Partial selection: show what was auto-selected
+                        requested = f"{provider or '(auto)'}/{model or '(auto)'}"
+                        selected = f"{final_provider}/{final_model}"
+                        if requested != selected:
+                            self.logger.info(f"✓ Selected: {selected} (requested: {requested}, task: {task_type})")
+                        else:
+                            self.logger.info(f"✓ Selected: {selected} (task: {task_type})")
+                    else:
+                        # Full auto-selection
+                        self.logger.info(f"✓ Auto-selected: {final_provider}/{final_model} (task: {task_type}, prefer_fast: {prefer_fast})")
 
                 return final_provider, final_model
 
@@ -116,45 +130,54 @@ class PipelineStepExecutor:
                     self.logger.warning(f"Config fallback failed: {e}")
 
         # 4. System defaults (last resort only)
-        # Use first available Ollama provider instead of non-existent "ollama" - Claude Generated
-        fallback_provider = provider or self._get_first_available_ollama_provider()
+        # Use first available provider instead of hardcoded fallback - Claude Generated
+        fallback_provider = provider or self._get_first_enabled_provider()
 
-        # Task-specific model defaults as absolute last resort
-        task_defaults = {
-            "text": "cogito:14b" if prefer_fast else "cogito:32b",
-            "classification": "cogito:32b",
-            "vision": "cogito:32b"
-        }
-        fallback_model = model or task_defaults.get(task_type.lower(), "cogito:14b")
+        # If no provider available at all, return None to signal configuration error
+        if fallback_provider is None:
+            if self.logger:
+                self.logger.error("No providers configured. Please run first-start wizard or configure a provider.")
+            return None, None
+
+        # BUGFIX: Removed hardcoded task_defaults - use explicit model parameter or error
+        # Model must come from SmartProvider or be explicitly provided
+        if not model:
+            error_msg = (
+                f"No model specified for task type {task_type}. "
+                f"Provider {fallback_provider} selected but model missing. "
+                f"Check task preferences for '{task_name or task_type}' or provider configuration."
+            )
+            if self.logger:
+                self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        fallback_model = model
 
         if self.logger:
-            self.logger.warning(f"Using system fallback defaults: {fallback_provider}/{fallback_model} (no SmartProvider or Config available)")
+            self.logger.warning(f"Using system fallback provider: {fallback_provider}/{fallback_model} (no SmartProvider or Config available)")
 
         return fallback_provider, fallback_model
 
-    def _get_first_available_ollama_provider(self) -> str:
-        """Get the first available Ollama provider name from config - Claude Generated"""
+    def _get_first_enabled_provider(self) -> Optional[str]:
+        """Get the first enabled provider name from config (any type) - Claude Generated"""
         try:
             if self.smart_selector and hasattr(self.smart_selector, 'config'):
                 config = self.smart_selector.config
-                # Get unified config and find first enabled Ollama provider
+                # Get unified config and find first enabled provider (any type)
                 if hasattr(config, 'unified_config') and config.unified_config:
-                    for provider in config.unified_config.providers:
-                        if provider.provider_type == "ollama" and provider.enabled:
-                            return provider.name
-                # Fallback to legacy config if available
-                elif hasattr(config, 'llm'):
-                    enabled_ollama = config.unified_config.get_enabled_ollama_providers()
-                    if enabled_ollama:
-                        return enabled_ollama[0].name
+                    enabled_providers = config.unified_config.get_enabled_providers()
+                    if enabled_providers:
+                        return enabled_providers[0].name
 
-            # Last resort: hardcoded fallback to localhost
-            return "localhost"
+            # No providers available
+            if self.logger:
+                self.logger.error("No enabled providers found in configuration")
+            return None
 
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to get Ollama provider: {e}")
-            return "localhost"
+                self.logger.error(f"Failed to get enabled provider: {e}")
+            return None
 
     def _create_stream_callback_adapter(self, stream_callback: Optional[callable], step_id: str, debug: bool = False) -> Optional[callable]:
         """Centralized stream callback adapter creation - Claude Generated"""

@@ -340,7 +340,7 @@ class LLMSetupPage(QWizardPage):
             self.status_label.setText(f"✅ {result.message}")
             self.status_label.setStyleSheet("color: green;")
             self.available_models = result.data or []
-            self.provider_name = f"ALIMA Provider ({selected})"
+            self.provider_name = self.provider_type  # BUGFIX: Use actual provider type for consistency
         else:
             self.status_label.setText(f"❌ {result.message}")
             self.status_label.setStyleSheet("color: red;")

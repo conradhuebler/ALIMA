@@ -186,10 +186,14 @@ class SmartProviderSelector:
         
         # Get provider priority list for this task - enhanced with 3-tier hierarchy - Claude Generated
         provider_priority = []
-        
-        # === TIER 1: Task-specific preferences from unified_config.task_preferences (highest priority) ===
+
+        # P1.6: Load task preference for allow_fallback check - Claude Generated
+        task_preference = None
         if self.unified_config and task_name and task_name in self.unified_config.task_preferences:
             task_preference = self.unified_config.task_preferences[task_name]
+
+        # === TIER 1: Task-specific preferences from unified_config.task_preferences (highest priority) ===
+        if task_preference:
             model_priorities = task_preference.model_priority if task_preference else []
 
             # CRITICAL DEBUG: Log task preference loading attempt - Claude Generated
@@ -290,9 +294,36 @@ class SmartProviderSelector:
                 # Record failure
                 self._record_failure(provider, error)
                 self.logger.warning(f"Provider {provider} failed: {error}")
-        
+
+                # P1.6: Check allow_fallback flag - Claude Generated
+                if task_preference and hasattr(task_preference, 'allow_fallback'):
+                    if not task_preference.allow_fallback and len(attempts) == 1:
+                        # First provider failed and fallback not allowed
+                        raise RuntimeError(
+                            f"Primary provider '{provider}' failed for task '{task_name}' and fallback is disabled. "
+                            f"Error: {error}. Enable fallback in task preferences or fix the primary provider."
+                        )
+
+        # P2.13: Enhanced error message - Claude Generated
         # If we get here, all providers failed
-        raise RuntimeError(f"No available providers for task type {task_type.value}. Attempted: {[a.provider for a in attempts]}")
+        error_details = []
+        for attempt in attempts:
+            if attempt.error_message:
+                error_details.append(f"  • {attempt.provider}: {attempt.error_message}")
+            else:
+                error_details.append(f"  • {attempt.provider}: Provider unavailable")
+
+        error_msg = (
+            f"❌ No available providers for task '{task_name or task_type.value}'.\n\n"
+            f"Attempted {len(attempts)} provider(s):\n" +
+            "\n".join(error_details) + "\n\n"
+            f"💡 Suggestions:\n"
+            f"  1. Check provider configuration in Settings > Providers\n"
+            f"  2. Verify provider is running (for local providers like Ollama)\n"
+            f"  3. Check API keys for cloud providers\n"
+            f"  4. Review task preferences for '{task_name or task_type.value}'"
+        )
+        raise RuntimeError(error_msg)
     
     def _get_model_for_provider(self, provider: str, task_type: TaskType, unified_config, prefer_fast: bool = False, task_name: str = "") -> str:
         """Get the best model for a provider with Task Preference hierarchical selection - Claude Generated"""

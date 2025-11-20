@@ -126,7 +126,7 @@ class CLISetupWizard:
                 print(f"   ... and {len(result.data) - 5} more")
 
             self.provider_type = "ollama"
-            self.provider_name = f"Ollama ({host}:{port})"
+            self.provider_name = self.provider_type  # BUGFIX: Use provider_type for consistency
             self.base_url = f"http://{host}:{port}"
             self.available_models = result.data
         else:

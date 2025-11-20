@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import Callable, Optional, Tuple, List
 from dataclasses import dataclass
+from urllib.parse import urlparse  # BUGFIX: For parsing Ollama base_url - Claude Generated
 
 from .config_models import (
     AlimaConfig, SystemConfig, DatabaseConfig, UIConfig,
@@ -285,12 +286,29 @@ class ConfigurationBuilder:
         # Create prompt config
         prompt_config = PromptConfig()
 
+        # ARCHITECTURAL FIX: Use OpenAI-compatible API for Ollama (simpler, more reliable)
+        # Ollama supports OpenAI-compatible API as primary interface
+        actual_provider_type = provider_type
+        actual_base_url = base_url or ""
+
+        if provider_type == "ollama":
+            # Convert Ollama to openai_compatible provider type
+            actual_provider_type = "openai_compatible"
+            # Ensure base_url includes /v1 endpoint for OpenAI compatibility
+            if actual_base_url and not actual_base_url.endswith("/v1"):
+                actual_base_url = f"{actual_base_url}/v1"
+            # Ollama doesn't require API key
+            actual_api_key = "no-key-required"
+        else:
+            # For all other providers (OpenAI, Gemini, etc.), use provided API key
+            actual_api_key = api_key or ""
+
         # Create provider configuration - Claude Generated (fixed parameters)
         provider = UnifiedProvider(
-            name=provider_name,
-            provider_type=provider_type,
-            base_url=base_url or "",
-            api_key=api_key or "",
+            name=provider_type,  # Keep original type as display name (e.g., "ollama")
+            provider_type=actual_provider_type,  # Convert to openai_compatible if needed
+            base_url=actual_base_url,
+            api_key=actual_api_key,
             connection_type="native_client" if provider_type == "ollama" else "native_client",
             available_models=models or [],
             enabled=True,
@@ -311,7 +329,7 @@ class ConfigurationBuilder:
                     task_type=task_type,
                     model_priority=[
                         {
-                            "provider_name": provider_type.lower(),
+                            "provider_name": provider.name,
                             "model_name": selected_model
                         }
                     ],
@@ -322,7 +340,7 @@ class ConfigurationBuilder:
         unified_config = UnifiedProviderConfig(
             providers=[provider],
             task_preferences=task_preferences,
-            provider_priority=[provider_type.lower()]
+            provider_priority=[provider.name]
         )
 
         # Assemble final config

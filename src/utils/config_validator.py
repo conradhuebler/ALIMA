@@ -238,3 +238,337 @@ class ConfigValidator:
                 return f"{size_bytes:.1f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
+
+
+# ============================================================================
+# Provider and Task Preference Validation (P0.3)
+# Claude Generated - Validates provider configurations and task preferences
+# ============================================================================
+
+@dataclass
+class ValidationError:
+    """Represents a validation error with severity - Claude Generated"""
+    field: str  # Field that failed validation
+    message: str  # Human-readable error message
+    severity: str  # 'error' or 'warning'
+    provider_name: Optional[str] = None  # Optional provider context
+    model_name: Optional[str] = None  # Optional model context
+
+
+@dataclass
+class ValidationResult:
+    """Result of configuration validation - Claude Generated"""
+    valid: bool
+    errors: List['ValidationError']
+    warnings: List['ValidationError']
+
+    def has_errors(self) -> bool:
+        """Check if any errors exist - Claude Generated"""
+        return len(self.errors) > 0
+
+    def has_warnings(self) -> bool:
+        """Check if any warnings exist - Claude Generated"""
+        return len(self.warnings) > 0
+
+    def get_error_messages(self) -> List[str]:
+        """Get list of error messages - Claude Generated"""
+        return [e.message for e in self.errors]
+
+    def get_warning_messages(self) -> List[str]:
+        """Get list of warning messages - Claude Generated"""
+        return [w.message for w in self.warnings]
+
+    def __str__(self) -> str:
+        """String representation - Claude Generated"""
+        if self.valid and not self.has_warnings():
+            return "Validation passed"
+
+        lines = []
+        if self.errors:
+            lines.append(f"Errors ({len(self.errors)}):")
+            for error in self.errors:
+                lines.append(f"  - {error.message}")
+
+        if self.warnings:
+            lines.append(f"Warnings ({len(self.warnings)}):")
+            for warning in self.warnings:
+                lines.append(f"  - {warning.message}")
+
+        return "\n".join(lines)
+
+
+class ProviderConfigValidator:
+    """Validates ALIMA provider and task preference configurations - Claude Generated"""
+
+    @staticmethod
+    def validate_provider_name_exists(provider_name: str, unified_config) -> ValidationResult:
+        """
+        Validate that a provider name exists in enabled providers list
+
+        Args:
+            provider_name: Provider name to check
+            unified_config: UnifiedProviderConfig containing providers
+
+        Returns:
+            ValidationResult with error if provider not found
+
+        Claude Generated
+        """
+        errors = []
+        warnings = []
+
+        enabled_providers = unified_config.get_enabled_providers()
+        enabled_names = [p.name for p in enabled_providers]
+
+        if provider_name not in enabled_names:
+            all_providers = [p.name for p in unified_config.providers]
+
+            if provider_name in all_providers:
+                # Provider exists but is disabled
+                errors.append(ValidationError(
+                    field="provider_name",
+                    message=f"Provider '{provider_name}' is disabled. Enable it in settings or select a different provider.",
+                    severity="error",
+                    provider_name=provider_name
+                ))
+            else:
+                # Provider doesn't exist at all
+                error_msg = f"Provider '{provider_name}' not found."
+                if enabled_names:
+                    error_msg += f" Available providers: {', '.join(enabled_names)}"
+                else:
+                    error_msg += " No providers configured. Run first-start wizard."
+
+                errors.append(ValidationError(
+                    field="provider_name",
+                    message=error_msg,
+                    severity="error",
+                    provider_name=provider_name
+                ))
+
+        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+    @staticmethod
+    def validate_model_exists_on_provider(model_name: str, provider) -> ValidationResult:
+        """
+        Validate that a model exists on the specified provider
+
+        Args:
+            model_name: Model name to check
+            provider: UnifiedProvider to check against
+
+        Returns:
+            ValidationResult with error if model not found
+
+        Claude Generated
+        """
+        errors = []
+        warnings = []
+
+        if not provider.available_models:
+            warnings.append(ValidationError(
+                field="model_name",
+                message=f"Provider '{provider.name}' has no models listed. Model '{model_name}' cannot be validated.",
+                severity="warning",
+                provider_name=provider.name,
+                model_name=model_name
+            ))
+        elif model_name not in provider.available_models:
+            # Try fuzzy matching for suggestions
+            suggestions = []
+            lower_model = model_name.lower()
+            for available_model in provider.available_models[:10]:  # Limit suggestions
+                if lower_model in available_model.lower() or available_model.lower() in lower_model:
+                    suggestions.append(available_model)
+
+            error_msg = f"Model '{model_name}' not available on provider '{provider.name}'."
+            if suggestions:
+                error_msg += f" Did you mean: {', '.join(suggestions[:3])}?"
+            elif provider.available_models:
+                error_msg += f" Available models: {', '.join(provider.available_models[:5])}"
+                if len(provider.available_models) > 5:
+                    error_msg += f" (and {len(provider.available_models) - 5} more)"
+
+            errors.append(ValidationError(
+                field="model_name",
+                message=error_msg,
+                severity="error",
+                provider_name=provider.name,
+                model_name=model_name
+            ))
+
+        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+    @staticmethod
+    def validate_at_least_one_provider(unified_config) -> ValidationResult:
+        """
+        Validate that at least one provider is configured
+
+        Args:
+            unified_config: UnifiedProviderConfig to check
+
+        Returns:
+            ValidationResult with error if no providers
+
+        Claude Generated
+        """
+        errors = []
+        warnings = []
+
+        if not unified_config.providers:
+            errors.append(ValidationError(
+                field="providers",
+                message="No providers configured. Please run the first-start wizard or add a provider in settings.",
+                severity="error"
+            ))
+        else:
+            enabled_providers = unified_config.get_enabled_providers()
+            if not enabled_providers:
+                errors.append(ValidationError(
+                    field="providers",
+                    message=f"All {len(unified_config.providers)} provider(s) are disabled. Enable at least one provider.",
+                    severity="error"
+                ))
+
+        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+    @staticmethod
+    def validate_no_duplicate_provider_names(unified_config) -> ValidationResult:
+        """
+        Validate that no duplicate provider names exist
+
+        Args:
+            unified_config: UnifiedProviderConfig to check
+
+        Returns:
+            ValidationResult with error if duplicates found
+
+        Claude Generated
+        """
+        errors = []
+        warnings = []
+
+        name_counts: Dict[str, int] = {}
+        for provider in unified_config.providers:
+            name_counts[provider.name] = name_counts.get(provider.name, 0) + 1
+
+        duplicates = [name for name, count in name_counts.items() if count > 1]
+        if duplicates:
+            for dup_name in duplicates:
+                errors.append(ValidationError(
+                    field="provider_name",
+                    message=f"Duplicate provider name '{dup_name}' found {name_counts[dup_name]} times. Provider names must be unique.",
+                    severity="error",
+                    provider_name=dup_name
+                ))
+
+        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+    @staticmethod
+    def validate_task_preference(task_preference, unified_config) -> ValidationResult:
+        """
+        Validate a complete task preference configuration
+
+        Args:
+            task_preference: TaskPreference to validate
+            unified_config: UnifiedProviderConfig containing providers
+
+        Returns:
+            ValidationResult with all validation errors/warnings
+
+        Claude Generated
+        """
+        errors = []
+        warnings = []
+
+        # Check each model priority entry
+        for i, priority_entry in enumerate(task_preference.model_priority):
+            provider_name = priority_entry.get("provider_name")
+            model_name = priority_entry.get("model_name")
+
+            if not provider_name:
+                errors.append(ValidationError(
+                    field=f"model_priority[{i}].provider_name",
+                    message=f"Task '{task_preference.task_type.value}': Missing provider_name in priority entry {i+1}",
+                    severity="error"
+                ))
+                continue
+
+            if not model_name:
+                errors.append(ValidationError(
+                    field=f"model_priority[{i}].model_name",
+                    message=f"Task '{task_preference.task_type.value}': Missing model_name in priority entry {i+1}",
+                    severity="error"
+                ))
+                continue
+
+            # Validate provider exists
+            provider_result = ProviderConfigValidator.validate_provider_name_exists(provider_name, unified_config)
+            errors.extend(provider_result.errors)
+            warnings.extend(provider_result.warnings)
+
+            # Validate model exists on provider (if provider valid)
+            if not provider_result.has_errors():
+                provider = unified_config.get_provider_by_name(provider_name)
+                if provider:
+                    model_result = ProviderConfigValidator.validate_model_exists_on_provider(model_name, provider)
+                    errors.extend(model_result.errors)
+                    warnings.extend(model_result.warnings)
+
+        # Check chunked model priority if present
+        if hasattr(task_preference, 'chunked_model_priority') and task_preference.chunked_model_priority:
+            for i, priority_entry in enumerate(task_preference.chunked_model_priority):
+                provider_name = priority_entry.get("provider_name")
+                model_name = priority_entry.get("model_name")
+
+                if provider_name and model_name:
+                    provider_result = ProviderConfigValidator.validate_provider_name_exists(provider_name, unified_config)
+                    if not provider_result.has_errors():
+                        provider = unified_config.get_provider_by_name(provider_name)
+                        if provider:
+                            model_result = ProviderConfigValidator.validate_model_exists_on_provider(model_name, provider)
+                            # Only add warnings for chunked models (not critical)
+                            warnings.extend([ValidationError(
+                                field=e.field,
+                                message=e.message + " (chunked model)",
+                                severity="warning",
+                                provider_name=e.provider_name,
+                                model_name=e.model_name
+                            ) for e in model_result.errors])
+                            warnings.extend(model_result.warnings)
+
+        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+    @staticmethod
+    def validate_full_config(unified_config) -> ValidationResult:
+        """
+        Validate complete unified configuration
+
+        Args:
+            unified_config: UnifiedProviderConfig to validate
+
+        Returns:
+            ValidationResult with all validation errors/warnings
+
+        Claude Generated
+        """
+        errors = []
+        warnings = []
+
+        # Check at least one provider
+        provider_result = ProviderConfigValidator.validate_at_least_one_provider(unified_config)
+        errors.extend(provider_result.errors)
+        warnings.extend(provider_result.warnings)
+
+        # Check no duplicate names
+        duplicate_result = ProviderConfigValidator.validate_no_duplicate_provider_names(unified_config)
+        errors.extend(duplicate_result.errors)
+        warnings.extend(duplicate_result.warnings)
+
+        # Validate all task preferences
+        for task_name, task_pref in unified_config.task_preferences.items():
+            task_result = ProviderConfigValidator.validate_task_preference(task_pref, unified_config)
+            errors.extend(task_result.errors)
+            warnings.extend(task_result.warnings)
+
+        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
