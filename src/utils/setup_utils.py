@@ -74,16 +74,16 @@ class OllamaConnectionValidator:
             if not models:
                 return SetupResult(
                     False,
-                    "Connection successful but no models available. Please pull a model first (e.g., ollama pull mistral)",
+                    "Verbindung erfolgreich, aber keine Modelle verfügbar. Bitte zuerst ein Modell herunterladen (z.B. ollama pull mistral)",
                     []
                 )
 
-            return SetupResult(True, f"Connection successful. Found {len(models)} models.", models)
+            return SetupResult(True, f"Verbindung erfolgreich. {len(models)} Modelle gefunden.", models)
 
         except ImportError:
             return SetupResult(
                 False,
-                "ollama package not installed. Install with: pip install ollama",
+                "ollama-Paket nicht installiert. Installation mit: pip install ollama",
                 []
             )
         except Exception as e:
@@ -91,10 +91,10 @@ class OllamaConnectionValidator:
             if "refused" in error_msg.lower() or "connection" in error_msg.lower():
                 return SetupResult(
                     False,
-                    f"Cannot connect to Ollama at {host}:{port}. Make sure Ollama is running.",
+                    f"Keine Verbindung zu Ollama unter {host}:{port} möglich. Stellen Sie sicher, dass Ollama läuft.",
                     []
                 )
-            return SetupResult(False, f"Connection failed: {error_msg}", [])
+            return SetupResult(False, f"Verbindung fehlgeschlagen: {error_msg}", [])
 
     @staticmethod
     def test_openai_compatible(base_url: str, api_key: str,
@@ -121,25 +121,25 @@ class OllamaConnectionValidator:
             if not models:
                 return SetupResult(
                     False,
-                    "Connection successful but no models available.",
+                    "Verbindung erfolgreich, aber keine Modelle verfügbar.",
                     []
                 )
 
-            return SetupResult(True, f"Connection successful. Found {len(models)} models.", models)
+            return SetupResult(True, f"Verbindung erfolgreich. {len(models)} Modelle gefunden.", models)
 
         except ImportError:
             return SetupResult(
                 False,
-                "openai package not installed. Install with: pip install openai",
+                "openai-Paket nicht installiert. Installation mit: pip install openai",
                 []
             )
         except Exception as e:
             error_msg = str(e)
             if "401" in error_msg or "authentication" in error_msg.lower():
-                return SetupResult(False, f"Authentication failed. Please check your API key.", [])
+                return SetupResult(False, f"Authentifizierung fehlgeschlagen. Bitte überprüfen Sie Ihren API-Schlüssel.", [])
             elif "404" in error_msg or "refused" in error_msg.lower():
-                return SetupResult(False, f"Cannot connect to {base_url}. Please check the URL.", [])
-            return SetupResult(False, f"Connection failed: {error_msg}", [])
+                return SetupResult(False, f"Keine Verbindung zu {base_url} möglich. Bitte überprüfen Sie die URL.", [])
+            return SetupResult(False, f"Verbindung fehlgeschlagen: {error_msg}", [])
 
 
 class APIKeyValidator:
@@ -149,22 +149,22 @@ class APIKeyValidator:
     def validate_gemini(api_key: str) -> SetupResult:
         """Validate Google Gemini API key - Claude Generated"""
         if not api_key or len(api_key) < 10:
-            return SetupResult(False, "Invalid API key format")
+            return SetupResult(False, "Ungültiges API-Schlüssel-Format")
 
         try:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content("test")
-            return SetupResult(True, "API key is valid")
+            return SetupResult(True, "API-Schlüssel ist gültig")
         except Exception as e:
-            return SetupResult(False, f"API key validation failed: {str(e)}")
+            return SetupResult(False, f"API-Schlüssel-Validierung fehlgeschlagen: {str(e)}")
 
     @staticmethod
     def validate_anthropic(api_key: str) -> SetupResult:
         """Validate Anthropic Claude API key - Claude Generated"""
         if not api_key or not api_key.startswith("sk-"):
-            return SetupResult(False, "Invalid API key format (should start with 'sk-')")
+            return SetupResult(False, "Ungültiges API-Schlüssel-Format (sollte mit 'sk-' beginnen)")
 
         try:
             from anthropic import Anthropic
@@ -175,9 +175,9 @@ class APIKeyValidator:
                 max_tokens=10,
                 messages=[{"role": "user", "content": "test"}]
             )
-            return SetupResult(True, "API key is valid")
+            return SetupResult(True, "API-Schlüssel ist gültig")
         except Exception as e:
-            return SetupResult(False, f"API key validation failed: {str(e)}")
+            return SetupResult(False, f"API-Schlüssel-Validierung fehlgeschlagen: {str(e)}")
 
 
 class GNDDatabaseDownloader:
@@ -231,14 +231,14 @@ class GNDDatabaseDownloader:
             os.remove(temp_gz_path)
 
             logger.info(f"GND database extracted to {temp_xml_path}")
-            return SetupResult(True, "GND database downloaded successfully", temp_xml_path)
+            return SetupResult(True, "GND-Datenbank erfolgreich heruntergeladen", temp_xml_path)
 
         except requests.RequestException as e:
             logger.error(f"Download failed: {str(e)}")
-            return SetupResult(False, f"Download failed: {str(e)}")
+            return SetupResult(False, f"Download fehlgeschlagen: {str(e)}")
         except Exception as e:
             logger.error(f"Extraction failed: {str(e)}")
-            return SetupResult(False, f"Extraction failed: {str(e)}")
+            return SetupResult(False, f"Entpacken fehlgeschlagen: {str(e)}")
 
 
 class ConfigurationBuilder:
@@ -316,16 +316,20 @@ class ConfigurationBuilder:
         )
 
         # Create task preferences with user-selected models - Claude Generated (enhanced)
+        # Only create preferences for LLM tasks, not for non-LLM tasks (INPUT, SEARCH, DK_SEARCH)
         task_preferences = {}
         if models:
             default_model = models[0]
-            for task_type in TaskType:
-                # Use user's model selection or fall back to default - Claude Generated
-                selected_model = default_model
-                if task_model_selections and task_type.value in task_model_selections:
-                    selected_model = task_model_selections[task_type.value]
+            llm_tasks = {TaskType.INITIALISATION, TaskType.KEYWORDS, TaskType.CLASSIFICATION,
+                        TaskType.DK_CLASSIFICATION, TaskType.VISION, TaskType.CHUNKED_PROCESSING}
 
-                task_preferences[task_type.value] = TaskPreference(
+            for task_type in llm_tasks:
+                # Use user's model selection or fall back to default
+                selected_model = default_model
+                if task_model_selections and task_type.name in task_model_selections:
+                    selected_model = task_model_selections[task_type.name]
+
+                task_preferences[task_type.name] = TaskPreference(
                     task_type=task_type,
                     model_priority=[
                         {
@@ -365,7 +369,7 @@ class PromptValidator:
 
         try:
             if not Path(prompts_path).exists():
-                return SetupResult(False, f"prompts.json not found at {prompts_path}")
+                return SetupResult(False, f"prompts.json nicht gefunden unter {prompts_path}")
 
             # Try to parse as JSON
             import json
@@ -373,7 +377,7 @@ class PromptValidator:
                 data = json.load(f)
 
             if not isinstance(data, dict):
-                return SetupResult(False, "prompts.json is not valid JSON")
+                return SetupResult(False, "prompts.json ist kein gültiges JSON")
 
             # Check for required prompt keys
             required_keys = ['initialisation', 'keywords', 'classification']
@@ -382,10 +386,10 @@ class PromptValidator:
             if missing:
                 return SetupResult(
                     False,
-                    f"prompts.json missing required keys: {', '.join(missing)}"
+                    f"prompts.json fehlen erforderliche Schlüssel: {', '.join(missing)}"
                 )
 
-            return SetupResult(True, "prompts.json is valid")
+            return SetupResult(True, "prompts.json ist gültig")
 
         except Exception as e:
-            return SetupResult(False, f"Error reading prompts.json: {str(e)}")
+            return SetupResult(False, f"Fehler beim Lesen von prompts.json: {str(e)}")

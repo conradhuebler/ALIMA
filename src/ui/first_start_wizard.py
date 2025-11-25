@@ -31,7 +31,7 @@ class FirstStartWizard(QWizard):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ALIMA Setup Wizard")
+        self.setWindowTitle("ALIMA Setup-Assistent")
         self.setWindowIcon(QIcon("assets/alima.png"))
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
@@ -135,13 +135,13 @@ class WelcomePage(QWizardPage):
 
     def __init__(self):
         super().__init__()
-        self.setTitle("Welcome to ALIMA")
-        self.setSubTitle("Automatic Library Indexing and Metadata Analysis")
+        self.setTitle("Willkommen bei ALIMA")
+        self.setSubTitle("Automatische Bibliotheksindexierung und Metadatenanalyse")
 
         layout = QVBoxLayout()
 
         # Title
-        title = QLabel("Welcome to ALIMA!")
+        title = QLabel("Willkommen bei ALIMA!")
         font = QFont()
         font.setPointSize(16)
         font.setBold(True)
@@ -150,19 +150,19 @@ class WelcomePage(QWizardPage):
 
         # Description
         description = QLabel(
-            "ALIMA helps you analyze library materials and extract metadata with AI.\n\n"
-            "This wizard will guide you through:\n"
-            "1. Setting up an LLM provider (local or cloud)\n"
-            "2. Downloading optional GND authority data\n"
-            "3. Reviewing your configuration\n\n"
-            "Let's get started!"
+            "ALIMA hilft Ihnen bei der Analyse von Bibliotheksmaterialien und der Extraktion von Metadaten mit KI.\n\n"
+            "Dieser Assistent führt Sie durch:\n"
+            "1. Einrichtung eines LLM-Anbieters (lokal oder Cloud)\n"
+            "2. Optionaler Download der GND-Normdaten\n"
+            "3. Überprüfung Ihrer Konfiguration\n\n"
+            "Los geht's!"
         )
         description.setWordWrap(True)
         layout.addWidget(description)
 
         # Info box
         info = QLabel(
-            "💡 Tip: You can always change these settings later in the application menu."
+            "💡 Tipp: Sie können diese Einstellungen jederzeit im Anwendungsmenü ändern."
         )
         info.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
         info.setWordWrap(True)
@@ -181,8 +181,8 @@ class LLMSetupPage(QWizardPage):
 
     def __init__(self):
         super().__init__()
-        self.setTitle("LLM Provider Setup")
-        self.setSubTitle("Choose where to run your AI models")
+        self.setTitle("LLM-Anbieter einrichten")
+        self.setSubTitle("Wählen Sie aus, wo Ihre KI-Modelle laufen sollen")
 
         # Store values from current configuration
         self.provider_type = "ollama"
@@ -195,10 +195,10 @@ class LLMSetupPage(QWizardPage):
 
         # Provider selection
         self.provider_group = QButtonGroup()
-        provider_box = QGroupBox("Select LLM Provider")
+        provider_box = QGroupBox("LLM-Anbieter auswählen")
         provider_layout = QVBoxLayout()
 
-        self.ollama_radio = QRadioButton("🔹 Ollama (Local Server) - Recommended")
+        self.ollama_radio = QRadioButton("🔹 Ollama (Lokaler Server) - Empfohlen")
         self.ollama_radio.setChecked(True)
         self.ollama_radio.toggled.connect(self._on_provider_changed)
         self.provider_group.addButton(self.ollama_radio, 0)
@@ -223,7 +223,7 @@ class LLMSetupPage(QWizardPage):
         layout.addWidget(provider_box)
 
         # Configuration fields (dynamic based on provider)
-        config_box = QGroupBox("Configuration")
+        config_box = QGroupBox("Konfiguration")
         self.config_layout = QVBoxLayout()
 
         # Ollama - Host and Port
@@ -241,7 +241,7 @@ class LLMSetupPage(QWizardPage):
         self.config_layout.addWidget(self.ollama_port_input)
 
         # API Key (for cloud providers)
-        self.api_key_label = QLabel("API Key:")
+        self.api_key_label = QLabel("API-Schlüssel:")
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key_input.setVisible(False)
@@ -250,10 +250,10 @@ class LLMSetupPage(QWizardPage):
         self.config_layout.addWidget(self.api_key_input)
 
         # Base URL (for OpenAI-compatible)
-        self.base_url_label = QLabel("API Base URL:")
+        self.base_url_label = QLabel("API Basis-URL:")
         self.base_url_input = QLineEdit()
         self.base_url_input.setText("https://api.openai.com/v1")
-        self.base_url_input.setToolTip("OpenAI: https://api.openai.com/v1 | Local: http://localhost:8000/v1")
+        self.base_url_input.setToolTip("OpenAI: https://api.openai.com/v1 | Lokal: http://localhost:8000/v1")
         self.base_url_input.setVisible(False)
         self.base_url_label.setVisible(False)
         self.config_layout.addWidget(self.base_url_label)
@@ -263,7 +263,7 @@ class LLMSetupPage(QWizardPage):
         layout.addWidget(config_box)
 
         # Test connection button
-        self.test_button = QPushButton("🧪 Test Connection")
+        self.test_button = QPushButton("🧪 Verbindung testen")
         self.test_button.clicked.connect(self._test_connection)
         layout.addWidget(self.test_button)
 
@@ -295,9 +295,9 @@ class LLMSetupPage(QWizardPage):
 
         # Update API Key label text for clarity - Claude Generated
         if selected == 1:
-            self.api_key_label.setText("API Key (optional for compatibility mode):")
+            self.api_key_label.setText("API-Schlüssel (optional für Kompatibilitätsmodus):")
         elif selected in [2, 3]:
-            self.api_key_label.setText("API Key:")
+            self.api_key_label.setText("API-Schlüssel:")
 
         self.status_label.setText("")
 
@@ -352,9 +352,9 @@ class LLMSetupPage(QWizardPage):
             # Warn but don't block
             result = QMessageBox.question(
                 self,
-                "No Connection Tested",
-                "You haven't tested the LLM connection yet.\n\n"
-                "Continue anyway? (you can test it after setup)",
+                "Keine Verbindung getestet",
+                "Sie haben die LLM-Verbindung noch nicht getestet.\n\n"
+                "Trotzdem fortfahren? (Sie können die Verbindung nach dem Setup testen)",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             return result == QMessageBox.StandardButton.Yes
@@ -389,14 +389,16 @@ class ModelSelectionPage(QWizardPage):
         # Task selection form
         self.task_combos = {}
 
-        # Relevant tasks (skip 'input', 'search', 'dk_search' - keine LLM-Tasks) - Claude Generated
+        # Relevant tasks (skip non-LLM tasks) - Use TaskType enum NAMES as keys (UPPERCASE)
+        # TaskType enum names: INITIALISATION, KEYWORDS, CLASSIFICATION, DK_CLASSIFICATION, VISION, CHUNKED_PROCESSING
+        from ..utils.config_models import TaskType  # Import TaskType enum
         relevant_tasks = [
-            ('initialisation', '🔤 Initialisation', 'Erste Keyword-Generierung'),
-            ('keywords', '🔑 Keywords', 'Finale Keyword-Verifikation'),
-            ('classification', '📚 Classification', 'DDC/DK/RVK Klassifizierung'),
-            ('dk_classification', '📖 DK Classification', 'DK-spezifische Klassifizierung'),
-            ('vision', '👁️ Vision', 'Bild-/OCR-Analyse'),
-            ('chunked', '📄 Chunked', 'Große Texte in Chunks'),
+            (TaskType.INITIALISATION.name, '🔤 Initialisation', 'Erste Keyword-Generierung'),
+            (TaskType.KEYWORDS.name, '🔑 Keywords', 'Finale Keyword-Verifikation'),
+            (TaskType.CLASSIFICATION.name, '📚 Classification', 'DDC/DK/RVK Klassifizierung'),
+            (TaskType.DK_CLASSIFICATION.name, '📖 DK Classification', 'DK-spezifische Klassifizierung'),
+            (TaskType.VISION.name, '👁️ Vision', 'Bild-/OCR-Analyse'),
+            (TaskType.CHUNKED_PROCESSING.name, '📄 Chunked', 'Große Texte in Chunks'),
         ]
 
         form_layout = QFormLayout()
@@ -483,8 +485,8 @@ class GNDDatabasePage(QWizardPage):
 
     def __init__(self):
         super().__init__()
-        self.setTitle("GND Authority Database")
-        self.setSubTitle("Optional: Download German National Library keyword data")
+        self.setTitle("GND-Normdatenbank")
+        self.setSubTitle("Optional: Download der Schlagwort-Daten der Deutschen Nationalbibliothek")
 
         # Track downloaded file for post-wizard import - Claude Generated
         self.downloaded_xml_path = None
@@ -505,17 +507,17 @@ class GNDDatabasePage(QWizardPage):
         layout.addWidget(explanation)
 
         # Download options
-        options_box = QGroupBox("Download Options")
+        options_box = QGroupBox("Download-Optionen")
         options_layout = QVBoxLayout()
 
-        self.download_radio = QRadioButton("📥 Download GND database from DNB (recommended)")
+        self.download_radio = QRadioButton("📥 GND-Datenbank von der DNB herunterladen (empfohlen)")
         self.download_radio.setChecked(True)
         options_layout.addWidget(self.download_radio)
 
-        self.local_radio = QRadioButton("📂 Load from local file")
+        self.local_radio = QRadioButton("📂 Aus lokaler Datei laden")
         options_layout.addWidget(self.local_radio)
 
-        self.skip_radio = QRadioButton("⏭️  Skip for now (use Lobid API)")
+        self.skip_radio = QRadioButton("⏭️  Überspringen (Lobid-API verwenden)")
         options_layout.addWidget(self.skip_radio)
 
         options_box.setLayout(options_layout)
@@ -523,9 +525,9 @@ class GNDDatabasePage(QWizardPage):
 
         # File selector (visible only for local file option)
         self.file_layout = QHBoxLayout()
-        file_label = QLabel("GND File:")
+        file_label = QLabel("GND-Datei:")
         self.file_input = QLineEdit()
-        file_button = QPushButton("Browse...")
+        file_button = QPushButton("Durchsuchen...")
         file_button.clicked.connect(self._select_file)
         self.file_layout.addWidget(file_label)
         self.file_layout.addWidget(self.file_input)
@@ -543,7 +545,7 @@ class GNDDatabasePage(QWizardPage):
         layout.addWidget(self.status_label)
 
         # Download button
-        self.download_button = QPushButton("⬇️  Download GND Database")
+        self.download_button = QPushButton("⬇️  GND-Datenbank herunterladen")
         self.download_button.clicked.connect(self._download_gnd)
         layout.addWidget(self.download_button)
 
@@ -562,9 +564,9 @@ class GNDDatabasePage(QWizardPage):
         """Select GND file - Claude Generated"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select GND Database File",
+            "GND-Datenbankdatei auswählen",
             "",
-            "XML Files (*.xml);;Gzip Files (*.gz);;All Files (*)"
+            "XML-Dateien (*.xml);;Gzip-Dateien (*.gz);;Alle Dateien (*)"
         )
         if file_path:
             self.file_input.setText(file_path)
@@ -577,7 +579,7 @@ class GNDDatabasePage(QWizardPage):
         from PyQt6.QtWidgets import QApplication
 
         progress = QProgressDialog(
-            "Downloading GND database...", "Cancel", 0, 100, self
+            "GND-Datenbank wird heruntergeladen...", "Abbrechen", 0, 100, self
         )
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(500)
@@ -601,12 +603,12 @@ class GNDDatabasePage(QWizardPage):
                 self.status_label.setStyleSheet("color: green;")
                 self.download_button.setEnabled(False)
             else:
-                self.status_label.setText(f"❌ Download failed: {result.message}")
+                self.status_label.setText(f"❌ Download fehlgeschlagen: {result.message}")
                 self.status_label.setStyleSheet("color: red;")
 
         except Exception as e:
             progress.close()
-            self.status_label.setText(f"❌ Error: {str(e)}")
+            self.status_label.setText(f"❌ Fehler: {str(e)}")
             self.status_label.setStyleSheet("color: red;")
 
     def validatePage(self) -> bool:
@@ -651,7 +653,7 @@ class GNDDatabasePage(QWizardPage):
                     return False  # Stay on page
         elif self.local_radio.isChecked():
             if not self.file_input.text():
-                QMessageBox.warning(self, "File Required", "Please select a GND file.")
+                QMessageBox.warning(self, "Datei erforderlich", "Bitte wählen Sie eine GND-Datei aus.")
                 return False
         elif self.skip_radio.isChecked():
             # Confirm skip action with option to go back - Claude Generated (improved UX, updated text)
@@ -687,8 +689,8 @@ class SummaryPage(QWizardPage):
 
     def __init__(self):
         super().__init__()
-        self.setTitle("Setup Complete!")
-        self.setSubTitle("Review your ALIMA configuration")
+        self.setTitle("Setup abgeschlossen!")
+        self.setSubTitle("Überprüfen Sie Ihre ALIMA-Konfiguration")
 
         layout = QVBoxLayout()
 
@@ -699,8 +701,8 @@ class SummaryPage(QWizardPage):
 
         # Completion message
         completion = QLabel(
-            "✅ Your ALIMA configuration is ready!\n\n"
-            "You can now launch the application and start analyzing library materials."
+            "✅ Ihre ALIMA-Konfiguration ist bereit!\n\n"
+            "Sie können jetzt die Anwendung starten und mit der Analyse von Bibliotheksmaterialien beginnen."
         )
         completion.setWordWrap(True)
         layout.addWidget(completion)
@@ -714,11 +716,11 @@ class SummaryPage(QWizardPage):
         wizard = self.wizard()
 
         # Build summary from wizard pages (not from config, which isn't set yet)
-        gnd_option = "Download from DNB"
+        gnd_option = "Download von DNB"
         if wizard.gnd_page.skip_radio.isChecked():
-            gnd_option = "Skip (use Lobid API)"
+            gnd_option = "Überspringen (Lobid-API verwenden)"
         elif wizard.gnd_page.local_radio.isChecked():
-            gnd_option = f"Load from file: {wizard.gnd_page.file_input.text()}"
+            gnd_option = f"Aus Datei laden: {wizard.gnd_page.file_input.text()}"
 
         # Build model selections summary - Claude Generated
         model_summary = ""
