@@ -241,15 +241,17 @@ class CLISetupWizard:
         print("  • Classification: Benötigt strukturiertes Denken")
         print("  • Vision: Benötigt Bildverständnis\n")
 
-        # LLM tasks to configure
-        llm_tasks = [
-            (TaskType.INITIALISATION, "Initialisation", "Erste Keyword-Generierung"),
-            (TaskType.KEYWORDS, "Keywords", "Finale Keyword-Verifikation"),
-            (TaskType.CLASSIFICATION, "Classification", "DDC/DK/RVK Klassifizierung"),
-            (TaskType.DK_CLASSIFICATION, "DK Classification", "DK-spezifische Klassifizierung"),
-            (TaskType.VISION, "Vision", "Bild-/OCR-Analyse"),
-            (TaskType.CHUNKED_PROCESSING, "Chunked Processing", "Große Texte in Chunks"),
-        ]
+        # Use shared LLM task configuration from config_models - Claude Generated
+        # Single source of truth for consistent task lists across all wizards/dialogs
+        from .config_models import LLM_TASK_DISPLAY_INFO
+
+        # Convert shared constant to CLI format (remove icons from labels)
+        llm_tasks = []
+        for task_type, icon_label, description in LLM_TASK_DISPLAY_INFO:
+            # Extract label without emoji icon (remove first ~2-3 chars: emoji + space)
+            # Example: "🔤 Initialisation" -> "Initialisation"
+            label = icon_label.split(' ', 1)[1] if ' ' in icon_label else icon_label
+            llm_tasks.append((task_type, label, description))
 
         print("Verfügbare Modelle:\n")
         for idx, model in enumerate(self.available_models[:10]):

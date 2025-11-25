@@ -389,21 +389,16 @@ class ModelSelectionPage(QWizardPage):
         # Task selection form
         self.task_combos = {}
 
-        # Relevant tasks (skip non-LLM tasks) - Use TaskType enum NAMES as keys (UPPERCASE)
-        # TaskType enum names: INITIALISATION, KEYWORDS, CLASSIFICATION, DK_CLASSIFICATION, VISION, CHUNKED_PROCESSING
-        from ..utils.config_models import TaskType  # Import TaskType enum
-        relevant_tasks = [
-            (TaskType.INITIALISATION.name, '🔤 Initialisation', 'Erste Keyword-Generierung'),
-            (TaskType.KEYWORDS.name, '🔑 Keywords', 'Finale Keyword-Verifikation'),
-            (TaskType.CLASSIFICATION.name, '📚 Classification', 'DDC/DK/RVK Klassifizierung'),
-            (TaskType.DK_CLASSIFICATION.name, '📖 DK Classification', 'DK-spezifische Klassifizierung'),
-            (TaskType.VISION.name, '👁️ Vision', 'Bild-/OCR-Analyse'),
-            (TaskType.CHUNKED_PROCESSING.name, '📄 Chunked', 'Große Texte in Chunks'),
-        ]
+        # Use shared LLM task configuration from config_models - Claude Generated
+        # Single source of truth for consistent task lists across all wizards/dialogs
+        from ..utils.config_models import LLM_TASK_DISPLAY_INFO
 
         form_layout = QFormLayout()
 
-        for task_key, task_label, task_desc in relevant_tasks:
+        for task_type, task_label, task_desc in LLM_TASK_DISPLAY_INFO:
+            # Store task by enum NAME (UPPERCASE) as key, not VALUE
+            # This matches the setup_utils.py ConfigurationBuilder expectation
+            task_key = task_type.name
             combo = QComboBox()
             combo.setMinimumWidth(300)
             combo.setToolTip(task_desc)
@@ -470,12 +465,50 @@ class ModelSelectionPage(QWizardPage):
         )
 
     def validatePage(self) -> bool:
-        """Save selections - Claude Generated"""
-        # Store selections
+        """Save selections - Claude Generated
+
+        STRICT VALIDATION: Reject auto-select, use only explicit model names
+        """
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Clear previous selections
+        self.task_model_selections = {}
+
+        # Validate each task has a REAL model selected (not auto-select)
         for task_key, combo in self.task_combos.items():
             model = combo.currentText()
-            if model and "(Keine Modelle" not in model:
-                self.task_model_selections[task_key] = model
+
+            # Check for invalid selections
+            if not model:
+                QMessageBox.warning(
+                    self,
+                    "Modell erforderlich",
+                    f"Bitte wählen Sie ein Modell für {task_key} aus."
+                )
+                return False
+
+            # Reject placeholder text
+            if "(Keine Modelle" in model or "(No models" in model:
+                QMessageBox.warning(
+                    self,
+                    "Modell erforderlich",
+                    f"Keine Modelle verfügbar für {task_key}. Bitte überprüfen Sie die LLM-Verbindung."
+                )
+                return False
+
+            # CRITICAL: Reject "auto-select" and "default" - Wizard MUST use explicit models
+            model_lower = model.lower()
+            if model_lower in ["auto-select", "(auto-select)", "default", "auto"]:
+                QMessageBox.warning(
+                    self,
+                    "Automatische Auswahl nicht erlaubt",
+                    f"Bitte wählen Sie ein spezifisches Modell für {task_key},\n"
+                    f"nicht automatische Auswahl (Auto-select)."
+                )
+                return False
+
+            # Valid selection - save it
+            self.task_model_selections[task_key] = model
 
         return True
 

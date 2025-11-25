@@ -43,6 +43,20 @@ class TaskType(Enum):
 
 
 # ============================================================================
+# LLM TASK DISPLAY INFORMATION - Shared across all UI components
+# ============================================================================
+# Single source of truth for configurable LLM tasks shown in wizards and settings - Claude Generated
+LLM_TASK_DISPLAY_INFO = [
+    # (TaskType enum, icon+label, german description)
+    (TaskType.INITIALISATION, '🔤 Initialisation', 'Erste Keyword-Generierung'),
+    (TaskType.KEYWORDS, '🔑 Keywords', 'Finale Keyword-Verifikation'),
+    (TaskType.CLASSIFICATION, '📚 Classification', 'DDC/DK/RVK Klassifizierung'),
+    (TaskType.DK_CLASSIFICATION, '📖 DK Classification', 'DK-spezifische Klassifizierung'),
+    (TaskType.VISION, '👁️ Vision', 'Bild-/OCR-Analyse'),
+    (TaskType.CHUNKED_PROCESSING, '📄 Chunked', 'Große Texte in Chunks'),
+]
+
+# ============================================================================
 # HELPER FUNCTIONS FOR DATABASE CONFIGURATION
 # ============================================================================
 
@@ -235,6 +249,10 @@ class AnthropicProvider:
 @dataclass
 class TaskPreference:
     """Task-specific provider preferences with chunked-task support - Claude Generated"""
+    # Allowed LLM tasks only
+    LLM_TASKS = {TaskType.INITIALISATION, TaskType.KEYWORDS, TaskType.CLASSIFICATION,
+                 TaskType.DK_CLASSIFICATION, TaskType.VISION, TaskType.CHUNKED_PROCESSING}
+
     task_type: TaskType
     model_priority: List[Dict[str, str]] = field(default_factory=list)  # [{"provider_name": "p1", "model_name": "m1"}, ...]
     chunked_model_priority: Optional[List[Dict[str, str]]] = None  # For chunked subtasks like keywords_chunked
@@ -244,15 +262,21 @@ class TaskPreference:
     preferred_providers: List[str] = field(default_factory=list)  # Will be migrated to model_priority
 
     def __post_init__(self):
+        # Convert string to enum if needed
         if isinstance(self.task_type, str):
             self.task_type = TaskType(self.task_type)
 
-        # Migrate legacy preferred_providers to model_priority if needed
-        if self.preferred_providers and not self.model_priority:
-            self.model_priority = [
-                {"provider_name": provider, "model_name": "default"}
-                for provider in self.preferred_providers
-            ]
+        # Validate: only allow LLM tasks in task_preferences
+        if self.task_type not in self.LLM_TASKS:
+            raise ValueError(
+                f"TaskPreference only supports LLM tasks. Got {self.task_type.value}. "
+                f"Allowed tasks: {', '.join(t.value for t in self.LLM_TASKS)}"
+            )
+
+        # DEPRECATED: Legacy preferred_providers field is no longer auto-migrated
+        # Reason: Auto-migration with "default" causes unwanted auto-select behavior
+        # Users should explicitly configure model_priority with real model names
+        # (No automatic fallback - will use empty model_priority instead of "default")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization - Claude Generated"""

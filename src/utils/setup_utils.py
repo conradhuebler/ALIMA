@@ -329,6 +329,16 @@ class ConfigurationBuilder:
                 if task_model_selections and task_type.name in task_model_selections:
                     selected_model = task_model_selections[task_type.name]
 
+                # CRITICAL VALIDATION: Reject "default", "auto", or "auto-select" strings
+                # These should NEVER appear in wizard-created configs (only explicit model names)
+                if selected_model and isinstance(selected_model, str):
+                    model_lower = selected_model.lower()
+                    if model_lower in ["default", "auto", "auto-select", "(auto-select)"]:
+                        raise ValueError(
+                            f"Invalid model name '{selected_model}' for task {task_type.name}. "
+                            f"Wizard must use explicit model names, not auto-select placeholders."
+                        )
+
                 task_preferences[task_type.name] = TaskPreference(
                     task_type=task_type,
                     model_priority=[

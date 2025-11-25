@@ -189,8 +189,25 @@ class SmartProviderSelector:
 
         # P1.6: Load task preference for allow_fallback check - Claude Generated
         task_preference = None
-        if self.unified_config and task_name and task_name in self.unified_config.task_preferences:
-            task_preference = self.unified_config.task_preferences[task_name]
+        if self.unified_config and task_name:
+            # Try direct lookup first
+            if task_name in self.unified_config.task_preferences:
+                task_preference = self.unified_config.task_preferences[task_name]
+            else:
+                # Fallback 1: Try uppercase (for legacy lowercase keys like 'keywords' -> 'KEYWORDS')
+                task_name_upper = task_name.upper()
+                if task_name_upper in self.unified_config.task_preferences:
+                    task_preference = self.unified_config.task_preferences[task_name_upper]
+                    task_name = task_name_upper  # Update task_name for logging consistency
+                else:
+                    # Fallback 2: Try to match enum value and use enum name (UPPERCASE) as key
+                    try:
+                        enum_task = UnifiedTaskType(task_name)
+                        task_name = enum_task.name  # Use enum NAME (UPPERCASE), not value
+                        if task_name in self.unified_config.task_preferences:
+                            task_preference = self.unified_config.task_preferences[task_name]
+                    except ValueError:
+                        pass  # task_name is not a valid enum value
 
         # === TIER 1: Task-specific preferences from unified_config.task_preferences (highest priority) ===
         if task_preference:

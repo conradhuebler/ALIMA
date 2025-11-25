@@ -158,28 +158,33 @@ class TaskModelSelectionDialog(QDialog):
             self.provider_combo.addItems(fallback_providers)
     
     def _load_models(self, provider_name: str):
-        """Load real models for selected provider using detection service - Claude Generated"""
+        """Load real models for selected provider using detection service - Claude Generated
+
+        IMPORTANT: Only shows REAL models, never auto-select.
+        TaskModelSelectionDialog must always have concrete model selection.
+        """
         self.model_combo.clear()
-        
+
         if not provider_name or provider_name == "No providers available":
             return
-        
+
         try:
             detection_service = ProviderDetectionService()
             available_models = detection_service.get_available_models(provider_name)
-            
-            # Always add auto-select option first
-            self.model_combo.addItem("(Auto-select)", "default")
-            
+
+            # Add ONLY real models - NO auto-select in TaskModelSelectionDialog
             if available_models:
                 for model in available_models:
                     self.model_combo.addItem(model, model)
             else:
-                self.model_combo.addItem("No models detected", "default")
-                
+                # No models available - show message, don't add auto-select
+                self.model_combo.addItem("No models available", None)
+                self.model_combo.setEnabled(False)
+
         except Exception as e:
-            # Fallback to auto-select if detection fails
-            self.model_combo.addItem("(Auto-select)", "default")
+            # Error loading models - show message, don't add auto-select
+            self.model_combo.addItem("Error loading models", None)
+            self.model_combo.setEnabled(False)
     
     def get_selected_model(self):
         """Get selected provider and model - Claude Generated"""
@@ -1093,109 +1098,43 @@ class UnifiedProviderTab(QWidget):
             self.logger.warning(f"Error getting preferred model for {provider}: {e}")
             return ""
     
-    def _get_available_prompt_tasks(self) -> List[str]:
-        """Get available tasks dynamically from prompts.json - Claude Generated"""
-        try:
-            import json
-            import os
-            
-            # Try to load prompts.json from project root
-            prompt_file_paths = [
-                "prompts.json",
-                "../prompts.json", 
-                "../../prompts.json",
-                os.path.join(os.path.dirname(__file__), "..", "..", "prompts.json")
-            ]
-            
-            for prompt_path in prompt_file_paths:
-                try:
-                    if os.path.exists(prompt_path):
-                        with open(prompt_path, 'r', encoding='utf-8') as f:
-                            prompts_data = json.load(f)
-                        available_tasks = list(prompts_data.keys())
-                        self.logger.info(f"Loaded {len(available_tasks)} tasks from {prompt_path}: {available_tasks}")
-                        return sorted(available_tasks)
-                except Exception as e:
-                    self.logger.debug(f"Could not load prompts from {prompt_path}: {e}")
-                    continue
-            
-            # Fallback to known tasks if prompts.json is not found
-            fallback_tasks = ["initialisation", "keywords", "keywords_chunked", "rephrase", "image_text_extraction"]
-            self.logger.warning("Could not load prompts.json, using fallback tasks")
-            return fallback_tasks
-            
-        except Exception as e:
-            self.logger.warning(f"Error loading prompt tasks: {e}")
-            return ["initialisation", "keywords", "classification"]  # Minimal fallback
+    # DEPRECATED: _get_available_prompt_tasks() removed
+    # Now uses shared LLM_TASK_DISPLAY_INFO constant from config_models
+    # This ensures consistency with wizards and prevents loading non-configurable tasks from prompts.json
     
     def _populate_task_preferences(self):
         """Populate task categories and load task-specific model preferences - Enhanced - Claude Generated"""
         self._populate_task_categories_list()
     
     def _populate_task_categories_list(self):
-        """Populate the task categories list with Pipeline, Vision, and other tasks - Claude Generated"""
+        """Populate task categories with the 6 configurable LLM tasks - Claude Generated
+
+        Uses shared LLM_TASK_DISPLAY_INFO constant from config_models for consistency
+        with wizards and to prevent loading non-configurable tasks from prompts.json.
+        """
+        from ..utils.config_models import LLM_TASK_DISPLAY_INFO
+
         self.task_categories_list.clear()
-        
-        # Pipeline tasks section - Load dynamically from prompts.json - Claude Generated
-        pipeline_header = QListWidgetItem("🔥 Available LLM Tasks")
-        pipeline_header.setFlags(pipeline_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        pipeline_header.setBackground(QPalette().alternateBase())
-        pipeline_header.setFont(QFont("", -1, QFont.Weight.Bold))
-        self.task_categories_list.addItem(pipeline_header)
-        
-        # Define task categories before try block for scope availability
-        available_tasks = self._get_available_prompt_tasks()
-        vision_tasks = ["image_text_extraction"]
 
-        # Load available tasks dynamically from prompts.json - Claude Generated
-        for task in available_tasks:
-            item = QListWidgetItem(f"  📋 {task}")
-            item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "llm_task"})
+        # LLM Tasks section header
+        llm_header = QListWidgetItem("🔥 Konfigurierbare LLM-Tasks")
+        llm_header.setFlags(llm_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        llm_header.setBackground(QPalette().alternateBase())
+        llm_header.setFont(QFont("", -1, QFont.Weight.Bold))
+        self.task_categories_list.addItem(llm_header)
+
+        # Add the 6 configurable LLM tasks from shared constant
+        for task_type, icon_label, description in LLM_TASK_DISPLAY_INFO:
+            # Use the enum value (lowercase, e.g. "initialisation") as task_name
+            task_name = task_type.value
+            item = QListWidgetItem(f"  {icon_label}")
+            item.setData(Qt.ItemDataRole.UserRole, {
+                "task_name": task_name,
+                "category": "llm_task",
+                "description": description
+            })
+            item.setToolTip(description)
             self.task_categories_list.addItem(item)
-
-        # Vision tasks section
-        vision_header = QListWidgetItem("👁️ Vision Tasks")
-        vision_header.setFlags(vision_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        vision_header.setBackground(QPalette().alternateBase())
-        vision_header.setFont(QFont("", -1, QFont.Weight.Bold))
-        self.task_categories_list.addItem(vision_header)
-
-        for task in vision_tasks:
-            item = QListWidgetItem(f"  👁️ {task}")
-            item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
-            self.task_categories_list.addItem(item)
-
-        # Load additional tasks from prompts.json
-        other_tasks = []
-        try:
-            import os
-            import json
-            prompts_path = os.path.join(os.path.dirname(__file__), '..', '..', 'prompts.json')
-
-            if os.path.exists(prompts_path):
-                with open(prompts_path, 'r', encoding='utf-8') as f:
-                    prompts_data = json.load(f)
-
-                for task_name in prompts_data.keys():
-                    if (task_name not in available_tasks and
-                        task_name not in vision_tasks and
-                        not task_name.startswith('_')):
-                        other_tasks.append(task_name)
-        
-        except Exception as e:
-            self.logger.warning(f"Could not load additional tasks from prompts.json: {e}")
-        
-        if other_tasks:
-            other_header = QListWidgetItem("🔧 Additional Tasks")
-            other_header.setFlags(other_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            other_header.setBackground(QPalette().alternateBase())
-            other_header.setFont(QFont("", -1, QFont.Weight.Bold))
-            self.task_categories_list.addItem(other_header)
-            
-            for task in other_tasks:
-                item = QListWidgetItem(f"  🔧 {task}")
-                item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "other"})
-                self.task_categories_list.addItem(item)
     
     def _on_task_category_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         """Handle task category selection change - Claude Generated"""
@@ -1731,26 +1670,43 @@ class UnifiedProviderTab(QWidget):
                 return
 
             # CRITICAL FIX: Save proper TaskPreference object instead of dictionary - Claude Generated
-            # Map task name to TaskType enum
+            # Map task name to TaskType enum - Use TaskType enum NAMES (UPPERCASE) as keys
+            # Only 6 LLM tasks allowed in task_preferences (see TaskPreference.LLM_TASKS)
             task_type_mapping = {
+                'INITIALISATION': UnifiedTaskType.INITIALISATION,
+                'KEYWORDS': UnifiedTaskType.KEYWORDS,
+                'CLASSIFICATION': UnifiedTaskType.CLASSIFICATION,
+                'DK_CLASSIFICATION': UnifiedTaskType.DK_CLASSIFICATION,
+                'VISION': UnifiedTaskType.VISION,
+                'CHUNKED_PROCESSING': UnifiedTaskType.CHUNKED_PROCESSING,
+                # Legacy lowercase aliases - for backward compatibility with old configs
                 'initialisation': UnifiedTaskType.INITIALISATION,
                 'keywords': UnifiedTaskType.KEYWORDS,
-                'rephrase': UnifiedTaskType.KEYWORDS,  # rephrase is keywords variant
                 'classification': UnifiedTaskType.CLASSIFICATION,
                 'dk_classification': UnifiedTaskType.DK_CLASSIFICATION,
+                'vision': UnifiedTaskType.VISION,
+                'chunked': UnifiedTaskType.CHUNKED_PROCESSING,
+                'chunked_processing': UnifiedTaskType.CHUNKED_PROCESSING,
+                # Legacy prompt-specific names
+                'rephrase': UnifiedTaskType.KEYWORDS,
                 'image_text_extraction': UnifiedTaskType.VISION,
                 'keywords_chunked': UnifiedTaskType.CHUNKED_PROCESSING,
                 'extract_initial_keywords': UnifiedTaskType.INITIALISATION,
-                'dk_class': UnifiedTaskType.DK_CLASSIFICATION,
-                'dk_list': UnifiedTaskType.DK_SEARCH,
-                'text_analysis': UnifiedTaskType.GENERAL,
-                'vision': UnifiedTaskType.VISION,
-                'chunked': UnifiedTaskType.CHUNKED_PROCESSING
             }
 
             # Get existing TaskPreference to preserve settings
             existing_pref = self.config.unified_config.task_preferences.get(task_name)
-            task_type = task_type_mapping.get(task_name, UnifiedTaskType.GENERAL)
+
+            # Determine task type - try mapping, fallback to extracting from enum values
+            if task_name in task_type_mapping:
+                task_type = task_type_mapping[task_name]
+            else:
+                # Try to find matching task by enum value
+                try:
+                    task_type = UnifiedTaskType(task_name)
+                except ValueError:
+                    self.logger.warning(f"Unknown task name '{task_name}', using INITIALISATION as fallback")
+                    task_type = UnifiedTaskType.INITIALISATION
 
             # Create proper TaskPreference object
             task_preference = TaskPreference(
