@@ -49,6 +49,9 @@ class FirstStartWizard(QWizard):
         self.gnd_page = GNDDatabasePage()
         self.addPage(self.gnd_page)
 
+        self.catalog_page = CatalogConfigPage()  # Claude Generated: New page for catalog URLs
+        self.addPage(self.catalog_page)
+
         self.summary_page = SummaryPage()
         self.addPage(self.summary_page)
 
@@ -81,6 +84,19 @@ class FirstStartWizard(QWizard):
                 elif provider_type == 'anthropic':
                     models = ['claude-3-5-haiku-20241022']
 
+            # Get catalog URLs from catalog page - Claude Generated
+            catalog_search_url = getattr(self.catalog_page, 'search_url_input', None)
+            if catalog_search_url:
+                catalog_search_url = catalog_search_url.text().strip() if hasattr(catalog_search_url, 'text') else ''
+            else:
+                catalog_search_url = ''
+
+            catalog_details_url = getattr(self.catalog_page, 'details_url_input', None)
+            if catalog_details_url:
+                catalog_details_url = catalog_details_url.text().strip() if hasattr(catalog_details_url, 'text') else ''
+            else:
+                catalog_details_url = ''
+
             # Build configuration with task selections - Claude Generated
             from ..utils.setup_utils import ConfigurationBuilder
             self.config = ConfigurationBuilder.create_initial_config(
@@ -89,7 +105,9 @@ class FirstStartWizard(QWizard):
                 base_url=base_url,
                 api_key=api_key,
                 models=models,
-                task_model_selections=task_model_selections
+                task_model_selections=task_model_selections,
+                catalog_search_url=catalog_search_url,
+                catalog_details_url=catalog_details_url
             )
 
             # Mark first run as completed
@@ -783,3 +801,58 @@ ALIMA Konfiguration - Zusammenfassung
    Klicken Sie auf "Fertig stellen" um ALIMA zu starten.
         """
         self.summary_text.setText(summary)
+
+
+class CatalogConfigPage(QWizardPage):
+    """Catalog URL configuration page - Claude Generated: Make DK step optional"""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Katalog-Konfiguration (Optional)")
+        self.setSubTitle("Geben Sie die Katalog-URLs ein oder lassen Sie diese Felder leer, um den DK-Schritt zu überspringen")
+
+        layout = QVBoxLayout()
+
+        # Info box
+        info = QLabel(
+            "Die DK-Klassifikation ist optional.\n\n"
+            "Falls Sie die Katalog-URLs leer lassen, wird der DK-Klassifikationsschritt "
+            "am Ende der Pipeline übersprungen.\n\n"
+            "Beispiel-URLs:\n"
+            "  Suche: https://katalog.ub.tu-freiberg.de/Search/Results\n"
+            "  Details: https://katalog.ub.tu-freiberg.de/Record"
+        )
+        info.setStyleSheet("background-color: #e8f4f8; padding: 10px; border-radius: 5px;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # Catalog search URL
+        search_url_layout = QVBoxLayout()
+        search_url_layout.addWidget(QLabel("Katalog-Such-URL (optional):"))
+        self.search_url_input = QLineEdit()
+        self.search_url_input.setPlaceholderText("z.B. https://katalog.ub.tu-freiberg.de/Search/Results")
+        search_url_layout.addWidget(self.search_url_input)
+        layout.addLayout(search_url_layout)
+
+        # Catalog details URL
+        details_url_layout = QVBoxLayout()
+        details_url_layout.addWidget(QLabel("Katalog-Details-URL (optional):"))
+        self.details_url_input = QLineEdit()
+        self.details_url_input.setPlaceholderText("z.B. https://katalog.ub.tu-freiberg.de/Record")
+        details_url_layout.addWidget(self.details_url_input)
+        layout.addLayout(details_url_layout)
+
+        # Warning
+        warning = QLabel(
+            "⚠️ Hinweis: Wenn Sie diese Felder leer lassen, wird der DK-Klassifikationsschritt nicht ausgeführt."
+        )
+        warning.setStyleSheet("background-color: #fff3cd; padding: 10px; border-radius: 5px;")
+        warning.setWordWrap(True)
+        layout.addWidget(warning)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+    def validatePage(self) -> bool:
+        """Page validation - always allow, URLs are optional - Claude Generated"""
+        return True

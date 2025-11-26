@@ -28,22 +28,15 @@ logger = logging.getLogger("biblio_extractor")
 class BiblioClient:
     """
     A tool to extract keywords and decimal classifications from a library catalog.
+    - Claude Generated: Catalog URLs are now configurable, not hardcoded
     """
-
-    SEARCH_URL = "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.CatalogueSearcher.cls"
-    DETAILS_URL = (
-        "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.LibraryAPI.cls"
-    )
-    # Web catalog URLs for fallback - Claude Generated
-    WEB_SEARCH_URL = "https://katalog.ub.tu-freiberg.de/Search/Results"
-    WEB_RECORD_BASE_URL = "https://katalog.ub.tu-freiberg.de/Record/"
 
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
 
-    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 30):
+    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 30, search_url: str = "", details_url: str = "", web_search_url: str = "", web_record_base_url: str = ""):
         """
-        Initialize the extractor with the given token.
+        Initialize the extractor with optional configurable catalog URLs.
 
         Args:
             token: The authentication token for the library API
@@ -51,6 +44,10 @@ class BiblioClient:
             save_xml_path: Directory to save raw XML responses for debugging (empty string = disabled)
             enable_web_fallback: Enable web scraping fallback when SOAP fails (Claude Generated)
             timeout: Request timeout in seconds (default: 30) - Claude Generated
+            search_url: SOAP catalog search endpoint URL (empty = use web fallback)
+            details_url: SOAP catalog details endpoint URL (empty = use web fallback)
+            web_search_url: Web-based catalog search URL (empty = not available)
+            web_record_base_url: Web-based catalog record base URL (empty = not available)
         """
         self.token = token
         self.debug = debug
@@ -58,6 +55,11 @@ class BiblioClient:
         self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
         self._using_web_mode = False  # Claude Generated - Track if we switched to web pipeline
         self.timeout = timeout  # Claude Generated - Configurable timeout
+        # Configurable URLs - Claude Generated: No hardcoded defaults
+        self.search_url = search_url or ""
+        self.details_url = details_url or ""
+        self.web_search_url = web_search_url or ""
+        self.web_record_base_url = web_record_base_url or ""
         self.session = requests.Session()
         self.headers = {"Content-Type": "text/xml;charset=UTF-8", "SOAPAction": ""}
 
@@ -140,11 +142,11 @@ class BiblioClient:
         </soapenv:Envelope>
         """
 
-        logger.debug(f"Sending search request to {self.SEARCH_URL}")
+        logger.debug(f"Sending search request to {self.search_url}")
         logger.debug(f"Search envelope: {search_envelope}")
 
         response = self.session.post(
-            self.SEARCH_URL, headers=self.headers, data=search_envelope, timeout=self.timeout
+            self.search_url, headers=self.headers, data=search_envelope, timeout=self.timeout
         )
 
         logger.debug(f"Search response status: {response.status_code}")
@@ -274,7 +276,7 @@ class BiblioClient:
 
         try:
             response = self.session.post(
-                self.DETAILS_URL,
+                self.details_url,
                 headers=self.headers,
                 data=details_envelope,
                 timeout=300,
@@ -509,7 +511,7 @@ class BiblioClient:
             }
 
             # Make request - Claude Generated
-            response = self.session.get(self.WEB_SEARCH_URL, params=params, timeout=30)
+            response = self.session.get(self.web_search_url, params=params, timeout=30)
             if response.status_code != 200:
                 logger.warning(f"Web search: HTTP {response.status_code} for '{term}'")
                 return []
@@ -551,7 +553,7 @@ class BiblioClient:
             from bs4 import BeautifulSoup
 
             # Fetch record page - Claude Generated
-            url = f"{self.WEB_RECORD_BASE_URL}{rsn}"
+            url = f"{self.web_record_base_url}{rsn}"
             logger.debug(f"Web fallback: Fetching {url}")
 
             response = self.session.get(url, timeout=30)

@@ -530,10 +530,10 @@ class UnifiedProviderConfig:
 
 @dataclass
 class CatalogConfig:
-    """Catalog API configuration - Claude Generated"""
+    """Catalog API configuration - Claude Generated: URLs now configurable in setup wizard, no hardcoded defaults"""
     catalog_token: str = ''
-    catalog_search_url: str = 'https://katalog.ub.uni-leipzig.de/Search/Results'
-    catalog_details_url: str = 'https://katalog.ub.uni-leipzig.de/Record'
+    catalog_search_url: str = ''  # Configurable via setup wizard - empty = feature disabled
+    catalog_details_url: str = ''  # Configurable via setup wizard - empty = feature disabled
     # EXPERT OPTION: Set to False to allow non-GND-validated keywords in DK search
     # Default True: Only GND-validated keywords are used (recommended for quality control)
     # Set to False: Include plain text keywords if GND validation fails

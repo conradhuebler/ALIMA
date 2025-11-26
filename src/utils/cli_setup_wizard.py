@@ -31,6 +31,8 @@ class CLISetupWizard:
         self.api_key = None
         self.available_models = []
         self.task_model_selections = {}  # {task_type.value: model_name}
+        self.catalog_search_url = ''  # Claude Generated: Catalog URLs
+        self.catalog_details_url = ''
 
     def run(self) -> bool:
         """Run the setup wizard - Claude Generated
@@ -43,6 +45,7 @@ class CLISetupWizard:
             self._setup_llm_provider()
             self._collect_task_model_selections()  # Collect task-specific model preferences
             self._setup_gnd_database()
+            self._setup_catalog_urls()  # Claude Generated: Setup catalog configuration
             self._print_summary()
 
             # Create and save configuration
@@ -52,7 +55,9 @@ class CLISetupWizard:
                 base_url=self.base_url,
                 api_key=self.api_key,
                 models=self.available_models,
-                task_model_selections=self.task_model_selections  # Pass task selections
+                task_model_selections=self.task_model_selections,  # Pass task selections
+                catalog_search_url=self.catalog_search_url,  # Claude Generated: Pass catalog URLs
+                catalog_details_url=self.catalog_details_url
             )
             config.system_config.first_run_completed = True
 
@@ -327,6 +332,24 @@ class CLISetupWizard:
             if retry == 'j':
                 self._download_gnd_database()
 
+    def _setup_catalog_urls(self):
+        """Setup optional catalog URLs - Claude Generated"""
+        print("\n\n📌 Schritt 4: Katalog-Konfiguration (Optional)\n")
+        print("Sie können optionale Katalog-URLs eingeben, um die DK-Klassifikation zu aktivieren.")
+        print("Falls Sie diese leer lassen, wird der DK-Schritt übersprungen.\n")
+
+        search_url = input("Katalog-Such-URL (leer = überspringen): ").strip()
+        if search_url:
+            details_url = input("Katalog-Details-URL (erforderlich für Such-URL): ").strip()
+            if details_url:
+                self.catalog_search_url = search_url
+                self.catalog_details_url = details_url
+                print("✅ Katalog-URLs konfiguriert")
+            else:
+                print("⚠️  Details-URL erforderlich, Katalog-Konfiguration übersprungen")
+        else:
+            print("⏭️  Katalog-Konfiguration übersprungen (DK-Schritt wird nicht ausgeführt)")
+
     def _print_summary(self):
         """Print configuration summary - Claude Generated"""
         print("\n" + "=" * 60)
@@ -345,6 +368,16 @@ class CLISetupWizard:
         print(f"  Typ: SQLite")
         config = self.config_manager.load_config()
         print(f"  Pfad: {config.database_config.sqlite_path}")
+
+        # Claude Generated: Show catalog configuration
+        if self.catalog_search_url and self.catalog_details_url:
+            print(f"\nKatalog-Konfiguration:")
+            print(f"  Such-URL: {self.catalog_search_url}")
+            print(f"  Details-URL: {self.catalog_details_url}")
+            print(f"  DK-Klassifikation: ✅ Aktiviert")
+        else:
+            print(f"\nKatalog-Konfiguration:")
+            print(f"  DK-Klassifikation: ⏭️ Übersprungen")
 
         print("\n" + "=" * 60)
         print("✅ ALIMA ist bereit zur Verwendung!")

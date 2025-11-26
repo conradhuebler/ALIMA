@@ -32,30 +32,36 @@ from ..utils.clients.biblio_client import BiblioClient  # Claude Generated - SOA
 
 
 class AdditionalTitlesWorker(QThread):
-    """Worker für das Laden zusätzlicher Titel"""
+    """Worker für das Laden zusätzlicher Titel - Claude Generated: Configurable URLs"""
 
     titles_ready = pyqtSignal(list)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, classification):
+    def __init__(self, classification, web_search_url: str = "", web_record_base_url: str = ""):
         super().__init__()
         self.classification = classification
         self.logger = logging.getLogger(__name__)
+        # Claude Generated: Configurable URLs, empty defaults mean feature disabled
+        self.web_search_url = web_search_url or ""
+        self.web_record_base_url = web_record_base_url or ""
 
     def setNumResults(self, num_results):
         self.num_results = num_results
 
     def run(self):
         try:
+            # Check if URLs are configured
+            if not self.web_search_url:
+                raise Exception("Katalog-URLs nicht konfiguriert. Bitte in den Einstellungen konfigurieren.")
+
             # Entferne den Typ (DK/Q) vom Klassifikationscode
             search_term = self.classification.split(" ", 1)[1]
-            url = "https://katalog.ub.tu-freiberg.de/Search/Results"
             params = {
                 "lookfor": self.classification,
                 "type": "udk_raw_de105",
                 "limit": self.num_results,
             }
-            response = requests.get(url, params=params)
+            response = requests.get(self.web_search_url, params=params)
             self.logger.info(f"Generated URL: {response.url}")
             if response.status_code != 200:
                 raise Exception(f"HTTP Error {response.status_code}")
@@ -74,7 +80,7 @@ class AdditionalTitlesWorker(QThread):
                             "id": record_id,
                             "title": title_text,
                             "year": year,
-                            "url": f"https://katalog.ub.tu-freiberg.de/Record/{record_id}",
+                            "url": f"{self.web_record_base_url}{record_id}" if self.web_record_base_url else "",
                         }
                     )
 
@@ -88,18 +94,19 @@ class AdditionalTitlesWorker(QThread):
 
 
 class UBSearchWorker(QThread):
-    """Worker-Thread für die UB-Suche"""
+    """Worker-Thread für die UB-Suche - Claude Generated: Configurable URLs"""
 
     progress_updated = pyqtSignal(int, int)  # current, total
     result_ready = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
     status_updated = pyqtSignal(str)
 
-    def __init__(self, keywords):
+    def __init__(self, keywords, web_search_url: str = "", web_record_base_url: str = ""):
         super().__init__()
         self.keywords = keywords
-        self.base_search_url = "https://katalog.ub.tu-freiberg.de/Search/Results"
-        self.base_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
+        # Claude Generated: Configurable URLs, empty defaults mean feature disabled
+        self.base_search_url = web_search_url or ""
+        self.base_record_url = web_record_base_url or ""
         self.logger = logging.getLogger(__name__)
 
     def setNumResults(self, num_results):
@@ -180,6 +187,10 @@ class UBSearchWorker(QThread):
     def process_keyword(self, keyword):
         """Verarbeitet ein einzelnes Schlagwort"""
         try:
+            # Check if URLs are configured - Claude Generated
+            if not self.base_search_url:
+                raise Exception("Katalog-URLs nicht konfiguriert. Bitte in den Einstellungen konfigurieren.")
+
             params = {
                 "hiddenFilters[]": [
                     'institution:"DE-105"',
@@ -571,7 +582,16 @@ class UBSearchTab(QWidget):
                 f"Starting SOAP API search with debug={debug}, save_xml={bool(save_xml)}, web_fallback={enable_web_fallback}"
             )
         else:  # Web Catalog mode (default)
-            self.current_worker = UBSearchWorker(unique_keywords)
+            # Claude Generated: Get catalog URLs from config
+            web_search_url = ""
+            web_record_base_url = ""
+            if self.alima_manager and hasattr(self.alima_manager, 'config'):
+                catalog_config = getattr(self.alima_manager.config, 'catalog_config', None)
+                if catalog_config:
+                    web_search_url = getattr(catalog_config, 'catalog_search_url', '')
+                    web_record_base_url = getattr(catalog_config, 'catalog_details_url', '')
+
+            self.current_worker = UBSearchWorker(unique_keywords, web_search_url=web_search_url, web_record_base_url=web_record_base_url)
             self.logger.info("Starting Web Catalog search")
 
         self.current_worker.progress_updated.connect(self.update_progress)
@@ -932,8 +952,17 @@ class UBSearchTab(QWidget):
         self.detail_view.clear()
         self.detail_view.append(f"Lade weitere Titel für {classification}...")
 
+        # Claude Generated: Get catalog URLs from config
+        web_search_url = ""
+        web_record_base_url = ""
+        if self.alima_manager and hasattr(self.alima_manager, 'config'):
+            catalog_config = getattr(self.alima_manager.config, 'catalog_config', None)
+            if catalog_config:
+                web_search_url = getattr(catalog_config, 'catalog_search_url', '')
+                web_record_base_url = getattr(catalog_config, 'catalog_details_url', '')
+
         # Starte einen neuen Worker für die Suche
-        self.additional_worker = AdditionalTitlesWorker(classification)
+        self.additional_worker = AdditionalTitlesWorker(classification, web_search_url=web_search_url, web_record_base_url=web_record_base_url)
         self.additional_worker.titles_ready.connect(self.display_additional_titles)
         self.additional_worker.error_occurred.connect(self.handle_error)
         self.additional_worker.setNumResults(self.num_results.value())

@@ -251,7 +251,9 @@ class ConfigurationBuilder:
         base_url: str = None,
         api_key: str = None,
         models: List[str] = None,
-        task_model_selections: dict = None
+        task_model_selections: dict = None,
+        catalog_search_url: str = None,
+        catalog_details_url: str = None
     ) -> AlimaConfig:
         """Create initial ALIMA configuration with LLM provider - Claude Generated
 
@@ -280,8 +282,11 @@ class ConfigurationBuilder:
         # Create UI config
         ui_config = UIConfig()
 
-        # Create catalog config
-        catalog_config = CatalogConfig()
+        # Create catalog config - Claude Generated: Accept optional URLs from wizard
+        catalog_config = CatalogConfig(
+            catalog_search_url=catalog_search_url or '',
+            catalog_details_url=catalog_details_url or ''
+        )
 
         # Create prompt config
         prompt_config = PromptConfig()

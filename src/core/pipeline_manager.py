@@ -594,19 +594,31 @@ class PipelineManager:
                 )
             )
 
-        # DK Search step (optional)
+        # Claude Generated: Check if catalog is configured - required for DK steps
+        catalog_config = getattr(self.config, 'catalog_config', None)
+        catalog_urls_available = (
+            catalog_config and
+            getattr(catalog_config, 'catalog_search_url', '').strip() and
+            getattr(catalog_config, 'catalog_details_url', '').strip()
+        )
+
+        # DK Search step (optional, requires catalog URLs)
         dk_search_config = self.config.get_step_config("dk_search")
-        if dk_search_config.enabled:
+        if dk_search_config.enabled and catalog_urls_available:
             steps.append(
                 PipelineStep(
                     step_id="dk_search",
                     name=self.step_definitions["dk_search"]["name"],
                 )
             )
-            
-        # DK Classification step (optional)
+        elif dk_search_config.enabled and not catalog_urls_available:
+            # Log that DK search is skipped due to missing catalog URLs
+            if self.logger:
+                self.logger.info("⏭️ DK Search step skipped: Katalog-URLs nicht konfiguriert")
+
+        # DK Classification step (optional, requires catalog URLs for DK search results)
         dk_classification_config = self.config.get_step_config("dk_classification")
-        if dk_classification_config.enabled:
+        if dk_classification_config.enabled and catalog_urls_available:
             # Read provider/model directly from configuration - Claude Generated
             steps.append(
                 PipelineStep(
@@ -616,6 +628,10 @@ class PipelineManager:
                     model=dk_classification_config.model,
                 )
             )
+        elif dk_classification_config.enabled and not catalog_urls_available:
+            # Log that DK classification is skipped due to missing catalog URLs
+            if self.logger:
+                self.logger.info("⏭️ DK Classification step skipped: Katalog-URLs nicht konfiguriert")
 
         return steps
 
