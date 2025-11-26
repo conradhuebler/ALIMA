@@ -323,11 +323,12 @@ class ConfigurationBuilder:
             llm_tasks = {TaskType.INITIALISATION, TaskType.KEYWORDS, TaskType.CLASSIFICATION,
                         TaskType.DK_CLASSIFICATION, TaskType.VISION, TaskType.CHUNKED_PROCESSING}
 
-            for task_type in llm_tasks:
-                # Use user's model selection or fall back to default
-                selected_model = default_model
-                if task_model_selections and task_type.name in task_model_selections:
-                    selected_model = task_model_selections[task_type.name]
+        for task_type in llm_tasks:
+            # Use user's model selection or fall back to default
+            selected_model = default_model
+            # task_model_selections stores keys using the enum's ``value`` (lower‑case) to stay consistent with how TaskPreference keys are serialized.
+            if task_model_selections and task_type.value in task_model_selections:
+                selected_model = task_model_selections[task_type.value]
 
                 # CRITICAL VALIDATION: Reject "default", "auto", or "auto-select" strings
                 # These should NEVER appear in wizard-created configs (only explicit model names)
@@ -339,7 +340,8 @@ class ConfigurationBuilder:
                             f"Wizard must use explicit model names, not auto-select placeholders."
                         )
 
-                task_preferences[task_type.name] = TaskPreference(
+                # Store task preference under the enum's value (e.g., "initialisation"), matching the lookup logic in ``UnifiedProviderConfig.get_task_preference``.
+                task_preferences[task_type.value] = TaskPreference(
                     task_type=task_type,
                     model_priority=[
                         {

@@ -396,9 +396,9 @@ class ModelSelectionPage(QWizardPage):
         form_layout = QFormLayout()
 
         for task_type, task_label, task_desc in LLM_TASK_DISPLAY_INFO:
-            # Store task by enum NAME (UPPERCASE) as key, not VALUE
-            # This matches the setup_utils.py ConfigurationBuilder expectation
-            task_key = task_type.name
+            # Use the enum's value (lower‑case) as the identifier – this aligns with the
+            # configuration builder (setup_utils) which expects ``task_type.value`` as the key.
+            task_key = task_type.value
             combo = QComboBox()
             combo.setMinimumWidth(300)
             combo.setToolTip(task_desc)

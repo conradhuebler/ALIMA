@@ -2306,7 +2306,11 @@ class ComprehensiveSettingsDialog(QDialog):
             log_level=self.log_level.currentText(),
             cache_dir=self.cache_dir.text(),
             data_dir=self.data_dir.text(),
-            temp_dir=self.temp_dir.text()
+            temp_dir=self.temp_dir.text(),
+            # Preserve wizard/system flags that have no UI controls - Claude Generated
+            prompts_path=config.system_config.prompts_path,
+            first_run_completed=config.system_config.first_run_completed,
+            skip_first_run_check=config.system_config.skip_first_run_check
         )
 
         # UI configuration - Claude Generated (Webcam Feature)

@@ -82,14 +82,19 @@ class ProviderTestWorker(QThread):
 
 class TaskModelSelectionDialog(QDialog):
     """Dialog for selecting provider and model for task-specific preferences - Claude Generated"""
-    
-    def __init__(self, config_manager, parent=None):
+
+    def __init__(self, config_manager, task_name=None, current_model_info=None, parent=None):
         super().__init__(parent)
         self.config_manager = config_manager
+        self.task_name = task_name
+        self.current_model_info = current_model_info or {}
+        self._pending_cache_update = None  # Stores (provider_name, models) for later save
+        self.status_label = None  # Will be set in _setup_ui
+
         self.setWindowTitle("Select Provider and Model")
         self.setModal(True)
         self.resize(450, 350)
-        
+
         self._setup_ui()
         self._load_providers()
     
@@ -116,13 +121,14 @@ class TaskModelSelectionDialog(QDialog):
         self.model_combo = QComboBox()
         model_layout.addWidget(self.model_combo)
         
-        # Strict validation note - Claude Generated
-        validation_note = QLabel("📋 Only detected models are available (for Smart Mode compatibility) • Changes apply immediately")
-        validation_note.setStyleSheet("color: gray; font-style: italic; padding: 5px;")
-        model_layout.addWidget(validation_note)
-        
         layout.addWidget(model_group)
-        
+
+        # Status label for model detection feedback - Claude Generated
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("QLabel { color: #666; font-style: italic; margin: 5px; }")
+        layout.addWidget(self.status_label)
+
         # Buttons
         button_layout = QHBoxLayout()
         
@@ -158,44 +164,137 @@ class TaskModelSelectionDialog(QDialog):
             self.provider_combo.addItems(fallback_providers)
     
     def _load_models(self, provider_name: str):
-        """Load real models for selected provider using detection service - Claude Generated
+        """Load models using two-tier strategy: detected → cached - Claude Generated
 
-        IMPORTANT: Only shows REAL models, never auto-select.
-        TaskModelSelectionDialog must always have concrete model selection.
+        TIER 1: Try live detection from provider
+        TIER 2: Use cached models from config if detection fails
         """
         self.model_combo.clear()
+        self.model_combo.setEnabled(True)
 
         if not provider_name or provider_name == "No providers available":
             return
 
-        try:
-            detection_service = ProviderDetectionService()
-            available_models = detection_service.get_available_models(provider_name)
+        models_to_display = []
+        detection_success = False
 
-            # Add ONLY real models - NO auto-select in TaskModelSelectionDialog
-            if available_models:
-                for model in available_models:
-                    self.model_combo.addItem(model, model)
-            else:
-                # No models available - show message, don't add auto-select
-                self.model_combo.addItem("No models available", None)
-                self.model_combo.setEnabled(False)
+        # TIER 1: Try live detection
+        try:
+            detection_service = ProviderDetectionService(self.config_manager)
+            detected_models = detection_service.get_available_models(provider_name)
+
+            if detected_models:
+                models_to_display = detected_models
+                detection_success = True
+                self.status_label.setText(f"✅ {len(detected_models)} models detected from {provider_name}")
 
         except Exception as e:
-            # Error loading models - show message, don't add auto-select
-            self.model_combo.addItem("Error loading models", None)
+            # Detection failed, will try TIER 2
+            pass
+
+        # TIER 2: Use cached models from config (if TIER 1 failed)
+        if not models_to_display and self.config_manager:
+            cached_models = self._get_cached_models_from_config(provider_name)
+
+            if cached_models:
+                models_to_display = cached_models
+                self.status_label.setText(f"⚠️ Provider offline - showing {len(cached_models)} cached models")
+
+        # Populate dropdown (no visual distinction between detected and cached)
+        if models_to_display:
+            for model in models_to_display:
+                self.model_combo.addItem(model, model)
+
+            # Pre-select current model if available
+            self._preselect_current_model()
+        else:
+            # No models available at all
+            self.model_combo.addItem("No models available", None)
             self.model_combo.setEnabled(False)
+            self.status_label.setText(f"❌ No models available for {provider_name}")
+
+        # Store detected models for later caching (only on dialog OK)
+        if detection_success:
+            self._pending_cache_update = (provider_name, models_to_display)
+
+    def _get_cached_models_from_config(self, provider_name: str) -> list:
+        """Get models from config cache for offline use - Claude Generated"""
+        if not self.config_manager:
+            return []
+
+        try:
+            config = self.config_manager.load_config()
+            for provider in config.unified_config.providers:
+                if provider.name.lower() == provider_name.lower():
+                    # Return available_models if populated
+                    if provider.available_models:
+                        return provider.available_models
+                    # Fallback to preferred_model if set
+                    if provider.preferred_model:
+                        return [provider.preferred_model]
+        except Exception:
+            pass
+
+        return []
+
+    def _update_provider_cached_models(self, provider_name: str, models: list) -> None:
+        """Update provider's cached model list in config - Claude Generated
+
+        Called only when dialog is accepted (OK button), not during detection.
+        """
+        if not self.config_manager or not models:
+            return
+
+        try:
+            config = self.config_manager.load_config()
+            for provider in config.unified_config.providers:
+                if provider.name.lower() == provider_name.lower():
+                    provider.available_models = models
+                    self.config_manager.save_config(config)
+                    break
+        except Exception:
+            pass
+
+    def _preselect_current_model(self) -> None:
+        """Pre-select the currently configured model in dropdown - Claude Generated"""
+        if not self.current_model_info:
+            return
+
+        current_provider = self.current_model_info.get('provider')
+        current_model = self.current_model_info.get('model')
+
+        # Check if current provider matches selected provider
+        if current_provider and current_provider.lower() == self.provider_combo.currentText().lower():
+            # Try to find and select current model
+            for i in range(self.model_combo.count()):
+                if self.model_combo.itemData(i) == current_model:
+                    self.model_combo.setCurrentIndex(i)
+                    break
+
+    def accept(self) -> None:
+        """Override accept to update cached models before closing - Claude Generated
+
+        Only saves detected models to config when user confirms (OK button).
+        """
+        # Update config cache if we have pending detected models
+        if self._pending_cache_update:
+            provider_name, models = self._pending_cache_update
+            self._update_provider_cached_models(provider_name, models)
+
+        super().accept()
     
     def get_selected_model(self):
         """Get selected provider and model - Claude Generated"""
         provider = self.provider_combo.currentText()
-        
+
         if provider == "No providers available":
             return None, None
-        
-        # Only use detected models from combo box - Claude Generated
-        model = self.model_combo.currentData() or "default"
-        
+
+        model = self.model_combo.currentData()
+
+        if not model:
+            return None, None
+
         return provider, model
     
     def set_default_from_global_preferences(self, provider_preferences):
@@ -987,18 +1086,32 @@ class UnifiedProviderTab(QWidget):
                 # Create dropdown for preferred model selection
                 model_combo = QComboBox()
                 model_combo.blockSignals(True)  # Block signals during setup
-                model_combo.addItem("(Auto-select)")  # Default option
+
+                # First list real models, then add the auto‑select placeholder.
+                # This ensures concrete models appear at the top of the list.
                 if available_models:
-                    self.logger.critical(f"🔍 COMBO_ADDING_MODELS: Provider='{provider}', Models={len(available_models)}")
+                    self.logger.critical(
+                        f"🔍 COMBO_ADDING_MODELS: Provider='{provider}', Models={len(available_models)}"
+                    )
                     model_combo.addItems(available_models)
-                model_combo.blockSignals(False)  # Re-enable signals
-                
-                # Set current selection (block signals during population)
+                # Append placeholder after real models
+                model_combo.addItem("(Auto-select)")
+                model_combo.blockSignals(False)  # Re‑enable signals
+
+                # Set current selection. If a concrete preferred model exists and is present,
+                # select it; otherwise fall back to the placeholder.
+                model_combo.blockSignals(True)
                 if preferred_model and preferred_model in available_models:
-                    self.logger.critical(f"🔍 POPULATE_SETTING: Provider='{provider}', Model='{preferred_model}'")
-                    model_combo.blockSignals(True)  # Prevent signal emission during population
+                    self.logger.critical(
+                        f"🔍 POPULATE_SETTING: Provider='{provider}', Model='{preferred_model}'"
+                    )
                     model_combo.setCurrentText(preferred_model)
-                    model_combo.blockSignals(False)  # Re-enable signals
+                else:
+                    # Ensure the placeholder is selected when no explicit model is set.
+                    placeholder_index = model_combo.findText("(Auto-select)")
+                    if placeholder_index != -1:
+                        model_combo.setCurrentIndex(placeholder_index)
+                model_combo.blockSignals(False)
                 
                 # Connect change handler with proper closure
                 def make_handler(provider_name):
@@ -1101,7 +1214,24 @@ class UnifiedProviderTab(QWidget):
     # DEPRECATED: _get_available_prompt_tasks() removed
     # Now uses shared LLM_TASK_DISPLAY_INFO constant from config_models
     # This ensures consistency with wizards and prevents loading non-configurable tasks from prompts.json
-    
+
+    def _get_current_model_for_task(self, task_name: str) -> tuple:
+        """Get currently configured provider and model for a task - Claude Generated
+
+        Returns:
+            (provider_name, model_name) or (None, None) if not configured
+        """
+        if not task_name or not self.config:
+            return None, None
+
+        # Check task preferences
+        task_prefs = self.config.unified_config.task_preferences.get(task_name)
+        if task_prefs and task_prefs.model_priority:
+            first_entry = task_prefs.model_priority[0]
+            return first_entry.get("provider_name"), first_entry.get("model_name")
+
+        return None, None
+
     def _populate_task_preferences(self):
         """Populate task categories and load task-specific model preferences - Enhanced - Claude Generated"""
         self._populate_task_categories_list()
@@ -1287,8 +1417,20 @@ class UnifiedProviderTab(QWidget):
             )
             return
 
+        # Extract current model from task preferences - Claude Generated
+        current_provider, current_model = self._get_current_model_for_task(selected_task_name)
+        current_model_info = {
+            'provider': current_provider,
+            'model': current_model
+        } if current_provider else None
+
         # Create enhanced model selection dialog with task-specific context - Claude Generated
-        dialog = TaskModelSelectionDialog(None, parent=self)
+        dialog = TaskModelSelectionDialog(
+            config_manager=self.config_manager,
+            task_name=selected_task_name,
+            current_model_info=current_model_info,
+            parent=self
+        )
 
         # ENHANCEMENT: Set window title to show which task is being modified - Claude Generated
         dialog.setWindowTitle(f"Add Model for Task: {selected_task_display}")
