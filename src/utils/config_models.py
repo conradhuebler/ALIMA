@@ -465,6 +465,21 @@ class UnifiedProviderConfig:
                 return provider
         return None
 
+    def get_provider_by_type(self, provider_type: str) -> Optional[UnifiedProvider]:
+        """
+        Get first enabled provider matching the given type - Claude Generated
+
+        Args:
+            provider_type: Provider type to search for (e.g., 'ollama', 'openai_compatible')
+
+        Returns:
+            First enabled provider of that type, or None if not found
+        """
+        for provider in self.providers:
+            if provider.provider_type == provider_type and provider.enabled:
+                return provider
+        return None
+
     def get_task_preference(self, task_type: TaskType) -> TaskPreference:
         """Get task preference, with fallback to defaults - Claude Generated"""
         task_key = task_type.value

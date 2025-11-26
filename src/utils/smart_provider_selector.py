@@ -601,6 +601,11 @@ class SmartProviderSelector:
         else:
             # Try to find in unified providers list
             provider_obj = unified_config.get_provider_by_name(provider)
+
+            # Fallback: Try type-based match if name match fails - Claude Generated
+            if not provider_obj:
+                provider_obj = unified_config.get_provider_by_type(provider)
+
             if provider_obj:
                 config = {
                     "api_key": provider_obj.api_key,
@@ -666,8 +671,9 @@ class SmartProviderSelector:
                 if not config.get("host"):
                     return False, "No host configured for Ollama"
             else:
-                if not config.get("api_key") or not config.get("base_url"):
-                    return False, f"Incomplete configuration for {provider}"
+                # OpenAI-compatible providers: base_url required, api_key optional for local providers - Claude Generated
+                if not config.get("base_url"):
+                    return False, f"Missing base_url for {provider}"
             
             return True, None
             

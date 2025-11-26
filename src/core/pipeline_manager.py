@@ -106,7 +106,7 @@ class PipelineConfig:
             classification_selection = smart_selector.select_provider(
                 task_type=TaskType.CLASSIFICATION,
                 prefer_fast=False,
-                task_name="dk_class",
+                task_name="dk_classification",
                 step_id="dk_classification"
             )
             
@@ -157,7 +157,7 @@ class PipelineConfig:
                     model=classification_selection.model,
                     temperature=0.7,
                     top_p=0.1,
-                    task="dk_class",
+                    task="dk_classification",
                     custom_params={
                         "dk_frequency_threshold": DEFAULT_DK_FREQUENCY_THRESHOLD,
                     }
@@ -248,7 +248,7 @@ class PipelineConfig:
         task_mapping = {
             "initialisation": "initialisation",
             "keywords": "keywords",
-            "dk_classification": "dk_class",
+            "dk_classification": "dk_classification",
             "input": "input",
             "search": "search"
         }
@@ -1282,7 +1282,7 @@ class PipelineManager:
         task_mapping = {
             "initialisation": "initialisation",
             "keywords": "keywords",
-            "dk_classification": "dk_class",
+            "dk_classification": "dk_classification",
             "input": "input",
             "search": "search"
         }
