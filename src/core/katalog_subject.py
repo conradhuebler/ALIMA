@@ -20,18 +20,21 @@ class SubjectExtractor(QThread):
     error_occurred = pyqtSignal(str)
     status_updated = pyqtSignal(str)
 
-    def __init__(self, max_results=1):
+    def __init__(self, max_results=1, base_url: str = "", record_base_url: str = ""):
         """
         Initialisiert den SubjectExtractor.
 
         Args:
             max_results (int): Maximale Anzahl von Ergebnissen, die verarbeitet werden sollen.
+            base_url (str): Base URL for catalog search (empty = feature disabled)
+            record_base_url (str): Base URL for catalog records (empty = feature disabled)
         """
         super().__init__()
         self.max_results = max_results
         self.search_term = None  # Wird in run() gesetzt
-        self.base_url = "https://katalog.ub.tu-freiberg.de/Search/Results"
-        self.record_base_url = "https://katalog.ub.tu-freiberg.de/Record/"
+        # Claude Generated: Make URLs configurable, empty defaults = feature disabled
+        self.base_url = base_url or ""
+        self.record_base_url = record_base_url or ""
 
         # Logger einrichten
         self.logger = logging.getLogger(__name__)
@@ -140,8 +143,10 @@ class SubjectExtractor(QThread):
                 if record_match:
                     record_id = record_match.group(1)
                     title = title_elem.get_text(strip=True)
-                    # Erstelle vollständigen URL
-                    if href.startswith("/"):
+                    # Claude Generated: Use configurable URL or relative href
+                    if self.record_base_url:
+                        record_url = f"{self.record_base_url}{record_id}"
+                    elif href.startswith("/"):
                         record_url = f"https://katalog.ub.tu-freiberg.de{href}"
                     else:
                         record_url = href

@@ -352,6 +352,8 @@ class UBSearchTab(QWidget):
         self.alima_manager = alima_manager  # Add this line to initialize alima_manager
         self.main_window = main_window
         self.current_worker = None  # Claude Generated - Track current worker
+        # Claude Generated: Store catalog URLs for use in display_results
+        self.web_record_base_url = ""
         self.init_ui()
 
     def init_ui(self):
@@ -591,6 +593,9 @@ class UBSearchTab(QWidget):
                     web_search_url = getattr(catalog_config, 'catalog_search_url', '')
                     web_record_base_url = getattr(catalog_config, 'catalog_details_url', '')
 
+            # Claude Generated: Store URL for use in display_results
+            self.web_record_base_url = web_record_base_url
+
             self.current_worker = UBSearchWorker(unique_keywords, web_search_url=web_search_url, web_record_base_url=web_record_base_url)
             self.logger.info("Starting Web Catalog search")
 
@@ -742,7 +747,8 @@ class UBSearchTab(QWidget):
                 key = f"{number_type} {number}"
                 if key not in number_mapping:
                     number_mapping[key] = []
-                record_url = f"https://katalog.ub.tu-freiberg.de/Record/{record_id}"
+                # Claude Generated: Use configurable catalog URL or fallback
+                record_url = f"{self.web_record_base_url}{record_id}" if self.web_record_base_url else ""
                 number_mapping[key].append((keyword, record_id, record_url, title))
 
         sorted_numbers = sorted(
