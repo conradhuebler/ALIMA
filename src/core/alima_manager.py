@@ -476,6 +476,15 @@ class AlimaManager:
         try:
             unified_config = self.config_manager.get_unified_config()
             model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked)
+            
+            # Fallback for image_text_extraction: use vision, initialisation, or keywords preference
+            if not model_priority and task_name == "image_text_extraction":
+                for fallback_task in ["vision", "initialisation", "keywords"]:
+                    model_priority = unified_config.get_model_priority_for_task(fallback_task)
+                    if model_priority:
+                        self.logger.info(f"Using fallback task '{fallback_task}' for image_text_extraction")
+                        break
+            
             self.logger.info(f"Using task-specific model priority: {model_priority}")
         except Exception as e:
             self.logger.warning(f"Error getting task preferences: {e}, using fallback")

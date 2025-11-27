@@ -2805,7 +2805,7 @@ class ComprehensiveSettingsDialog(QDialog):
 
         # Define task lists before try block for scope availability
         pipeline_tasks = ["initialisation", "keywords", "classification"]
-        vision_tasks = ["image_text_extraction"]
+        vision_tasks = ["vision"]  # Maps to image_text_extraction internally
 
         # Pipeline tasks section
         pipeline_header = QListWidgetItem("🔥 Pipeline Tasks")
@@ -2827,7 +2827,7 @@ class ComprehensiveSettingsDialog(QDialog):
         self.tasks_list.addItem(vision_header)
 
         for task in vision_tasks:
-            item = QListWidgetItem(f"  👁️ {task}")
+            item = QListWidgetItem(f"  👁️ {task} (Bilderkennung)")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
             self.tasks_list.addItem(item)
 

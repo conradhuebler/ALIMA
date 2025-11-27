@@ -1851,12 +1851,44 @@ class LlmService(QObject):
             if system:
                 messages.append(SystemMessage(system))
 
-            # Vision model and image handling
+            # Vision model and image handling - Claude Generated expanded list
             vision_models = [
+                # OpenAI models with vision support
                 "gpt-4-vision",
+                "gpt-4o",           # Current default vision model
+                "gpt-4-turbo",      # Supports vision
+                "gpt-4o-mini",      # Smaller vision model
+                "gpt-5",            # GPT-5 models
+                "gpt-5.1",          # GPT-5.1 multimodal models
+                "o1",               # OpenAI o1 models
+                "o3",               # OpenAI o3 models
+                "o4",               # OpenAI o4 models (future)
+                # Local/Ollama vision models
                 "phi-3-vision",
                 "phi-4-multimodal-instruct",
                 "llama-3.2-90b-vision-instruct",
+                "llama-3.2-11b-vision",
+                "llava",            # LLaVA models
+                "bakllava",         # BakLLaVA
+                "moondream",        # Moondream vision model
+                # Anthropic Claude models (all support vision)
+                "claude-3",
+                "claude-3.5",
+                "claude-3-opus",
+                "claude-3-sonnet",
+                "claude-3-haiku",
+                # Google Gemini models (all support vision)
+                "gemini",
+                "gemini-pro-vision",
+                "gemini-1.5",
+                "gemini-2",
+                # Qwen vision models
+                "qwen-vl",
+                "qwen2-vl",
+                # Other vision-capable models
+                "cogvlm",
+                "internvl",
+                "minicpm-v",
             ]
             supports_vision = any(vm.lower() in model.lower() for vm in vision_models)
 
