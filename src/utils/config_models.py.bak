@@ -528,52 +528,16 @@ class UnifiedProviderConfig:
 # OTHER CONFIGURATION CLASSES
 # ============================================================================
 
-class CatalogType(Enum):
-    """Catalog API type for classification search - Claude Generated"""
-    LIBERO_SOAP = "libero_soap"  # Libero SOAP API (original)
-    MARCXML_SRU = "marcxml_sru"  # MARC XML via SRU protocol (DNB, GBV, etc.)
-    AUTO = "auto"  # Auto-detect based on configuration
-
-
 @dataclass
 class CatalogConfig:
-    """Catalog API configuration - Claude Generated
-    
-    Supports two catalog types:
-    1. LIBERO_SOAP: Original Libero SOAP API (requires token)
-    2. MARCXML_SRU: Standard MARC XML via SRU protocol (DNB, Library of Congress, etc.)
-    
-    For MARCXML_SRU, you can use presets: "dnb", "loc", "gbv", "swb", "k10plus"
-    Or configure a custom SRU endpoint with sru_base_url.
-    """
-    # Catalog type selection
-    catalog_type: str = 'libero_soap'  # 'libero_soap', 'marcxml_sru', or 'auto'
-    
-    # Libero SOAP configuration (original)
+    """Catalog API configuration - Claude Generated"""
     catalog_token: str = ''
     catalog_search_url: str = 'https://katalog.ub.uni-leipzig.de/Search/Results'
     catalog_details_url: str = 'https://katalog.ub.uni-leipzig.de/Record'
-    
-    # MARC XML / SRU configuration - Claude Generated
-    sru_base_url: str = ''  # SRU endpoint URL (e.g., "https://services.dnb.de/sru/dnb")
-    sru_database: str = ''  # SRU database name (optional, depends on endpoint)
-    sru_schema: str = 'marcxml'  # Record schema: 'marcxml' or 'MARC21-xml'
-    sru_preset: str = ''  # Use preset: "dnb", "loc", "gbv", "swb", "k10plus"
-    sru_max_records: int = 50  # Maximum records per search
-    
     # EXPERT OPTION: Set to False to allow non-GND-validated keywords in DK search
     # Default True: Only GND-validated keywords are used (recommended for quality control)
     # Set to False: Include plain text keywords if GND validation fails
     strict_gnd_validation_for_dk_search: bool = True
-    
-    def get_catalog_type(self) -> str:
-        """Get the effective catalog type - Claude Generated"""
-        if self.catalog_type == 'auto':
-            # Auto-detect: prefer SRU if configured, otherwise SOAP
-            if self.sru_preset or self.sru_base_url:
-                return 'marcxml_sru'
-            return 'libero_soap'
-        return self.catalog_type
 
 
 @dataclass
