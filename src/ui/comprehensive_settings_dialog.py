@@ -882,26 +882,130 @@ class ComprehensiveSettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout()
         
-        # Catalog settings
-        catalog_group = QGroupBox("Library Catalog Configuration")
-        catalog_layout = QFormLayout()
+        # Catalog Type Selection
+        type_group = QGroupBox("Catalog Type")
+        type_layout = QFormLayout()
+        
+        self.catalog_type_combo = QComboBox()
+        self.catalog_type_combo.addItems(["libero_soap", "marcxml_sru", "auto"])
+        self.catalog_type_combo.setToolTip(
+            "libero_soap: Original Libero SOAP API (requires token)\n"
+            "marcxml_sru: Standard MARC XML via SRU protocol (DNB, K10plus, etc.)\n"
+            "auto: Automatically detect based on configuration"
+        )
+        self.catalog_type_combo.currentTextChanged.connect(self._on_catalog_type_changed)
+        type_layout.addRow("Catalog Type:", self.catalog_type_combo)
+        
+        type_group.setLayout(type_layout)
+        layout.addWidget(type_group)
+        
+        # Libero SOAP settings (original)
+        self.libero_group = QGroupBox("Libero SOAP Configuration")
+        libero_layout = QFormLayout()
         
         self.catalog_token = QLineEdit()
         self.catalog_token.setEchoMode(QLineEdit.EchoMode.Password)
-        catalog_layout.addRow("Catalog Token:", self.catalog_token)
+        self.catalog_token.setToolTip("API token for Libero SOAP catalog access")
+        libero_layout.addRow("Catalog Token:", self.catalog_token)
         
         self.catalog_search_url = QLineEdit()
-        catalog_layout.addRow("Search URL:", self.catalog_search_url)
+        self.catalog_search_url.setToolTip("Search URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Search/Results)")
+        libero_layout.addRow("Search URL:", self.catalog_search_url)
         
         self.catalog_details_url = QLineEdit()
-        catalog_layout.addRow("Details URL:", self.catalog_details_url)
+        self.catalog_details_url.setToolTip("Details URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Record)")
+        libero_layout.addRow("Details URL:", self.catalog_details_url)
         
-        catalog_group.setLayout(catalog_layout)
-        layout.addWidget(catalog_group)
+        self.libero_group.setLayout(libero_layout)
+        layout.addWidget(self.libero_group)
+        
+        # MARC XML / SRU settings
+        self.sru_group = QGroupBox("MARC XML / SRU Configuration")
+        sru_layout = QFormLayout()
+        
+        # SRU Preset selector
+        self.sru_preset_combo = QComboBox()
+        self.sru_preset_combo.addItems(["", "dnb", "loc", "gbv", "swb", "k10plus"])
+        self.sru_preset_combo.setToolTip(
+            "Select a preset catalog or leave empty for custom URL:\n"
+            "• dnb: Deutsche Nationalbibliothek\n"
+            "• loc: Library of Congress\n"
+            "• gbv: GBV Gemeinsamer Bibliotheksverbund\n"
+            "• swb: SWB Südwestdeutscher Bibliotheksverbund\n"
+            "• k10plus: K10plus (GBV + SWB combined)"
+        )
+        self.sru_preset_combo.currentTextChanged.connect(self._on_sru_preset_changed)
+        sru_layout.addRow("SRU Preset:", self.sru_preset_combo)
+        
+        # Custom SRU URL (for custom endpoints)
+        self.sru_base_url = QLineEdit()
+        self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
+        self.sru_base_url.setToolTip("SRU endpoint URL (only needed if not using a preset)")
+        sru_layout.addRow("SRU Base URL:", self.sru_base_url)
+        
+        self.sru_database = QLineEdit()
+        self.sru_database.setPlaceholderText("e.g., dnb")
+        self.sru_database.setToolTip("SRU database name (optional, depends on endpoint)")
+        sru_layout.addRow("SRU Database:", self.sru_database)
+        
+        self.sru_schema = QComboBox()
+        self.sru_schema.addItems(["marcxml", "MARC21-xml"])
+        self.sru_schema.setToolTip("Record schema format")
+        sru_layout.addRow("Record Schema:", self.sru_schema)
+        
+        self.sru_max_records = QSpinBox()
+        self.sru_max_records.setRange(1, 500)
+        self.sru_max_records.setValue(50)
+        self.sru_max_records.setToolTip("Maximum records per search (default: 50)")
+        sru_layout.addRow("Max Records:", self.sru_max_records)
+        
+        self.sru_group.setLayout(sru_layout)
+        layout.addWidget(self.sru_group)
+        
+        # Advanced settings
+        advanced_group = QGroupBox("Advanced Settings")
+        advanced_layout = QFormLayout()
+        
+        self.strict_gnd_validation = QCheckBox()
+        self.strict_gnd_validation.setChecked(True)
+        self.strict_gnd_validation.setToolTip(
+            "When enabled, only GND-validated keywords are used in DK search (recommended).\n"
+            "When disabled, plain text keywords are included if GND validation fails."
+        )
+        advanced_layout.addRow("Strict GND Validation:", self.strict_gnd_validation)
+        
+        advanced_group.setLayout(advanced_layout)
+        layout.addWidget(advanced_group)
         
         layout.addStretch()
         widget.setLayout(layout)
+        
+        # Initialize visibility based on default catalog type
+        self._on_catalog_type_changed(self.catalog_type_combo.currentText())
+        
         return widget
+    
+    def _on_catalog_type_changed(self, catalog_type: str):
+        """Handle catalog type selection changes - Claude Generated"""
+        is_libero = catalog_type == "libero_soap"
+        is_sru = catalog_type == "marcxml_sru"
+        is_auto = catalog_type == "auto"
+        
+        # Show/hide relevant groups
+        self.libero_group.setVisible(is_libero or is_auto)
+        self.sru_group.setVisible(is_sru or is_auto)
+    
+    def _on_sru_preset_changed(self, preset: str):
+        """Handle SRU preset selection - disable custom URL fields when preset is selected - Claude Generated"""
+        use_preset = bool(preset)
+        self.sru_base_url.setEnabled(not use_preset)
+        self.sru_database.setEnabled(not use_preset)
+        if use_preset:
+            self.sru_base_url.setPlaceholderText(f"Using preset: {preset}")
+            self.sru_database.setPlaceholderText(f"Using preset: {preset}")
+        else:
+            self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
+            self.sru_database.setPlaceholderText("e.g., dnb")
     
     def _create_prompts_tab(self) -> QWidget:
         """Create prompts configuration tab - Claude Generated"""
@@ -1849,9 +1953,22 @@ class ComprehensiveSettingsDialog(QDialog):
         # Dynamic provider population is handled automatically by the UnifiedProviderTab
         
         # Catalog settings
+        self.catalog_type_combo.setCurrentText(config.catalog.catalog_type)
         self.catalog_token.setText(config.catalog.catalog_token)
         self.catalog_search_url.setText(config.catalog.catalog_search_url)
         self.catalog_details_url.setText(config.catalog.catalog_details_url)
+        
+        # SRU settings
+        self.sru_preset_combo.setCurrentText(config.catalog.sru_preset)
+        self.sru_base_url.setText(config.catalog.sru_base_url)
+        self.sru_database.setText(config.catalog.sru_database)
+        self.sru_schema.setCurrentText(config.catalog.sru_schema)
+        self.sru_max_records.setValue(config.catalog.sru_max_records)
+        self.strict_gnd_validation.setChecked(config.catalog.strict_gnd_validation_for_dk_search)
+        
+        # Trigger visibility update
+        self._on_catalog_type_changed(config.catalog.catalog_type)
+        self._on_sru_preset_changed(config.catalog.sru_preset)
         
         # System settings
         self.debug_mode.setChecked(config.system.debug)
@@ -2295,9 +2412,16 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Catalog configuration - Claude Generated fix for expanded config structure
         config.catalog_config = CatalogConfig(
+            catalog_type=self.catalog_type_combo.currentText(),
             catalog_token=self.catalog_token.text(),
             catalog_search_url=self.catalog_search_url.text(),
-            catalog_details_url=self.catalog_details_url.text()
+            catalog_details_url=self.catalog_details_url.text(),
+            sru_base_url=self.sru_base_url.text(),
+            sru_database=self.sru_database.text(),
+            sru_schema=self.sru_schema.currentText(),
+            sru_preset=self.sru_preset_combo.currentText(),
+            sru_max_records=self.sru_max_records.value(),
+            strict_gnd_validation_for_dk_search=self.strict_gnd_validation.isChecked()
         )
 
         # System configuration - Claude Generated fix for expanded config structure

@@ -2107,19 +2107,31 @@ class PipelineConfigDialog(QDialog):
             # Load step configurations
             for step_id, step_widget in self.step_widgets.items():
                 if step_id in config.step_configs:
-                    # Convert PipelineStepConfig to dict format for widget compatibility
                     step_config = config.step_configs[step_id]
-                    config_dict = {
-                        'step_id': step_config.step_id,
-                        'enabled': step_config.enabled,
-                        'provider': step_config.provider or '',
-                        'model': step_config.model or '',
-                        'task': step_config.task or '',
-                        'temperature': step_config.temperature or 0.7,
-                        'top_p': step_config.top_p or 0.1,
-                        'max_tokens': step_config.max_tokens
-                    }
-                    step_widget.set_config(config_dict)
+                    
+                    # Handle both PipelineStepConfig objects and dict formats
+                    if isinstance(step_config, dict):
+                        # Already a dict (e.g., search step stored as dict)
+                        if step_id == "search":
+                            # Search step uses suggesters format
+                            search_config = {"suggesters": step_config.get("suggesters", config.search_suggesters)}
+                            step_widget.set_config(search_config)
+                        else:
+                            # Other steps stored as dict - use directly
+                            step_widget.set_config(step_config)
+                    else:
+                        # Convert PipelineStepConfig to dict format for widget compatibility
+                        config_dict = {
+                            'step_id': step_config.step_id,
+                            'enabled': step_config.enabled,
+                            'provider': step_config.provider or '',
+                            'model': step_config.model or '',
+                            'task': step_config.task or '',
+                            'temperature': step_config.temperature or 0.7,
+                            'top_p': step_config.top_p or 0.1,
+                            'max_tokens': step_config.max_tokens
+                        }
+                        step_widget.set_config(config_dict)
                 elif step_id == "search":
                     # Load search suggesters from PipelineConfig
                     search_config = {"suggesters": config.search_suggesters}
