@@ -1473,27 +1473,59 @@ class PipelineStepExecutor:
                 stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
             catalog_token = ""  # Empty token triggers automatic web fallback
 
-        # Initialize BiblioExtractor
+        # Initialize catalog client - supports BiblioClient or MarcXmlClient - Claude Generated
         try:
-            from .clients.biblio_client import BiblioClient
-
-            extractor = BiblioClient(
-                token=catalog_token or "",  # Ensure string, not None
-                debug=self.logger.level <= 10 if self.logger else False,
-                enable_web_fallback=True  # Claude Generated - Explicitly enable web fallback
-            )
+            # Determine catalog type from config
+            try:
+                from .config_manager import ConfigManager
+                config_manager = ConfigManager()
+                catalog_config = config_manager.get_catalog_config()
+                catalog_type = getattr(catalog_config, 'catalog_type', 'libero_soap')
+                if catalog_type == 'auto':
+                    catalog_type = catalog_config.get_catalog_type() if hasattr(catalog_config, 'get_catalog_type') else 'libero_soap'
+            except Exception as cfg_err:
+                if self.logger:
+                    self.logger.debug(f"Config load failed, using default: {cfg_err}")
+                catalog_type = 'libero_soap'  # Default to original behavior
             
-            # Set URLs if available
-            if catalog_search_url:
-                extractor.SEARCH_URL = catalog_search_url
-            if catalog_details_url:
-                extractor.DETAILS_URL = catalog_details_url
+            if catalog_type == 'marcxml_sru':
+                # Use MARC XML SRU client - Claude Generated
+                from .clients.marcxml_client import MarcXmlClient
+                sru_preset = getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else ''
+                sru_base_url = getattr(catalog_config, 'sru_base_url', '') if 'catalog_config' in dir() else ''
+                sru_max_records = getattr(catalog_config, 'sru_max_records', 50) if 'catalog_config' in dir() else 50
+                
+                extractor = MarcXmlClient(
+                    preset=sru_preset if sru_preset else '',
+                    sru_base_url=sru_base_url if not sru_preset else '',
+                    max_records=sru_max_records,
+                    debug=self.logger.level <= 10 if self.logger else False
+                )
+                if self.logger:
+                    self.logger.info(f"Using MARC XML SRU client (preset: {sru_preset or 'custom'})")
+                if stream_callback:
+                    stream_callback(f"Verwende MARC XML SRU ({sru_preset or sru_base_url})\n", "dk_search")
+            else:
+                # Use original Libero SOAP client
+                from .clients.biblio_client import BiblioClient
+
+                extractor = BiblioClient(
+                    token=catalog_token or "",  # Ensure string, not None
+                    debug=self.logger.level <= 10 if self.logger else False,
+                    enable_web_fallback=True  # Claude Generated - Explicitly enable web fallback
+                )
+                
+                # Set URLs if available
+                if catalog_search_url:
+                    extractor.SEARCH_URL = catalog_search_url
+                if catalog_details_url:
+                    extractor.DETAILS_URL = catalog_details_url
                 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"BiblioExtractor initialization failed: {e}")  
+                self.logger.error(f"Catalog client initialization failed: {e}")  
             if stream_callback:
-                stream_callback(f"BiblioExtractor-Fehler: {str(e)}\n", "dk_search")
+                stream_callback(f"Katalog-Client-Fehler: {str(e)}\n", "dk_search")
             return []
 
         # GND VALIDATION FILTERING - Claude Generated
@@ -1561,11 +1593,19 @@ class PipelineStepExecutor:
 
         # Execute catalog search with selected keywords
         try:
-            dk_search_results = extractor.extract_dk_classifications_for_keywords(
-                keywords=final_search_keywords,
-                max_results=max_results,
-                force_update=force_update,
-            )
+            # MarcXmlClient doesn't support force_update parameter - check extractor type - Claude Generated
+            from .clients.marcxml_client import MarcXmlClient
+            if isinstance(extractor, MarcXmlClient):
+                dk_search_results = extractor.extract_dk_classifications_for_keywords(
+                    keywords=final_search_keywords,
+                    max_results=max_results,
+                )
+            else:
+                dk_search_results = extractor.extract_dk_classifications_for_keywords(
+                    keywords=final_search_keywords,
+                    max_results=max_results,
+                    force_update=force_update,
+                )
 
             if stream_callback:
                 stream_callback(f"DK-Suche abgeschlossen: {len(dk_search_results)} Katalog-Einträge gefunden\n", "dk_search")

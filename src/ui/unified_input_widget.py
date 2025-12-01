@@ -385,10 +385,11 @@ class TextExtractionWorker(StoppableWorker):
 
     def _get_best_vision_provider(self) -> tuple:
         """Get best available provider for vision tasks - Claude Generated"""
-        # Prioritätsliste für Vision-Provider
+        # Prioritätsliste für Vision-Provider (inkl. openai_compatible)
         vision_providers = [
             ("gemini", ["gemini-2.0-flash", "gemini-1.5-flash"]),
             ("openai", ["gpt-4o", "gpt-4-vision-preview"]),
+            ("openai_compatible", ["gpt-5.1", "gpt-5", "gpt-4o", "gpt-4-turbo", "gpt-4-vision-preview", "gpt-4o-mini"]),
             ("anthropic", ["claude-3-5-sonnet", "claude-3-opus"]),
             ("ollama", ["llava", "minicpm-v", "cogito:32b"])
         ]
