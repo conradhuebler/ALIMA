@@ -743,18 +743,19 @@ class PipelineStepExecutor:
             )
 
         # Extract final keywords and classes
-        extracted_keywords_all, extracted_keywords_exact = (
+        # FIXED: Use all keywords (including plain text) for DK search - Claude Generated
+        all_keywords_including_plain, gnd_validated_only = (
             extract_keywords_from_descriptive_text(
                 task_state.analysis_result.full_text, gnd_compliant_keywords
             )
         )
-        
+
         # Apply deduplication to ensure no duplicate keywords - Claude Generated
-        extracted_keywords_exact = self._deduplicate_keywords(
-            [extracted_keywords_exact],  # Wrap in list for consistency with chunked version
+        final_keywords = self._deduplicate_keywords(
+            [all_keywords_including_plain],  # Use ALL keywords, not just GND-validated
             gnd_compliant_keywords
         )
-        
+
         extracted_gnd_classes = extract_classes_from_descriptive_text(
             task_state.analysis_result.full_text
         )
@@ -773,11 +774,11 @@ class PipelineStepExecutor:
             temperature=kwargs.get("temperature", 0.7),
             seed=kwargs.get("seed", 0),
             response_full_text=task_state.analysis_result.full_text,
-            extracted_gnd_keywords=extracted_keywords_exact,
+            extracted_gnd_keywords=final_keywords,  # Store all keywords
             extracted_gnd_classes=extracted_gnd_classes,
         )
 
-        return extracted_keywords_exact, extracted_gnd_classes, llm_analysis
+        return final_keywords, extracted_gnd_classes, llm_analysis
 
     def _execute_chunked_keyword_analysis(
         self,
@@ -1631,8 +1632,12 @@ def extract_keywords_from_descriptive_text(
     1. Primary: "Keyword (1234567-8)" format
     2. Fallback: "<final_list>Keyword1|Keyword2|...</final_list>" format
 
-    Note: Returns both all_keywords and exact_matches for pipeline compatibility.
-    DK search should use ONLY exact_matches (GND-validated keywords) to avoid irrelevant results.
+    Returns:
+        Tuple[List[str], List[str]]:
+            - all_keywords: ALL keywords (with and without GND-IDs) for DK search
+            - exact_matches: ONLY GND-validated keywords for statistics/history
+
+    Note: DK search uses all_keywords to ensure no LLM-identified keywords are lost.
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -1753,13 +1758,13 @@ def extract_keywords_from_descriptive_text(
                         break
 
                 if not found:
-                    # FIXED: Keywords without GND validation are now excluded from DK search - Claude Generated
-                    # Plain text keywords (e.g., "Molekül", "Festkörper") that don't match GND entries:
-                    # - Are NOT added to DK search (strict GND-only filtering)
-                    # - Reduces irrelevant catalog titles and improves LLM classification accuracy
-                    # - If all keywords are filtered, DK search step returns empty results
-                    logger.warning(f"  ⚠️ No GND match for '{raw_kw}' - excluded from DK search (strict GND-only filtering)")
-                    unmatched_keywords.append(raw_kw)  # Track for logging only
+                    # FIXED: Keywords without GND validation are now INCLUDED in DK search - Claude Generated
+                    # All LLM-identified keywords are used to ensure complete catalog coverage:
+                    # - Keywords WITH GND-IDs: Full metadata from GND database
+                    # - Keywords WITHOUT GND-IDs: Plain text search (user requirement: "das DARF nicht passieren")
+                    # - Preserves LLM analysis intent while maximizing catalog search coverage
+                    logger.info(f"  ℹ️ No GND match for '{raw_kw}' - using as plain keyword in DK search")
+                    unmatched_keywords.append(raw_kw)  # Will be included in DK search via all_keywords
 
         # Combine GND-matched and plain keywords for complete DK search - Claude Generated FIX
         all_keywords = exact_matches + unmatched_keywords
