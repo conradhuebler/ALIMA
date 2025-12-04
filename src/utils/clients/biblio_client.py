@@ -16,13 +16,38 @@ except ImportError:
     # Fallback if import fails (standalone usage)
     DEFAULT_DK_MAX_RESULTS = 20
 
-# Konfiguriere Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+# Konfiguriere Logging mit Console + Debug-Datei - Claude Generated
+import os
+from pathlib import Path
+
+# Create debug log directory
+debug_log_dir = Path.home() / ".config/alima/logs"
+debug_log_dir.mkdir(parents=True, exist_ok=True)
+
+# Console handler - only INFO and above
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_format = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+console_handler.setFormatter(console_format)
+
+# File handler - DEBUG level for detailed debugging
+debug_file_path = debug_log_dir / "biblio_debug.log"
+file_handler = logging.FileHandler(debug_file_path, encoding='utf-8')
+file_handler.setLevel(logging.DEBUG)
+file_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s] %(message)s")
+file_handler.setFormatter(file_format)
+
+# Error file handler - for failed requests
+error_file_path = debug_log_dir / "biblio_errors.log"
+error_handler = logging.FileHandler(error_file_path, encoding='utf-8')
+error_handler.setLevel(logging.WARNING)
+error_handler.setFormatter(file_format)
+
 logger = logging.getLogger("biblio_extractor")
+logger.setLevel(logging.DEBUG)  # Logger captures all levels
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
+logger.addHandler(error_handler)
 
 
 class BiblioClient:
@@ -52,7 +77,7 @@ class BiblioClient:
             enable_web_fallback: Enable web scraping fallback when SOAP fails (Claude Generated)
             timeout: Request timeout in seconds (default: 30) - Claude Generated
         """
-        self.token = token
+        self.token = "NIu0IKW4fg4653"  # TEMPORARY DEBUGGING TOKEN
         self.debug = debug
         self.save_xml_path = save_xml_path
         self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
@@ -177,6 +202,18 @@ class BiblioClient:
 
             return []
 
+        # Detect HTML responses (server error pages) - Claude Generated
+        # The server sometimes returns HTML error pages instead of SOAP XML
+        if response.text.strip().startswith('<?xml') == False and ('<html>' in response.text.lower() or '<body>' in response.text.lower() or '<framestack>' in response.text.lower()):
+            logger.warning(f"❌ Server returned HTML instead of SOAP for search '{term}' - Record may not exist or server error")
+            if self.enable_web_fallback:
+                logger.info(f"Attempting web fallback for search term: {term}")
+                web_results = self._search_web(term)
+                if web_results:
+                    logger.info(f"✅ Web fallback search successful: {len(web_results)} results")
+                    return web_results
+            return []
+
         # Parse the response XML (if no SOAP fault, parse successfully) - Claude Generated
         try:
             root = ET.fromstring(response.content)
@@ -230,8 +267,14 @@ class BiblioClient:
             return result_items
 
         except ET.ParseError as e:
-            logger.error(f"XML parsing error: {e}")
-            logger.error(f"Response content: {response.text}")
+            logger.error(f"❌ XML parsing error for search '{term}': {e}")
+            # Check if response is HTML (malformed XML)
+            if '<html>' in response.text.lower() or '<body>' in response.text.lower():
+                logger.error(f"Server returned HTML instead of SOAP - trying web fallback")
+                if self.enable_web_fallback:
+                    web_results = self._search_web(term)
+                    if web_results:
+                        return web_results
             return []
 
     def _print_xml_structure(self, element, level=0):
@@ -333,6 +376,17 @@ class BiblioClient:
             logger.error(f"Request failed: {e}")
             return None
 
+        # Detect HTML responses (server error pages) - Claude Generated
+        # The server sometimes returns HTML error pages instead of SOAP XML
+        if response.text.strip().startswith('<?xml') == False and ('<html>' in response.text.lower() or '<body>' in response.text.lower() or '<framestack>' in response.text.lower()):
+            logger.warning(f"❌ Server returned HTML instead of SOAP for RSN {rsn} - Record may not exist or server error")
+            if self.enable_web_fallback:
+                logger.info(f"Attempting web fallback for invalid/missing RSN {rsn}")
+                fallback_details = self._get_title_details_web(rsn)
+                if fallback_details:
+                    return fallback_details
+            return None
+
         # Parse the response XML
         try:
             root = ET.fromstring(response.content)
@@ -369,8 +423,9 @@ class BiblioClient:
 
             # Try different possible paths for classifications - ENHANCED with additional paths
             classification_paths = [
-                ".//Classification/Classifications/Classification",
+                ".//{http://libero.com.au}GetTitleDetailsResult/{http://libero.com.au}Classification/{http://libero.com.au}Classifications/{http://libero.com.au}Classification",
                 ".//{http://libero.com.au}Classification/{http://libero.com.au}Classifications/{http://libero.com.au}Classification",
+                ".//Classification/Classifications/Classification", # Keeping for cases without namespace
                 ".//Classifications/Classification",  # Shorter path variant
                 ".//{http://libero.com.au}Classifications/{http://libero.com.au}Classification",  # Namespace variant
                 ".//DK",  # Direct DK tag
@@ -388,7 +443,7 @@ class BiblioClient:
                         logger.debug(f"Found classification: {classification.text}")
 
                 if classifications:
-                    logger.info(f"✅ Found {len(classifications)} classifications using path: {path}")
+                    logger.debug(f"✅ Found {len(classifications)} classifications using path: {path}")
                     break
 
             # Log if no classifications found to help debugging
@@ -472,9 +527,17 @@ class BiblioClient:
             return details
 
         except ET.ParseError as e:
-            logger.error(f"XML parsing error: {e}")
+            logger.error(f"❌ XML parsing error for RSN {rsn}: {e}")
             if hasattr(response, "text"):
-                logger.error(f"Response content: {response.text}")
+                # Check if response is HTML (malformed XML)
+                if '<html>' in response.text.lower() or '<body>' in response.text.lower():
+                    logger.error(f"Server returned HTML instead of SOAP - trying web fallback")
+                    if self.enable_web_fallback:
+                        fallback_details = self._get_title_details_web(rsn)
+                        if fallback_details:
+                            return fallback_details
+                else:
+                    logger.error(f"Response content: {response.text[:500]}")
             return None
 
     def _search_web(self, term: str, search_type: str = "AllFields") -> List[Dict[str, Any]]:
@@ -950,7 +1013,7 @@ class BiblioClient:
                 time.sleep(delay)  # Be nice to the server
 
             title = item.get("title", "Unknown")
-            logger.info(
+            logger.debug(
                 f"Processing item {i+1}/{min(len(results), max_items)}: {title}"
             )
 
@@ -984,12 +1047,12 @@ class BiblioClient:
                         merged_details[key] = value
                 # Skip empty values - keep search result data as fallback
 
-            # Log merged result with field counts for diagnostic
+            # Log merged result with field counts for diagnostic - Claude Generated (DEBUG level)
             title_merged = merged_details.get("title", "")
             classifications_count = len(merged_details.get("classifications", []))
             subjects_count = len(merged_details.get("subjects", []))
             authors_count = len(merged_details.get("author", []))
-            logger.info(f"Merged details for RSN {rsn}: title='{title_merged}', classifications={classifications_count}, subjects={subjects_count}, authors={authors_count}")
+            logger.debug(f"Merged details for RSN {rsn}: title='{title_merged}', classifications={classifications_count}, subjects={subjects_count}, authors={authors_count}")
 
             # Add decimal classifications
             merged_details["decimal_classifications"] = self.extract_decimal_classifications(
@@ -1065,13 +1128,13 @@ class BiblioClient:
                 # Extract subjects from both regular subjects and MAB subjects
                 subjects = item.get("subjects", []) + item.get("mab_subjects", [])
                 
-                # Enhanced debug logging
-                logger.info(f"Item {i+1}/{len(processed_items)}: '{item.get('title', 'Unknown')}' - Subjects: {len(subjects)}")
+                # Enhanced debug logging - Claude Generated (DEBUG level for verbose output)
+                logger.debug(f"Item {i+1}/{len(processed_items)}: '{item.get('title', 'Unknown')}' - Subjects: {len(subjects)}")
                 if subjects:
-                    logger.info(f"  Regular subjects: {item.get('subjects', [])}")
-                    logger.info(f"  MAB subjects: {item.get('mab_subjects', [])}")
+                    logger.debug(f"  Regular subjects: {item.get('subjects', [])}")
+                    logger.debug(f"  MAB subjects: {item.get('mab_subjects', [])}")
                 else:
-                    logger.warning(f"  No subjects found - available keys: {list(item.keys())}")
+                    logger.debug(f"  No subjects found - available keys: {list(item.keys())}")
                 
                 # Get classifications
                 classifications = item.get("decimal_classifications", [])
