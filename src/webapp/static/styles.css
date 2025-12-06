@@ -110,7 +110,7 @@ main {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    height: 100%;
+    /* Remove height: 100% - only takes what input methods need */
     overflow-y: auto;
 }
 
@@ -148,12 +148,17 @@ main {
     color: var(--primary-color);
 }
 
-/* Input Text Box - Always Visible at Top - Claude Generated */
+/* Input Text Box - Right Column, Full Height - Claude Generated */
 .input-text-box {
+    background: var(--bg-white);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    padding: 20px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 0;
+    gap: 12px;
+    height: 100%;  /* Full height of grid */
+    overflow-y: auto;
 }
 
 .input-header {
@@ -380,6 +385,48 @@ input[type="text"]:focus {
     margin: 0;
 }
 
+/* Camera preview actions (confirm/retake buttons) */
+.camera-preview-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.btn-confirm {
+    flex: 1;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 0.9em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-confirm:hover {
+    background-color: #218838;
+}
+
+.btn-retake {
+    flex: 1;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 0.9em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-retake:hover {
+    background-color: #0069d9;
+}
+
 /* Buttons */
 .btn {
     padding: 10px 16px;
@@ -440,28 +487,32 @@ input[type="text"]:focus {
     flex: 1;
 }
 
-/* Pipeline Panel */
+/* Pipeline Panel - Now inside left column, takes remaining space */
 .pipeline-panel {
+    background: var(--bg-white);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 16px;
-    height: 100%;
+    flex: 1;  /* Takes remaining space in left column */
     overflow-y: auto;
 }
 
 .pipeline-section {
-    background: var(--bg-white);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    padding: 16px;
+    background: transparent;  /* No background - pipeline-panel has it */
+    border-radius: 0;
+    border: none;
+    padding: 0;
     flex-shrink: 0;
 }
 
 .extracted-text-section {
-    background: var(--bg-white);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    padding: 16px;
+    background: transparent;  /* No background - pipeline-panel has it */
+    border-radius: 0;
+    border: none;
+    padding: 0;
     flex-shrink: 0;
     max-height: 200px;
     overflow-y: auto;
@@ -597,10 +648,10 @@ input[type="text"]:focus {
 
 /* Results Panel */
 .results-panel {
-    background: var(--bg-white);
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-    padding: 16px;
+    background: transparent;  /* No background - pipeline-panel has it */
+    border-radius: 0;
+    border: none;
+    padding: 0;
     display: flex;
     flex-direction: column;
     gap: 12px;

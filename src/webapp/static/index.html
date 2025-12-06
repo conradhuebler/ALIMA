@@ -28,10 +28,10 @@
 
         <main>
             <div class="layout">
-                <!-- Input Panel (Left) -->
+                <!-- Input Panel (Left) - Input Methods + Pipeline -->
                 <div class="input-panel">
+                    <!-- INPUT METHODS IN TABS (TOP) - zum Befüllen des Textfeldes -->
                     <div class="input-section">
-                        <!-- INPUT METHODS IN TABS (FIRST) - zum Befüllen des Textfeldes -->
                         <div class="input-methods-section">
                             <h3>Eingabequellen</h3>
                             <div class="input-tabs">
@@ -67,12 +67,21 @@
                             <!-- Camera Input Tab -->
                             <div id="camera-tab" class="tab-content">
                                 <div class="camera-container">
-                                    <video id="camera-video" playsinline></video>
+                                    <video id="camera-video" playsinline autoplay muted></video>
                                     <canvas id="camera-canvas" style="display: none;"></canvas>
                                     <div class="camera-controls">
+                                        <!-- STAGE 1: Initial -->
                                         <button id="camera-start-btn" class="btn btn-camera">Kamera starten</button>
+
+                                        <!-- STAGE 2: Live camera -->
                                         <button id="camera-capture-btn" class="btn btn-camera" style="display: none;">Foto machen</button>
-                                        <button id="camera-stop-btn" class="btn btn-camera" style="display: none;">Beenden</button>
+                                        <button id="camera-stop-btn" class="btn btn-camera" style="display: none;">Stoppen</button>
+
+                                        <!-- STAGE 3: Preview mode -->
+                                        <div id="camera-preview-actions" class="camera-preview-actions" style="display: none;">
+                                            <button id="camera-confirm-btn" class="btn btn-camera btn-confirm">✓ Übernehmen</button>
+                                            <button id="camera-retake-btn" class="btn btn-camera btn-retake">🔄 Erneut</button>
+                                        </div>
                                     </div>
                                     <div id="camera-preview" class="camera-preview" style="display: none;">
                                         <img id="camera-image" src="" alt="Vorschau">
@@ -81,54 +90,54 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- INPUT TEXT FIELD - AFTER TABS (PRIMARY SOURCE FOR ANALYSIS) -->
-                        <div class="input-text-box">
-                            <div class="input-header">
-                                <h2>📝 Finaler Eingabetext</h2>
-                                <button id="clear-text-btn" class="btn btn-small">🗑 Leeren</button>
+                    <!-- Pipeline & Results Panel (BOTTOM of left column) -->
+                    <div class="pipeline-panel">
+                        <div class="pipeline-section">
+                            <h2>Pipeline</h2>
+                            <div id="pipeline-steps" class="pipeline-steps">
+                                <!-- Steps werden hier dynamisch eingefügt -->
                             </div>
-                            <textarea id="text-input"
-                                      placeholder="Eingabetext wird hier angezeigt oder geben Sie Text direkt ein..."
-                                      rows="8"></textarea>
                         </div>
 
-                        <div class="button-group">
-                            <button id="analyze-btn" class="btn btn-primary">
-                                ▶ Analyse starten
-                            </button>
-                            <button id="cancel-btn" class="btn btn-danger" style="display: none;">
-                                ⏹ Abbrechen
-                            </button>
+                        <div class="extracted-text-section" id="extracted-text-section" style="display: none;">
+                            <h3>Extrahierter Text (aus Input)</h3>
+                            <pre id="extracted-text" class="extracted-text"></pre>
+                        </div>
+
+                        <div id="results-panel" class="results-panel" style="display: none;">
+                            <h3>Zusammenfassung</h3>
+                            <div id="results-summary" class="results-summary"></div>
+                            <div class="results-buttons">
+                                <button id="export-btn" class="btn btn-secondary">
+                                    📥 JSON Exportieren
+                                </button>
+                                <button id="clear-btn" class="btn btn-secondary">
+                                    Neue Analyse
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Pipeline & Results Panel (Right) -->
-                <div class="pipeline-panel">
-                    <div class="pipeline-section">
-                        <h2>Pipeline</h2>
-                        <div id="pipeline-steps" class="pipeline-steps">
-                            <!-- Steps werden hier dynamisch eingefügt -->
-                        </div>
+                <!-- Input Text Box (Right) - Full height textarea -->
+                <div class="input-text-box">
+                    <div class="input-header">
+                        <h2>📝 Finaler Eingabetext</h2>
+                        <button id="clear-text-btn" class="btn btn-small">🗑 Leeren</button>
                     </div>
+                    <textarea id="text-input"
+                              placeholder="Eingabetext wird hier angezeigt oder geben Sie Text direkt ein..."
+                              rows="8"></textarea>
 
-                    <div class="extracted-text-section" id="extracted-text-section" style="display: none;">
-                        <h3>Extrahierter Text (aus Input)</h3>
-                        <pre id="extracted-text" class="extracted-text"></pre>
-                    </div>
-
-                    <div id="results-panel" class="results-panel" style="display: none;">
-                        <h3>Zusammenfassung</h3>
-                        <div id="results-summary" class="results-summary"></div>
-                        <div class="results-buttons">
-                            <button id="export-btn" class="btn btn-secondary">
-                                📥 JSON Exportieren
-                            </button>
-                            <button id="clear-btn" class="btn btn-secondary">
-                                Neue Analyse
-                            </button>
-                        </div>
+                    <div class="button-group">
+                        <button id="analyze-btn" class="btn btn-primary">
+                            ▶ Analyse starten
+                        </button>
+                        <button id="cancel-btn" class="btn btn-danger" style="display: none;">
+                            ⏹ Abbrechen
+                        </button>
                     </div>
                 </div>
 
