@@ -198,7 +198,7 @@ class UnifiedKnowledgeManager:
                 CREATE TABLE IF NOT EXISTS catalog_dk_cache (
                     search_term TEXT PRIMARY KEY,
                     normalized_term TEXT NOT NULL,
-                    found_classifications TEXT NOT NULL,
+                    found_titles TEXT,
                     result_count INTEGER DEFAULT 0,
                     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -216,9 +216,68 @@ class UnifiedKnowledgeManager:
 
             self.logger.info("Unified knowledge database schema initialized")
 
+            # Perform schema migration if needed - Claude Generated
+            self._migrate_catalog_dk_cache_schema()
+
         except Exception as e:
             self.logger.error(f"Error initializing unified database: {e}")
             raise
+
+    def _migrate_catalog_dk_cache_schema(self):
+        """Migrate catalog_dk_cache table to remove zombie column - Claude Generated"""
+        try:
+            # Check if old schema with found_classifications exists
+            # Use PRAGMA to get table column info - Claude Generated
+            rows = self.db_manager.fetch_all("PRAGMA table_info(catalog_dk_cache)")
+            columns = [row['name'] for row in rows] if rows else []
+
+            if "found_classifications" in columns:
+                self.logger.info("🔄 Migrating catalog_dk_cache: removing unused found_classifications column...")
+
+                # SQLite doesn't support DROP COLUMN directly in older versions
+                # Use table rebuild approach
+                try:
+                    # Create new table with correct schema
+                    self.db_manager.execute_query("""
+                        CREATE TABLE catalog_dk_cache_new (
+                            search_term TEXT PRIMARY KEY,
+                            normalized_term TEXT NOT NULL,
+                            found_titles TEXT,
+                            result_count INTEGER DEFAULT 0,
+                            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+
+                    # Copy data from old table (preserve existing data)
+                    self.db_manager.execute_query("""
+                        INSERT INTO catalog_dk_cache_new (search_term, normalized_term, found_titles, result_count, last_updated, created_at)
+                        SELECT search_term, normalized_term, found_titles, result_count, last_updated, created_at
+                        FROM catalog_dk_cache
+                    """)
+
+                    # Drop old table and rename new one
+                    self.db_manager.execute_query("DROP TABLE catalog_dk_cache")
+                    self.db_manager.execute_query("ALTER TABLE catalog_dk_cache_new RENAME TO catalog_dk_cache")
+
+                    # Recreate indexes
+                    self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_normalized ON catalog_dk_cache(normalized_term)")
+                    self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_updated ON catalog_dk_cache(last_updated)")
+
+                    self.logger.info("✅ catalog_dk_cache migration completed: removed found_classifications, added titles_json")
+
+                except Exception as e:
+                    # Fallback: if migration fails, try direct DROP COLUMN (SQLite 3.35+)
+                    self.logger.warning(f"Table rebuild migration failed ({e}), attempting direct DROP COLUMN...")
+                    try:
+                        self.db_manager.execute_query(
+                            "ALTER TABLE catalog_dk_cache DROP COLUMN found_classifications"
+                        )
+                        self.logger.info("✅ catalog_dk_cache migration completed: dropped found_classifications column")
+                    except Exception as e2:
+                        self.logger.error(f"Migration fallback also failed: {e2}. Migration skipped.")
+        except Exception as e:
+            self.logger.warning(f"Schema migration check failed (non-critical): {e}")
     
     # === GND FACTS MANAGEMENT ===
     
@@ -764,6 +823,31 @@ class UnifiedKnowledgeManager:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
+    def store_catalog_dk_cache_batch(self, cache_entries: Dict[str, List[Dict[str, Any]]]) -> bool:
+        """Efficiently store multiple catalog cache entries in batch - Claude Generated
+
+        Args:
+            cache_entries: Dict mapping search_term -> titles_list
+                          e.g., {"Umweltschutz": [{...titles}], "Nachhaltigkeit": [{...titles}]}
+
+        Returns:
+            True if all entries stored successfully
+        """
+        if not cache_entries:
+            return True
+
+        try:
+            for search_term, titles in cache_entries.items():
+                # Use existing single-insert for now (batch transaction in db_manager)
+                self.store_catalog_dk_cache(search_term, titles)
+
+            self.logger.info(f"✅ Batch insert: Stored {len(cache_entries)} catalog cache entries ({sum(len(t) for t in cache_entries.values())} titles total)")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Error in batch catalog cache insert: {e}")
+            return False
+
     def extract_classifications_from_titles(self, titles: List[Dict[str, Any]], matched_keywords: List[str] = None) -> List[Dict[str, Any]]:
         """Extract and group classifications from title list - Claude Generated
 
@@ -875,15 +959,43 @@ class UnifiedKnowledgeManager:
                 if len(new_titles) != len(valid_new_titles):
                     self.logger.warning(f"Filtered {len(new_titles) - len(valid_new_titles)} empty titles for {code}")
 
-                # FIX: Skip if count=0 OR no valid titles - Claude Generated (Ultra-Deep Fix)
-                # This prevents storing malformed entries (count>0 but no titles, or count=0)
+                # FIX: Handle empty results and clean up stale mappings - Claude Generated
+                # If count=0 or no titles, mark mapping as empty (don't skip silently)
                 if count == 0 or not valid_new_titles:
-                    self.logger.info(f"⚠️ Skipping malformed classification {code}: count={count}, titles={len(valid_new_titles)}")
-                    continue
+                    self.logger.info(f"⚠️ Classification {code}: count={count}, titles={len(valid_new_titles)} - updating mappings")
 
-                # Skip classification if no valid titles remain - Claude Generated
-                if not valid_new_titles:
-                    self.logger.warning(f"⚠️ Skipping classification {code} ({classification_type}): no valid titles to store")
+                    # Clean up stale mappings instead of leaving orphaned data - Claude Generated
+                    for keyword in keywords:
+                        try:
+                            existing_mapping = self.get_search_mapping(keyword, "catalog")
+                            if existing_mapping and existing_mapping.found_classifications:
+                                # Remove this classification from the mapping
+                                updated_classifications = [
+                                    cls for cls in existing_mapping.found_classifications
+                                    if cls.get("dk", cls.get("code")) != code
+                                ]
+
+                                if len(updated_classifications) < len(existing_mapping.found_classifications):
+                                    self.logger.info(f"🗑️ Removed stale {code} from mapping '{keyword}'")
+
+                                # Update mapping with remaining classifications
+                                if updated_classifications:
+                                    self.store_search_mapping(
+                                        keyword,
+                                        "catalog",
+                                        existing_mapping.found_gnd_ids or [],
+                                        updated_classifications,
+                                        len(updated_classifications)
+                                    )
+                                else:
+                                    # Delete mapping entirely if no classifications remain
+                                    self.db_manager.execute_query(
+                                        "DELETE FROM search_mappings WHERE search_term = ? AND suggester_type = 'catalog'",
+                                        (keyword,)
+                                    )
+                                    self.logger.info(f"🗑️ Deleted empty mapping for '{keyword}'")
+                        except Exception as e:
+                            self.logger.warning(f"Failed to clean stale mapping for '{keyword}': {e}")
                     continue
 
                 for keyword in keywords:

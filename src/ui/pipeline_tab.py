@@ -398,6 +398,37 @@ class PipelineTab(QWidget):
 
         main_layout.addWidget(main_splitter)
 
+    def _get_task_provider_model(self, task_name: str) -> tuple[str, str]:
+        """
+        Get provider and model from task preferences configuration.
+        Falls back to sensible defaults if not configured.
+        Claude Generated Fix for persistent settings
+        """
+        try:
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            config = config_manager.load_config()
+            
+            if config and hasattr(config, 'unified_config') and config.unified_config:
+                task_prefs = getattr(config.unified_config, 'task_preferences', {})
+                if task_name in task_prefs:
+                    task_data = task_prefs[task_name]
+                    if hasattr(task_data, 'model_priority') and task_data.model_priority:
+                        first_pref = task_data.model_priority[0]
+                        if isinstance(first_pref, dict):
+                            provider = first_pref.get('provider_name', 'openai_compatible')
+                            model = first_pref.get('model_name', 'gpt-4')
+                        else:
+                            provider = getattr(first_pref, 'provider_name', 'openai_compatible')
+                            model = getattr(first_pref, 'model_name', 'gpt-4')
+                        self.logger.info(f"Loaded task preference for {task_name}: {provider}/{model}")
+                        return provider, model
+        except Exception as e:
+            self.logger.warning(f"Could not load task preference for {task_name}: {e}")
+        
+        # Default fallback
+        return "openai_compatible", "gpt-4"
+
     def create_pipeline_step_tabs(self):
         """Create pipeline step tabs - Claude Generated"""
         # Step 1: Input
@@ -411,12 +442,14 @@ class PipelineTab(QWidget):
         self.pipeline_tabs.addTab(input_step_widget, "📥 Input & Datenquellen")
 
         # Step 2: Initialisation
+        # Get provider/model from task preferences - Claude Generated Fix
+        init_provider, init_model = self._get_task_provider_model("initialisation")
         initialisation_step = PipelineStep(
             step_id="initialisation",
             name="🔤 SCHRITT 2: INITIALISIERUNG",
             status="pending",
-            provider="gemini",
-            model="gemini-1.5-flash",
+            provider=init_provider,
+            model=init_model,
         )
         initialisation_widget = self.create_initialisation_step_widget()
         initialisation_step_widget = PipelineStepWidget(initialisation_step)
@@ -435,12 +468,14 @@ class PipelineTab(QWidget):
         self.pipeline_tabs.addTab(search_step_widget, "🔍 GND-Recherche")
 
         # Step 4: Keywords (Verbale Erschließung)
+        # Get provider/model from task preferences - Claude Generated Fix
+        kw_provider, kw_model = self._get_task_provider_model("keywords")
         keywords_step = PipelineStep(
             step_id="keywords",
             name="✅ SCHRITT 4: SCHLAGWORTE",
             status="pending",
-            provider="gemini",
-            model="gemini-1.5-flash",
+            provider=kw_provider,
+            model=kw_model,
         )
         keywords_widget = self.create_keywords_step_widget()
         keywords_step_widget = PipelineStepWidget(keywords_step)
@@ -461,10 +496,13 @@ class PipelineTab(QWidget):
         self.pipeline_tabs.addTab(dk_search_step_widget, "📊 Katalog-Recherche")
 
         # Step 6: DK Classification (LLM analysis)
+        dk_provider, dk_model = self._get_task_provider_model("dk_classification")
         dk_classification_step = PipelineStep(
             step_id="dk_classification",
             name="📚 SCHRITT 6: DK-KLASSIFIKATION (Optional)",
             status="pending",
+            provider=dk_provider,
+            model=dk_model,
         )
         dk_classification_widget = self.create_dk_classification_step_widget()
         dk_classification_step_widget = PipelineStepWidget(dk_classification_step)

@@ -170,7 +170,7 @@ class LlmService(QObject):
                         "module": "requests",
                         "class": None,
                         "initializer": self._init_ollama_native_provider,
-                        "generator": self._generate_ollama,
+                        "generator": self._generate_ollama_native,  # BUGFIX: Use native generator with provider param
                         "config": provider
                     }
                 elif provider.provider_type == "openai_compatible":
@@ -827,9 +827,18 @@ class LlmService(QObject):
         # Starte den Watchdog
         self._init_watchdog()
 
-        # Ensure provider is initialized if using lazy loading - Claude Generated
+        # P2.13: Enhanced provider error message - Claude Generated
         if not self._ensure_provider_initialized(provider):
-            error_msg = f"Provider {provider} not available or failed to initialize"
+            available_providers = list(self.clients.keys())
+            error_msg = (
+                f"❌ Provider '{provider}' not available or failed to initialize.\n\n"
+                f"Available providers: {', '.join(available_providers) if available_providers else 'None'}\n\n"
+                f"💡 Troubleshooting:\n"
+                f"  • Check if provider is enabled in Settings > Providers\n"
+                f"  • For local providers (Ollama): verify server is running\n"
+                f"  • For API providers: check API key configuration\n"
+                f"  • Try refreshing provider configuration"
+            )
             self.generation_error.emit(request_id, error_msg)
             self.stream_running = False
             raise ValueError(error_msg)
@@ -1842,12 +1851,44 @@ class LlmService(QObject):
             if system:
                 messages.append(SystemMessage(system))
 
-            # Vision model and image handling
+            # Vision model and image handling - Claude Generated expanded list
             vision_models = [
+                # OpenAI models with vision support
                 "gpt-4-vision",
+                "gpt-4o",           # Current default vision model
+                "gpt-4-turbo",      # Supports vision
+                "gpt-4o-mini",      # Smaller vision model
+                "gpt-5",            # GPT-5 models
+                "gpt-5.1",          # GPT-5.1 multimodal models
+                "o1",               # OpenAI o1 models
+                "o3",               # OpenAI o3 models
+                "o4",               # OpenAI o4 models (future)
+                # Local/Ollama vision models
                 "phi-3-vision",
                 "phi-4-multimodal-instruct",
                 "llama-3.2-90b-vision-instruct",
+                "llama-3.2-11b-vision",
+                "llava",            # LLaVA models
+                "bakllava",         # BakLLaVA
+                "moondream",        # Moondream vision model
+                # Anthropic Claude models (all support vision)
+                "claude-3",
+                "claude-3.5",
+                "claude-3-opus",
+                "claude-3-sonnet",
+                "claude-3-haiku",
+                # Google Gemini models (all support vision)
+                "gemini",
+                "gemini-pro-vision",
+                "gemini-1.5",
+                "gemini-2",
+                # Qwen vision models
+                "qwen-vl",
+                "qwen2-vl",
+                # Other vision-capable models
+                "cogvlm",
+                "internvl",
+                "minicpm-v",
             ]
             supports_vision = any(vm.lower() in model.lower() for vm in vision_models)
 
@@ -2233,10 +2274,10 @@ class LlmService(QObject):
     def get_provider_status(self, provider_name: str) -> Dict[str, Any]:
         """
         Get detailed provider status information - Claude Generated
-        
+
         Args:
             provider_name: Name of provider
-            
+
         Returns:
             Dict with status info: {'reachable': bool, 'latency_ms': float, 'last_check': timestamp}
         """
@@ -2244,7 +2285,22 @@ class LlmService(QObject):
             return self.provider_status_cache[provider_name].copy()
         else:
             return {'reachable': False, 'latency_ms': 0.0, 'last_check': 0, 'error': 'Not checked yet'}
-    
+
+    def clear_provider_status_cache(self, provider_name: Optional[str] = None) -> None:
+        """
+        Clear provider status cache to force fresh reachability checks - P1.7 Claude Generated
+
+        Args:
+            provider_name: Specific provider to clear, or None to clear all
+        """
+        if provider_name:
+            if provider_name in self.provider_status_cache:
+                del self.provider_status_cache[provider_name]
+                self.logger.info(f"Cleared status cache for provider: {provider_name}")
+        else:
+            self.provider_status_cache.clear()
+            self.logger.info("Cleared all provider status caches")
+
     def refresh_all_provider_status(self) -> Dict[str, bool]:
         """
         Refresh reachability status for all configured providers - Claude Generated

@@ -186,10 +186,31 @@ class SmartProviderSelector:
         
         # Get provider priority list for this task - enhanced with 3-tier hierarchy - Claude Generated
         provider_priority = []
-        
+
+        # P1.6: Load task preference for allow_fallback check - Claude Generated
+        task_preference = None
+        if self.unified_config and task_name:
+            # Try direct lookup first
+            if task_name in self.unified_config.task_preferences:
+                task_preference = self.unified_config.task_preferences[task_name]
+            else:
+                # Fallback 1: Try uppercase (for legacy lowercase keys like 'keywords' -> 'KEYWORDS')
+                task_name_upper = task_name.upper()
+                if task_name_upper in self.unified_config.task_preferences:
+                    task_preference = self.unified_config.task_preferences[task_name_upper]
+                    task_name = task_name_upper  # Update task_name for logging consistency
+                else:
+                    # Fallback 2: Try to match enum value and use enum name (UPPERCASE) as key
+                    try:
+                        enum_task = UnifiedTaskType(task_name)
+                        task_name = enum_task.name  # Use enum NAME (UPPERCASE), not value
+                        if task_name in self.unified_config.task_preferences:
+                            task_preference = self.unified_config.task_preferences[task_name]
+                    except ValueError:
+                        pass  # task_name is not a valid enum value
+
         # === TIER 1: Task-specific preferences from unified_config.task_preferences (highest priority) ===
-        if self.unified_config and task_name and task_name in self.unified_config.task_preferences:
-            task_preference = self.unified_config.task_preferences[task_name]
+        if task_preference:
             model_priorities = task_preference.model_priority if task_preference else []
 
             # CRITICAL DEBUG: Log task preference loading attempt - Claude Generated
@@ -290,9 +311,36 @@ class SmartProviderSelector:
                 # Record failure
                 self._record_failure(provider, error)
                 self.logger.warning(f"Provider {provider} failed: {error}")
-        
+
+                # P1.6: Check allow_fallback flag - Claude Generated
+                if task_preference and hasattr(task_preference, 'allow_fallback'):
+                    if not task_preference.allow_fallback and len(attempts) == 1:
+                        # First provider failed and fallback not allowed
+                        raise RuntimeError(
+                            f"Primary provider '{provider}' failed for task '{task_name}' and fallback is disabled. "
+                            f"Error: {error}. Enable fallback in task preferences or fix the primary provider."
+                        )
+
+        # P2.13: Enhanced error message - Claude Generated
         # If we get here, all providers failed
-        raise RuntimeError(f"No available providers for task type {task_type.value}. Attempted: {[a.provider for a in attempts]}")
+        error_details = []
+        for attempt in attempts:
+            if attempt.error_message:
+                error_details.append(f"  • {attempt.provider}: {attempt.error_message}")
+            else:
+                error_details.append(f"  • {attempt.provider}: Provider unavailable")
+
+        error_msg = (
+            f"❌ No available providers for task '{task_name or task_type.value}'.\n\n"
+            f"Attempted {len(attempts)} provider(s):\n" +
+            "\n".join(error_details) + "\n\n"
+            f"💡 Suggestions:\n"
+            f"  1. Check provider configuration in Settings > Providers\n"
+            f"  2. Verify provider is running (for local providers like Ollama)\n"
+            f"  3. Check API keys for cloud providers\n"
+            f"  4. Review task preferences for '{task_name or task_type.value}'"
+        )
+        raise RuntimeError(error_msg)
     
     def _get_model_for_provider(self, provider: str, task_type: TaskType, unified_config, prefer_fast: bool = False, task_name: str = "") -> str:
         """Get the best model for a provider with Task Preference hierarchical selection - Claude Generated"""
@@ -553,6 +601,11 @@ class SmartProviderSelector:
         else:
             # Try to find in unified providers list
             provider_obj = unified_config.get_provider_by_name(provider)
+
+            # Fallback: Try type-based match if name match fails - Claude Generated
+            if not provider_obj:
+                provider_obj = unified_config.get_provider_by_type(provider)
+
             if provider_obj:
                 config = {
                     "api_key": provider_obj.api_key,
@@ -618,8 +671,9 @@ class SmartProviderSelector:
                 if not config.get("host"):
                     return False, "No host configured for Ollama"
             else:
-                if not config.get("api_key") or not config.get("base_url"):
-                    return False, f"Incomplete configuration for {provider}"
+                # OpenAI-compatible providers: base_url required, api_key optional for local providers - Claude Generated
+                if not config.get("base_url"):
+                    return False, f"Missing base_url for {provider}"
             
             return True, None
             

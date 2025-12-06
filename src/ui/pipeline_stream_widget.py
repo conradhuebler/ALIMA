@@ -201,9 +201,10 @@ class PipelineStreamWidget(QWidget):
         self.add_pipeline_message(
             f"▶ Starte Schritt: {step.name}", "step", step.step_id
         )
+        # P1.5: Enhanced provider/model feedback - Claude Generated
         if step.provider and step.model:
             self.add_pipeline_message(
-                f"Verwende {step.provider}/{step.model}", "info", step.step_id
+                f"✓ Verwende: {step.provider} / {step.model}", "success", step.step_id
             )
 
     @pyqtSlot(object)

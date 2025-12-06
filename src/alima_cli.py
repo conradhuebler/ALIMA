@@ -1367,14 +1367,35 @@ EXAMPLES:
         "--no-backup", action="store_true", help="Do not create backup of current configuration"
     )
 
+    # Setup wizard command - Claude Generated
+    setup_parser = subparsers.add_parser(
+        "setup", help="Run the ALIMA first-start setup wizard"
+    )
+    setup_parser.add_argument(
+        "--skip-gnd", action="store_true", help="Skip GND database download option"
+    )
+
     args = parser.parse_args()
 
     # Setup centralized logging - Claude Generated
     setup_logging(level=args.log_level)
     logger = logging.getLogger(__name__)
 
+    # Check for first-run setup - Claude Generated
+    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "import-config"]:
+        from src.utils.config_manager import ConfigManager as CM
+        temp_config_manager = CM()
+        temp_config = temp_config_manager.load_config()
+
+        if not temp_config.system_config.first_run_completed and not temp_config.system_config.skip_first_run_check:
+            logger.info("First-run setup required. Run: python alima_cli.py setup")
+            print("\n❌ ALIMA requires setup before use.")
+            print("   Run: python alima_cli.py setup")
+            print("\nOr set 'skip_first_run_check: true' in config.json to disable this check.\n")
+            return
+
     # Check if prompts file exists (load from config) - Claude Generated
-    if args.command not in ["list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
+    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "import-config"]:
         from src.utils.config_manager import ConfigManager as CM
         temp_config_manager = CM()
         temp_config = temp_config_manager.load_config()
@@ -1385,7 +1406,13 @@ EXAMPLES:
             logger.error("Please check your config.json or create prompts.json in the project directory.")
             return
 
-    if args.command == "pipeline":
+    if args.command == "setup":
+        # Run CLI setup wizard - Claude Generated
+        from src.utils.cli_setup_wizard import run_cli_setup_wizard
+        success = run_cli_setup_wizard()
+        sys.exit(0 if success else 1)
+
+    elif args.command == "pipeline":
         # Setup services with Provider Preferences integration - Claude Generated
         from src.utils.config_manager import ConfigManager as CM
         from src.core.pipeline_manager import PipelineConfig

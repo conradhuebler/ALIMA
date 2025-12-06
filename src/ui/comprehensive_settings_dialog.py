@@ -882,26 +882,130 @@ class ComprehensiveSettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout()
         
-        # Catalog settings
-        catalog_group = QGroupBox("Library Catalog Configuration")
-        catalog_layout = QFormLayout()
+        # Catalog Type Selection
+        type_group = QGroupBox("Catalog Type")
+        type_layout = QFormLayout()
+        
+        self.catalog_type_combo = QComboBox()
+        self.catalog_type_combo.addItems(["libero_soap", "marcxml_sru", "auto"])
+        self.catalog_type_combo.setToolTip(
+            "libero_soap: Original Libero SOAP API (requires token)\n"
+            "marcxml_sru: Standard MARC XML via SRU protocol (DNB, K10plus, etc.)\n"
+            "auto: Automatically detect based on configuration"
+        )
+        self.catalog_type_combo.currentTextChanged.connect(self._on_catalog_type_changed)
+        type_layout.addRow("Catalog Type:", self.catalog_type_combo)
+        
+        type_group.setLayout(type_layout)
+        layout.addWidget(type_group)
+        
+        # Libero SOAP settings (original)
+        self.libero_group = QGroupBox("Libero SOAP Configuration")
+        libero_layout = QFormLayout()
         
         self.catalog_token = QLineEdit()
         self.catalog_token.setEchoMode(QLineEdit.EchoMode.Password)
-        catalog_layout.addRow("Catalog Token:", self.catalog_token)
+        self.catalog_token.setToolTip("API token for Libero SOAP catalog access")
+        libero_layout.addRow("Catalog Token:", self.catalog_token)
         
         self.catalog_search_url = QLineEdit()
-        catalog_layout.addRow("Search URL:", self.catalog_search_url)
+        self.catalog_search_url.setToolTip("Search URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Search/Results)")
+        libero_layout.addRow("Search URL:", self.catalog_search_url)
         
         self.catalog_details_url = QLineEdit()
-        catalog_layout.addRow("Details URL:", self.catalog_details_url)
+        self.catalog_details_url.setToolTip("Details URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Record)")
+        libero_layout.addRow("Details URL:", self.catalog_details_url)
         
-        catalog_group.setLayout(catalog_layout)
-        layout.addWidget(catalog_group)
+        self.libero_group.setLayout(libero_layout)
+        layout.addWidget(self.libero_group)
+        
+        # MARC XML / SRU settings
+        self.sru_group = QGroupBox("MARC XML / SRU Configuration")
+        sru_layout = QFormLayout()
+        
+        # SRU Preset selector
+        self.sru_preset_combo = QComboBox()
+        self.sru_preset_combo.addItems(["", "dnb", "loc", "gbv", "swb", "k10plus"])
+        self.sru_preset_combo.setToolTip(
+            "Select a preset catalog or leave empty for custom URL:\n"
+            "• dnb: Deutsche Nationalbibliothek\n"
+            "• loc: Library of Congress\n"
+            "• gbv: GBV Gemeinsamer Bibliotheksverbund\n"
+            "• swb: SWB Südwestdeutscher Bibliotheksverbund\n"
+            "• k10plus: K10plus (GBV + SWB combined)"
+        )
+        self.sru_preset_combo.currentTextChanged.connect(self._on_sru_preset_changed)
+        sru_layout.addRow("SRU Preset:", self.sru_preset_combo)
+        
+        # Custom SRU URL (for custom endpoints)
+        self.sru_base_url = QLineEdit()
+        self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
+        self.sru_base_url.setToolTip("SRU endpoint URL (only needed if not using a preset)")
+        sru_layout.addRow("SRU Base URL:", self.sru_base_url)
+        
+        self.sru_database = QLineEdit()
+        self.sru_database.setPlaceholderText("e.g., dnb")
+        self.sru_database.setToolTip("SRU database name (optional, depends on endpoint)")
+        sru_layout.addRow("SRU Database:", self.sru_database)
+        
+        self.sru_schema = QComboBox()
+        self.sru_schema.addItems(["marcxml", "MARC21-xml"])
+        self.sru_schema.setToolTip("Record schema format")
+        sru_layout.addRow("Record Schema:", self.sru_schema)
+        
+        self.sru_max_records = QSpinBox()
+        self.sru_max_records.setRange(1, 500)
+        self.sru_max_records.setValue(50)
+        self.sru_max_records.setToolTip("Maximum records per search (default: 50)")
+        sru_layout.addRow("Max Records:", self.sru_max_records)
+        
+        self.sru_group.setLayout(sru_layout)
+        layout.addWidget(self.sru_group)
+        
+        # Advanced settings
+        advanced_group = QGroupBox("Advanced Settings")
+        advanced_layout = QFormLayout()
+        
+        self.strict_gnd_validation = QCheckBox()
+        self.strict_gnd_validation.setChecked(True)
+        self.strict_gnd_validation.setToolTip(
+            "When enabled, only GND-validated keywords are used in DK search (recommended).\n"
+            "When disabled, plain text keywords are included if GND validation fails."
+        )
+        advanced_layout.addRow("Strict GND Validation:", self.strict_gnd_validation)
+        
+        advanced_group.setLayout(advanced_layout)
+        layout.addWidget(advanced_group)
         
         layout.addStretch()
         widget.setLayout(layout)
+        
+        # Initialize visibility based on default catalog type
+        self._on_catalog_type_changed(self.catalog_type_combo.currentText())
+        
         return widget
+    
+    def _on_catalog_type_changed(self, catalog_type: str):
+        """Handle catalog type selection changes - Claude Generated"""
+        is_libero = catalog_type == "libero_soap"
+        is_sru = catalog_type == "marcxml_sru"
+        is_auto = catalog_type == "auto"
+        
+        # Show/hide relevant groups
+        self.libero_group.setVisible(is_libero or is_auto)
+        self.sru_group.setVisible(is_sru or is_auto)
+    
+    def _on_sru_preset_changed(self, preset: str):
+        """Handle SRU preset selection - disable custom URL fields when preset is selected - Claude Generated"""
+        use_preset = bool(preset)
+        self.sru_base_url.setEnabled(not use_preset)
+        self.sru_database.setEnabled(not use_preset)
+        if use_preset:
+            self.sru_base_url.setPlaceholderText(f"Using preset: {preset}")
+            self.sru_database.setPlaceholderText(f"Using preset: {preset}")
+        else:
+            self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
+            self.sru_database.setPlaceholderText("e.g., dnb")
     
     def _create_prompts_tab(self) -> QWidget:
         """Create prompts configuration tab - Claude Generated"""
@@ -1289,7 +1393,7 @@ class ComprehensiveSettingsDialog(QDialog):
         try:
             # Get provider detection service and preferences
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             
             # Populate provider status table
             self._populate_provider_status_table()
@@ -1352,7 +1456,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate priority settings - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             available_providers = detection_service.get_available_providers()
             
             # Populate preferred provider combo
@@ -1381,8 +1485,6 @@ class ComprehensiveSettingsDialog(QDialog):
             
             # Fallback settings
             self.auto_fallback_checkbox.setChecked(unified_config.auto_fallback)
-            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
-            # self.fallback_timeout_spin.setValue(unified_config.fallback_timeout)
             
         except Exception as e:
             self.logger.error(f"Error populating priority settings: {e}")
@@ -1391,7 +1493,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate task overrides - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             available_providers = detection_service.get_available_providers()
             
             # Common items for all combos
@@ -1400,23 +1502,14 @@ class ComprehensiveSettingsDialog(QDialog):
             # Vision provider combo
             self.vision_provider_combo.clear()
             self.vision_provider_combo.addItems(combo_items)
-            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-            # if unified_config.vision_provider:
-            #     self.vision_provider_combo.setCurrentText(unified_config.vision_provider)
-            
+
             # Text provider combo
             self.text_provider_combo.clear()
             self.text_provider_combo.addItems(combo_items)
-            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-            # if unified_config.text_provider:
-            #     self.text_provider_combo.setCurrentText(unified_config.text_provider)
-            
+
             # Classification provider combo
             self.classification_provider_combo.clear()
             self.classification_provider_combo.addItems(combo_items)
-            # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-            # if unified_config.classification_provider:
-            #     self.classification_provider_combo.setCurrentText(unified_config.classification_provider)
             
             # Update capabilities reference
             self._update_capabilities_reference()
@@ -1428,7 +1521,7 @@ class ComprehensiveSettingsDialog(QDialog):
         """Populate model preferences table - Claude Generated"""
         try:
             detection_service = self.config_manager.get_provider_detection_service()
-            unified_config = self.config_manager.get_unified_config()
+            unified_config = self.config_to_edit.unified_config
             available_providers = detection_service.get_available_providers()
             
             self.models_table.setRowCount(len(available_providers))
@@ -1439,10 +1532,8 @@ class ComprehensiveSettingsDialog(QDialog):
                 provider_item.setFlags(provider_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.models_table.setItem(row, 0, provider_item)
                 
-                # Current preferred model
-                # TODO: Implement preferred_models in UnifiedProviderConfig
-                current_model = ""  # Disabled until proper implementation
-                current_item = QLineEdit(current_model)
+                # Current preferred model (empty - future feature)
+                current_item = QLineEdit("")
                 self.models_table.setCellWidget(row, 1, current_item)
                 
                 # Available models combo
@@ -1499,40 +1590,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 # Clear any caches in the LLM service
                 pass
             
-            # Auto-validate and cleanup current preferences - Claude Generated
-            unified_config = self.config_manager.get_unified_config()
-            # TODO: Implement validation in UnifiedProviderConfig if needed
-            # validation_issues = unified_config.validate_preferences(detection_service)
-            #
-            # if any(validation_issues.values()):
-            #     self.logger.info("Auto-cleanup during refresh - found preference validation issues")
-            #     cleanup_report = unified_config.auto_cleanup(detection_service)
-            #
-            #     cleanup_actions = []
-            #     for category, actions in cleanup_report.items():
-            #         if actions:
-            #             if isinstance(actions, list):
-            #                 cleanup_actions.extend(actions)
-            #             else:
-            #                 cleanup_actions.append(actions)
-            #
-            #     if cleanup_actions:
-            #         # Save cleaned preferences
-            #         self.config_manager.update_provider_preferences(preferences)
-            #
-            #         # Show summary of auto-cleanup
-            #         cleanup_summary = f"🔧 Auto-cleanup performed ({len(cleanup_actions)} changes):\n\n"
-            #         for action in cleanup_actions[:5]:  # Show first 5 actions
-            #             cleanup_summary += f"  • {action}\n"
-            #
-            #         if len(cleanup_actions) > 5:
-            #             cleanup_summary += f"  ... and {len(cleanup_actions) - 5} more changes"
-            #
-            #         QMessageBox.information(self, "Refresh Complete",
-            #                               f"Provider status refreshed successfully.\n\n{cleanup_summary}")
-            #     else:
-            #         QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
-            # else:
+            # Show refresh complete message
             QMessageBox.information(self, "Refresh Complete", "Provider status refreshed successfully.")
             
             # Reload all data
@@ -1895,9 +1953,22 @@ class ComprehensiveSettingsDialog(QDialog):
         # Dynamic provider population is handled automatically by the UnifiedProviderTab
         
         # Catalog settings
+        self.catalog_type_combo.setCurrentText(config.catalog.catalog_type)
         self.catalog_token.setText(config.catalog.catalog_token)
         self.catalog_search_url.setText(config.catalog.catalog_search_url)
         self.catalog_details_url.setText(config.catalog.catalog_details_url)
+        
+        # SRU settings
+        self.sru_preset_combo.setCurrentText(config.catalog.sru_preset)
+        self.sru_base_url.setText(config.catalog.sru_base_url)
+        self.sru_database.setText(config.catalog.sru_database)
+        self.sru_schema.setCurrentText(config.catalog.sru_schema)
+        self.sru_max_records.setValue(config.catalog.sru_max_records)
+        self.strict_gnd_validation.setChecked(config.catalog.strict_gnd_validation_for_dk_search)
+        
+        # Trigger visibility update
+        self._on_catalog_type_changed(config.catalog.catalog_type)
+        self._on_sru_preset_changed(config.catalog.sru_preset)
         
         # System settings
         self.debug_mode.setChecked(config.system.debug)
@@ -1911,13 +1982,9 @@ class ComprehensiveSettingsDialog(QDialog):
 
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
-        
+
         # Load prompts
         self._load_prompts_list()
-        
-        # OpenAI-compatible providers are now managed by the unified provider tab
-        
-        # Ollama providers are now managed by the unified provider tab
     
     def _load_providers_list(self):
         """Load OpenAI-compatible providers into the list widget - Claude Generated"""
@@ -2345,9 +2412,16 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Catalog configuration - Claude Generated fix for expanded config structure
         config.catalog_config = CatalogConfig(
+            catalog_type=self.catalog_type_combo.currentText(),
             catalog_token=self.catalog_token.text(),
             catalog_search_url=self.catalog_search_url.text(),
-            catalog_details_url=self.catalog_details_url.text()
+            catalog_details_url=self.catalog_details_url.text(),
+            sru_base_url=self.sru_base_url.text(),
+            sru_database=self.sru_database.text(),
+            sru_schema=self.sru_schema.currentText(),
+            sru_preset=self.sru_preset_combo.currentText(),
+            sru_max_records=self.sru_max_records.value(),
+            strict_gnd_validation_for_dk_search=self.strict_gnd_validation.isChecked()
         )
 
         # System configuration - Claude Generated fix for expanded config structure
@@ -2356,7 +2430,11 @@ class ComprehensiveSettingsDialog(QDialog):
             log_level=self.log_level.currentText(),
             cache_dir=self.cache_dir.text(),
             data_dir=self.data_dir.text(),
-            temp_dir=self.temp_dir.text()
+            temp_dir=self.temp_dir.text(),
+            # Preserve wizard/system flags that have no UI controls - Claude Generated
+            prompts_path=config.system_config.prompts_path,
+            first_run_completed=config.system_config.first_run_completed,
+            skip_first_run_check=config.system_config.skip_first_run_check
         )
 
         # UI configuration - Claude Generated (Webcam Feature)
@@ -2724,33 +2802,35 @@ class ComprehensiveSettingsDialog(QDialog):
     def _populate_tasks_list(self):
         """Populate the tasks list with pipeline and vision tasks - Claude Generated"""
         self.tasks_list.clear()
-        
+
+        # Define task lists before try block for scope availability
+        pipeline_tasks = ["initialisation", "keywords", "classification"]
+        vision_tasks = ["vision"]  # Maps to image_text_extraction internally
+
         # Pipeline tasks section
         pipeline_header = QListWidgetItem("🔥 Pipeline Tasks")
         pipeline_header.setFlags(pipeline_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         pipeline_header.setBackground(QPalette().alternateBase())
         pipeline_header.setFont(QFont("", -1, QFont.Weight.Bold))
         self.tasks_list.addItem(pipeline_header)
-        
-        pipeline_tasks = ["initialisation", "keywords", "classification"]
+
         for task in pipeline_tasks:
             item = QListWidgetItem(f"  📋 {task}")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "pipeline"})
             self.tasks_list.addItem(item)
-        
-        # Vision tasks section  
+
+        # Vision tasks section
         vision_header = QListWidgetItem("👁️ Vision Tasks")
         vision_header.setFlags(vision_header.flags() & ~Qt.ItemFlag.ItemIsSelectable)
         vision_header.setBackground(QPalette().alternateBase())
         vision_header.setFont(QFont("", -1, QFont.Weight.Bold))
         self.tasks_list.addItem(vision_header)
-        
-        vision_tasks = ["image_text_extraction"]
+
         for task in vision_tasks:
-            item = QListWidgetItem(f"  👁️ {task}")
+            item = QListWidgetItem(f"  👁️ {task} (Bilderkennung)")
             item.setData(Qt.ItemDataRole.UserRole, {"task_name": task, "category": "vision"})
             self.tasks_list.addItem(item)
-        
+
         # Load additional tasks from prompts.json
         other_tasks = []
         try:
@@ -2812,10 +2892,10 @@ class ComprehensiveSettingsDialog(QDialog):
         """Load model priorities for the selected task - Claude Generated"""
         self.model_priority_list.clear()
         self.chunked_model_priority_list.clear()
-        
+
         try:
-            # Get unified config directly
-            unified_config = self.config_manager.get_unified_config()
+            # Get unified config from current edit state (not from disk)
+            unified_config = self.config_to_edit.unified_config
 
             # Get model priority for this task
             model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked=False)
@@ -2864,8 +2944,8 @@ class ComprehensiveSettingsDialog(QDialog):
             QMessageBox.information(self, "No Task Selected", "Please select a task first.")
             return
         
-        # Create dialog for model selection
-        dialog = ModelSelectionDialog(self.config_manager, parent=self)
+        # Create dialog for model selection (pass working copy, not disk config)
+        dialog = ModelSelectionDialog(self.config_to_edit.unified_config, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             provider_name, model_name = dialog.get_selected_model()
             if provider_name and model_name:
@@ -2942,14 +3022,22 @@ class ComprehensiveSettingsDialog(QDialog):
 
 class ModelSelectionDialog(QDialog):
     """Dialog for selecting provider and model - Claude Generated"""
-    
-    def __init__(self, config_manager, parent=None):
+
+    def __init__(self, config_manager_or_unified_config, parent=None):
         super().__init__(parent)
-        self.config_manager = config_manager
+        # Support both config_manager (legacy) and UnifiedProviderConfig (new) - Claude Generated
+        from ..utils.config_models import UnifiedProviderConfig
+        if isinstance(config_manager_or_unified_config, UnifiedProviderConfig):
+            self.unified_config = config_manager_or_unified_config
+        else:
+            # Legacy: config_manager - load from disk
+            self.config_manager = config_manager_or_unified_config
+            self.unified_config = self.config_manager.get_unified_config()
+
         self.setWindowTitle("Modell auswählen")
         self.setModal(True)
         self.resize(400, 300)
-        
+
         self.setup_ui()
         self.load_providers()
     
@@ -2997,15 +3085,13 @@ class ModelSelectionDialog(QDialog):
     def load_providers(self):
         """Load available providers - Claude Generated"""
         self.provider_combo.clear()
-        
+
         try:
             # Add common providers
             providers = ["ollama", "gemini", "openai", "anthropic"]
-            
-            # Add configured providers from unified config
-            unified_config = self.config_manager.get_unified_config()
 
-            for provider in unified_config.get_enabled_providers():
+            # Add configured providers from unified config (use stored instance, not disk)
+            for provider in self.unified_config.get_enabled_providers():
                 if provider.name not in providers:
                     providers.append(provider.name)
             

@@ -4,8 +4,15 @@
 
 **ALIMA** (Automatic Library Indexing and Metadata Analysis) is a comprehensive pipeline for library science workflows combining LLM-powered text analysis with GND/SWB keyword search and DK/RVK classification.
 
-## General Instructions
+## Very General Instructions for AI Coding
+- Avoid flattery, compliments, or positive language. Be clear and concise. Do not use agreeable language to deceive.
+- Do comprehensive verification before claiming completion
+- Show me proof of completion, don’t just assert it
+- Prioritize thoroughness over speed
+- If I correct you, adapt your method for the rest of the task
+- No completion claims until you can demonstrate zero remaining instances
 
+## General Instructions
 - Each source code dir has a CLAUDE.md with basic information and logic
 - **Keep CLAUDE.md files FOCUSED and CONCISE** - ONE clear idea per bullet, max 1-2 lines
   - ❌ DON'T: Multi-paragraph explanations, code examples, historical details
@@ -158,3 +165,15 @@
 ✅ **Catalog Integration**: Direct export in K10+/WinIBW format for seamless integration
 - GUI: K10+ Export Tab with Copy-Button
 - CLI: `--format k10plus` mode
+
+### First-Start Setup Wizard
+✅ **Complete Implementation**: Interactive setup guides for new users on first launch
+- **GUI Wizard** (`src/ui/first_start_wizard.py`): PyQt6 multi-page wizard with LLM provider setup and optional GND database download
+  - Optional LLM connection testing (doesn't block proceeding)
+  - GND skip confirmation dialog to prevent accidental skipping
+- **CLI Wizard** (`src/utils/cli_setup_wizard.py`): Terminal-based interactive setup with provider selection, connection testing, and configuration saving
+- **Shared Utilities** (`src/utils/setup_utils.py`): Reusable validation and setup functions (Ollama, OpenAI, Gemini, Anthropic, GND download)
+  - Fixed: Correct UnifiedProvider initialization with proper parameters
+  - Fixed: Proper TaskPreference creation with model_priority structure
+- **Auto-Detection**: Both GUI and CLI check `first_run_completed` flag and prompt setup if needed
+- **Provider Support**: Ollama (local/remote), OpenAI-compatible APIs, Google Gemini, Anthropic Claude

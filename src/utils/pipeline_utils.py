@@ -87,8 +87,22 @@ class PipelineStepExecutor:
                 final_provider = provider or selection.provider
                 final_model = model or selection.model
 
+                # P1.5: Enhanced runtime feedback - Claude Generated
                 if self.logger:
-                    self.logger.info(f"SmartProvider selection: {final_provider}/{final_model} (task_type={task_type}, prefer_fast={prefer_fast})")
+                    if provider and model:
+                        # Explicit parameters already logged above
+                        pass
+                    elif provider or model:
+                        # Partial selection: show what was auto-selected
+                        requested = f"{provider or '(auto)'}/{model or '(auto)'}"
+                        selected = f"{final_provider}/{final_model}"
+                        if requested != selected:
+                            self.logger.info(f"✓ Selected: {selected} (requested: {requested}, task: {task_type})")
+                        else:
+                            self.logger.info(f"✓ Selected: {selected} (task: {task_type})")
+                    else:
+                        # Full auto-selection
+                        self.logger.info(f"✓ Auto-selected: {final_provider}/{final_model} (task: {task_type}, prefer_fast: {prefer_fast})")
 
                 return final_provider, final_model
 
@@ -116,45 +130,54 @@ class PipelineStepExecutor:
                     self.logger.warning(f"Config fallback failed: {e}")
 
         # 4. System defaults (last resort only)
-        # Use first available Ollama provider instead of non-existent "ollama" - Claude Generated
-        fallback_provider = provider or self._get_first_available_ollama_provider()
+        # Use first available provider instead of hardcoded fallback - Claude Generated
+        fallback_provider = provider or self._get_first_enabled_provider()
 
-        # Task-specific model defaults as absolute last resort
-        task_defaults = {
-            "text": "cogito:14b" if prefer_fast else "cogito:32b",
-            "classification": "cogito:32b",
-            "vision": "cogito:32b"
-        }
-        fallback_model = model or task_defaults.get(task_type.lower(), "cogito:14b")
+        # If no provider available at all, return None to signal configuration error
+        if fallback_provider is None:
+            if self.logger:
+                self.logger.error("No providers configured. Please run first-start wizard or configure a provider.")
+            return None, None
+
+        # BUGFIX: Removed hardcoded task_defaults - use explicit model parameter or error
+        # Model must come from SmartProvider or be explicitly provided
+        if not model:
+            error_msg = (
+                f"No model specified for task type {task_type}. "
+                f"Provider {fallback_provider} selected but model missing. "
+                f"Check task preferences for '{task_name or task_type}' or provider configuration."
+            )
+            if self.logger:
+                self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        fallback_model = model
 
         if self.logger:
-            self.logger.warning(f"Using system fallback defaults: {fallback_provider}/{fallback_model} (no SmartProvider or Config available)")
+            self.logger.warning(f"Using system fallback provider: {fallback_provider}/{fallback_model} (no SmartProvider or Config available)")
 
         return fallback_provider, fallback_model
 
-    def _get_first_available_ollama_provider(self) -> str:
-        """Get the first available Ollama provider name from config - Claude Generated"""
+    def _get_first_enabled_provider(self) -> Optional[str]:
+        """Get the first enabled provider name from config (any type) - Claude Generated"""
         try:
             if self.smart_selector and hasattr(self.smart_selector, 'config'):
                 config = self.smart_selector.config
-                # Get unified config and find first enabled Ollama provider
+                # Get unified config and find first enabled provider (any type)
                 if hasattr(config, 'unified_config') and config.unified_config:
-                    for provider in config.unified_config.providers:
-                        if provider.provider_type == "ollama" and provider.enabled:
-                            return provider.name
-                # Fallback to legacy config if available
-                elif hasattr(config, 'llm'):
-                    enabled_ollama = config.unified_config.get_enabled_ollama_providers()
-                    if enabled_ollama:
-                        return enabled_ollama[0].name
+                    enabled_providers = config.unified_config.get_enabled_providers()
+                    if enabled_providers:
+                        return enabled_providers[0].name
 
-            # Last resort: hardcoded fallback to localhost
-            return "localhost"
+            # No providers available
+            if self.logger:
+                self.logger.error("No enabled providers found in configuration")
+            return None
 
         except Exception as e:
             if self.logger:
-                self.logger.warning(f"Failed to get Ollama provider: {e}")
-            return "localhost"
+                self.logger.error(f"Failed to get enabled provider: {e}")
+            return None
 
     def _create_stream_callback_adapter(self, stream_callback: Optional[callable], step_id: str, debug: bool = False) -> Optional[callable]:
         """Centralized stream callback adapter creation - Claude Generated"""
@@ -720,18 +743,19 @@ class PipelineStepExecutor:
             )
 
         # Extract final keywords and classes
-        extracted_keywords_all, extracted_keywords_exact = (
+        # FIXED: Use all keywords (including plain text) for DK search - Claude Generated
+        all_keywords_including_plain, gnd_validated_only = (
             extract_keywords_from_descriptive_text(
                 task_state.analysis_result.full_text, gnd_compliant_keywords
             )
         )
-        
+
         # Apply deduplication to ensure no duplicate keywords - Claude Generated
-        extracted_keywords_exact = self._deduplicate_keywords(
-            [extracted_keywords_exact],  # Wrap in list for consistency with chunked version
+        final_keywords = self._deduplicate_keywords(
+            [all_keywords_including_plain],  # Use ALL keywords, not just GND-validated
             gnd_compliant_keywords
         )
-        
+
         extracted_gnd_classes = extract_classes_from_descriptive_text(
             task_state.analysis_result.full_text
         )
@@ -750,11 +774,11 @@ class PipelineStepExecutor:
             temperature=kwargs.get("temperature", 0.7),
             seed=kwargs.get("seed", 0),
             response_full_text=task_state.analysis_result.full_text,
-            extracted_gnd_keywords=extracted_keywords_exact,
+            extracted_gnd_keywords=final_keywords,  # Store all keywords
             extracted_gnd_classes=extracted_gnd_classes,
         )
 
-        return extracted_keywords_exact, extracted_gnd_classes, llm_analysis
+        return final_keywords, extracted_gnd_classes, llm_analysis
 
     def _execute_chunked_keyword_analysis(
         self,
@@ -1335,7 +1359,9 @@ class PipelineStepExecutor:
                     # Letter-number pattern -> assume RVK
                     classification_codes.append(f"RVK {code_clean}")
                 else:
-                    # Unknown format, keep as-is
+                    # Unknown format, keep as-is and log - Claude Generated
+                    if self.logger:
+                        self.logger.debug(f"⚠️ Unknown format: '{code_clean}' (not DK/RVK prefixed, not number pattern)")
                     classification_codes.append(code_clean)
 
             if self.logger:
@@ -1417,6 +1443,7 @@ class PipelineStepExecutor:
         catalog_search_url: str = None,
         catalog_details_url: str = None,
         force_update: bool = False,  # Claude Generated
+        strict_gnd_validation: bool = True,  # EXPERT OPTION: Allow disabling strict GND validation
     ) -> List[Dict[str, Any]]:
         """
         Execute catalog search for DK classification data - Claude Generated
@@ -1429,6 +1456,7 @@ class PipelineStepExecutor:
             catalog_search_url: Catalog search endpoint URL
             catalog_details_url: Catalog details endpoint URL
             force_update: If True, results will be merged with existing cache (used by store_classification_results)
+            strict_gnd_validation: If True (default), only use GND-validated keywords. If False, include plain text keywords.
 
         Returns:
             List of classification results with titles, counts, and metadata
@@ -1446,33 +1474,67 @@ class PipelineStepExecutor:
                 stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
             catalog_token = ""  # Empty token triggers automatic web fallback
 
-        # Initialize BiblioExtractor
+        # Initialize catalog client - supports BiblioClient or MarcXmlClient - Claude Generated
         try:
-            from .clients.biblio_client import BiblioClient
-
-            extractor = BiblioClient(
-                token=catalog_token or "",  # Ensure string, not None
-                debug=self.logger.level <= 10 if self.logger else False,
-                enable_web_fallback=True  # Claude Generated - Explicitly enable web fallback
-            )
+            # Determine catalog type from config
+            try:
+                from .config_manager import ConfigManager
+                config_manager = ConfigManager()
+                catalog_config = config_manager.get_catalog_config()
+                catalog_type = getattr(catalog_config, 'catalog_type', 'libero_soap')
+                if catalog_type == 'auto':
+                    catalog_type = catalog_config.get_catalog_type() if hasattr(catalog_config, 'get_catalog_type') else 'libero_soap'
+            except Exception as cfg_err:
+                if self.logger:
+                    self.logger.debug(f"Config load failed, using default: {cfg_err}")
+                catalog_type = 'libero_soap'  # Default to original behavior
             
-            # Set URLs if available
-            if catalog_search_url:
-                extractor.SEARCH_URL = catalog_search_url
-            if catalog_details_url:
-                extractor.DETAILS_URL = catalog_details_url
+            if catalog_type == 'marcxml_sru':
+                # Use MARC XML SRU client - Claude Generated
+                from .clients.marcxml_client import MarcXmlClient
+                sru_preset = getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else ''
+                sru_base_url = getattr(catalog_config, 'sru_base_url', '') if 'catalog_config' in dir() else ''
+                sru_max_records = getattr(catalog_config, 'sru_max_records', 50) if 'catalog_config' in dir() else 50
+                
+                extractor = MarcXmlClient(
+                    preset=sru_preset if sru_preset else '',
+                    sru_base_url=sru_base_url if not sru_preset else '',
+                    max_records=sru_max_records,
+                    debug=self.logger.level <= 10 if self.logger else False
+                )
+                if self.logger:
+                    self.logger.info(f"Using MARC XML SRU client (preset: {sru_preset or 'custom'})")
+                if stream_callback:
+                    stream_callback(f"Verwende MARC XML SRU ({sru_preset or sru_base_url})\n", "dk_search")
+            else:
+                # Use original Libero SOAP client
+                from .clients.biblio_client import BiblioClient
+
+                extractor = BiblioClient(
+                    token=catalog_token or "",  # Ensure string, not None
+                    debug=self.logger.level <= 10 if self.logger else False,
+                    enable_web_fallback=True  # Claude Generated - Explicitly enable web fallback
+                )
+                
+                # Set URLs if available
+                if catalog_search_url:
+                    extractor.SEARCH_URL = catalog_search_url
+                if catalog_details_url:
+                    extractor.DETAILS_URL = catalog_details_url
                 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"BiblioExtractor initialization failed: {e}")  
+                self.logger.error(f"Catalog client initialization failed: {e}")  
             if stream_callback:
-                stream_callback(f"BiblioExtractor-Fehler: {str(e)}\n", "dk_search")
+                stream_callback(f"Katalog-Client-Fehler: {str(e)}\n", "dk_search")
             return []
 
-        # STRICT GND-ONLY FILTERING: Only use keywords with validated GND-IDs - Claude Generated
-        # This prevents irrelevant catalog titles from plain text keywords (e.g., "Molekül")
+        # GND VALIDATION FILTERING - Claude Generated
+        # Default (strict_gnd_validation=True): Only use keywords with validated GND-IDs
+        #   This prevents irrelevant catalog titles from plain text keywords (e.g., "Molekül")
+        # Expert mode (strict_gnd_validation=False): Include plain text keywords too
         gnd_validated_keywords = []
-        plain_keywords_filtered = []
+        plain_keywords = []
 
         for keyword in keywords:
             if self._is_gnd_validated_keyword(keyword):
@@ -1480,48 +1542,71 @@ class PipelineStepExecutor:
                 clean_keyword = keyword.split("(GND-ID:")[0].strip()
                 gnd_validated_keywords.append(clean_keyword)
             else:
-                # Plain text keyword without GND-ID validation - exclude from DK search
-                plain_keywords_filtered.append(keyword)
+                # Plain text keyword without GND-ID validation
+                plain_keywords.append(keyword)
 
-        # Log filtering results
-        if plain_keywords_filtered:
+        # Decide which keywords to use based on strict_gnd_validation setting - Claude Generated
+        if strict_gnd_validation:
+            final_search_keywords = gnd_validated_keywords
+            filtered_keywords = plain_keywords
+        else:
+            final_search_keywords = gnd_validated_keywords + plain_keywords
+            filtered_keywords = []
+
+        # Log filtering results - Claude Generated: Enhanced user feedback
+        if filtered_keywords and strict_gnd_validation:
+            # Build list of excluded keyword texts for user feedback
+            excluded_list = ", ".join([kw[:40] for kw in filtered_keywords[:5]])
+            if len(filtered_keywords) > 5:
+                excluded_list += f", +{len(filtered_keywords)-5} weitere"
+
             if self.logger:
                 self.logger.info(
-                    f"🔍 DK Search Filtering: {len(gnd_validated_keywords)} GND-validated keywords used, "
-                    f"{len(plain_keywords_filtered)} plain keywords excluded"
+                    f"🔍 DK Search (strict GND mode): {len(gnd_validated_keywords)} GND-validated keywords used, "
+                    f"{len(filtered_keywords)} plain keywords excluded: {excluded_list}"
                 )
             if stream_callback:
                 stream_callback(
-                    f"Filter: {len(gnd_validated_keywords)} GND-validierte + {len(plain_keywords_filtered)} ignoriert\n",
+                    f"⚠️ DK-Suche-Filter: {len(gnd_validated_keywords)} GND-validierte Keywords, "
+                    f"{len(filtered_keywords)} ohne GND ausgeschlossen\n   Ausgeschlossen: {excluded_list}\n",
                     "dk_search"
                 )
 
         # Handle edge case: all keywords filtered
-        if not gnd_validated_keywords:
+        if not final_search_keywords:
             if self.logger:
                 self.logger.warning(
                     f"⚠️ DK Search: All {len(keywords)} keywords lack GND validation - skipping catalog search"
                 )
             if stream_callback:
                 stream_callback(
-                    "⚠️ Keine GND-validierten Keywords für DK-Suche vorhanden\n",
+                    "⚠️ Keine Keywords für DK-Suche vorhanden\n",
                     "dk_search"
                 )
             return []
 
         if stream_callback:
+            mode_info = "(strict GND mode)" if strict_gnd_validation else "(including plain keywords)"
             stream_callback(
-                f"Suche Katalog-Einträge für {len(gnd_validated_keywords)} GND-validierte Keywords (max {max_results})\n",
+                f"Suche Katalog-Einträge für {len(final_search_keywords)} Keywords {mode_info} (max {max_results})\n",
                 "dk_search"
             )
 
-        # Execute catalog search with GND-validated keywords only
+        # Execute catalog search with selected keywords
         try:
-            dk_search_results = extractor.extract_dk_classifications_for_keywords(
-                keywords=gnd_validated_keywords,  # Use only GND-validated keywords (strict filtering)
-                max_results=max_results,
-                force_update=force_update,
-            )
+            # MarcXmlClient doesn't support force_update parameter - check extractor type - Claude Generated
+            from .clients.marcxml_client import MarcXmlClient
+            if isinstance(extractor, MarcXmlClient):
+                dk_search_results = extractor.extract_dk_classifications_for_keywords(
+                    keywords=final_search_keywords,
+                    max_results=max_results,
+                )
+            else:
+                dk_search_results = extractor.extract_dk_classifications_for_keywords(
+                    keywords=final_search_keywords,
+                    max_results=max_results,
+                    force_update=force_update,
+                )
 
             if stream_callback:
                 stream_callback(f"DK-Suche abgeschlossen: {len(dk_search_results)} Katalog-Einträge gefunden\n", "dk_search")
@@ -1547,8 +1632,12 @@ def extract_keywords_from_descriptive_text(
     1. Primary: "Keyword (1234567-8)" format
     2. Fallback: "<final_list>Keyword1|Keyword2|...</final_list>" format
 
-    Note: Returns both all_keywords and exact_matches for pipeline compatibility.
-    DK search should use ONLY exact_matches (GND-validated keywords) to avoid irrelevant results.
+    Returns:
+        Tuple[List[str], List[str]]:
+            - all_keywords: ALL keywords (with and without GND-IDs) for DK search
+            - exact_matches: ONLY GND-validated keywords for statistics/history
+
+    Note: DK search uses all_keywords to ensure no LLM-identified keywords are lost.
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -1638,37 +1727,44 @@ def extract_keywords_from_descriptive_text(
         for gnd_kw in gnd_compliant_keywords:
             # Extract keyword text before (GND-ID: ...)
             if "(GND-ID:" in gnd_kw:
-                keyword_text = gnd_kw.split("(GND-ID:")[0].strip().lower()
+                # ROBUST: Normalize whitespace (multiple spaces, tabs, newlines) - Claude Generated
+                keyword_text = " ".join(gnd_kw.split("(GND-ID:")[0].split()).lower()
                 gnd_lookup[keyword_text] = gnd_kw
 
         # Match raw keywords against GND lookup - Claude Generated FIX
         unmatched_keywords = []  # FIX: Track keywords without GND matches for DK search
         for raw_kw in raw_keywords:
-            raw_kw_lower = raw_kw.lower()
+            # ROBUST: Normalize whitespace and strip GND-ID label if LLM added it literally - Claude Generated
+            raw_kw_normalized = " ".join(raw_kw.split()).lower()
+
+            # Fallback: If LLM returned "Keyword (GND-ID)" without actual ID, strip the label
+            if raw_kw_normalized.endswith("(gnd-id)"):
+                raw_kw_normalized = raw_kw_normalized[:-9].strip()
+                logger.info(f"  ℹ️ Stripped literal '(GND-ID)' label from '{raw_kw}'")
 
             # Exact match
-            if raw_kw_lower in gnd_lookup:
-                matched_gnd_kw = gnd_lookup[raw_kw_lower]
+            if raw_kw_normalized in gnd_lookup:
+                matched_gnd_kw = gnd_lookup[raw_kw_normalized]
                 exact_matches.append(matched_gnd_kw)
                 logger.info(f"  ✅ Matched '{raw_kw}' -> {matched_gnd_kw[:60]}")
             else:
                 # Fuzzy match: check if raw_kw is contained in any GND keyword
                 found = False
                 for gnd_kw_text, full_gnd_kw in gnd_lookup.items():
-                    if raw_kw_lower in gnd_kw_text or gnd_kw_text in raw_kw_lower:
+                    if raw_kw_normalized in gnd_kw_text or gnd_kw_text in raw_kw_normalized:
                         exact_matches.append(full_gnd_kw)
                         logger.info(f"  ⚠️ Fuzzy matched '{raw_kw}' -> {full_gnd_kw[:60]}")
                         found = True
                         break
 
                 if not found:
-                    # FIXED: Keywords without GND validation are now excluded from DK search - Claude Generated
-                    # Plain text keywords (e.g., "Molekül", "Festkörper") that don't match GND entries:
-                    # - Are NOT added to DK search (strict GND-only filtering)
-                    # - Reduces irrelevant catalog titles and improves LLM classification accuracy
-                    # - If all keywords are filtered, DK search step returns empty results
-                    logger.warning(f"  ⚠️ No GND match for '{raw_kw}' - excluded from DK search (strict GND-only filtering)")
-                    unmatched_keywords.append(raw_kw)  # Track for logging only
+                    # FIXED: Keywords without GND validation are now INCLUDED in DK search - Claude Generated
+                    # All LLM-identified keywords are used to ensure complete catalog coverage:
+                    # - Keywords WITH GND-IDs: Full metadata from GND database
+                    # - Keywords WITHOUT GND-IDs: Plain text search (user requirement: "das DARF nicht passieren")
+                    # - Preserves LLM analysis intent while maximizing catalog search coverage
+                    logger.info(f"  ℹ️ No GND match for '{raw_kw}' - using as plain keyword in DK search")
+                    unmatched_keywords.append(raw_kw)  # Will be included in DK search via all_keywords
 
         # Combine GND-matched and plain keywords for complete DK search - Claude Generated FIX
         all_keywords = exact_matches + unmatched_keywords

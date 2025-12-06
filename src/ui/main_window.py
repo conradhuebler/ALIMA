@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QFileDialog,
     QProgressDialog,
+    QProgressBar,
     QTextEdit,
 )
 import requests
@@ -359,9 +360,13 @@ class MainWindow(QMainWindow):
 
         self.available_models = {}
         self.available_providers = []
+        self.gnd_import_worker = None  # Track GND import worker - Claude Generated
 
         self.init_ui()
         self.load_settings()
+
+        # Check for pending GND import from first-start wizard - Claude Generated
+        self.check_pending_gnd_import()
 
         # Setup reactive provider status connections - Claude Generated
         self.setup_provider_status_connections()
@@ -2025,6 +2030,160 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             # Öffne Import-Dialog
             self.import_configuration()
+
+    def check_pending_gnd_import(self):
+        """Check if GND was downloaded in wizard and offer background import - Claude Generated"""
+        import json
+        from pathlib import Path
+
+        marker_file = Path(tempfile.gettempdir()) / "alima_gnd_pending.json"
+
+        if not marker_file.exists():
+            return
+
+        try:
+            marker_data = json.loads(marker_file.read_text())
+            xml_path = marker_data.get('xml_path')
+
+            if not xml_path or not Path(xml_path).exists():
+                marker_file.unlink()
+                return
+
+            # Ask user if they want to start background import
+            reply = QMessageBox.question(
+                self,
+                "GND-Import",
+                "Eine GND-Datenbank wurde im Setup heruntergeladen.\n\n"
+                "Möchten Sie den Import jetzt im Hintergrund starten?\n"
+                "(Sie können währenddessen weiterarbeiten)",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                self._start_background_gnd_import(xml_path)
+
+            # Remove marker regardless of choice
+            marker_file.unlink()
+
+        except Exception as e:
+            self.logger.error(f"Error checking pending GND import: {str(e)}")
+            if marker_file.exists():
+                marker_file.unlink()
+
+    def _start_background_gnd_import(self, xml_file_path: str):
+        """Start non-blocking GND import in background (StatusBar-based) - Claude Generated"""
+        try:
+            from ..utils.gnd_import_worker import GNDImportWorker
+
+            self.logger.info(f"Starting background GND import: {xml_file_path}")
+
+            # Create status bar widgets - Claude Generated (non-blocking UI)
+            self.gnd_import_status_label = QLabel("🔄 GND-Import: Starte...")
+
+            self.gnd_import_progress_bar = QProgressBar()
+            self.gnd_import_progress_bar.setMaximum(100)
+            self.gnd_import_progress_bar.setMinimumWidth(200)
+            self.gnd_import_progress_bar.setMaximumHeight(20)
+
+            self.gnd_import_cancel_btn = QPushButton("Abbrechen")
+            self.gnd_import_cancel_btn.setMaximumWidth(80)
+            self.gnd_import_cancel_btn.setMaximumHeight(20)
+
+            # Add to status bar
+            statusbar = self.statusBar()
+            statusbar.addWidget(self.gnd_import_status_label)
+            statusbar.addWidget(self.gnd_import_progress_bar)
+            statusbar.addWidget(self.gnd_import_cancel_btn)
+
+            # Create worker
+            self.gnd_import_worker = GNDImportWorker(xml_file_path, self.cache_manager)
+
+            # Connect signals
+            self.gnd_import_worker.progress_updated.connect(self._update_gnd_progress)
+            self.gnd_import_worker.status_updated.connect(self._update_gnd_status)
+            self.gnd_import_worker.finished_successfully.connect(self._on_gnd_import_complete)
+            self.gnd_import_worker.error_occurred.connect(self._on_gnd_import_error)
+
+            # Connect cancel button
+            self.gnd_import_cancel_btn.clicked.connect(self.gnd_import_worker.cancel)
+
+            # Show notification
+            QMessageBox.information(
+                self,
+                "GND-Import gestartet",
+                "✅ GND-Import läuft im Hintergrund.\n\n"
+                "Sie können ALIMA normal nutzen.\n"
+                "Fortschritt wird in der Statusleiste angezeigt.",
+                QMessageBox.StandardButton.Ok
+            )
+
+            # Start worker
+            self.gnd_import_worker.start()
+
+        except Exception as e:
+            self.logger.error(f"Error starting GND import: {str(e)}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                "GND-Import Fehler",
+                f"Fehler beim Starten des GND-Imports:\n{str(e)}"
+            )
+
+    def _update_gnd_progress(self, current: int, total: int):
+        """Update GND import progress bar - Claude Generated"""
+        if total > 0 and hasattr(self, 'gnd_import_progress_bar'):
+            percent = int((current / total) * 100)
+            self.gnd_import_progress_bar.setValue(percent)
+            if hasattr(self, 'gnd_import_status_label'):
+                self.gnd_import_status_label.setText(
+                    f"🔄 GND-Import: {current:,} / {total:,} ({percent}%)"
+                )
+
+    def _update_gnd_status(self, status_msg: str):
+        """Update GND import status message - Claude Generated"""
+        if hasattr(self, 'gnd_import_status_label'):
+            self.gnd_import_status_label.setText(f"🔄 {status_msg}")
+
+    def _on_gnd_import_complete(self, count: int):
+        """Handle successful GND import completion - Claude Generated"""
+        self.logger.info(f"GND import completed successfully: {count:,} entries")
+
+        # Remove status bar widgets - Claude Generated
+        statusbar = self.statusBar()
+        if hasattr(self, 'gnd_import_status_label'):
+            statusbar.removeWidget(self.gnd_import_status_label)
+            statusbar.removeWidget(self.gnd_import_progress_bar)
+            statusbar.removeWidget(self.gnd_import_cancel_btn)
+
+            # Cleanup references
+            self.gnd_import_status_label.deleteLater()
+            self.gnd_import_progress_bar.deleteLater()
+            self.gnd_import_cancel_btn.deleteLater()
+
+        # Show success message in status bar
+        statusbar.showMessage(
+            f"✅ GND-Import abgeschlossen: {count:,} Einträge importiert",
+            10000  # Show for 10 seconds
+        )
+
+    def _on_gnd_import_error(self, error_msg: str):
+        """Handle GND import error - Claude Generated"""
+        self.logger.error(f"GND import failed: {error_msg}")
+
+        # Remove status bar widgets - Claude Generated
+        statusbar = self.statusBar()
+        if hasattr(self, 'gnd_import_status_label'):
+            statusbar.removeWidget(self.gnd_import_status_label)
+            statusbar.removeWidget(self.gnd_import_progress_bar)
+            statusbar.removeWidget(self.gnd_import_cancel_btn)
+
+            # Cleanup references
+            self.gnd_import_status_label.deleteLater()
+            self.gnd_import_progress_bar.deleteLater()
+            self.gnd_import_cancel_btn.deleteLater()
+
+        # Show error in status bar
+        statusbar.showMessage(f"❌ GND-Import fehlgeschlagen: {error_msg}", 15000)
 
     # In der MainWindow Klasse - füge folgende Methoden hinzu
 

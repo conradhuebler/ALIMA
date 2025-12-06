@@ -264,6 +264,25 @@ class ConfigManager:
                 self.logger.debug("📋 Modern configuration detected - parsing provider data")
                 unified_config = self._parse_modern_config(config_data)
 
+            # P0.4: Empty provider protection - Claude Generated
+            if not unified_config.providers:
+                error_msg = (
+                    "No LLM providers configured. ALIMA requires at least one provider to function.\n"
+                    "Please run the first-start wizard or add a provider in Settings > Providers.\n"
+                    "Use 'python alima_gui.py' (GUI) or 'python alima_cli.py wizard' (CLI) to configure."
+                )
+                self.logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+
+            enabled_providers = unified_config.get_enabled_providers()
+            if not enabled_providers:
+                error_msg = (
+                    f"All {len(unified_config.providers)} provider(s) are disabled. "
+                    "Enable at least one provider in Settings > Providers."
+                )
+                self.logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+
             # Create main config
             config = AlimaConfig(
                 database_config=database_config,

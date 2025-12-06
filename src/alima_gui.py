@@ -5,10 +5,12 @@ import os
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt6.QtWidgets import QApplication, QSplashScreen
+from PyQt6.QtWidgets import QApplication, QSplashScreen, QDialog
 from PyQt6.QtGui import QPixmap
 from src.ui.main_window import MainWindow
+from src.ui.first_start_wizard import FirstStartWizard
 from src.utils.logging_utils import setup_logging
+from src.utils.config_manager import ConfigManager
 import logging
 
 
@@ -22,6 +24,18 @@ def main():
     app.setApplicationName("AlIma")
     app.setApplicationVersion("0.2")
     app.setStyle("Fusion")
+
+    # Check for first-run setup - Claude Generated
+    config_manager = ConfigManager()
+    config = config_manager.load_config()
+
+    if not config.system_config.first_run_completed and not config.system_config.skip_first_run_check:
+        # Show first-start wizard
+        wizard = FirstStartWizard()
+        if wizard.exec() != QDialog.DialogCode.Accepted:
+            # User cancelled wizard
+            logging.info("First-start wizard cancelled")
+            sys.exit(0)
 
     # Use direct file path instead of resource path
     current_dir = os.path.dirname(os.path.abspath(__file__))
