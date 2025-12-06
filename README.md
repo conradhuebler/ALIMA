@@ -2,6 +2,9 @@
 
 Ein leistungsstarkes Werkzeug zur automatisierten Schlagwortgenerierung und Klassifikation mit KI-Unterstützung, entwickelt an der Universitätsbibliothek "Georgius Agricola" der TU Bergakademie Freiberg.
 
+## Anmerkung des Autors
+ALIMA sowie die Dokumentation sind größtenteils mit Claude erstellt. LLM sind oft übereuphorisch und sehen Dinge als fertig an, auch wenn sie es noch nicht sind. Gleichzeitig ändern sich dank Agentic Coding Dinge schneller, als sie dokumentiert werden können. ALIMA ist demnach noch in der Entwicklung und noch nicht alle dokumentierten Funktionen sind als fertig anzusehen.
+
 ## Überblick
 
 ALIMA ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Technologien mit bibliothekarischen Informationssystemen verbindet. Die Anwendung unterstützt bei der Generierung von präzisen, GND-konformen Schlagwörtern und der Zuweisung von DK/RVK-Klassifikationen.
@@ -14,6 +17,7 @@ ALIMA ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Techno
 *   **Intelligente Provider-Auswahl:** Ein "Smart Mode" wählt automatisch den besten Provider und das beste Modell basierend auf der Aufgabe und benutzerdefinierten Präferenzen.
 *   **Stapelverarbeitung:** Möglichkeit zur automatisierten Analyse einer großen Anzahl von Dokumenten über die Kommandozeile.
 *   **Interaktive GUI:** Eine auf PyQt6 basierende Oberfläche zur Steuerung der Pipeline, Konfiguration und Überprüfung der Ergebnisse.
+*   **WebAPP:** Eine WebAPP, lauffähig auf einem Server als einfach backend. Die Konfiguration für die WebApp ist dieselbe wie für das Qt6-Gui and die Kommandozeile
 
 ## Installation
 
@@ -121,6 +125,9 @@ Starten Sie die Anwendung mit:
 ```bash
 python3 src/alima_gui.py
 ```
+und lassen Sie sich von dem First-Start Wizard die Konfiguration erstellen.
+
+### 1.1 Nutzung der Gui
 Der **"🚀 Pipeline"-Tab** ist der zentrale Startpunkt für alle Analysen.
 
 **Dateneingabe im Schritt "📥 Input & Datenquellen"**
@@ -135,6 +142,22 @@ Der erste Schritt bietet ein flexibles Eingabefeld mit mehreren Optionen:
     *   **Bild-Dateien:** Bei Bildformaten (PNG, JPG etc.) wird automatisch eine KI-basierte OCR gestartet, um den im Bild enthaltenen Text zu extrahieren.
 
 Nach der erfolgreichen Extraktion der Daten aus einer dieser Quellen können Sie die Analyse mit dem "🚀 Auto-Pipeline"-Button starten.
+
+### 1.2 Nutzung der WebAPP
+
+Für die Nutzung der WebAPP muss die GUI einmal gestartet worden sein, bzw. die Konfiguration erstellt und die Datenbank einmal mit dem GND-Abzug initialisiert werden. Anschließend starten Sie mit
+```bash
+python3 src/webapp/app.py
+```
+den Webserver.
+```bash
+INFO:     Started server process [105998]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+```
+
+Die Pipeline-Ergebnisse können als Json heruntergeladen werden und anschließend in der PyQt6 auch offline betrachtet werden.
 
 ### 2. Kommandozeilen-Nutzung (CLI)
 
