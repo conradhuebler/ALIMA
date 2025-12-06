@@ -15,6 +15,9 @@ from datetime import datetime
 import subprocess
 import sys
 
+# Add project root to sys.path BEFORE importing src modules
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -350,6 +353,17 @@ async def process_input_only(
     return {"session_id": session_id, "status": "started", "mode": "input_extraction"}
 
 
+def make_json_serializable(obj):
+    """Convert sets and other non-JSON types to JSON-serializable equivalents - Claude Generated"""
+    if isinstance(obj, set):
+        return list(obj)
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(v) for v in obj]
+    return obj
+
+
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket for live progress updates - Claude Generated"""
@@ -371,11 +385,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # Check if analysis is complete
             if session.status not in ["running", "idle"]:
                 logger.info(f"Session {session_id} status changed to {session.status}")
-                # Send final update
+                # Send final update with JSON-serializable results
                 await websocket.send_json({
                     "type": "complete",
                     "status": session.status,
-                    "results": session.results,
+                    "results": make_json_serializable(session.results),
                     "error": session.error_message,
                     "current_step": session.current_step,
                 })
@@ -393,8 +407,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "type": "status",
                 "status": session.status,
                 "current_step": session.current_step,
-                "results": session.results,
-                "streaming_tokens": streaming_tokens,  # Dict[step_id -> List[tokens]]
+                "results": make_json_serializable(session.results),
+                "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
             })
 
             # Track idle time (no step change)
@@ -580,16 +594,92 @@ async def run_analysis(
             # Extract DK search results
             dk_search_results = getattr(analysis_state, 'dk_search_results', [])
 
-            # Store formatted results for JSON export
+            # Serialize search_results properly - Claude Generated (FIX: Export full data, not just count)
+            serialized_search_results = []
+            if search_results:
+                for result in search_results:
+                    try:
+                        # Try to get search_term and results attributes
+                        search_term = getattr(result, 'search_term', '') if hasattr(result, 'search_term') else ''
+                        result_data = getattr(result, 'results', {}) if hasattr(result, 'results') else {}
+
+                        serialized_search_results.append({
+                            "search_term": search_term,
+                            "results": result_data if isinstance(result_data, dict) else {}
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error serializing search result: {e}")
+                        continue
+
+            # Serialize initial_llm_call_details - Claude Generated
+            initial_llm_details = None
+            try:
+                if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
+                    llm_call = analysis_state.initial_llm_call_details
+                    initial_llm_details = {
+                        "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
+                        "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
+                        "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
+                        "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
+                        "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
+                        "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
+                    }
+            except Exception as e:
+                logger.warning(f"Error serializing initial_llm_call_details: {e}")
+                initial_llm_details = None
+
+            # Serialize final_llm_analysis - Claude Generated
+            final_llm_details = None
+            try:
+                if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+                    llm_call = analysis_state.final_llm_analysis
+                    final_llm_details = {
+                        "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
+                        "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
+                        "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
+                        "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
+                        "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
+                        "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
+                    }
+            except Exception as e:
+                logger.warning(f"Error serializing final_llm_analysis: {e}")
+                final_llm_details = None
+
+            # Store COMPLETE results for JSON export - Claude Generated
+            # Convert sets to lists for JSON serialization - Claude Generated
+            def ensure_json_serializable(value):
+                """Recursively convert non-JSON-serializable types to JSON-serializable types"""
+                if isinstance(value, set):
+                    return list(value)
+                elif isinstance(value, dict):
+                    return {k: ensure_json_serializable(v) for k, v in value.items()}
+                elif isinstance(value, (list, tuple)):
+                    return [ensure_json_serializable(v) for v in value]
+                return value
+
             session.results = {
+                # Input & Keywords
                 "original_abstract": original_abstract,
-                "initial_keywords": initial_keywords,
-                "final_keywords": final_keywords,
-                "dk_classifications": dk_classifications,
-                "dk_search_results": dk_search_results,
-                "search_results_count": len(search_results) if isinstance(search_results, list) else 0,
-                "full_analysis_state": {
-                    "has_final_llm_analysis": bool(hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis),
+                "initial_keywords": ensure_json_serializable(initial_keywords),
+                "final_keywords": ensure_json_serializable(final_keywords),
+
+                # GND/SWB Search Results (FIXED: full data instead of just count)
+                "search_results": ensure_json_serializable(serialized_search_results),
+
+                # DK Classification Results
+                "dk_classifications": ensure_json_serializable(dk_classifications),
+                "dk_search_results": ensure_json_serializable(dk_search_results),
+
+                # LLM Analysis Details
+                "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
+                "final_llm_call_details": ensure_json_serializable(final_llm_details),
+
+                # Pipeline Metadata
+                "pipeline_metadata": {
+                    "search_suggesters_used": ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
+                    "initial_gnd_classes": ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
+                    "has_final_llm_analysis": bool(final_llm_details),
+                    "has_initial_llm_analysis": bool(initial_llm_details),
                 }
             }
 
