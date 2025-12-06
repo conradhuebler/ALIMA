@@ -166,6 +166,9 @@ class AlimaWebapp {
         const startBtn = document.getElementById('camera-start-btn');
         const captureBtn = document.getElementById('camera-capture-btn');
         const stopBtn = document.getElementById('camera-stop-btn');
+        const confirmBtn = document.getElementById('camera-confirm-btn');
+        const retakeBtn = document.getElementById('camera-retake-btn');
+        const previewActions = document.getElementById('camera-preview-actions');
         const video = document.getElementById('camera-video');
         const canvas = document.getElementById('camera-canvas');
 
@@ -195,6 +198,12 @@ class AlimaWebapp {
 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
+                // Ensure video plays immediately (fallback if autoplay attribute isn't honored)
+                try {
+                    await video.play();
+                } catch (playError) {
+                    console.warn('Video.play() failed, relying on autoplay attribute:', playError);
+                }
                 video.style.display = 'block';
                 this.cameraStream = stream;
                 startBtn.style.display = 'none';
@@ -242,23 +251,64 @@ class AlimaWebapp {
                 console.error('Error processing camera image:', error);
             }
 
+            // Hide live camera controls, show preview actions (Option A - Quick Retake Flow)
             video.style.display = 'none';
             captureBtn.style.display = 'none';
-            stopBtn.textContent = 'Neue Aufnahme';
+            stopBtn.style.display = 'none';
+            previewActions.style.display = 'flex';  // Show confirm/retake buttons
         });
 
+        // STAGE 2: Stop button (only shown during live camera, not preview)
         stopBtn.addEventListener('click', () => {
+            // Stop camera and return to STAGE 1
             if (this.cameraStream) {
                 this.cameraStream.getTracks().forEach(track => track.stop());
             }
             video.style.display = 'none';
             video.srcObject = null;
-            document.getElementById('camera-preview').style.display = 'none';
             this.capturedCameraImage = null;
+            this.cameraBlob = null;
+
             startBtn.style.display = 'block';
             captureBtn.style.display = 'none';
             stopBtn.style.display = 'none';
-            stopBtn.textContent = 'Beenden';
+            previewActions.style.display = 'none';
+        });
+
+        // STAGE 3: Confirm button (accept photo and stop camera)
+        confirmBtn.addEventListener('click', () => {
+            // Stop camera and reset to initial state
+            if (this.cameraStream) {
+                this.cameraStream.getTracks().forEach(track => track.stop());
+            }
+            video.srcObject = null;
+            video.style.display = 'none';
+            document.getElementById('camera-preview').style.display = 'none';
+
+            // Reset to STAGE 1
+            startBtn.style.display = 'block';
+            previewActions.style.display = 'none';
+            captureBtn.style.display = 'none';
+            stopBtn.style.display = 'none';
+
+            // Keep the captured image and blob for analysis
+            // (already in this.capturedCameraImage and this.cameraBlob)
+        });
+
+        // STAGE 3: Retake button (go back to live camera without restart)
+        retakeBtn.addEventListener('click', () => {
+            // Hide preview, show live feed again (camera still running!)
+            document.getElementById('camera-preview').style.display = 'none';
+            video.style.display = 'block';
+
+            // Back to STAGE 2 (live camera)
+            previewActions.style.display = 'none';
+            captureBtn.style.display = 'block';
+            stopBtn.style.display = 'block';
+
+            // Clear previous capture for new one
+            this.capturedCameraImage = null;
+            this.cameraBlob = null;
         });
     }
 
@@ -903,16 +953,16 @@ class AlimaWebapp {
             }
 
             const data = await response.json();
-            console.log('Text extraction completed:', data);
+            console.log('Text extraction started:', data);
 
-            // Wait for extraction to complete
-            await this.waitForExtractionCompletion();
+            // Wait for extraction to complete and capture the session data
+            const sessionData = await this.waitForExtractionCompletion();
 
-            // Get the extracted text from session results
-            if (data.results && data.results.original_abstract) {
+            // Get the extracted text from session results (not the POST response)
+            if (sessionData.results && sessionData.results.original_abstract) {
                 // Fill the main text field with extracted text - Claude Generated
-                document.getElementById('text-input').value = data.results.original_abstract;
-                this.appendStreamText(`✅ Text erfolgreich extrahiert (${data.results.extraction_method})`);
+                document.getElementById('text-input').value = sessionData.results.original_abstract;
+                this.appendStreamText(`✅ Text erfolgreich extrahiert (${sessionData.results.extraction_method})`);
             } else {
                 throw new Error('Keine Textextraktion möglich');
             }
