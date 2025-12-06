@@ -4,10 +4,13 @@ Claude Generated - Abstracts common pipeline operations and utilities
 """
 
 import json
+import logging
 import re
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import asdict
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from ..core.data_models import (
     AbstractData,
@@ -1880,6 +1883,70 @@ class PipelineJsonManager:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            # Detect and unwrap webapp session format - Claude Generated (Support both CLI/GUI and Webapp formats)
+            if "session_id" in data and "results" in data:
+                logger.info(f"Detected webapp session format (session_id: {data.get('session_id')}), unwrapping results...")
+                # Extract the actual analysis state from webapp's session wrapper
+                data = data["results"]
+
+                # Map webapp field names to KeywordAnalysisState field names
+                if "final_llm_call_details" in data and "final_llm_analysis" not in data:
+                    logger.info("Mapping 'final_llm_call_details' → 'final_llm_analysis'")
+                    data["final_llm_analysis"] = data.pop("final_llm_call_details")
+
+                # Map webapp LLM field names to LlmKeywordAnalysis field names - Claude Generated
+                def fix_llm_field_names(llm_dict):
+                    """Fix field names in LLM analysis objects from webapp format"""
+                    if not isinstance(llm_dict, dict):
+                        return llm_dict
+
+                    # Map provider → provider_used
+                    if "provider" in llm_dict and "provider_used" not in llm_dict:
+                        llm_dict["provider_used"] = llm_dict.pop("provider")
+
+                    # Map model → model_used
+                    if "model" in llm_dict and "model_used" not in llm_dict:
+                        llm_dict["model_used"] = llm_dict.pop("model")
+
+                    # Remove webapp-specific fields not in LlmKeywordAnalysis
+                    for field in ["extracted_keywords", "token_count"]:
+                        llm_dict.pop(field, None)
+
+                    # Fill in missing required fields with defaults (webapp doesn't store these)
+                    llm_dict.setdefault("task_name", "webapp-import")
+                    llm_dict.setdefault("prompt_template", "")
+                    llm_dict.setdefault("filled_prompt", "")
+                    llm_dict.setdefault("temperature", 0.7)
+                    llm_dict.setdefault("seed", None)
+
+                    return llm_dict
+
+                # Apply mappings to LLM analysis objects
+                if isinstance(data.get("initial_llm_call_details"), dict):
+                    data["initial_llm_call_details"] = fix_llm_field_names(data["initial_llm_call_details"])
+
+                if isinstance(data.get("final_llm_analysis"), dict):
+                    data["final_llm_analysis"] = fix_llm_field_names(data["final_llm_analysis"])
+
+                # Remove webapp-specific fields not in KeywordAnalysisState
+                removed_fields = []
+                if "pipeline_metadata" in data:
+                    data.pop("pipeline_metadata")
+                    removed_fields.append("pipeline_metadata")
+                if "final_keywords" in data:
+                    data.pop("final_keywords")  # Redundant - extracted from final_llm_analysis
+                    removed_fields.append("final_keywords")
+
+                if removed_fields:
+                    logger.info(f"Removed webapp-specific fields: {', '.join(removed_fields)}")
+
+                # Fill in missing required fields from webapp format - Claude Generated
+                data.setdefault("search_suggesters_used", [])
+                data.setdefault("initial_gnd_classes", [])
+                data.setdefault("timestamp", datetime.now().isoformat())
+                data.setdefault("pipeline_step_completed", "classification")
+                data.setdefault("initial_llm_call_details", None)  # May not be in webapp export
 
             # Deep reconstruction of nested dataclass objects
             from ..core.data_models import SearchResult, LlmKeywordAnalysis
