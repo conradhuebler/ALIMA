@@ -1982,6 +1982,18 @@ class PipelineJsonManager:
             if "dk_classifications" in data and isinstance(data["dk_classifications"], str):
                 data["dk_classifications"] = [dk.strip() for dk in data["dk_classifications"].split(",") if dk.strip()]
 
+            # Convert dk_search_results from keyword-centric to DK-centric format if needed - Claude Generated
+            if "dk_search_results" in data and data["dk_search_results"]:
+                dk_sr = data["dk_search_results"]
+                # Check if format is keyword-centric (has "keyword" and "classifications" keys)
+                if isinstance(dk_sr, list) and len(dk_sr) > 0 and isinstance(dk_sr[0], dict):
+                    if "classifications" in dk_sr[0] and "keyword" in dk_sr[0]:
+                        # KEYWORD-CENTRIC FORMAT: Convert to DK-CENTRIC
+                        logger.info(f"Converting dk_search_results from keyword-centric to DK-centric format (loaded from JSON)")
+                        dk_sr_flattened = PipelineStepExecutor._flatten_keyword_centric_results(dk_sr)
+                        data["dk_search_results"] = dk_sr_flattened
+                        logger.info(f"Conversion complete: {len(dk_sr)} keywords → {len(dk_sr_flattened)} DK classifications")
+
             return KeywordAnalysisState(**data)
 
         except FileNotFoundError:

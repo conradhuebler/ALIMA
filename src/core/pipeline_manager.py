@@ -1193,6 +1193,8 @@ class PipelineManager:
             # Transfer DK classifications to analysis state - Claude Generated
             if self.current_analysis_state:
                 self.current_analysis_state.dk_classifications = dk_classifications
+                # IMPORTANT: Preserve dk_search_results from dk_search step (don't overwrite)
+                # This ensures the title list is available in review tab even after dk_classification
 
             return True
             
