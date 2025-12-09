@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QSlider,
     QMessageBox,
+    QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QFont, QPalette, QPixmap
@@ -880,10 +881,49 @@ class PipelineTab(QWidget):
 
         layout.addWidget(config_group)
 
+        # Filter/Search controls - Claude Generated
+        filter_group = QGroupBox("Ergebnisse filtern")
+        filter_layout = QVBoxLayout(filter_group)
+
+        # Search input
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Suchen:"))
+        self.dk_search_filter_input = QLineEdit()
+        self.dk_search_filter_input.setPlaceholderText("Stichwort zum Filtern eingeben...")
+        self.dk_search_filter_input.textChanged.connect(self._filter_dk_search_results)
+        search_layout.addWidget(self.dk_search_filter_input)
+
+        # Clear filter button
+        clear_filter_btn = QPushButton("Löschen")
+        clear_filter_btn.setMaximumWidth(80)
+        clear_filter_btn.clicked.connect(lambda: self.dk_search_filter_input.clear())
+        search_layout.addWidget(clear_filter_btn)
+        filter_layout.addLayout(search_layout)
+
+        # Filter mode selector
+        filter_mode_layout = QHBoxLayout()
+        filter_mode_layout.addWidget(QLabel("Filtern nach:"))
+        self.dk_filter_mode = QComboBox()
+        self.dk_filter_mode.addItems(["Alle Felder", "Nur Titel", "Nur DK-Codes", "Nur Keywords"])
+        self.dk_filter_mode.currentTextChanged.connect(self._filter_dk_search_results)
+        filter_mode_layout.addWidget(self.dk_filter_mode)
+        filter_mode_layout.addStretch()
+
+        # Match counter
+        self.dk_filter_count_label = QLabel("")
+        self.dk_filter_count_label.setStyleSheet("color: #666; font-size: 10px;")
+        filter_mode_layout.addWidget(self.dk_filter_count_label)
+        filter_layout.addLayout(filter_mode_layout)
+
+        layout.addWidget(filter_group)
+
+        # Store raw data for filtering - Claude Generated
+        self.dk_search_raw_data = []
+
         # Search results display
         results_group = QGroupBox("Katalog-Suchergebnisse")
         results_layout = QVBoxLayout(results_group)
-        
+
         self.dk_search_results = QTextEdit()
         self.dk_search_results.setReadOnly(True)
         self.dk_search_results.setMinimumHeight(200)
@@ -929,6 +969,150 @@ class PipelineTab(QWidget):
         layout.addWidget(results_group)
 
         return widget
+
+    def _format_dk_classifications_with_titles(
+        self,
+        dk_classifications: List[str],
+        dk_search_results: List[Dict[str, Any]]
+    ) -> str:
+        """Format DK classifications with catalog titles using HTML - Claude Generated"""
+        if not dk_classifications:
+            return "Keine DK/RVK-Klassifikationen generiert"
+
+        html_parts = []
+        html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
+
+        for idx, dk_code in enumerate(dk_classifications, 1):
+            titles, total_count = self._get_titles_for_dk_code(dk_code, dk_search_results)
+
+            # Color-coding basierend auf Häufigkeit (Konfidenz)
+            if total_count > 50:
+                color, bg_color = "#2d5016", "#d4edda"  # Dunkelgrün - sehr sicher
+            elif total_count > 20:
+                color, bg_color = "#0c5460", "#d1ecf1"  # Türkis - sicher
+            else:
+                color, bg_color = "#664d03", "#fff3cd"  # Braun/Orange - geringe Konfidenz
+
+            # Header mit Konfidenz-Indikator
+            html_parts.append(
+                f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
+                f"border-left: 4px solid {color}; border-radius: 4px;'>"
+                f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
+            )
+
+            if total_count > 0:
+                confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
+                html_parts.append(f"<p style='color: {color}; font-weight: bold;'>{confidence_bar} {total_count} Titel</p>")
+            html_parts.append("</div>")
+
+            # Titelliste (max. 5 Titel im Pipeline-Tab)
+            if titles:
+                html_parts.append("<ol style='font-size: 9pt; padding-left: 30px;'>")
+                for title in titles[:5]:
+                    safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html_parts.append(f"<li>{safe_title}</li>")
+                html_parts.append("</ol>")
+
+                if total_count > 5:
+                    html_parts.append(f"<p style='color: #888; font-style: italic; padding-left: 20px;'>... und {total_count - 5} weitere Titel</p>")
+
+        html_parts.append("</body></html>")
+        return "".join(html_parts)
+
+    def _get_titles_for_dk_code(
+        self,
+        dk_code: str,
+        dk_search_results: List[Dict[str, Any]]
+    ) -> tuple[list, int]:
+        """Extract titles for a specific DK code - Claude Generated"""
+        if not dk_search_results:
+            return ([], 0)
+
+        normalized_code = dk_code.replace("DK ", "").strip()
+
+        for result in dk_search_results:
+            result_code = str(result.get("dk", "")).strip()
+            if result_code == normalized_code:
+                titles = result.get("titles", [])
+                return (titles[:50], len(titles))  # Max 50 für Display
+
+        return ([], 0)
+
+    def _filter_dk_search_results(self):
+        """Filter displayed DK search results based on search input - Claude Generated"""
+        if not hasattr(self, 'dk_search_raw_data') or not self.dk_search_raw_data:
+            return
+
+        filter_text = self.dk_search_filter_input.text().strip().lower()
+        filter_mode = self.dk_filter_mode.currentText()
+
+        # Ohne Filter: alle Ergebnisse anzeigen
+        if not filter_text:
+            self._display_dk_search_results(self.dk_search_raw_data)
+            self.dk_filter_count_label.setText("")
+            return
+
+        # Filter anwenden
+        filtered_results = []
+        for result in self.dk_search_raw_data:
+            dk_code = result.get("dk", "").lower()
+            titles = [t.lower() for t in result.get("titles", [])]
+            keywords = [k.lower() for k in result.get("keywords", [])]
+
+            match = False
+            if filter_mode == "Alle Felder":
+                match = (filter_text in dk_code or
+                        any(filter_text in title for title in titles) or
+                        any(filter_text in kw for kw in keywords))
+            elif filter_mode == "Nur Titel":
+                match = any(filter_text in title for title in titles)
+            elif filter_mode == "Nur DK-Codes":
+                match = filter_text in dk_code
+            elif filter_mode == "Nur Keywords":
+                match = any(filter_text in kw for kw in keywords)
+
+            if match:
+                filtered_results.append(result)
+
+        self._display_dk_search_results(filtered_results)
+        self.dk_filter_count_label.setText(
+            f"Zeige {len(filtered_results)} von {len(self.dk_search_raw_data)} Ergebnissen"
+        )
+
+    def _display_dk_search_results(self, results: List[Dict[str, Any]]):
+        """Display DK search results with formatting - Claude Generated"""
+        if not results:
+            self.dk_search_results.setPlainText(
+                "Keine Ergebnisse gefunden" if hasattr(self, 'dk_search_filter_input')
+                and self.dk_search_filter_input.text()
+                else "Keine DK/RVK-Klassifikationen gefunden"
+            )
+            return
+
+        result_lines = []
+        for result in results:
+            dk_code = result.get("dk", "")
+            count = result.get("count", 0)
+            titles = result.get("titles", [])
+            keywords = result.get("keywords", [])
+            classification_type = result.get("classification_type", "DK")
+
+            if not titles or count == 0:
+                continue
+
+            sample_titles = titles[:3]
+            titles_text = " | ".join(sample_titles)
+            if len(titles) > 3:
+                titles_text += f" | ... (und {len(titles) - 3} weitere)"
+
+            result_line = (
+                f"{classification_type}: {dk_code} (Häufigkeit: {count})\n"
+                f"Beispieltitel: {titles_text}\n"
+                f"Keywords: {', '.join(keywords)}\n"
+            )
+            result_lines.append(result_line)
+
+        self.dk_search_results.setPlainText("\n".join(result_lines))
 
     def start_auto_pipeline(self):
         """Start the automatic pipeline in background thread - Claude Generated"""
@@ -1358,45 +1542,43 @@ class PipelineTab(QWidget):
                 )
 
         elif step.step_id == "dk_search" and step.output_data:
-            # Display DK search results with counts and titles - Claude Generated
+            # Display DK search results with counts and titles - Claude Generated (Enhanced with filtering)
             # Use flattened DK-centric format for display (backward compatibility fallback to original)
             dk_search_results = step.output_data.get("dk_search_results_flattened",
                                                       step.output_data.get("dk_search_results", []))
-            if hasattr(self, "dk_search_results") and dk_search_results:
-                # Format aggregated results for display
-                result_lines = []
-                for result in dk_search_results:
-                    dk_code = result.get("dk", "")
-                    count = result.get("count", 0)
-                    titles = result.get("titles", [])
-                    keywords = result.get("keywords", [])
-                    classification_type = result.get("classification_type", "DK")
+            if hasattr(self, "dk_search_results"):
+                if dk_search_results:
+                    # Store raw data for filtering
+                    self.dk_search_raw_data = dk_search_results
 
-                    # FIX: Skip DKs with no titles or count=0 - Claude Generated
-                    if not titles or count == 0:
-                        continue
+                    # Display results (will respect any active filter)
+                    self._display_dk_search_results(dk_search_results)
 
-                    # Show titles (up to 3 per entry)
-                    sample_titles = titles[:3]
-                    titles_text = " | ".join(sample_titles)
-                    if len(titles) > 3:
-                        titles_text += f" | ... (und {len(titles) - 3} weitere)"
-
-                    result_line = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nBeispieltitel: {titles_text}\nKeywords: {', '.join(keywords)}\n"
-                    result_lines.append(result_line)
-                
-                self.dk_search_results.setPlainText("\n".join(result_lines))
-            elif hasattr(self, "dk_search_results"):
-                self.dk_search_results.setPlainText("Keine DK/RVK-Klassifikationen gefunden")
+                    # Update filter count if filter is active
+                    if (hasattr(self, 'dk_search_filter_input') and
+                        self.dk_search_filter_input.text().strip()):
+                        self._filter_dk_search_results()
+                else:
+                    self.dk_search_raw_data = []
+                    self.dk_search_results.setPlainText("Keine DK/RVK-Klassifikationen gefunden")
 
         elif step.step_id == "dk_classification" and step.output_data:
             # Display final DK classification results from LLM - Claude Generated
             dk_classifications = step.output_data.get("dk_classifications", [])
-            if hasattr(self, "dk_classification_results") and dk_classifications:
-                # Format final classifications
-                classifications_text = "\n".join(dk_classifications)
-                self.dk_classification_results.setPlainText(classifications_text)
-                
+            if hasattr(self, "dk_classification_results"):
+                if dk_classifications:
+                    # Get dk_search_results from previous step for title display
+                    dk_search_results = step.output_data.get("dk_search_results_flattened", [])
+
+                    # Generate HTML display with titles
+                    html_display = self._format_dk_classifications_with_titles(
+                        dk_classifications,
+                        dk_search_results
+                    )
+                    self.dk_classification_results.setHtml(html_display)
+                else:
+                    self.dk_classification_results.setPlainText("Keine DK/RVK-Klassifikationen generiert")
+
                 # Also update the input summary with search data from previous step
                 if hasattr(self, "dk_input_summary"):
                     search_data = step.output_data.get("dk_search_summary", "")
@@ -1404,8 +1586,6 @@ class PipelineTab(QWidget):
                         self.dk_input_summary.setPlainText(search_data)
                     else:
                         self.dk_input_summary.setPlainText("Katalog-Suchergebnisse für LLM-Analyse")
-            elif hasattr(self, "dk_classification_results"):
-                self.dk_classification_results.setPlainText("Keine DK/RVK-Klassifikationen generiert")
 
         # End any active streaming for this step
         if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:
@@ -1709,35 +1889,31 @@ class PipelineTab(QWidget):
                                       else str(final_kw))
                     self.keywords_result.setPlainText(f"📁 Finale Schlagwörter:\n{final_keywords}")
 
-                # DK Classification Results Display - Claude Generated (Fixed widget name)
+                # DK Classification Results Display - Claude Generated (Enhanced with titles)
                 if state.dk_classifications and hasattr(self, 'dk_classification_results'):
-                    # Type-safe join - Claude Generated (Fix for string parsing bug)
-                    dk_text = (", ".join(state.dk_classifications)
-                               if isinstance(state.dk_classifications, list)
-                               else str(state.dk_classifications))
-                    self.dk_classification_results.setPlainText(f"📁 DK-Klassifikationen:\n{dk_text}")
+                    html_display = self._format_dk_classifications_with_titles(
+                        state.dk_classifications,
+                        state.dk_search_results
+                    )
+                    self.dk_classification_results.setHtml(
+                        f"<div style='background: #E8F5E8; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>"
+                        f"<strong>📁 Geladene DK-Klassifikationen</strong>"
+                        f"</div>{html_display}"
+                    )
 
-                # DK Search Results Display - Claude Generated (New logic for loaded states)
+                # DK Search Results Display - Claude Generated (Enhanced for filtering)
                 if state.dk_search_results and hasattr(self, 'dk_search_results'):
-                    # Format search results like in on_step_completed (lines 1217-1239)
-                    result_lines = []
-                    for result in state.dk_search_results:
-                        dk_code = result.get("dk", "")
-                        count = result.get("count", 0)
-                        titles = result.get("titles", [])
-                        keywords = result.get("keywords", [])
-                        classification_type = result.get("classification_type", "DK")
+                    # Store raw data for filtering
+                    self.dk_search_raw_data = state.dk_search_results
 
-                        # Show titles (up to 3 per entry)
-                        sample_titles = titles[:3]
-                        titles_text = " | ".join(sample_titles)
-                        if len(titles) > 3:
-                            titles_text += f" | ... (und {len(titles) - 3} weitere)"
+                    # Display results using display method
+                    self._display_dk_search_results(state.dk_search_results)
 
-                        result_line = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nBeispieltitel: {titles_text}\nKeywords: {', '.join(keywords)}\n"
-                        result_lines.append(result_line)
-
-                    self.dk_search_results.setPlainText(f"📁 Geladene DK-Suchergebnisse:\n\n" + "\n".join(result_lines))
+                    # Add loaded indicator prefix
+                    current_text = self.dk_search_results.toPlainText()
+                    self.dk_search_results.setPlainText(
+                        f"📁 Geladene DK-Suchergebnisse:\n\n{current_text}"
+                    )
 
             self.logger.info(f"Pipeline tab updated with loaded state indicators: {loaded_steps}")
 

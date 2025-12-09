@@ -1130,9 +1130,9 @@ class PipelineManager:
                 "dk_search_results_flattened": dk_search_results_flattened  # DK-centric: aggregated view (LLM analysis)
             }
 
-            # Transfer DK search results to analysis state - Claude Generated
+            # Transfer DK search results to analysis state - Claude Generated (Use DK-centric format for GUI)
             if self.current_analysis_state:
-                self.current_analysis_state.dk_search_results = dk_search_results
+                self.current_analysis_state.dk_search_results = dk_search_results_flattened  # DK-centric format for GUI display
 
             return True
             
@@ -1186,7 +1186,8 @@ class PipelineManager:
 
             step.output_data = {
                 "dk_classifications": dk_classifications,
-                "dk_search_summary": "\n".join(search_summary_lines)
+                "dk_search_summary": "\n".join(search_summary_lines),
+                "dk_search_results_flattened": dk_search_results  # ← Preserve for GUI display - Claude Generated
             }
 
             # Transfer DK classifications to analysis state - Claude Generated

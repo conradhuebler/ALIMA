@@ -670,19 +670,25 @@ class MainWindow(QMainWindow):
                     self.ub_search_tab.update_keywords(keywords_text)
 
         # 5. 📊 Analyse-Review Tab - Sende finale Ergebnisse
-        if analysis_state.final_llm_analysis:
-            # Type-safe join - Claude Generated (Fix for string parsing bug)
-            final_kw = analysis_state.final_llm_analysis.extracted_gnd_keywords
-            keywords_text = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
+        # Pass data if we have EITHER keywords analysis OR DK classifications - Claude Generated
+        if analysis_state.final_llm_analysis or analysis_state.dk_classifications:
+            # Extract keywords if available
+            keywords_text = ""
+            analysis_result = ""
+            if analysis_state.final_llm_analysis:
+                # Type-safe join - Claude Generated (Fix for string parsing bug)
+                final_kw = analysis_state.final_llm_analysis.extracted_gnd_keywords
+                keywords_text = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
+                analysis_result = analysis_state.final_llm_analysis.response_full_text
 
             self.analysis_review_tab.receive_analysis_data(
                 abstract_text=analysis_state.original_abstract or "",
                 keywords=keywords_text,
-                analysis_result=analysis_state.final_llm_analysis.response_full_text,
+                analysis_result=analysis_result,
                 dk_classifications=analysis_state.dk_classifications,
                 dk_search_results=analysis_state.dk_search_results
             )
-            self.logger.info("✅ Analysis review tab populated with final results from live pipeline.")
+            self.logger.info("✅ Analysis review tab populated with pipeline results (keywords and/or DK).")
 
         # 6. 📚 DK-Klassifikation (Optional) - Claude Generated
         # Note: DK search results and classifications are handled by show_loaded_state_indicator()
