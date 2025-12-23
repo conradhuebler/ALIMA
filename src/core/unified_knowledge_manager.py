@@ -201,7 +201,11 @@ class UnifiedKnowledgeManager:
                     found_titles TEXT,
                     result_count INTEGER DEFAULT 0,
                     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    search_status TEXT DEFAULT 'success',
+                    error_message TEXT,
+                    retry_after DATETIME,
+                    consecutive_failures INTEGER DEFAULT 0
                 )
             """)
 
@@ -224,13 +228,14 @@ class UnifiedKnowledgeManager:
             raise
 
     def _migrate_catalog_dk_cache_schema(self):
-        """Migrate catalog_dk_cache table to remove zombie column - Claude Generated"""
+        """Migrate catalog_dk_cache table - handle schema upgrades - Claude Generated"""
         try:
-            # Check if old schema with found_classifications exists
+            # Check current schema
             # Use PRAGMA to get table column info - Claude Generated
             rows = self.db_manager.fetch_all("PRAGMA table_info(catalog_dk_cache)")
             columns = [row['name'] for row in rows] if rows else []
 
+            # Step 1: Remove old found_classifications column if exists
             if "found_classifications" in columns:
                 self.logger.info("🔄 Migrating catalog_dk_cache: removing unused found_classifications column...")
 
@@ -276,9 +281,67 @@ class UnifiedKnowledgeManager:
                         self.logger.info("✅ catalog_dk_cache migration completed: dropped found_classifications column")
                     except Exception as e2:
                         self.logger.error(f"Migration fallback also failed: {e2}. Migration skipped.")
+
+            # Step 2: Add new columns for TTL and failure tracking - Claude Generated
+            if "search_status" not in columns:
+                self.logger.info("🔄 Migrating catalog_dk_cache: adding TTL and failure tracking columns...")
+                try:
+                    # Try direct ALTER TABLE (SQLite 3.22+)
+                    self.db_manager.execute_query(
+                        "ALTER TABLE catalog_dk_cache ADD COLUMN search_status TEXT DEFAULT 'success'"
+                    )
+                    self.db_manager.execute_query(
+                        "ALTER TABLE catalog_dk_cache ADD COLUMN error_message TEXT"
+                    )
+                    self.db_manager.execute_query(
+                        "ALTER TABLE catalog_dk_cache ADD COLUMN retry_after DATETIME"
+                    )
+                    self.db_manager.execute_query(
+                        "ALTER TABLE catalog_dk_cache ADD COLUMN consecutive_failures INTEGER DEFAULT 0"
+                    )
+                    self.logger.info("✅ catalog_dk_cache migration completed: added TTL and failure tracking columns")
+                except Exception as e:
+                    self.logger.warning(f"Failed to add new columns via ALTER TABLE ({e}), attempting table rebuild...")
+                    try:
+                        # Fallback: table rebuild approach for older SQLite
+                        self.db_manager.execute_query("""
+                            CREATE TABLE catalog_dk_cache_new (
+                                search_term TEXT PRIMARY KEY,
+                                normalized_term TEXT NOT NULL,
+                                found_titles TEXT,
+                                result_count INTEGER DEFAULT 0,
+                                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                search_status TEXT DEFAULT 'success',
+                                error_message TEXT,
+                                retry_after DATETIME,
+                                consecutive_failures INTEGER DEFAULT 0
+                            )
+                        """)
+
+                        # Copy data, preserving existing records with default values for new columns
+                        self.db_manager.execute_query("""
+                            INSERT INTO catalog_dk_cache_new
+                            (search_term, normalized_term, found_titles, result_count, last_updated, created_at, search_status)
+                            SELECT search_term, normalized_term, found_titles, result_count, last_updated, created_at, 'success'
+                            FROM catalog_dk_cache
+                        """)
+
+                        # Drop old table and rename new one
+                        self.db_manager.execute_query("DROP TABLE catalog_dk_cache")
+                        self.db_manager.execute_query("ALTER TABLE catalog_dk_cache_new RENAME TO catalog_dk_cache")
+
+                        # Recreate indexes
+                        self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_normalized ON catalog_dk_cache(normalized_term)")
+                        self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_updated ON catalog_dk_cache(last_updated)")
+
+                        self.logger.info("✅ catalog_dk_cache migration completed via table rebuild: added TTL columns")
+                    except Exception as e2:
+                        self.logger.error(f"Migration table rebuild also failed: {e2}. Migration skipped.")
+
         except Exception as e:
             self.logger.warning(f"Schema migration check failed (non-critical): {e}")
-    
+
     # === GND FACTS MANAGEMENT ===
     
     def store_gnd_fact(self, gnd_id: str, gnd_data: Dict[str, Any]):
@@ -760,58 +823,133 @@ class UnifiedKnowledgeManager:
 
     # === DEDICATED CATALOG DK CACHE MANAGEMENT === Claude Generated
 
-    def get_catalog_dk_cache(self, search_term: str) -> Optional[List[Dict[str, Any]]]:
-        """Retrieve catalog titles from dedicated cache - Claude Generated"""
+    def get_catalog_dk_cache(self, search_term: str) -> Optional[tuple]:
+        """Retrieve catalog titles from dedicated cache with TTL support - Claude Generated
+
+        Returns:
+            Tuple of (titles, status, error_message) or None if cache miss or TTL expired
+            - titles: List of catalog title dicts (empty for failures)
+            - status: 'success', 'no_results', 'error', 'timeout', 'circuit_breaker'
+            - error_message: Error details if status != 'success', else None
+        """
         try:
             row = self.db_manager.fetch_one("""
-                SELECT found_titles
+                SELECT found_titles, search_status, error_message, retry_after
                 FROM catalog_dk_cache
                 WHERE search_term = ?
             """, [search_term])
 
-            if row:
-                titles = json.loads(row['found_titles'] or '[]')
-                self.logger.debug(f"✅ Catalog cache hit for '{search_term}': {len(titles)} titles")
-                return titles
+            if not row:
+                return None
 
-            return None
+            # Check TTL for failed searches
+            if row['search_status'] != 'success' and row['retry_after']:
+                from datetime import datetime
+                try:
+                    retry_after = datetime.fromisoformat(row['retry_after'])
+                    if datetime.now() < retry_after:
+                        # TTL not expired - return cached failure
+                        titles = json.loads(row['found_titles'] or '[]')
+                        self.logger.debug(
+                            f"⏰ Cached failure for '{search_term}': {row['search_status']} "
+                            f"(TTL active until {retry_after.strftime('%H:%M:%S')})"
+                        )
+                        return (titles, row['search_status'], row['error_message'])
+                    else:
+                        # TTL expired - allow retry
+                        self.logger.debug(f"🔄 TTL expired for '{search_term}' - allowing retry")
+                        return None
+                except Exception as e:
+                    self.logger.warning(f"Error parsing retry_after timestamp: {e}")
+
+            # Parse titles
+            titles = json.loads(row['found_titles'] or '[]')
+            self.logger.debug(
+                f"✅ Catalog cache hit for '{search_term}': {len(titles)} titles "
+                f"(status={row['search_status']})"
+            )
+            return (titles, row['search_status'], row['error_message'])
 
         except Exception as e:
             self.logger.error(f"Error retrieving catalog cache for '{search_term}': {e}")
             return None
 
-    def store_catalog_dk_cache(self, search_term: str, titles: List[Dict[str, Any]]) -> bool:
-        """Store catalog titles in dedicated cache - Claude Generated"""
+    def store_catalog_dk_cache(self, search_term: str, titles: List[Dict[str, Any]],
+                             status: str = 'success', error_message: Optional[str] = None,
+                             ttl_minutes: int = 30) -> bool:
+        """Store catalog titles or failed search in dedicated cache - Claude Generated
+
+        Args:
+            search_term: Keyword searched
+            titles: List of catalog titles (empty for failures)
+            status: 'success', 'no_results', 'error', 'timeout'
+            error_message: Error details if status != 'success'
+            ttl_minutes: Cache TTL for failed searches (prevents repeated failures)
+
+        Returns:
+            True if storage succeeded
+        """
         try:
+            from datetime import datetime, timedelta
+
             normalized_term = self._normalize_term(search_term)
             result_count = len(titles)
+            retry_after = None
 
-            # DEBUG: Log what we're about to store
-            self.logger.info(f"📥 Storing catalog cache for '{search_term}': {result_count} titles")
-            for title in titles:
-                classifications_count = len(title.get('classifications', []))
-                self.logger.debug(f"   - {title.get('title')[:50]}...: {classifications_count} classifications (RSN: {title.get('rsn')})")
+            # For failed searches, set retry_after timestamp
+            if status != 'success' and ttl_minutes > 0:
+                retry_after = (datetime.now() + timedelta(minutes=ttl_minutes)).isoformat()
 
+            # Log appropriately based on status
+            if status == 'success':
+                # DIAGNOSTIC: Calculate total DK/RVK counts across all titles - Claude Generated
+                total_dk = 0
+                total_rvk = 0
+                for title in titles:
+                    classifications = title.get('classifications', [])
+                    total_dk += sum(1 for c in classifications if str(c).startswith('DK ') or str(c).replace('.', '', 1).isdigit())
+                    total_rvk += sum(1 for c in classifications if str(c).startswith('RVK '))
+
+                self.logger.info(f"✅ Storing catalog cache for '{search_term}': {result_count} titles | "
+                                f"DK: {total_dk} | RVK: {total_rvk}")
+
+                for title in titles[:3]:  # Log first 3 titles for success
+                    classifications_count = len(title.get('classifications', []))
+                    title_dk = sum(1 for c in title.get('classifications', []) if str(c).startswith('DK ') or str(c).replace('.', '', 1).isdigit())
+                    title_rvk = sum(1 for c in title.get('classifications', []) if str(c).startswith('RVK '))
+                    self.logger.debug(f"   - {title.get('title', '')[:50]}...: {classifications_count} cls (DK: {title_dk}, RVK: {title_rvk})")
+            else:
+                self.logger.info(
+                    f"💾 Caching failure for '{search_term}': {status} "
+                    f"(TTL: {ttl_minutes}min) - {error_message or 'No error message'}"
+                )
+
+            # Store or update cache entry
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO catalog_dk_cache
-                (search_term, normalized_term, found_titles, result_count, last_updated, created_at)
+                (search_term, normalized_term, found_titles, result_count,
+                 last_updated, created_at, search_status, error_message, retry_after)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP,
-                        COALESCE((SELECT created_at FROM catalog_dk_cache WHERE search_term = ?), CURRENT_TIMESTAMP))
+                        COALESCE((SELECT created_at FROM catalog_dk_cache WHERE search_term = ?), CURRENT_TIMESTAMP),
+                        ?, ?, ?)
             """, [
                 search_term,
                 normalized_term,
                 json.dumps(titles),
                 result_count,
-                search_term
+                search_term,
+                status,
+                error_message,
+                retry_after
             ])
 
             # VERIFY: Check that it was actually stored
             verify_row = self.db_manager.fetch_one(
-                "SELECT result_count FROM catalog_dk_cache WHERE search_term = ?",
+                "SELECT result_count, search_status FROM catalog_dk_cache WHERE search_term = ?",
                 [search_term]
             )
             if verify_row:
-                self.logger.info(f"✅ Verified: Stored {result_count} titles in catalog cache for '{search_term}'")
+                self.logger.debug(f"✅ Verified: Stored {result_count} titles for '{search_term}' (status={verify_row['search_status']})")
                 return True
             else:
                 self.logger.error(f"❌ FAILED: Could not verify storage for '{search_term}'")

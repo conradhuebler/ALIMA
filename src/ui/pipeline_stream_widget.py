@@ -255,14 +255,13 @@ class PipelineStreamWidget(QWidget):
                 self._display_dk_search_results(dk_results, step.step_id)
 
     def _display_dk_search_results(self, dk_results: List[Dict[str, Any]], step_id: str):
-        """Display DK search results with keyword-centric format - Claude Generated
+        """Display DK search results with status feedback (titles removed to reduce clutter) - Claude Generated
 
         Args:
             dk_results: List of keyword-centric result dictionaries:
                 - "keyword": GND keyword with ID
                 - "source": "cache" or "live"
                 - "search_time_ms": Search time in milliseconds
-                - "total_titles": Total catalog titles found
                 - "classifications": List of DK codes with details
             step_id: Pipeline step ID for message formatting
         """
@@ -272,75 +271,64 @@ class PipelineStreamWidget(QWidget):
 
         # Calculate total statistics
         total_keywords = len(dk_results)
-        total_titles = sum(r.get("total_titles", 0) for r in dk_results)
         total_classifications = sum(len(r.get("classifications", [])) for r in dk_results)
         cache_count = sum(1 for r in dk_results if r.get("source") == "cache")
         live_count = total_keywords - cache_count
+        success_count = sum(1 for r in dk_results if r.get("classifications"))
 
-        # Display summary header - Claude Generated (Keyword-centric restructuring)
+        # Display summary header with status overview - Claude Generated (Enhanced feedback)
         self.add_pipeline_message(
-            f"🔍 DK-Suche: {total_keywords} Schlagwörter → {total_titles} Titel → {total_classifications} Klassifikationen",
+            f"🔍 DK-Suche: {total_keywords} Keywords → {success_count} erfolgreich → {total_classifications} Klassifikationen",
             "info",
             step_id,
         )
 
-        if cache_count > 0 and live_count > 0:
+        if cache_count > 0 or live_count > 0:
             self.add_pipeline_message(
-                f"   Cache: {cache_count} | Live: {live_count}",
+                f"   📦 Cache: {cache_count} | 🔍 Live: {live_count}",
                 "debug",
                 step_id,
             )
 
-        # Display per-keyword results - Claude Generated (Keyword-centric format)
+        # Display per-keyword results with success/failure indicators - Claude Generated (No titles)
         for keyword_result in dk_results:
             keyword = keyword_result.get("keyword", "unknown")
             source = keyword_result.get("source", "unknown")
             search_time = keyword_result.get("search_time_ms", 0)
-            total_titles_kw = keyword_result.get("total_titles", 0)
             classifications = keyword_result.get("classifications", [])
 
-            # Display keyword header with source indicator
+            # Determine status icon
+            if classifications:
+                status_icon = "✅"
+                classification_count = len(classifications)
+                msg_type = "info"
+                status_text = f"{classification_count} Klassifikationen"
+            else:
+                status_icon = "⚠️"
+                msg_type = "warning"
+                status_text = "Keine Klassifikationen"
+
+            # Display keyword with status indicator
             source_icon = "📦" if source == "cache" else "🔍"
-            source_text = f"[{source.upper()}]" if source else ""
             timing_text = f"({search_time:.1f}ms)" if search_time > 0 else ""
 
             self.add_pipeline_message(
-                f"{source_icon} {keyword} {source_text} {timing_text}",
-                "info",
+                f"{status_icon} {source_icon} {keyword} - {status_text} {timing_text}",
+                msg_type,
                 step_id,
             )
 
-            if not classifications:
-                continue
+            # Display DK codes count only (no individual titles)
+            if classifications:
+                for cls in classifications:
+                    dk_code = cls.get("dk", "unknown")
+                    count = cls.get("count", 0)
 
-            # Display DK codes for this keyword
-            for cls in classifications:
-                dk_code = cls.get("dk", "unknown")
-                count = cls.get("count", 0)
-                titles = cls.get("titles", [])
-
-                # Get first 2 titles as sample
-                sample_titles = titles[:2]
-                filtered_titles = [str(t).strip() for t in sample_titles if t is not None and str(t).strip()]
-
-                if not filtered_titles:
-                    titles_display = "(keine Titel)"
-                else:
-                    titles_preview = " | ".join(filtered_titles)
-                    if count > len(filtered_titles):
-                        titles_display = f"{titles_preview} ... (+{count - len(filtered_titles)})"
-                    else:
-                        titles_display = titles_preview
-
-                # Truncate long preview
-                if len(titles_display) > 85:
-                    titles_display = titles_display[:82] + "..."
-
-                self.add_pipeline_message(
-                    f"   DK {dk_code} ({count} Titel): {titles_display}",
-                    "debug",
-                    step_id,
-                )
+                    self.add_pipeline_message(
+                        f"   DK {dk_code} ({count} Titel)",
+                        "debug",
+                        step_id,
+                    )
 
     @pyqtSlot(object, str)
     def on_step_error(self, step: PipelineStep, error_message: str):

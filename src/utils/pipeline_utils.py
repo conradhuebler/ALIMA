@@ -1548,12 +1548,40 @@ class PipelineStepExecutor:
                 # Plain text keyword without GND-ID validation
                 plain_keywords.append(keyword)
 
+        # CRITICAL FIX: Deduplicate after GND-ID stripping - Claude Generated
+        # Problem: Same keyword from different GND-IDs (e.g. "Cadmium (GND-ID: 123)" and "Cadmium (GND-ID: 456)")
+        # both become "Cadmium" after stripping, leading to duplicate searches
+        gnd_validated_keywords_before = len(gnd_validated_keywords)
+        gnd_validated_keywords = deduplicate_canonical_keywords(gnd_validated_keywords)
+        gnd_validated_keywords_after = len(gnd_validated_keywords)
+
+        if gnd_validated_keywords_before != gnd_validated_keywords_after:
+            duplicates_removed = gnd_validated_keywords_before - gnd_validated_keywords_after
+            if self.logger:
+                self.logger.info(
+                    f"🔧 GND Keywords Deduplication: {gnd_validated_keywords_before} → "
+                    f"{gnd_validated_keywords_after} unique ({duplicates_removed} duplicates removed)"
+                )
+
         # Decide which keywords to use based on strict_gnd_validation setting - Claude Generated
         if strict_gnd_validation:
             final_search_keywords = gnd_validated_keywords
             filtered_keywords = plain_keywords
         else:
-            final_search_keywords = gnd_validated_keywords + plain_keywords
+            # Combine GND and plain keywords, then deduplicate to avoid searching "Keyword" twice
+            combined_keywords = gnd_validated_keywords + plain_keywords
+            combined_before = len(combined_keywords)
+            final_search_keywords = deduplicate_canonical_keywords(combined_keywords)
+            combined_after = len(final_search_keywords)
+
+            if combined_before != combined_after:
+                duplicates_removed = combined_before - combined_after
+                if self.logger:
+                    self.logger.info(
+                        f"🔧 Combined Keywords Deduplication: {combined_before} → "
+                        f"{combined_after} unique ({duplicates_removed} duplicates removed)"
+                    )
+
             filtered_keywords = []
 
         # Log filtering results - Claude Generated: Enhanced user feedback
@@ -1595,28 +1623,102 @@ class PipelineStepExecutor:
                 "dk_search"
             )
 
-        # Execute catalog search with selected keywords
+        # Execute catalog search with Per-Keyword Feedback - Claude Generated QUICK-FIX
+        # IMPORTANT: Loop over keywords individually to provide per-keyword status feedback
+        # This replaces the old single-batch call with individual keyword searches
         try:
-            # MarcXmlClient doesn't support force_update parameter - check extractor type - Claude Generated
             from .clients.marcxml_client import MarcXmlClient
-            if isinstance(extractor, MarcXmlClient):
-                dk_search_results = extractor.extract_dk_classifications_for_keywords(
-                    keywords=final_search_keywords,
-                    max_results=max_results,
-                )
-            else:
-                dk_search_results = extractor.extract_dk_classifications_for_keywords(
-                    keywords=final_search_keywords,
-                    max_results=max_results,
-                    force_update=force_update,
-                )
 
+            dk_search_results = []
+            success_count = 0
+            failed_keywords = []
+
+            # Process EACH keyword individually for detailed feedback
+            for idx, keyword in enumerate(final_search_keywords, 1):
+                # Progress callback BEFORE search
+                if stream_callback:
+                    stream_callback(
+                        f"[{idx}/{len(final_search_keywords)}] Suche '{keyword}'...\n",
+                        "dk_search"
+                    )
+
+                try:
+                    # Search THIS keyword only (not all keywords)
+                    if isinstance(extractor, MarcXmlClient):
+                        kw_results = extractor.extract_dk_classifications_for_keywords(
+                            keywords=[keyword],  # Single keyword
+                            max_results=max_results,
+                        )
+                    else:
+                        kw_results = extractor.extract_dk_classifications_for_keywords(
+                            keywords=[keyword],  # Single keyword
+                            max_results=max_results,
+                            force_update=force_update,
+                        )
+
+                    # Analyze result for THIS keyword
+                    if kw_results and len(kw_results) > 0:
+                        kw_result = kw_results[0]
+                        classifications = kw_result.get("classifications", [])
+
+                        if classifications:
+                            # SUCCESS: Keyword found with classifications
+                            success_count += 1
+                            if stream_callback:
+                                stream_callback(
+                                    f"  ✅ {keyword}: {len(classifications)} Klassifikationen gefunden\n",
+                                    "dk_search"
+                                )
+                            dk_search_results.append(kw_result)
+                        else:
+                            # PARTIAL: Keyword found but no classifications
+                            failed_keywords.append((keyword, "no_results", "Keine Klassifikationen"))
+                            if stream_callback:
+                                stream_callback(
+                                    f"  ⚠️ {keyword}: Keine Klassifikationen gefunden\n",
+                                    "dk_search"
+                                )
+                    else:
+                        # FAILURE: Keyword search completely failed
+                        failed_keywords.append((keyword, "error", "Suche fehlgeschlagen"))
+                        if stream_callback:
+                            stream_callback(
+                                f"  ❌ {keyword}: Suche fehlgeschlagen\n",
+                                "dk_search"
+                            )
+
+                except Exception as kw_error:
+                    # Individual keyword error
+                    if self.logger:
+                        self.logger.error(f"Error searching keyword '{keyword}': {kw_error}")
+                    failed_keywords.append((keyword, "error", str(kw_error)))
+                    if stream_callback:
+                        stream_callback(
+                            f"  ❌ {keyword}: Fehler - {str(kw_error)}\n",
+                            "dk_search"
+                        )
+
+            # Summary callback with complete stats
             if stream_callback:
-                stream_callback(f"DK-Suche abgeschlossen: {len(dk_search_results)} Katalog-Einträge gefunden\n", "dk_search")
+                stream_callback(
+                    f"✅ DK-Suche abgeschlossen: {success_count}/{len(final_search_keywords)} erfolgreich\n",
+                    "dk_search"
+                )
 
-            # Return keyword-centric format - PipelineManager will flatten for prompts
+                # List failed keywords if any
+                if failed_keywords:
+                    failed_list = ", ".join([k for k, _, _ in failed_keywords[:5]])
+                    if len(failed_keywords) > 5:
+                        failed_list += f", +{len(failed_keywords) - 5} weitere"
+
+                    stream_callback(
+                        f"⚠️ {len(failed_keywords)} fehlgeschlagen: {failed_list}\n",
+                        "dk_search"
+                    )
+
+            # Return aggregated results
             return dk_search_results
-            
+
         except Exception as e:
             if self.logger:
                 self.logger.error(f"DK catalog search failed: {e}")
@@ -1813,6 +1915,58 @@ def extract_classes_from_descriptive_text(text: str) -> List[str]:
     return []
 
 
+def canonicalize_keyword(keyword: str) -> str:
+    """Extract canonical keyword form by stripping GND-ID - Claude Generated
+
+    Converts "Keyword (GND-ID: 1234567-8)" to "Keyword"
+    Handles both formats: with and without GND-ID
+
+    Args:
+        keyword: Keyword potentially in format "Keyword (GND-ID: 1234567-8)" or plain "Keyword"
+
+    Returns:
+        Canonical form: "Keyword" (stripped of GND-ID and whitespace)
+
+    Examples:
+        "Cadmium (GND-ID: 4029921-1)" → "Cadmium"
+        "Festkörper (GND-ID: 4016918-2)" → "Festkörper"
+        "Molekül" → "Molekül"
+    """
+    if "(GND-ID:" in keyword:
+        return keyword.split("(GND-ID:")[0].strip()
+    return keyword.strip()
+
+
+def deduplicate_canonical_keywords(keywords: List[str]) -> List[str]:
+    """Deduplicate keywords by canonical form (case-insensitive) - Claude Generated
+
+    Removes duplicate keywords that differ only in their GND-ID or whitespace.
+    Preserves first occurrence of each unique canonical keyword.
+    Uses case-insensitive comparison to catch "Cadmium" vs "cadmium" duplicates.
+
+    Args:
+        keywords: List of keywords, may contain duplicates after GND-ID stripping
+                 e.g., ["Cadmium", "Cadmium", "Festkörper"]
+
+    Returns:
+        Deduplicated list maintaining original order and formatting
+
+    Examples:
+        ["Cadmium", "Cadmium (GND-ID: 1234567-8)"] → ["Cadmium"]
+        ["Informatik", "informatik"] → ["Informatik"]
+    """
+    seen = set()
+    deduplicated = []
+
+    for kw in keywords:
+        canonical = canonicalize_keyword(kw).lower()
+        if canonical not in seen:
+            seen.add(canonical)
+            deduplicated.append(kw)
+
+    return deduplicated
+
+
 class PipelineJsonManager:
     """JSON serialization/deserialization for pipeline states - Claude Generated"""
 
@@ -1990,7 +2144,11 @@ class PipelineJsonManager:
                     if "classifications" in dk_sr[0] and "keyword" in dk_sr[0]:
                         # KEYWORD-CENTRIC FORMAT: Convert to DK-CENTRIC
                         logger.info(f"Converting dk_search_results from keyword-centric to DK-centric format (loaded from JSON)")
-                        dk_sr_flattened = PipelineStepExecutor._flatten_keyword_centric_results(dk_sr)
+                        # Flatten: extract classifications from keyword wrappers
+                        dk_sr_flattened = []
+                        for kw_result in dk_sr:
+                            classifications = kw_result.get("classifications", [])
+                            dk_sr_flattened.extend(classifications)
                         data["dk_search_results"] = dk_sr_flattened
                         logger.info(f"Conversion complete: {len(dk_sr)} keywords → {len(dk_sr_flattened)} DK classifications")
 

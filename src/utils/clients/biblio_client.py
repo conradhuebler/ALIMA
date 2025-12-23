@@ -66,7 +66,7 @@ class BiblioClient:
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
 
-    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 30):
+    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 30, rate_limit_delay_ms: int = 1000):
         """
         Initialize the extractor with the given token.
 
@@ -76,8 +76,9 @@ class BiblioClient:
             save_xml_path: Directory to save raw XML responses for debugging (empty string = disabled)
             enable_web_fallback: Enable web scraping fallback when SOAP fails (Claude Generated)
             timeout: Request timeout in seconds (default: 30) - Claude Generated
+            rate_limit_delay_ms: Milliseconds to wait between searches (default: 1000ms) - Claude Generated
         """
-        self.token = "NIu0IKW4fg4653"  # TEMPORARY DEBUGGING TOKEN
+        self.token = token if token else ""  # Use provided token from config
         self.debug = debug
         self.save_xml_path = save_xml_path
         self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
@@ -85,6 +86,80 @@ class BiblioClient:
         self.timeout = timeout  # Claude Generated - Configurable timeout
         self.session = requests.Session()
         self.headers = {"Content-Type": "text/xml;charset=UTF-8", "SOAPAction": ""}
+
+        # RATE LIMITING STATE - Claude Generated
+        self.rate_limit_delay_ms = rate_limit_delay_ms
+        self.last_search_time = None
+        self.session_request_count = 0
+        self.session_max_requests = 50  # Reset session after N requests to prevent staleness
+
+        # CIRCUIT BREAKER STATE - Claude Generated
+        self.consecutive_failures = 0
+        self.circuit_breaker_threshold = 3
+        self.circuit_breaker_open = False
+        self.circuit_breaker_reset_time = None
+
+    # === RATE LIMITING & CIRCUIT BREAKER METHODS === Claude Generated
+
+    def _apply_rate_limit(self):
+        """Apply rate limiting delay between searches - Claude Generated"""
+        import time
+        if self.last_search_time is not None:
+            elapsed_ms = (time.time() - self.last_search_time) * 1000
+            if elapsed_ms < self.rate_limit_delay_ms:
+                sleep_ms = self.rate_limit_delay_ms - elapsed_ms
+                time.sleep(sleep_ms / 1000.0)
+                logger.debug(f"⏱️ Rate limit: slept {sleep_ms:.0f}ms")
+
+        self.last_search_time = time.time()
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker is open - Claude Generated
+
+        Returns:
+            True if circuit is open (should skip search), False if closed
+        """
+        import time
+        if not self.circuit_breaker_open:
+            return False
+
+        # Check if reset time has passed
+        if self.circuit_breaker_reset_time and time.time() >= self.circuit_breaker_reset_time:
+            logger.info("🔄 Circuit breaker reset - allowing searches")
+            self.circuit_breaker_open = False
+            self.consecutive_failures = 0
+            return False
+
+        remaining_time = self.circuit_breaker_reset_time - time.time() if self.circuit_breaker_reset_time else 0
+        logger.warning(f"⚠️ Circuit breaker OPEN - skipping search (resets in {remaining_time:.0f}s)")
+        return True
+
+    def _record_search_failure(self):
+        """Record search failure for circuit breaker - Claude Generated"""
+        import time
+        self.consecutive_failures += 1
+
+        if self.consecutive_failures >= self.circuit_breaker_threshold:
+            self.circuit_breaker_open = True
+            self.circuit_breaker_reset_time = time.time() + 60  # 60 second reset
+            logger.error(f"🔴 Circuit breaker OPENED after {self.consecutive_failures} consecutive failures")
+
+    def _record_search_success(self):
+        """Record search success - resets circuit breaker - Claude Generated"""
+        if self.consecutive_failures > 0:
+            logger.info(f"✅ Search success - resetting failure counter (was {self.consecutive_failures})")
+        self.consecutive_failures = 0
+        self.circuit_breaker_open = False
+
+    def _reset_session_if_needed(self):
+        """Reset session after N requests to prevent staleness - Claude Generated"""
+        self.session_request_count += 1
+
+        if self.session_request_count >= self.session_max_requests:
+            logger.info(f"🔄 Resetting session after {self.session_request_count} requests to prevent staleness")
+            self.session.close()
+            self.session = requests.Session()
+            self.session_request_count = 0
 
     def search(self, term: str, search_type: str = "ku") -> List[Dict[str, Any]]:
         """
@@ -315,6 +390,7 @@ class BiblioClient:
         logger.debug(f"Getting details for RSN: {rsn}")
         logger.debug(f"Details envelope: {details_envelope}")
 
+        response = None
         try:
             response = self.session.post(
                 self.DETAILS_URL,
@@ -323,7 +399,7 @@ class BiblioClient:
                 timeout=300,
             )
 
-            logger.debug(f"Details response status: {response.status_code}")
+            logger.debug(f"✅ Details response received for RSN {rsn}: status {response.status_code}")
 
             if self.debug:
                 logger.debug(f"Details response content: {response.text}")
@@ -372,23 +448,18 @@ class BiblioClient:
 
                 return None
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {e}")
-            return None
+            # Detect HTML responses (server error pages) - Claude Generated
+            # The server sometimes returns HTML error pages instead of SOAP XML
+            if response.text.strip().startswith('<?xml') == False and ('<html>' in response.text.lower() or '<body>' in response.text.lower() or '<framestack>' in response.text.lower()):
+                logger.warning(f"❌ Server returned HTML instead of SOAP for RSN {rsn} - Record may not exist or server error")
+                if self.enable_web_fallback:
+                    logger.info(f"Attempting web fallback for invalid/missing RSN {rsn}")
+                    fallback_details = self._get_title_details_web(rsn)
+                    if fallback_details:
+                        return fallback_details
+                return None
 
-        # Detect HTML responses (server error pages) - Claude Generated
-        # The server sometimes returns HTML error pages instead of SOAP XML
-        if response.text.strip().startswith('<?xml') == False and ('<html>' in response.text.lower() or '<body>' in response.text.lower() or '<framestack>' in response.text.lower()):
-            logger.warning(f"❌ Server returned HTML instead of SOAP for RSN {rsn} - Record may not exist or server error")
-            if self.enable_web_fallback:
-                logger.info(f"Attempting web fallback for invalid/missing RSN {rsn}")
-                fallback_details = self._get_title_details_web(rsn)
-                if fallback_details:
-                    return fallback_details
-            return None
-
-        # Parse the response XML
-        try:
+            # Parse the response XML
             root = ET.fromstring(response.content)
 
             # If debug is enabled, print the structure
@@ -510,6 +581,7 @@ class BiblioClient:
                     details["_source"] = "extracted_from_title"  # Mark as fallback source
 
             # Diagnostic: log extraction summary - Claude Generated
+            # DIAGNOSTIC: Always log extraction results for debugging - Claude Generated
             extracted_fields = sum([
                 bool(details.get("title")),
                 bool(details.get("author")),
@@ -519,10 +591,18 @@ class BiblioClient:
                 bool(details.get("subjects")),
                 bool(details.get("mab_subjects"))
             ])
+
+            cls_count = len(details.get("classifications", []))
+            subj_count = len(details.get("subjects", []))
+            mab_count = len(details.get("mab_subjects", []))
+
+            logger.debug(f"📄 Extraction for RSN {rsn}: {extracted_fields}/7 fields | "
+                         f"Classifications: {cls_count} | Subjects: {subj_count} | MAB: {mab_count}")
+
             if extracted_fields == 0:
-                logger.warning(f"⚠️ No data extracted for RSN {rsn} - SOAP response may be empty or malformed")
-            elif extracted_fields < 3:
-                logger.info(f"⚠️ Partial data for RSN {rsn}: {extracted_fields}/7 fields populated")
+                logger.warning(f"⚠️ No data extracted for RSN {rsn} - SOAP response empty or malformed")
+            elif cls_count == 0:
+                logger.debug(f"⚠️ RSN {rsn}: No classifications found (DK/RVK missing)")
 
             return details
 
@@ -538,6 +618,16 @@ class BiblioClient:
                             return fallback_details
                 else:
                     logger.error(f"Response content: {response.text[:500]}")
+            return None
+
+        except Exception as e:
+            # Catch timeout and other errors - Claude Generated
+            if isinstance(e, requests.exceptions.Timeout):
+                logger.error(f"⏱️ TIMEOUT getting details for RSN {rsn} after 300s - server overloaded or network issue")
+            elif isinstance(e, requests.exceptions.ConnectionError):
+                logger.error(f"🔌 CONNECTION ERROR getting details for RSN {rsn}: {str(e)}")
+            else:
+                logger.error(f"❌ Unexpected error getting details for RSN {rsn}: {type(e).__name__}: {str(e)}")
             return None
 
     def _search_web(self, term: str, search_type: str = "AllFields") -> List[Dict[str, Any]]:
@@ -987,7 +1077,7 @@ class BiblioClient:
         return rvk_classes
 
     def process_search_results(
-        self, results: List[Dict[str, Any]], max_items: int = 100, delay: float = 0.5
+        self, results: List[Dict[str, Any]], max_items: int = 100, delay: float = 1.5
     ) -> List[Dict[str, Any]]:
         """
         Process search results by getting details for each item.
@@ -995,7 +1085,7 @@ class BiblioClient:
         Args:
             results: List of search result items
             max_items: Maximum number of items to process
-            delay: Delay between requests in seconds
+            delay: Delay between requests in seconds (increased to 1.5s to prevent timeouts)
 
         Returns:
             List of processed items with details
@@ -1006,11 +1096,24 @@ class BiblioClient:
 
         processed_items = []
 
-        logger.info(f"Processing {min(len(results), max_items)} items...")
+        # DIAGNOSTIC: Initialize statistics tracking - Claude Generated
+        stats = {
+            'attempted': min(len(results), max_items),
+            'no_rsn': 0,
+            'empty_response': 0,
+            'exception_timeout': 0,
+            'exception_connection': 0,
+            'exception_other': 0,
+            'succeeded': 0,
+            'with_classifications': 0,
+            'without_classifications': 0
+        }
+
+        logger.info(f"Processing {stats['attempted']} items...")
 
         for i, item in enumerate(results[:max_items]):
             if i > 0:
-                time.sleep(delay)  # Be nice to the server
+                time.sleep(delay)  # Be nice to the server - INCREASED TO 1.5s TO PREVENT TIMEOUTS
 
             title = item.get("title", "Unknown")
             logger.debug(
@@ -1020,11 +1123,26 @@ class BiblioClient:
             rsn = item.get("rsn")
             if not rsn:
                 logger.warning(f"No RSN found for item: {title}")
+                stats['no_rsn'] += 1  # DIAGNOSTIC: Track no-RSN failures
                 continue
 
-            details = self.get_title_details(rsn)
-            if not details:
-                logger.warning(f"Could not get details for RSN: {rsn}")
+            try:
+                details = self.get_title_details(rsn)
+                if not details:
+                    logger.warning(f"⚠️ Could not get details for RSN {rsn}: empty response (possible timeout or server error)")
+                    stats['empty_response'] += 1  # DIAGNOSTIC: Track empty responses
+                    continue
+            except Exception as e:
+                # DIAGNOSTIC: Categorize exception types - Claude Generated
+                if isinstance(e, requests.exceptions.Timeout):
+                    stats['exception_timeout'] += 1
+                    logger.error(f"⏱️ TIMEOUT getting details for RSN {rsn}: {str(e)}")
+                elif isinstance(e, requests.exceptions.ConnectionError):
+                    stats['exception_connection'] += 1
+                    logger.error(f"🔌 CONNECTION ERROR getting details for RSN {rsn}: {str(e)}")
+                else:
+                    stats['exception_other'] += 1
+                    logger.error(f"❌ ERROR getting details for RSN {rsn}: {type(e).__name__}: {str(e)}")
                 continue
 
             # MERGE DATA: Start with search result data, overlay with server details - Claude Generated
@@ -1064,7 +1182,37 @@ class BiblioClient:
                 merged_details.get("classifications", [])
             )
 
+            # DIAGNOSTIC: Track success and classification presence - Claude Generated
+            stats['succeeded'] += 1
+            has_classifications = bool(
+                merged_details.get('decimal_classifications') or
+                merged_details.get('rvk_classifications')
+            )
+            if has_classifications:
+                stats['with_classifications'] += 1
+            else:
+                stats['without_classifications'] += 1
+
             processed_items.append(merged_details)
+
+        # DIAGNOSTIC: Comprehensive statistics summary - Claude Generated
+        logger.info(f"📊 Details call statistics for this search:")
+        logger.info(f"   🎯 Attempted: {stats['attempted']} items")
+        logger.info(f"   ✅ Succeeded: {stats['succeeded']} ({stats['succeeded']*100//stats['attempted'] if stats['attempted'] else 0}%)")
+        logger.info(f"   ❌ Failed: {stats['attempted'] - stats['succeeded']} total")
+
+        if stats['attempted'] - stats['succeeded'] > 0:
+            logger.info(f"      └─ No RSN: {stats['no_rsn']}")
+            logger.info(f"      └─ Empty response: {stats['empty_response']}")
+            logger.info(f"      └─ Timeout: {stats['exception_timeout']}")
+            logger.info(f"      └─ Connection error: {stats['exception_connection']}")
+            logger.info(f"      └─ Other exceptions: {stats['exception_other']}")
+
+        logger.info(f"   📚 With classifications: {stats['with_classifications']}/{stats['succeeded']}")
+        logger.info(f"   📭 Without classifications: {stats['without_classifications']}/{stats['succeeded']}")
+
+        if stats['without_classifications'] > 0:
+            logger.warning(f"⚠️ {stats['without_classifications']} items had no DK/RVK classifications despite successful Details call")
 
         return processed_items
 
@@ -1198,61 +1346,131 @@ class BiblioClient:
         # Track which keywords came from cache vs live search
         cached_keywords = set()
 
-        # Try cache for each keyword
+        # Try cache for each keyword with Rate Limiting & Circuit Breaker - Claude Generated FIX
         cached_count = 0
+        failed_keywords = []  # Track which keywords failed
+
         for clean_kw in normalized_keywords.keys():
-            cached_titles = dk_cache.get_catalog_dk_cache(clean_kw)
-            if cached_titles:
-                all_titles.extend(cached_titles)
-                cached_keywords.add(clean_kw)  # Track as cached
-                cached_count += 1
-                logger.info(f"✅ Cache HIT for '{clean_kw}': {len(cached_titles)} titles")
+            # Check circuit breaker first
+            if self._check_circuit_breaker():
+                failed_keywords.append((clean_kw, 'circuit_breaker', 'Too many consecutive failures'))
+                logger.warning(f"⏩ Skipping '{clean_kw}' - circuit breaker open")
                 continue
 
-            # Cache miss - perform live search
+            # Check cache (now returns tuple with status)
+            cache_result = dk_cache.get_catalog_dk_cache(clean_kw)
+            if cache_result:
+                cached_titles, status, error_msg = cache_result
+
+                if status == 'success' and cached_titles:
+                    all_titles.extend(cached_titles)
+                    cached_keywords.add(clean_kw)  # Track as cached
+                    cached_count += 1
+                    logger.info(f"✅ Cache HIT for '{clean_kw}': {len(cached_titles)} titles")
+                    self._record_search_success()
+                    continue
+                elif status != 'success':
+                    # Cached failure - respect TTL
+                    logger.info(f"💾 Cached failure for '{clean_kw}': {status} - {error_msg}")
+                    failed_keywords.append((clean_kw, status, error_msg))
+                    self._record_search_success()  # Don't count as new failure
+                    continue
+
+            # Cache miss - perform live search with rate limiting
+            self._apply_rate_limit()
+            self._reset_session_if_needed()
+
             logger.info(f"⚠️ Cache MISS for '{clean_kw}': performing live search")
-            search_results = self.search(clean_kw, search_type="ku")
 
-            # Fallback to web if SOAP fails
-            if not search_results and self.enable_web_fallback:
-                logger.info(f"SOAP failed, trying web fallback for '{clean_kw}'")
-                search_results = self._search_web(clean_kw)
+            try:
+                search_results = self.search(clean_kw, search_type="ku")
 
-            if not search_results:
-                logger.warning(f"No results found for '{clean_kw}'")
-                continue
+                # DIAGNOSTIC: Log SOAP search result count - Claude Generated
+                logger.info(f"🔍 SOAP search for '{clean_kw}': found {len(search_results)} catalog entries")
+                if search_results and len(search_results) > 0:
+                    # Sample first 3 RSNs for verification
+                    sample_rsns = [r.get('rsn', 'N/A') for r in search_results[:3]]
+                    logger.debug(f"   Sample RSNs: {sample_rsns}")
 
-            # Build title list with classifications
-            title_list = []
-            processed = self.process_search_results(search_results, max_items=max_results)
+                # Fallback to web if SOAP fails
+                if not search_results and self.enable_web_fallback:
+                    logger.info(f"SOAP failed, trying web fallback for '{clean_kw}'")
+                    search_results = self._search_web(clean_kw)
 
-            for item in processed:
-                rsn = item.get("rsn")
-                title = item.get("title")
+                if not search_results:
+                    logger.warning(f"No results found for '{clean_kw}'")
+                    # Cache the empty result with status
+                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='no_results', ttl_minutes=30)
+                    failed_keywords.append((clean_kw, 'no_results', 'No catalog entries found'))
+                    self._record_search_success()
+                    continue
 
-                # Extract DK and RVK classifications as strings
-                classifications = []
+                # Build title list with classifications
+                title_list = []
+                processed = self.process_search_results(search_results, max_items=max_results)
 
-                # Add DK classifications
-                for dk in item.get("decimal_classifications", []):
-                    classifications.append(f"DK {dk}")
+                # DIAGNOSTIC: Log processed results summary - Claude Generated
+                logger.info(f"📋 Processed results for '{clean_kw}':")
+                logger.info(f"   - Total items processed: {len(processed)}")
+                if processed:
+                    items_with_dk = sum(1 for item in processed if item.get('decimal_classifications'))
+                    items_with_rvk = sum(1 for item in processed if item.get('rvk_classifications'))
+                    logger.info(f"   - Items with DK: {items_with_dk}")
+                    logger.info(f"   - Items with RVK: {items_with_rvk}")
+                else:
+                    logger.warning(f"   ⚠️ NO items successfully processed (all Details calls failed)")
 
-                # Add RVK classifications
-                for rvk in item.get("rvk_classifications", []):
-                    classifications.append(f"RVK {rvk}")
+                for item in processed:
+                    rsn = item.get("rsn")
+                    title = item.get("title")
 
-                if title and classifications:
-                    title_list.append({
-                        "rsn": rsn,
-                        "title": title,
-                        "classifications": classifications
-                    })
+                    # Extract DK and RVK classifications as strings
+                    classifications = []
 
-            # Cache the titles
-            if title_list:
-                dk_cache.store_catalog_dk_cache(clean_kw, title_list)
-                all_titles.extend(title_list)
-                logger.info(f"💾 Cached {len(title_list)} titles for '{clean_kw}'")
+                    # Add DK classifications
+                    for dk in item.get("decimal_classifications", []):
+                        classifications.append(f"DK {dk}")
+
+                    # Add RVK classifications
+                    for rvk in item.get("rvk_classifications", []):
+                        classifications.append(f"RVK {rvk}")
+
+                    if title and classifications:
+                        title_list.append({
+                            "rsn": rsn,
+                            "title": title,
+                            "classifications": classifications
+                        })
+
+                # Cache the titles with success status
+                if title_list:
+                    dk_cache.store_catalog_dk_cache(clean_kw, title_list, status='success')
+                    all_titles.extend(title_list)
+                    logger.info(f"💾 Cached {len(title_list)} titles for '{clean_kw}'")
+                    self._record_search_success()
+                else:
+                    # No classifications found in results
+                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='no_results', ttl_minutes=30)
+                    failed_keywords.append((clean_kw, 'no_results', 'No classifications in results'))
+                    self._record_search_success()
+
+            except Exception as e:
+                if isinstance(e, requests.exceptions.Timeout):
+                    logger.error(f"⏱️ Timeout searching '{clean_kw}': {e}")
+                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='timeout',
+                                                   error_message=str(e), ttl_minutes=60)
+                    failed_keywords.append((clean_kw, 'timeout', str(e)))
+                    self._record_search_failure()
+                else:
+                    logger.error(f"❌ Error searching '{clean_kw}': {e}")
+                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='error',
+                                                   error_message=str(e), ttl_minutes=60)
+                    failed_keywords.append((clean_kw, 'error', str(e)))
+                    self._record_search_failure()
+
+        # Log summary of failures
+        if failed_keywords:
+            logger.warning(f"⚠️ {len(failed_keywords)} keywords failed: {[k for k, _, _ in failed_keywords]}")
 
         # Process each keyword INDIVIDUALLY to maintain correct keyword-classification associations - Claude Generated
         # FIX: Previous implementation mixed titles from different keywords, causing wrong matched_keywords assignments
@@ -1261,10 +1479,16 @@ class BiblioClient:
 
         for clean_kw, original_kw in normalized_keywords.items():
             # Get titles for THIS keyword only (from cache - all keywords have been searched/cached by now)
-            kw_titles = dk_cache.get_catalog_dk_cache(clean_kw)
+            # Now returns tuple of (titles, status, error_message)
+            cache_result = dk_cache.get_catalog_dk_cache(clean_kw)
+            if not cache_result:
+                logger.warning(f"⚠️ No cache entry for keyword '{clean_kw}' after search/cache operations")
+                continue
+
+            kw_titles, status, error_msg = cache_result
 
             if not kw_titles:
-                logger.warning(f"⚠️ No titles cached for keyword '{clean_kw}' after search/cache operations")
+                logger.warning(f"⚠️ No titles cached for keyword '{clean_kw}' (status={status}): {error_msg}")
                 continue
 
             # Extract classifications for THIS keyword only - Claude Generated
