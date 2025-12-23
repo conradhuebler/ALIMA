@@ -1219,19 +1219,21 @@ class PipelineStepExecutor:
                 dk_code = result.get("dk", "")
                 count = result.get("count", 0)
                 titles = result.get("titles", [])
-                keywords = result.get("keywords", [])
+                matched_keywords = result.get("matched_keywords", [])  # NEW: Use matched_keywords from deduplication - Claude Generated Step 4
                 classification_type = result.get("classification_type", "DK")
                 avg_confidence = result.get("avg_confidence", 0.0)
-                
-                # Format with count and sample titles
+
+                # Format with count, keywords, and sample titles
                 if dk_code:
                     # Show up to 3 sample titles to keep prompt manageable
                     sample_titles = titles # nope lets go with all
                     title_text = " | ".join(sample_titles)
                     #if len(titles) > 3:
                     #    title_text += f" | ... (und {len(titles) - 3} weitere)"
-                    
-                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count}) | Beispieltitel: {title_text}"
+
+                    # NEW: Include keywords in the output - Claude Generated Step 4
+                    keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
+                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}\nBeispieltitel: {title_text}"
                     catalog_results.append(entry)
             elif "source_title" in result and "dk" in result:
                 # Individual result format from extract_dk_classifications_for_keywords
@@ -1413,29 +1415,138 @@ class PipelineStepExecutor:
         self, keyword_results: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """
-        Flatten keyword-centric format to DK-centric for prompt building - Claude Generated
+        Flatten keyword-centric format to DK-centric with deduplication - Claude Generated
 
-        The new BiblioClient.extract_dk_classifications_for_keywords() returns keyword-centric format:
-        [{"keyword": "...", "source": "cache", "classifications": [{"dk": "681.3", ...}]}]
+        The BiblioClient.extract_dk_classifications_for_keywords() returns keyword-centric format:
+        [{"keyword": "Cadmium", "source": "cache", "classifications": [{"dk": "681.3", ...}]},
+         {"keyword": "Halbleiter", "source": "...", "classifications": [{"dk": "681.3", ...}]}]
 
-        But the prompt builder expects DK-centric format:
-        [{"dk": "681.3", "titles": [...], "count": N, ...}]
-
-        This function flattens the nested structure.
+        This function DEDUPLICATES and merges classifications across keywords:
+        - Merges identical DK codes from multiple keywords
+        - Deduplicates titles across keywords
+        - Sums frequency counts
+        - Tracks which keywords led to each classification
 
         Args:
             keyword_results: List of keyword-centric results from BiblioClient
 
         Returns:
-            Flattened list of DK-centric classification results
+            Flattened and deduplicated list of DK-centric classification results
         """
-        flattened = []
+        # Group classifications by "{type}:{code}" to detect and merge duplicates
+        grouped = {}  # Key: "DK:681.3", Value: merged classification data
+
         for kw_result in keyword_results:
-            # Extract classifications from keyword wrapper
+            keyword = kw_result.get("keyword", "unknown")
             classifications = kw_result.get("classifications", [])
-            # Add each classification to flattened list
-            flattened.extend(classifications)
+
+            for cls in classifications:
+                cls_type = cls.get("type", "DK")
+                cls_code = cls.get("dk", "")
+                key = f"{cls_type}:{cls_code}"
+
+                # Initialize group if first time seeing this classification
+                if key not in grouped:
+                    grouped[key] = {
+                        "dk": cls_code,
+                        "type": cls_type,
+                        "classification_type": cls.get("classification_type", cls_type),
+                        "titles": [],
+                        "count": 0,
+                        "matched_keywords": [],
+                        "keyword_counts": {}
+                    }
+
+                # Merge titles (deduplicate using set)
+                title_set = set(grouped[key]["titles"])
+                for title in cls.get("titles", []):
+                    if title not in title_set:
+                        grouped[key]["titles"].append(title)
+                        title_set.add(title)
+
+                # Sum counts from this keyword
+                grouped[key]["count"] += cls.get("count", 0)
+
+                # Track which keywords contributed to this classification
+                if keyword not in grouped[key]["matched_keywords"]:
+                    grouped[key]["matched_keywords"].append(keyword)
+                grouped[key]["keyword_counts"][keyword] = cls.get("count", 0)
+
+        # Convert to list and sort by count (most frequent first)
+        flattened = sorted(grouped.values(), key=lambda x: x["count"], reverse=True)
+
+        # Log deduplication metrics
+        original_count = sum(len(kr.get("classifications", [])) for kr in keyword_results)
+        deduplicated_count = len(flattened)
+        if original_count > deduplicated_count:
+            logger.info(f"🔧 DK Deduplication: {original_count} → {deduplicated_count} (-{original_count - deduplicated_count} Duplikate entfernt)")
+
         return flattened
+
+    def _calculate_dk_statistics(
+        self,
+        deduplicated_results: List[Dict[str, Any]],
+        keyword_results: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Calculate comprehensive statistics for DK/RVK classifications - Claude Generated
+
+        Tracks frequency, deduplication metrics, and keyword coverage for classifications.
+
+        Args:
+            deduplicated_results: Merged classification results from _flatten_keyword_centric_results()
+            keyword_results: Original keyword-centric results from BiblioClient
+
+        Returns:
+            Statistics dictionary with frequency data and deduplication metrics
+        """
+        # Calculate basic metrics
+        total_classifications = len(deduplicated_results)
+        original_count = sum(len(kr.get("classifications", [])) for kr in keyword_results)
+        duplicates_removed = original_count - total_classifications
+
+        # Get top 10 most frequent classifications
+        top_10 = sorted(deduplicated_results, key=lambda x: x["count"], reverse=True)[:10]
+
+        # Build keyword coverage map (which keywords led to which DK codes)
+        keyword_coverage = {}
+        for result in deduplicated_results:
+            for keyword in result.get("matched_keywords", []):
+                if keyword not in keyword_coverage:
+                    keyword_coverage[keyword] = []
+                keyword_coverage[keyword].append(result["dk"])
+
+        # Calculate frequency distribution (how many classifications have X occurrences)
+        freq_dist = {}
+        for result in deduplicated_results:
+            count = result["count"]
+            freq_dist[count] = freq_dist.get(count, 0) + 1
+
+        # Estimated token savings (rough estimate: ~70 tokens per duplicate entry removed)
+        estimated_token_savings = duplicates_removed * 70
+
+        return {
+            "total_classifications": total_classifications,
+            "total_keywords_searched": len(keyword_results),
+            "most_frequent": [
+                {
+                    "dk": r["dk"],
+                    "type": r.get("type", "DK"),
+                    "count": r["count"],
+                    "keywords": r.get("matched_keywords", []),
+                    "unique_titles": len(r.get("titles", []))
+                }
+                for r in top_10
+            ],
+            "keyword_coverage": keyword_coverage,
+            "frequency_distribution": freq_dist,
+            "deduplication_stats": {
+                "original_count": original_count,
+                "duplicates_removed": duplicates_removed,
+                "deduplication_rate": f"{duplicates_removed / original_count * 100:.1f}%" if original_count > 0 else "0%",
+                "estimated_token_savings": estimated_token_savings
+            }
+        }
 
     def execute_dk_search(
         self,
@@ -1614,7 +1725,24 @@ class PipelineStepExecutor:
                     "⚠️ Keine Keywords für DK-Suche vorhanden\n",
                     "dk_search"
                 )
-            return []
+            # Return empty results in new format - Claude Generated Step 3
+            return {
+                "classifications": [],
+                "statistics": {
+                    "total_classifications": 0,
+                    "total_keywords_searched": 0,
+                    "most_frequent": [],
+                    "keyword_coverage": {},
+                    "frequency_distribution": {},
+                    "deduplication_stats": {
+                        "original_count": 0,
+                        "duplicates_removed": 0,
+                        "deduplication_rate": "0%",
+                        "estimated_token_savings": 0
+                    }
+                },
+                "keyword_results": []
+            }
 
         if stream_callback:
             mode_info = "(strict GND mode)" if strict_gnd_validation else "(including plain keywords)"
@@ -1716,15 +1844,42 @@ class PipelineStepExecutor:
                         "dk_search"
                     )
 
-            # Return aggregated results
-            return dk_search_results
+            # Deduplicate and flatten classifications - Claude Generated Step 3
+            dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
+
+            # Calculate comprehensive statistics - Claude Generated Step 3
+            dk_statistics = self._calculate_dk_statistics(dk_search_results_flattened, dk_search_results)
+
+            # Return results in new format with statistics and transparency
+            return {
+                "classifications": dk_search_results_flattened,  # Deduplicated for LLM prompt
+                "statistics": dk_statistics,                      # For display/diagnostics
+                "keyword_results": dk_search_results              # Original keyword-centric for GUI transparency
+            }
 
         except Exception as e:
             if self.logger:
                 self.logger.error(f"DK catalog search failed: {e}")
             if stream_callback:
                 stream_callback(f"DK-Suche-Fehler: {str(e)}\n", "dk_search")
-            return []
+            # Return empty results in new format - Claude Generated Step 3
+            return {
+                "classifications": [],
+                "statistics": {
+                    "total_classifications": 0,
+                    "total_keywords_searched": 0,
+                    "most_frequent": [],
+                    "keyword_coverage": {},
+                    "frequency_distribution": {},
+                    "deduplication_stats": {
+                        "original_count": 0,
+                        "duplicates_removed": 0,
+                        "deduplication_rate": "0%",
+                        "estimated_token_savings": 0
+                    }
+                },
+                "keyword_results": []
+            }
 
 
 def extract_keywords_from_descriptive_text(

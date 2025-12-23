@@ -1095,7 +1095,7 @@ class PipelineManager:
                 catalog_details_url = getattr(step_config, 'catalog_details_url', '')
                 strict_gnd_validation = True
 
-            dk_search_results = self.pipeline_executor.execute_dk_search(
+            dk_search_result = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
                 stream_callback=self._stream_callback_adapter,
                 max_results=getattr(step_config, 'max_results', DEFAULT_DK_MAX_RESULTS),
@@ -1106,33 +1106,41 @@ class PipelineManager:
                 strict_gnd_validation=strict_gnd_validation,  # EXPERT OPTION - Claude Generated
             )
 
-            # DUAL FORMAT ARCHITECTURE - Claude Generated
-            # Two complementary formats for different purposes:
-            # 1. Keyword-centric: Shows "Keyword X → DK Y, DK Z" (for user understanding)
-            # 2. DK-centric: Shows "DK Y from Keywords [X, ...], DK Z from Keywords [...]" (for LLM analysis)
-            # Both formats coexist for valid reasons:
-            # - keyword-centric: Preserves which keywords led to which DKs (transparency for GUI/export)
+            # Extract components from new deduplication-aware format - Claude Generated Step 5
+            flattened_results = dk_search_result.get("classifications", [])  # Deduplicated for LLM
+            dk_statistics = dk_search_result.get("statistics", {})  # Statistics for display
+            dk_search_results = dk_search_result.get("keyword_results", [])  # Keyword-centric for GUI
+
+            # TRIPLE FORMAT ARCHITECTURE - Claude Generated
+            # Three complementary formats for different purposes:
+            # 1. Keyword-centric: Shows "Keyword X → DK Y, DK Z" (for user understanding/GUI)
+            # 2. Deduplicated (flattened): Shows merged DKs across keywords (for LLM analysis)
+            # 3. Statistics: Frequency, keyword coverage, deduplication metrics (for diagnostics)
             # - DK-centric: Groups DKs with all their source keywords (required for LLM prompt building)
             # Trade-off: Minor redundancy ↔ Clear separation of concerns and better UI/LLM data
 
-            dk_search_results_flattened = dk_search_results
-            if dk_search_results and isinstance(dk_search_results[0], dict):
-                if "classifications" in dk_search_results[0]:
-                    # Detected new keyword-centric format: flatten it for LLM prompt
-                    dk_search_results_flattened = self.pipeline_executor._flatten_keyword_centric_results(
-                        dk_search_results
-                    )
-                    self.logger.info(f"Flattened keyword-centric format: {len(dk_search_results)} keywords → {len(dk_search_results_flattened)} classifications")
-
-            # Store both formats: original for GUI, flattened for LLM prompts
+            # Store all three formats - Claude Generated Step 5
             step.output_data = {
                 "dk_search_results": dk_search_results,  # Keyword-centric: what each keyword found (GUI transparency)
-                "dk_search_results_flattened": dk_search_results_flattened  # DK-centric: aggregated view (LLM analysis)
+                "dk_search_results_flattened": flattened_results,  # Deduplicated DK-centric: merged view (LLM analysis)
+                "dk_statistics": dk_statistics  # Statistics: frequency, deduplication metrics, keyword coverage
             }
 
-            # Transfer DK search results to analysis state - Claude Generated (Use DK-centric format for GUI)
+            # Log deduplication effectiveness - Claude Generated Step 5
+            if dk_statistics:
+                dedup_stats = dk_statistics.get("deduplication_stats", {})
+                if dedup_stats.get("duplicates_removed", 0) > 0:
+                    self.logger.info(
+                        f"✅ DK Deduplication Summary: {dedup_stats.get('original_count', 0)} → "
+                        f"{dk_statistics.get('total_classifications', 0)} classifications | "
+                        f"~{dedup_stats.get('estimated_token_savings', 0)} tokens saved"
+                    )
+
+            # Transfer DK search results to analysis state - Claude Generated (Use deduplicated format for LLM)
             if self.current_analysis_state:
-                self.current_analysis_state.dk_search_results = dk_search_results_flattened  # DK-centric format for GUI display
+                self.current_analysis_state.dk_search_results = dk_search_results  # Keyword-centric for GUI
+                self.current_analysis_state.dk_search_results_flattened = flattened_results  # Deduplicated for LLM
+                self.current_analysis_state.dk_statistics = dk_statistics  # Statistics for display
 
             return True
             
