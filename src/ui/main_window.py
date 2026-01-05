@@ -686,7 +686,8 @@ class MainWindow(QMainWindow):
                 keywords=keywords_text,
                 analysis_result=analysis_result,
                 dk_classifications=analysis_state.dk_classifications,
-                dk_search_results=analysis_state.dk_search_results
+                dk_search_results=analysis_state.dk_search_results,
+                dk_statistics=analysis_state.dk_statistics
             )
             self.logger.info("✅ Analysis review tab populated with pipeline results (keywords and/or DK).")
 
@@ -1333,7 +1334,8 @@ class MainWindow(QMainWindow):
                     final_keywords,
                     full_response,
                     state.dk_classifications,
-                    state.dk_search_results
+                    state.dk_search_results,
+                    state.dk_statistics
                 )
                 self.logger.info("✅ Analysis review tab populated with final results")
 

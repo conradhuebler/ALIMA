@@ -318,17 +318,14 @@ class PipelineStreamWidget(QWidget):
                 step_id,
             )
 
-            # Display DK codes count only (no individual titles)
+            # Display DK codes summary (not individual codes to avoid spam)
             if classifications:
-                for cls in classifications:
-                    dk_code = cls.get("dk", "unknown")
-                    count = cls.get("count", 0)
-
-                    self.add_pipeline_message(
-                        f"   DK {dk_code} ({count} Titel)",
-                        "debug",
-                        step_id,
-                    )
+                total_dk = len(classifications)
+                self.add_pipeline_message(
+                    f"   ✓ {total_dk} DK-Klassifikationen gefunden",
+                    "debug",
+                    step_id,
+                )
 
     @pyqtSlot(object, str)
     def on_step_error(self, step: PipelineStep, error_message: str):

@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
 )  # Claude Generated - Removed QFileDialog (now handled by AnalysisPersistence)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtGui import QFont, QTextCursor, QColor
 import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -52,7 +52,8 @@ class AnalysisReviewTab(QWidget):
 
     def receive_analysis_data(
         self, abstract_text: str, keywords: str = "", analysis_result: str = "",
-        dk_classifications: list = None, dk_search_results: list = None
+        dk_classifications: list = None, dk_search_results: list = None,
+        dk_statistics: dict = None
     ):
         """Receive analysis data from AbstractTab or Pipeline - Claude Generated (Refactored, Extended for DK)"""
         # Create KeywordAnalysisState for unified data handling
@@ -84,7 +85,9 @@ class AnalysisReviewTab(QWidget):
             final_llm_analysis=final_llm_analysis,
             timestamp=datetime.now().isoformat(),
             dk_classifications=dk_classifications or [],
-            dk_search_results=dk_search_results or []
+            dk_search_results=dk_search_results or [],
+            dk_search_results_flattened=[],
+            dk_statistics=dk_statistics
         )
 
         # Update UI
@@ -160,6 +163,22 @@ class AnalysisReviewTab(QWidget):
         self.main_splitter.setSizes([300, 700])
 
         main_layout.addWidget(self.main_splitter)
+
+    def _create_stat_label(self, key: str, label_text: str) -> QLabel:
+        """Create a statistics label widget - Claude Generated
+
+        Args:
+            key: Key for storing in self.dk_dedup_labels
+            label_text: Display text for the label
+
+        Returns:
+            QLabel widget
+        """
+        label = QLabel(f"{label_text} <i>N/A</i>")
+        label.setFont(QFont("Arial", 10))
+        label.setTextFormat(Qt.TextFormat.RichText)
+        self.dk_dedup_labels[key] = label
+        return label
 
     def init_detail_tabs(self):
         """Initialize the detail tabs"""
@@ -250,6 +269,50 @@ class AnalysisReviewTab(QWidget):
         self.stats_text.setFont(font)
         self.details_tabs.addTab(self.stats_text, "Statistiken")
 
+        # DK Statistics tab - Claude Generated (Deduplication metrics and frequency analysis)
+        dk_stats_widget = QWidget()
+        dk_stats_layout = QVBoxLayout(dk_stats_widget)
+
+        # Deduplication Summary Group
+        self.dk_dedup_summary = QGroupBox("📊 Deduplication Summary")
+        dedup_layout = QVBoxLayout()
+        self.dk_dedup_labels = {}  # Store labels for dynamic updates
+        dedup_layout.addWidget(self._create_stat_label("original", "Original Classifications:"))
+        dedup_layout.addWidget(self._create_stat_label("final", "After Deduplication:"))
+        dedup_layout.addWidget(self._create_stat_label("removed", "Duplicates Removed:"))
+        dedup_layout.addWidget(self._create_stat_label("rate", "Deduplication Rate:"))
+        dedup_layout.addWidget(self._create_stat_label("savings", "Estimated Token Savings:"))
+        self.dk_dedup_summary.setLayout(dedup_layout)
+        dk_stats_layout.addWidget(self.dk_dedup_summary)
+
+        # Top 10 Table
+        top10_label = QLabel("<b>Top 10 Most Frequent Classifications</b>")
+        top10_label.setFont(QFont("Arial", 11))
+        dk_stats_layout.addWidget(top10_label)
+
+        self.dk_top10_table = QTableWidget()
+        self.dk_top10_table.setColumnCount(6)
+        self.dk_top10_table.setHorizontalHeaderLabels([
+            "Rank", "DK Code", "Type", "Count", "Keywords", "Confidence"
+        ])
+        self.dk_top10_table.horizontalHeader().setStretchLastSection(True)
+        self.dk_top10_table.setMaximumHeight(300)
+        dk_stats_layout.addWidget(self.dk_top10_table)
+
+        # Keyword Coverage Table
+        coverage_label = QLabel("<b>Keyword Coverage</b>")
+        coverage_label.setFont(QFont("Arial", 11))
+        dk_stats_layout.addWidget(coverage_label)
+
+        self.dk_coverage_table = QTableWidget()
+        self.dk_coverage_table.setColumnCount(2)
+        self.dk_coverage_table.setHorizontalHeaderLabels(["Keyword", "DK Classifications"])
+        self.dk_coverage_table.horizontalHeader().setStretchLastSection(True)
+        dk_stats_layout.addWidget(self.dk_coverage_table)
+
+        dk_stats_layout.addStretch()
+        self.details_tabs.addTab(dk_stats_widget, "📊 DK-Statistik")
+
     def load_analysis(self):
         """Load analysis from JSON file - Claude Generated (Refactored)"""
         # Use centralized AnalysisPersistence
@@ -331,6 +394,16 @@ class AnalysisReviewTab(QWidget):
             final_item.setText(1, "Model: N/A")
         final_item.setData(0, Qt.ItemDataRole.UserRole, "final_analysis")
 
+        # Chunk Details - Claude Generated
+        chunk_details_item = QTreeWidgetItem(root)
+        chunk_details_item.setText(0, "Chunk-Details")
+        chunk_details_item.setData(0, Qt.ItemDataRole.UserRole, "chunk_details")
+        if self.current_analysis.final_llm_analysis and hasattr(self.current_analysis.final_llm_analysis, 'chunk_responses'):
+            chunk_count = len(self.current_analysis.final_llm_analysis.chunk_responses)
+            chunk_details_item.setText(1, f"{chunk_count} Chunks")
+        else:
+            chunk_details_item.setText(1, "Keine Chunks")
+
         # DK/RVK Classifications - Claude Generated
         dk_count = len(self.current_analysis.dk_classifications)
         dk_item = QTreeWidgetItem(root)
@@ -338,11 +411,30 @@ class AnalysisReviewTab(QWidget):
         dk_item.setText(1, f"{dk_count} Klassifikationen")
         dk_item.setData(0, Qt.ItemDataRole.UserRole, "dk_classifications")
 
+        # K10+ Export - Claude Generated
+        k10plus_item = QTreeWidgetItem(root)
+        k10plus_item.setText(0, "K10+ Export")
+        k10plus_item.setData(0, Qt.ItemDataRole.UserRole, "k10plus")
+        if self.current_analysis.dk_classifications or (self.current_analysis.final_llm_analysis and self.current_analysis.final_llm_analysis.extracted_gnd_keywords):
+            k10plus_item.setText(1, "Bereit")
+        else:
+            k10plus_item.setText(1, "Keine Daten")
+
         # Statistics
         stats_item = QTreeWidgetItem(root)
         stats_item.setText(0, "Statistiken")
         stats_item.setText(1, "Zusammenfassung")
         stats_item.setData(0, Qt.ItemDataRole.UserRole, "statistics")
+
+        # DK Statistics - Claude Generated
+        dk_stats_item = QTreeWidgetItem(root)
+        dk_stats_item.setText(0, "DK-Statistik")
+        dk_stats_item.setData(0, Qt.ItemDataRole.UserRole, "dk_statistics")
+        if self.current_analysis.dk_statistics:
+            total = self.current_analysis.dk_statistics.get("total_classifications", 0)
+            dk_stats_item.setText(1, f"{total} Klassifikationen")
+        else:
+            dk_stats_item.setText(1, "Keine Daten")
 
         # Expand all
         self.steps_tree.expandAll()
@@ -553,6 +645,9 @@ class AnalysisReviewTab(QWidget):
         # Statistics
         self.populate_statistics()
 
+        # DK Statistics - Claude Generated
+        self.populate_dk_statistics()
+
     def populate_search_results_table(self):
         """Populate the search results table - Claude Generated (Refactored)"""
         if not self.current_analysis:
@@ -649,8 +744,105 @@ class AnalysisReviewTab(QWidget):
 
         self.stats_text.setPlainText(stats_text)
 
+    def populate_dk_statistics(self):
+        """Populate DK statistics tab - Claude Generated"""
+        if not self.current_analysis or not self.current_analysis.dk_statistics:
+            # Clear displays
+            for label in self.dk_dedup_labels.values():
+                label.setText("<i>No statistics available</i>")
+            self.dk_top10_table.setRowCount(0)
+            self.dk_coverage_table.setRowCount(0)
+            return
+
+        stats = self.current_analysis.dk_statistics
+
+        # Update Deduplication Summary
+        dedup = stats.get("deduplication_stats", {})
+        if dedup:
+            self.dk_dedup_labels["original"].setText(
+                f"Original Classifications: <b>{dedup.get('original_count', 0)}</b>"
+            )
+            final_count = stats.get("total_classifications", 0)
+            self.dk_dedup_labels["final"].setText(
+                f"After Deduplication: <b>{final_count}</b>"
+            )
+            self.dk_dedup_labels["removed"].setText(
+                f"Duplicates Removed: <b>{dedup.get('duplicates_removed', 0)}</b>"
+            )
+            self.dk_dedup_labels["rate"].setText(
+                f"Deduplication Rate: <b>{dedup.get('deduplication_rate', '0%')}</b>"
+            )
+            self.dk_dedup_labels["savings"].setText(
+                f"Estimated Token Savings: <b>~{dedup.get('estimated_token_savings', 0)} tokens</b>"
+            )
+
+        # Populate Top 10 Table
+        most_frequent = stats.get("most_frequent", [])
+        self.dk_top10_table.setRowCount(len(most_frequent))
+
+        for row, item in enumerate(most_frequent):
+            # Rank
+            rank_item = QTableWidgetItem(str(row + 1))
+            rank_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.dk_top10_table.setItem(row, 0, rank_item)
+
+            # DK Code
+            self.dk_top10_table.setItem(row, 1, QTableWidgetItem(item.get('dk', 'unknown')))
+
+            # Type
+            type_item = QTableWidgetItem(item.get('type', 'DK'))
+            type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.dk_top10_table.setItem(row, 2, type_item)
+
+            # Count
+            count_item = QTableWidgetItem(str(item.get('count', 0)))
+            count_item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
+            self.dk_top10_table.setItem(row, 3, count_item)
+
+            # Keywords (truncated)
+            keywords = item.get('keywords', [])
+            kw_display = ', '.join(keywords[:3])
+            if len(keywords) > 3:
+                kw_display += f' (+{len(keywords)-3} more)'
+            self.dk_top10_table.setItem(row, 4, QTableWidgetItem(kw_display))
+
+            # Confidence (color-coded)
+            unique_titles = item.get('unique_titles', item.get('count', 0))
+            if unique_titles > 50:
+                confidence = "🟩🟩🟩🟩🟩 Very High"
+                color = "#d4edda"
+            elif unique_titles > 20:
+                confidence = "🟩🟩🟩 High"
+                color = "#d1ecf1"
+            elif unique_titles > 5:
+                confidence = "🟩🟩 Medium"
+                color = "#fff3cd"
+            else:
+                confidence = "🟩 Low"
+                color = "#f8d7da"
+
+            conf_item = QTableWidgetItem(confidence)
+            conf_item.setBackground(QColor(color))
+            self.dk_top10_table.setItem(row, 5, conf_item)
+
+        self.dk_top10_table.resizeColumnsToContents()
+
+        # Populate Keyword Coverage
+        coverage = stats.get("keyword_coverage", {})
+        self.dk_coverage_table.setRowCount(len(coverage))
+
+        for row, (keyword, dk_codes) in enumerate(sorted(coverage.items())):
+            self.dk_coverage_table.setItem(row, 0, QTableWidgetItem(keyword))
+
+            dk_display = ', '.join(dk_codes[:5])
+            if len(dk_codes) > 5:
+                dk_display += f' (+{len(dk_codes)-5} more)'
+            self.dk_coverage_table.setItem(row, 1, QTableWidgetItem(dk_display))
+
+        self.dk_coverage_table.resizeColumnsToContents()
+
     def on_step_selected(self, item, column):
-        """Handle step selection in tree - Claude Generated (Updated for DK classifications)"""
+        """Handle step selection in tree - Claude Generated (Fixed tab indices, added missing steps)"""
         step_type = item.data(0, Qt.ItemDataRole.UserRole)
 
         if step_type == "original_abstract":
@@ -663,10 +855,16 @@ class AnalysisReviewTab(QWidget):
             self.details_tabs.setCurrentIndex(3)
         elif step_type == "final_analysis":
             self.details_tabs.setCurrentIndex(4)
-        elif step_type == "dk_classifications":
+        elif step_type == "chunk_details":
             self.details_tabs.setCurrentIndex(5)
-        elif step_type == "statistics":
+        elif step_type == "dk_classifications":
             self.details_tabs.setCurrentIndex(6)
+        elif step_type == "k10plus":
+            self.details_tabs.setCurrentIndex(7)
+        elif step_type == "statistics":
+            self.details_tabs.setCurrentIndex(8)
+        elif step_type == "dk_statistics":
+            self.details_tabs.setCurrentIndex(9)
 
     def export_analysis(self):
         """Export current analysis to JSON - Claude Generated (Refactored)"""
