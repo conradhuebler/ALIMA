@@ -142,6 +142,16 @@
                               placeholder="Eingabetext wird hier angezeigt oder geben Sie Text direkt ein..."
                               rows="8"></textarea>
 
+                    <!-- Working title field - Claude Generated -->
+                    <div class="title-section" id="title-section" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                        <div id="title-label-section" style="font-size: 0.9em; color: #666; margin-bottom: 5px; display: none;">
+                            <strong>📋 Arbeitstitel:</strong> <span id="title-display" style="color: #333;"></span>
+                        </div>
+                        <input type="text" id="title-override"
+                               placeholder="Optional: Arbeitstitel überschreiben"
+                               style="width: 100%; padding: 8px; font-size: 0.9em; border: 1px solid #ddd; border-radius: 3px;">
+                    </div>
+
                     <div class="button-group">
                         <button id="analyze-btn" class="btn btn-primary">
                             ▶ Analyse starten

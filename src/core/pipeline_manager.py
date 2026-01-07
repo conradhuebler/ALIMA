@@ -32,6 +32,8 @@ from ..utils.pipeline_utils import (
     PipelineResultFormatter,
     PipelineJsonManager,
     execute_input_extraction,
+    build_working_title,  # For title generation - Claude Generated
+    extract_source_identifier,  # For title generation - Claude Generated
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType
 from ..utils.config_models import (
@@ -402,7 +404,7 @@ class PipelineManager:
             self._is_interrupted = True
             raise InterruptedError("Pipeline interrupted by user")
 
-    def start_pipeline(self, input_text: str, input_type: str = "text", force_update: bool = False) -> str:
+    def start_pipeline(self, input_text: str, input_type: str = "text", input_source: str = None, force_update: bool = False) -> str:
         """Start a new pipeline execution - Claude Generated"""
         pipeline_id = str(uuid.uuid4())
 
@@ -421,6 +423,13 @@ class PipelineManager:
             initial_llm_call_details=None,
             final_llm_analysis=None,
         )
+
+        # Store source info for title generation - Claude Generated
+        self.current_analysis_state.extraction_info = {
+            "source": input_source or input_text[:50],  # Use source if provided, otherwise text preview
+            "input_type": input_type,
+            "method": "direct"
+        }
 
         # Create pipeline steps
         self.pipeline_steps = self._create_pipeline_steps(input_type)
@@ -842,7 +851,7 @@ class PipelineManager:
                     f"Initialisation: Mapped system_prompt to system parameter"
                 )
 
-            keywords, gnd_classes, llm_analysis = (
+            keywords, gnd_classes, llm_analysis, llm_title = (
                 self.pipeline_executor.execute_initial_keyword_extraction(
                     abstract_text=self.current_analysis_state.original_abstract,
                     model=step.model,
@@ -860,6 +869,36 @@ class PipelineManager:
             self.current_analysis_state.initial_keywords = keywords
             self.current_analysis_state.initial_gnd_classes = gnd_classes
             self.current_analysis_state.initial_llm_call_details = llm_analysis
+
+            # Build and set working title - Claude Generated
+            if hasattr(self.current_analysis_state, 'extraction_info') and self.current_analysis_state.extraction_info:
+                source_value = self.current_analysis_state.extraction_info.get('source', 'text')
+                input_type = self.current_analysis_state.extraction_info.get('input_type', 'text')
+
+                # Extract clean source identifier
+                source_id = extract_source_identifier(input_type, source_value)
+
+                # Build complete working title
+                working_title = build_working_title(
+                    llm_title=llm_title,
+                    source_identifier=source_id,
+                    timestamp=self.current_analysis_state.timestamp
+                )
+
+                # Set in analysis state
+                self.current_analysis_state.working_title = working_title
+
+                if self.logger:
+                    self.logger.info(f"📝 Generated working title: '{working_title}'")
+            else:
+                # Fallback if no extraction info
+                if self.logger:
+                    self.logger.warning("⚠️ No extraction_info available, using minimal title")
+                self.current_analysis_state.working_title = build_working_title(
+                    llm_title=llm_title,
+                    source_identifier='text',
+                    timestamp=self.current_analysis_state.timestamp
+                )
 
             step.output_data = {"keywords": keywords, "gnd_classes": gnd_classes}
             return True

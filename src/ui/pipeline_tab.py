@@ -277,6 +277,9 @@ class PipelineTab(QWidget):
         self.step_widgets: Dict[str, PipelineStepWidget] = {}
         self.unified_input: Optional[UnifiedInputWidget] = None
 
+        # Working title label - Claude Generated
+        self.title_label: Optional[QLabel] = None
+
         # Input state
         self.current_input_text: str = ""
         self.current_source_info: str = ""
@@ -316,6 +319,32 @@ class PipelineTab(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Working title display and override field - Claude Generated
+        title_widget = QWidget()
+        title_layout = QVBoxLayout(title_widget)
+        title_layout.setContentsMargins(5, 5, 5, 5)
+        title_layout.setSpacing(3)
+
+        # Title label (shown after initialisation) - Claude Generated
+        self.title_label = QLabel()
+        self.title_label.setStyleSheet("font-size: 11px; color: #555555; padding: 2px;")
+        self.title_label.setVisible(False)  # Hidden until title generated
+        title_layout.addWidget(self.title_label)
+
+        # Title override field - Claude Generated
+        from PyQt6.QtWidgets import QLineEdit
+        self.title_override_field = QLineEdit()
+        self.title_override_field.setPlaceholderText("Optional: Arbeitstitel überschreiben")
+        self.title_override_field.setStyleSheet("font-size: 10px; padding: 6px; border: 1px solid #ddd; border-radius: 3px;")
+        self.title_override_field.returnPressed.connect(self.on_title_override_changed)
+        self.title_override_field.editingFinished.connect(self.on_title_override_changed)
+        title_layout.addWidget(self.title_override_field)
+
+        title_widget.setMaximumHeight(65)
+        # Widget visible from start (label hidden until title generated) - Claude Generated
+        self.title_widget = title_widget
+        main_layout.addWidget(title_widget)
 
         # Main pipeline area (control header moved to compact widget)
         self.setup_pipeline_area(main_layout)
@@ -1518,6 +1547,26 @@ class PipelineTab(QWidget):
                 self.logger.debug(
                     f"Set initialisation_result text to: '{free_keywords}'"
                 )
+
+            # Display working title after initialisation - Claude Generated
+            if (self.pipeline_manager.current_analysis_state and
+                hasattr(self.pipeline_manager.current_analysis_state, 'working_title') and
+                self.pipeline_manager.current_analysis_state.working_title):
+                working_title = self.pipeline_manager.current_analysis_state.working_title
+
+                # Show title label
+                self.title_label.setText(f"📋 {working_title}")
+                self.title_label.setVisible(True)
+
+                # Pre-fill override field if not already set
+                if not self.title_override_field.text().strip():
+                    self.title_override_field.setPlaceholderText(f"Current: {working_title}")
+
+                # Set working title in stream widget for log filename - Claude Generated
+                if hasattr(self, 'stream_widget') and self.stream_widget:
+                    self.stream_widget.set_working_title(working_title)
+
+                self.logger.info(f"Displaying working title: {working_title}")
         elif step.step_id == "search" and step.output_data:
             gnd_treffer = step.output_data.get("gnd_treffer", [])
             # if hasattr(self, 'search_result'):
@@ -1693,6 +1742,22 @@ class PipelineTab(QWidget):
         if analysis_state:
             self.pipeline_results_ready.emit(analysis_state)
 
+        # Optional: Auto-save after completion - Claude Generated
+        if hasattr(analysis_state, 'working_title') and analysis_state.working_title:
+            from ..utils.pipeline_utils import PipelineJsonManager
+            from pathlib import Path
+
+            # Use ~/Documents/ALIMA_Results as default auto-save directory
+            auto_save_dir = Path.home() / "Documents" / "ALIMA_Results"
+            auto_save_dir.mkdir(parents=True, exist_ok=True)
+
+            auto_save_file = auto_save_dir / f"{analysis_state.working_title}.json"
+            try:
+                PipelineJsonManager.save_analysis_state(analysis_state, str(auto_save_file))
+                self.logger.info(f"✅ Auto-saved pipeline result to: {auto_save_file}")
+            except Exception as e:
+                self.logger.warning(f"Auto-save failed: {e}")
+
         QMessageBox.information(
             self,
             "Pipeline abgeschlossen",
@@ -1735,6 +1800,21 @@ class PipelineTab(QWidget):
             self.stream_widget.end_llm_streaming()
 
         # Note: Removed QMessageBox - status label provides sufficient feedback - Claude Generated
+
+    def on_title_override_changed(self):
+        """Handle title override field changes - Claude Generated"""
+        override_text = self.title_override_field.text().strip()
+
+        if override_text and self.pipeline_manager.current_analysis_state:
+            # Update working_title in analysis state with override
+            self.pipeline_manager.current_analysis_state.working_title = override_text
+            self.title_label.setText(f"📋 {override_text}")
+
+            # Update MainWindow title if available
+            if self.main_window and hasattr(self.main_window, 'update_window_title'):
+                self.main_window.update_window_title(override_text)
+
+            self.logger.info(f"Title override applied: {override_text}")
 
     @pyqtSlot(str, str)
     def on_llm_stream_token(self, token: str, step_id: str):

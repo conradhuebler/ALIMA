@@ -98,6 +98,16 @@ class AlimaWebapp {
             this.clearSession();
         });
 
+        // Title override field - Claude Generated
+        document.getElementById('title-override').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.applyTitleOverride();
+            }
+        });
+        document.getElementById('title-override').addEventListener('blur', () => {
+            this.applyTitleOverride();
+        });
+
         // Cancel button (cancel running pipeline)
         document.getElementById('cancel-btn').addEventListener('click', () => {
             this.cancelAnalysis();
@@ -551,6 +561,11 @@ class AlimaWebapp {
 
     // Update pipeline status from WebSocket - Claude Generated
     updatePipelineStatus(msg) {
+        // Display working title if available - Claude Generated
+        if (msg.results && msg.results.working_title) {
+            this.displayWorkingTitle(msg.results.working_title);
+        }
+
         // Update auto-save indicator - Claude Generated (2026-01-06)
         if (msg.autosave_timestamp) {
             this.updateAutosaveStatus(msg.autosave_timestamp);
@@ -610,6 +625,11 @@ class AlimaWebapp {
         console.log('Analysis complete:', msg);
 
         if (msg.status === 'completed') {
+            // Display working title if available - Claude Generated
+            if (msg.results && msg.results.working_title) {
+                this.displayWorkingTitle(msg.results.working_title);
+            }
+
             // Check if this is input extraction only or full pipeline - Claude Generated
             const isExtractionOnly = msg.results && msg.results.input_mode === 'extraction_only';
 
@@ -707,6 +727,40 @@ class AlimaWebapp {
         });
     }
 
+    // Display working title after initialisation - Claude Generated
+    displayWorkingTitle(workingTitle) {
+        if (workingTitle) {
+            const titleLabelSection = document.getElementById('title-label-section');
+            const titleDisplay = document.getElementById('title-display');
+            const titleOverride = document.getElementById('title-override');
+
+            titleDisplay.textContent = workingTitle;
+            titleLabelSection.style.display = 'block';  // Show only the label section
+
+            // Pre-fill input field with current title if not already filled by user
+            if (!titleOverride.value.trim()) {
+                titleOverride.value = workingTitle;
+            }
+
+            this.currentWorkingTitle = workingTitle;
+        }
+    }
+
+    // Apply title override - Claude Generated
+    applyTitleOverride() {
+        const override = document.getElementById('title-override').value.trim();
+        if (override && this.sessionId) {
+            // Send override to backend via fetch
+            fetch(`/api/session/${this.sessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ working_title: override })
+            }).catch(e => console.warn('Could not save title override:', e));
+
+            document.getElementById('title-display').textContent = override;
+        }
+    }
+
     // Display results in stream (Claude Generated - Updated for full results)
     displayResults(results) {
         if (!results) return;
@@ -767,21 +821,33 @@ class AlimaWebapp {
         if (results.final_keywords && results.final_keywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item keyword';
-            item.innerHTML = `<strong>GND-Schlagworte:</strong> ${results.final_keywords.slice(0, 3).join(', ')}${results.final_keywords.length > 3 ? '...' : ''}`;
+            item.style.maxHeight = '100px';
+            item.style.overflowY = 'auto';
+            item.style.wordWrap = 'break-word';
+            item.style.whiteSpace = 'normal';
+            item.innerHTML = `<strong>GND-Schlagworte:</strong> ${results.final_keywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
 
         if (results.dk_classifications && results.dk_classifications.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item classification';
-            item.innerHTML = `<strong>Klassifikationen:</strong> ${results.dk_classifications.slice(0, 3).join(', ')}${results.dk_classifications.length > 3 ? '...' : ''}`;
+            item.style.maxHeight = '120px';
+            item.style.overflowY = 'auto';
+            item.style.wordWrap = 'break-word';
+            item.style.whiteSpace = 'normal';
+            item.innerHTML = `<strong>Klassifikationen:</strong> ${results.dk_classifications.join(', ')}`;
             summaryDiv.appendChild(item);
         }
 
         if (results.initial_keywords && results.initial_keywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item';
-            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${results.initial_keywords.slice(0, 3).join(', ')}${results.initial_keywords.length > 3 ? '...' : ''}`;
+            item.style.maxHeight = '100px';
+            item.style.overflowY = 'auto';
+            item.style.wordWrap = 'break-word';
+            item.style.whiteSpace = 'normal';
+            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${results.initial_keywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
     }

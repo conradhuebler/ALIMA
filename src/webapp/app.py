@@ -162,6 +162,7 @@ class Session:
         self.autosave_failed = False
         self.autosave_timestamp = None  # Last auto-save timestamp for status indicator
         self.current_analysis_state = None  # Reference to PipelineManager state
+        self.working_title = None  # Working title from initialisation step - Claude Generated
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -436,6 +437,9 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
     # Extract original abstract
     original_abstract = getattr(analysis_state, 'original_abstract', '')
 
+    # Extract working title - Claude Generated
+    working_title = getattr(analysis_state, 'working_title', '')
+
     # Extract search results
     search_results = getattr(analysis_state, 'search_results', [])
 
@@ -504,8 +508,9 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
         return value
 
     return {
-        # Input & Keywords
+        # Input & Keywords & Title
         "original_abstract": original_abstract,
+        "working_title": working_title,  # Claude Generated
         "initial_keywords": ensure_json_serializable(initial_keywords),
         "final_keywords": ensure_json_serializable(final_keywords),
 
@@ -703,8 +708,14 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
 
         session.add_temp_file(temp_file.name)
 
-        # Filename includes status indicator - Claude Generated (2026-01-06)
-        filename = f"alima_analysis_{session.session_id}_{status_suffix}.json"
+        # Filename includes working title if available - Claude Generated
+        if session.working_title:
+            filename = f"{session.working_title}.json"
+            logger.info(f"📥 Export filename from working_title: {filename}")
+        else:
+            # Fallback: use session ID and status indicator - Claude Generated (2026-01-06)
+            filename = f"alima_analysis_{session.session_id}_{status_suffix}.json"
+            logger.warning(f"⚠️ No working_title, using fallback filename: {filename} (session.working_title={session.working_title})")
 
         return FileResponse(
             temp_file.name,
@@ -860,7 +871,31 @@ async def run_analysis(
 
         def on_step_completed(step):
             session.current_step = step.step_id
-            logger.info(f"Step completed: {step.step_id}")
+            logger.info(f"Step completed: {step.step_id} (type: {type(step.step_id)}, repr: {repr(step.step_id)})")
+
+            # Update working title after initialisation - Claude Generated
+            logger.info(f"Checking if step_id matches 'initialisation': {step.step_id} == 'initialisation' -> {step.step_id == 'initialisation'}")
+
+            if step.step_id == "initialisation":
+                logger.info(f"✓ Initialisation step completed, checking for working_title...")
+                if pipeline_manager.current_analysis_state:
+                    logger.info(f"✓ Analysis state exists")
+                    if hasattr(pipeline_manager.current_analysis_state, 'working_title'):
+                        wt = pipeline_manager.current_analysis_state.working_title
+                        logger.info(f"✓ Found working_title attribute: '{wt}'")
+                        session.working_title = wt
+                        # Also update session.results for WebSocket transmission - Claude Generated
+                        if not session.results:
+                            session.results = {}
+                        session.results['working_title'] = wt
+                        logger.info(f"✅ Session working title set to: {session.working_title}")
+                        logger.info(f"✅ Session results updated with working_title: {session.results.get('working_title')}")
+                    else:
+                        logger.warning("⚠️ Analysis state has no working_title attribute")
+                else:
+                    logger.warning("⚠️ No current_analysis_state available")
+            else:
+                logger.info(f"ℹ️ Not initialisation step, skipping working_title update")
 
             # Auto-save after each step completion - Claude Generated
             if session.autosave_enabled:
@@ -880,11 +915,26 @@ async def run_analysis(
             # Use shared extraction helper (DRY principle) - Claude Generated
             session.results = _extract_results_from_analysis_state(analysis_state)
 
+            # Synchronize session.working_title with session.results['working_title'] - Claude Generated
+            if session.results.get('working_title'):
+                session.working_title = session.results['working_title']
+                logger.info(f"✅ Synchronized session.working_title from results: {session.working_title}")
+            else:
+                logger.warning(f"⚠️ No working_title in results, session.working_title remains: {session.working_title}")
+
             # Log summary
             final_keywords = session.results.get("final_keywords", [])
             dk_classifications = session.results.get("dk_classifications", [])
             initial_keywords = session.results.get("initial_keywords", [])
             logger.info(f"Extracted results - keywords: {len(final_keywords)}, classifications: {len(dk_classifications)}, initial: {len(initial_keywords)}")
+
+            # Wait for WebSocket to send ALL remaining streaming tokens - Claude Generated
+            # WebSocket sends updates every 500ms, so wait at least 600ms to ensure final tokens are sent
+            import time
+            time.sleep(0.6)
+
+            total_tokens = sum(len(t) for t in session.streaming_buffer.values()) if session.streaming_buffer else 0
+            logger.info(f"Waited 600ms for final streaming tokens to be sent (buffer has {total_tokens} total tokens)")
 
             session.status = "completed"
             session.current_step = "classification"

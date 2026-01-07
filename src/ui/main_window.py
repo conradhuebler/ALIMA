@@ -500,6 +500,9 @@ class MainWindow(QMainWindow):
         # Central distribution via on_pipeline_results_ready slot
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_results_ready)
 
+        # Update window title when pipeline completes - Claude Generated
+        self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_title_update)
+
         # Add Pipeline tab first
         self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")
 
@@ -701,6 +704,20 @@ class MainWindow(QMainWindow):
             self.logger.info(f"DK classifications available: {len(analysis_state.dk_classifications)} entries")
 
         self.logger.info("Pipeline results successfully distributed to all tabs")
+
+    def update_window_title(self, arbeitstitel: str = None):
+        """Update window title with optional work title - Claude Generated"""
+        if arbeitstitel:
+            self.setWindowTitle(f"ALIMA - {arbeitstitel}")
+        else:
+            self.setWindowTitle("ALIMA - Automatisierte Schlagwortgenerierung")
+
+    @pyqtSlot(object)
+    def on_pipeline_title_update(self, analysis_state):
+        """Update window title with working title from analysis state - Claude Generated"""
+        if analysis_state and hasattr(analysis_state, 'working_title') and analysis_state.working_title:
+            self.update_window_title(analysis_state.working_title)
+            self.logger.info(f"Window title updated: {analysis_state.working_title}")
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):
@@ -1383,11 +1400,19 @@ class MainWindow(QMainWindow):
             state_to_save = self.analysis_review_tab.current_analysis
             self.logger.info("Exporting current analysis state from AnalysisReviewTab.")
 
-            # 3. Den bewährten Speicher-Dialog mit dem korrekten Objekt aufrufen
+            # 3. Use working_title for filename if available - Claude Generated
+            if hasattr(state_to_save, 'working_title') and state_to_save.working_title:
+                default_filename = f"{state_to_save.working_title}.json"
+                self.logger.info(f"Using working_title for export: {default_filename}")
+            else:
+                default_filename = f"analysis_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                self.logger.info(f"No working_title, using timestamp: {default_filename}")
+
+            # 4. Den bewährten Speicher-Dialog mit dem korrekten Objekt aufrufen
             file_path = AnalysisPersistence.save_with_dialog(
                 state=state_to_save,
                 parent_widget=self,
-                default_filename=f"analysis_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                default_filename=default_filename
             )
 
             if file_path:

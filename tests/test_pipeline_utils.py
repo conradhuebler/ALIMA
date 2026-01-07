@@ -59,7 +59,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.mock_alima_manager.analyze_abstract.return_value = mock_task_state
 
         # 2. Act: Call the method we are testing
-        keywords, gnd_classes, llm_analysis = self.executor.execute_initial_keyword_extraction(
+        keywords, gnd_classes, llm_analysis, llm_title = self.executor.execute_initial_keyword_extraction(
             abstract_text=abstract_text,
             model=model,
             provider=provider,

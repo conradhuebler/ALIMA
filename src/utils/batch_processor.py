@@ -418,8 +418,15 @@ class BatchProcessor:
 
             result.state = state
 
-            # Step 3: Save result to JSON
-            output_file = self.output_dir / source.get_safe_filename()
+            # Step 3: Save result to JSON using working_title if available - Claude Generated
+            if hasattr(state, 'working_title') and state.working_title:
+                # Use working title for filename
+                output_filename = f"{state.working_title}.json"
+            else:
+                # Fallback to safe source filename
+                output_filename = source.get_safe_filename()
+
+            output_file = self.output_dir / output_filename
             self._save_result(state, str(output_file))
 
             result.output_file = str(output_file)

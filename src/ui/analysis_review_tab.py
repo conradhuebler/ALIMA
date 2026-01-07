@@ -874,11 +874,19 @@ class AnalysisReviewTab(QWidget):
             )
             return
 
+        # Use working_title for filename if available - Claude Generated
+        if hasattr(self.current_analysis, 'working_title') and self.current_analysis.working_title:
+            default_filename = f"{self.current_analysis.working_title}.json"
+            self.logger.info(f"Using working_title for export: {default_filename}")
+        else:
+            default_filename = f"analysis_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            self.logger.info(f"No working_title, using timestamp: {default_filename}")
+
         # Use centralized AnalysisPersistence
         file_path = AnalysisPersistence.save_with_dialog(
             state=self.current_analysis,
             parent_widget=self,
-            default_filename=f"analysis_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            default_filename=default_filename
         )
 
         if file_path:
@@ -930,16 +938,17 @@ class AnalysisReviewTab(QWidget):
 
         # Table
         self.batch_table = QTableWidget()
-        self.batch_table.setColumnCount(5)
+        self.batch_table.setColumnCount(6)  # Added column for working title - Claude Generated
         self.batch_table.setHorizontalHeaderLabels([
-            "Status", "Quelle", "Keywords", "Datum", "Aktionen"
+            "Status", "Quelle", "Arbeitstitel", "Keywords", "Datum", "Aktionen"
         ])
         self.batch_table.horizontalHeader().setStretchLastSection(False)
         self.batch_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.batch_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.batch_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.batch_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.batch_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Arbeitstitel column stretches
         self.batch_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.batch_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.batch_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
 
         self.batch_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.batch_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -1012,13 +1021,18 @@ class AnalysisReviewTab(QWidget):
             source_item = QTableWidgetItem(filename)
             self.batch_table.setItem(row, 1, source_item)
 
+            # Arbeitstitel - Claude Generated
+            working_title = getattr(state, 'working_title', None) or "(nicht gesetzt)"
+            title_item = QTableWidgetItem(working_title)
+            self.batch_table.setItem(row, 2, title_item)
+
             # Keywords count
             keyword_count = 0
             if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
                 keyword_count = len(state.final_llm_analysis.extracted_gnd_keywords)
             keyword_item = QTableWidgetItem(str(keyword_count))
             keyword_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.batch_table.setItem(row, 2, keyword_item)
+            self.batch_table.setItem(row, 3, keyword_item)
 
             # Date
             date_str = state.timestamp or ""
@@ -1032,12 +1046,12 @@ class AnalysisReviewTab(QWidget):
                     pass
             date_item = QTableWidgetItem(date_str)
             date_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.batch_table.setItem(row, 3, date_item)
+            self.batch_table.setItem(row, 4, date_item)
 
             # Actions button
             view_btn = QPushButton("View")
             view_btn.clicked.connect(lambda checked, r=row: self.view_batch_result(r))
-            self.batch_table.setCellWidget(row, 4, view_btn)
+            self.batch_table.setCellWidget(row, 5, view_btn)
 
     def on_batch_row_double_clicked(self, row: int, column: int):
         """Handle double-click on batch table row - Claude Generated"""

@@ -887,6 +887,9 @@ EXAMPLES:
         "--output-json", help="Path to save the complete pipeline results."
     )
     pipeline_parser.add_argument(
+        "--title", help="Override generated work title (default: auto-generated from LLM + source + timestamp)"
+    )
+    pipeline_parser.add_argument(
         "--resume-from", help="Path to resume pipeline from previous state."
     )
     pipeline_parser.add_argument(
@@ -1725,6 +1728,9 @@ EXAMPLES:
                     return
 
                 print_result("\n--- Pipeline Results ---")
+                # Show working title - Claude Generated
+                if analysis_state.working_title:
+                    print_result(f"Working Title: {analysis_state.working_title}")
                 print_result(f"Initial Keywords: {analysis_state.initial_keywords}")
                 print_result(
                     f"Final Keywords: {analysis_state.final_llm_analysis.extracted_gnd_keywords}"
@@ -1794,13 +1800,26 @@ EXAMPLES:
                         logger.warning(f"Failed to save provider preferences: {e}")
                         print(f"\n⚠️ Failed to save preferences: {e}")
 
-            # Save results if requested
-            if args.output_json:
+            # Save results if requested - Claude Generated
+            # Auto-generate filename from working_title if not specified
+            output_file = args.output_json
+            if not output_file and analysis_state.working_title:
+                output_file = f"{analysis_state.working_title}.json"
+                logger.info(f"Auto-generated output filename from working title: {output_file}")
+            elif not output_file:
+                # Fallback to timestamp
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                output_file = f"analysis_state_{timestamp}.json"
+                logger.info(f"Auto-generated output filename from timestamp: {output_file}")
+
+            if output_file:
                 try:
                     PipelineJsonManager.save_analysis_state(
-                        analysis_state, args.output_json
+                        analysis_state, output_file
                     )
-                    logger.info(f"Pipeline results saved to {args.output_json}")
+                    logger.info(f"Pipeline results saved to {output_file}")
+                    print(f"\n💾 Results saved to: {output_file}")
                 except Exception as e:
                     logger.error(f"Error saving pipeline results: {e}")
 

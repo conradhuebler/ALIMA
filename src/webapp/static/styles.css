@@ -614,7 +614,8 @@ input[type="text"]:focus {
     padding: 16px;
     display: flex;
     flex-direction: column;
-    min-height: 350px;
+    min-height: 500px;
+    max-height: 70vh;
     grid-column: 1 / -1;
 }
 

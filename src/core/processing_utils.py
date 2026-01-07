@@ -88,6 +88,37 @@ def extract_keywords_from_response(text: str) -> str:
     return ""
 
 
+def extract_title_from_response(text: str) -> Optional[str]:
+    """
+    Extract work title from LLM response <final_title> tags - Claude Generated
+
+    Args:
+        text: LLM response text
+
+    Returns:
+        Extracted title string or None if not found
+    """
+    logger.info(f"extract_title_from_response called with text length {len(text)}")
+
+    # Remove <think> tags first (same pattern as extract_keywords_from_response)
+    cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    # Extract <final_title> content
+    match = re.search(r"<final_title>(.*?)</final_title>", cleaned_text, re.DOTALL)
+    if match:
+        # Extract and clean the title
+        title = match.group(1).strip()
+
+        # Remove newlines and excessive whitespace
+        title = ' '.join(title.split())
+
+        logger.debug(f"Extracted title: '{title}'")
+        return title
+
+    logger.debug("No <final_title> tag found.")
+    return None
+
+
 def extract_gnd_system_from_response(text: str) -> Optional[str]:
     logger.info(f"extract_gnd_system_from_response called with text length {len(text)}")
     try:

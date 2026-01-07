@@ -40,6 +40,7 @@ class PipelineStreamWidget(QWidget):
         self.current_step_id: Optional[str] = None
         self.is_streaming: bool = False
         self.step_start_times: Dict[str, datetime] = {}
+        self.current_working_title: Optional[str] = None  # For log filename - Claude Generated
 
         self.setup_ui()
 
@@ -372,10 +373,16 @@ class PipelineStreamWidget(QWidget):
         """Save stream log to file - Claude Generated"""
         from PyQt6.QtWidgets import QFileDialog
 
+        # Use working_title for log filename if available - Claude Generated
+        if self.current_working_title:
+            default_filename = f"{self.current_working_title}_log.txt"
+        else:
+            default_filename = f"pipeline_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Pipeline-Log speichern",
-            f"pipeline_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            default_filename,
             "Text Files (*.txt);;All Files (*)",
         )
 
@@ -392,8 +399,14 @@ class PipelineStreamWidget(QWidget):
             except Exception as e:
                 self.add_pipeline_message(f"Fehler beim Speichern: {e}", "error")
 
+    def set_working_title(self, working_title: str):
+        """Set working title for log filename - Claude Generated"""
+        self.current_working_title = working_title
+        self.logger.info(f"Stream widget: working_title set to '{working_title}'")
+
     def reset_for_new_pipeline(self):
         """Reset widget for new pipeline - Claude Generated"""
         self.current_step_id = None
         self.step_start_times.clear()
         self.is_streaming = False
+        self.current_working_title = None  # Reset title for new pipeline - Claude Generated

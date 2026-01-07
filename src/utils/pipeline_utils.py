@@ -9,6 +9,7 @@ import re
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import asdict
 from datetime import datetime
+from urllib.parse import urlparse  # For URL parsing in title builder - Claude Generated
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,127 @@ from .suggesters.meta_suggester import SuggesterType
 from ..core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
+    extract_title_from_response,  # For LLM title extraction - Claude Generated
 )
 from .smart_provider_selector import SmartProviderSelector, TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
+
+
+# Title Building Utilities - Claude Generated
+def sanitize_for_filename(text: str, max_length: int = 50) -> str:
+    """
+    Sanitize text for use in filenames - Claude Generated
+
+    Args:
+        text: Text to sanitize
+        max_length: Maximum length (default 50)
+
+    Returns:
+        Sanitized filename-safe string
+    """
+    if not text:
+        return "untitled"
+
+    # Replace problematic characters with underscores
+    # Windows forbidden: < > : " / \ | ? *
+    # Also replace spaces, commas, periods
+    sanitized = re.sub(r'[<>:"/\\|?*\s,.]', '_', text)
+
+    # Remove consecutive underscores
+    sanitized = re.sub(r'_+', '_', sanitized)
+
+    # Trim underscores from start/end
+    sanitized = sanitized.strip('_')
+
+    # Truncate to max length
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length].rstrip('_')
+
+    return sanitized or "untitled"
+
+
+def build_working_title(
+    llm_title: Optional[str],
+    source_identifier: str,
+    timestamp: Optional[str] = None,
+    fallback_prefix: str = "analysis"
+) -> str:
+    """
+    Build complete working title: {llm_title}_{source}_{timestamp} - Claude Generated
+
+    Args:
+        llm_title: Title extracted from LLM (can be None)
+        source_identifier: DOI/filename/URL identifier
+        timestamp: ISO timestamp (generated if None)
+        fallback_prefix: Prefix when llm_title missing
+
+    Returns:
+        Complete working title string
+    """
+    # Generate timestamp if not provided
+    if not timestamp:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    else:
+        # Convert ISO to compact format if needed
+        try:
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            timestamp = dt.strftime('%Y%m%d_%H%M%S')
+        except:
+            # If parsing fails, use as-is (might already be compact)
+            pass
+
+    # Build title components
+    components = []
+
+    # Component 1: LLM title or fallback
+    if llm_title:
+        components.append(sanitize_for_filename(llm_title, max_length=30))
+    else:
+        components.append(fallback_prefix)
+
+    # Component 2: Source identifier
+    source_clean = sanitize_for_filename(source_identifier, max_length=40)
+    if source_clean and source_clean != "untitled":
+        components.append(source_clean)
+
+    # Component 3: Timestamp
+    components.append(timestamp)
+
+    # Combine with underscores
+    return '_'.join(components)
+
+
+def extract_source_identifier(
+    input_type: str,
+    input_value: str
+) -> str:
+    """
+    Extract clean source identifier from input - Claude Generated
+
+    Args:
+        input_type: 'text', 'doi', 'pdf', 'img', 'url'
+        input_value: The actual input value/path
+
+    Returns:
+        Clean source identifier string
+    """
+    if input_type == 'doi':
+        # DOI: Use the DOI itself (already sanitized by build_working_title)
+        return input_value
+
+    elif input_type in ('pdf', 'img'):
+        # File: Use basename without extension
+        from pathlib import Path
+        return Path(input_value).stem
+
+    elif input_type == 'url':
+        # URL: Extract domain
+        parsed = urlparse(input_value)
+        return parsed.netloc or 'url'
+
+    else:  # 'text'
+        # Text: Don't include text preview in identifier - Claude Generated
+        return 'text'
 
 
 class PipelineStepExecutor:
@@ -221,7 +340,7 @@ class PipelineStepExecutor:
         task: str = "initialisation",
         stream_callback: Optional[callable] = None,
         **kwargs,
-    ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
+    ) -> Tuple[List[str], List[str], LlmKeywordAnalysis, Optional[str]]:
         """Execute initial keyword extraction step with intelligent provider selection - Claude Generated"""
 
         # Intelligent provider selection using centralized method - Claude Generated
@@ -283,6 +402,15 @@ class PipelineStepExecutor:
             task_state.analysis_result.full_text
         )
 
+        # Extract title from response - Claude Generated
+        llm_title = extract_title_from_response(task_state.analysis_result.full_text)
+
+        if self.logger:
+            if llm_title:
+                self.logger.info(f"📝 Extracted LLM title: '{llm_title}'")
+            else:
+                self.logger.warning("⚠️ No <final_title> found in LLM response - will use fallback")
+
         # Create analysis details
         llm_analysis = LlmKeywordAnalysis(
             task_name=task,
@@ -301,7 +429,7 @@ class PipelineStepExecutor:
             extracted_gnd_classes=gnd_classes,
         )
 
-        return keywords, gnd_classes, llm_analysis
+        return keywords, gnd_classes, llm_analysis, llm_title  # BREAKING CHANGE: Now returns 4-tuple - Claude Generated
 
     def execute_gnd_search(
         self,

@@ -79,6 +79,7 @@ class KeywordAnalysisState:
     original_abstract: Optional[str]
     initial_keywords: List[str]
     search_suggesters_used: List[str]
+    working_title: Optional[str] = None  # LLM-generated work title for identification - Claude Generated
     initial_gnd_classes: List[str] = field(default_factory=list)
     search_results: List[SearchResult] = field(default_factory=list)
     initial_llm_call_details: Optional[LlmKeywordAnalysis] = None
