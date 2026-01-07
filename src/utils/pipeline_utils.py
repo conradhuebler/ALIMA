@@ -1763,10 +1763,11 @@ class PipelineStepExecutor:
 
             # Process EACH keyword individually for detailed feedback
             for idx, keyword in enumerate(final_search_keywords, 1):
-                # Progress callback BEFORE search
+                # Progress callback with percentage - Claude Generated
                 if stream_callback:
+                    progress_pct = int((idx / len(final_search_keywords)) * 100)
                     stream_callback(
-                        f"[{idx}/{len(final_search_keywords)}] Suche '{keyword}'...\n",
+                        f"[{idx}/{len(final_search_keywords)}] ({progress_pct}%) Suche '{keyword}'...\n",
                         "dk_search"
                     )
 

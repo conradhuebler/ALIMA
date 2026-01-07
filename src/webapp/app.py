@@ -41,6 +41,13 @@ logger = logging.getLogger(__name__)
 # Get project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
+# Auto-Save Configuration - Claude Generated (2026-01-06)
+# These settings control the auto-save and recovery system
+AUTOSAVE_ENABLED = True  # Enable/disable auto-save system
+AUTOSAVE_MAX_AGE_HOURS = 24  # Auto-cleanup files older than this (hours)
+WEBSOCKET_TIMEOUT_SECONDS = 1800  # WebSocket idle timeout (30 minutes = 1800s)
+WEBSOCKET_HEARTBEAT_INTERVAL = 5  # Heartbeat interval in seconds (5s)
+
 app = FastAPI(title="ALIMA Webapp", description="Pipeline widget as web interface")
 
 # CORS middleware for development
@@ -56,6 +63,11 @@ app.add_middleware(
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# Auto-save directory for session recovery - Claude Generated
+AUTOSAVE_DIR = Path(tempfile.gettempdir()) / "alima_webapp_autosave"
+AUTOSAVE_DIR.mkdir(exist_ok=True)
+logger.info(f"Auto-save directory: {AUTOSAVE_DIR}")
 
 # Store active sessions and their results
 sessions: dict = {}
@@ -144,6 +156,12 @@ class Session:
         self.streaming_buffer = {}  # Buffer for streaming tokens by step_id - Claude Generated
         self.streaming_buffer_sent_count = {}  # Track how many tokens sent per step - Claude Generated
         self.abort_requested = False  # Flag to signal pipeline abort - Claude Generated
+        # Auto-save support - Claude Generated
+        self.autosave_path = AUTOSAVE_DIR / f"session_{session_id}.json"
+        self.autosave_enabled = AUTOSAVE_ENABLED  # Use global config
+        self.autosave_failed = False
+        self.autosave_timestamp = None  # Last auto-save timestamp for status indicator
+        self.current_analysis_state = None  # Reference to PipelineManager state
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -364,6 +382,193 @@ def make_json_serializable(obj):
     return obj
 
 
+def _autosave_session_state(session: Session):
+    """Auto-save session state to JSON after each pipeline step - Claude Generated"""
+
+    if not session.autosave_enabled or not session.current_analysis_state:
+        return
+
+    try:
+        # Save analysis state using existing PipelineJsonManager
+        PipelineJsonManager.save_analysis_state(
+            session.current_analysis_state,
+            str(session.autosave_path)
+        )
+
+        # Update timestamp for status indicator - Claude Generated
+        session.autosave_timestamp = datetime.now().isoformat()
+
+        # Save metadata for recovery UI
+        metadata = {
+            "session_id": session.session_id,
+            "created_at": session.created_at,
+            "last_step": session.current_step,
+            "status": session.status,
+            "autosave_timestamp": session.autosave_timestamp,
+        }
+
+        metadata_path = session.autosave_path.with_suffix('.meta.json')
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
+
+        logger.info(f"✓ Auto-saved session {session.session_id} after step '{session.current_step}'")
+
+    except Exception as e:
+        logger.error(f"Auto-save failed for session {session.session_id}: {e}")
+        session.autosave_failed = True
+        # Don't raise - auto-save is best-effort, shouldn't block pipeline
+
+
+def _extract_results_from_analysis_state(analysis_state) -> dict:
+    """Extract results dict from KeywordAnalysisState - shared logic for callback and recovery - Claude Generated"""
+
+    # Extract final GND keywords from LLM analysis
+    final_keywords = []
+    if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+        final_keywords = getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
+
+    # Extract DK classifications
+    dk_classifications = getattr(analysis_state, 'dk_classifications', [])
+
+    # Extract initial keywords
+    initial_keywords = getattr(analysis_state, 'initial_keywords', [])
+
+    # Extract original abstract
+    original_abstract = getattr(analysis_state, 'original_abstract', '')
+
+    # Extract search results
+    search_results = getattr(analysis_state, 'search_results', [])
+
+    # Extract DK search results
+    dk_search_results = getattr(analysis_state, 'dk_search_results', [])
+
+    # Serialize search_results properly
+    serialized_search_results = []
+    if search_results:
+        for result in search_results:
+            try:
+                search_term = getattr(result, 'search_term', '') if hasattr(result, 'search_term') else ''
+                result_data = getattr(result, 'results', {}) if hasattr(result, 'results') else {}
+
+                serialized_search_results.append({
+                    "search_term": search_term,
+                    "results": result_data if isinstance(result_data, dict) else {}
+                })
+            except Exception as e:
+                logger.warning(f"Error serializing search result: {e}")
+                continue
+
+    # Serialize initial_llm_call_details
+    initial_llm_details = None
+    try:
+        if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
+            llm_call = analysis_state.initial_llm_call_details
+            initial_llm_details = {
+                "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
+                "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
+                "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
+                "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
+                "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
+                "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
+            }
+    except Exception as e:
+        logger.warning(f"Error serializing initial_llm_call_details: {e}")
+        initial_llm_details = None
+
+    # Serialize final_llm_analysis
+    final_llm_details = None
+    try:
+        if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+            llm_call = analysis_state.final_llm_analysis
+            final_llm_details = {
+                "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
+                "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
+                "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
+                "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
+                "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
+                "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
+            }
+    except Exception as e:
+        logger.warning(f"Error serializing final_llm_analysis: {e}")
+        final_llm_details = None
+
+    # Convert sets to lists for JSON serialization
+    def ensure_json_serializable(value):
+        """Recursively convert non-JSON-serializable types"""
+        if isinstance(value, set):
+            return list(value)
+        elif isinstance(value, dict):
+            return {k: ensure_json_serializable(v) for k, v in value.items()}
+        elif isinstance(value, (list, tuple)):
+            return [ensure_json_serializable(v) for v in value]
+        return value
+
+    return {
+        # Input & Keywords
+        "original_abstract": original_abstract,
+        "initial_keywords": ensure_json_serializable(initial_keywords),
+        "final_keywords": ensure_json_serializable(final_keywords),
+
+        # GND/SWB Search Results
+        "search_results": ensure_json_serializable(serialized_search_results),
+
+        # DK Classification Results
+        "dk_classifications": ensure_json_serializable(dk_classifications),
+        "dk_search_results": ensure_json_serializable(dk_search_results),
+
+        # LLM Analysis Details
+        "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
+        "final_llm_call_details": ensure_json_serializable(final_llm_details),
+
+        # Pipeline Metadata
+        "pipeline_metadata": {
+            "search_suggesters_used": ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
+            "initial_gnd_classes": ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
+            "has_final_llm_analysis": bool(final_llm_details),
+            "has_initial_llm_analysis": bool(initial_llm_details),
+        }
+    }
+
+
+def cleanup_old_autosaves(max_age_hours: int = None):
+    """Remove auto-save files older than max_age_hours - Claude Generated"""
+
+    if max_age_hours is None:
+        max_age_hours = AUTOSAVE_MAX_AGE_HOURS  # Use global config
+
+    try:
+        cutoff_time = datetime.now().timestamp() - (max_age_hours * 3600)
+        cleaned_count = 0
+
+        for file_path in AUTOSAVE_DIR.glob("session_*.json"):
+            if file_path.stat().st_mtime < cutoff_time:
+                # Remove JSON file
+                file_path.unlink()
+
+                # Remove metadata file
+                meta_path = file_path.with_suffix('.meta.json')
+                if meta_path.exists():
+                    meta_path.unlink()
+
+                cleaned_count += 1
+                logger.debug(f"Cleaned up old autosave: {file_path.name}")
+
+        if cleaned_count > 0:
+            logger.info(f"✓ Cleaned up {cleaned_count} old auto-save files (>{max_age_hours}h)")
+
+    except Exception as e:
+        logger.error(f"Cleanup error: {e}")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize webapp on startup - Claude Generated"""
+    logger.info("🚀 Starting ALIMA Webapp...")
+    logger.info(f"Auto-Save: {'Enabled' if AUTOSAVE_ENABLED else 'Disabled'} | Timeout: {WEBSOCKET_TIMEOUT_SECONDS}s | Cleanup: {AUTOSAVE_MAX_AGE_HOURS}h")
+    cleanup_old_autosaves()  # Uses global config
+    logger.info("✓ Webapp initialization complete")
+
+
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """WebSocket for live progress updates - Claude Generated"""
@@ -379,7 +584,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     try:
         last_step = None
         idle_count = 0
-        max_idle = 600  # 5 minutes of inactivity = timeout (600 * 0.5s)
+        # Use configurable timeout (count in 0.5s intervals)
+        max_idle = WEBSOCKET_TIMEOUT_SECONDS * 2  # Claude Generated (config-based)
+
+        # Heartbeat mechanism for long-running pipelines - Claude Generated
+        # Use configurable heartbeat interval (count in 0.5s intervals)
+        heartbeat_interval = WEBSOCKET_HEARTBEAT_INTERVAL * 2  # Claude Generated (config-based)
+        heartbeat_counter = 0
 
         while True:
             # Check if analysis is complete
@@ -395,6 +606,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
                 break
 
+            # Increment and send heartbeat periodically - Claude Generated
+            heartbeat_counter += 1
+            if heartbeat_counter >= heartbeat_interval:
+                heartbeat_counter = 0
+                await websocket.send_json({
+                    "type": "heartbeat",
+                    "session_id": session_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "current_step": session.current_step
+                })
+
             # Always send status update (every 500ms) - Claude Generated
             # Include streaming tokens buffered since last update
             # Use get_new_streaming_tokens to avoid losing tokens during long runs - Claude Generated
@@ -409,6 +631,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "current_step": session.current_step,
                 "results": make_json_serializable(session.results),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
+                "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
             })
 
             # Track idle time (no step change)
@@ -439,17 +662,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
 @app.get("/api/export/{session_id}")
 async def export_results(session_id: str, format: str = "json") -> FileResponse:
-    """Export analysis results - Claude Generated"""
+    """Export analysis results - supports partial and complete exports - Claude Generated"""
 
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
     session = sessions[session_id]
 
-    if not session.results:
-        raise HTTPException(status_code=400, detail="No results available")
+    # Allow export even if results are empty (partial state) - Claude Generated (2026-01-06)
+    # User can download current progress at any time
 
     if format == "json":
+        # Determine if this is a partial or complete export
+        is_complete = (session.status == "completed")
+        status_suffix = "complete" if is_complete else "partial"
+
         # Create temporary JSON file
         temp_file = tempfile.NamedTemporaryFile(
             mode='w',
@@ -458,11 +685,17 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
             dir=tempfile.gettempdir()
         )
 
+        # Enhanced export data with status and metadata - Claude Generated
         export_data = {
             "session_id": session.session_id,
             "created_at": session.created_at,
+            "exported_at": datetime.now().isoformat(),
+            "status": session.status,
+            "current_step": session.current_step,
+            "is_complete": is_complete,
             "input": session.input_data,
             "results": session.results,
+            "autosave_timestamp": session.autosave_timestamp,
         }
 
         json.dump(export_data, temp_file, indent=2, ensure_ascii=False)
@@ -470,13 +703,77 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
 
         session.add_temp_file(temp_file.name)
 
+        # Filename includes status indicator - Claude Generated (2026-01-06)
+        filename = f"alima_analysis_{session.session_id}_{status_suffix}.json"
+
         return FileResponse(
             temp_file.name,
-            filename=f"alima_analysis_{session.session_id}.json",
+            filename=filename,
             media_type="application/json"
         )
 
     raise HTTPException(status_code=400, detail=f"Format not supported: {format}")
+
+
+@app.get("/api/session/{session_id}/recover")
+async def recover_session(session_id: str) -> dict:
+    """Recover results from auto-saved state after timeout - Claude Generated"""
+
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+
+    # Check if auto-save exists
+    if not session.autosave_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="No auto-saved state available for this session"
+        )
+
+    try:
+        # Load from auto-saved JSON using existing PipelineJsonManager
+        analysis_state = PipelineJsonManager.load_analysis_state(str(session.autosave_path))
+
+        # Reconstruct results using shared helper
+        session.results = _extract_results_from_analysis_state(analysis_state)
+        session.status = "recovered"
+        session.current_analysis_state = analysis_state
+
+        # Read metadata
+        metadata = {}
+        metadata_path = session.autosave_path.with_suffix('.meta.json')
+        if metadata_path.exists():
+            with open(metadata_path, encoding='utf-8') as f:
+                metadata = json.load(f)
+
+        logger.info(f"✓ Successfully recovered session {session_id} from auto-save")
+
+        return {
+            "session_id": session_id,
+            "status": "recovered",
+            "results": make_json_serializable(session.results),
+            "metadata": metadata,
+            "message": "Results recovered successfully"
+        }
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Corrupted auto-save file for session {session_id}: {e}")
+        raise HTTPException(
+            status_code=422,
+            detail="Auto-save file is corrupted and cannot be recovered"
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Auto-save file not found"
+        )
+    except Exception as e:
+        logger.error(f"Recovery failed for session {session_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Recovery failed: {str(e)}"
+        )
 
 
 async def run_analysis(
@@ -565,6 +862,13 @@ async def run_analysis(
             session.current_step = step.step_id
             logger.info(f"Step completed: {step.step_id}")
 
+            # Auto-save after each step completion - Claude Generated
+            if session.autosave_enabled:
+                try:
+                    _autosave_session_state(session)
+                except Exception as e:
+                    logger.error(f"Auto-save error (continuing): {e}")
+
         def on_step_error(step, error_msg):
             session.current_step = step.step_id
             session.error_message = error_msg
@@ -572,122 +876,25 @@ async def run_analysis(
 
         def on_pipeline_completed(analysis_state):
             logger.info(f"Pipeline completed, storing results")
-            # Extract results from analysis state (same as GUI) - Claude Generated
 
-            # Extract final GND keywords from LLM analysis
-            final_keywords = []
-            if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-                final_keywords = getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
+            # Use shared extraction helper (DRY principle) - Claude Generated
+            session.results = _extract_results_from_analysis_state(analysis_state)
 
-            # Extract DK classifications
-            dk_classifications = getattr(analysis_state, 'dk_classifications', [])
-
-            # Extract initial keywords
-            initial_keywords = getattr(analysis_state, 'initial_keywords', [])
-
-            # Extract original abstract
-            original_abstract = getattr(analysis_state, 'original_abstract', '')
-
-            # Extract search results
-            search_results = getattr(analysis_state, 'search_results', [])
-
-            # Extract DK search results
-            dk_search_results = getattr(analysis_state, 'dk_search_results', [])
-
-            # Serialize search_results properly - Claude Generated (FIX: Export full data, not just count)
-            serialized_search_results = []
-            if search_results:
-                for result in search_results:
-                    try:
-                        # Try to get search_term and results attributes
-                        search_term = getattr(result, 'search_term', '') if hasattr(result, 'search_term') else ''
-                        result_data = getattr(result, 'results', {}) if hasattr(result, 'results') else {}
-
-                        serialized_search_results.append({
-                            "search_term": search_term,
-                            "results": result_data if isinstance(result_data, dict) else {}
-                        })
-                    except Exception as e:
-                        logger.warning(f"Error serializing search result: {e}")
-                        continue
-
-            # Serialize initial_llm_call_details - Claude Generated
-            initial_llm_details = None
-            try:
-                if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
-                    llm_call = analysis_state.initial_llm_call_details
-                    initial_llm_details = {
-                        "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
-                        "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
-                        "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
-                        "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
-                        "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
-                        "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
-                    }
-            except Exception as e:
-                logger.warning(f"Error serializing initial_llm_call_details: {e}")
-                initial_llm_details = None
-
-            # Serialize final_llm_analysis - Claude Generated
-            final_llm_details = None
-            try:
-                if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-                    llm_call = analysis_state.final_llm_analysis
-                    final_llm_details = {
-                        "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
-                        "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
-                        "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
-                        "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
-                        "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
-                        "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
-                    }
-            except Exception as e:
-                logger.warning(f"Error serializing final_llm_analysis: {e}")
-                final_llm_details = None
-
-            # Store COMPLETE results for JSON export - Claude Generated
-            # Convert sets to lists for JSON serialization - Claude Generated
-            def ensure_json_serializable(value):
-                """Recursively convert non-JSON-serializable types to JSON-serializable types"""
-                if isinstance(value, set):
-                    return list(value)
-                elif isinstance(value, dict):
-                    return {k: ensure_json_serializable(v) for k, v in value.items()}
-                elif isinstance(value, (list, tuple)):
-                    return [ensure_json_serializable(v) for v in value]
-                return value
-
-            session.results = {
-                # Input & Keywords
-                "original_abstract": original_abstract,
-                "initial_keywords": ensure_json_serializable(initial_keywords),
-                "final_keywords": ensure_json_serializable(final_keywords),
-
-                # GND/SWB Search Results (FIXED: full data instead of just count)
-                "search_results": ensure_json_serializable(serialized_search_results),
-
-                # DK Classification Results
-                "dk_classifications": ensure_json_serializable(dk_classifications),
-                "dk_search_results": ensure_json_serializable(dk_search_results),
-
-                # LLM Analysis Details
-                "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
-                "final_llm_call_details": ensure_json_serializable(final_llm_details),
-
-                # Pipeline Metadata
-                "pipeline_metadata": {
-                    "search_suggesters_used": ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
-                    "initial_gnd_classes": ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
-                    "has_final_llm_analysis": bool(final_llm_details),
-                    "has_initial_llm_analysis": bool(initial_llm_details),
-                }
-            }
-
-            # Log extracted results
+            # Log summary
+            final_keywords = session.results.get("final_keywords", [])
+            dk_classifications = session.results.get("dk_classifications", [])
+            initial_keywords = session.results.get("initial_keywords", [])
             logger.info(f"Extracted results - keywords: {len(final_keywords)}, classifications: {len(dk_classifications)}, initial: {len(initial_keywords)}")
 
             session.status = "completed"
             session.current_step = "classification"
+
+            # Final auto-save - Claude Generated
+            if session.autosave_enabled:
+                try:
+                    _autosave_session_state(session)
+                except Exception as e:
+                    logger.error(f"Final auto-save error: {e}")
 
         def on_stream_token(token: str, step_id: str = ""):
             """Handle token streaming - buffer tokens for WebSocket - Claude Generated"""
@@ -724,6 +931,10 @@ async def run_analysis(
                     input_text,
                     input_type=input_type,  # FIXED: Use actual input_type (pdf, img, text, doi) not hardcoded "text"
                 )
+
+                # Store analysis state reference for auto-save - Claude Generated
+                session.current_analysis_state = pipeline_manager.current_analysis_state
+
                 logger.info(f"Pipeline {pipeline_id} started with input_type={input_type}")
 
             except Exception as e:

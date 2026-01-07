@@ -1,5 +1,51 @@
 # ALIMA AI Changelog
 
+## 2026
+
+### WebApp Auto-Save & Recovery System (January 6, 2026)
+- **Complete reliability upgrade** for long-running pipeline analyses in web interface
+- **Auto-Save Infrastructure**: Incremental JSON saving after each pipeline step
+  - Auto-save directory: `/tmp/alima_webapp_autosave/` with session-specific files
+  - Metadata tracking: session_id, timestamp, last_step, status
+  - Uses existing `PipelineJsonManager` for consistent serialization
+- **Extended WebSocket Timeout**: Increased from 5 minutes to 30 minutes
+  - Heartbeat mechanism: Sends heartbeat every 5 seconds to maintain connection
+  - Prevents timeout during long DK searches (100+ keywords)
+  - Frontend filters heartbeat messages (no console spam)
+- **Recovery Mechanism**: Complete result restoration after connection loss
+  - New API endpoint: `GET /api/session/{id}/recover`
+  - Auto-detection of WebSocket errors (code 1006, 1011)
+  - Recovery UI: Orange "🔄 Ergebnisse wiederherstellen" button with status messages
+  - Full result reconstruction using shared `_extract_results_from_analysis_state()` helper
+- **Auto-Cleanup**: Automatic deletion of old auto-save files (>24h) on webapp startup
+- **Progress Enhancement**: DK search now shows percentage progress `[idx/total] (pct%)`
+- **Code Quality**: DRY principle - shared result extraction logic between callback and recovery
+- **Backward Compatibility**: Old sessions without auto-save continue to work
+- **Files Modified**:
+  - `src/webapp/app.py`: +4 functions, +1 endpoint, auto-save infrastructure
+  - `src/webapp/static/index.html`: Recovery button + message span
+  - `src/webapp/static/app.js`: +2 recovery functions, WebSocket handler enhancements
+  - `src/utils/pipeline_utils.py`: Percentage display in DK search
+  - `src/webapp/CLAUDE.md`: Documentation update
+
+### DK Deduplication Statistics Display (January 2026)
+- **Phase 2 Complete**: Comprehensive statistics visualization for DK classification deduplication
+- **CLI Statistics Display**: New `format_dk_statistics()` in `show-protocol` detailed mode
+  - Shows deduplication metrics: original→deduplicated count, duplicates removed, rate, token savings
+  - Top 10 most frequent classifications with keyword provenance and title counts
+  - Keyword coverage summary showing keywords→DK codes mapping
+- **GUI Statistics Tab**: New "📊 DK-Statistik" tab in AnalysisReviewTab (index 9)
+  - Deduplication Summary box with 5 key metrics
+  - Top 10 table with rank, DK code, type, count, keywords, and color-coded confidence
+  - Keyword Coverage table showing keyword→DK codes relationships
+  - Color-coded confidence indicators: Green (>50 titles), Teal (>20), Yellow (>5), Red (<5)
+- **Critical Bug Fixes**:
+  - Fixed `dk_statistics` not being loaded from JSON in CLI display functions (3 locations)
+  - Fixed incorrect tab navigation indices in GUI `on_step_selected()` method
+  - Added missing navigation cases: chunk_details, k10plus, dk_statistics
+- **Backward Compatibility**: Old JSON files without statistics handled gracefully with fallback messages
+- **Files Modified**: `src/alima_cli.py`, `src/ui/analysis_review_tab.py`, `CLAUDE.md`
+
 ## 2025
 
 ### Unified Database Configuration (November 2025)

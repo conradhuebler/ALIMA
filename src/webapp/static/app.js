@@ -398,6 +398,12 @@ class AlimaWebapp {
             const data = await response.json();
             console.log('Analysis started:', data);
 
+            // Show results panel immediately - Claude Generated (2026-01-06)
+            this.showResultsPanel();
+
+            // Enable export button immediately - Claude Generated (2026-01-06)
+            this.enableExportButton(true); // true = running state
+
             // Connect WebSocket for live updates
             this.connectWebSocket();
 
@@ -508,6 +514,13 @@ class AlimaWebapp {
 
         this.ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
+
+            // Ignore heartbeat messages in console and display - Claude Generated
+            if (msg.type === 'heartbeat') {
+                console.debug('Heartbeat:', msg.timestamp);
+                return; // Don't display heartbeats
+            }
+
             console.log('WebSocket message:', msg);
 
             if (msg.type === 'status') {
@@ -522,16 +535,27 @@ class AlimaWebapp {
             clearTimeout(wsTimeout);
             console.error('WebSocket error:', error);
             this.appendStreamText(`⚠️ WebSocket error, using polling...`);
+            this.showRecoveryOption(); // Show recovery button on error - Claude Generated
             this.connectViaPolling();
         };
 
-        this.ws.onclose = () => {
-            console.log('WebSocket closed');
+        this.ws.onclose = (event) => {
+            console.log('WebSocket closed:', event.code);
+
+            // Abnormal closure (timeout or error) - Claude Generated
+            if (event.code === 1006 || event.code === 1011) {
+                this.showRecoveryOption();
+            }
         };
     }
 
     // Update pipeline status from WebSocket - Claude Generated
     updatePipelineStatus(msg) {
+        // Update auto-save indicator - Claude Generated (2026-01-06)
+        if (msg.autosave_timestamp) {
+            this.updateAutosaveStatus(msg.autosave_timestamp);
+        }
+
         if (msg.current_step) {
             console.log(`📊 Step update: ${msg.current_step}`);
 
@@ -634,6 +658,11 @@ class AlimaWebapp {
 
         this.isAnalyzing = false;
         this.updateButtonState();
+
+        // Update export button to "completed" state - Claude Generated (2026-01-06)
+        if (msg.status === 'completed') {
+            this.enableExportButton(false); // false = completed state
+        }
 
         if (this.ws) {
             this.ws.close();
@@ -754,6 +783,22 @@ class AlimaWebapp {
             item.className = 'results-summary-item';
             item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${results.initial_keywords.slice(0, 3).join(', ')}${results.initial_keywords.length > 3 ? '...' : ''}`;
             summaryDiv.appendChild(item);
+        }
+    }
+
+    // Enable export button with dynamic text - Claude Generated (2026-01-06)
+    enableExportButton(isRunning = false) {
+        const exportBtn = document.getElementById('export-btn');
+        if (!exportBtn) return;
+
+        exportBtn.disabled = false;
+
+        if (isRunning) {
+            exportBtn.textContent = '💾 Aktuellen Stand exportieren';
+            exportBtn.title = 'Exportiert den aktuellen Fortschritt (kann unvollständig sein)';
+        } else {
+            exportBtn.textContent = '📥 JSON Exportieren';
+            exportBtn.title = 'Exportiert die vollständigen Ergebnisse';
         }
     }
 
@@ -1013,6 +1058,117 @@ class AlimaWebapp {
     getTime() {
         const now = new Date();
         return now.toLocaleTimeString('de-DE');
+    }
+
+    // Update auto-save status indicator - Claude Generated (2026-01-06)
+    updateAutosaveStatus(timestamp) {
+        const indicator = document.getElementById('autosave-status');
+        if (!indicator) return;
+
+        // Show indicator
+        indicator.style.display = 'inline';
+
+        // Calculate time ago
+        const saveTime = new Date(timestamp);
+        const now = new Date();
+        const secondsAgo = Math.floor((now - saveTime) / 1000);
+
+        let timeText = 'gerade eben';
+        if (secondsAgo > 60) {
+            const minutesAgo = Math.floor(secondsAgo / 60);
+            timeText = `vor ${minutesAgo} Min`;
+        } else if (secondsAgo > 5) {
+            timeText = `vor ${secondsAgo}s`;
+        }
+
+        indicator.textContent = `💾 Gespeichert ${timeText}`;
+        indicator.style.color = '#4caf50';  // Green for success
+
+        // Fade back to gray after 3 seconds
+        setTimeout(() => {
+            indicator.style.color = '#888';
+        }, 3000);
+    }
+
+    // Show recovery option on WebSocket error/close - Claude Generated
+    showRecoveryOption() {
+        const recoveryBtn = document.getElementById('recovery-btn');
+        const recoveryMsg = document.getElementById('recovery-message');
+
+        if (recoveryBtn) {
+            recoveryBtn.style.display = 'inline-block';
+            recoveryBtn.onclick = () => this.recoverResults();
+        }
+
+        if (recoveryMsg) {
+            recoveryMsg.style.display = 'inline';
+            recoveryMsg.textContent = 'Verbindung unterbrochen. Ergebnisse können wiederhergestellt werden.';
+        }
+    }
+
+    // Attempt recovery - Claude Generated
+    async recoverResults() {
+        const recoveryBtn = document.getElementById('recovery-btn');
+        const recoveryMsg = document.getElementById('recovery-message');
+
+        if (recoveryBtn) recoveryBtn.disabled = true;
+        if (recoveryMsg) recoveryMsg.textContent = '🔄 Wiederherstellung läuft...';
+
+        try {
+            const response = await fetch(`/api/session/${this.sessionId}/recover`);
+
+            if (!response.ok) {
+                // Better error messages based on status code - Claude Generated
+                let errorMsg = '❌ Wiederherstellung fehlgeschlagen';
+                if (response.status === 404) {
+                    errorMsg = '❌ Keine gespeicherten Ergebnisse gefunden';
+                } else if (response.status === 422) {
+                    errorMsg = '❌ Gespeicherte Datei beschädigt';
+                } else if (response.status === 500) {
+                    errorMsg = '❌ Server-Fehler bei Wiederherstellung';
+                }
+                throw new Error(errorMsg);
+            }
+
+            const data = await response.json();
+
+            if (data.status === 'recovered') {
+                console.log('✓ Recovery successful:', data.metadata);
+
+                // Display recovered results
+                this.handleAnalysisComplete({
+                    status: 'completed',
+                    results: data.results,
+                    current_step: 'classification'
+                });
+
+                // Enable export button in completed state - Claude Generated (2026-01-06)
+                this.enableExportButton(false); // false = completed state
+
+                // Hide recovery UI with success message
+                if (recoveryBtn) recoveryBtn.style.display = 'none';
+                if (recoveryMsg) {
+                    recoveryMsg.textContent = '✅ Ergebnisse erfolgreich wiederhergestellt!';
+                    recoveryMsg.style.color = '#4caf50';
+                    setTimeout(() => {
+                        recoveryMsg.style.display = 'none';
+                    }, 5000);
+                }
+
+                // Show friendly notification
+                this.appendStreamText('\n✅ Analyse erfolgreich wiederhergestellt!\n');
+            }
+        } catch (error) {
+            console.error('Recovery error:', error);
+            if (recoveryMsg) {
+                recoveryMsg.textContent = error.message || '❌ Wiederherstellung fehlgeschlagen';
+                recoveryMsg.style.color = '#f44336';
+            }
+            if (recoveryBtn) recoveryBtn.disabled = false;
+
+            // Show detailed error in stream
+            this.appendStreamText(`\n⚠️ ${error.message}\n`);
+        }
     }
 }
 

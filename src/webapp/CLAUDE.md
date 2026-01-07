@@ -37,6 +37,9 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 ✅ **JSON Export** - Complete results downloadable
 ✅ **Responsive Design** - Works on desktop, tablet, and mobile
 ✅ **Modern UI** - Clean, professional German interface without unnecessary decorations
+✅ **Auto-Save & Recovery** - Incremental saving after each step, recovery after WebSocket timeout (2026-01-06)
+✅ **Extended WebSocket Timeout** - 30-minute timeout (increased from 5 min) with heartbeat mechanism
+✅ **Progress Tracking** - Percentage display for long-running DK searches
 
 ## API Endpoints
 
@@ -45,8 +48,9 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 | POST | `/api/session` | Create new session |
 | GET | `/api/session/{id}` | Get session status |
 | POST | `/api/analyze/{id}` | Start analysis with input |
-| WS | `/ws/{id}` | WebSocket for live updates |
+| WS | `/ws/{id}` | WebSocket for live updates (30 min timeout, heartbeat every 5s) |
 | GET | `/api/export/{id}` | Download JSON results |
+| GET | `/api/session/{id}/recover` | Recover results from auto-save after timeout (NEW 2026-01-06) |
 | DELETE | `/api/session/{id}` | Delete session |
 
 ## Implementation Notes
@@ -62,6 +66,10 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 - **Token Streaming**: Tokens buffered per step, transmitted every 500ms without extra whitespace
 - **Extracted Text**: Displayed in separate panel from LLM output, extracted from input step's `original_abstract`
 - **Input Type Routing**: Correct input_type (text/doi/pdf/img) passed to pipeline for proper processing
+- **Auto-Save System** (2026-01-06): Incremental JSON saving after each pipeline step to `/tmp/alima_webapp_autosave/`
+- **Recovery Mechanism**: Automatic detection of WebSocket timeout, recovery button shows to restore results from auto-save
+- **Heartbeat Protocol**: WebSocket sends heartbeat every 5 seconds to maintain connection during long DK searches
+- **Auto-Cleanup**: Old auto-save files (>24h) automatically removed on webapp startup
 
 ## Usage
 

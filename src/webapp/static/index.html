@@ -95,7 +95,13 @@
                     <!-- Pipeline & Results Panel (BOTTOM of left column) -->
                     <div class="pipeline-panel">
                         <div class="pipeline-section">
-                            <h2>Pipeline</h2>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h2>Pipeline</h2>
+                                <!-- Auto-Save Status Indicator - Claude Generated (2026-01-06) -->
+                                <span id="autosave-status" style="font-size: 0.75em; color: #888; display: none;">
+                                    💾 Gespeichert
+                                </span>
+                            </div>
                             <div id="pipeline-steps" class="pipeline-steps">
                                 <!-- Steps werden hier dynamisch eingefügt -->
                             </div>
@@ -113,6 +119,11 @@
                                 <button id="export-btn" class="btn btn-secondary">
                                     📥 JSON Exportieren
                                 </button>
+                                <!-- Recovery button (hidden by default) - Claude Generated -->
+                                <button id="recovery-btn" class="btn" style="display: none; background-color: #ff9800;">
+                                    🔄 Ergebnisse wiederherstellen
+                                </button>
+                                <span id="recovery-message" style="display: none; color: #ff9800; margin-left: 10px; font-size: 0.9em;"></span>
                                 <button id="clear-btn" class="btn btn-secondary">
                                     Neue Analyse
                                 </button>
