@@ -106,6 +106,13 @@
 
 ## [Variable Section - Current Tasks]
 
+### ✅ DK Deduplication Statistics Display - Phase 2 COMPLETE
+- ✅ **Critical Bug Fixes**: Fixed `dk_statistics` loading in CLI (3 functions), corrected GUI tab indices
+- ✅ **CLI Statistics Display**: `format_dk_statistics()` shows deduplication metrics, Top 10 classifications, keyword coverage
+- ✅ **GUI Statistics Tab**: New "📊 DK-Statistik" tab with deduplication summary, Top 10 table, keyword coverage mapping
+- ✅ **Color-Coded Confidence**: Visual indicators based on catalog frequency (Green/Teal/Yellow/Red)
+- ✅ **Backward Compatible**: Old JSON files gracefully handled with fallback messages
+
 ### WIP: Token Control & Chunking
 - Implement token size control with slider (1-50 keywords per chunk)
 - Split keywords while keeping template+abstract constant

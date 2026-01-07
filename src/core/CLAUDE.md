@@ -55,6 +55,23 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - Comprehensive error handling implemented across all components
 - Type hints maintained throughout the codebase
 
+### WIP: Iterative GND Search
+- **Missing Concept Extraction**: Parse `<missing_list>` from LLM responses (prompt already supports this!)
+- **Fallback Search**: GND search for missing concepts with hierarchy support
+- **Iteration Control**: Max iterations + self-consistency convergence detection
+- **UI Integration**: Manual trigger button in pipeline config, iteration history display in review tab
+- **Implementation**: `extract_missing_concepts_from_response()` in processing_utils.py, `execute_fallback_gnd_search()` + `execute_iterative_keyword_refinement()` in pipeline_utils.py
+- **Documentation**: See `docs/iterative_gnd_search.md` for complete architecture and implementation plan
+
+### WIP: Agentic Workflow Architecture
+- **Base Agent System**: Self-reflection, quality validation, automatic retry with iteration control
+- **Specialized Agents**: SearchAgent (GND search strategy), KeywordAgent (keyword selection), ClassificationAgent (DK/RVK selection), ValidationAgent (cross-validation)
+- **Meta-Agent Orchestrator**: Text type detection (scientific/fiction/report), adaptive strategy selection, agent coordination
+- **Integration**: Optional agentic mode in PipelineManager via `execute_pipeline_with_agents()`
+- **New Directory**: `src/core/agents/` with base_agent.py, search_agent.py, keyword_agent.py, classification_agent.py, validation_agent.py, meta_agent.py
+- **Documentation**: See `docs/agentic_workflow.md` for complete agent specifications and architecture
+- **WARNING**: Experimental feature with 3x token usage increase - opt-in only
+
 ## [Instructions Block - Operator-Defined Tasks]
 
 ### Future Tasks

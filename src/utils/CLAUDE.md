@@ -91,6 +91,15 @@ The `src/utils/` directory provides essential configuration management and utili
 - Type hints maintained for better IDE integration
 - Environment variable support for containerized deployments
 
+### WIP: DK Classification Splitting
+- **50/50 Split Logic**: Divide DK classification list into two equal halves for parallel processing
+- **Chunk Execution**: Each chunk gets full abstract + its half of DK classifications via `_execute_dk_classification_chunk()`
+- **Merge Strategy**: Combine results with intelligent deduplication (case-insensitive, whitespace-normalized), limit to top 15
+- **Integration**: `execute_dk_classification_split()` in pipeline_utils.py, called from `execute_dk_classification()` when enabled
+- **Configuration**: `enable_dk_splitting` + `dk_split_threshold` parameters in PipelineStepConfig
+- **Documentation**: See `docs/dk_classification_splitting.md` for complete architecture and performance analysis
+- **Benefits**: ~50% token reduction per request, better LLM focus, more reliable parsing
+
 ### Known Issues & Improvements
 - **FIXME: Keyword Parser Robustness** (`pipeline_utils.py:1545-1553`): LLM inconsistently outputs comma-separated keywords instead of pipe-separated. Added fallback to handle both formats. **Future improvement**: Make prompt templates more explicit about format requirements and standardize LLM instructions across all models.
 - **FIX: Non-Matched Keywords for DK Search** (`pipeline_utils.py:1565-1596`): Keywords without GND cache matches (e.g., "Molekül", "Festkörper") are now included in DK catalog search as plain keywords. FIXME: Investigate why some valid keywords fail GND lookup - could indicate cache staleness or incomplete GND system coverage.

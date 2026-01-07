@@ -39,7 +39,7 @@ from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.config_manager import ConfigManager, OpenAICompatibleProvider
 from src.utils.config_models import PipelineMode, PipelineStepConfig
 from src.utils.logging_utils import setup_logging, print_result
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 # PROMPTS_FILE removed - now using config.system_config.prompts_path - Claude Generated
 
@@ -230,6 +230,8 @@ def display_protocol(json_file: str, steps: List[str]):
             initial_llm_call_details=state_dict.get('initial_llm_call_details'),
             final_llm_analysis=state_dict.get('final_llm_analysis'),
             dk_search_results=state_dict.get('dk_search_results', []),
+            dk_search_results_flattened=state_dict.get('dk_search_results_flattened', []),
+            dk_statistics=state_dict.get('dk_statistics'),
             dk_classifications=state_dict.get('dk_classifications', []),
             timestamp=state_dict.get('timestamp'),
         )
@@ -408,6 +410,11 @@ def format_step_dk_search(state: KeywordAnalysisState):
 
     print(f"DK Search Results ({len(state.dk_search_results)} classifications found):")
 
+    # Display deduplication statistics if available
+    if state.dk_statistics:
+        format_dk_statistics(state.dk_statistics)
+        print("─" * 70)
+
     for result in state.dk_search_results:
         if isinstance(result, dict):
             # Support both old and new data formats
@@ -433,6 +440,64 @@ def format_step_dk_search(state: KeywordAnalysisState):
 
                 if len(titles) > 5:
                     print(f"       ... und {len(titles) - 5} weitere Titel")
+
+
+def format_dk_statistics(stats: Dict[str, Any]):
+    """Format and display DK deduplication statistics - Claude Generated
+
+    Args:
+        stats: Statistics dictionary from _calculate_dk_statistics()
+    """
+    if not stats:
+        return
+
+    print("\n📊 DK Deduplication Statistics")
+    print("─" * 70)
+
+    # Deduplication Metrics
+    dedup = stats.get("deduplication_stats", {})
+    if dedup:
+        print(f"\n  Deduplication Metrics:")
+        print(f"    Original classifications: {dedup.get('original_count', 0)}")
+        print(f"    Duplicates removed:       {dedup.get('duplicates_removed', 0)}")
+        print(f"    Deduplication rate:       {dedup.get('deduplication_rate', '0%')}")
+        print(f"    Token savings (est.):     ~{dedup.get('estimated_token_savings', 0)} tokens")
+
+    # Summary Stats
+    total_class = stats.get("total_classifications", 0)
+    total_kw = stats.get("total_keywords_searched", 0)
+    print(f"\n  Search Summary:")
+    print(f"    Keywords searched:        {total_kw}")
+    print(f"    Unique classifications:   {total_class}")
+
+    # Top 10 Most Frequent
+    most_frequent = stats.get("most_frequent", [])
+    if most_frequent:
+        print(f"\n  Top 10 Most Frequent Classifications:")
+        print(f"  {'Rank':<6} {'DK Code':<15} {'Type':<6} {'Count':<8} {'Keywords':<30} {'Titles'}")
+        print(f"  {'-'*6} {'-'*15} {'-'*6} {'-'*8} {'-'*30} {'-'*6}")
+
+        for idx, item in enumerate(most_frequent, 1):
+            dk_code = item.get('dk', 'unknown')
+            dk_type = item.get('type', 'DK')
+            count = item.get('count', 0)
+            keywords = item.get('keywords', [])
+            unique_titles = item.get('unique_titles', 0)
+
+            # Truncate keywords to 3
+            kw_display = ', '.join(keywords[:3])
+            if len(keywords) > 3:
+                kw_display += f' (+{len(keywords)-3})'
+            kw_display = (kw_display[:27] + '...') if len(kw_display) > 30 else kw_display
+
+            print(f"  {idx:<6} {dk_code:<15} {dk_type:<6} {count:<8} {kw_display:<30} {unique_titles}")
+
+    # Keyword Coverage Summary
+    coverage = stats.get("keyword_coverage", {})
+    if coverage:
+        print(f"\n  Keyword Coverage: {len(coverage)} keywords matched to classifications")
+
+    print()
 
 
 def format_step_dk_classification(state: KeywordAnalysisState):
@@ -483,6 +548,8 @@ def display_protocol_compact(json_file: str, steps: List[str]):
             initial_llm_call_details=state_dict.get('initial_llm_call_details'),
             final_llm_analysis=state_dict.get('final_llm_analysis'),
             dk_search_results=state_dict.get('dk_search_results', []),
+            dk_search_results_flattened=state_dict.get('dk_search_results_flattened', []),
+            dk_statistics=state_dict.get('dk_statistics'),
             dk_classifications=state_dict.get('dk_classifications', []),
             timestamp=state_dict.get('timestamp'),
         )
@@ -542,6 +609,8 @@ def display_protocol_k10plus(json_file: str):
             initial_llm_call_details=state_dict.get('initial_llm_call_details'),
             final_llm_analysis=state_dict.get('final_llm_analysis'),
             dk_search_results=state_dict.get('dk_search_results', []),
+            dk_search_results_flattened=state_dict.get('dk_search_results_flattened', []),
+            dk_statistics=state_dict.get('dk_statistics'),
             dk_classifications=state_dict.get('dk_classifications', []),
             timestamp=state_dict.get('timestamp'),
         )
