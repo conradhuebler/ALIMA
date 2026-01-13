@@ -97,6 +97,10 @@
 - ✅ All prompts stored in prompts.json with provider/model adjustments
 - ✅ Live streaming feedback system with step-by-step progress
 - ✅ Consistent error handling and recovery across all steps
+- ✅ **Unified Configuration System**: `PipelineConfigParser` + `PipelineConfigBuilder` consolidate CLI/GUI parameter handling
+  - Single source of truth for parameter validation and parsing
+  - Step-aware task validation with consistent rules across interfaces
+  - Feature parity: CLI now supports all parameters (DK thresholds, chunking, etc.)
 
 ### Database Architecture - Facts/Mappings
 - **`alima_knowledge.db`**: Single unified database
@@ -149,7 +153,7 @@
 ✅ **Problem Solved**: Eliminated duplicate path definitions → `DatabaseConfig.sqlite_path` is now the only database path source
 - OS-specific default paths: Windows (`%APPDATA%\ALIMA\`), macOS (`~/Library/Application Support/ALIMA/`), Linux (`~/.config/alima/`)
 - Singleton pattern: `UnifiedKnowledgeManager` with thread-safe `__new__()` override
-- Auto-migration: Old configs with `system_config.database_path` automatically migrate to `database_config.sqlite_path`
+- Auto-migration: Legacy configurations automatically migrate to unified JSON format
 
 ### Pipeline Integration (CLI and GUI)
 ✅ **Unified Logic**: Both interfaces use identical `PipelineManager` via shared `src/utils/pipeline_utils.py`

@@ -182,7 +182,6 @@ class ConfigManager:
 
         # Primary config file path
         self.config_file = config_base / "config.json"
-        self.legacy_config_file = config_base / "config.yaml"
 
         self.logger.debug(f"Config path: {self.config_file}")
 
@@ -209,15 +208,8 @@ class ConfigManager:
         return self._parse_config(config_data)
 
     def _parse_config(self, config_data: Dict[str, Any]) -> AlimaConfig:
-        """Parse configuration data with legacy migration support - Claude Generated"""
+        """Parse configuration data from unified JSON format - Claude Generated"""
         try:
-            # DETECT: Is this a legacy configuration?
-            is_legacy_config = self._is_legacy_config(config_data)
-
-            if is_legacy_config:
-                self.logger.debug("🔄 Legacy configuration detected - performing migration")
-                config_data = self._migrate_legacy_config(config_data)
-
             # Handle database path migration (supports old configs with system_config.database_path)
             # MIGRATION: Old configs may have database_path in system_config, migrate to DatabaseConfig
             system_config_data = config_data.get("system_config", config_data.get("system", {}))
@@ -301,146 +293,6 @@ class ConfigManager:
             self.logger.error(f"Config data keys: {list(config_data.keys()) if config_data else 'empty'}")
             # Return default configuration
             return AlimaConfig()
-
-    def _is_legacy_config(self, config_data: Dict[str, Any]) -> bool:
-        """Detect if this is a legacy configuration format - Claude Generated"""
-        if not config_data:
-            return False
-
-        # Modern format indicators (current standard)
-        modern_keys = ['provider_preferences', 'task_preferences', 'llm']
-        has_modern = any(key in config_data for key in modern_keys)
-
-        # Unified format indicators (our new target format)
-        unified_keys = ['unified_config']
-        has_unified = any(key in config_data for key in unified_keys)
-
-        # If it has unified_config, it's already in new format
-        if has_unified:
-            return False
-
-        # If it has modern keys, it's NOT legacy - it's current standard
-        if has_modern:
-            return False
-
-        # Only truly old formats (YAML, old JSON schemas) are legacy
-        return True
-
-    def _migrate_legacy_config(self, legacy_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Migrate legacy configuration to new format - Claude Generated"""
-        migrated = {}
-
-        # Create backup
-        backup_file = self.config_file.parent / f"alima_config_backup_{int(time.time())}.json"
-        try:
-            with open(backup_file, 'w', encoding='utf-8') as f:
-                json.dump(legacy_data, f, indent=2, ensure_ascii=False)
-            self.logger.debug(f"📁 Backup created: {backup_file}")
-        except Exception as e:
-            self.logger.warning(f"Could not create backup: {e}")
-
-        # Migrate database config
-        if 'database' in legacy_data:
-            migrated['database_config'] = legacy_data['database']
-
-        # Migrate catalog config
-        if 'catalog' in legacy_data:
-            migrated['catalog_config'] = legacy_data['catalog']
-
-        # Migrate system config
-        if 'system' in legacy_data:
-            migrated['system_config'] = legacy_data['system']
-
-        # Create unified_config from legacy provider/task preferences
-        unified_config = {}
-
-        # Migrate provider_preferences
-        if 'provider_preferences' in legacy_data:
-            prefs = legacy_data['provider_preferences']
-            unified_config['provider_priority'] = prefs.get('provider_priority', ["ollama", "gemini", "anthropic", "openai"])
-            unified_config['disabled_providers'] = prefs.get('disabled_providers', [])
-
-        # Migrate task_preferences
-        if 'task_preferences' in legacy_data:
-            task_prefs = {}
-            for task_name, task_data in legacy_data['task_preferences'].items():
-                if isinstance(task_data, dict) and 'model_priority' in task_data:
-                    task_prefs[task_name] = {
-                        'task_type': task_data.get('task_type', 'general'),
-                        'model_priority': task_data.get('model_priority', []),
-                        'chunked_model_priority': task_data.get('chunked_model_priority'),
-                        'allow_fallback': task_data.get('allow_fallback', True)
-                    }
-            unified_config['task_preferences'] = task_prefs
-
-        # Migrate LLM config
-        if 'llm' in legacy_data:
-            llm_data = legacy_data['llm']
-            unified_config['gemini_api_key'] = llm_data.get('gemini', '')
-            unified_config['anthropic_api_key'] = llm_data.get('anthropic', '')
-
-            # Initialize providers list
-            if 'providers' not in unified_config:
-                unified_config['providers'] = []
-
-            # Migrate Ollama providers
-            if 'ollama_providers' in llm_data:
-                for provider_data in llm_data['ollama_providers']:
-                    try:
-                        from .config_models import OllamaProvider, UnifiedProvider
-                        provider = OllamaProvider(**provider_data)
-                        unified_provider = UnifiedProvider.from_ollama_provider(provider)
-                        unified_config['providers'].append(asdict(unified_provider))
-                        self.logger.debug(f"✅ Migrated Ollama provider: {provider.name}")
-                    except Exception as e:
-                        self.logger.warning(f"Error migrating Ollama provider {provider_data.get('name', 'unknown')}: {e}")
-
-            # Migrate OpenAI compatible providers
-            if 'openai_compatible_providers' in llm_data:
-                for provider_data in llm_data['openai_compatible_providers']:
-                    try:
-                        from .config_models import OpenAICompatibleProvider, UnifiedProvider
-                        provider = OpenAICompatibleProvider(**provider_data)
-                        unified_provider = UnifiedProvider.from_openai_compatible_provider(provider)
-                        unified_config['providers'].append(asdict(unified_provider))
-                        self.logger.debug(f"✅ Migrated OpenAI provider: {provider.name}")
-                    except Exception as e:
-                        self.logger.warning(f"Error migrating OpenAI provider {provider_data.get('name', 'unknown')}: {e}")
-
-            # Create built-in providers from API keys
-            if unified_config['gemini_api_key']:
-                try:
-                    from .config_models import GeminiProvider, UnifiedProvider
-                    gemini_provider = GeminiProvider(
-                        api_key=unified_config['gemini_api_key'],
-                        enabled=True,
-                        description="Google Gemini API"
-                    )
-                    unified_provider = UnifiedProvider.from_gemini_provider(gemini_provider)
-                    unified_config['providers'].append(asdict(unified_provider))
-                    self.logger.debug("✅ Created Gemini provider from API key")
-                except Exception as e:
-                    self.logger.warning(f"Error creating Gemini provider: {e}")
-
-            if unified_config['anthropic_api_key']:
-                try:
-                    from .config_models import AnthropicProvider, UnifiedProvider
-                    anthropic_provider = AnthropicProvider(
-                        api_key=unified_config['anthropic_api_key'],
-                        enabled=True,
-                        description="Anthropic Claude API"
-                    )
-                    unified_provider = UnifiedProvider.from_anthropic_provider(anthropic_provider)
-                    unified_config['providers'].append(asdict(unified_provider))
-                    self.logger.debug("✅ Created Anthropic provider from API key")
-                except Exception as e:
-                    self.logger.warning(f"Error creating Anthropic provider: {e}")
-
-        migrated['unified_config'] = unified_config
-        migrated['config_version'] = '2.0'
-
-        self.logger.debug("✅ Legacy configuration migration completed")
-        return migrated
 
     def _parse_unified_config(self, data: Dict[str, Any]) -> UnifiedProviderConfig:
         """Parse unified provider configuration - Claude Generated"""

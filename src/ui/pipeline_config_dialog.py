@@ -37,6 +37,8 @@ from ..utils.config_models import (
     TaskType as UnifiedTaskType
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType as SmartTaskType
+from ..utils.pipeline_config_parser import PipelineConfigParser
+from ..utils.pipeline_config_builder import PipelineConfigBuilder
 
 # Styling constants for baseline highlighting - Claude Generated
 STYLE_TASK_PREFERENCE = "background-color: #e8f5e9; color: #2e7d32; font-weight: bold;"
@@ -165,25 +167,21 @@ class HybridStepConfigWidget(QWidget):
         self.task_type_label.setToolTip(f"Task type automatically derived from step ID: {self.step_id}")
 
     def _get_available_tasks_for_step(self) -> List[str]:
-        """Get appropriate task options for the current pipeline step - Claude Generated"""
-        # Define step-specific task mappings based on ALIMA pipeline architecture
-        step_task_mapping = {
-            "input": [],  # No LLM tasks for input step
-            "initialisation": ["initialisation", "keywords"],  # Initial keyword extraction
-            "search": [],  # No LLM tasks for search step
-            "keywords": ["keywords", "rephrase", "keywords_chunked"],  # Final keyword analysis
-            "classification": ["classification", "dk_classification"],  # Classification tasks
-            "dk_search": [],  # No LLM tasks for DK search
-            "dk_classification": ["dk_classification"],  # DK-specific classification
-            "image_text_extraction": ["image_text_extraction"]  # Vision tasks
-        }
+        """Get appropriate task options for the current pipeline step - Claude Generated
 
-        # Get tasks for current step, fallback to all available tasks
-        available_tasks = step_task_mapping.get(self.step_id, [
-            "initialisation", "keywords", "rephrase", "keywords_chunked", "dk_classification"
-        ])
+        Uses unified PipelineConfigParser for consistent validation across CLI and GUI
+        """
+        # Use unified parser for consistent step-aware task selection
+        parser = PipelineConfigParser()
+        valid_tasks = parser.get_valid_tasks_for_step(self.step_id)
 
-        return available_tasks if available_tasks else ["keywords"]  # Fallback to keywords
+        # If no tasks defined for this step, provide fallback
+        if not valid_tasks:
+            # Fallback to common tasks if step is not in mapping
+            valid_tasks = ["keywords"]
+            self.logger.debug(f"Step '{self.step_id}' not in parser mapping, using fallback task: {valid_tasks}")
+
+        return valid_tasks
 
     def _populate_task_combo(self):
         """Populate task combo with step-appropriate tasks and auto-select - Claude Generated"""
@@ -1318,8 +1316,13 @@ class HybridStepConfigWidget(QWidget):
         return self.step_config
     
     def get_config(self) -> Dict[str, Any]:
-        """Get configuration in legacy format for compatibility - Claude Generated"""
-        # Convert PipelineStepConfig to legacy dict format
+        """Get configuration in legacy format for compatibility - Claude Generated
+
+        Now uses unified PipelineConfigParser for validation across CLI and GUI
+        """
+        parser = PipelineConfigParser()
+
+        # Build configuration from widget values
         config = {
             "step_id": self.step_config.step_id,
             "enabled": True,  # HybridStepConfig is always enabled
@@ -1329,10 +1332,30 @@ class HybridStepConfigWidget(QWidget):
             "temperature": getattr(self.step_config, 'temperature', 0.7),
             "top_p": getattr(self.step_config, 'top_p', 0.1),
         }
-        
+
+        # Validate critical parameters using unified parser
+        if config.get("task"):
+            is_valid, error_msg = parser.validate_parameter(
+                self.step_id, "task", config["task"]
+            )
+            if not is_valid:
+                self.logger.warning(f"Task validation failed: {error_msg}")
+                # Still return config but log the issue
+                config["validation_warning"] = error_msg
+
+        if config.get("temperature") is not None:
+            if not parser.validate_temperature(config["temperature"]):
+                self.logger.warning(f"Temperature validation failed: {config['temperature']}")
+                config["validation_warning"] = f"Temperature out of range: {config['temperature']}"
+
+        if config.get("top_p") is not None:
+            if not parser.validate_top_p(config["top_p"]):
+                self.logger.warning(f"Top_p validation failed: {config['top_p']}")
+                config["validation_warning"] = f"Top_p out of range: {config['top_p']}"
+
         # Add task type information as metadata
         config["task_type"] = self.step_config.task_type.value if self.step_config.task_type else None
-        
+
         return config
     
     def set_config(self, config: Dict[str, Any]):

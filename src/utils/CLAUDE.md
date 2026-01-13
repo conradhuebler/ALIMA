@@ -6,31 +6,31 @@
 The `src/utils/` directory provides essential configuration management and utility services for ALIMA:
 
 **Core Components:**
-- `Config`: Centralized configuration management with YAML persistence
+- `ConfigManager`: Centralized configuration management with JSON persistence and unified provider system
 - `TextProcessor`: Advanced text analysis and processing utilities
 
 ### Configuration Management System
-**Config Class Features:**
+**ConfigManager Features:**
 - **Singleton Pattern**: Single instance ensuring consistent configuration access
-- **Section-Based Organization**: Modular configuration with enum-defined sections
-- **YAML Persistence**: Human-readable configuration files with automatic saving/loading
+- **Unified Provider System**: Centralized management of all LLM providers (Ollama, OpenAI, Gemini, Anthropic)
+- **JSON Persistence**: Human-readable configuration files with automatic saving/loading
 - **Type-Safe Configuration**: Dataclass-based configuration objects with validation
 - **Environment Override Support**: Environment variable configuration overrides
 
 **Configuration Sections:**
-- `GeneralConfig`: Language, debug settings, log levels
-- `AIConfig`: Multi-provider LLM configuration with API keys and models
-- `SearchConfig`: Search parameters, thresholds, and provider settings
-- `CacheConfig`: Database caching configuration and cleanup policies
-- `UIConfig`: Interface preferences, themes, and window settings
-- `ExportConfig`: Output format settings and file handling
+- `AlimaConfig`: Main configuration object containing all sub-configurations
+- `DatabaseConfig`: SQLite/MySQL database configuration
+- `CatalogConfig`: Library catalog API configuration
 - `PromptConfig`: LLM prompt templates with variable substitution
+- `SystemConfig`: System-wide settings and paths
+- `UIConfig`: Interface preferences
+- `UnifiedProviderConfig`: Centralized provider management with task preferences
 
 ### Advanced Configuration Features
 **AI Provider Management:**
-- Multi-provider support (Gemini, OpenAI, Anthropic, Local)
-- Provider-specific model lists and API endpoints
-- Dynamic provider switching and configuration
+- Unified provider system supporting Ollama, OpenAI-compatible APIs, Google Gemini, and Anthropic Claude
+- Flexible provider configuration with multiple hosts/instances
+- Provider priority ordering and task-specific preferences
 - Secure API key storage and management
 
 **Prompt Template System:**
@@ -41,7 +41,7 @@ The `src/utils/` directory provides essential configuration management and utili
 
 **Configuration Validation:**
 - Comprehensive validation with error reporting
-- Missing dependency detection
+- Provider and model availability checking
 - Directory creation and permission checks
 - Environment-specific configuration adjustments
 
@@ -62,7 +62,7 @@ The `src/utils/` directory provides essential configuration management and utili
 ## [Variable Section - Short-term Information]
 
 ### Recent Enhancements (Claude Generated)
-1. **Enhanced Config Loading**: Better YAML parsing and error handling
+1. **Unified Config System**: Streamlined configuration with JSON-based unified provider management
 2. **Provider Configuration**: Improved AI provider management and validation
 3. **Template System**: Enhanced prompt template loading and variable substitution
 4. **Text Processing**: Optimized keyword extraction and language detection
@@ -78,12 +78,24 @@ The `src/utils/` directory provides essential configuration management and utili
    - **SourceType Enum**: DOI, PDF, TXT, IMG, URL support
    - **Callbacks**: on_source_start, on_source_complete, on_batch_complete
    - **Error Handling**: Continue-on-error and stop-on-error modes
+7. **✅ ADDED: Pipeline Configuration Consolidation**: Unified parameter parsing and validation
+   - **PipelineConfigParser** (`pipeline_config_parser.py`): Consolidated parsing and validation logic
+     - Unified CLI/GUI parameter parsing (CLI format: `STEP=PROVIDER|MODEL` or `STEP=VALUE`)
+     - Step-aware task validation for consistent behavior across interfaces
+     - Range validation for temperature (0.0-2.0), top_p (0.0-1.0), seed, and custom parameters
+     - Single source of truth for step-to-tasks mapping (initialisation, keywords, dk_classification)
+   - **PipelineConfigBuilder** (`pipeline_config_builder.py`): Unified configuration construction
+     - Baseline configuration generation from provider preferences
+     - Validated override application with comprehensive error tracking
+     - Support for all parameter types: provider, model, task, temperature, top_p, seed, custom_params
+     - Error accumulation and reporting for partial configuration handling
+   - **Benefits**: Eliminated ~200 lines of duplication, consistent validation across CLI/GUI, feature parity (CLI now supports DK thresholds and keyword chunking parameters)
 
 ### Configuration Status
 - **Config Location**: `~/.config/alima/config.json`
 - **Default Values**: Comprehensive defaults for all configuration sections
 - **Validation**: Active validation with detailed error reporting
-- **Migration**: Automatic configuration migration and updates
+- **Migration**: Legacy configuration migration completed - system now uses unified JSON format exclusively
 
 ### Development Notes
 - All new utility functions marked as "Claude Generated"
