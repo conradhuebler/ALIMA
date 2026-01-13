@@ -50,7 +50,7 @@ from ..core.pipeline_manager import PipelineManager
 from ..utils.config_manager import ConfigManager
 
 
-from ..utils.config import Config
+# Legacy config import removed - using unified config system now
 from .crossref_tab import CrossrefTab
 from .analysis_review_tab import AnalysisReviewTab
 from .ubsearch_tab import UBSearchTab
@@ -321,7 +321,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("TUBAF", "Alima")
-        # self.config = Config.get_instance()
+        # self.config = UnifiedProviderConfig()  # Legacy config reference removed
         # Initialisiere Core-Komponenten
         self.cache_manager = UnifiedKnowledgeManager()
         self.search_engine = SearchEngine(self.cache_manager)
@@ -1998,7 +1998,7 @@ class MainWindow(QMainWindow):
                 self.logger.info("✓ First-run check disabled via config flag (skip_first_run_check=true)")
                 return
 
-            # Prüfe ob Config "leer" ist
+            # Prüfe ob UnifiedProviderConfig "leer" ist
             is_empty_config = self._is_empty_config(config)
 
             if is_empty_config:
@@ -2011,9 +2011,9 @@ class MainWindow(QMainWindow):
             self.logger.warning(f"⚠️ First-run check failed: {e}", exc_info=True)
 
     def _is_empty_config(self, config) -> bool:
-        """Prüft ob Config leer ist - Claude Generated"""
+        """Prüft ob UnifiedProviderConfig leer ist - Claude Generated"""
 
-        # Prüfung 0: config.json existiert im Config-Verzeichnis? - Claude Generated
+        # Prüfung 0: config.json existiert im Config-Verzeichnis? - Claude Generated (UnifiedProviderConfig)
         config_file_exists = self.config_manager.config_file.exists()
         self.logger.info(f"  🔍 First-run check - config.json exists: {config_file_exists} (path={self.config_manager.config_file})")
 

@@ -57,7 +57,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtCore import QPropertyAnimation, QEasingCurve, QSize
 
 from ..llm.llm_service import LlmService
-from ..utils.config import Config, ConfigSection, AIConfig
+# Legacy config import removed - using unified config system now
 from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
 from ..core.data_models import AbstractData, AnalysisResult, KeywordAnalysisState

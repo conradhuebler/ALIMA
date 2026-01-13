@@ -39,6 +39,8 @@ from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.config_manager import ConfigManager, OpenAICompatibleProvider
 from src.utils.config_models import PipelineMode, PipelineStepConfig
 from src.utils.logging_utils import setup_logging, print_result
+from src.utils.pipeline_config_parser import PipelineConfigParser
+from src.utils.pipeline_config_builder import PipelineConfigBuilder
 from typing import List, Tuple, Dict, Any
 
 # PROMPTS_FILE removed - now using config.system_config.prompts_path - Claude Generated
@@ -53,152 +55,28 @@ _task_state_to_dict = PipelineJsonManager.task_state_to_dict
 _convert_sets_to_lists = PipelineJsonManager.convert_sets_to_lists
 
 
-def parse_step_config(value: str) -> tuple:
-    """Parse STEP=PROVIDER|MODEL format - Claude Generated"""
-    try:
-        step, provider_model = value.split('=', 1)
-
-        if '|' in provider_model:
-            provider, model = provider_model.split('|', 1)
-            return step.strip(), provider.strip() or None, model.strip() or None
-        else:
-            # Fallback: treat as provider only
-            return step.strip(), provider_model.strip(), None
-    except ValueError:
-        raise ValueError(f"Invalid step config format: {value}. Expected: STEP=PROVIDER|MODEL")
-
-
-def parse_step_parameter(value: str) -> tuple:
-    """Parse STEP=VALUE format for parameters - Claude Generated"""
-    try:
-        step, param_value = value.split('=', 1)
-        return step.strip(), param_value.strip()
-    except ValueError:
-        raise ValueError(f"Invalid step parameter format: {value}. Expected: STEP=VALUE")
-
-
-def build_step_configurations(args) -> dict:
-    """Build step configurations from CLI arguments - Claude Generated"""
-    step_configs = {}
-
-    # Parse step provider|model configurations
-    if args.step:
-        for step_config in args.step:
-            step, provider, model = parse_step_config(step_config)
-            if step not in step_configs:
-                step_configs[step] = {}
-            if provider:
-                step_configs[step]['provider'] = provider
-            if model:
-                step_configs[step]['model'] = model
-
-    # Parse step task configurations
-    if args.step_task:
-        for task_config in args.step_task:
-            step, task = parse_step_parameter(task_config)
-            if step not in step_configs:
-                step_configs[step] = {}
-            step_configs[step]['task'] = task
-
-    # Parse expert mode parameters
-    if args.step_temperature:
-        for temp_config in args.step_temperature:
-            step, temperature = parse_step_parameter(temp_config)
-            if step not in step_configs:
-                step_configs[step] = {}
-            step_configs[step]['temperature'] = float(temperature)
-
-    if args.step_top_p:
-        for top_p_config in args.step_top_p:
-            step, top_p = parse_step_parameter(top_p_config)
-            if step not in step_configs:
-                step_configs[step] = {}
-            step_configs[step]['top_p'] = float(top_p)
-
-    if args.step_seed:
-        for seed_config in args.step_seed:
-            step, seed = parse_step_parameter(seed_config)
-            if step not in step_configs:
-                step_configs[step] = {}
-            step_configs[step]['seed'] = int(seed)
-
-    return step_configs
-
+# DEPRECATED: These functions have been consolidated into unified components
+# - PipelineConfigParser: Parsing and validation logic
+# - PipelineConfigBuilder: Configuration building logic
+# Use PipelineConfigBuilder.parse_and_apply_cli_args() instead
 
 def apply_cli_overrides(pipeline_config, args):
-    """Apply CLI argument overrides to a baseline PipelineConfig - Claude Generated"""
+    """Apply CLI argument overrides to a baseline PipelineConfig - DEPRECATED
+
+    This function is deprecated and maintained only for backward compatibility.
+    Use PipelineConfigBuilder.parse_and_apply_cli_args() instead.
+
+    Claude Generated - Now delegates to unified components
+    """
+    builder = PipelineConfigBuilder(ConfigManager())
+    builder.baseline = pipeline_config
 
     # Global settings
     if hasattr(args, 'suggesters') and args.suggesters:
         pipeline_config.search_suggesters = args.suggesters
 
-    if hasattr(args, 'disable_dk_classification') and args.disable_dk_classification:
-        # Disable DK classification step
-        if hasattr(pipeline_config, 'step_configs') and 'dk_classification' in pipeline_config.step_configs:
-            pipeline_config.step_configs['dk_classification'].enabled = False
-
-    # Process step-specific overrides - CLI overrides ALWAYS apply when specified
-    # The --mode flag is only a UX hint, not a functional gate
-    step_overrides = {}
-
-    # Parse --step arguments (format: step=provider|model)
-    if hasattr(args, 'step') and args.step:
-        for step_config in args.step:
-            step_name, provider_model = step_config.split('=', 1)
-            if '|' in provider_model:
-                provider, model = provider_model.split('|', 1)
-                step_overrides[step_name] = {'provider': provider, 'model': model}
-
-    # Parse --step-task arguments (format: step=task)
-    if hasattr(args, 'step_task') and args.step_task:
-        for step_task in args.step_task:
-            step_name, task = step_task.split('=', 1)
-            if step_name not in step_overrides:
-                step_overrides[step_name] = {}
-            step_overrides[step_name]['task'] = task
-
-    # Parse expert parameters - always apply if provided
-    if hasattr(args, 'step_temperature') and args.step_temperature:
-        for step_temp in args.step_temperature:
-            step_name, temp = step_temp.split('=', 1)
-            if step_name not in step_overrides:
-                step_overrides[step_name] = {}
-            step_overrides[step_name]['temperature'] = float(temp)
-
-    if hasattr(args, 'step_top_p') and args.step_top_p:
-        for step_top_p in args.step_top_p:
-            step_name, top_p = step_top_p.split('=', 1)
-            if step_name not in step_overrides:
-                step_overrides[step_name] = {}
-            step_overrides[step_name]['top_p'] = float(top_p)
-
-    if hasattr(args, 'step_seed') and args.step_seed:
-        for step_seed in args.step_seed:
-            step_name, seed = step_seed.split('=', 1)
-            if step_name not in step_overrides:
-                step_overrides[step_name] = {}
-            step_overrides[step_name]['seed'] = int(seed)
-
-    # Apply overrides to pipeline config
-    for step_name, step_params in step_overrides.items():
-        if hasattr(pipeline_config, 'step_configs') and step_name in pipeline_config.step_configs:
-            step_config = pipeline_config.step_configs[step_name]
-
-            # Apply parameters - overrides always take precedence
-            if 'provider' in step_params:
-                step_config.provider = step_params['provider']
-            if 'model' in step_params:
-                step_config.model = step_params['model']
-            if 'task' in step_params:
-                step_config.task = step_params['task']
-            if 'temperature' in step_params:
-                step_config.temperature = step_params['temperature']
-            if 'top_p' in step_params:
-                step_config.top_p = step_params['top_p']
-            if 'seed' in step_params:
-                step_config.seed = step_params['seed']
-
-    return pipeline_config
+    # Use the unified builder to apply all CLI overrides
+    return PipelineConfigBuilder.parse_and_apply_cli_args(builder, args)
 
 
 def display_protocol(json_file: str, steps: List[str]):
@@ -944,6 +822,19 @@ EXAMPLES:
         action="store_true",
         help="Force catalog cache update: ignore existing cached catalog search results and perform live search. New titles will be merged with existing ones (no replacement).",
     )
+    # Keyword chunking parameters - Claude Generated (Added for CLI feature parity)
+    pipeline_parser.add_argument(
+        "--keyword-chunking-threshold",
+        type=int,
+        default=None,
+        help="Keyword count threshold for splitting into chunks for processing. When number of keywords exceeds this threshold, they are split into multiple LLM calls.",
+    )
+    pipeline_parser.add_argument(
+        "--chunking-task",
+        type=str,
+        default=None,
+        help="Task to use for chunked keyword processing (e.g., 'keywords_chunked'). Used when keyword count exceeds the chunking threshold.",
+    )
 
     # Batch command - Claude Generated
     batch_parser = subparsers.add_parser(
@@ -1548,21 +1439,23 @@ EXAMPLES:
             print(f"  Task preferences enabled: {'✅ Yes' if args.mode == 'smart' else '⚠️ Mode-based override active'}")
 
             # Show step configurations from new mode-based system
-            step_configs = build_step_configurations(args)
+            builder = PipelineConfigBuilder(config_manager)
+            config_for_display = PipelineConfigBuilder.parse_and_apply_cli_args(builder, args)
+            step_configs = config_for_display.step_configs
             if step_configs:
                 print(f"  CLI step configurations:")
                 for step_id, config in step_configs.items():
                     parts = []
-                    if config.get('provider'):
-                        parts.append(f"provider={config['provider']}")
-                    if config.get('model'):
-                        parts.append(f"model={config['model']}")
-                    if config.get('task'):
-                        parts.append(f"task={config['task']}")
-                    if config.get('temperature'):
-                        parts.append(f"temp={config['temperature']}")
-                    if config.get('top_p'):
-                        parts.append(f"top_p={config['top_p']}")
+                    if config.provider:
+                        parts.append(f"provider={config.provider}")
+                    if config.model:
+                        parts.append(f"model={config.model}")
+                    if config.task:
+                        parts.append(f"task={config.task}")
+                    if config.temperature is not None:
+                        parts.append(f"temp={config.temperature}")
+                    if config.top_p is not None:
+                        parts.append(f"top_p={config.top_p}")
                     print(f"    {step_id}: {', '.join(parts) if parts else 'default'}")
             else:
                 print(f"  Using default configuration from pipeline_config")
@@ -1666,10 +1559,6 @@ EXAMPLES:
 
                 # Handle DK classification flag
                 include_dk = getattr(args, 'include_dk_classification', False) and not getattr(args, 'disable_dk_classification', False)
-
-                # Build step configurations from CLI arguments
-                step_configs = build_step_configurations(args)
-                logger.debug(f"Step configurations: {step_configs}")
 
                 # Unified Pipeline Execution via PipelineManager - Claude Generated
                 logger.info(f"Starting pipeline execution in {args.mode} mode using PipelineManager")
