@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -18,10 +19,11 @@ import sys
 # Add project root to sys.path BEFORE importing src modules
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 import uvicorn
 
 # Import ALIMA Pipeline components - Claude Generated
@@ -63,6 +65,11 @@ app.add_middleware(
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# Setup Jinja2 templates for dynamic HTML generation - Claude Generated (2026-01-13)
+templates_dir = Path(__file__).parent / "templates"
+templates_dir.mkdir(exist_ok=True)
+templates = Jinja2Templates(directory=str(templates_dir))
 
 # Auto-save directory for session recovery - Claude Generated
 AUTOSAVE_DIR = Path(tempfile.gettempdir()) / "alima_webapp_autosave"
@@ -155,6 +162,7 @@ class Session:
         self.temp_files = []
         self.streaming_buffer = {}  # Buffer for streaming tokens by step_id - Claude Generated
         self.streaming_buffer_sent_count = {}  # Track how many tokens sent per step - Claude Generated
+        self._streaming_lock = threading.Lock()  # Thread-safe access to streaming buffers - Claude Generated
         self.abort_requested = False  # Flag to signal pipeline abort - Claude Generated
         # Auto-save support - Claude Generated
         self.autosave_path = AUTOSAVE_DIR / f"session_{session_id}.json"
@@ -169,27 +177,31 @@ class Session:
         self.temp_files.append(path)
 
     def add_streaming_token(self, token: str, step_id: str):
-        """Add token to streaming buffer - Claude Generated"""
-        if step_id not in self.streaming_buffer:
-            self.streaming_buffer[step_id] = []
-        self.streaming_buffer[step_id].append(token)
+        """Add token to streaming buffer - Thread-safe - Claude Generated"""
+        with self._streaming_lock:
+            if step_id not in self.streaming_buffer:
+                self.streaming_buffer[step_id] = []
+            self.streaming_buffer[step_id].append(token)
 
     def get_and_clear_streaming_buffer(self) -> dict:
-        """Get all buffered tokens and clear - Claude Generated"""
-        result = dict(self.streaming_buffer)
-        self.streaming_buffer.clear()
-        return result
+        """Get all buffered tokens and clear - Thread-safe - Claude Generated"""
+        with self._streaming_lock:
+            result = dict(self.streaming_buffer)
+            self.streaming_buffer.clear()
+            self.streaming_buffer_sent_count.clear()
+            return result
 
     def get_new_streaming_tokens(self) -> dict:
-        """Get only newly added tokens since last retrieval - Claude Generated"""
-        result = {}
-        for step_id, tokens in self.streaming_buffer.items():
-            sent_count = self.streaming_buffer_sent_count.get(step_id, 0)
-            new_tokens = tokens[sent_count:]
-            if new_tokens:
-                result[step_id] = new_tokens
-                self.streaming_buffer_sent_count[step_id] = len(tokens)
-        return result
+        """Get only newly added tokens since last retrieval - Thread-safe - Claude Generated"""
+        with self._streaming_lock:
+            result = {}
+            for step_id, tokens in self.streaming_buffer.items():
+                sent_count = self.streaming_buffer_sent_count.get(step_id, 0)
+                new_tokens = tokens[sent_count:]
+                if new_tokens:
+                    result[step_id] = new_tokens
+                    self.streaming_buffer_sent_count[step_id] = len(tokens)
+            return result
 
     def clear(self):
         """Complete session reset - clear all data - Claude Generated"""
@@ -198,8 +210,9 @@ class Session:
         self.input_data = None
         self.results = {}
         self.error_message = None
-        self.streaming_buffer.clear()
-        self.streaming_buffer_sent_count.clear()  # Reset token tracking - Claude Generated
+        with self._streaming_lock:  # Thread-safe buffer clearing - Claude Generated
+            self.streaming_buffer.clear()
+            self.streaming_buffer_sent_count.clear()  # Reset token tracking - Claude Generated
         self.abort_requested = False
         self.cleanup()
         logger.info(f"Session {self.session_id} cleared")
@@ -219,6 +232,27 @@ class Session:
 async def root():
     """Serve main page - Claude Generated"""
     return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/webapp")
+async def get_webapp(request: Request, session: str = None) -> HTMLResponse:
+    """Serve webapp with session ID injected - Claude Generated (2026-01-13)
+
+    Each browser tab gets its own HTML page with unique session ID.
+    This prevents DOM ID conflicts when multiple tabs are open.
+
+    Usage:
+        /webapp              → Creates new session
+        /webapp?session=abc  → Uses existing session ID
+    """
+    if not session:
+        session = str(uuid.uuid4())
+
+    # Render template with injected session ID
+    return templates.TemplateResponse(
+        "webapp.html",
+        {"request": request, "session_id": session}
+    )
 
 
 @app.post("/api/session")
@@ -302,10 +336,11 @@ async def start_analysis(
     content: Optional[str] = Form(None),  # For text/doi
     file: Optional[UploadFile] = File(None),  # For pdf/img
 ) -> dict:
-    """Start pipeline analysis - Claude Generated"""
-
+    """Start pipeline analysis - Direct execution with LLM queueing - Claude Generated (2026-01-13)"""
+    # Auto-create session if not exists (for /webapp route with injected sessionId) - Claude Generated (2026-01-13)
     if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        sessions[session_id] = Session(session_id)
+        logger.info(f"Auto-created session {session_id} for /api/analyze")
 
     session = sessions[session_id]
 
@@ -318,9 +353,11 @@ async def start_analysis(
     # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
     # This prevents "read of closed file" error that occurs when UploadFile is passed to background task
     file_contents = None
+    filename = None
     if file:
         try:
             file_contents = await file.read()
+            filename = file.filename
             if not file_contents:
                 raise HTTPException(status_code=400, detail="File is empty")
             logger.info(f"File read successfully: {len(file_contents)} bytes")
@@ -329,7 +366,7 @@ async def start_analysis(
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, file.filename if file else None))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -343,8 +380,10 @@ async def process_input_only(
 ) -> dict:
     """Process only the input step (text extraction/OCR) - Claude Generated"""
 
+    # Auto-create session if not exists (for /webapp route with injected sessionId) - Claude Generated (2026-01-13)
     if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
+        sessions[session_id] = Session(session_id)
+        logger.info(f"Auto-created session {session_id} for /api/input")
 
     session = sessions[session_id]
 
@@ -572,6 +611,48 @@ async def startup_event():
     logger.info(f"Auto-Save: {'Enabled' if AUTOSAVE_ENABLED else 'Disabled'} | Timeout: {WEBSOCKET_TIMEOUT_SECONDS}s | Cleanup: {AUTOSAVE_MAX_AGE_HOURS}h")
     cleanup_old_autosaves()  # Uses global config
     logger.info("✓ Webapp initialization complete")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown webapp gracefully - Claude Generated"""
+    logger.info("🛑 Shutting down ALIMA Webapp...")
+    logger.info("✓ Webapp shutdown complete")
+
+
+@app.get("/api/queue/status")
+async def get_queue_status() -> dict:
+    """Get combined LLM + Pipeline queue status - Claude Generated (2026-01-13)"""
+    # Get LLM stats from AppContext.pipeline_manager
+    app_context = AppContext()
+    try:
+        llm_stats = app_context.pipeline_manager.get_llm_queue_status()
+    except Exception as e:
+        logger.warning(f"Could not get LLM queue status: {e}")
+        llm_stats = {
+            "active_llm_requests": 0,
+            "pending_llm_requests": 0,
+            "max_concurrent": 3,
+            "total_completed": 0,
+            "avg_duration_seconds": 0.0
+        }
+
+    # Pipeline stats (simplified)
+    pipeline_stats = {
+        "active_pipelines": len([s for s in sessions.values() if s.status == "running"]),
+        "queued_sessions": 0  # No longer queueing at pipeline level
+    }
+
+    # Determine overall status
+    status = "healthy"
+    if llm_stats["pending_llm_requests"] > 10:
+        status = "busy"
+
+    return {
+        "llm": llm_stats,
+        "pipeline": pipeline_stats,
+        "status": status
+    }
 
 
 @app.websocket("/ws/{session_id}")
@@ -859,7 +940,16 @@ async def run_analysis(
         services = app_context.get_services()
 
         config_manager = services['config_manager']
-        pipeline_manager = services['pipeline_manager']
+
+        # Create a NEW PipelineManager for this session to prevent cross-session contamination - Claude Generated (2026-01-13)
+        # This ensures each concurrent analysis has its own isolated pipeline state
+        from src.core.pipeline_manager import PipelineManager
+        pipeline_manager = PipelineManager(
+            alima_manager=services['alima_manager'],
+            cache_manager=services['cache_manager'],
+            config_manager=config_manager
+        )
+        logger.info(f"Created new PipelineManager for session {session_id}")
 
         # Create pipeline config from preferences
         pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)

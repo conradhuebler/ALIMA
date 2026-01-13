@@ -340,10 +340,26 @@ class AlimaWebapp {
     // Create new session
     async createNewSession() {
         try {
+            // Check if session ID was injected by server (Option C: Multi-tab isolation) - Claude Generated (2026-01-13)
+            if (window.sessionId) {
+                this.sessionId = window.sessionId;
+                console.log('Using server-injected session ID:', this.sessionId);
+
+                // Update URL to include session ID for bookmarking/refreshing - Claude Generated (2026-01-13)
+                const currentUrl = new URL(window.location);
+                if (!currentUrl.searchParams.has('session')) {
+                    currentUrl.searchParams.set('session', this.sessionId);
+                    window.history.replaceState(null, '', currentUrl);
+                    console.log(`URL updated to: ${currentUrl}`);
+                }
+                return;
+            }
+
+            // Fallback: Create new session via API (old behavior for index.html)
             const response = await fetch('/api/session', { method: 'POST' });
             const data = await response.json();
             this.sessionId = data.session_id;
-            console.log('Session created:', this.sessionId);
+            console.log('Session created via API:', this.sessionId);
         } catch (error) {
             console.error('Error creating session:', error);
             this.appendStreamText(`❌ Error creating session: ${error.message}`);
@@ -934,14 +950,42 @@ class AlimaWebapp {
     appendStreamText(text) {
         const streamEl = document.getElementById('stream-text');
         streamEl.textContent += text + '\n';
-        streamEl.parentElement.scrollTop = streamEl.parentElement.scrollHeight;
+
+        // Ensure scrolling to bottom - Claude Generated (2026-01-13)
+        this.scrollToBottom(streamEl);
     }
 
     appendStreamToken(text) {
         // Append token without adding newline (for streaming output)
         const streamEl = document.getElementById('stream-text');
         streamEl.textContent += text;
-        streamEl.parentElement.scrollTop = streamEl.parentElement.scrollHeight;
+
+        // Ensure scrolling to bottom - Claude Generated (2026-01-13)
+        this.scrollToBottom(streamEl);
+    }
+
+    // Reliable scroll to bottom - Claude Generated (2026-01-13)
+    scrollToBottom(element) {
+        // Method 1: Direct parent scroll
+        if (element.parentElement) {
+            element.parentElement.scrollTop = element.parentElement.scrollHeight;
+        }
+
+        // Method 2: Try container scroll (in case of nested containers)
+        const container = element.closest('.stream-output');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Method 3: Force scroll with requestAnimationFrame for smoothness
+        requestAnimationFrame(() => {
+            if (element.parentElement) {
+                element.parentElement.scrollTop = element.parentElement.scrollHeight;
+            }
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
+        });
     }
 
     clearStreamText() {

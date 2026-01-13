@@ -43,6 +43,10 @@ header {
 .header-content {
     max-width: 1600px;
     margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
 }
 
 .header-title {
@@ -335,7 +339,7 @@ input[type="text"]:focus {
     gap: 12px;
 }
 
-#camera-video {
+[id^="camera-video-"] {
     width: 100%;
     height: 200px;
     background: #000;
@@ -372,7 +376,7 @@ input[type="text"]:focus {
     gap: 8px;
 }
 
-#camera-image {
+[id^="camera-image-"] {
     width: 100%;
     max-height: 200px;
     border-radius: 6px;
@@ -798,6 +802,164 @@ input[type="text"]:focus {
     .btn {
         padding: 8px 12px;
         font-size: 0.9em;
+    }
+}
+
+/* Queue Status Styling - Claude Generated */
+.queue-status {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 3rem;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+    margin: 2rem 0;
+    animation: pulse-in 0.5s ease-out;
+}
+
+.queue-status h3 {
+    font-size: 1.8em;
+    margin: 1rem 0;
+    font-weight: 600;
+}
+
+.queue-details {
+    display: flex;
+    justify-content: center;
+    gap: 4rem;
+    margin: 2rem 0;
+    flex-wrap: wrap;
+}
+
+.queue-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.stat-label {
+    font-size: 0.95em;
+    opacity: 0.95;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+}
+
+.stat-value {
+    font-size: 2.4em;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+}
+
+.queue-icon {
+    font-size: 4em;
+    margin-bottom: 0.5rem;
+    animation: queue-pulse 2s ease-in-out infinite;
+    display: inline-block;
+}
+
+.queue-subtitle {
+    font-size: 1em;
+    opacity: 0.95;
+    margin-top: 1.5rem;
+    font-style: italic;
+}
+
+@keyframes pulse-in {
+    0% {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes queue-pulse {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
+}
+
+/* Responsive Queue Status - Claude Generated */
+@media (max-width: 768px) {
+    .queue-status {
+        padding: 2rem;
+        margin: 1rem 0;
+    }
+
+    .queue-status h3 {
+        font-size: 1.4em;
+    }
+
+    .queue-details {
+        gap: 2rem;
+        margin: 1.5rem 0;
+    }
+
+    .stat-value {
+        font-size: 1.8em;
+    }
+
+    .queue-icon {
+        font-size: 3em;
+    }
+}
+
+/* Global Queue Status Badge - Claude Generated (2026-01-13) */
+.queue-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 20px;
+    font-size: 0.85em;
+    cursor: help;
+    margin-left: auto;
+}
+
+.queue-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success-color);
+    animation: pulse 2s infinite;
+}
+
+.queue-indicator.busy {
+    background: var(--warning-color);
+    animation: pulse-fast 1s infinite;
+}
+
+.queue-stats {
+    color: var(--light-text);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes pulse-fast {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
     }
 }
 

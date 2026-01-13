@@ -54,6 +54,7 @@ class BiblioClient:
     """
     A tool to extract keywords and decimal classifications from a library catalog.
     """
+    # Configuration flag to disable SQL database caching for testing - Claude Generated
 
     SEARCH_URL = "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.CatalogueSearcher.cls"
     DETAILS_URL = (
@@ -66,7 +67,7 @@ class BiblioClient:
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
 
-    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 30, rate_limit_delay_ms: int = 1000):
+    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 10, rate_limit_delay_ms: int = 1000, use_json_cache: bool = True):
         """
         Initialize the extractor with the given token.
 
@@ -75,15 +76,27 @@ class BiblioClient:
             debug: Enable detailed debug output
             save_xml_path: Directory to save raw XML responses for debugging (empty string = disabled)
             enable_web_fallback: Enable web scraping fallback when SOAP fails (Claude Generated)
-            timeout: Request timeout in seconds (default: 30) - Claude Generated
+            timeout: Request timeout in seconds (default: 10, reduced from 30 for fast failover when server down) - Claude Generated (2026-01-13)
             rate_limit_delay_ms: Milliseconds to wait between searches (default: 1000ms) - Claude Generated
+            use_json_cache: Use JSON file cache for RSN→details lookups (True=fast via JSON, False=SOAP only) - Claude Generated
+
+        Note:
+            - use_json_cache: Controls RSN detail lookups (step 2 of DK search)
+            - disable_sql_cache: Can be set via set_disable_sql_cache() to disable keyword→RSN DB caching (step 1)
         """
         self.token = token if token else ""  # Use provided token from config
         self.debug = debug
         self.save_xml_path = save_xml_path
         self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
+        self.use_json_cache = use_json_cache  # Claude Generated - JSON cache toggle for testing
+        self.disable_sql_cache = False  # Claude Generated - SQL DB cache toggle (default: use cache)
         self._using_web_mode = False  # Claude Generated - Track if we switched to web pipeline
         self.timeout = timeout  # Claude Generated - Configurable timeout
+
+        # Statistics tracking - Claude Generated
+        self._json_cache_hits = 0
+        self._soap_calls = 0
+
         self.session = requests.Session()
         self.headers = {"Content-Type": "text/xml;charset=UTF-8", "SOAPAction": ""}
 
@@ -100,6 +113,42 @@ class BiblioClient:
         self.circuit_breaker_reset_time = None
 
     # === RATE LIMITING & CIRCUIT BREAKER METHODS === Claude Generated
+
+    def get_performance_stats(self) -> Dict[str, int]:
+        """Get performance statistics for JSON cache vs SOAP - Claude Generated
+
+        Returns:
+            Dictionary with statistics about cache hits and SOAP calls
+        """
+        total_lookups = self._json_cache_hits + self._soap_calls
+        json_hit_rate = (self._json_cache_hits / total_lookups * 100) if total_lookups > 0 else 0
+
+        return {
+            'json_cache_hits': self._json_cache_hits,
+            'soap_calls': self._soap_calls,
+            'total_lookups': total_lookups,
+            'json_hit_rate': json_hit_rate,
+            'cache_enabled': self.use_json_cache
+        }
+
+    def log_performance_stats(self):
+        """Log performance statistics - Claude Generated"""
+        stats = self.get_performance_stats()
+        logger.info("=" * 60)
+        logger.info("📊 PERFORMANCE STATISTICS")
+        logger.info("=" * 60)
+        logger.info(f"  JSON Cache: {'ENABLED' if stats['cache_enabled'] else 'DISABLED'}")
+        logger.info(f"  JSON Cache Hits: {stats['json_cache_hits']}")
+        logger.info(f"  SOAP Calls: {stats['soap_calls']}")
+        logger.info(f"  Total Lookups: {stats['total_lookups']}")
+        logger.info(f"  JSON Hit Rate: {stats['json_hit_rate']:.1f}%")
+        if stats['json_hit_rate'] > 80:
+            logger.info(f"  ✅ Excellent cache performance!")
+        elif stats['json_hit_rate'] > 50:
+            logger.info(f"  ⚠️  Moderate cache performance")
+        elif stats['total_lookups'] > 0:
+            logger.info(f"  ❌ Poor cache performance")
+        logger.info("=" * 60)
 
     def _apply_rate_limit(self):
         """Apply rate limiting delay between searches - Claude Generated"""
@@ -352,13 +401,55 @@ class BiblioClient:
                         return web_results
             return []
 
-    def _print_xml_structure(self, element, level=0):
-        """Print the XML structure for debugging purposes."""
+    def set_disable_sql_cache(self, disable: bool):
+        """Set whether to disable SQL database caching for testing."""
+        self.disable_sql_cache = disable
+        logger.info(f"SQL cache {'DISABLED' if disable else 'ENABLED'} for testing")
+
+    def _print_xml_structure(self, element, level: int = 0):
+        """Print XML structure for debugging - Claude Generated"""
         indent = "  " * level
-        if hasattr(element, "tag"):
-            logger.debug(f"{indent}{element.tag}")
-            for child in element:
-                self._print_xml_structure(child, level + 1)
+        logger.debug(f"{indent}{element.tag}")
+        for child in element:
+            self._print_xml_structure(child, level + 1)
+
+    def _get_appropriate_delay(self, default_delay: float = 1.5) -> float:
+        """
+        Dynamically determine appropriate delay based on lookup pattern.
+
+        If we're mostly using JSON lookups, use minimal delay.
+        If we're mostly using SOAP lookups, use full delay to be nice to server.
+
+        Args:
+            default_delay: Base delay in seconds
+
+        Returns:
+            Appropriate delay in seconds
+        """
+        # If we haven't done any lookups yet, use default
+        if not hasattr(self, '_json_lookups_used') and not hasattr(self, '_soap_lookups_needed'):
+            return default_delay
+
+        json_count = getattr(self, '_json_lookups_used', 0)
+        soap_count = getattr(self, '_soap_lookups_needed', 0)
+        total_lookups = json_count + soap_count
+
+        # If we haven't done many lookups yet, use default
+        if total_lookups < 3:
+            return default_delay
+
+        # Calculate ratio of JSON to total lookups
+        json_ratio = json_count / total_lookups if total_lookups > 0 else 0
+
+        # If mostly JSON lookups, use minimal delay
+        if json_ratio > 0.7:
+            return 0.01  # Nearly instant for JSON-dominated lookups
+        # If mostly SOAP, use full delay
+        elif json_ratio < 0.3:
+            return default_delay
+        # Mixed case, use reduced delay
+        else:
+            return default_delay * 0.5
 
     def get_title_details(self, rsn: str) -> Optional[Dict[str, Any]]:
         """
@@ -370,6 +461,46 @@ class BiblioClient:
         Returns:
             A dictionary with title details or None if an error occurred
         """
+        # OPTIMIZATION: Try JSON lookup first before expensive SOAP request - Claude Generated
+        if self.use_json_cache:
+            try:
+                # Import ClassificationLookupService - only load when needed for performance
+                from ...utils.classification_lookup_service import get_classification_lookup_service
+
+                # Try to get details from JSON cache
+                json_lookup = get_classification_lookup_service()
+                rsn_int = int(rsn) if str(rsn).isdigit() else None
+
+                if rsn_int:
+                    cached_details = json_lookup.get_title_details_from_rsn(rsn_int)
+                    if cached_details:
+                        self._json_cache_hits += 1  # Track for statistics
+                        logger.info(f"✅ JSON CACHE HIT for RSN {rsn} (skipped SOAP)")
+                        # Track that we used JSON optimization for delay calculation
+                        if not hasattr(self, '_json_lookups_used'):
+                            self._json_lookups_used = 0
+                        self._json_lookups_used += 1
+                        return cached_details
+                    else:
+                        logger.debug(f"📁 RSN {rsn} not in JSON cache, using SOAP")
+                    # Track that we need to use SOAP for delay calculation
+                    if not hasattr(self, '_soap_lookups_needed'):
+                        self._soap_lookups_needed = 0
+                    self._soap_lookups_needed += 1
+            except Exception as e:
+                logger.debug(f"JSON lookup failed, falling back to SOAP: {e}")
+                # Track that we need to use SOAP due to JSON failure
+                if not hasattr(self, '_soap_lookups_needed'):
+                    self._soap_lookups_needed = 0
+                self._soap_lookups_needed += 1
+        else:
+            # JSON cache disabled for testing - use SOAP only
+            logger.debug(f"⚠️ JSON cache DISABLED, using SOAP for RSN {rsn}")
+            if not hasattr(self, '_soap_lookups_needed'):
+                self._soap_lookups_needed = 0
+            self._soap_lookups_needed += 1
+            # Continue with SOAP even if JSON lookup fails
+
         # If web mode is active, use web scraping directly - Claude Generated
         if self._using_web_mode:
             logger.debug(f"Web mode active: Using web scraping for RSN {rsn}")
@@ -392,11 +523,15 @@ class BiblioClient:
 
         response = None
         try:
+            # Track SOAP call for statistics - Claude Generated
+            self._soap_calls += 1
+            logger.info(f"🌐 SOAP REQUEST for RSN {rsn} (call #{self._soap_calls})")
+
             response = self.session.post(
                 self.DETAILS_URL,
                 headers=self.headers,
                 data=details_envelope,
-                timeout=300,
+                timeout=10,  # Reduced from 300s (5 min) to 10s - fast failover when server down - Claude Generated (2026-01-13)
             )
 
             logger.debug(f"✅ Details response received for RSN {rsn}: status {response.status_code}")
@@ -1109,11 +1244,14 @@ class BiblioClient:
             'without_classifications': 0
         }
 
-        logger.info(f"Processing {stats['attempted']} items...")
+        # Use dynamic delay based on JSON vs SOAP lookup ratio - Claude Generated
+        effective_delay = self._get_appropriate_delay(delay)
+
+        logger.info(f"Processing {stats['attempted']} items with {effective_delay:.2f}s delay...")
 
         for i, item in enumerate(results[:max_items]):
             if i > 0:
-                time.sleep(delay)  # Be nice to the server - INCREASED TO 1.5s TO PREVENT TIMEOUTS
+                time.sleep(effective_delay)  # Use dynamic delay based on lookup pattern - Claude Generated
 
             title = item.get("title", "Unknown")
             logger.debug(
@@ -1325,13 +1463,16 @@ class BiblioClient:
         RESTRUCTURED - Extract DK/RVK classifications for keywords using title-centric caching.
 
         Flow:
-        1. Cache lookup → get title list
-        2. On cache miss → live search → extract titles → cache titles
-        3. Extract classifications from title list (on-demand)
+        1. File-based lookup → get title list from precomputed JSON files
+        2. Database cache lookup → get title list
+        3. On cache miss → live search → extract titles → cache titles
+        4. Extract classifications from title list (on-demand)
 
         Returns title-based structures (not classification-based)
         """
         from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
+        # Import ClassificationLookupService for file-based optimization
+        from ...utils.classification_lookup_service import get_classification_lookup_service
 
         dk_cache = UnifiedKnowledgeManager()
         all_titles = []  # Accumulated titles from cache and live search
@@ -1345,9 +1486,29 @@ class BiblioClient:
 
         # Track which keywords came from cache vs live search
         cached_keywords = set()
+        file_cached_keywords = set()  # Track keywords found in JSON files
+
+        # Try file-based lookup first for each keyword - Claude Generated Optimization
+        file_cached_count = 0
+        classification_lookup = get_classification_lookup_service()
+
+        for clean_kw in normalized_keywords.keys():
+            # Try to get titles from file-based lookup
+            file_titles = classification_lookup.get_titles_for_classification(clean_kw)
+            if file_titles:
+                all_titles.extend(file_titles)
+                file_cached_keywords.add(clean_kw)
+                file_cached_count += 1
+                logger.info(f"📁 FILE CACHE HIT for '{clean_kw}': {len(file_titles)} titles from JSON files")
+                # Mark as cached to avoid live search
+                cached_keywords.add(clean_kw)
+
+        # Log file-based cache statistics
+        if file_cached_count > 0:
+            logger.info(f"📊 File-based cache hit: {file_cached_count}/{len(normalized_keywords)} keywords")
 
         # Try cache for each keyword with Rate Limiting & Circuit Breaker - Claude Generated FIX
-        cached_count = 0
+        cached_count = file_cached_count  # Start with file-based hits
         failed_keywords = []  # Track which keywords failed
 
         for clean_kw in normalized_keywords.keys():
@@ -1358,7 +1519,12 @@ class BiblioClient:
                 continue
 
             # Check cache (now returns tuple with status)
-            cache_result = dk_cache.get_catalog_dk_cache(clean_kw)
+            # RESPECT disable_sql_cache flag for testing - Claude Generated
+            cache_result = None
+            if not self.disable_sql_cache:
+                cache_result = dk_cache.get_catalog_dk_cache(clean_kw)
+            else:
+                logger.debug(f"🚫 SQL cache DISABLED: Bypassing cache lookup for '{clean_kw}'")
             if cache_result:
                 cached_titles, status, error_msg = cache_result
 
@@ -1400,14 +1566,20 @@ class BiblioClient:
                 if not search_results:
                     logger.warning(f"No results found for '{clean_kw}'")
                     # Cache the empty result with status
-                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='no_results', ttl_minutes=30)
+                    # RESPECT disable_sql_cache flag for testing - Claude Generated
+                    if not self.disable_sql_cache:
+                        dk_cache.store_catalog_dk_cache(clean_kw, [], status='no_results', ttl_minutes=30)
+                    else:
+                        logger.debug(f"🚫 SQL cache DISABLED: Not caching failure for '{clean_kw}'")
                     failed_keywords.append((clean_kw, 'no_results', 'No catalog entries found'))
                     self._record_search_success()
                     continue
 
                 # Build title list with classifications
                 title_list = []
-                processed = self.process_search_results(search_results, max_items=max_results)
+                # Use adaptive delay based on JSON cache hit rate - Claude Generated
+                adaptive_delay = self._get_appropriate_delay()
+                processed = self.process_search_results(search_results, max_items=max_results, delay=adaptive_delay)
 
                 # DIAGNOSTIC: Log processed results summary - Claude Generated
                 logger.info(f"📋 Processed results for '{clean_kw}':")
@@ -1444,27 +1616,43 @@ class BiblioClient:
 
                 # Cache the titles with success status
                 if title_list:
-                    dk_cache.store_catalog_dk_cache(clean_kw, title_list, status='success')
+                    # RESPECT disable_sql_cache flag for testing - Claude Generated
+                    if not self.disable_sql_cache:
+                        dk_cache.store_catalog_dk_cache(clean_kw, title_list, status='success')
+                    else:
+                        logger.debug(f"🚫 SQL cache DISABLED: Not caching {len(title_list)} titles for '{clean_kw}'")
                     all_titles.extend(title_list)
-                    logger.info(f"💾 Cached {len(title_list)} titles for '{clean_kw}'")
+                    logger.info(f"💾 {'Cached' if not self.disable_sql_cache else 'Would cache'} {len(title_list)} titles for '{clean_kw}'")
                     self._record_search_success()
                 else:
                     # No classifications found in results
-                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='no_results', ttl_minutes=30)
+                    # RESPECT disable_sql_cache flag for testing - Claude Generated
+                    if not self.disable_sql_cache:
+                        dk_cache.store_catalog_dk_cache(clean_kw, [], status='no_results', ttl_minutes=30)
+                    else:
+                        logger.debug(f"🚫 SQL cache DISABLED: Not caching no-results for '{clean_kw}'")
                     failed_keywords.append((clean_kw, 'no_results', 'No classifications in results'))
                     self._record_search_success()
 
             except Exception as e:
                 if isinstance(e, requests.exceptions.Timeout):
                     logger.error(f"⏱️ Timeout searching '{clean_kw}': {e}")
-                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='timeout',
-                                                   error_message=str(e), ttl_minutes=60)
+                    # RESPECT disable_sql_cache flag for testing - Claude Generated
+                    if not self.disable_sql_cache:
+                        dk_cache.store_catalog_dk_cache(clean_kw, [], status='timeout',
+                                                       error_message=str(e), ttl_minutes=60)
+                    else:
+                        logger.debug(f"🚫 SQL cache DISABLED: Not caching timeout for '{clean_kw}'")
                     failed_keywords.append((clean_kw, 'timeout', str(e)))
                     self._record_search_failure()
                 else:
                     logger.error(f"❌ Error searching '{clean_kw}': {e}")
-                    dk_cache.store_catalog_dk_cache(clean_kw, [], status='error',
-                                                   error_message=str(e), ttl_minutes=60)
+                    # RESPECT disable_sql_cache flag for testing - Claude Generated
+                    if not self.disable_sql_cache:
+                        dk_cache.store_catalog_dk_cache(clean_kw, [], status='error',
+                                                       error_message=str(e), ttl_minutes=60)
+                    else:
+                        logger.debug(f"🚫 SQL cache DISABLED: Not caching error for '{clean_kw}'")
                     failed_keywords.append((clean_kw, 'error', str(e)))
                     self._record_search_failure()
 
@@ -1516,6 +1704,10 @@ class BiblioClient:
             f"📊 Cache Statistics: {cached_count}/{total_keywords} hits ({cache_hit_rate:.0f}%) "
             f"| Returning {len(keyword_results)} keyword-centric results for GUI display"
         )
+
+        # Log performance statistics - Claude Generated
+        self.log_performance_stats()
+
         return keyword_results
 
     def extract_dk_classifications_for_keywords_OLD(self, keywords: List[str], max_results: int = 50, force_update: bool = False) -> List[Dict[str, Any]]:

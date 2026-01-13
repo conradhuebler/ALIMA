@@ -183,6 +183,12 @@
         </main>
     </div>
 
+    <!-- Inject session ID from server BEFORE app.js loads - Claude Generated (2026-01-13) -->
+    <script>
+        window.sessionId = "{{ session_id }}";
+        console.log(`Session ID injected BEFORE app.js: ${window.sessionId}`);
+    </script>
+
     <script src="/static/app.js"></script>
 </body>
 </html>

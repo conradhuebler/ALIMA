@@ -1,5 +1,7 @@
 from typing import List, Dict, Any, Optional
 import logging
+import threading
+import time
 import uuid
 
 from ..llm.llm_service import LlmService
@@ -31,6 +33,17 @@ class AlimaManager:
         self.prompt_service = prompt_service
         self.config_manager = config_manager
         self.logger = logger or logging.getLogger(__name__)
+
+        # Initialize LLM Queue Management - Claude Generated (2026-01-13)
+        self._llm_semaphore = threading.Semaphore(3)  # Max 3 concurrent LLM calls
+        self._llm_queue_lock = threading.Lock()  # Protect stats dict
+        self._llm_queue_stats = {
+            "active": 0,
+            "pending": 0,
+            "total_completed": 0,
+            "start_times": {}  # Track when each request started for duration calculation
+        }
+        self._llm_durations = []  # Keep last 10 durations for EMA calculation
 
         # Initialize Provider Status Service - Claude Generated
         try:
@@ -314,7 +327,20 @@ class AlimaManager:
         p_value: float = 0.1,
         seed: int = 0,
     ) -> Optional[str]:
+        # Acquire LLM semaphore (max 3 concurrent LLM calls) - Claude Generated (2026-01-13)
+        semaphore_acquired_time = time.time()
+        semaphore_acquired = self._llm_semaphore.acquire(blocking=True)
+
         try:
+            # Update queue stats - now active after acquiring semaphore
+            with self._llm_queue_lock:
+                self._llm_queue_stats["active"] += 1
+                self._llm_queue_stats["start_times"][request_id] = time.time()
+
+            queue_wait_time = self._llm_queue_stats["start_times"][request_id] - semaphore_acquired_time
+            if queue_wait_time > 0.1:  # Only log if waited > 100ms
+                self.logger.info(f"⏳ LLM request {request_id} waited {queue_wait_time:.1f}s in queue")
+
             # CRITICAL DEBUG: Provider resolution for Smart Mode - Claude Generated
             self.logger.info(f"🔍 PROVIDER_RESOLUTION: input provider='{provider}', models={prompt_config.models}")
 
@@ -378,6 +404,26 @@ class AlimaManager:
         except Exception as e:
             self.logger.error(f"Error during LLM call: {e}")
             return None
+        finally:
+            # Release LLM semaphore and update stats - Claude Generated (2026-01-13)
+            try:
+                if semaphore_acquired:
+                    self._llm_semaphore.release()
+
+                with self._llm_queue_lock:
+                    self._llm_queue_stats["active"] = max(0, self._llm_queue_stats["active"] - 1)
+                    self._llm_queue_stats["total_completed"] += 1
+
+                    # Calculate and track execution duration
+                    if request_id in self._llm_queue_stats["start_times"]:
+                        duration = time.time() - self._llm_queue_stats["start_times"][request_id]
+                        self._llm_durations.append(duration)
+                        # Keep only last 10 durations for EMA
+                        if len(self._llm_durations) > 10:
+                            self._llm_durations.pop(0)
+                        del self._llm_queue_stats["start_times"][request_id]
+            except Exception as e:
+                self.logger.error(f"Error in LLM queue cleanup: {e}")
 
     def _create_analysis_result(
         self,
@@ -620,3 +666,19 @@ class AlimaManager:
         error_msg = f"All configured models failed for task '{task_name}'. Last error: {last_error}"
         self.logger.error(error_msg)
         raise Exception(error_msg)
+
+    def get_llm_queue_status(self) -> Dict[str, Any]:
+        """Get current LLM queue statistics for public status display - Claude Generated (2026-01-13)"""
+        with self._llm_queue_lock:
+            # Calculate average duration from last 10 requests
+            avg_duration = 0.0
+            if self._llm_durations:
+                avg_duration = sum(self._llm_durations) / len(self._llm_durations)
+
+            return {
+                "active_llm_requests": self._llm_queue_stats["active"],
+                "pending_llm_requests": self._llm_queue_stats["pending"],
+                "max_concurrent": 3,
+                "total_completed": self._llm_queue_stats["total_completed"],
+                "avg_duration_seconds": avg_duration
+            }
