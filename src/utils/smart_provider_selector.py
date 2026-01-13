@@ -256,7 +256,8 @@ class SmartProviderSelector:
             provider_priority = self._filter_by_capabilities(provider_priority, required_capabilities)
         
         # Apply speed preference
-        if prefer_fast or unified_config.prefer_faster_models:
+        # Legacy prefer_faster_models setting ignored for simplification
+        if prefer_fast:
             provider_priority = self._sort_by_speed(provider_priority)
         
         attempts = []
@@ -430,9 +431,10 @@ class SmartProviderSelector:
             return selected_model
         
         # === PRIORITY 3: Speed/quality optimization ===
-        if prefer_fast or unified_config.prefer_faster_models:
+        # Legacy prefer_faster_models setting ignored for simplification
+        if prefer_fast:
             # Prioritize models with speed indicators
-            fast_models = [m for m in available_models if any(indicator in m.lower() 
+            fast_models = [m for m in available_models if any(indicator in m.lower()
                           for indicator in ['flash', 'mini', 'haiku', '14b', 'turbo', 'fast'])]
             if fast_models:
                 selected_model = fast_models[0]

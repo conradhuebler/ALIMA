@@ -657,14 +657,8 @@ class UnifiedProviderTab(QWidget):
         global_layout = QFormLayout(global_group)
         
         self.preferred_provider_combo = QComboBox()
-        self.auto_fallback_checkbox = QCheckBox()
-        self.auto_fallback_checkbox.setChecked(True)
-        self.prefer_fast_checkbox = QCheckBox()
-        
         global_layout.addRow("Preferred Provider:", self.preferred_provider_combo)
-        global_layout.addRow("Auto Fallback:", self.auto_fallback_checkbox)
-        global_layout.addRow("Prefer Faster Models:", self.prefer_fast_checkbox)
-        
+
         layout.addWidget(global_group)
         
         # Model preferences section - Claude Generated 
@@ -1052,11 +1046,7 @@ class UnifiedProviderTab(QWidget):
         # Set current selection
         if self.unified_config.preferred_provider in provider_names:
             self.preferred_provider_combo.setCurrentText(self.unified_config.preferred_provider)
-        
-        # Set checkboxes
-        self.auto_fallback_checkbox.setChecked(self.unified_config.auto_fallback)
-        self.prefer_fast_checkbox.setChecked(self.unified_config.prefer_faster_models)
-    
+
     def _populate_model_preferences(self):
         """Populate model preferences table using direct provider config - Claude Generated"""
         try:
@@ -1748,8 +1738,6 @@ class UnifiedProviderTab(QWidget):
         """Update configuration object from UI state - Claude Generated"""
         # Update global preferences
         self.unified_config.preferred_provider = self.preferred_provider_combo.currentText()
-        self.unified_config.auto_fallback = self.auto_fallback_checkbox.isChecked()
-        self.unified_config.prefer_faster_models = self.prefer_fast_checkbox.isChecked()
 
         # CRITICAL FIX: Only save task preferences if we have an explicit task and no UI conflicts - Claude Generated
         if self.current_editing_task and not self.task_ui_dirty:

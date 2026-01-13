@@ -258,8 +258,6 @@ class TaskPreference:
     chunked_model_priority: Optional[List[Dict[str, str]]] = None  # For chunked subtasks like keywords_chunked
     allow_fallback: bool = True
 
-    # Legacy compatibility - will be removed in cleanup
-    preferred_providers: List[str] = field(default_factory=list)  # Will be migrated to model_priority
 
     def __post_init__(self):
         # Convert string to enum if needed
@@ -284,8 +282,7 @@ class TaskPreference:
             "task_type": self.task_type.value,  # Convert enum to string
             "model_priority": self.model_priority,
             "chunked_model_priority": self.chunked_model_priority,
-            "allow_fallback": self.allow_fallback,
-            "preferred_providers": self.preferred_providers
+            "allow_fallback": self.allow_fallback
         }
 
     @classmethod
@@ -297,8 +294,7 @@ class TaskPreference:
             task_type=task_type,
             model_priority=data.get("model_priority", []),
             chunked_model_priority=data.get("chunked_model_priority"),
-            allow_fallback=data.get("allow_fallback", True),
-            preferred_providers=data.get("preferred_providers", [])
+            allow_fallback=data.get("allow_fallback", True)
         )
 
 
@@ -440,8 +436,6 @@ class UnifiedProviderConfig:
     anthropic_api_key: str = ""
     gemini_preferred_model: str = ""
     anthropic_preferred_model: str = ""
-    auto_fallback: bool = True
-    prefer_faster_models: bool = False  # Legacy compatibility for smart_provider_selector
 
     # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog, pipeline_config_dialog
     preferred_provider: str = ""  # Explicit user choice, independent of provider_priority

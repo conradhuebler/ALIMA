@@ -1285,22 +1285,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # Will be populated dynamically
         self.disabled_checkboxes = {}
         self.disabled_layout = disabled_layout
-        
+
         layout.addWidget(disabled_group)
-        
-        # Fallback Settings
-        fallback_group = QGroupBox("Fallback Behavior")
-        fallback_layout = QFormLayout(fallback_group)
-        
-        self.auto_fallback_checkbox = QCheckBox()
-        fallback_layout.addRow("Enable Auto-Fallback:", self.auto_fallback_checkbox)
-        
-        self.fallback_timeout_spin = QSpinBox()
-        self.fallback_timeout_spin.setRange(5, 300)
-        self.fallback_timeout_spin.setSuffix(" seconds")
-        fallback_layout.addRow("Fallback Timeout:", self.fallback_timeout_spin)
-        
-        layout.addWidget(fallback_group)
         layout.addStretch()
         
         return tab
@@ -1375,15 +1361,6 @@ class ComprehensiveSettingsDialog(QDialog):
         
         models_layout.addLayout(buttons_layout)
         layout.addWidget(models_group)
-        
-        # Performance Settings
-        perf_group = QGroupBox("Performance Preferences")
-        perf_layout = QFormLayout(perf_group)
-        
-        self.prefer_faster_checkbox = QCheckBox()
-        perf_layout.addRow("Prefer Faster Models:", self.prefer_faster_checkbox)
-        
-        layout.addWidget(perf_group)
         layout.addStretch()
         
         return tab
@@ -1482,10 +1459,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 checkbox.setChecked(provider in unified_config.disabled_providers)
                 self.disabled_checkboxes[provider] = checkbox
                 self.disabled_layout.addWidget(checkbox)
-            
-            # Fallback settings
-            self.auto_fallback_checkbox.setChecked(unified_config.auto_fallback)
-            
+
         except Exception as e:
             self.logger.error(f"Error populating priority settings: {e}")
     
@@ -1551,12 +1525,9 @@ class ComprehensiveSettingsDialog(QDialog):
                 models_combo.currentTextChanged.connect(
                     lambda text, r=row, widget=current_item: widget.setText(text) if text else None
                 )
-                
+
                 self.models_table.setCellWidget(row, 2, models_combo)
-            
-            # Performance settings
-            self.prefer_faster_checkbox.setChecked(unified_config.prefer_faster_models)
-            
+
         except Exception as e:
             self.logger.error(f"Error populating model preferences: {e}")
     
@@ -1685,11 +1656,6 @@ class ComprehensiveSettingsDialog(QDialog):
                 if checkbox.isChecked():
                     unified_config.disabled_providers.append(provider)
 
-            # Fallback settings
-            unified_config.auto_fallback = self.auto_fallback_checkbox.isChecked()
-            # TODO: Add fallback_timeout to UnifiedProviderConfig if needed
-            # unified_config.fallback_timeout = self.fallback_timeout_spin.value()
-            
             # Task overrides
             vision_text = self.vision_provider_combo.currentText()
             # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
@@ -1712,10 +1678,7 @@ class ComprehensiveSettingsDialog(QDialog):
                         model_text = model_widget.text().strip()
                         # TODO: Implement preferred_models in UnifiedProviderConfig
                         pass  # Disabled until proper implementation
-            
-            # Performance settings
-            unified_config.prefer_faster_models = self.prefer_faster_checkbox.isChecked()
-            
+
             # TODO: Implement validation in UnifiedProviderConfig if needed
             # detection_service = self.config_manager.get_provider_detection_service()
             # validation_issues = unified_config.validate_preferences(detection_service)

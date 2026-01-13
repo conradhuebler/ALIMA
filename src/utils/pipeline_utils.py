@@ -2750,8 +2750,8 @@ def _extract_from_image_pipeline(
         # Validate that vision model is explicitly configured
         has_providers = False
         if task_prefs:
-            # Check both legacy and new formats
-            has_providers = bool(task_prefs.preferred_providers or task_prefs.model_priority)
+            # Check for model_priority (legacy preferred_providers removed for simplification)
+            has_providers = bool(task_prefs.model_priority)
 
         if not has_providers:
             error_msg = (

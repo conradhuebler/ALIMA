@@ -49,115 +49,40 @@ class PromptService:
             return self.config[task_name]["prompts"]
         return []
 
-    def _try_smart_mode_model_matching(self, model: str, task: str) -> tuple[str, list] | None:
-        """Try to match SmartProviderSelector models with available prompt configs - Claude Generated"""
-        if not model or task not in self.models_by_task:
-            return None
 
-        available_models = list(self.models_by_task[task].keys())
-        model_lower = model.lower()
-
-        # Try different matching strategies for common SmartProviderSelector models
-        for available_model in available_models:
-            available_lower = available_model.lower()
-
-            # 1. Exact case-insensitive match
-            if available_lower == model_lower:
-                self.logger.debug(f"Smart Mode: Exact match '{model}' to '{available_model}' for task '{task}'")
-                return available_model, self.models_by_task[task][available_model]
-
-            # 2. Model name contains available model name (e.g., "cogito:14b" contains "cogito")
-            if len(available_model) > 3 and available_lower in model_lower:
-                self.logger.debug(f"Smart Mode: Partial match '{model}' to '{available_model}' for task '{task}'")
-                return available_model, self.models_by_task[task][available_model]
-
-            # 3. Common model family matching
-            if self._match_model_family(model_lower, available_lower):
-                self.logger.debug(f"Smart Mode: Family match '{model}' to '{available_model}' for task '{task}'")
-                return available_model, self.models_by_task[task][available_model]
-
-        # 4. Enhanced fallback: for unknown models, use 'default' if available - Claude Generated
-        if "default" in available_models:
-            self.logger.debug(f"Smart Mode: Using 'default' config for unknown model '{model}' in task '{task}'")
-            return "default", self.models_by_task[task]["default"]
-
-        # 5. Last resort: use first available general purpose model - Claude Generated
-        if available_models:
-            # Prefer general purpose models over specialized ones
-            general_models = [m for m in available_models if any(x in m.lower() for x in ['gemini', 'gpt', 'claude', 'meta', 'llama', 'deepseek'])]
-            if general_models:
-                fallback_model = general_models[0]
-                self.logger.debug(f"Smart Mode: Using general purpose fallback '{fallback_model}' for '{model}' in task '{task}'")
-                return fallback_model, self.models_by_task[task][fallback_model]
-
-        return None
-
-    def _match_model_family(self, model_lower: str, available_lower: str) -> bool:
-        """Match model families like cogito, gemini, claude etc - Claude Generated"""
-        model_families = {
-            'cogito': ['cogito', 'llama', 'mistral'],
-            'gemini': ['gemini', 'palm', 'google'],
-            'claude': ['claude', 'anthropic'],
-            'gpt': ['gpt', 'openai'],
-            'llama': ['llama', 'cogito', 'mistral'],
-            'mistral': ['mistral', 'cogito', 'llama'],
-            'qwq': ['qwq', 'cogito', 'llama'],  # Common Ollama model
-        }
-
-        # Find model family for requested model
-        for family, variants in model_families.items():
-            if any(variant in model_lower for variant in variants):
-                # Check if available model is from the same family
-                if any(variant in available_lower for variant in variants):
-                    return True
-        return False
 
     def get_prompt_config(self, task: str, model: str) -> Optional[PromptConfigData]:
         """
-        Get the prompt configuration for a specific task and model with intelligent fallback - Claude Generated
+        Get the prompt configuration for a specific task and model with simplified fallback.
 
         Fallback hierarchy:
         1. Exact model match
-        2. Fuzzy/family match via _try_smart_mode_model_matching()
-        3. 'default' prompt if available
-        4. First available prompt as safety net
+        2. 'default' prompt if available
 
-        Returns a PromptConfigData object or None if task doesn't exist.
+        Returns a PromptConfigData object or None if no matching prompt is found.
         """
         if task not in self.models_by_task:
             self.logger.warning(f"Task '{task}' not found in prompt configurations.")
             return None
 
         prompt_config_list = None
-        matched_model = None
 
         # TIER 1: Try exact model match
         if model in self.models_by_task[task]:
             self.logger.info(f"✅ Exact model match: '{model}' for task '{task}'")
             prompt_config_list = self.models_by_task[task][model]
-            matched_model = model
 
-        # TIER 2: Try fuzzy/family matching - Claude Generated
-        if not prompt_config_list:
-            smart_match_result = self._try_smart_mode_model_matching(model, task)
-            if smart_match_result:
-                matched_model, prompt_config_list = smart_match_result
-                self.logger.info(f"🔍 Fuzzy match: '{model}' → '{matched_model}' for task '{task}'")
+        # TIER 1.5: Try fuzzy model match (strip version tags) - Claude Generated
+        elif ':' in model:
+            fuzzy_model = self._strip_version_tag(model)
+            if fuzzy_model != model and fuzzy_model in self.models_by_task[task]:
+                self.logger.info(f"🔍 Fuzzy model match: '{model}' → '{fuzzy_model}' for task '{task}'")
+                prompt_config_list = self.models_by_task[task][fuzzy_model]
 
-        # TIER 3: Try 'default' fallback - Claude Generated
+        # TIER 2: Try 'default' fallback
         if not prompt_config_list and "default" in self.models_by_task[task]:
-            self.logger.info(f"⚙️ Using 'default' prompt for unknown model '{model}' in task '{task}'")
+            self.logger.info(f"⚙️ Using 'default' prompt for model '{model}' in task '{task}'")
             prompt_config_list = self.models_by_task[task]["default"]
-            matched_model = "default"
-
-        # TIER 4: Use first available prompt as last resort - Claude Generated
-        if not prompt_config_list and self.models_by_task[task]:
-            available_models = list(self.models_by_task[task].keys())
-            if available_models:
-                first_model = available_models[0]
-                self.logger.warning(f"⚠️ No 'default' found, using first available prompt '{first_model}' for model '{model}' in task '{task}'")
-                prompt_config_list = self.models_by_task[task][first_model]
-                matched_model = first_model
 
         # If still no config found, return None
         if not prompt_config_list:
@@ -174,16 +99,37 @@ class PromptService:
                     f"Could not parse seed value '{prompt_config_list[5]}'. Using None."
                 )
 
-        # Return PromptConfigData with ACTUAL requested model (not matched_model)
+        # Return PromptConfigData with ACTUAL requested model
         # This ensures LlmService uses the model the user selected
         return PromptConfigData(
             prompt=prompt_config_list[0],
             system=prompt_config_list[1],
             temp=float(prompt_config_list[2]),
             p_value=float(prompt_config_list[3]),
-            models=[model],  # Use actual requested model, not matched_model!
+            models=[model],  # Use actual requested model
             seed=seed_value,
         )
+
+    def _strip_version_tag(self, model: str) -> str:
+        """
+        Strip version tags from model names for fuzzy matching - Claude Generated
+
+        Examples:
+            cogito:14b → cogito
+            ministral:3-14b → ministral
+            qwen2.5:32b-instruct → qwen2.5
+            default → default (unchanged)
+
+        Returns:
+            Base model name without version tag
+        """
+        # Don't strip special keywords
+        if model in ["default"]:
+            return model
+
+        # Split on ':' and take first part
+        base_name = model.split(':')[0]
+        return base_name
 
     def get_combination_prompt(self) -> Optional[str]:
         """

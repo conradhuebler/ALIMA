@@ -492,8 +492,6 @@ class ConfigManager:
             prefs = config_data['provider_preferences']
             unified_config.provider_priority = prefs.get('provider_priority', ['ollama', 'gemini', 'anthropic', 'openai'])
             unified_config.disabled_providers = prefs.get('disabled_providers', [])
-            unified_config.auto_fallback = prefs.get('auto_fallback', True)
-            unified_config.prefer_faster_models = prefs.get('prefer_faster_models', False)
 
         # Parse LLM section and create providers
         if 'llm' in config_data:
