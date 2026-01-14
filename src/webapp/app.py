@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
@@ -230,8 +231,22 @@ class Session:
 
 @app.get("/")
 async def root():
-    """Serve main page - Claude Generated"""
-    return FileResponse(Path(__file__).parent / "static" / "index.html")
+    """Redirect '/' to '/webapp' and set a session cookie."""
+    # Create a response that performs the redirect
+    response = RedirectResponse(url="/webapp", status_code=301)
+
+    # Set a cookie with a unique session ID (if not already present)
+    # Using UUID4 for guaranteed uniqueness
+    session_id = uuid.uuid4().hex
+    response.set_cookie(
+        key="SESSION_ID",
+        value=session_id,
+        path="/webapp",
+        httponly=True,
+        secure=True,
+        samesite="Lax"
+    )
+    return response
 
 
 @app.get("/webapp")
