@@ -1439,21 +1439,23 @@ EXAMPLES:
             print(f"  Task preferences enabled: {'✅ Yes' if args.mode == 'smart' else '⚠️ Mode-based override active'}")
 
             # Show step configurations from new mode-based system
-            step_configs = build_step_configurations(args)
+            builder = PipelineConfigBuilder(config_manager)
+            config_for_display = PipelineConfigBuilder.parse_and_apply_cli_args(builder, args)
+            step_configs = config_for_display.step_configs
             if step_configs:
                 print(f"  CLI step configurations:")
                 for step_id, config in step_configs.items():
                     parts = []
-                    if config.get('provider'):
-                        parts.append(f"provider={config['provider']}")
-                    if config.get('model'):
-                        parts.append(f"model={config['model']}")
-                    if config.get('task'):
-                        parts.append(f"task={config['task']}")
-                    if config.get('temperature'):
-                        parts.append(f"temp={config['temperature']}")
-                    if config.get('top_p'):
-                        parts.append(f"top_p={config['top_p']}")
+                    if config.provider:
+                        parts.append(f"provider={config.provider}")
+                    if config.model:
+                        parts.append(f"model={config.model}")
+                    if config.task:
+                        parts.append(f"task={config.task}")
+                    if config.temperature is not None:
+                        parts.append(f"temp={config.temperature}")
+                    if config.top_p is not None:
+                        parts.append(f"top_p={config.top_p}")
                     print(f"    {step_id}: {', '.join(parts) if parts else 'default'}")
             else:
                 print(f"  Using default configuration from pipeline_config")
@@ -1557,10 +1559,6 @@ EXAMPLES:
 
                 # Handle DK classification flag
                 include_dk = getattr(args, 'include_dk_classification', False) and not getattr(args, 'disable_dk_classification', False)
-
-                # Build step configurations from CLI arguments
-                step_configs = build_step_configurations(args)
-                logger.debug(f"Step configurations: {step_configs}")
 
                 # Unified Pipeline Execution via PipelineManager - Claude Generated
                 logger.info(f"Starting pipeline execution in {args.mode} mode using PipelineManager")

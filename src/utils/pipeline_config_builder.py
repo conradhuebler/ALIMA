@@ -8,7 +8,7 @@ This module provides a single builder class that:
 - Ensures consistency between CLI and GUI configuration handling
 """
 
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 import logging
 
 from .pipeline_config_parser import PipelineConfigParser
