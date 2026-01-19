@@ -322,6 +322,10 @@ class PipelineStepConfig:
     enabled: bool = True
     timeout: Optional[int] = None
 
+    # Iterative refinement - Claude Generated
+    enable_iterative_refinement: bool = False  # Opt-in by default
+    max_refinement_iterations: int = 2  # Maximum iterations for missing concept search
+
     def __post_init__(self):
         # Convert string enums to proper enums
         if isinstance(self.task_type, str):

@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QSlider,
     QMessageBox,
     QLineEdit,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QFont, QPalette, QPixmap
@@ -285,6 +286,33 @@ class PipelineTab(QWidget):
         self.current_source_info: str = ""
 
         self.setup_ui()
+
+        # Synchronize iterative search checkbox with config - Claude Generated
+        self._sync_iterative_search_checkbox()
+
+    def _sync_iterative_search_checkbox(self):
+        """Sync checkbox and spinbox state with pipeline config - Claude Generated"""
+        try:
+            if self.pipeline_manager and self.pipeline_manager.config:
+                keywords_config = self.pipeline_manager.config.get_step_config("keywords")
+                if keywords_config:
+                    # Sync checkbox
+                    if hasattr(self, 'iterative_search_checkbox'):
+                        enabled = getattr(keywords_config, 'enable_iterative_refinement', False)
+                        self.iterative_search_checkbox.blockSignals(True)
+                        self.iterative_search_checkbox.setChecked(enabled)
+                        self.iterative_search_checkbox.blockSignals(False)
+                        self.logger.info(f"🔄 Synced iterative search checkbox: {enabled}")
+
+                    # Sync max iterations spinbox
+                    if hasattr(self, 'max_iterations_spin'):
+                        max_iter = getattr(keywords_config, 'max_refinement_iterations', 2)
+                        self.max_iterations_spin.blockSignals(True)
+                        self.max_iterations_spin.setValue(max_iter)
+                        self.max_iterations_spin.blockSignals(False)
+                        self.logger.info(f"🔄 Synced max iterations: {max_iter}")
+        except Exception as e:
+            self.logger.error(f"Error syncing iterative search controls: {e}")
 
     def update_current_step_duration(self):
         """Update the duration of the currently running step - Claude Generated"""
@@ -573,6 +601,64 @@ class PipelineTab(QWidget):
         )
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
         buttons_layout.addWidget(self.auto_pipeline_button)
+
+        # Iterative Search Controls - Claude Generated (placed prominently next to Auto-Pipeline)
+        iterative_container = QWidget()
+        iterative_layout = QHBoxLayout(iterative_container)
+        iterative_layout.setContentsMargins(5, 0, 5, 0)
+        iterative_layout.setSpacing(8)
+
+        self.iterative_search_checkbox = QCheckBox("🔄 Iterative GND-Suche")
+        self.iterative_search_checkbox.setToolTip(
+            "Wenn aktiviert: Automatische Suche nach fehlenden Konzepten\n"
+            "mit GND-Pool-Erweiterung über mehrere Iterationen.\n\n"
+            "⚠️ Erhöht Token-Nutzung um ca. 2-3x\n"
+            "⏱️ Verlängert Analysezeit um 30-70 Sekunden"
+        )
+        self.iterative_search_checkbox.setStyleSheet(
+            """
+            QCheckBox {
+                font-weight: bold;
+                color: #0066cc;
+                padding: 2px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+            """
+        )
+        iterative_layout.addWidget(self.iterative_search_checkbox)
+
+        # Max iterations spinbox (compact)
+        iterations_label = QLabel("Max:")
+        iterations_label.setStyleSheet("color: #666; font-size: 10px;")
+        iterative_layout.addWidget(iterations_label)
+
+        self.max_iterations_spin = QSpinBox()
+        self.max_iterations_spin.setRange(1, 5)
+        self.max_iterations_spin.setValue(2)
+        self.max_iterations_spin.setMaximumWidth(50)
+        self.max_iterations_spin.setEnabled(False)
+        self.max_iterations_spin.setToolTip("Max. Iterationen (1-5)")
+        self.max_iterations_spin.setStyleSheet(
+            """
+            QSpinBox {
+                padding: 2px;
+                font-size: 11px;
+            }
+            """
+        )
+        iterative_layout.addWidget(self.max_iterations_spin)
+
+        iterative_layout.addStretch()
+
+        # Connect checkbox to enable/disable spinbox and update config
+        self.iterative_search_checkbox.stateChanged.connect(self.on_iterative_search_toggled)
+        self.iterative_search_checkbox.toggled.connect(self.max_iterations_spin.setEnabled)
+        self.max_iterations_spin.valueChanged.connect(self.on_max_iterations_changed)
+
+        buttons_layout.addWidget(iterative_container)
 
         # Load JSON button - Claude Generated
         self.load_json_button = QPushButton("📁 JSON laden")
@@ -1426,6 +1512,51 @@ class PipelineTab(QWidget):
     def on_config_changed(self):
         """Handle configuration changes - Claude Generated (Webcam Feature)"""
         self.logger.info("Pipeline tab: Handling config change")
+
+    def on_iterative_search_toggled(self, state):
+        """Handle iterative search checkbox toggle - Claude Generated"""
+        enabled = state == Qt.CheckState.Checked.value
+
+        self.logger.info(f"🔄 Iterative search toggled: {enabled}")
+
+        # Update pipeline configuration
+        if self.pipeline_manager and self.pipeline_manager.config:
+            keywords_config = self.pipeline_manager.config.get_step_config("keywords")
+            if keywords_config:
+                keywords_config.enable_iterative_refinement = enabled
+
+                # Show visual feedback
+                if enabled:
+                    max_iter = self.max_iterations_spin.value() if hasattr(self, 'max_iterations_spin') else 2
+                    self.logger.info(f"✅ Iterative GND-Suche aktiviert (max. {max_iter} Iterationen)")
+                    # Show info in status bar if available
+                    if self.main_window and hasattr(self.main_window, "global_status_bar"):
+                        self.main_window.global_status_bar.show_temporary_message(
+                            f"🔄 Iterative GND-Suche aktiviert (max. {max_iter})", 3000
+                        )
+                else:
+                    self.logger.info("❌ Iterative GND-Suche deaktiviert")
+                    if self.main_window and hasattr(self.main_window, "global_status_bar"):
+                        self.main_window.global_status_bar.show_temporary_message(
+                            "Iterative GND-Suche deaktiviert", 3000
+                        )
+
+    def on_max_iterations_changed(self, value):
+        """Handle max iterations spinbox change - Claude Generated"""
+        self.logger.info(f"🔄 Max iterations changed: {value}")
+
+        # Update pipeline configuration
+        if self.pipeline_manager and self.pipeline_manager.config:
+            keywords_config = self.pipeline_manager.config.get_step_config("keywords")
+            if keywords_config:
+                keywords_config.max_refinement_iterations = value
+
+                # Show visual feedback if enabled
+                if getattr(keywords_config, 'enable_iterative_refinement', False):
+                    if self.main_window and hasattr(self.main_window, "global_status_bar"):
+                        self.main_window.global_status_bar.show_temporary_message(
+                            f"Max. Iterationen: {value}", 2000
+                        )
 
         # Update webcam frame visibility in unified input widget
         if hasattr(self, 'unified_input') and self.unified_input:

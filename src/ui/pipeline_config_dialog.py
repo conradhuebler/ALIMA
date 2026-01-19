@@ -1543,6 +1543,62 @@ class PipelineStepConfigWidget(QWidget):
 
         layout.addWidget(params_group)
 
+        # Iterative Refinement Section - PROMINENT PLACEMENT - Claude Generated
+        # Placed BEFORE chunking/DK params for better visibility
+        if self.step_id == "keywords":
+            refinement_group = QGroupBox("🔄 Iterative GND-Suche (Experimentell)")
+            refinement_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+            refinement_layout = QVBoxLayout()
+
+            # Info label for visibility
+            info_label = QLabel(
+                "💡 <b>Neu:</b> Automatische Suche nach fehlenden Konzepten mit GND-Erweiterung"
+            )
+            info_label.setWordWrap(True)
+            info_label.setStyleSheet("color: #0066cc; padding: 5px;")
+            refinement_layout.addWidget(info_label)
+
+            self.enable_refinement = QCheckBox("✓ Iterative Suche aktivieren")
+            self.enable_refinement.setStyleSheet("font-weight: bold;")
+            self.enable_refinement.setToolTip(
+                "Wenn aktiviert, sucht das System nach fehlenden Konzepten\n"
+                "und erweitert den GND-Pool automatisch.\n\n"
+                "⚠️ Warnung: Erhöht Token-Nutzung um ca. 2-3x und\n"
+                "verlängert die Analysezeit um 30-70 Sekunden."
+            )
+            refinement_layout.addWidget(self.enable_refinement)
+
+            # Max iterations control
+            refinement_controls = QHBoxLayout()
+            refinement_controls.addWidget(QLabel("Max. Iterationen:"))
+            self.max_iterations_spin = QSpinBox()
+            self.max_iterations_spin.setRange(1, 5)
+            self.max_iterations_spin.setValue(2)
+            self.max_iterations_spin.setEnabled(False)
+            self.max_iterations_spin.setSuffix(" Durchläufe")
+            self.max_iterations_spin.setToolTip(
+                "Maximale Anzahl von Iterationen für die Suche\n"
+                "nach fehlenden Konzepten.\n\n"
+                "Empfohlen: 2 Iterationen\n"
+                "Höhere Werte erhöhen die Genauigkeit, aber auch die Kosten."
+            )
+
+            # Connect checkbox to enable/disable spinbox
+            self.enable_refinement.toggled.connect(self.max_iterations_spin.setEnabled)
+
+            refinement_controls.addWidget(self.max_iterations_spin)
+            refinement_controls.addStretch()
+
+            refinement_layout.addLayout(refinement_controls)
+
+            # Add warning banner
+            warning_label = QLabel("⚠️ Erhöht Token-Kosten um 2-3x")
+            warning_label.setStyleSheet("color: #ff6600; font-size: 10px; padding: 3px;")
+            refinement_layout.addWidget(warning_label)
+
+            refinement_group.setLayout(refinement_layout)
+            layout.addWidget(refinement_group)
+
         # DK Classification Parameters (only for dk_classification step) - Claude Generated
         if self.step_id == "dk_classification":
             dk_group = QGroupBox("DK Klassifikation")
@@ -1893,6 +1949,12 @@ class PipelineStepConfigWidget(QWidget):
         if hasattr(self, "dk_frequency_spinbox"):
             config["dk_frequency_threshold"] = self.dk_frequency_spinbox.value()
 
+        # Add iterative refinement parameters if available (keywords step only) - Claude Generated
+        if hasattr(self, "enable_refinement"):
+            config["enable_iterative_refinement"] = self.enable_refinement.isChecked()
+        if hasattr(self, "max_iterations_spin"):
+            config["max_refinement_iterations"] = self.max_iterations_spin.value()
+
         return config
 
     def set_config(self, config: Dict[str, Any]):
@@ -1952,6 +2014,12 @@ class PipelineStepConfigWidget(QWidget):
         # Set DK classification parameters if available (dk_classification step only) - Claude Generated
         if "dk_frequency_threshold" in config and hasattr(self, "dk_frequency_spinbox"):
             self.dk_frequency_spinbox.setValue(config["dk_frequency_threshold"])
+
+        # Set iterative refinement parameters if available (keywords step only) - Claude Generated
+        if "enable_iterative_refinement" in config and hasattr(self, "enable_refinement"):
+            self.enable_refinement.setChecked(config["enable_iterative_refinement"])
+        if "max_refinement_iterations" in config and hasattr(self, "max_iterations_spin"):
+            self.max_iterations_spin.setValue(config["max_refinement_iterations"])
 
         # Load prompt settings after config is set (with delay to ensure UI is updated)
         if hasattr(self, "task_combo") and not (

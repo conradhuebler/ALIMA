@@ -6,6 +6,7 @@ Claude Generated - Abstracts common pipeline operations and utilities
 import json
 import logging
 import re
+import time
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import asdict
 from datetime import datetime
@@ -28,6 +29,7 @@ from ..core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
     extract_title_from_response,  # For LLM title extraction - Claude Generated
+    extract_missing_concepts_from_response,  # For iterative refinement - Claude Generated
 )
 from .smart_provider_selector import SmartProviderSelector, TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
@@ -448,14 +450,6 @@ class PipelineStepExecutor:
             # Add catalog if available (no auto-detection, explicit configuration)
             # Catalog will be added via suggesters parameter in pipeline
 
-        # Create SearchCLI instance with catalog parameters
-        search_cli = SearchCLI(
-            self.cache_manager,
-            catalog_token=catalog_token or "",
-            catalog_search_url=catalog_search_url or "",
-            catalog_details_url=catalog_details_url or ""
-        )
-
         # Convert suggester names to types
         suggester_types = []
         for suggester_name in suggesters:
@@ -482,10 +476,16 @@ class PipelineStepExecutor:
                 "search",
             )
 
-        # Execute search
-        search_results = search_cli.search(
-            search_terms=keywords_list, suggester_types=suggester_types
-        )
+        # Execute search using context manager for automatic cleanup - Claude Generated
+        with SearchCLI(
+            self.cache_manager,
+            catalog_token=catalog_token or "",
+            catalog_search_url=catalog_search_url or "",
+            catalog_details_url=catalog_details_url or ""
+        ) as search_cli:
+            search_results = search_cli.search(
+                search_terms=keywords_list, suggester_types=suggester_types
+            )
 
         # Post-process catalog results: validate subjects against cache and SWB
         if "catalog" in suggesters:
@@ -508,6 +508,400 @@ class PipelineStepExecutor:
             stream_callback("--> Suche abgeschlossen.\n", "search")
 
         return search_results
+
+    def execute_fallback_gnd_search(
+        self,
+        missing_concepts: List[str],
+        existing_results: Dict[str, Dict[str, Any]],
+        stream_callback: Optional[callable] = None,
+        **kwargs
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Search GND for missing concepts identified by LLM.
+        Claude Generated
+
+        Args:
+            missing_concepts: List of concepts not covered by existing GND pool
+            existing_results: Current search results to avoid duplicates
+            stream_callback: Progress feedback callback
+
+        Returns:
+            Merged search results (existing + new)
+
+        Strategy:
+            1. Search GND for each missing concept
+            2. Track concepts not found in GND
+            3. Merge new results with existing results (union GND-IDs for duplicates)
+            4. Return enriched search results dict
+        """
+        if stream_callback:
+            stream_callback(
+                f"\n🔍 Fallback-Suche für {len(missing_concepts)} fehlende Konzepte...\n",
+                "keywords_refinement"
+            )
+
+        new_results = {}
+        concepts_not_found = []
+
+        for concept in missing_concepts:
+            if stream_callback:
+                stream_callback(f"  Suche: {concept}\n", "keywords_refinement")
+
+            # Execute search via SearchCLI using context manager - Claude Generated
+            try:
+                from ..core.search_cli import SearchCLI
+
+                with SearchCLI(self.cache_manager) as search_cli:
+                    # Search with SWB and Lobid suggesters
+                    search_result_dict = search_cli.search(
+                        search_terms=[concept],
+                        suggester_types=[SuggesterType.LOBID, SuggesterType.SWB]
+                    )
+
+                    # Extract results for this concept
+                    if concept in search_result_dict and search_result_dict[concept]:
+                        new_results[concept] = search_result_dict[concept]
+
+                        # Count total GND-IDs found
+                        total_gnd_ids = sum(
+                            len(data.get("gndid", set()))
+                            for data in search_result_dict[concept].values()
+                        )
+
+                        if stream_callback:
+                            stream_callback(f"    ✓ {total_gnd_ids} GND-Einträge gefunden\n", "keywords_refinement")
+                    else:
+                        concepts_not_found.append(concept)
+                        if stream_callback:
+                            stream_callback(f"    ✗ Keine GND-Einträge gefunden\n", "keywords_refinement")
+            except Exception as e:
+                logger.warning(f"Fallback search failed for concept '{concept}': {e}")
+                concepts_not_found.append(concept)
+                if stream_callback:
+                    stream_callback(f"    ✗ Suchfehler: {str(e)}\n", "keywords_refinement")
+
+        # Merge with existing results using atomic rollback pattern - Claude Generated
+        # Deep copy to prevent partial corruption on failure
+        import copy
+        merged_results = copy.deepcopy(existing_results)
+
+        try:
+            for concept, concept_data in new_results.items():
+                # concept_data is: {keyword: {gndid: set(), ddc: set(), dk: set(), count: int}}
+                for keyword, data in concept_data.items():
+                    if concept in merged_results:
+                        # Concept already exists as search term - merge at keyword level
+                        if keyword in merged_results[concept]:
+                            # Merge GND-IDs, DDC, and DK codes
+                            merged_results[concept][keyword]["gndid"].update(data.get("gndid", set()))
+                            merged_results[concept][keyword]["ddc"].update(data.get("ddc", set()))
+                            merged_results[concept][keyword]["dk"].update(data.get("dk", set()))
+                            # Update count
+                            merged_results[concept][keyword]["count"] = max(
+                                merged_results[concept][keyword].get("count", 0),
+                                data.get("count", 0)
+                            )
+                        else:
+                            # New keyword for existing search term - deep copy to isolate
+                            merged_results[concept][keyword] = copy.deepcopy(data)
+                    else:
+                        # New search term entirely - deep copy to isolate
+                        merged_results[concept] = copy.deepcopy(concept_data)
+        except Exception as e:
+            # Rollback: return original existing_results unchanged
+            logger.error(f"Merge failed, rolling back to existing results: {e}")
+            if stream_callback:
+                stream_callback(f"⚠️  Merge-Fehler, verwende vorherige Ergebnisse: {str(e)}\n", "keywords_refinement")
+            return existing_results
+
+        if stream_callback:
+            stream_callback(
+                f"\n📊 Fallback-Ergebnis: {len(new_results)}/{len(missing_concepts)} Konzepte gefunden\n",
+                "keywords_refinement"
+            )
+            if concepts_not_found and len(concepts_not_found) <= 5:
+                stream_callback(
+                    f"⚠️  Nicht gefunden: {', '.join(concepts_not_found)}\n",
+                    "keywords_refinement"
+                )
+            elif concepts_not_found:
+                stream_callback(
+                    f"⚠️  Nicht gefunden: {len(concepts_not_found)} Konzepte\n",
+                    "keywords_refinement"
+                )
+
+        return merged_results
+
+    def execute_iterative_keyword_refinement(
+        self,
+        original_abstract: str,
+        initial_search_results: Dict[str, Dict[str, Any]],
+        model: str,
+        provider: str,
+        max_iterations: int = 2,
+        stream_callback: Optional[callable] = None,
+        checkpoint_path: Optional[str] = None,
+        **kwargs
+    ) -> Tuple[List[str], Dict[str, Any], LlmKeywordAnalysis]:
+        """
+        Iteratively refine keyword selection by searching for missing concepts.
+        Claude Generated
+
+        Process:
+            1. Run initial keyword analysis
+            2. Extract missing concepts from <missing_list>
+            3. If missing concepts found AND iterations remaining:
+               a. Search GND for missing concepts
+               b. Merge results into GND pool
+               c. Re-run keyword analysis
+               d. Check for convergence
+            4. Return final keywords + enriched state
+
+        Args:
+            original_abstract: The abstract text
+            initial_search_results: Initial GND search results
+            model: LLM model to use
+            provider: LLM provider
+            max_iterations: Maximum refinement iterations (default: 2)
+            stream_callback: Progress callback
+            checkpoint_path: Optional path prefix for checkpoint files (enables crash recovery)
+
+        Returns:
+            (final_keywords, iteration_metadata, final_llm_analysis)
+
+        Convergence Conditions:
+            - No missing concepts in LLM response → STOP (success)
+            - Missing concepts identical to previous iteration → STOP (self-consistency)
+            - GND search finds no new matches → STOP (no improvement possible)
+            - Max iterations reached → STOP (timeout)
+        """
+        current_search_results = initial_search_results.copy()
+        iteration_history = []
+        previous_missing_concepts = []
+        final_keywords = []
+        final_llm_analysis = None
+
+        def _save_checkpoint(iteration_num: int) -> None:
+            """Save iteration checkpoint for crash recovery - Claude Generated"""
+            if not checkpoint_path:
+                return
+
+            try:
+                checkpoint_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "iteration": iteration_num,
+                    "original_abstract": original_abstract,
+                    "current_search_results": PipelineJsonManager.convert_sets_to_lists(current_search_results),
+                    "iteration_history": iteration_history,
+                    "final_keywords": final_keywords,
+                    "model": model,
+                    "provider": provider,
+                    "max_iterations": max_iterations
+                }
+
+                checkpoint_file = f"{checkpoint_path}_iter{iteration_num}.json"
+                with open(checkpoint_file, "w", encoding="utf-8") as f:
+                    json.dump(checkpoint_data, f, ensure_ascii=False, indent=2)
+
+                logger.info(f"💾 Checkpoint saved: {checkpoint_file}")
+            except Exception as e:
+                logger.warning(f"Failed to save checkpoint: {e}")
+                # Don't fail the iteration if checkpoint fails
+
+        # Retry configuration - Claude Generated
+        MAX_RETRIES = 3
+        RETRY_DELAY_SECONDS = 2
+
+        for iteration in range(1, max_iterations + 1):
+            if stream_callback:
+                stream_callback(
+                    f"\n{'='*60}\n🔄 Iteration {iteration}/{max_iterations}\n{'='*60}\n",
+                    "keywords_refinement"
+                )
+
+            # 1. Execute keyword analysis with current GND pool
+            # Wrapped in try-catch with retry logic for LLM failures - Claude Generated
+            llm_analysis = None
+            last_exception = None
+
+            for retry in range(MAX_RETRIES):
+                try:
+                    final_keywords, _, llm_analysis = self.execute_final_keyword_analysis(
+                        original_abstract=original_abstract,
+                        search_results=current_search_results,
+                        model=model,
+                        provider=provider,
+                        stream_callback=stream_callback,
+                        **kwargs
+                    )
+                    break  # Success - exit retry loop
+                except (TimeoutError, ConnectionError) as e:
+                    # Transient errors - retry
+                    last_exception = e
+                    if retry < MAX_RETRIES - 1:
+                        if stream_callback:
+                            stream_callback(
+                                f"⚠️  LLM-Fehler (Retry {retry + 1}/{MAX_RETRIES}): {str(e)}\n",
+                                "keywords_refinement"
+                            )
+                        import time
+                        time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                except ValueError as e:
+                    # Parse errors or LLM refused - don't retry, use current state
+                    last_exception = e
+                    if stream_callback:
+                        stream_callback(
+                            f"⚠️  LLM-Analyse fehlgeschlagen: {str(e)}\n",
+                            "keywords_refinement"
+                        )
+                    logger.warning(f"Iteration {iteration}: LLM analysis failed (non-retryable): {e}")
+                    break
+                except Exception as e:
+                    # Unknown error - log and try to continue
+                    last_exception = e
+                    logger.error(f"Iteration {iteration}: Unexpected error in keyword analysis: {e}")
+                    if retry < MAX_RETRIES - 1:
+                        import time
+                        time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+
+            # Handle case where all retries failed - Claude Generated
+            if llm_analysis is None:
+                if stream_callback:
+                    stream_callback(
+                        f"❌ Iteration {iteration} abgebrochen: Alle LLM-Versuche fehlgeschlagen\n",
+                        "keywords_refinement"
+                    )
+                logger.error(f"Iteration {iteration}: All {MAX_RETRIES} retries failed. Last error: {last_exception}")
+
+                # Record failed iteration and stop
+                iteration_data = {
+                    "iteration": iteration,
+                    "missing_concepts": [],
+                    "keywords_selected": len(final_keywords) if final_keywords else 0,
+                    "gnd_pool_size": len(current_search_results),
+                    "convergence_reason": "llm_failure",
+                    "error": str(last_exception)
+                }
+                iteration_history.append(iteration_data)
+                _save_checkpoint(iteration)  # Save checkpoint after LLM failure
+                break
+
+            final_llm_analysis = llm_analysis
+
+            # 2. Extract missing concepts from LLM response
+            missing_concepts = extract_missing_concepts_from_response(
+                llm_analysis.response_full_text
+            )
+            llm_analysis.missing_concepts = missing_concepts
+
+            # 3. Record iteration data
+            iteration_data = {
+                "iteration": iteration,
+                "missing_concepts": missing_concepts.copy(),
+                "keywords_selected": len(final_keywords),
+                "gnd_pool_size": len(current_search_results)
+            }
+
+            if stream_callback:
+                stream_callback(
+                    f"\n📋 Iteration {iteration} Ergebnis:\n"
+                    f"  - Keywords: {len(final_keywords)}\n"
+                    f"  - Fehlende Konzepte: {len(missing_concepts)}\n",
+                    "keywords_refinement"
+                )
+
+            # 4. Check convergence conditions
+
+            # Condition 1: No missing concepts
+            if not missing_concepts:
+                if stream_callback:
+                    stream_callback(
+                        "✓ Konvergenz erreicht: Keine fehlenden Konzepte\n",
+                        "keywords_refinement"
+                    )
+                iteration_data["convergence_reason"] = "no_missing_concepts"
+                iteration_history.append(iteration_data)
+                _save_checkpoint(iteration)  # Save checkpoint after convergence
+                break
+
+            # Condition 2: Self-consistency (same missing concepts as before)
+            if missing_concepts == previous_missing_concepts:
+                if stream_callback:
+                    stream_callback(
+                        "✓ Konvergenz erreicht: Identische fehlende Konzepte\n",
+                        "keywords_refinement"
+                    )
+                iteration_data["convergence_reason"] = "self_consistency"
+                iteration_history.append(iteration_data)
+                _save_checkpoint(iteration)  # Save checkpoint after self-consistency
+                break
+
+            # 5. Not last iteration? Search for missing concepts
+            if iteration < max_iterations:
+                enriched_results = self.execute_fallback_gnd_search(
+                    missing_concepts=missing_concepts,
+                    existing_results=current_search_results,
+                    stream_callback=stream_callback,
+                    **kwargs
+                )
+
+                # Calculate new keywords found
+                new_count = len(enriched_results) - len(current_search_results)
+                iteration_data["new_gnd_results"] = new_count
+
+                # Condition 3: No new GND results
+                if new_count == 0:
+                    if stream_callback:
+                        stream_callback(
+                            "⚠️  Keine neuen GND-Einträge gefunden - Iteration beendet\n",
+                            "keywords_refinement"
+                        )
+                    iteration_data["convergence_reason"] = "no_new_results"
+                    iteration_history.append(iteration_data)
+                    _save_checkpoint(iteration)  # Save checkpoint after no-new-results
+                    break
+
+                # Update for next iteration
+                current_search_results = enriched_results
+                previous_missing_concepts = missing_concepts.copy()
+                iteration_history.append(iteration_data)
+                _save_checkpoint(iteration)  # Save checkpoint after successful iteration
+            else:
+                # Condition 4: Max iterations reached
+                iteration_data["convergence_reason"] = "max_iterations"
+                iteration_history.append(iteration_data)
+                _save_checkpoint(iteration)  # Save checkpoint after max iterations
+                if stream_callback:
+                    stream_callback(
+                        f"⚠️  Maximale Iterationen ({max_iterations}) erreicht\n",
+                        "keywords_refinement"
+                    )
+
+        # 6. Build enriched metadata
+        state_metadata = {
+            "total_iterations": len(iteration_history),
+            "iteration_history": iteration_history,
+            "final_gnd_pool_size": len(current_search_results),
+            "convergence_achieved": any(
+                it.get("convergence_reason") not in ["max_iterations", None]
+                for it in iteration_history
+            )
+        }
+
+        if stream_callback:
+            stream_callback(
+                f"\n{'='*60}\n"
+                f"✅ Iterative Refinement abgeschlossen\n"
+                f"  - Gesamt-Iterationen: {state_metadata['total_iterations']}\n"
+                f"  - Konvergenz: {'✓ Ja' if state_metadata['convergence_achieved'] else '✗ Nein'}\n"
+                f"  - Finale Keywords: {len(final_keywords)}\n"
+                f"{'='*60}\n",
+                "keywords_refinement"
+            )
+
+        return final_keywords, state_metadata, final_llm_analysis
 
     def _validate_catalog_subjects(
         self, 
@@ -562,38 +956,37 @@ class PipelineStepExecutor:
                     self.logger.info(f"  {i+1}. '{subject}'")
             
             try:
-                # Use SWB suggester for validation
-                swb_search_cli = SearchCLI(self.cache_manager)
-                
-                # Search unknown subjects via SWB
-                swb_results = swb_search_cli.search(
-                    search_terms=unknown_subjects,
-                    suggester_types=[SuggesterType.SWB]
-                )
-                
-                # Claude Generated - Debug SWB results before merging
-                if self.logger:
-                    total_swb_subjects = sum(len(term_results) for term_results in swb_results.values())
-                    total_swb_gnd_ids = sum(
-                        len(data.get("gndid", set())) 
-                        for term_results in swb_results.values() 
-                        for data in term_results.values()
+                # Use SWB suggester for validation with context manager - Claude Generated
+                with SearchCLI(self.cache_manager) as swb_search_cli:
+                    # Search unknown subjects via SWB
+                    swb_results = swb_search_cli.search(
+                        search_terms=unknown_subjects,
+                        suggester_types=[SuggesterType.SWB]
                     )
-                    self.logger.info(f"SWB-Ergebnisse: {total_swb_subjects} Subjects mit {total_swb_gnd_ids} GND-IDs gefunden")
-                    
-                    # Show detailed results for first few terms
-                    for i, (term, term_results) in enumerate(swb_results.items()):
-                        if i >= 5:  # Limit to first 5 terms
-                            break
-                        self.logger.info(f"  SWB '{term}': {len(term_results)} Subjects gefunden")
-                        for j, (subject, data) in enumerate(term_results.items()):
-                            if j >= 3:  # Limit to first 3 subjects per term
+
+                    # Claude Generated - Debug SWB results before merging
+                    if self.logger:
+                        total_swb_subjects = sum(len(term_results) for term_results in swb_results.values())
+                        total_swb_gnd_ids = sum(
+                            len(data.get("gndid", set()))
+                            for term_results in swb_results.values()
+                            for data in term_results.values()
+                        )
+                        self.logger.info(f"SWB-Ergebnisse: {total_swb_subjects} Subjects mit {total_swb_gnd_ids} GND-IDs gefunden")
+
+                        # Show detailed results for first few terms
+                        for i, (term, term_results) in enumerate(swb_results.items()):
+                            if i >= 5:  # Limit to first 5 terms
                                 break
-                            gnd_count = len(data.get("gndid", set()))
-                            self.logger.info(f"    - '{subject}': {gnd_count} GND-IDs")
-                
-                # Merge SWB results back into original results
-                self._merge_swb_validation_results(search_results, swb_results, stream_callback)
+                            self.logger.info(f"  SWB '{term}': {len(term_results)} Subjects gefunden")
+                            for j, (subject, data) in enumerate(term_results.items()):
+                                if j >= 3:  # Limit to first 3 subjects per term
+                                    break
+                                gnd_count = len(data.get("gndid", set()))
+                                self.logger.info(f"    - '{subject}': {gnd_count} GND-IDs")
+
+                    # Merge SWB results back into original results
+                    self._merge_swb_validation_results(search_results, swb_results, stream_callback)
                 
             except Exception as e:
                 if self.logger:
@@ -1765,11 +2158,31 @@ class PipelineStepExecutor:
                     extractor.DETAILS_URL = catalog_details_url
                 
         except Exception as e:
+            error_msg = f"Catalog client initialization failed: {e}"
             if self.logger:
-                self.logger.error(f"Catalog client initialization failed: {e}")  
+                self.logger.error(error_msg)
             if stream_callback:
-                stream_callback(f"Katalog-Client-Fehler: {str(e)}\n", "dk_search")
-            return []
+                stream_callback(f"❌ Katalog-Initialisierung fehlgeschlagen: {str(e)}\n", "dk_search")
+            # Return structured result with error info - Claude Generated
+            return {
+                "classifications": [],
+                "statistics": {
+                    "error": error_msg,
+                    "initialization_failed": True,
+                    "total_classifications": 0,
+                    "total_keywords_searched": 0,
+                    "most_frequent": [],
+                    "keyword_coverage": {},
+                    "frequency_distribution": {},
+                    "deduplication_stats": {
+                        "original_count": 0,
+                        "duplicates_removed": 0,
+                        "deduplication_rate": "0%",
+                        "estimated_token_savings": 0
+                    }
+                },
+                "keyword_results": []
+            }
 
         # GND VALIDATION FILTERING - Claude Generated
         # Default (strict_gnd_validation=True): Only use keywords with validated GND-IDs
@@ -1891,6 +2304,20 @@ class PipelineStepExecutor:
 
             # Process EACH keyword individually for detailed feedback
             for idx, keyword in enumerate(final_search_keywords, 1):
+                # Check circuit breaker status before each search - Claude Generated
+                if hasattr(extractor, 'get_circuit_breaker_status'):
+                    cb_status = extractor.get_circuit_breaker_status()
+                    if cb_status.get('open'):
+                        remaining = cb_status.get('remaining_seconds', 60)
+                        if stream_callback:
+                            stream_callback(
+                                f"⏳ Katalog-Server überlastet: Wartezeit {remaining}s...\n",
+                                "dk_search"
+                            )
+                        if self.logger:
+                            self.logger.warning(f"Circuit breaker open, waiting {remaining}s")
+                        time.sleep(min(remaining + 1, 65))
+
                 # Progress callback with percentage - Claude Generated
                 if stream_callback:
                     progress_pct = int((idx / len(final_search_keywords)) * 100)
@@ -1987,14 +2414,36 @@ class PipelineStepExecutor:
             }
 
         except Exception as e:
+            error_msg = f"DK catalog search failed: {e}"
             if self.logger:
-                self.logger.error(f"DK catalog search failed: {e}")
+                self.logger.error(error_msg)
             if stream_callback:
-                stream_callback(f"DK-Suche-Fehler: {str(e)}\n", "dk_search")
-            # Return empty results in new format - Claude Generated Step 3
+                stream_callback(f"❌ DK-Suche-Fehler: {str(e)}\n", "dk_search")
+
+            # Return partial results if available - Claude Generated
+            # Check if we collected any results before the error occurred
+            if 'dk_search_results' in dir() and dk_search_results:
+                if stream_callback:
+                    stream_callback(
+                        f"⚠️ Teilergebnisse: {len(dk_search_results)} Keywords erfolgreich vor Fehler\n",
+                        "dk_search"
+                    )
+                # Process partial results
+                dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
+                dk_statistics = self._calculate_dk_statistics(dk_search_results_flattened, dk_search_results)
+                dk_statistics["error"] = error_msg
+                dk_statistics["partial_results"] = True
+                return {
+                    "classifications": dk_search_results_flattened,
+                    "statistics": dk_statistics,
+                    "keyword_results": dk_search_results
+                }
+
+            # Return empty results if no partial data
             return {
                 "classifications": [],
                 "statistics": {
+                    "error": error_msg,
                     "total_classifications": 0,
                     "total_keywords_searched": 0,
                     "most_frequent": [],
@@ -2284,13 +2733,18 @@ class PipelineJsonManager:
 
     @staticmethod
     def convert_lists_to_sets(obj):
-        """Convert known list fields back to sets after JSON loading - Claude Generated"""
+        """Convert known list fields back to sets after JSON loading - Claude Generated
+
+        Enhanced to handle all known set fields: gndid, ddc, dk, missing_concepts
+        """
         if isinstance(obj, dict):
-            # Known set fields in search results (e.g., gndid fields)
+            # Known set fields in search results and data models
+            SET_FIELDS = {"gndid", "ddc", "dk", "missing_concepts"}
+
             result = {}
             for key, value in obj.items():
-                if key == "gndid" and isinstance(value, list):
-                    # Convert gndid lists back to sets
+                if key in SET_FIELDS and isinstance(value, list):
+                    # Convert known set fields back to sets
                     result[key] = set(value)
                 elif isinstance(value, (dict, list)):
                     result[key] = PipelineJsonManager.convert_lists_to_sets(value)

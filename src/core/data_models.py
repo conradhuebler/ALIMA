@@ -70,6 +70,7 @@ class LlmKeywordAnalysis:
     extracted_gnd_keywords: List[str] = field(default_factory=list)
     extracted_gnd_classes: List[str] = field(default_factory=list)
     chunk_responses: List[str] = field(default_factory=list)  # Intermediate responses from chunked analysis - Claude Generated
+    missing_concepts: List[str] = field(default_factory=list)  # Missing concepts identified for iterative refinement - Claude Generated
 
 
 @dataclass
@@ -90,3 +91,8 @@ class KeywordAnalysisState:
     dk_search_results_flattened: List[Dict[str, Any]] = field(default_factory=list)  # Deduplicated classifications for LLM prompt - Claude Generated Step 6
     dk_statistics: Optional[Dict[str, Any]] = None  # Deduplication metrics and frequency statistics - Claude Generated Step 6
     dk_classifications: List[str] = field(default_factory=list)  # For final DK classification codes - Claude Generated
+
+    # Iterative refinement support - Claude Generated
+    refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata
+    convergence_achieved: bool = False  # True if converged before max iterations
+    max_iterations_reached: bool = False  # True if stopped due to max iterations

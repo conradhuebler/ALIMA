@@ -7,8 +7,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
+import unicodedata
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -172,6 +174,7 @@ class Session:
         self.autosave_timestamp = None  # Last auto-save timestamp for status indicator
         self.current_analysis_state = None  # Reference to PipelineManager state
         self.working_title = None  # Working title from initialisation step - Claude Generated
+        self.dk_search_progress = None  # DK search progress info (current/total/percent) - Claude Generated
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -435,6 +438,32 @@ def make_json_serializable(obj):
     elif isinstance(obj, (list, tuple)):
         return [make_json_serializable(v) for v in obj]
     return obj
+
+
+def sanitize_filename(filename: str, max_length: int = 100) -> str:
+    """Sanitize filename for HTTP headers and cross-platform safety - Claude Generated
+
+    Args:
+        filename: Original filename (may contain unicode, special chars)
+        max_length: Maximum filename length (default: 100)
+
+    Returns:
+        ASCII-safe filename suitable for Content-Disposition header
+    """
+    if not filename:
+        return "alima_analysis"
+
+    # Normalize unicode (e.g., ü → u)
+    normalized = unicodedata.normalize('NFKD', filename)
+    # Remove non-ASCII characters
+    ascii_safe = normalized.encode('ASCII', 'ignore').decode('ASCII')
+    # Replace invalid filename characters with underscore
+    sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', ascii_safe)
+    # Collapse multiple underscores/spaces into single underscore
+    sanitized = re.sub(r'[_\s]+', '_', sanitized).strip('_ ')
+    # Truncate and ensure we have a valid result
+    result = sanitized[:max_length].rstrip('_')
+    return result if result else "alima_analysis"
 
 
 def _autosave_session_state(session: Session):
@@ -733,6 +762,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "results": make_json_serializable(session.results),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
                 "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
+                "dk_search_progress": session.dk_search_progress,  # DK search progress info - Claude Generated
             })
 
             # Track idle time (no step change)
@@ -806,8 +836,9 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
 
         # Filename includes working title if available - Claude Generated
         if session.working_title:
-            filename = f"{session.working_title}.json"
-            logger.info(f"📥 Export filename from working_title: {filename}")
+            safe_title = sanitize_filename(session.working_title)
+            filename = f"{safe_title}.json"
+            logger.info(f"📥 Export filename from working_title: '{session.working_title}' → '{filename}'")
         else:
             # Fallback: use session ID and status indicator - Claude Generated (2026-01-06)
             filename = f"alima_analysis_{session.session_id}_{status_suffix}.json"
@@ -1056,6 +1087,20 @@ async def run_analysis(
             # Check for abort request - Claude Generated
             if session.abort_requested:
                 raise Exception("Pipeline execution cancelled by user")
+
+            # Extract DK search progress if present - Claude Generated
+            # Pattern: [N/M] (P%) Suche 'keyword'...
+            if step_id == "dk_search":
+                progress_match = re.match(r'\[(\d+)/(\d+)\]\s*\((\d+)%\)', token)
+                if progress_match:
+                    current = int(progress_match.group(1))
+                    total = int(progress_match.group(2))
+                    percent = int(progress_match.group(3))
+                    session.dk_search_progress = {
+                        "current": current,
+                        "total": total,
+                        "percent": percent
+                    }
 
             # Buffer tokens by step for periodic transmission via WebSocket
             if step_id:

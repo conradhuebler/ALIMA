@@ -203,6 +203,19 @@ class PipelineConfigBuilder:
                 step_config.custom_params['chunking_task'] = str(value)
                 return True, ""
 
+            elif param_name == "enable_iterative_refinement":
+                # Iterative refinement flag - Claude Generated
+                step_config.enable_iterative_refinement = bool(value)
+                return True, ""
+
+            elif param_name == "max_refinement_iterations":
+                # Max refinement iterations - Claude Generated
+                try:
+                    step_config.max_refinement_iterations = int(value)
+                    return True, ""
+                except (ValueError, TypeError):
+                    return False, f"max_refinement_iterations: Expected integer, got {type(value).__name__}"
+
             elif param_name == "enabled":
                 # Enable/disable step
                 step_config.enabled = bool(value)
@@ -356,6 +369,21 @@ class PipelineConfigBuilder:
             if 'keywords' not in overrides:
                 overrides['keywords'] = {}
             overrides['keywords']['chunking_task'] = args.chunking_task
+
+        # Parse iterative refinement parameters - Claude Generated
+        if hasattr(args, 'enable_iterative_search') and args.enable_iterative_search:
+            if 'keywords' not in overrides:
+                overrides['keywords'] = {}
+            overrides['keywords']['enable_iterative_refinement'] = True
+
+        if hasattr(args, 'max_iterations') and args.max_iterations is not None:
+            if 'keywords' not in overrides:
+                overrides['keywords'] = {}
+            # Validate max_iterations range (1-5)
+            max_iter = max(1, min(5, args.max_iterations))
+            if max_iter != args.max_iterations:
+                logger.warning(f"max_iterations {args.max_iterations} out of range, clamped to {max_iter}")
+            overrides['keywords']['max_refinement_iterations'] = max_iter
 
         # Apply all overrides with validation
         return builder.apply_overrides(overrides)

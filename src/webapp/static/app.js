@@ -608,6 +608,21 @@ class AlimaWebapp {
             for (let i = 0; i < stepIndex; i++) {
                 this.updateStepStatus(this.steps[i].id, 'completed');
             }
+
+            // Display DK search progress if available - Claude Generated
+            if (msg.dk_search_progress && (msg.current_step === 'dk_search' || msg.current_step === 'search')) {
+                const progress = msg.dk_search_progress;
+                const progressText = `(${progress.current}/${progress.total} - ${progress.percent}%)`;
+
+                // Find step info element and add progress
+                const stepElement = document.querySelector(`.step[data-step="${displayStep}"]`);
+                if (stepElement) {
+                    const infoElement = stepElement.querySelector('.step-info');
+                    if (infoElement) {
+                        infoElement.textContent = `${infoElement.textContent.split('(')[0].trim()} ${progressText}`;
+                    }
+                }
+            }
         }
 
         // Display streaming tokens (Claude Generated - Real-time LLM output)
@@ -894,11 +909,28 @@ class AlimaWebapp {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            // Get filename from Content-Disposition header
-            const filename = response.headers
-                .get('content-disposition')
-                ?.split('filename=')[1]
-                ?.replace(/"/g, '') || 'alima_analysis.json';
+            // Get filename from Content-Disposition header - Claude Generated
+            // Supports RFC 5987 format (filename*=UTF-8''encoded) and standard format (filename="name")
+            let filename = 'alima_analysis.json';
+            const contentDisposition = response.headers.get('content-disposition');
+            if (contentDisposition) {
+                // Try RFC 5987 format first: filename*=UTF-8''encoded_name
+                const rfc5987Match = contentDisposition.match(/filename\*=(?:UTF-8''|utf-8'')([^;\s]+)/i);
+                if (rfc5987Match) {
+                    try {
+                        filename = decodeURIComponent(rfc5987Match[1]);
+                    } catch (e) {
+                        console.warn('Failed to decode RFC 5987 filename:', e);
+                    }
+                }
+                // Fallback to standard format: filename="name" or filename=name
+                if (filename === 'alima_analysis.json') {
+                    const standardMatch = contentDisposition.match(/filename=["']?([^"';\s]+)["']?/i);
+                    if (standardMatch) {
+                        filename = standardMatch[1];
+                    }
+                }
+            }
 
             // Download file
             const blob = await response.blob();

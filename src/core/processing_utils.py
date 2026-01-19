@@ -119,6 +119,42 @@ def extract_title_from_response(text: str) -> Optional[str]:
     return None
 
 
+def extract_missing_concepts_from_response(text: str) -> List[str]:
+    """
+    Extract missing concepts from LLM response <missing_list> tag.
+    Claude Generated
+
+    Args:
+        text: Full LLM response text
+
+    Returns:
+        List of missing concept strings (empty if no missing concepts found)
+
+    Example:
+        Input: "<missing_list>Probenvorbereitung\\nInstrumentenspezifikationen</missing_list>"
+        Output: ["Probenvorbereitung", "Instrumentenspezifikationen"]
+    """
+    logger.info(f"extract_missing_concepts_from_response called with text length {len(text)}")
+
+    # 1. Remove <think> and reasoning blocks first (like extract_keywords_from_response does)
+    cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned_text = re.sub(r"<\|begin_of_thought\|>.*?<\|end_of_thought\|>", "", cleaned_text, flags=re.DOTALL)
+
+    # 2. Extract <missing_list> content
+    match = re.search(r'<missing_list>\s*([^<]+)\s*</missing_list>', cleaned_text, re.DOTALL | re.IGNORECASE)
+    if not match:
+        logger.debug("No <missing_list> tag found.")
+        return []
+
+    content = match.group(1).strip()
+
+    # 3. Split by newline, comma, AND semicolon (LLMs are inconsistent in formatting) - Claude Generated
+    concepts = [c.strip() for c in re.split(r'[,\n;]+', content) if c.strip()]
+
+    logger.debug(f"Extracted {len(concepts)} missing concepts: {concepts}")
+    return concepts
+
+
 def extract_gnd_system_from_response(text: str) -> Optional[str]:
     logger.info(f"extract_gnd_system_from_response called with text length {len(text)}")
     try:

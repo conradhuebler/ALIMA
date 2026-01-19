@@ -231,6 +231,47 @@ class AnalysisReviewTab(QWidget):
         self.chunk_details_text.setFont(font)
         self.details_tabs.addTab(self.chunk_details_text, "Chunk-Details (Zwischenergebnisse)")
 
+        # Iteration History tab - Claude Generated
+        iteration_widget = QWidget()
+        iteration_layout = QVBoxLayout(iteration_widget)
+
+        iteration_label = QLabel("<b>🔄 Iterative GND-Suche Verlauf</b>")
+        iteration_label.setFont(QFont("Arial", 11))
+        iteration_layout.addWidget(iteration_label)
+
+        # Iteration table
+        self.iteration_history_table = QTableWidget()
+        self.iteration_history_table.setColumnCount(4)
+        self.iteration_history_table.setHorizontalHeaderLabels([
+            "Iteration", "Keywords", "Fehlende Konzepte", "Status"
+        ])
+        self.iteration_history_table.horizontalHeader().setStretchLastSection(True)
+        self.iteration_history_table.setMaximumHeight(250)
+        iteration_layout.addWidget(self.iteration_history_table)
+
+        # Summary label
+        self.iteration_summary_label = QLabel("")
+        self.iteration_summary_label.setFont(QFont("Arial", 10))
+        self.iteration_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        iteration_layout.addWidget(self.iteration_summary_label)
+
+        # Missing concepts details
+        missing_concepts_label = QLabel("<b>Letzte fehlende Konzepte:</b>")
+        missing_concepts_label.setFont(QFont("Arial", 10))
+        iteration_layout.addWidget(missing_concepts_label)
+
+        self.missing_concepts_text = QTextEdit()
+        self.missing_concepts_text.setReadOnly(True)
+        self.missing_concepts_text.setMaximumHeight(100)
+        font = self.missing_concepts_text.font()
+        font.setPointSize(10)
+        self.missing_concepts_text.setFont(font)
+        iteration_layout.addWidget(self.missing_concepts_text)
+
+        iteration_layout.addStretch()
+
+        self.details_tabs.addTab(iteration_widget, "🔄 Iterationsverlauf")
+
         # DK/RVK Classifications tab - Claude Generated
         self.dk_classification_display = QTextEdit()
         self.dk_classification_display.setReadOnly(True)
@@ -647,6 +688,85 @@ class AnalysisReviewTab(QWidget):
 
         # DK Statistics - Claude Generated
         self.populate_dk_statistics()
+
+        # Iteration History - Claude Generated
+        self.populate_iteration_history()
+
+    def populate_iteration_history(self):
+        """Populate iteration history table and summary - Claude Generated"""
+        if not self.current_analysis or not self.current_analysis.refinement_iterations:
+            # No iteration data available
+            self.iteration_history_table.setRowCount(0)
+            self.iteration_summary_label.setText(
+                "<i>Keine Iterationsdaten verfügbar</i><br>"
+                "<i>(Iterative Suche war nicht aktiviert oder wurde nicht verwendet)</i>"
+            )
+            self.missing_concepts_text.setPlainText("Keine Daten verfügbar")
+            return
+
+        iterations = self.current_analysis.refinement_iterations
+
+        # Populate table
+        self.iteration_history_table.setRowCount(len(iterations))
+
+        for row, it_data in enumerate(iterations):
+            # Iteration number
+            self.iteration_history_table.setItem(row, 0, QTableWidgetItem(str(it_data['iteration'])))
+
+            # Keywords selected
+            self.iteration_history_table.setItem(row, 1, QTableWidgetItem(str(it_data['keywords_selected'])))
+
+            # Missing concepts count
+            missing_count = len(it_data.get('missing_concepts', []))
+            self.iteration_history_table.setItem(row, 2, QTableWidgetItem(str(missing_count)))
+
+            # Status (convergence reason)
+            reason_map = {
+                "no_missing_concepts": "✓ Keine fehlenden Konzepte",
+                "self_consistency": "✓ Selbstkonsistenz",
+                "no_new_results": "⚠️ Keine neuen Ergebnisse",
+                "max_iterations": "⚠️ Max. Iterationen erreicht"
+            }
+            status = reason_map.get(it_data.get('convergence_reason', ''), "→ Weiter")
+            status_item = QTableWidgetItem(status)
+
+            # Color code the status
+            if "✓" in status:
+                status_item.setForeground(QColor(0, 128, 0))  # Green
+            elif "⚠️" in status:
+                status_item.setForeground(QColor(255, 140, 0))  # Orange
+
+            self.iteration_history_table.setItem(row, 3, status_item)
+
+        # Resize columns to content
+        self.iteration_history_table.resizeColumnsToContents()
+
+        # Summary
+        total_iterations = len(iterations)
+        convergence_achieved = self.current_analysis.convergence_achieved
+
+        summary_html = f"<b>Gesamt:</b> {total_iterations} Iteration(en) | "
+        if convergence_achieved:
+            summary_html += "<span style='color: green;'><b>Konvergenz: ✓ Erreicht</b></span>"
+        else:
+            summary_html += "<span style='color: orange;'><b>Konvergenz: ✗ Nicht erreicht</b></span>"
+
+        # Final GND pool size
+        if iterations:
+            final_pool = iterations[-1].get('gnd_pool_size', 'N/A')
+            summary_html += f" | <b>Finaler GND-Pool:</b> {final_pool} Einträge"
+
+        self.iteration_summary_label.setText(summary_html)
+
+        # Last missing concepts
+        if iterations:
+            last_missing = iterations[-1].get('missing_concepts', [])
+            if last_missing:
+                self.missing_concepts_text.setPlainText(", ".join(last_missing))
+            else:
+                self.missing_concepts_text.setPlainText("(Keine fehlenden Konzepte)")
+        else:
+            self.missing_concepts_text.setPlainText("Keine Daten verfügbar")
 
     def populate_search_results_table(self):
         """Populate the search results table - Claude Generated (Refactored)"""

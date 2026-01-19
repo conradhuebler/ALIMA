@@ -6,12 +6,43 @@ from .unified_knowledge_manager import UnifiedKnowledgeManager
 
 
 class SearchCLI:
+    """
+    GND Search CLI - supports context manager pattern for automatic resource cleanup.
+    Claude Generated
+
+    Usage:
+        # Recommended: context manager pattern
+        with SearchCLI(cache_manager) as search_cli:
+            results = search_cli.search([...], [...])
+
+        # Legacy: direct instantiation (still works but no automatic cleanup)
+        search_cli = SearchCLI(cache_manager)
+        results = search_cli.search([...], [...])
+        search_cli.close()  # Manual cleanup
+    """
+
     def __init__(self, cache_manager: UnifiedKnowledgeManager, catalog_token: str = "", catalog_search_url: str = "", catalog_details_url: str = ""):
         self.logger = logging.getLogger(__name__)
         self.cache_manager = cache_manager
         self.catalog_token = catalog_token
-        self.catalog_search_url = catalog_search_url  
+        self.catalog_search_url = catalog_search_url
         self.catalog_details_url = catalog_details_url
+        self._active_suggesters = []  # Track active suggesters for cleanup
+
+    def __enter__(self):
+        """Enter context manager - Claude Generated"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager with cleanup - Claude Generated"""
+        self.close()
+        return False  # Don't suppress exceptions
+
+    def close(self):
+        """Clean up resources (connections, suggesters) - Claude Generated"""
+        # Clear any cached suggester references
+        self._active_suggesters.clear()
+        self.logger.debug("SearchCLI closed and resources released")
 
     def search(
         self, search_terms: List[str], suggester_types: List[SuggesterType]

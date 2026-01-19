@@ -749,6 +749,20 @@ EXAMPLES:
         help="Comma-separated list of steps to disable"
     )
 
+    # Iterative refinement parameters - Claude Generated
+    pipeline_parser.add_argument(
+        "--enable-iterative-search",
+        action="store_true",
+        help="Enable iterative GND search for missing concepts (keywords step only). "
+             "WARNING: Increases token usage 2-3x and adds 30-70s to analysis time."
+    )
+    pipeline_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=2,
+        help="Maximum refinement iterations for missing concept search (default: 2, max: 5)"
+    )
+
     # Configuration display - Claude Generated
     pipeline_parser.add_argument(
         "--show-smart-config",

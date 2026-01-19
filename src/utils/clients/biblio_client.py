@@ -200,6 +200,31 @@ class BiblioClient:
         self.consecutive_failures = 0
         self.circuit_breaker_open = False
 
+    def get_circuit_breaker_status(self) -> Dict[str, Any]:
+        """Get circuit breaker status for UI feedback - Claude Generated
+
+        Returns:
+            Dictionary with circuit breaker state:
+            - open: bool - True if circuit is open (blocking requests)
+            - remaining_seconds: int - Seconds until reset (only if open)
+            - consecutive_failures: int - Current failure count
+        """
+        if not self.circuit_breaker_open:
+            return {
+                "open": False,
+                "consecutive_failures": self.consecutive_failures
+            }
+
+        remaining = 0
+        if self.circuit_breaker_reset_time:
+            remaining = max(0, int(self.circuit_breaker_reset_time - time.time()))
+
+        return {
+            "open": True,
+            "remaining_seconds": remaining,
+            "consecutive_failures": self.consecutive_failures
+        }
+
     def _reset_session_if_needed(self):
         """Reset session after N requests to prevent staleness - Claude Generated"""
         self.session_request_count += 1

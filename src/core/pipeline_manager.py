@@ -317,10 +317,12 @@ class PipelineManager:
             None  # Callback for LLM streaming tokens
         )
 
-        # Interrupt handling - Claude Generated
+        # Interrupt handling with thread-safety - Claude Generated
+        import threading
+        self._interrupt_lock = threading.Lock()
         self._interrupt_check_func: Optional[Callable] = None
         self._is_interrupted = False
-        self.logger.info("Pipeline manager initialized with interrupt support")
+        self.logger.info("Pipeline manager initialized with thread-safe interrupt support")
 
 
     def set_config(self, config: PipelineConfig):
@@ -386,22 +388,32 @@ class PipelineManager:
         Called by PipelineWorker to provide interrupt checking capability.
         Allows the pipeline manager to check if the worker has been interrupted.
 
+        Thread-safe implementation using internal lock.
+
         Args:
-            lock: Threading lock (unused, for compatibility)
+            lock: External threading lock (stored for reference, uses internal lock)
             is_interrupted_func: Callable that returns True if interrupted
         """
-        self._interrupt_check_func = is_interrupted_func
-        self.logger.debug("Interrupt check function registered with PipelineManager")
+        with self._interrupt_lock:
+            self._interrupt_check_func = is_interrupted_func
+            self._external_lock = lock  # Store reference to external lock if needed
+        self.logger.debug("Interrupt check function registered with PipelineManager (thread-safe)")
 
     def _check_interruption(self):
         """Check if pipeline should be interrupted - Claude Generated
 
+        Thread-safe implementation using internal lock.
+
         Raises:
             InterruptedError: If interruption was requested
         """
-        if self._interrupt_check_func and self._interrupt_check_func():
+        with self._interrupt_lock:
+            check_func = self._interrupt_check_func
+
+        if check_func and check_func():
             self.logger.info("Pipeline interruption detected")
-            self._is_interrupted = True
+            with self._interrupt_lock:
+                self._is_interrupted = True
             raise InterruptedError("Pipeline interrupted by user")
 
     def start_pipeline(self, input_text: str, input_type: str = "text", input_source: str = None, force_update: bool = False) -> str:
@@ -1049,20 +1061,64 @@ class PipelineManager:
                 self.current_analysis_state.search_results
             ) if self.current_analysis_state.search_results else {}
 
-            final_keywords, _, llm_analysis = (
-                self.pipeline_executor.execute_final_keyword_analysis(
-                    original_abstract=self.current_analysis_state.original_abstract,
-                    search_results=search_results_dict,
-                    model=step.model,
-                    provider=step.provider,
-                    task=task,
-                    stream_callback=stream_callback,
-                    temperature=temperature,
-                    p_value=top_p,
-                    step_id=step.step_id,  # Pass step_id for proper callback handling
-                    **filtered_config,  # Pass remaining config parameters
+            # Check if iterative refinement is enabled - Claude Generated
+            enable_iteration = getattr(step_config, 'enable_iterative_refinement', False)
+            max_iterations = getattr(step_config, 'max_refinement_iterations', 2)
+
+            if enable_iteration:
+                # Iterative refinement path - Claude Generated
+                self.logger.info(f"🔄 Iterative refinement enabled (max {max_iterations} iterations)")
+                if self.stream_callback:
+                    self.stream_callback(
+                        f"🔄 Iterative Refinement aktiviert (max. {max_iterations} Iterationen)\n",
+                        "keywords"
+                    )
+
+                final_keywords, iteration_metadata, llm_analysis = (
+                    self.pipeline_executor.execute_iterative_keyword_refinement(
+                        original_abstract=self.current_analysis_state.original_abstract,
+                        initial_search_results=search_results_dict,
+                        model=step.model,
+                        provider=step.provider,
+                        max_iterations=max_iterations,
+                        stream_callback=stream_callback,
+                        task=task,
+                        temperature=temperature,
+                        p_value=top_p,
+                        step_id=step.step_id,
+                        **filtered_config,
+                    )
                 )
-            )
+
+                # Store iteration metadata in analysis state - Claude Generated
+                self.current_analysis_state.refinement_iterations = iteration_metadata["iteration_history"]
+                self.current_analysis_state.convergence_achieved = iteration_metadata["convergence_achieved"]
+                self.current_analysis_state.max_iterations_reached = (
+                    iteration_metadata["convergence_achieved"] == False and
+                    len(iteration_metadata["iteration_history"]) >= max_iterations
+                )
+
+                self.logger.info(
+                    f"✅ Iterative refinement completed: "
+                    f"{iteration_metadata['total_iterations']} iterations, "
+                    f"convergence={'achieved' if iteration_metadata['convergence_achieved'] else 'not achieved'}"
+                )
+            else:
+                # Standard single-pass execution
+                final_keywords, _, llm_analysis = (
+                    self.pipeline_executor.execute_final_keyword_analysis(
+                        original_abstract=self.current_analysis_state.original_abstract,
+                        search_results=search_results_dict,
+                        model=step.model,
+                        provider=step.provider,
+                        task=task,
+                        stream_callback=stream_callback,
+                        temperature=temperature,
+                        p_value=top_p,
+                        step_id=step.step_id,  # Pass step_id for proper callback handling
+                        **filtered_config,  # Pass remaining config parameters
+                    )
+                )
 
             # Update analysis state with final results
             self.current_analysis_state.final_llm_analysis = llm_analysis
