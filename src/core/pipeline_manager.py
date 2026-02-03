@@ -35,11 +35,11 @@ from ..utils.pipeline_utils import (
     build_working_title,  # For title generation - Claude Generated
     extract_source_identifier,  # For title generation - Claude Generated
 )
-from ..utils.smart_provider_selector import SmartProviderSelector, TaskType
+from ..utils.smart_provider_selector import SmartProviderSelector
 from ..utils.config_models import (
     UnifiedProviderConfig,
     PipelineMode,
-    TaskType as UnifiedTaskType,
+    TaskType,
     PipelineStepConfig
 )
 from ..utils.pipeline_defaults import (
@@ -87,51 +87,55 @@ class PipelineConfig:
     
     @classmethod
     def create_from_provider_preferences(cls, config_manager) -> 'PipelineConfig':
-        """Create PipelineConfig automatically from SmartProvider preferences - Claude Generated"""
-        try:
-            # Initialize SmartProviderSelector for intelligent provider selection
-            smart_selector = SmartProviderSelector(config_manager)
-            
-            # Get optimal providers for different task types with proper task_name and step_id
-            text_selection = smart_selector.select_provider(
-                task_type=TaskType.TEXT,
-                prefer_fast=False,
-                task_name="keywords",
-                step_id="keywords"
-            )
-            text_fast_selection = smart_selector.select_provider(
-                task_type=TaskType.TEXT,
-                prefer_fast=True,
-                task_name="initialisation",
-                step_id="initialisation"
-            )
-            classification_selection = smart_selector.select_provider(
-                task_type=TaskType.CLASSIFICATION,
-                prefer_fast=False,
-                task_name="dk_classification",
-                step_id="dk_classification"
-            )
-            
-            # Create step configurations based on intelligent selections using PipelineStepConfig objects
-            from ..utils.config_models import PipelineStepConfig, TaskType as UnifiedTaskType
+        """Create PipelineConfig from pipeline_default settings - Claude Generated
 
+        Simplified provider selection strategy:
+        - Uses pipeline_default_provider/model from unified config as baseline
+        - Falls back to first available provider if no default set
+        - Step overrides can be applied via task_preferences
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            unified_config = config_manager.get_unified_config()
+
+            # Get pipeline default provider/model
+            default_provider = unified_config.pipeline_default_provider
+            default_model = unified_config.pipeline_default_model
+
+            # Fallback: use first available provider if no default configured
+            if not default_provider:
+                enabled_providers = unified_config.get_enabled_providers()
+                if enabled_providers:
+                    first_provider = enabled_providers[0]
+                    default_provider = first_provider.name
+                    default_model = first_provider.preferred_model or ""
+                    logger.info(f"No pipeline default set, using first provider: {default_provider}")
+                else:
+                    logger.warning("No enabled providers found")
+                    return cls()
+
+            logger.info(f"Pipeline Default: {default_provider}/{default_model}")
+
+            # Create step configurations with pipeline default
             step_configs = {
                 "initialisation": PipelineStepConfig(
                     step_id="initialisation",
-                    task_type=UnifiedTaskType.INITIALISATION,
+                    task_type=TaskType.INITIALISATION,
                     enabled=True,
-                    provider=text_fast_selection.provider,  # Fast provider for initial extraction
-                    model=text_fast_selection.model,
+                    provider=default_provider,
+                    model=default_model,
                     temperature=0.7,
                     top_p=0.1,
                     task="initialisation",
                 ),
                 "keywords": PipelineStepConfig(
                     step_id="keywords",
-                    task_type=UnifiedTaskType.KEYWORDS,
+                    task_type=TaskType.KEYWORDS,
                     enabled=True,
-                    provider=text_selection.provider,  # Quality provider for final analysis
-                    model=text_selection.model,
+                    provider=default_provider,
+                    model=default_model,
                     temperature=0.7,
                     top_p=0.1,
                     task="keywords",
@@ -142,21 +146,21 @@ class PipelineConfig:
                 ),
                 "dk_search": PipelineStepConfig(
                     step_id="dk_search",
-                    task_type=UnifiedTaskType.DK_SEARCH,
+                    task_type=TaskType.DK_SEARCH,
                     enabled=True,
                     custom_params={
                         "max_results": DEFAULT_DK_MAX_RESULTS,
-                        "catalog_token": "",  # Will be updated from config
+                        "catalog_token": "",
                         "catalog_search_url": None,
                         "catalog_details_url": None,
                     }
                 ),
                 "dk_classification": PipelineStepConfig(
                     step_id="dk_classification",
-                    task_type=UnifiedTaskType.DK_CLASSIFICATION,
+                    task_type=TaskType.DK_CLASSIFICATION,
                     enabled=True,
-                    provider=classification_selection.provider,  # Classification-optimized provider
-                    model=classification_selection.model,
+                    provider=default_provider,
+                    model=default_model,
                     temperature=0.7,
                     top_p=0.1,
                     task="dk_classification",
@@ -165,15 +169,19 @@ class PipelineConfig:
                     }
                 ),
             }
-            
-            # Log provider selections
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"Pipeline Config from Provider Preferences:")
-            logger.info(f"  Initial extraction: {text_fast_selection.provider}/{text_fast_selection.model} (fast)")
-            logger.info(f"  Keywords analysis: {text_selection.provider}/{text_selection.model} (quality)")
-            logger.info(f"  Classification: {classification_selection.provider}/{classification_selection.model}")
-            
+
+            # Apply step overrides from task_preferences if any - Claude Generated
+            for task_name, task_pref in unified_config.task_preferences.items():
+                step_id = task_name.lower()  # e.g., "KEYWORDS" -> "keywords"
+                if step_id in step_configs and task_pref.model_priority:
+                    first_pref = task_pref.model_priority[0]
+                    override_provider = first_pref.get("provider_name")
+                    override_model = first_pref.get("model_name")
+                    if override_provider and override_provider != "auto":
+                        step_configs[step_id].provider = override_provider
+                        step_configs[step_id].model = override_model or default_model
+                        logger.info(f"Step override for {step_id}: {override_provider}/{override_model}")
+
             return cls(
                 auto_advance=True,
                 stop_on_error=True,
@@ -181,15 +189,10 @@ class PipelineConfig:
                 step_configs=step_configs,
                 search_suggesters=["lobid", "swb"]
             )
-            
+
         except Exception as e:
-            # Fallback to default configuration if SmartProvider fails
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to create PipelineConfig from provider preferences: {e}")
-            logger.info("Falling back to default hardcoded configuration")
-            
-            return cls()  # Return default configuration
+            logger.warning(f"Failed to create PipelineConfig: {e}")
+            return cls()
     
     
     def get_step_config(self, step_id: str) -> PipelineStepConfig:
@@ -220,7 +223,7 @@ class PipelineConfig:
         # Fallback: create default config
         return PipelineStepConfig(
             step_id=step_id,
-            task_type=UnifiedTaskType.GENERAL
+            task_type=TaskType.GENERAL
         )
     
     
@@ -557,7 +560,7 @@ class PipelineManager:
             # Fallback to default configuration
             return PipelineStepConfig(
                 step_id=step_id,
-                task_type=UnifiedTaskType.GENERAL
+                task_type=TaskType.GENERAL
             )
 
 
@@ -1506,6 +1509,12 @@ class PipelineManager:
         try:
             # Set the configuration
             self.set_config(config)
+
+            # Force recreation of pipeline steps from fresh config - Claude Generated
+            # Bug: pipeline_steps may persist from previous executions with stale provider/model.
+            # execute_step() only recreates them if empty, so clear here to ensure
+            # _create_pipeline_steps() reads the just-set config with correct provider/model.
+            self.pipeline_steps = []
 
             # Initialize analysis state with input data (for single step execution) - Claude Generated
             if input_data and isinstance(input_data, str):

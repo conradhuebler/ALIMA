@@ -10,6 +10,7 @@ import os
 import sys
 import platform
 import time
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List, Tuple
 from dataclasses import dataclass, asdict, field
@@ -155,9 +156,64 @@ class AlimaConfigEncoder(json.JSONEncoder):
         return super().default(o)
 
 class ConfigManager:
-    """Unified ALIMA configuration manager with centralized provider management - Claude Generated"""
+    """
+    Unified ALIMA configuration manager with thread-safe singleton pattern - Claude Generated
+
+    This class implements a thread-safe singleton pattern to ensure a single ConfigManager
+    instance exists across the entire application. This prevents configuration inconsistencies
+    and provides a centralized source of truth for all configuration data.
+
+    Thread Safety:
+        Uses a threading.Lock to ensure thread-safe singleton creation. Multiple threads
+        attempting to create ConfigManager instances will always receive the same instance.
+
+    Singleton Pattern:
+        The singleton pattern is implemented using __new__() override. This ensures that
+        ConfigManager() calls always return the same instance, similar to the pattern
+        used in UnifiedKnowledgeManager.
+
+    Testing:
+        For unit tests requiring fresh instances, use ConfigManager.reset() to clear
+        the singleton state. This should only be used in testing contexts.
+
+    Usage:
+        # Get the singleton instance (all calls return same instance)
+        config_manager = ConfigManager()
+
+        # Or explicitly using get_instance()
+        config_manager = ConfigManager.get_instance()
+
+        # For testing only - reset singleton state
+        ConfigManager.reset()
+    """
+
+    # Singleton implementation - Claude Generated
+    _instance = None
+    _lock = threading.Lock()
+    _initialized = False
+
+    def __new__(cls, logger: Optional[logging.Logger] = None):
+        """Create or return singleton instance - Claude Generated"""
+        if cls._instance is None:
+            with cls._lock:
+                # Double-check locking pattern for thread safety
+                if cls._instance is None:
+                    instance = super().__new__(cls)
+                    cls._instance = instance
+        return cls._instance
 
     def __init__(self, logger: Optional[logging.Logger] = None):
+        """
+        Initialize ConfigManager singleton - Claude Generated
+
+        Note: This method only executes once due to singleton pattern.
+        Subsequent calls to ConfigManager() will return the existing instance
+        without re-running initialization logic.
+        """
+        # Skip re-initialization of existing singleton
+        if ConfigManager._initialized:
+            return
+
         self.logger = logger or logging.getLogger(__name__)
 
         # Get OS-specific configuration paths
@@ -165,6 +221,42 @@ class ConfigManager:
 
         self._config: Optional[AlimaConfig] = None
         self._provider_detection_service: Optional[ProviderDetectionService] = None
+
+        # Mark singleton as initialized
+        ConfigManager._initialized = True
+
+    @classmethod
+    def get_instance(cls, logger: Optional[logging.Logger] = None) -> "ConfigManager":
+        """
+        Get or create singleton ConfigManager instance - Claude Generated
+
+        This is an explicit alternative to calling ConfigManager() directly.
+        Both approaches return the same singleton instance.
+
+        Args:
+            logger: Optional logger instance (only used on first creation)
+
+        Returns:
+            The singleton ConfigManager instance
+        """
+        return cls(logger=logger)
+
+    @classmethod
+    def reset(cls):
+        """
+        Reset singleton instance - FOR TESTING ONLY - Claude Generated
+
+        This method clears the singleton state, allowing a fresh ConfigManager
+        instance to be created. This should ONLY be used in unit tests to ensure
+        test isolation.
+
+        WARNING: Do not use this in production code. Resetting the singleton
+        while other parts of the application hold references to the old instance
+        will cause configuration inconsistencies.
+        """
+        with cls._lock:
+            cls._instance = None
+            cls._initialized = False
 
     def _setup_config_paths(self):
         """Setup OS-specific configuration file paths - Claude Generated"""
@@ -301,6 +393,10 @@ class ConfigManager:
         # Parse global settings
         unified_config.provider_priority = data.get("provider_priority", ["ollama", "gemini", "anthropic", "openai"])
         unified_config.disabled_providers = data.get("disabled_providers", [])
+
+        # Parse pipeline default provider/model - Claude Generated
+        unified_config.pipeline_default_provider = data.get("pipeline_default_provider", "")
+        unified_config.pipeline_default_model = data.get("pipeline_default_model", "")
 
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
@@ -965,6 +1061,18 @@ class ConfigManager:
 # GLOBAL FUNCTIONS - For import compatibility
 # ============================================================================
 
-def get_config_manager() -> ConfigManager:
-    """Get global ConfigManager instance - Claude Generated"""
-    return ConfigManager()
+def get_config_manager(logger: Optional[logging.Logger] = None) -> ConfigManager:
+    """
+    Get global ConfigManager singleton instance - Claude Generated
+
+    This factory function returns the singleton ConfigManager instance.
+    All calls to this function return the same instance, ensuring
+    configuration consistency across the application.
+
+    Args:
+        logger: Optional logger instance (only used on first creation)
+
+    Returns:
+        The singleton ConfigManager instance
+    """
+    return ConfigManager.get_instance(logger=logger)

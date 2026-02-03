@@ -432,7 +432,12 @@ class UnifiedProviderConfig:
     provider_priority: List[str] = field(default_factory=lambda: ["ollama", "gemini", "anthropic", "openai"])
     disabled_providers: List[str] = field(default_factory=list)
 
-    # Task-specific preferences
+    # Pipeline default provider/model - single source of truth for pipeline execution
+    # Claude Generated - Provider Strategy Simplification
+    pipeline_default_provider: str = ""  # e.g. "ollama", "gemini"
+    pipeline_default_model: str = ""     # e.g. "cogito:32b", "gemini-1.5-flash"
+
+    # Task-specific preferences (for step overrides)
     task_preferences: Dict[str, TaskPreference] = field(default_factory=dict)
 
     # Individual provider configs (LEGACY - will be migrated to providers list)

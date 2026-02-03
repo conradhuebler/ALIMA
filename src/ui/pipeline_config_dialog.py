@@ -1627,14 +1627,19 @@ class PipelineStepConfigWidget(QWidget):
             chunking_group = QGroupBox("Keyword Chunking")
             chunking_layout = QGridLayout(chunking_group)
 
-            # Chunking Threshold
+            # Chunking Threshold with Auto-Detection support - Claude Generated
             chunking_layout.addWidget(QLabel("Chunking-Schwellwert:"), 0, 0)
             self.chunking_threshold_spinbox = QSpinBox()
-            self.chunking_threshold_spinbox.setRange(100, 2000)
-            self.chunking_threshold_spinbox.setValue(500)
+            self.chunking_threshold_spinbox.setRange(0, 2000)  # 0 = Auto-detect
+            self.chunking_threshold_spinbox.setValue(0)  # Default to auto-detect
             self.chunking_threshold_spinbox.setSuffix(" Keywords")
+            self.chunking_threshold_spinbox.setSpecialValueText("Auto")  # Show "Auto" when value is 0
             self.chunking_threshold_spinbox.setToolTip(
-                "Anzahl Keywords ab der Chunking aktiviert wird"
+                "Anzahl Keywords ab der Chunking aktiviert wird\n"
+                "0 = Automatische Erkennung basierend auf Modell\n"
+                "Große Modelle (>30B): ~1000 Keywords\n"
+                "Mittlere Modelle (13-14B): ~500 Keywords\n"
+                "Kleine Modelle (<7B): ~200-300 Keywords"
             )
             chunking_layout.addWidget(self.chunking_threshold_spinbox, 0, 1)
 
@@ -1937,11 +1942,11 @@ class PipelineStepConfigWidget(QWidget):
                 except Exception as e:
                     pass  # Fall back to default system prompt
 
-        # Add keyword chunking parameters if available (keywords step only)
+        # Add keyword chunking parameters if available (keywords step only) - Claude Generated
         if hasattr(self, "chunking_threshold_spinbox"):
-            config["keyword_chunking_threshold"] = (
-                self.chunking_threshold_spinbox.value()
-            )
+            threshold_value = self.chunking_threshold_spinbox.value()
+            # Store 0 as None to indicate auto-detection, or store explicit value
+            config["keyword_chunking_threshold"] = None if threshold_value == 0 else threshold_value
         if hasattr(self, "chunking_task_combo"):
             config["chunking_task"] = self.chunking_task_combo.currentText()
             
@@ -1998,12 +2003,14 @@ class PipelineStepConfigWidget(QWidget):
         if "system_prompt" in config and hasattr(self, "system_prompt"):
             self.system_prompt.setPlainText(config["system_prompt"])
 
-        # Set keyword chunking parameters if available (keywords step only)
+        # Set keyword chunking parameters if available (keywords step only) - Claude Generated
         if "keyword_chunking_threshold" in config and hasattr(
             self, "chunking_threshold_spinbox"
         ):
+            threshold_value = config["keyword_chunking_threshold"]
+            # Handle None (auto-detect) as 0 in UI
             self.chunking_threshold_spinbox.setValue(
-                config["keyword_chunking_threshold"]
+                0 if threshold_value is None else threshold_value
             )
 
         if "chunking_task" in config and hasattr(self, "chunking_task_combo"):
@@ -2126,6 +2133,40 @@ class PipelineConfigDialog(QDialog):
 
         layout.addWidget(self.tab_widget)
 
+        # Pipeline Default Settings - Claude Generated
+        pipeline_default_group = QGroupBox("Pipeline-Standard")
+        pipeline_default_layout = QVBoxLayout(pipeline_default_group)
+
+        # Provider selection
+        provider_layout = QHBoxLayout()
+        provider_label = QLabel("Standard-Provider:")
+        provider_label.setMinimumWidth(120)
+        self.default_provider_combo = QComboBox()
+        self.default_provider_combo.setToolTip(
+            "Standard-Provider für alle Pipeline-Schritte (kann pro Schritt überschrieben werden)"
+        )
+        self._populate_provider_dropdown(self.default_provider_combo)
+        provider_layout.addWidget(provider_label)
+        provider_layout.addWidget(self.default_provider_combo)
+        provider_layout.addStretch()
+        pipeline_default_layout.addLayout(provider_layout)
+
+        # Model selection
+        model_layout = QHBoxLayout()
+        model_label = QLabel("Standard-Modell:")
+        model_label.setMinimumWidth(120)
+        self.default_model_combo = QComboBox()
+        self.default_model_combo.setToolTip(
+            "Standard-Modell für alle Pipeline-Schritte (kann pro Schritt überschrieben werden)"
+        )
+        self.default_provider_combo.currentTextChanged.connect(self._update_model_dropdown)
+        model_layout.addWidget(model_label)
+        model_layout.addWidget(self.default_model_combo)
+        model_layout.addStretch()
+        pipeline_default_layout.addLayout(model_layout)
+
+        layout.addWidget(pipeline_default_group)
+
         # Global Settings
         global_group = QGroupBox("Globale Einstellungen")
         global_layout = QVBoxLayout(global_group)
@@ -2228,6 +2269,27 @@ class PipelineConfigDialog(QDialog):
                     search_config = {"suggesters": config.search_suggesters}
                     step_widget.set_config(search_config)
 
+            # Load pipeline default settings - Claude Generated
+            if self.config_manager:
+                try:
+                    unified_config = self.config_manager.get_unified_config()
+                    # Load pipeline default provider
+                    if unified_config.pipeline_default_provider:
+                        index = self.default_provider_combo.findData(
+                            unified_config.pipeline_default_provider
+                        )
+                        if index >= 0:
+                            self.default_provider_combo.setCurrentIndex(index)
+                    # Load pipeline default model
+                    if unified_config.pipeline_default_model:
+                        index = self.default_model_combo.findData(
+                            unified_config.pipeline_default_model
+                        )
+                        if index >= 0:
+                            self.default_model_combo.setCurrentIndex(index)
+                except Exception as e:
+                    self.logger.warning(f"Error loading pipeline defaults: {e}")
+
             # Load global settings
             self.auto_advance_checkbox.setChecked(config.auto_advance)
             self.stop_on_error_checkbox.setChecked(config.stop_on_error)
@@ -2314,7 +2376,22 @@ class PipelineConfigDialog(QDialog):
                     # Already a PipelineStepConfig object
                     step_configs_converted[step_id] = config_data
 
-            # Step 4: Create final configuration with converted objects
+            # Step 4: Save Pipeline Default settings to unified config - Claude Generated
+            if self.config_manager:
+                try:
+                    unified_config = self.config_manager.get_unified_config()
+                    unified_config.pipeline_default_provider = self.default_provider_combo.currentData() or ""
+                    unified_config.pipeline_default_model = self.default_model_combo.currentData() or ""
+
+                    # Save to disk
+                    config = self.config_manager.load_config()
+                    config.unified_config = unified_config
+                    self.config_manager.save_config(config)
+                    self.logger.info(f"Pipeline defaults saved: {unified_config.pipeline_default_provider}/{unified_config.pipeline_default_model}")
+                except Exception as e:
+                    self.logger.warning(f"Error saving pipeline defaults: {e}")
+
+            # Step 5: Create final configuration with converted objects
             final_config = PipelineConfig(
                 auto_advance=self.auto_advance_checkbox.isChecked(),
                 stop_on_error=self.stop_on_error_checkbox.isChecked(),
@@ -2499,6 +2576,49 @@ class PipelineConfigDialog(QDialog):
         except Exception as e:
             self.logger.error(f"Error saving provider preferences: {e}")
             QMessageBox.critical(
-                self, "Fehler beim Speichern", 
+                self, "Fehler beim Speichern",
                 f"Fehler beim Speichern der Provider-Einstellungen:\n\n{str(e)}"
             )
+
+    def _populate_provider_dropdown(self, combo: QComboBox):
+        """Populate provider dropdown with available providers - Claude Generated"""
+        if not self.config_manager:
+            return
+
+        try:
+            unified_config = self.config_manager.get_unified_config()
+            enabled_providers = unified_config.get_enabled_providers()
+
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("(Auto-select)", "")
+
+            for provider in enabled_providers:
+                combo.addItem(provider.name, provider.name)
+
+            combo.blockSignals(False)
+        except Exception as e:
+            self.logger.warning(f"Error populating provider dropdown: {e}")
+
+    def _update_model_dropdown(self, provider_name: str):
+        """Update model dropdown based on selected provider - Claude Generated"""
+        if not provider_name or not self.config_manager:
+            self.default_model_combo.clear()
+            self.default_model_combo.addItem("(Auto-select)", "")
+            return
+
+        try:
+            from ..llm.llm_service import LlmService
+            llm_service = LlmService(lazy_initialization=True)
+            models = llm_service.get_available_models(provider_name)
+
+            self.default_model_combo.blockSignals(True)
+            self.default_model_combo.clear()
+            self.default_model_combo.addItem("(Auto-select)", "")
+
+            for model in models:
+                self.default_model_combo.addItem(model, model)
+
+            self.default_model_combo.blockSignals(False)
+        except Exception as e:
+            self.logger.warning(f"Error updating model dropdown: {e}")

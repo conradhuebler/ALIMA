@@ -31,7 +31,8 @@ from ..core.processing_utils import (
     extract_title_from_response,  # For LLM title extraction - Claude Generated
     extract_missing_concepts_from_response,  # For iterative refinement - Claude Generated
 )
-from .smart_provider_selector import SmartProviderSelector, TaskType
+from .smart_provider_selector import SmartProviderSelector
+from .config_models import TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
 
 
@@ -180,15 +181,25 @@ class PipelineStepExecutor:
                     logger.info("Falling back to config-based provider selection")
 
     def _resolve_provider_smart(self, provider: str, model: str, task_type: str, prefer_fast: bool = False, task_name: str = None, step_id: str = None) -> tuple[str, str]:
-        """Intelligent provider/model resolution with proper fallback chain - Claude Generated"""
+        """Intelligent provider/model resolution with proper fallback chain - Claude Generated
 
-        # 1. Explicit parameters (highest priority)
-        if provider and model:
+        Priority Order (FIXED - Issue #2):
+        1. Explicit UI parameters (highest priority) - user manual selection
+        2. Task preferences from config - auto-selection based on task
+        3. Config defaults - fallback provider configuration
+        4. Detection service fallback - last resort
+        """
+
+        # ✅ PRIORITY 1: Explicit UI parameters (FIXED: was evaluating task preferences first)
+        # User manually selected in UI combo boxes - MUST respect this!
+        # Check for both non-empty and non-whitespace values
+        if provider and provider.strip() and model and model.strip():
             if self.logger:
-                self.logger.info(f"Using explicit provider/model: {provider}/{model}")
+                self.logger.info(f"🎯 Using EXPLICIT UI selection: {provider}/{model} (overrides task preferences)")
             return provider, model
 
-        # 2. SmartProviderSelector (when available)
+        # PRIORITY 2: SmartProviderSelector with task preferences (was priority 1)
+        # Only use if no explicit UI selection provided
         if self.smart_selector:
             try:
                 # Map string to TaskType enum
@@ -207,26 +218,16 @@ class PipelineStepExecutor:
                     step_id=step_id
                 )
 
-                # Use SmartProvider selection if no explicit provider/model given
-                final_provider = provider or selection.provider
-                final_model = model or selection.model
+                # Use SmartProvider selection
+                final_provider = selection.provider
+                final_model = selection.model
 
-                # P1.5: Enhanced runtime feedback - Claude Generated
+                # Enhanced logging to show task preference usage
                 if self.logger:
-                    if provider and model:
-                        # Explicit parameters already logged above
-                        pass
-                    elif provider or model:
-                        # Partial selection: show what was auto-selected
-                        requested = f"{provider or '(auto)'}/{model or '(auto)'}"
-                        selected = f"{final_provider}/{final_model}"
-                        if requested != selected:
-                            self.logger.info(f"✓ Selected: {selected} (requested: {requested}, task: {task_type})")
-                        else:
-                            self.logger.info(f"✓ Selected: {selected} (task: {task_type})")
+                    if task_name:
+                        self.logger.info(f"📋 Using task preference: {final_provider}/{final_model} (task: {task_name})")
                     else:
-                        # Full auto-selection
-                        self.logger.info(f"✓ Auto-selected: {final_provider}/{final_model} (task: {task_type}, prefer_fast: {prefer_fast})")
+                        self.logger.info(f"⚙️ Using config default: {final_provider}/{final_model} (task_type: {task_type})")
 
                 return final_provider, final_model
 
@@ -1103,7 +1104,7 @@ class PipelineStepExecutor:
         provider: str = None,
         task: str = "keywords",
         stream_callback: Optional[callable] = None,
-        keyword_chunking_threshold: int = 500,
+        keyword_chunking_threshold: Optional[int] = None,  # None = auto-detect based on model
         chunking_task: str = "keywords_chunked",
         expand_synonyms: bool = False,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
@@ -1120,6 +1121,24 @@ class PipelineStepExecutor:
             task_name=task,
             step_id="keywords"
         )
+
+        # Auto-resolve chunking threshold based on model capabilities (Issue #1 fix) - Claude Generated
+        from .model_capabilities import get_chunking_threshold
+
+        resolved_threshold = get_chunking_threshold(
+            provider=provider,
+            model=model,
+            explicit_override=keyword_chunking_threshold
+        )
+
+        if self.logger:
+            if keyword_chunking_threshold is not None and keyword_chunking_threshold > 0:
+                source = "explicit"
+            else:
+                source = "auto-detected"
+            self.logger.info(f"💡 Keyword chunking threshold: {resolved_threshold} ({source} for {provider}:{model})")
+
+        keyword_chunking_threshold = resolved_threshold
 
         # Prepare GND search results for prompt
         gnd_keywords_text = ""
@@ -3311,7 +3330,8 @@ def _assess_text_quality_pipeline(text: str) -> Dict[str, Any]:
 def _get_best_vision_provider_pipeline(llm_service, logger=None) -> Tuple[Optional[str], Optional[str]]:
     """Get best available provider for vision tasks using SmartProviderSelector - Claude Generated"""
     try:
-        from .smart_provider_selector import SmartProviderSelector, TaskType
+        from .smart_provider_selector import SmartProviderSelector
+        from .config_models import TaskType
         from .config_manager import ConfigManager
 
         # Initialize ConfigManager for task_preferences access - Claude Generated
