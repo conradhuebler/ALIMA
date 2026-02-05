@@ -25,6 +25,7 @@ from ..utils.config_models import (
     TaskType as UnifiedTaskType,
     AlimaConfig
 )
+from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
 
 
 class ProviderTestWorker(QThread):
@@ -524,13 +525,15 @@ class UnifiedProviderTab(QWidget):
     config_changed = pyqtSignal()
     task_preferences_changed = pyqtSignal()  # New signal for task preference changes - Claude Generated
     
-    def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig, alima_manager=None, parent=None):
+    def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig,
+                 config_manager: ConfigManager, alima_manager=None, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
 
-        # Store the configuration objects directly - Claude Generated (Refactoring)
+        # Store all dependencies - Claude Generated
         self.unified_config = unified_config
         self.config = alima_config
+        self.config_manager = config_manager  # ✅ ConfigManager for persistence operations
         self.alima_manager = alima_manager  # Access to ProviderStatusService - Claude Generated
 
         # CRITICAL FIX: Add explicit task tracking to prevent cross-contamination - Claude Generated
@@ -661,23 +664,24 @@ class UnifiedProviderTab(QWidget):
 
         layout.addWidget(global_group)
         
-        # Model preferences section - Claude Generated 
+        # Model preferences section - Claude Generated
         model_group = QGroupBox("🎯 Model Preferences per Provider")
         model_layout = QVBoxLayout(model_group)
-        
+
         self.model_preferences_table = QTableWidget()
-        self.model_preferences_table.setColumnCount(3)
+        self.model_preferences_table.setColumnCount(4)  # Added Chunking column - Claude Generated
         self.model_preferences_table.setHorizontalHeaderLabels([
-            "Provider", "Preferred Model", "Available Models"
+            "Provider", "Preferred Model", "Chunking", "Available Models"
         ])
-        
+
         # Make model preferences table responsive
         model_header = self.model_preferences_table.horizontalHeader()
         model_header.setStretchLastSection(False)
         model_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Provider
         model_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Preferred Model
-        model_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)           # Available Models
-        
+        model_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Chunking - Claude Generated
+        model_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Available Models
+
         model_layout.addWidget(self.model_preferences_table)
         layout.addWidget(model_group)
         
@@ -721,7 +725,27 @@ class UnifiedProviderTab(QWidget):
         self.chunked_tasks_checkbox.setVisible(False)
         self.chunked_tasks_checkbox.stateChanged.connect(self._on_chunked_tasks_toggled)
         right_task_layout.addWidget(self.chunked_tasks_checkbox)
-        
+
+        # Chunking threshold spinbox (visible only for keywords task)
+        chunking_threshold_row = QHBoxLayout()
+        self.chunking_threshold_label = QLabel("Chunking-Schwellwert:")
+        self.chunking_threshold_label.setVisible(False)
+        chunking_threshold_row.addWidget(self.chunking_threshold_label)
+        self.chunking_threshold_spinbox = QSpinBox()
+        self.chunking_threshold_spinbox.setRange(0, 2000)
+        self.chunking_threshold_spinbox.setValue(0)
+        self.chunking_threshold_spinbox.setSuffix(" Keywords")
+        self.chunking_threshold_spinbox.setSpecialValueText("Auto")
+        self.chunking_threshold_spinbox.setVisible(False)
+        self.chunking_threshold_spinbox.setToolTip(
+            "Anzahl Keywords ab der Chunking aktiviert wird.\n"
+            "Auto (0) = Erkennung basierend auf Modell.\n"
+            "Große Modelle (>30B): ~1000, Mittel (13B): ~500, Klein (<7B): ~200-300"
+        )
+        self.chunking_threshold_spinbox.valueChanged.connect(self._on_chunking_threshold_changed)
+        chunking_threshold_row.addWidget(self.chunking_threshold_spinbox)
+        right_task_layout.addLayout(chunking_threshold_row)
+
         # Standard model priority
         priority_label = QLabel("Model Priority:")
         priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
@@ -1108,13 +1132,54 @@ class UnifiedProviderTab(QWidget):
                     return lambda text: self._on_model_preference_changed(provider_name, text)
                 
                 model_combo.currentTextChanged.connect(make_handler(provider))
-                
+
                 self.model_preferences_table.setCellWidget(row, 1, model_combo)
-                
+
+                # Per-model chunking spinbox - Claude Generated
+                chunking_spinbox = QSpinBox()
+                chunking_spinbox.setRange(0, 2000)
+                chunking_spinbox.setSuffix(" Kw")
+                chunking_spinbox.setSpecialValueText("Auto")
+                chunking_spinbox.setToolTip(
+                    "Keyword-Chunking-Schwellwert für dieses Modell.\n"
+                    "Auto (0) = Erkennung basierend auf Modellgröße.\n"
+                    "Große Modelle (>30B): ~1000, Mittel (13B): ~500, Klein (<7B): ~200-300"
+                )
+
+                # Get configured threshold or default to 0 (auto)
+                configured_threshold = 0
+                try:
+                    cfg_threshold = self.unified_config.get_chunking_threshold(provider, preferred_model or "")
+                    if cfg_threshold:
+                        configured_threshold = cfg_threshold
+                except Exception:
+                    pass
+                chunking_spinbox.setValue(configured_threshold)
+
+                # Calculate and show auto-detect value in tooltip
+                auto_value = get_chunking_threshold(provider, preferred_model or "", config_manager=self.config_manager)
+                if configured_threshold == 0:
+                    chunking_spinbox.setToolTip(
+                        f"Keyword-Chunking-Schwellwert für dieses Modell.\n"
+                        f"Auto = {auto_value} (basierend auf Modellgröße)"
+                    )
+
+                # Connect change handler with proper closure - Claude Generated
+                def make_chunking_handler(prov, model_combo_ref):
+                    def handler(value):
+                        model = model_combo_ref.currentText()
+                        if model == "(Auto-select)":
+                            model = ""
+                        self._on_model_chunking_changed(prov, model, value)
+                    return handler
+
+                chunking_spinbox.valueChanged.connect(make_chunking_handler(provider, model_combo))
+                self.model_preferences_table.setCellWidget(row, 2, chunking_spinbox)
+
                 # Available models display
                 models_item = QTableWidgetItem(available_models_text or "No models detected")
                 models_item.setToolTip("\n".join(available_models) if available_models else "No models available")
-                self.model_preferences_table.setItem(row, 2, models_item)
+                self.model_preferences_table.setItem(row, 3, models_item)
                 
         except Exception as e:
             self.logger.error(f"Error populating model preferences: {e}")
@@ -1174,10 +1239,36 @@ class UnifiedProviderTab(QWidget):
                 self.logger.info(f"Updated preferred model for {provider}: {model or 'auto-select'} (config_changed emitted)")
             else:
                 self.logger.warning(f"Provider {provider} not found in configuration")
-            
+
         except Exception as e:
             self.logger.error(f"Error updating model preference: {e}")
-    
+
+    def _on_model_chunking_changed(self, provider: str, model: str, value: int):
+        """Handle per-model chunking threshold change - Claude Generated"""
+        try:
+            if not model:
+                # No specific model selected, can't save per-model setting
+                self.logger.debug(f"No model selected for {provider}, skipping chunking threshold save")
+                return
+
+            if value > 0:
+                # Set specific threshold
+                self.unified_config.set_chunking_threshold(provider, model, value)
+                self.logger.info(f"Set chunking threshold for {provider}/{model}: {value}")
+                self._show_save_toast(f"📊 {provider}/{model}: {value} Keywords")
+            else:
+                # Remove threshold (revert to auto-detect)
+                self.unified_config.remove_chunking_threshold(provider, model)
+                auto_value = get_chunking_threshold(provider, model, config_manager=self.config_manager)
+                self.logger.info(f"Removed chunking threshold for {provider}/{model} (auto: {auto_value})")
+                self._show_save_toast(f"📊 {provider}/{model}: Auto ({auto_value})")
+
+            # Emit config changed signal
+            self.config_changed.emit()
+
+        except Exception as e:
+            self.logger.error(f"Error updating model chunking threshold: {e}")
+
     def _get_preferred_model_from_config(self, provider: str, config) -> str:
         """Get preferred model from direct provider configuration - Claude Generated"""
         try:
@@ -1280,6 +1371,8 @@ class UnifiedProviderTab(QWidget):
             self.chunked_tasks_checkbox.setVisible(False)
             self.chunked_tasks_priority_label.setVisible(False)
             self.chunked_task_model_priority_list.setVisible(False)
+            self.chunking_threshold_label.setVisible(False)
+            self.chunking_threshold_spinbox.setVisible(False)
             self.task_model_priority_list.clear()
             self.chunked_task_model_priority_list.clear()
             return
@@ -1298,6 +1391,10 @@ class UnifiedProviderTab(QWidget):
         chunked_applicable = task_name in ["keywords", "initialisation"] or category == "pipeline"
         self.chunked_tasks_checkbox.setVisible(chunked_applicable)
 
+        # Chunking threshold only relevant for keywords task
+        self.chunking_threshold_label.setVisible(task_name == "keywords")
+        self.chunking_threshold_spinbox.setVisible(task_name == "keywords")
+
         # Load current model priorities for this task
         self._load_task_specific_model_priorities(task_name)
     
@@ -1307,6 +1404,9 @@ class UnifiedProviderTab(QWidget):
         self.task_model_priority_list.clear()
         self.chunked_task_model_priority_list.clear()
         self.task_ui_dirty = False  # Loading fresh data, UI is now clean
+        # Reset chunking threshold spinbox (will be overwritten below if saved value exists)
+        if task_name == "keywords":
+            self.chunking_threshold_spinbox.setValue(0)
 
         try:
             # Get model priority for this task from working copy (not disk) - Claude Generated
@@ -1369,7 +1469,13 @@ class UnifiedProviderTab(QWidget):
                 else:
                     self.chunked_tasks_checkbox.setChecked(False)
                     self._on_chunked_tasks_toggled(False)
-            
+
+                # Load chunking_threshold for keywords task
+                if task_name == "keywords":
+                    threshold = task_pref_data.chunking_threshold if task_pref_data else None
+                    # None → 0 ("Auto") in spinbox
+                    self.chunking_threshold_spinbox.setValue(0 if threshold is None else threshold)
+
         except Exception as e:
             self.logger.error(f"Error loading task-specific model priorities: {e}")
             QMessageBox.warning(self, "Load Error", f"Could not load model priorities for task '{task_name}':\n{str(e)}")
@@ -1385,6 +1491,12 @@ class UnifiedProviderTab(QWidget):
             # Auto-save the chunked setting change immediately
             self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
     
+    def _on_chunking_threshold_changed(self, value: int):
+        """Handle chunking threshold spinbox change - auto-save immediately"""
+        if self.current_editing_task == "keywords":
+            self.task_ui_dirty = True
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+
     def _add_model_to_task_priority(self):
         """Add model to task priority list using real provider/model detection - Claude Generated"""
         current_item = self.task_categories_list.currentItem()
@@ -1566,8 +1678,9 @@ class UnifiedProviderTab(QWidget):
                                   f"A provider with name '{new_provider.name}' already exists.")
                 return
             
-            # Add to configuration
+            # Add to configuration and persist immediately so reload picks it up
             self.unified_config.providers.append(new_provider)
+            self.config_manager.save_config(self.config)
             self._load_configuration()
             self.config_changed.emit()
             
@@ -1586,9 +1699,10 @@ class UnifiedProviderTab(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             updated_provider = dialog.get_provider_data()
             self.unified_config.providers[current_row] = updated_provider
+            self.config_manager.save_config(self.config)
             self._load_configuration()
             self.config_changed.emit()
-            
+
             self.logger.info(f"Updated provider: {updated_provider.name}")
     
     def _remove_provider(self):
@@ -1608,9 +1722,10 @@ class UnifiedProviderTab(QWidget):
         
         if reply == QMessageBox.StandardButton.Yes:
             del self.unified_config.providers[current_row]
+            self.config_manager.save_config(self.config)
             self._load_configuration()
             self.config_changed.emit()
-            
+
             self.logger.info(f"Removed provider: {provider.name}")
     
     def _refresh_models(self):
@@ -1838,12 +1953,20 @@ class UnifiedProviderTab(QWidget):
                     self.logger.warning(f"Unknown task name '{task_name}', using INITIALISATION as fallback")
                     task_type = UnifiedTaskType.INITIALISATION
 
+            # Determine chunking_threshold: read from spinbox for keywords, preserve for others
+            if task_name == "keywords":
+                spinbox_val = self.chunking_threshold_spinbox.value()
+                chunking_threshold = None if spinbox_val == 0 else spinbox_val  # 0 → None = Auto
+            else:
+                chunking_threshold = existing_pref.chunking_threshold if existing_pref else None
+
             # Create proper TaskPreference object
             task_preference = TaskPreference(
                 task_type=task_type,
                 model_priority=model_priority,
                 chunked_model_priority=chunked_model_priority,
-                allow_fallback=existing_pref.allow_fallback if existing_pref else True
+                allow_fallback=existing_pref.allow_fallback if existing_pref else True,
+                chunking_threshold=chunking_threshold,
             )
 
             # Save proper TaskPreference object

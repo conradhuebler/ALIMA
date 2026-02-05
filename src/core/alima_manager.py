@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 import logging
 import threading
 import time
@@ -16,6 +16,13 @@ from .processing_utils import (
     match_keywords_against_text,
 )
 from .provider_status_service import ProviderStatusService
+from ..utils.repetition_detector import (
+    RepetitionDetector,
+    RepetitionDetectorConfig,
+    RepetitionResult,
+    get_parameter_variation_suggestions,
+    format_repetition_warning,
+)
 
 
 class AlimaManager:
@@ -53,6 +60,42 @@ class AlimaManager:
             self.logger.error(f"Failed to initialize ProviderStatusService: {e}")
             self.provider_status_service = None
 
+        # Initialize Repetition Detector - Claude Generated
+        self._init_repetition_detector()
+
+    def _init_repetition_detector(self):
+        """Initialize repetition detector from config - Claude Generated"""
+        try:
+            config = self.config_manager.get_config()
+            rep_config = getattr(config, 'repetition_config', None)
+
+            if rep_config:
+                detector_config = RepetitionDetectorConfig(
+                    # Master switches
+                    enabled=rep_config.enabled,
+                    auto_abort=rep_config.auto_abort,
+                    # N-gram detection
+                    ngram_size=rep_config.ngram_size,
+                    ngram_threshold=rep_config.ngram_threshold,
+                    # Window similarity
+                    window_size=getattr(rep_config, 'window_size', 300),
+                    similarity_threshold=rep_config.window_similarity_threshold,
+                    min_windows=getattr(rep_config, 'min_windows', 4),
+                    # Character patterns
+                    char_repeat_threshold=rep_config.char_repeat_threshold,
+                    # Processing control
+                    min_text_length=getattr(rep_config, 'min_text_length', 1000),
+                    check_interval=getattr(rep_config, 'check_interval', 200),
+                )
+            else:
+                detector_config = RepetitionDetectorConfig()
+
+            self.repetition_detector = RepetitionDetector(detector_config)
+            self.logger.info(f"RepetitionDetector initialized: ngram={detector_config.ngram_threshold}, min_text={detector_config.min_text_length}, enabled={detector_config.enabled}")
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize RepetitionDetector: {e}, using defaults")
+            self.repetition_detector = RepetitionDetector()
+
     def set_ollama_url(self, url: str):
         """Set the Ollama URL for LLM requests."""
         self.ollama_url = url
@@ -84,6 +127,7 @@ class AlimaManager:
         seed: int = 0,
         system: Optional[str] = None,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
+        repetition_penalty: Optional[float] = None,
     ) -> TaskState:
         # Log analysis start with workflow-relevant info - Claude Generated
         provider_display = provider if provider else "auto"
@@ -160,6 +204,7 @@ class AlimaManager:
                 temperature,
                 p_value,
                 seed,
+                repetition_penalty,
             )
 
         status = "completed" if "Error" not in analysis_result.full_text else "failed"
@@ -194,6 +239,7 @@ class AlimaManager:
         temperature: float = 0.7,
         p_value: float = 0.1,
         seed: int = 0,
+        repetition_penalty: Optional[float] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
         self.logger.info(
@@ -208,6 +254,7 @@ class AlimaManager:
             temperature,
             p_value,
             seed,
+            repetition_penalty,
         )
         if response_text is None:
             return AnalysisResult(full_text="Error: LLM call failed.")
@@ -326,6 +373,8 @@ class AlimaManager:
         temperature: float = 0.7,
         p_value: float = 0.1,
         seed: int = 0,
+        repetition_penalty: Optional[float] = None,
+        on_repetition_detected: Optional[Callable[[RepetitionResult, List[Dict]], None]] = None,
     ) -> Optional[str]:
         # Acquire LLM semaphore (max 3 concurrent LLM calls) - Claude Generated (2026-01-13)
         semaphore_acquired_time = time.time()
@@ -368,6 +417,7 @@ class AlimaManager:
                 seed=seed,
                 system=prompt_config.system,
                 stream=True,  # Enable streaming
+                repetition_penalty=repetition_penalty,
             )
 
             self.logger.info(f"📊 LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
@@ -379,6 +429,10 @@ class AlimaManager:
                 )
                 return None
 
+            # Reset repetition detector for new generation - Claude Generated
+            self.repetition_detector.reset()
+            repetition_aborted = False
+
             try:
                 chunk_count = 0
                 for text_chunk in response_generator:
@@ -386,13 +440,45 @@ class AlimaManager:
                         continue  # Skip None chunks
                     chunk_count += 1
                     full_response_text += text_chunk
+
+                    # Check for repetition patterns - Claude Generated
+                    rep_result = self.repetition_detector.add_chunk(text_chunk)
+                    if rep_result and rep_result.is_repetitive:
+                        self.logger.warning(f"🔄 REPETITION_DETECTED: {rep_result.detection_type} - {rep_result.details}")
+
+                        # Generate parameter suggestions
+                        suggestions = get_parameter_variation_suggestions(
+                            temperature=temperature,
+                            top_p=p_value,
+                            repetition_penalty=repetition_penalty or 1.0,
+                            detection_type=rep_result.detection_type,
+                        )
+
+                        # Call the repetition callback if provided
+                        if on_repetition_detected:
+                            on_repetition_detected(rep_result, suggestions)
+
+                        # Auto-abort if configured
+                        if self.repetition_detector.config.auto_abort:
+                            self.logger.warning(f"🛑 AUTO_ABORT: Cancelling generation due to repetition")
+                            repetition_aborted = True
+                            # Try to cancel the LLM generation
+                            try:
+                                self.llm_service.cancel_generation(reason="repetition_detected")
+                            except Exception as cancel_err:
+                                self.logger.debug(f"Cancel generation not supported: {cancel_err}")
+                            break
+
                     if stream_callback:
                         self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")
                         stream_callback(text_chunk)
                     else:
                         self.logger.debug(f"📡 Chunk #{chunk_count} (no callback): '{text_chunk[:50]}...'")
 
-                self.logger.info(f"✅ LLM_STREAM_COMPLETE: {chunk_count} chunks, {len(full_response_text)} chars total")
+                if repetition_aborted:
+                    self.logger.info(f"⚠️ LLM_STREAM_ABORTED: {chunk_count} chunks, {len(full_response_text)} chars (repetition detected)")
+                else:
+                    self.logger.info(f"✅ LLM_STREAM_COMPLETE: {chunk_count} chunks, {len(full_response_text)} chars total")
 
             except Exception as e:
                 self.logger.error(

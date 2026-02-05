@@ -8,10 +8,15 @@ The `src/utils/` directory provides essential configuration management and utili
 **Core Components:**
 - `ConfigManager`: Centralized configuration management with JSON persistence and unified provider system
 - `TextProcessor`: Advanced text analysis and processing utilities
+- `model_capabilities`: Auto-detection of model-specific chunking thresholds (15+ model patterns)
+- `repetition_detector`: LLM repetition loop detection with parameter variation suggestions
 
 ### Configuration Management System
 **ConfigManager Features:**
-- **Singleton Pattern**: Single instance ensuring consistent configuration access
+- **Thread-Safe Singleton Pattern**: Single instance ensuring consistent configuration access across entire application
+  - Uses `threading.Lock` for thread-safe singleton creation (similar to UnifiedKnowledgeManager)
+  - All `ConfigManager()` calls return the same instance automatically
+  - `reset()` method available for test isolation (testing only)
 - **Unified Provider System**: Centralized management of all LLM providers (Ollama, OpenAI, Gemini, Anthropic)
 - **JSON Persistence**: Human-readable configuration files with automatic saving/loading
 - **Type-Safe Configuration**: Dataclass-based configuration objects with validation
@@ -66,19 +71,36 @@ The `src/utils/` directory provides essential configuration management and utili
 2. **Provider Configuration**: Improved AI provider management and validation
 3. **Template System**: Enhanced prompt template loading and variable substitution
 4. **Text Processing**: Optimized keyword extraction and language detection
-5. **🚀 MAJOR: Pipeline Utils (`pipeline_utils.py`)**: Shared logic abstraction for CLI and GUI
+5. **✅ ADDED: Model Capabilities Registry (`model_capabilities.py`)**: Auto-detection of optimal chunking thresholds
+   - Pattern-based model recognition (15+ patterns covering major LLM families)
+   - Auto-detection: Large models (1000 kw), Medium (500 kw), Small (200-300 kw)
+   - Explicit override support with priority handling (explicit > pattern > default)
+   - GUI integration: Spinbox special value "Auto" (0) triggers auto-detection
+6. **✅ FIXED: Provider Selection Priority**: Manual UI selections now override task preferences
+   - Correct priority order: Explicit UI > Task preferences > Config defaults
+   - Enhanced logging with visual indicators (🎯 explicit, 📋 preference, ⚙️ default)
+7. **✅ ADDED: Repetition Detector (`repetition_detector.py`)**: LLM repetition loop detection
+   - Three detection methods: char patterns, N-gram counting, window similarity (Jaccard)
+   - Configurable thresholds and auto-abort functionality
+   - Parameter variation suggestions for recovery
+8. **✅ ADDED: Per-Model Chunking Thresholds**: Model-specific keyword chunking configuration
+   - `UnifiedProviderConfig.model_chunking_thresholds` for per-model settings
+   - Priority: explicit > per-model config > pattern match > default
+   - UI integration in unified_provider_tab with spinbox per model
+   - Stronger validation for empty/whitespace provider/model strings
+7. **🚀 MAJOR: Pipeline Utils (`pipeline_utils.py`)**: Shared logic abstraction for CLI and GUI
    - **PipelineStepExecutor**: Unified pipeline step execution logic
    - **PipelineJsonManager**: JSON serialization/deserialization utilities
    - **PipelineResultFormatter**: Result formatting for display/prompts
    - **execute_complete_pipeline()**: End-to-end pipeline execution function
-6. **✅ ADDED: Batch Processing (`batch_processor.py`)**: Complete batch processing system
+8. **✅ ADDED: Batch Processing (`batch_processor.py`)**: Complete batch processing system
    - **BatchProcessor**: Main engine using PipelineStepExecutor
    - **BatchSourceParser**: Validates and parses batch file formats
    - **BatchState**: Resume functionality with JSON persistence
    - **SourceType Enum**: DOI, PDF, TXT, IMG, URL support
    - **Callbacks**: on_source_start, on_source_complete, on_batch_complete
    - **Error Handling**: Continue-on-error and stop-on-error modes
-7. **✅ ADDED: Pipeline Configuration Consolidation**: Unified parameter parsing and validation
+9. **✅ ADDED: Pipeline Configuration Consolidation**: Unified parameter parsing and validation
    - **PipelineConfigParser** (`pipeline_config_parser.py`): Consolidated parsing and validation logic
      - Unified CLI/GUI parameter parsing (CLI format: `STEP=PROVIDER|MODEL` or `STEP=VALUE`)
      - Step-aware task validation for consistent behavior across interfaces

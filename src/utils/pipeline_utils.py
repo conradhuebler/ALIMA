@@ -1128,12 +1128,21 @@ class PipelineStepExecutor:
         resolved_threshold = get_chunking_threshold(
             provider=provider,
             model=model,
-            explicit_override=keyword_chunking_threshold
+            explicit_override=keyword_chunking_threshold,
+            config_manager=self.config_manager  # Pass config_manager for per-model lookup - Claude Generated
         )
 
         if self.logger:
             if keyword_chunking_threshold is not None and keyword_chunking_threshold > 0:
                 source = "explicit"
+            elif self.config_manager:
+                # Check if per-model config was used
+                try:
+                    cfg = self.config_manager.get_unified_config()
+                    cfg_threshold = cfg.get_chunking_threshold(provider, model)
+                    source = "per-model config" if cfg_threshold else "auto-detected"
+                except Exception:
+                    source = "auto-detected"
             else:
                 source = "auto-detected"
             self.logger.info(f"💡 Keyword chunking threshold: {resolved_threshold} ({source} for {provider}:{model})")

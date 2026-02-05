@@ -117,6 +117,20 @@
 - ✅ **Color-Coded Confidence**: Visual indicators based on catalog frequency (Green/Teal/Yellow/Red)
 - ✅ **Backward Compatible**: Old JSON files gracefully handled with fallback messages
 
+### ✅ Repetition Detection & Per-Model Chunking COMPLETE
+- ✅ **Repetition Detector** (`src/utils/repetition_detector.py`): Detects LLM repetition loops during streaming
+  - Three detection methods: char patterns, N-gram counting, window similarity (Jaccard)
+  - Auto-abort with parameter variation suggestions (temperature, repetition_penalty, top_p)
+  - Configurable via `RepetitionDetectionConfig` in config.json
+- ✅ **Per-Model Chunking Thresholds**: Model-specific keyword chunking configuration
+  - `UnifiedProviderConfig.model_chunking_thresholds` stores per-provider/model settings
+  - Priority: explicit override > per-model config > pattern match > default (500)
+  - UI spinbox in Model Preferences table with auto-detect hint
+- ✅ **Repetition Warning UI**: Orange warning panel in `PipelineStreamWidget`
+  - Shows detection type and details
+  - Retry buttons with suggested parameter variations
+  - Emits `retry_with_variations` signal for pipeline retry
+
 ### WIP: Token Control & Chunking
 - Implement token size control with slider (1-50 keywords per chunk)
 - Split keywords while keeping template+abstract constant
@@ -188,3 +202,14 @@
   - Fixed: Proper TaskPreference creation with model_priority structure
 - **Auto-Detection**: Both GUI and CLI check `first_run_completed` flag and prompt setup if needed
 - **Provider Support**: Ollama (local/remote), OpenAI-compatible APIs, Google Gemini, Anthropic Claude
+
+### Model Capabilities & Configuration
+✅ **Auto-Detection System**: Intelligent model-specific configuration with pattern matching
+- **Model Capabilities Registry** (`src/utils/model_capabilities.py`): 15+ patterns for optimal chunking thresholds
+  - Large models (>30B): 1000 keywords before chunking
+  - Medium models (13-14B): 500 keywords (default)
+  - Small models (<7B): 200-300 keywords
+- **Provider Selection Priority**: Explicit UI selection > Task preferences > Config defaults
+  - Fixed: Manual UI selections now correctly override task preferences
+  - Enhanced logging with visual indicators (🎯 explicit, 📋 preference, ⚙️ default)
+- **GUI Integration**: Pipeline config dialog shows "Auto" for zero/None values (auto-detection)

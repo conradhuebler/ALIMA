@@ -736,7 +736,13 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Create tabs
         self.database_tab = self._create_database_tab()
-        self.unified_provider_tab = UnifiedProviderTab(self.config_to_edit.unified_config, self.config_to_edit, self.alima_manager, self)  # Claude Generated - Provider Status Service Integration
+        self.unified_provider_tab = UnifiedProviderTab(
+            self.config_to_edit.unified_config,
+            self.config_to_edit,
+            self.config_manager,  # ✅ Pass ConfigManager for persistence operations
+            self.alima_manager,
+            self
+        )
         self.catalog_tab = self._create_catalog_tab()
         self.prompts_tab = self._create_prompts_tab()
         self.system_tab = self._create_system_tab()
@@ -1085,7 +1091,39 @@ class ComprehensiveSettingsDialog(QDialog):
         
         system_group.setLayout(system_layout)
         layout.addWidget(system_group)
-        
+
+        # Repetition Detection settings - Claude Generated
+        repetition_group = QGroupBox("🔄 Repetition Detection")
+        repetition_layout = QFormLayout()
+
+        self.repetition_enabled = QCheckBox("Enable repetition detection")
+        self.repetition_enabled.setToolTip("Detect when LLM falls into repetitive output loops")
+        repetition_layout.addRow("Detection:", self.repetition_enabled)
+
+        self.repetition_auto_abort = QCheckBox("Auto-abort on detection")
+        self.repetition_auto_abort.setToolTip("Automatically stop generation when repetition is detected")
+        repetition_layout.addRow("Auto-Abort:", self.repetition_auto_abort)
+
+        self.repetition_ngram_threshold = QSpinBox()
+        self.repetition_ngram_threshold.setRange(3, 20)
+        self.repetition_ngram_threshold.setToolTip("Number of phrase repetitions before triggering (higher = more lenient)")
+        repetition_layout.addRow("N-gram Threshold:", self.repetition_ngram_threshold)
+
+        self.repetition_min_text = QSpinBox()
+        self.repetition_min_text.setRange(100, 5000)
+        self.repetition_min_text.setSingleStep(100)
+        self.repetition_min_text.setSuffix(" chars")
+        self.repetition_min_text.setToolTip("Minimum text length before checking starts")
+        repetition_layout.addRow("Min Text Length:", self.repetition_min_text)
+
+        self.repetition_char_threshold = QSpinBox()
+        self.repetition_char_threshold.setRange(20, 200)
+        self.repetition_char_threshold.setToolTip("Consecutive identical characters before triggering (e.g., '!!!')")
+        repetition_layout.addRow("Char Repeat Threshold:", self.repetition_char_threshold)
+
+        repetition_group.setLayout(repetition_layout)
+        layout.addWidget(repetition_group)
+
         # Configuration scope
         scope_group = QGroupBox("Save Configuration To")
         scope_layout = QVBoxLayout()
@@ -1943,6 +1981,22 @@ class ComprehensiveSettingsDialog(QDialog):
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
 
+        # Repetition Detection settings - Claude Generated
+        rep_config = getattr(config, 'repetition_config', None)
+        if rep_config:
+            self.repetition_enabled.setChecked(rep_config.enabled)
+            self.repetition_auto_abort.setChecked(rep_config.auto_abort)
+            self.repetition_ngram_threshold.setValue(rep_config.ngram_threshold)
+            self.repetition_min_text.setValue(rep_config.min_text_length)
+            self.repetition_char_threshold.setValue(rep_config.char_repeat_threshold)
+        else:
+            # Use defaults
+            self.repetition_enabled.setChecked(True)
+            self.repetition_auto_abort.setChecked(True)
+            self.repetition_ngram_threshold.setValue(8)
+            self.repetition_min_text.setValue(1000)
+            self.repetition_char_threshold.setValue(80)
+
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
 
@@ -2401,9 +2455,25 @@ class ComprehensiveSettingsDialog(QDialog):
         )
 
         # UI configuration - Claude Generated (Webcam Feature)
-        from ..utils.config_models import UIConfig
+        from ..utils.config_models import UIConfig, RepetitionDetectionConfig
         config.ui_config = UIConfig(
             enable_webcam_input=self.enable_webcam_input.isChecked()
+        )
+
+        # Repetition Detection configuration - Claude Generated
+        config.repetition_config = RepetitionDetectionConfig(
+            enabled=self.repetition_enabled.isChecked(),
+            auto_abort=self.repetition_auto_abort.isChecked(),
+            ngram_threshold=self.repetition_ngram_threshold.value(),
+            min_text_length=self.repetition_min_text.value(),
+            char_repeat_threshold=self.repetition_char_threshold.value(),
+            # Keep other values at defaults or from existing config
+            ngram_size=getattr(config.repetition_config, 'ngram_size', 6) if hasattr(config, 'repetition_config') else 6,
+            window_size=getattr(config.repetition_config, 'window_size', 300) if hasattr(config, 'repetition_config') else 300,
+            window_similarity_threshold=getattr(config.repetition_config, 'window_similarity_threshold', 0.90) if hasattr(config, 'repetition_config') else 0.90,
+            min_windows=getattr(config.repetition_config, 'min_windows', 4) if hasattr(config, 'repetition_config') else 4,
+            check_interval=getattr(config.repetition_config, 'check_interval', 200) if hasattr(config, 'repetition_config') else 200,
+            show_suggestions=getattr(config.repetition_config, 'show_suggestions', True) if hasattr(config, 'repetition_config') else True,
         )
 
         # Task preferences are already up-to-date in config_to_edit from UnifiedProviderTab - Claude Generated (Refactoring)

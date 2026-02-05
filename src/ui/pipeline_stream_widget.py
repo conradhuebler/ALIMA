@@ -33,6 +33,7 @@ class PipelineStreamWidget(QWidget):
     # Signals for user interaction
     cancel_pipeline = pyqtSignal()
     pause_pipeline = pyqtSignal()
+    retry_with_variations = pyqtSignal(dict)  # Retry with parameter variations - Claude Generated
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,6 +42,7 @@ class PipelineStreamWidget(QWidget):
         self.is_streaming: bool = False
         self.step_start_times: Dict[str, datetime] = {}
         self.current_working_title: Optional[str] = None  # For log filename - Claude Generated
+        self.current_suggestions: List[Dict] = []  # Current retry suggestions - Claude Generated
 
         self.setup_ui()
 
@@ -52,6 +54,9 @@ class PipelineStreamWidget(QWidget):
 
         # Main streaming area
         self.create_streaming_area(layout)
+
+        # Repetition warning panel (initially hidden) - Claude Generated
+        self.create_repetition_warning_panel(layout)
 
     def create_streaming_area(self, layout):
         """Create main streaming text area - Claude Generated"""
@@ -115,6 +120,146 @@ class PipelineStreamWidget(QWidget):
 
         stream_layout.addLayout(controls_layout)
         layout.addWidget(stream_group)
+
+    def create_repetition_warning_panel(self, layout):
+        """Create collapsible repetition warning panel - Claude Generated"""
+        self.repetition_warning_frame = QFrame()
+        self.repetition_warning_frame.setStyleSheet("""
+            QFrame {
+                background-color: #3d2a00;
+                border: 2px solid #ff9800;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QLabel {
+                color: #ffcc80;
+            }
+            QPushButton {
+                background-color: #ff9800;
+                color: #1e1e1e;
+                border: none;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ffb74d;
+            }
+        """)
+        self.repetition_warning_frame.setVisible(False)
+
+        warning_layout = QVBoxLayout(self.repetition_warning_frame)
+        warning_layout.setSpacing(8)
+
+        # Header with icon and message
+        header_layout = QHBoxLayout()
+
+        self.warning_icon_label = QLabel("⚠️")
+        self.warning_icon_label.setStyleSheet("font-size: 24px;")
+        header_layout.addWidget(self.warning_icon_label)
+
+        self.warning_title_label = QLabel("Wiederholung erkannt")
+        self.warning_title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ff9800;")
+        header_layout.addWidget(self.warning_title_label)
+
+        header_layout.addStretch()
+
+        self.dismiss_warning_button = QPushButton("✕")
+        self.dismiss_warning_button.setFixedSize(24, 24)
+        self.dismiss_warning_button.setStyleSheet("background-color: transparent; color: #ff9800;")
+        self.dismiss_warning_button.clicked.connect(self.hide_repetition_warning)
+        header_layout.addWidget(self.dismiss_warning_button)
+
+        warning_layout.addLayout(header_layout)
+
+        # Details label
+        self.warning_details_label = QLabel("")
+        self.warning_details_label.setWordWrap(True)
+        self.warning_details_label.setStyleSheet("color: #ffe0b2;")
+        warning_layout.addWidget(self.warning_details_label)
+
+        # Suggestions section
+        suggestions_label = QLabel("💡 Empfohlene Anpassungen:")
+        suggestions_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        warning_layout.addWidget(suggestions_label)
+
+        # Suggestion buttons container
+        self.suggestions_button_layout = QHBoxLayout()
+        self.suggestions_button_layout.setSpacing(8)
+        warning_layout.addLayout(self.suggestions_button_layout)
+
+        # Continue without changes button
+        continue_layout = QHBoxLayout()
+        continue_layout.addStretch()
+
+        self.continue_button = QPushButton("Trotzdem fortfahren")
+        self.continue_button.setStyleSheet("background-color: #666; color: #fff;")
+        self.continue_button.clicked.connect(self.hide_repetition_warning)
+        continue_layout.addWidget(self.continue_button)
+
+        warning_layout.addLayout(continue_layout)
+
+        layout.addWidget(self.repetition_warning_frame)
+
+    def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict]):
+        """Show repetition warning with suggestions - Claude Generated"""
+        self.current_suggestions = suggestions
+
+        # Set warning title based on detection type
+        type_labels = {
+            "char_pattern": "Zeichenwiederholung erkannt",
+            "ngram": "Phrasenwiederholung erkannt",
+            "window_similarity": "Textblock-Wiederholung erkannt",
+        }
+        self.warning_title_label.setText(type_labels.get(detection_type, "Wiederholung erkannt"))
+        self.warning_details_label.setText(details)
+
+        # Clear existing suggestion buttons
+        while self.suggestions_button_layout.count():
+            item = self.suggestions_button_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Add suggestion buttons
+        for i, suggestion in enumerate(suggestions[:4]):  # Max 4 buttons
+            button = QPushButton(suggestion.get("label", f"Option {i+1}"))
+            button.setToolTip(suggestion.get("description", ""))
+
+            # Create closure for button click
+            params = suggestion.get("params", {})
+
+            def make_handler(p):
+                return lambda: self._on_suggestion_clicked(p)
+
+            button.clicked.connect(make_handler(params))
+            self.suggestions_button_layout.addWidget(button)
+
+        self.suggestions_button_layout.addStretch()
+
+        # Show the warning panel
+        self.repetition_warning_frame.setVisible(True)
+
+        # Log the warning
+        self.add_pipeline_message(
+            f"🔄 {type_labels.get(detection_type, 'Wiederholung')}: {details}",
+            "warning",
+            self.current_step_id
+        )
+
+    def hide_repetition_warning(self):
+        """Hide the repetition warning panel - Claude Generated"""
+        self.repetition_warning_frame.setVisible(False)
+        self.current_suggestions = []
+
+    def _on_suggestion_clicked(self, params: Dict):
+        """Handle suggestion button click - Claude Generated"""
+        self.hide_repetition_warning()
+        self.retry_with_variations.emit(params)
+        self.add_pipeline_message(
+            f"🔄 Retry mit Parametern: {params}",
+            "info",
+            self.current_step_id
+        )
 
     def add_pipeline_message(
         self, message: str, level: str = "info", step_id: Optional[str] = None

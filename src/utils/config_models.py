@@ -257,6 +257,7 @@ class TaskPreference:
     model_priority: List[Dict[str, str]] = field(default_factory=list)  # [{"provider_name": "p1", "model_name": "m1"}, ...]
     chunked_model_priority: Optional[List[Dict[str, str]]] = None  # For chunked subtasks like keywords_chunked
     allow_fallback: bool = True
+    chunking_threshold: Optional[int] = None  # 0 = auto-detect, >0 = explicit threshold (keywords task only)
 
 
     def __post_init__(self):
@@ -282,7 +283,8 @@ class TaskPreference:
             "task_type": self.task_type.value,  # Convert enum to string
             "model_priority": self.model_priority,
             "chunked_model_priority": self.chunked_model_priority,
-            "allow_fallback": self.allow_fallback
+            "allow_fallback": self.allow_fallback,
+            "chunking_threshold": self.chunking_threshold,
         }
 
     @classmethod
@@ -294,7 +296,8 @@ class TaskPreference:
             task_type=task_type,
             model_priority=data.get("model_priority", []),
             chunked_model_priority=data.get("chunked_model_priority"),
-            allow_fallback=data.get("allow_fallback", True)
+            allow_fallback=data.get("allow_fallback", True),
+            chunking_threshold=data.get("chunking_threshold"),
         )
 
 
@@ -316,6 +319,7 @@ class PipelineStepConfig:
     top_p: Optional[float] = None
     max_tokens: Optional[int] = None
     seed: Optional[int] = None  # For reproducible results
+    repetition_penalty: Optional[float] = None  # Penalise repeated tokens (Ollama repeat_penalty / OpenAI repetition_penalty)
     custom_params: Dict[str, Any] = field(default_factory=dict)
 
     # Meta settings
@@ -448,6 +452,49 @@ class UnifiedProviderConfig:
 
     # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog, pipeline_config_dialog
     preferred_provider: str = ""  # Explicit user choice, independent of provider_priority
+
+    # Per-model chunking thresholds - Claude Generated
+    # Format: {"provider_name": {"model_name": threshold_int}}
+    # e.g., {"ollama_local": {"cogito:32b": 1000, "cogito:14b": 500}}
+    model_chunking_thresholds: Dict[str, Dict[str, int]] = field(default_factory=dict)
+
+    def get_chunking_threshold(self, provider_name: str, model_name: str) -> Optional[int]:
+        """Get configured chunking threshold for provider/model - Claude Generated
+
+        Args:
+            provider_name: Provider name (e.g., "ollama_local")
+            model_name: Model name (e.g., "cogito:32b")
+
+        Returns:
+            Configured threshold if set, None for auto-detect
+        """
+        provider_thresholds = self.model_chunking_thresholds.get(provider_name, {})
+        return provider_thresholds.get(model_name)
+
+    def set_chunking_threshold(self, provider_name: str, model_name: str, threshold: int):
+        """Set chunking threshold for provider/model - Claude Generated
+
+        Args:
+            provider_name: Provider name
+            model_name: Model name
+            threshold: Chunking threshold (keywords before splitting)
+        """
+        if provider_name not in self.model_chunking_thresholds:
+            self.model_chunking_thresholds[provider_name] = {}
+        self.model_chunking_thresholds[provider_name][model_name] = threshold
+
+    def remove_chunking_threshold(self, provider_name: str, model_name: str):
+        """Remove chunking threshold (revert to auto-detect) - Claude Generated
+
+        Args:
+            provider_name: Provider name
+            model_name: Model name
+        """
+        if provider_name in self.model_chunking_thresholds:
+            self.model_chunking_thresholds[provider_name].pop(model_name, None)
+            # Clean up empty provider dict
+            if not self.model_chunking_thresholds[provider_name]:
+                del self.model_chunking_thresholds[provider_name]
 
     def get_enabled_providers(self) -> List[UnifiedProvider]:
         """Get list of enabled providers - Claude Generated"""
@@ -615,6 +662,37 @@ class UIConfig:
     # Future UI options can be added here
 
 
+@dataclass
+class RepetitionDetectionConfig:
+    """Configuration for LLM repetition detection - Claude Generated
+
+    Detects when LLMs fall into repetitive output loops and enables
+    automatic abort with parameter variation suggestions.
+
+    Tuned to avoid false positives - requires substantial repetition before triggering.
+    """
+    # Master switch
+    enabled: bool = True              # Enable repetition detection
+    auto_abort: bool = True           # Automatically abort on detection
+    show_suggestions: bool = True     # Show parameter variation suggestions
+
+    # N-gram detection
+    ngram_size: int = 6               # Words per N-gram (longer = more specific)
+    ngram_threshold: int = 8          # Repetitions before flagging (higher = more lenient)
+
+    # Window similarity detection
+    window_size: int = 300            # Characters per comparison window
+    window_similarity_threshold: float = 0.90  # Jaccard threshold (0.0-1.0)
+    min_windows: int = 4              # Minimum windows before comparison
+
+    # Character pattern detection
+    char_repeat_threshold: int = 80   # Consecutive identical chars ("!!!", "aaa")
+
+    # Processing control
+    min_text_length: int = 1000       # Start checking after N characters
+    check_interval: int = 200         # Check every N characters
+
+
 # ============================================================================
 # MAIN CONFIGURATION CLASS
 # ============================================================================
@@ -628,6 +706,7 @@ class AlimaConfig:
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
     system_config: SystemConfig = field(default_factory=SystemConfig)
     ui_config: UIConfig = field(default_factory=UIConfig)  # Claude Generated - Webcam Feature
+    repetition_config: RepetitionDetectionConfig = field(default_factory=RepetitionDetectionConfig)  # Claude Generated
 
     # UNIFIED PROVIDER CONFIGURATION - single source of truth
     unified_config: UnifiedProviderConfig = field(default_factory=UnifiedProviderConfig)
