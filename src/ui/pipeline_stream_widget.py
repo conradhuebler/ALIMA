@@ -369,8 +369,8 @@ class PipelineStreamWidget(QWidget):
 
         # Show results if available
         if step.output_data:
-            if step.step_id == "keywords" and "keywords" in step.output_data:
-                keywords = step.output_data["keywords"]
+            if step.step_id == "keywords" and ("keywords" in step.output_data or "final_keywords" in step.output_data):
+                keywords = step.output_data.get("final_keywords", step.output_data.get("keywords", []))
                 self.add_pipeline_message(
                     f"Gefunden: {len(keywords)} Keywords", "info", step.step_id
                 )
@@ -379,6 +379,24 @@ class PipelineStreamWidget(QWidget):
                     "info",
                     step.step_id,
                 )
+
+                # Show GND verification summary - Claude Generated
+                verification = step.output_data.get("verification")
+                if verification and isinstance(verification, dict):
+                    stats = verification.get("stats", {})
+                    verified_count = stats.get("verified_count", 0)
+                    total = stats.get("total_extracted", 0)
+                    rejected = verification.get("rejected", [])
+                    self.add_pipeline_message(
+                        f"✅ {verified_count}/{total} Keywords GND-verifiziert",
+                        "success", step.step_id,
+                    )
+                    if rejected:
+                        rejected_names = [r.split('(')[0].strip() for r in rejected]
+                        self.add_pipeline_message(
+                            f"⚠️ {len(rejected)} Keywords ohne GND-Pool-Treffer entfernt: {', '.join(rejected_names)}",
+                            "warning", step.step_id,
+                        )
 
             elif step.step_id == "search" and "search_results" in step.output_data:
                 count = step.output_data["search_results"]

@@ -71,6 +71,7 @@ class LlmKeywordAnalysis:
     extracted_gnd_classes: List[str] = field(default_factory=list)
     chunk_responses: List[str] = field(default_factory=list)  # Intermediate responses from chunked analysis - Claude Generated
     missing_concepts: List[str] = field(default_factory=list)  # Missing concepts identified for iterative refinement - Claude Generated
+    verification: Optional[Dict[str, Any]] = None  # GND pool verification results - Claude Generated
 
 
 @dataclass

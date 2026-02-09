@@ -608,6 +608,13 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
         "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
         "final_llm_call_details": ensure_json_serializable(final_llm_details),
 
+        # GND Verification Results - Claude Generated
+        "verification": ensure_json_serializable(
+            getattr(analysis_state.final_llm_analysis, 'verification', None)
+            if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis
+            else None
+        ),
+
         # Pipeline Metadata
         "pipeline_metadata": {
             "search_suggesters_used": ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),

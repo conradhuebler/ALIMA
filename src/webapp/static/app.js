@@ -813,12 +813,22 @@ class AlimaWebapp {
             });
         }
 
-        // Display final GND-compliant keywords
+        // Display final GND-compliant keywords with verification status - Claude Generated
         if (results.final_keywords && results.final_keywords.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] GND-Schlagworte:`);
             results.final_keywords.forEach(kw => {
                 this.appendStreamText(`  ✓ ${kw}`);
             });
+
+            // Display verification summary - Claude Generated
+            if (results.verification && results.verification.stats) {
+                const stats = results.verification.stats;
+                this.appendStreamText(`\n[${this.getTime()}] GND-Verifikation: ${stats.verified_count}/${stats.total_extracted} verifiziert`);
+                if (results.verification.rejected && results.verification.rejected.length > 0) {
+                    const rejectedNames = results.verification.rejected.map(r => r.split('(')[0].trim());
+                    this.appendStreamText(`  ⚠️ ${stats.rejected_count} entfernt: ${rejectedNames.join(', ')}`);
+                }
+            }
         }
 
         // Display DK/RVK classifications
@@ -856,7 +866,11 @@ class AlimaWebapp {
             item.style.overflowY = 'auto';
             item.style.wordWrap = 'break-word';
             item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>GND-Schlagworte:</strong> ${results.final_keywords.join(', ')}`;
+            // Add verification badge if available - Claude Generated
+            const verificationBadge = (results.verification && results.verification.stats)
+                ? ` <span style="color: #4caf50; font-size: 0.85em;">(${results.verification.stats.verified_count}/${results.verification.stats.total_extracted} GND-verifiziert)</span>`
+                : '';
+            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${results.final_keywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
 

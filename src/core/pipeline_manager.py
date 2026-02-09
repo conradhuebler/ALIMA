@@ -793,6 +793,7 @@ class PipelineManager:
         task = step_config.task or "initialisation"
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
+        repetition_penalty = step_config.repetition_penalty
 
         # Debug: Log the extracted configuration
         self.logger.info(
@@ -876,6 +877,7 @@ class PipelineManager:
                     temperature=temperature,
                     p_value=top_p,
                     step_id=step.step_id,  # Pass step_id for proper callback handling
+                    repetition_penalty=repetition_penalty,
                     **filtered_config,  # Pass remaining config parameters
                 )
             )
@@ -979,6 +981,7 @@ class PipelineManager:
         task = step_config.task or "keywords"
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
+        repetition_penalty = step_config.repetition_penalty
 
         # Debug: Log the extracted configuration
         self.logger.info(
@@ -1045,6 +1048,28 @@ class PipelineManager:
                 if value is not None:
                     filtered_config[param] = value
 
+            # Fix: keyword_chunking_threshold / chunking_task live in custom_params, not as top-level attrs
+            for p in ["keyword_chunking_threshold", "chunking_task"]:
+                if p in step_config.custom_params:
+                    filtered_config[p] = step_config.custom_params[p]
+
+            # TaskPreference override for chunking_threshold (keywords task only)
+            if hasattr(self, 'config') and hasattr(self.config, 'step_configs'):
+                try:
+                    from ..utils.config_manager import ConfigManager
+                    cm = ConfigManager()
+                    cfg = cm.load_config()
+                    task_pref = cfg.unified_config.task_preferences.get("keywords")
+                    if task_pref and task_pref.chunking_threshold is not None:
+                        if task_pref.chunking_threshold == 0:
+                            # 0 means "Auto" → pass None to trigger auto-detect
+                            filtered_config["keyword_chunking_threshold"] = None
+                        else:
+                            filtered_config["keyword_chunking_threshold"] = task_pref.chunking_threshold
+                        self.logger.info(f"TaskPreference chunking_threshold override: {task_pref.chunking_threshold} → filtered={filtered_config.get('keyword_chunking_threshold')}")
+                except Exception as e:
+                    self.logger.debug(f"Could not load TaskPreference chunking_threshold: {e}")
+
             # Debug: Log what's actually in the filtered config - Claude Generated
             self.logger.info(f"Keywords step filtered_config: {filtered_config}")
             if "keyword_chunking_threshold" in filtered_config:
@@ -1089,6 +1114,7 @@ class PipelineManager:
                         temperature=temperature,
                         p_value=top_p,
                         step_id=step.step_id,
+                        repetition_penalty=repetition_penalty,
                         **filtered_config,
                     )
                 )
@@ -1119,6 +1145,7 @@ class PipelineManager:
                         temperature=temperature,
                         p_value=top_p,
                         step_id=step.step_id,  # Pass step_id for proper callback handling
+                        repetition_penalty=repetition_penalty,
                         **filtered_config,  # Pass remaining config parameters
                     )
                 )
@@ -1126,10 +1153,11 @@ class PipelineManager:
             # Update analysis state with final results
             self.current_analysis_state.final_llm_analysis = llm_analysis
 
-            # Store both keywords and full LLM analysis for UI display - Claude Generated
+            # Store keywords, LLM analysis, and verification data for UI display - Claude Generated
             step.output_data = {
                 "final_keywords": final_keywords,
-                "llm_analysis": llm_analysis  # LlmKeywordAnalysis object with response_full_text
+                "llm_analysis": llm_analysis,  # LlmKeywordAnalysis object with response_full_text
+                "verification": llm_analysis.verification if llm_analysis and llm_analysis.verification else None,
             }
 
             # Debug: Log extracted keywords - Claude Generated
@@ -1280,6 +1308,7 @@ class PipelineManager:
                 temperature=step_config.temperature or 0.7,
                 top_p=step_config.top_p or 0.1,
                 dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),  # Claude Generated
+                repetition_penalty=step_config.repetition_penalty,
             )
             
             # Prepare search summary for display

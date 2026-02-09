@@ -1308,6 +1308,15 @@ class PipelineStepExecutor:
             gnd_compliant_keywords
         )
 
+        # Verify keywords against GND pool - Claude Generated
+        verification_result = verify_keywords_against_gnd_pool(
+            extracted_keywords=final_keywords,
+            gnd_pool_keywords=gnd_compliant_keywords,
+            stream_callback=stream_callback,
+            step_id=kwargs.get("step_id", "keywords"),
+        )
+        final_keywords = verification_result["verified"]
+
         extracted_gnd_classes = extract_classes_from_descriptive_text(
             task_state.analysis_result.full_text
         )
@@ -1326,8 +1335,9 @@ class PipelineStepExecutor:
             temperature=kwargs.get("temperature", 0.7),
             seed=kwargs.get("seed", 0),
             response_full_text=task_state.analysis_result.full_text,
-            extracted_gnd_keywords=final_keywords,  # Store all keywords
+            extracted_gnd_keywords=final_keywords,  # Store verified keywords only
             extracted_gnd_classes=extracted_gnd_classes,
+            verification=verification_result,  # Store verification details - Claude Generated
         )
 
         return final_keywords, extracted_gnd_classes, llm_analysis
@@ -1480,6 +1490,15 @@ class PipelineStepExecutor:
             deduplicated_keywords
         )
 
+        # Verify final keywords against original GND pool (not just deduplicated chunks) - Claude Generated
+        verification_result = verify_keywords_against_gnd_pool(
+            extracted_keywords=final_keywords,
+            gnd_pool_keywords=gnd_compliant_keywords,
+            stream_callback=stream_callback,
+            step_id=kwargs.get("step_id", "keywords"),
+        )
+        final_keywords = verification_result["verified"]
+
         # Update the LlmKeywordAnalysis to include chunk information
         final_llm_analysis = LlmKeywordAnalysis(
             task_name=f"{task} (chunked)",
@@ -1490,9 +1509,10 @@ class PipelineStepExecutor:
             temperature=kwargs.get("temperature", 0.7),
             seed=kwargs.get("seed", 0),
             response_full_text=final_single_result[2].response_full_text,  # Only final consolidation response
-            extracted_gnd_keywords=final_keywords,  # Use enhanced extraction results
+            extracted_gnd_keywords=final_keywords,  # Use verified keywords only - Claude Generated
             extracted_gnd_classes=final_single_result[1],
             chunk_responses=combined_responses,  # Store chunk responses separately - Claude Generated
+            verification=verification_result,  # Store verification details - Claude Generated
         )
 
         return final_keywords, final_single_result[1], final_llm_analysis
@@ -1528,14 +1548,25 @@ class PipelineStepExecutor:
                     word = match.group(1).strip()
                     gnd_id = match.group(2).strip()
 
-                    # Deduplicate by GND-ID only - Claude Generated
-                    # GND-ID is the primary identifier for concepts
-                    # Different GND-IDs = different concepts, even with similar names
+                    # Deduplicate by GND-ID and by text - Claude Generated
+                    # Same text with different GND-IDs: prefer pool version (authoritative)
+                    word_lower = word.lower()
+
                     if gnd_id not in seen_gnd_ids:
-                        word_lower = word.lower()
-                        # Check if same word exists with different GND-ID (log for diagnosis)
-                        if word_lower in seen_words and self.logger:
-                            self.logger.debug(f"⚠️  Multiple GND-IDs for similar term: '{word}' ({gnd_id})")
+                        if word_lower in seen_words:
+                            # Same text, different GND-ID → prefer pool version - Claude Generated
+                            if word_lower in word_to_gnd:
+                                pool_gnd_id = word_to_gnd[word_lower]
+                                if pool_gnd_id != gnd_id and self.logger:
+                                    self.logger.warning(
+                                        f"⚠️ Konflikt: '{word}' hat GND-ID {gnd_id}, "
+                                        f"Pool hat {pool_gnd_id} - verwende Pool-Version"
+                                    )
+                                # Skip this duplicate text entry
+                                continue
+                            elif self.logger:
+                                self.logger.debug(f"⚠️  Multiple GND-IDs for similar term: '{word}' ({gnd_id})")
+                                continue  # Skip duplicate text with different GND-ID
 
                         seen_words.add(word_lower)
                         seen_gnd_ids.add(gnd_id)
@@ -2486,6 +2517,112 @@ class PipelineStepExecutor:
                 },
                 "keyword_results": []
             }
+
+
+def verify_keywords_against_gnd_pool(
+    extracted_keywords: List[str],
+    gnd_pool_keywords: List[str],
+    stream_callback: Optional[callable] = None,
+    step_id: str = "keywords",
+) -> Dict[str, Any]:
+    """Verify LLM-extracted keywords against the GND pool from step 2 - Claude Generated
+
+    Args:
+        extracted_keywords: Keywords extracted from LLM response
+        gnd_pool_keywords: The gnd_compliant_keywords built from search results (step 2)
+        stream_callback: Optional callback for live progress feedback
+        step_id: Pipeline step ID for callback routing
+
+    Returns:
+        Dict with keys: verified (list), rejected (list), stats (dict)
+    """
+    import logging
+    vlog = logging.getLogger(__name__)
+
+    if not gnd_pool_keywords:
+        vlog.warning("⚠️ GND pool is empty - skipping verification")
+        return {
+            "verified": list(extracted_keywords),
+            "rejected": [],
+            "stats": {"total_extracted": len(extracted_keywords), "verified_count": len(extracted_keywords),
+                       "rejected_count": 0, "pool_size": 0},
+        }
+
+    # Build lookup maps from pool
+    gnd_id_to_pool = {}   # gnd_id -> full pool keyword
+    text_lower_to_pool = {}  # keyword_text_lower -> full pool keyword
+
+    for pool_kw in gnd_pool_keywords:
+        # Extract GND-ID if present
+        gnd_match = re.search(r'GND-ID:\s*([0-9X-]+)', pool_kw)
+        if gnd_match:
+            gnd_id_to_pool[gnd_match.group(1)] = pool_kw
+
+        # Extract keyword text (before first parenthesis)
+        kw_text = pool_kw.split('(')[0].strip().lower()
+        if kw_text:
+            text_lower_to_pool[kw_text] = pool_kw
+
+    if stream_callback:
+        stream_callback(
+            f"\n🔍 Verifiziere {len(extracted_keywords)} Keywords gegen GND-Pool ({len(gnd_pool_keywords)} Einträge)...\n",
+            step_id,
+        )
+
+    verified = []
+    rejected = []
+
+    for kw in extracted_keywords:
+        matched_pool_kw = None
+
+        # Extract GND-ID from extracted keyword (formats: "Keyword (1234567-8)" or "Keyword (GND-ID: 1234567-8)")
+        gnd_id_match = re.search(r'GND-ID:\s*([0-9X-]+)', kw)
+        if not gnd_id_match:
+            gnd_id_match = re.search(r'\((\d{7,}-\d{1,2})\)', kw)
+
+        if gnd_id_match:
+            gnd_id = gnd_id_match.group(1)
+            if gnd_id in gnd_id_to_pool:
+                matched_pool_kw = gnd_id_to_pool[gnd_id]
+
+        # Text match fallback
+        if not matched_pool_kw:
+            kw_text = kw.split('(')[0].strip().lower()
+            if kw_text in text_lower_to_pool:
+                matched_pool_kw = text_lower_to_pool[kw_text]
+
+        if matched_pool_kw:
+            verified.append(matched_pool_kw)
+            vlog.info(f"  ✅ Verifiziert: {kw[:60]} → Pool: {matched_pool_kw[:60]}")
+            if stream_callback:
+                short_name = matched_pool_kw.split('(')[0].strip()
+                stream_callback(f"  ✅ {short_name} - GND-verifiziert\n", step_id)
+        else:
+            rejected.append(kw)
+            vlog.warning(f"  ❌ Abgelehnt: {kw[:60]} - nicht im GND-Pool")
+            if stream_callback:
+                short_name = kw.split('(')[0].strip()
+                stream_callback(f"  ❌ {short_name} - nicht im GND-Pool, entfernt\n", step_id)
+
+    stats = {
+        "total_extracted": len(extracted_keywords),
+        "verified_count": len(verified),
+        "rejected_count": len(rejected),
+        "pool_size": len(gnd_pool_keywords),
+    }
+
+    if stream_callback:
+        stream_callback(
+            f"📊 Verifikation: {stats['verified_count']}/{stats['total_extracted']} GND-verifiziert\n",
+            step_id,
+        )
+
+    vlog.info(
+        f"📊 GND-Verifikation: {stats['verified_count']}/{stats['total_extracted']} verifiziert, "
+        f"{stats['rejected_count']} abgelehnt"
+    )
+
+    return {"verified": verified, "rejected": rejected, "stats": stats}
 
 
 def extract_keywords_from_descriptive_text(
