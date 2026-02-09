@@ -128,6 +128,11 @@ class AbstractTab(QWidget):
         self.is_analysis_running = False  # Track analysis state
         self.input_widget_visible = True  # Track input widget visibility
 
+        # Track explicit user selections - Claude Generated
+        self.explicit_provider_selection = None  # None = not explicitly set by user
+        self.explicit_model_selection = None     # None = not explicitly set by user
+        self.user_interaction_mode = True        # False = programmatic change
+
         # Signal connections moved to central MainWindow management - Claude Generated
         # self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
         # self.llm.ollama_port_updated.connect(self.on_ollama_port_updated)
@@ -145,9 +150,13 @@ class AbstractTab(QWidget):
         pass
 
     def set_task(self, task: str):
-        """Set the task type for model recommendations and update UI."""
+        """Set the task type for model recommendations and update UI - Claude Generated"""
         self.task = task
         self.logger.info(f"Task set to: {self.task}")
+
+        # Programmatic change - disable tracking - Claude Generated
+        self.user_interaction_mode = False
+
         index = self.task_selector_combo.findText(task)
         if index >= 0:
             self.task_selector_combo.setCurrentIndex(index)
@@ -157,14 +166,35 @@ class AbstractTab(QWidget):
             if self.task_selector_combo.count() == 1:
                 self.populate_prompt_selector()
 
+        # Re-enable tracking - Claude Generated
+        self.user_interaction_mode = True
+
         # Show PDF button for initialisation task (formerly "abstract") - Claude Generated
         self.pdf_button.setVisible(self.task in ["abstract", "initialisation"])
 
     def update_models(self, provider: str):
-        """Update available models when provider changes."""
+        """Update available models when provider changes - Claude Generated"""
+        # Save current selection (if any)
+        current_model = self.model_combo.currentText()
+
+        self.user_interaction_mode = False  # Disable tracking during update
         self.model_combo.clear()
+
         if provider in self.available_models:
             self.model_combo.addItems(self.available_models[provider])
+
+            # Try to restore previous selection if it exists in new provider
+            if current_model and self.explicit_model_selection:
+                restored_index = self.model_combo.findText(current_model)
+                if restored_index >= 0:
+                    self.model_combo.setCurrentIndex(restored_index)
+                    self.logger.debug(f"✓ Preserved model selection: {current_model}")
+                else:
+                    # Model not available in new provider - clear explicit selection
+                    self.explicit_model_selection = None
+                    self.logger.info(f"⚠️ Model '{current_model}' not available for provider '{provider}'")
+
+        self.user_interaction_mode = True  # Re-enable tracking
 
     def setup_ui(self):
         """Set up the user interface with restructured layout."""
@@ -299,6 +329,28 @@ class AbstractTab(QWidget):
         self.seed_spinbox.setValue(0)
         params_layout.addWidget(self.seed_spinbox, 2, 1, 1, 2)
 
+        # Repetition Penalty - Claude Generated
+        params_layout.addWidget(QLabel("Repetition Penalty:"), 3, 0)
+        self.repetition_penalty_slider = QSlider(Qt.Orientation.Horizontal)
+        self.repetition_penalty_slider.setRange(0, 30)  # 0.0 - 3.0 in steps of 0.1
+        self.repetition_penalty_slider.setValue(10)  # Default 1.0
+        self.repetition_penalty_slider.valueChanged.connect(
+            lambda v: self.repetition_penalty_spinbox.setValue(v / 10.0)
+        )
+        params_layout.addWidget(self.repetition_penalty_slider, 3, 1)
+        self.repetition_penalty_spinbox = QDoubleSpinBox()
+        self.repetition_penalty_spinbox.setDecimals(1)
+        self.repetition_penalty_spinbox.setRange(0.0, 3.0)
+        self.repetition_penalty_spinbox.setSingleStep(0.1)
+        self.repetition_penalty_spinbox.setValue(1.0)
+        self.repetition_penalty_spinbox.setToolTip(
+            "1.0 = Standard (keine Penalty), >1.0 = weniger Wiederholungen"
+        )
+        self.repetition_penalty_spinbox.valueChanged.connect(
+            lambda v: self.repetition_penalty_slider.setValue(int(v * 10))
+        )
+        params_layout.addWidget(self.repetition_penalty_spinbox, 3, 2)
+
         self.config_tabs.addTab(params_tab, "Parameter")
         left_config_layout.addWidget(self.config_tabs)
 
@@ -311,12 +363,20 @@ class AbstractTab(QWidget):
         self.provider_combo = QComboBox()
         # Initialize with placeholder - will be populated by ProviderStatusService - Claude Generated
         self.provider_combo.addItem("Loading providers...")
-        self.provider_combo.currentTextChanged.connect(self.update_models)
+        self.provider_combo.currentTextChanged.connect(self.on_provider_manually_changed)
         provider_model_layout.addWidget(self.provider_combo, 0, 1)
         provider_model_layout.addWidget(QLabel("Modell:"), 1, 0)
         self.model_combo = QComboBox()
-        self.model_combo.currentTextChanged.connect(self.set_model)
+        self.model_combo.currentTextChanged.connect(self.on_model_manually_changed)
         provider_model_layout.addWidget(self.model_combo, 1, 1)
+
+        # Add reset button for explicit selections - Claude Generated
+        reset_selection_btn = QPushButton("🔄")
+        reset_selection_btn.setToolTip("Reset provider/model to prompt defaults")
+        reset_selection_btn.setMaximumWidth(40)
+        reset_selection_btn.clicked.connect(self.reset_explicit_selections)
+        provider_model_layout.addWidget(reset_selection_btn, 1, 2)
+
         right_config_layout.addWidget(provider_model_group)
 
         chunk_group = QGroupBox("Chunking-Kontrolle (optional)")
@@ -462,8 +522,11 @@ class AbstractTab(QWidget):
         # Add main container to layout
         main_layout.addWidget(main_container)
 
+        # Initial setup without tracking - Claude Generated
+        self.user_interaction_mode = False
         self.update_models(self.provider_combo.currentText())
         self.populate_task_selector()
+        self.user_interaction_mode = True
 
     def load_result_from_history(self, item):
         """Load a result from the history list - Claude Generated (Enhanced for full state restoration)"""
@@ -645,8 +708,10 @@ class AbstractTab(QWidget):
         for i, prompt_set in enumerate(prompts):
             self.prompt_selector_combo.addItem(f"Prompt Set {i+1}", userData=i)
         if self.prompt_selector_combo.count() > 0:
+            self.user_interaction_mode = False  # Disable tracking during programmatic change
             self.prompt_selector_combo.setCurrentIndex(0)
-            self.on_prompt_selected(0)
+            self.on_prompt_selected(0)  # This will now respect explicit_model_selection
+            self.user_interaction_mode = True  # Re-enable tracking
 
     def on_prompt_selected(self, index):
         if index < 0:
@@ -683,15 +748,56 @@ class AbstractTab(QWidget):
         seed_value = int(prompt_set[5]) if len(prompt_set) > 5 else 0  # Default to 0
         self.seed_spinbox.setValue(seed_value)
 
-        # Model (index 4)
+        # Model (index 4) - Only set if user hasn't explicitly chosen one - Claude Generated
         if len(prompt_set) > 4 and isinstance(prompt_set[4], list) and prompt_set[4]:
-            self.chosen_model = prompt_set[4][0]
-            model_index = self.model_combo.findText(self.chosen_model)
-            if model_index >= 0:
-                self.model_combo.setCurrentIndex(model_index)
+            prompt_recommended_model = prompt_set[4][0]
+
+            # Check if user has made an explicit selection
+            if self.explicit_model_selection is None:
+                # No explicit selection - use prompt's recommendation
+                self.user_interaction_mode = False  # Disable tracking during programmatic change
+                self.chosen_model = prompt_recommended_model
+                model_index = self.model_combo.findText(prompt_recommended_model)
+                if model_index >= 0:
+                    self.model_combo.setCurrentIndex(model_index)
+                    self.logger.debug(f"📋 Set model from prompt: {prompt_recommended_model}")
+                self.user_interaction_mode = True  # Re-enable tracking
+            else:
+                # User has explicit selection - PRESERVE it
+                self.logger.info(f"🔒 Preserving user's explicit model selection: {self.explicit_model_selection}")
 
     def set_model(self, model_name: str):
         self.chosen_model = model_name
+
+    def on_provider_manually_changed(self, provider: str):
+        """Called when user manually changes provider combo - Claude Generated"""
+        if self.user_interaction_mode:
+            self.explicit_provider_selection = provider
+            self.logger.info(f"👤 User explicitly selected provider: {provider}")
+            # Update models for new provider
+            self.update_models(provider)
+
+    def on_model_manually_changed(self, model: str):
+        """Called when user manually changes model combo - Claude Generated"""
+        if self.user_interaction_mode:
+            self.explicit_model_selection = model
+            self.logger.info(f"👤 User explicitly selected model: {model}")
+
+    def reset_explicit_selections(self):
+        """Clear explicit selections and revert to task preference defaults - Claude Generated"""
+        self.explicit_provider_selection = None
+        self.explicit_model_selection = None
+        self.logger.info("🔄 Cleared explicit selections - reverting to task preference defaults")
+
+        # Apply task preference first, then prompt defaults - Claude Generated
+        self._apply_task_preference()
+
+        # Re-apply current prompt's settings (parameters only, model already set by preference)
+        current_index = self.prompt_selector_combo.currentIndex()
+        if current_index >= 0:
+            self.user_interaction_mode = False  # Disable tracking during reset
+            self.on_prompt_selected(current_index)
+            self.user_interaction_mode = True  # Re-enable tracking
 
     def start_analysis(self):
         """Start analysis with PipelineManager integration - Claude Generated"""
@@ -726,14 +832,23 @@ class AbstractTab(QWidget):
         adhoc_config = PipelineConfig()
         adhoc_config.auto_advance = False  # Important: We want only one step
 
-        # 2. Create step configuration for the chosen task - Claude Generated
+        # 2. Use explicit selections if available, otherwise combo box values - Claude Generated
+        selected_provider = self.explicit_provider_selection or self.provider_combo.currentText()
+        selected_model = self.explicit_model_selection or self.model_combo.currentText()
+
+        self.logger.info(f"🚀 Starting analysis with provider={selected_provider}, model={selected_model}")
+        if self.explicit_provider_selection or self.explicit_model_selection:
+            self.logger.info(f"   (using explicit user selections)")
+
+        # 3. Create step configuration for the chosen task - Claude Generated
         step_config = PipelineStepConfig(
             step_id=self.task,
-            provider=self.provider_combo.currentText(),
-            model=self.model_combo.currentText(),
+            provider=selected_provider,
+            model=selected_model,
             task=self.task,
             temperature=self.temp_spinbox.value(),
             top_p=self.p_value_spinbox.value(),
+            repetition_penalty=self.repetition_penalty_spinbox.value() if self.repetition_penalty_spinbox.value() != 1.0 else None,
             custom_params={
                 'prompt_template': self.prompt_edit.toPlainText().strip(),
                 'system_prompt': self.system_prompt_edit.toPlainText().strip(),
@@ -993,11 +1108,47 @@ class AbstractTab(QWidget):
     def set_models_and_providers(
         self, models: Dict[str, List[str]], providers: List[str]
     ):
-        """Sets the available models and providers."""
+        """Sets the available models and providers - Claude Generated"""
         self.available_models = models
+        self.user_interaction_mode = False  # Disable tracking during setup
         self.provider_combo.clear()
         self.provider_combo.addItems(providers)
         self.update_models(self.provider_combo.currentText())
+        self.user_interaction_mode = True  # Re-enable tracking
+        # Apply task preference as default selection - Claude Generated
+        self._apply_task_preference()
+
+    def _apply_task_preference(self):
+        """Apply task_preferences from config as default provider/model selection - Claude Generated"""
+        if not self.task:
+            return
+        try:
+            config = self.alima_manager.config_manager.load_config()
+            task_pref = config.unified_config.task_preferences.get(self.task)
+            if not task_pref or not task_pref.model_priority:
+                self.logger.debug(f"No task preference for '{self.task}' - keeping current selection")
+                return
+
+            # Find first provider/model from priority list that is available
+            for entry in task_pref.model_priority:
+                prov = entry.get("provider_name", "")
+                model = entry.get("model_name", "")
+                if prov in self.available_models and model in self.available_models.get(prov, []):
+                    self.user_interaction_mode = False
+                    prov_idx = self.provider_combo.findText(prov)
+                    if prov_idx >= 0:
+                        self.provider_combo.setCurrentIndex(prov_idx)
+                        self.update_models(prov)
+                        model_idx = self.model_combo.findText(model)
+                        if model_idx >= 0:
+                            self.model_combo.setCurrentIndex(model_idx)
+                    self.user_interaction_mode = True
+                    self.logger.info(f"📋 Applied task preference for '{self.task}': {prov}/{model}")
+                    return
+
+            self.logger.debug(f"No available provider/model from task preference for '{self.task}'")
+        except Exception as e:
+            self.logger.warning(f"Could not apply task preference: {e}")
 
     def cancel_analysis(self):
         """Cancel the running analysis - Claude Generated"""

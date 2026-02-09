@@ -797,6 +797,7 @@ class LlmService(QObject):
         image: Optional[Union[str, bytes]] = None,
         system: Optional[str] = "",
         stream: bool = True,
+        repetition_penalty: Optional[float] = None,
     ) -> Union[str, Any]:  # Return type can be str or a generator
         """
         Generate a response from the specified provider using the given parameters.
@@ -842,6 +843,9 @@ class LlmService(QObject):
             self.generation_error.emit(request_id, error_msg)
             self.stream_running = False
             raise ValueError(error_msg)
+
+        # Store repetition_penalty for provider generators (only when != 1.0)
+        self.current_repetition_penalty = repetition_penalty if (repetition_penalty is not None and repetition_penalty != 1.0) else None
 
         try:
             # Log the request
@@ -1449,6 +1453,10 @@ class LlmService(QObject):
             if seed is not None:
                 params["seed"] = seed
 
+            # Add repetition_penalty via extra_body (not a standard OpenAI param) - Claude Generated
+            if self.current_repetition_penalty is not None:
+                params.setdefault("extra_body", {})["repetition_penalty"] = self.current_repetition_penalty
+
             # Handle streaming option
             if stream:
                 response_stream = self.clients[provider].chat.completions.create(
@@ -1463,6 +1471,15 @@ class LlmService(QObject):
                     )
 
                 # Generator function for proper streaming - Claude Generated
+                def _close_response_stream():
+                    """Close HTTP stream to prevent memory corruption on abort - Claude Generated"""
+                    if hasattr(response_stream, 'close'):
+                        try:
+                            response_stream.close()
+                            self.logger.debug(f"{provider} response_stream closed after abort")
+                        except Exception:
+                            pass
+
                 def stream_generator():
                     full_response = ""
                     try:
@@ -1474,6 +1491,7 @@ class LlmService(QObject):
                             if self.cancel_requested:
                                 self.logger.info(f"{provider} generation cancelled")
                                 self.generation_cancelled.emit(self.current_request_id)
+                                _close_response_stream()
                                 break
 
                             if (
@@ -1490,6 +1508,10 @@ class LlmService(QObject):
                         if not self.cancel_requested:
                             self.generation_finished.emit(self.current_request_id, full_response)
 
+                    except GeneratorExit:
+                        # Generator closed by caller (e.g. repetition abort) - Claude Generated
+                        self.logger.debug(f"{provider} stream generator closed by caller")
+                        _close_response_stream()
                     except Exception as e:
                         error_msg = f"Error with {provider.capitalize()}: {str(e)}"
                         self.logger.error(error_msg)
@@ -1538,6 +1560,10 @@ class LlmService(QObject):
             # Add seed if provided
             if seed is not None:
                 data["options"]["seed"] = seed
+
+            # Add repeat_penalty if set (Ollama naming)
+            if self.current_repetition_penalty is not None:
+                data["options"]["repeat_penalty"] = self.current_repetition_penalty
 
             # Add image if provided
             if image:
@@ -1653,7 +1679,11 @@ class LlmService(QObject):
             
             if seed is not None:
                 options['seed'] = seed
-            
+
+            # Add repeat_penalty if set (Ollama naming)
+            if self.current_repetition_penalty is not None:
+                options['repeat_penalty'] = self.current_repetition_penalty
+
             self.logger.info(f"Sending native Ollama request with model: {model}")
             
             # Make API call with streaming support

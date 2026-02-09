@@ -475,6 +475,13 @@ class AlimaManager:
                     else:
                         self.logger.debug(f"📡 Chunk #{chunk_count} (no callback): '{text_chunk[:50]}...'")
 
+                # Close the generator to release the HTTP connection - Claude Generated
+                if repetition_aborted and hasattr(response_generator, 'close'):
+                    try:
+                        response_generator.close()
+                    except Exception as close_err:
+                        self.logger.debug(f"Generator close error (ignored): {close_err}")
+
                 if repetition_aborted:
                     self.logger.info(f"⚠️ LLM_STREAM_ABORTED: {chunk_count} chunks, {len(full_response_text)} chars (repetition detected)")
                 else:
