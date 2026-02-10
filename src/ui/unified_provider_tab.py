@@ -524,6 +524,29 @@ class UnifiedProviderTab(QWidget):
 
     config_changed = pyqtSignal()
     task_preferences_changed = pyqtSignal()  # New signal for task preference changes - Claude Generated
+
+    # Class constant: maps task name strings to TaskType enums (includes legacy aliases) - Claude Generated
+    TASK_TYPE_MAPPING = {
+        'INITIALISATION': UnifiedTaskType.INITIALISATION,
+        'KEYWORDS': UnifiedTaskType.KEYWORDS,
+        'CLASSIFICATION': UnifiedTaskType.CLASSIFICATION,
+        'DK_CLASSIFICATION': UnifiedTaskType.DK_CLASSIFICATION,
+        'VISION': UnifiedTaskType.VISION,
+        'CHUNKED_PROCESSING': UnifiedTaskType.CHUNKED_PROCESSING,
+        # Legacy lowercase aliases
+        'initialisation': UnifiedTaskType.INITIALISATION,
+        'keywords': UnifiedTaskType.KEYWORDS,
+        'classification': UnifiedTaskType.CLASSIFICATION,
+        'dk_classification': UnifiedTaskType.DK_CLASSIFICATION,
+        'vision': UnifiedTaskType.VISION,
+        'chunked': UnifiedTaskType.CHUNKED_PROCESSING,
+        'chunked_processing': UnifiedTaskType.CHUNKED_PROCESSING,
+        # Legacy prompt-specific names
+        'rephrase': UnifiedTaskType.KEYWORDS,
+        'image_text_extraction': UnifiedTaskType.VISION,
+        'keywords_chunked': UnifiedTaskType.CHUNKED_PROCESSING,
+        'extract_initial_keywords': UnifiedTaskType.INITIALISATION,
+    }
     
     def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig,
                  config_manager: ConfigManager, alima_manager=None, parent=None):
@@ -540,21 +563,6 @@ class UnifiedProviderTab(QWidget):
         self.current_editing_task = None  # Track which task is currently being edited
         self.task_ui_dirty = False  # Track if current task UI has unsaved changes
 
-        # 🔍 DEBUG: Log config loading for legacy provider detection - Claude Generated
-        self.logger.critical(f"🔍 CONFIG_LOAD: config loaded={self.config is not None}")
-        if self.config and hasattr(self.config, 'llm'):
-            self.logger.critical(f"🔍 CONFIG_LLM: hasattr llm={hasattr(self.config, 'llm')}")
-            if hasattr(self.config.unified_config, 'gemini'):
-                gemini_val = getattr(self.config.unified_config, 'gemini', '')
-                self.logger.critical(f"🔍 CONFIG_GEMINI: value_exists={bool(gemini_val)}, length={len(gemini_val) if gemini_val else 0}")
-                self.logger.critical(f"🔍 CONFIG_GEMINI: is_placeholder={gemini_val == 'your_gemini_api_key_here' if gemini_val else False}")
-            if hasattr(self.config.unified_config, 'anthropic'):
-                anthropic_val = getattr(self.config.unified_config, 'anthropic', '')
-                self.logger.critical(f"🔍 CONFIG_ANTHROPIC: value_exists={bool(anthropic_val)}, length={len(anthropic_val) if anthropic_val else 0}")
-                self.logger.critical(f"🔍 CONFIG_ANTHROPIC: is_placeholder={anthropic_val == 'your_anthropic_api_key_here' if anthropic_val else False}")
-        else:
-            self.logger.critical("🔍 CONFIG_NO_LLM: config has no llm attribute")
-
         self._setup_ui()
         self._load_configuration()
 
@@ -564,20 +572,7 @@ class UnifiedProviderTab(QWidget):
     def _setup_ui(self):
         """Setup the unified provider tab UI - Claude Generated"""
         layout = QVBoxLayout(self)
-        
-        # Title and description
-        title_label = QLabel("<h2>🚀 Providers & Models</h2>")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title_label)
-        
-        desc_label = QLabel(
-            "Unified configuration for all LLM providers and model preferences. "
-            "Configure connections, set priorities, and manage task-specific preferences in one place."
-        )
-        desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #666; font-style: italic; margin-bottom: 10px;")
-        layout.addWidget(desc_label)
-        
+
         # Main content in tabs
         self.main_tabs = QTabWidget()
         layout.addWidget(self.main_tabs)
@@ -646,6 +641,13 @@ class UnifiedProviderTab(QWidget):
         provider_button_layout.addWidget(self.refresh_models_button)
         provider_button_layout.addStretch()
 
+        # Preferred provider selection (moved from Task Preferences) - Claude Generated
+        preferred_label = QLabel("Preferred Provider:")
+        provider_button_layout.addWidget(preferred_label)
+        self.preferred_provider_combo = QComboBox()
+        self.preferred_provider_combo.setMinimumWidth(150)
+        provider_button_layout.addWidget(self.preferred_provider_combo)
+
         layout.addLayout(provider_button_layout)
         
         return widget
@@ -654,16 +656,7 @@ class UnifiedProviderTab(QWidget):
         """Create task preferences tab - Claude Generated"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Global preferences
-        global_group = QGroupBox("🌐 Global Preferences")
-        global_layout = QFormLayout(global_group)
-        
-        self.preferred_provider_combo = QComboBox()
-        global_layout.addRow("Preferred Provider:", self.preferred_provider_combo)
 
-        layout.addWidget(global_group)
-        
         # Model preferences section - Claude Generated
         model_group = QGroupBox("🎯 Model Preferences per Provider")
         model_layout = QVBoxLayout(model_group)
@@ -674,13 +667,19 @@ class UnifiedProviderTab(QWidget):
             "Provider", "Preferred Model", "Chunking", "Available Models"
         ])
 
-        # Make model preferences table responsive
+        # Make model preferences table responsive - Claude Generated
         model_header = self.model_preferences_table.horizontalHeader()
         model_header.setStretchLastSection(False)
         model_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Provider
-        model_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)           # Preferred Model
-        model_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Chunking - Claude Generated
+        model_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)       # Preferred Model
+        model_header.resizeSection(1, 200)
+        model_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)             # Chunking - Claude Generated
+        model_header.resizeSection(2, 90)
         model_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Available Models
+
+        self.model_preferences_table.verticalHeader().setVisible(False)
+        self.model_preferences_table.verticalHeader().setDefaultSectionSize(40)
+        self.model_preferences_table.setMaximumHeight(200)
 
         model_layout.addWidget(self.model_preferences_table)
         layout.addWidget(model_group)
@@ -700,7 +699,6 @@ class UnifiedProviderTab(QWidget):
         task_categories_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         left_task_layout.addWidget(task_categories_label)
         
-        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
         self.task_categories_list = QListWidget()
         self.task_categories_list.setMinimumWidth(280)
         self.task_categories_list.setMaximumWidth(350)
@@ -726,25 +724,6 @@ class UnifiedProviderTab(QWidget):
         self.chunked_tasks_checkbox.stateChanged.connect(self._on_chunked_tasks_toggled)
         right_task_layout.addWidget(self.chunked_tasks_checkbox)
 
-        # Chunking threshold spinbox (visible only for keywords task)
-        chunking_threshold_row = QHBoxLayout()
-        self.chunking_threshold_label = QLabel("Chunking-Schwellwert:")
-        self.chunking_threshold_label.setVisible(False)
-        chunking_threshold_row.addWidget(self.chunking_threshold_label)
-        self.chunking_threshold_spinbox = QSpinBox()
-        self.chunking_threshold_spinbox.setRange(0, 2000)
-        self.chunking_threshold_spinbox.setValue(0)
-        self.chunking_threshold_spinbox.setSuffix(" Keywords")
-        self.chunking_threshold_spinbox.setSpecialValueText("Auto")
-        self.chunking_threshold_spinbox.setVisible(False)
-        self.chunking_threshold_spinbox.setToolTip(
-            "Anzahl Keywords ab der Chunking aktiviert wird.\n"
-            "Auto (0) = Erkennung basierend auf Modell.\n"
-            "Große Modelle (>30B): ~1000, Mittel (13B): ~500, Klein (<7B): ~200-300"
-        )
-        self.chunking_threshold_spinbox.valueChanged.connect(self._on_chunking_threshold_changed)
-        chunking_threshold_row.addWidget(self.chunking_threshold_spinbox)
-        right_task_layout.addLayout(chunking_threshold_row)
 
         # Standard model priority
         priority_label = QLabel("Model Priority:")
@@ -757,8 +736,29 @@ class UnifiedProviderTab(QWidget):
         self.task_model_priority_list.setMinimumHeight(150)
         # CRITICAL FIX: Add event handler to save priority changes after drag & drop - Claude Generated
         self.task_model_priority_list.model().rowsMoved.connect(self._on_priority_list_reordered)
+        self.task_model_priority_list.currentItemChanged.connect(self._on_priority_item_selected)
         right_task_layout.addWidget(self.task_model_priority_list)
-        
+
+        # Per-entry chunking threshold - Claude Generated
+        self.selected_model_chunking_row = QHBoxLayout()
+        self.selected_model_chunking_label = QLabel("Chunking:")
+        self.selected_model_chunking_spinbox = QSpinBox()
+        self.selected_model_chunking_spinbox.setRange(0, 2000)
+        self.selected_model_chunking_spinbox.setValue(0)
+        self.selected_model_chunking_spinbox.setSuffix(" Kw")
+        self.selected_model_chunking_spinbox.setSpecialValueText("Auto")
+        self.selected_model_chunking_spinbox.setToolTip(
+            "Chunking-Schwellwert für dieses Modell.\n"
+            "Auto (0) = Erkennung basierend auf Modell.\n"
+            "Große Modelle (>30B): ~1000, Mittel (13B): ~500, Klein (<7B): ~200-300"
+        )
+        self.selected_model_chunking_spinbox.valueChanged.connect(self._on_selected_model_chunking_changed)
+        self.selected_model_chunking_row.addWidget(self.selected_model_chunking_label)
+        self.selected_model_chunking_row.addWidget(self.selected_model_chunking_spinbox)
+        self.selected_model_chunking_label.setVisible(False)
+        self.selected_model_chunking_spinbox.setVisible(False)
+        right_task_layout.addLayout(self.selected_model_chunking_row)
+
         # Chunked model priority (conditional)
         self.chunked_tasks_priority_label = QLabel("Chunked Processing Model Priority:")
         self.chunked_tasks_priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
@@ -791,8 +791,7 @@ class UnifiedProviderTab(QWidget):
         task_button_layout.addWidget(reset_task_btn)
         
         right_task_layout.addLayout(task_button_layout)
-        right_task_layout.addStretch()
-        
+
         # Add widgets to splitter
         task_splitter.addWidget(left_task_widget)
         task_splitter.addWidget(right_task_widget)
@@ -807,6 +806,13 @@ class UnifiedProviderTab(QWidget):
     def _load_configuration(self):
         """Load unified configuration into UI - Claude Generated"""
         try:
+            # Cache detection service and model lists to avoid repeated network calls - Claude Generated
+            self._detection_service = ProviderDetectionService()
+            self._cached_providers = self._detection_service.get_available_providers()
+            self._cached_models = {}  # provider_name -> [model_names]
+            for prov in self._cached_providers:
+                self._cached_models[prov] = self._detection_service.get_available_models(prov)
+
             # Check if we need to migrate from legacy configuration
             if not self.unified_config.providers and self.config:
                 self.logger.info("No unified providers found, attempting migration from legacy config")
@@ -854,17 +860,7 @@ class UnifiedProviderTab(QWidget):
     def _get_all_providers(self):
         """Get all providers from unified config + LLM config - Claude Generated"""
         all_providers = list(self.unified_config.providers)  # Start with unified providers
-
-        # 🔍 DEBUG: Log unified provider count - Claude Generated
-        self.logger.critical(f"🔍 UNIFIED_PROVIDERS: Found {len(all_providers)} unified providers: {[p.name for p in all_providers]}")
-
         existing_names = [p.name.lower() for p in all_providers]
-
-        # 🔍 DEBUG: Check LLM config availability - Claude Generated
-        self.logger.critical(f"🔍 LLM_CONFIG_CHECK: hasattr(config.unified_config, 'gemini')={hasattr(self.config.unified_config, 'gemini')}")
-        if hasattr(self.config.unified_config, 'gemini'):
-            gemini_key = getattr(self.config.unified_config, 'gemini', '')
-            self.logger.critical(f"🔍 GEMINI_KEY: exists={bool(gemini_key)}, length={len(gemini_key) if gemini_key else 0}, not_placeholder={gemini_key != 'your_gemini_api_key_here' if gemini_key else False}")
 
         # Add Gemini from LLM config if configured and not already present
         gemini_conditions = [
@@ -874,7 +870,6 @@ class UnifiedProviderTab(QWidget):
             self.config.unified_config.gemini_api_key != "your_gemini_api_key_here" if self.config.unified_config.gemini_api_key else False,
             "gemini" not in existing_names
         ]
-        self.logger.critical(f"🔍 GEMINI_CONDITIONS: {gemini_conditions}")
 
         if all(gemini_conditions):
             gemini_provider = UnifiedProvider(
@@ -885,14 +880,6 @@ class UnifiedProviderTab(QWidget):
                 description="Gemini from LLM configuration"
             )
             all_providers.append(gemini_provider)
-            self.logger.critical(f"🔍 GEMINI_ADDED: Successfully added Gemini from LLM config")
-        else:
-            self.logger.critical(f"🔍 GEMINI_SKIPPED: Conditions not met")
-
-        # 🔍 DEBUG: Check Anthropic config - Claude Generated
-        if hasattr(self.config.unified_config, 'anthropic'):
-            anthropic_key = getattr(self.config.unified_config, 'anthropic', '')
-            self.logger.critical(f"🔍 ANTHROPIC_KEY: exists={bool(anthropic_key)}, length={len(anthropic_key) if anthropic_key else 0}, not_placeholder={anthropic_key != 'your_anthropic_api_key_here' if anthropic_key else False}")
 
         # Add Anthropic from LLM config if configured and not already present
         anthropic_conditions = [
@@ -902,7 +889,6 @@ class UnifiedProviderTab(QWidget):
             self.config.unified_config.anthropic_api_key != "your_anthropic_api_key_here" if self.config.unified_config.anthropic_api_key else False,
             "anthropic" not in existing_names
         ]
-        self.logger.critical(f"🔍 ANTHROPIC_CONDITIONS: {anthropic_conditions}")
 
         if all(anthropic_conditions):
             anthropic_provider = UnifiedProvider(
@@ -913,12 +899,6 @@ class UnifiedProviderTab(QWidget):
                 description="Anthropic from LLM configuration"
             )
             all_providers.append(anthropic_provider)
-            self.logger.critical(f"🔍 ANTHROPIC_ADDED: Successfully added Anthropic from LLM config")
-        else:
-            self.logger.critical(f"🔍 ANTHROPIC_SKIPPED: Conditions not met")
-
-        # 🔍 DEBUG: Final provider count - Claude Generated
-        self.logger.critical(f"🔍 FINAL_PROVIDERS: Total {len(all_providers)} providers: {[p.name for p in all_providers]}")
 
         return all_providers
 
@@ -1076,26 +1056,24 @@ class UnifiedProviderTab(QWidget):
         try:
             # Use already loaded configuration
             config = self.config
-            detection_service = ProviderDetectionService()
-            
-            # Get all available providers
-            available_providers = detection_service.get_available_providers()
+
+            # Use cached provider/model data (fetched once in _load_configuration)
+            available_providers = self._cached_providers
             self.model_preferences_table.setRowCount(len(available_providers))
-            
+
             for row, provider in enumerate(available_providers):
                 # Provider name
                 provider_item = QTableWidgetItem(provider)
                 self.model_preferences_table.setItem(row, 0, provider_item)
-                
-                # Get available models for this provider
-                available_models = detection_service.get_available_models(provider)
+
+                # Get available models for this provider (from cache)
+                available_models = self._cached_models.get(provider, [])
                 available_models_text = ", ".join(available_models[:3])
                 if len(available_models) > 3:
                     available_models_text += f" (+{len(available_models) - 3} more)"
                 
                 # Get current preferred model from direct provider config
                 preferred_model = self._get_preferred_model_from_config(provider, config)
-                self.logger.critical(f"🔍 POPULATE_GET_PREF: Provider='{provider}', Found='{preferred_model}'")
                 
                 # Create dropdown for preferred model selection
                 model_combo = QComboBox()
@@ -1104,9 +1082,6 @@ class UnifiedProviderTab(QWidget):
                 # First list real models, then add the auto‑select placeholder.
                 # This ensures concrete models appear at the top of the list.
                 if available_models:
-                    self.logger.critical(
-                        f"🔍 COMBO_ADDING_MODELS: Provider='{provider}', Models={len(available_models)}"
-                    )
                     model_combo.addItems(available_models)
                 # Append placeholder after real models
                 model_combo.addItem("(Auto-select)")
@@ -1116,9 +1091,6 @@ class UnifiedProviderTab(QWidget):
                 # select it; otherwise fall back to the placeholder.
                 model_combo.blockSignals(True)
                 if preferred_model and preferred_model in available_models:
-                    self.logger.critical(
-                        f"🔍 POPULATE_SETTING: Provider='{provider}', Model='{preferred_model}'"
-                    )
                     model_combo.setCurrentText(preferred_model)
                 else:
                     # Ensure the placeholder is selected when no explicit model is set.
@@ -1140,6 +1112,7 @@ class UnifiedProviderTab(QWidget):
                 chunking_spinbox.setRange(0, 2000)
                 chunking_spinbox.setSuffix(" Kw")
                 chunking_spinbox.setSpecialValueText("Auto")
+                chunking_spinbox.setMinimumWidth(80)
                 chunking_spinbox.setToolTip(
                     "Keyword-Chunking-Schwellwert für dieses Modell.\n"
                     "Auto (0) = Erkennung basierend auf Modellgröße.\n"
@@ -1187,23 +1160,8 @@ class UnifiedProviderTab(QWidget):
     def _on_model_preference_changed(self, provider: str, model: str):
         """Handle model preference change - Store directly in provider config - Claude Generated"""
         try:
-            # 🔍 DEBUG: Log detailed method call information - Claude Generated
-            import traceback
-            stack = traceback.format_stack()[-3:-1]  # Get calling context
-            self.logger.critical(f"🔍 MODEL_PREF_SAVE_CALL: Provider='{provider}', Model='{model}'")
-            self.logger.critical(f"🔍 MODEL_PREF_SAVE_STACK: {''.join(stack).strip()}")
-            
             if model == "(Auto-select)":
                 model = ""  # Remove preference, use auto-select
-            
-            # 🔍 DEBUG: Log the preference change request - Claude Generated
-            self.logger.critical(f"🔍 MODEL_PREF_SAVE: Provider='{provider}', Model='{model}' (after auto-select processing)")
-
-            # 🔍 DEBUG: Log config state before changes - Claude Generated
-            if provider == "gemini":
-                self.logger.critical(f"🔍 CONFIG_BEFORE: gemini_preferred_model='{self.config.unified_config.gemini_preferred_model}'")
-            elif provider == "anthropic":
-                self.logger.critical(f"🔍 CONFIG_BEFORE: anthropic_preferred_model='{self.config.unified_config.anthropic_preferred_model}'")
 
             updated = False
 
@@ -1223,12 +1181,6 @@ class UnifiedProviderTab(QWidget):
                     break
 
             if updated:
-                # 🔍 DEBUG: Log config state after changes - Claude Generated
-                if provider == "gemini":
-                    self.logger.critical(f"🔍 CONFIG_AFTER: gemini_preferred_model='{self.config.unified_config.gemini_preferred_model}'")
-                elif provider == "anthropic":
-                    self.logger.critical(f"🔍 CONFIG_AFTER: anthropic_preferred_model='{self.config.unified_config.anthropic_preferred_model}'")
-
                 # Configuration changed in memory - parent dialog will handle save
                 self.config_changed.emit()
 
@@ -1274,13 +1226,9 @@ class UnifiedProviderTab(QWidget):
         try:
             # Check static providers
             if provider == "gemini":
-                result = config.unified_config.gemini_preferred_model or ""
-                self.logger.critical(f"🔍 GET_PREF_GEMINI: gemini_preferred_model='{config.unified_config.gemini_preferred_model}' -> '{result}'")
-                return result
+                return config.unified_config.gemini_preferred_model or ""
             elif provider == "anthropic":
-                result = config.unified_config.anthropic_preferred_model or ""
-                self.logger.critical(f"🔍 GET_PREF_ANTHROPIC: anthropic_preferred_model='{config.unified_config.anthropic_preferred_model}' -> '{result}'")
-                return result
+                return config.unified_config.anthropic_preferred_model or ""
             
             # Check providers in unified provider list
             for unified_provider in config.unified_config.providers:
@@ -1349,6 +1297,15 @@ class UnifiedProviderTab(QWidget):
     
     def _on_task_category_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
         """Handle task category selection change - Claude Generated"""
+        # Batch all layout changes to prevent visual jumping - Claude Generated
+        self.setUpdatesEnabled(False)
+        try:
+            self._on_task_category_selected_inner(current, previous)
+        finally:
+            self.setUpdatesEnabled(True)
+
+    def _on_task_category_selected_inner(self, current: QListWidgetItem, previous: QListWidgetItem):
+        """Inner implementation of task category selection - Claude Generated"""
         # Save previous task's changes in memory (no signals/toast) - Claude Generated
         if previous and previous.data(Qt.ItemDataRole.UserRole) and self.current_editing_task:
             # Preserve the previous task preferences in memory only
@@ -1371,8 +1328,8 @@ class UnifiedProviderTab(QWidget):
             self.chunked_tasks_checkbox.setVisible(False)
             self.chunked_tasks_priority_label.setVisible(False)
             self.chunked_task_model_priority_list.setVisible(False)
-            self.chunking_threshold_label.setVisible(False)
-            self.chunking_threshold_spinbox.setVisible(False)
+            self.selected_model_chunking_label.setVisible(False)
+            self.selected_model_chunking_spinbox.setVisible(False)
             self.task_model_priority_list.clear()
             self.chunked_task_model_priority_list.clear()
             return
@@ -1391,9 +1348,9 @@ class UnifiedProviderTab(QWidget):
         chunked_applicable = task_name in ["keywords", "initialisation"] or category == "pipeline"
         self.chunked_tasks_checkbox.setVisible(chunked_applicable)
 
-        # Chunking threshold only relevant for keywords task
-        self.chunking_threshold_label.setVisible(task_name == "keywords")
-        self.chunking_threshold_spinbox.setVisible(task_name == "keywords")
+        # Hide per-entry chunking until an item is selected
+        self.selected_model_chunking_label.setVisible(False)
+        self.selected_model_chunking_spinbox.setVisible(False)
 
         # Load current model priorities for this task
         self._load_task_specific_model_priorities(task_name)
@@ -1404,9 +1361,6 @@ class UnifiedProviderTab(QWidget):
         self.task_model_priority_list.clear()
         self.chunked_task_model_priority_list.clear()
         self.task_ui_dirty = False  # Loading fresh data, UI is now clean
-        # Reset chunking threshold spinbox (will be overwritten below if saved value exists)
-        if task_name == "keywords":
-            self.chunking_threshold_spinbox.setValue(0)
 
         try:
             # Get model priority for this task from working copy (not disk) - Claude Generated
@@ -1419,49 +1373,51 @@ class UnifiedProviderTab(QWidget):
                 # Task has no specific preferences - create intelligent defaults from global provider preferences
                 model_priority = self._create_task_defaults_from_global_preferences()
             
-            # Populate main priority list with real provider/model validation
-            detection_service = ProviderDetectionService()
-            available_providers = detection_service.get_available_providers()
-            
+            # Populate main priority list using cached provider/model data - Claude Generated
+            available_providers = self._cached_providers
+
             for model_config in model_priority:
                 provider_name = model_config["provider_name"]
                 model_name = model_config["model_name"]
-                
+
                 # Validate provider is available
                 if provider_name in available_providers:
-                    available_models = detection_service.get_available_models(provider_name)
-                    
+                    available_models = self._cached_models.get(provider_name, [])
+
                     # Use "Auto-select" if model is "default" or not available
                     display_model = model_name
                     if model_name == "default" or (available_models and model_name not in available_models):
                         display_model = "(Auto-select)"
-                    
-                    item_text = f"{provider_name}: {display_model}"
+
+                    # Include chunking info in display text - Claude Generated
+                    chunking_val = self.unified_config.get_chunking_threshold(provider_name, model_name)
+                    chunking_suffix = f" [{chunking_val} Kw]" if chunking_val else " [Auto]"
+                    item_text = f"{provider_name}: {display_model}{chunking_suffix}"
                     item = QListWidgetItem(item_text)
                     item.setData(Qt.ItemDataRole.UserRole, model_config)
                     self.task_model_priority_list.addItem(item)
-            
+
             # Check if task has chunked support - use working copy (unified_config) - Claude Generated
             if task_name in self.unified_config.task_preferences:
                 task_pref_data = self.unified_config.task_preferences[task_name]
                 if task_pref_data and task_pref_data.chunked_model_priority:
                     self.chunked_tasks_checkbox.setChecked(True)
                     self._on_chunked_tasks_toggled(True)
-                    
+
                     # Populate chunked priority list
                     for model_config in task_pref_data.chunked_model_priority:
                         provider_name = model_config["provider_name"]
                         model_name = model_config["model_name"]
-                        
+
                         # Validate provider is available
                         if provider_name in available_providers:
-                            available_models = detection_service.get_available_models(provider_name)
-                            
+                            available_models = self._cached_models.get(provider_name, [])
+
                             # Use "Auto-select" if model is "default" or not available
                             display_model = model_name
                             if model_name == "default" or (available_models and model_name not in available_models):
                                 display_model = "(Auto-select)"
-                            
+
                             item_text = f"{provider_name}: {display_model}"
                             item = QListWidgetItem(item_text)
                             item.setData(Qt.ItemDataRole.UserRole, model_config)
@@ -1470,11 +1426,6 @@ class UnifiedProviderTab(QWidget):
                     self.chunked_tasks_checkbox.setChecked(False)
                     self._on_chunked_tasks_toggled(False)
 
-                # Load chunking_threshold for keywords task
-                if task_name == "keywords":
-                    threshold = task_pref_data.chunking_threshold if task_pref_data else None
-                    # None → 0 ("Auto") in spinbox
-                    self.chunking_threshold_spinbox.setValue(0 if threshold is None else threshold)
 
         except Exception as e:
             self.logger.error(f"Error loading task-specific model priorities: {e}")
@@ -1491,11 +1442,53 @@ class UnifiedProviderTab(QWidget):
             # Auto-save the chunked setting change immediately
             self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
     
-    def _on_chunking_threshold_changed(self, value: int):
-        """Handle chunking threshold spinbox change - auto-save immediately"""
-        if self.current_editing_task == "keywords":
-            self.task_ui_dirty = True
-            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+    def _on_priority_item_selected(self, current, previous):
+        """Handle selection change in task_model_priority_list - show per-entry chunking - Claude Generated"""
+        if not current or not current.data(Qt.ItemDataRole.UserRole):
+            self.selected_model_chunking_label.setVisible(False)
+            self.selected_model_chunking_spinbox.setVisible(False)
+            return
+
+        model_config = current.data(Qt.ItemDataRole.UserRole)
+        provider_name = model_config.get("provider_name", "")
+        model_name = model_config.get("model_name", "")
+
+        # Show chunking controls
+        self.selected_model_chunking_label.setVisible(True)
+        self.selected_model_chunking_spinbox.setVisible(True)
+
+        # Load current chunking value (block signals to avoid triggering save)
+        self.selected_model_chunking_spinbox.blockSignals(True)
+        threshold = self.unified_config.get_chunking_threshold(provider_name, model_name)
+        self.selected_model_chunking_spinbox.setValue(threshold if threshold else 0)
+        self.selected_model_chunking_spinbox.blockSignals(False)
+
+    def _on_selected_model_chunking_changed(self, value: int):
+        """Handle per-entry chunking spinbox change - save to unified config - Claude Generated"""
+        current_item = self.task_model_priority_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            return
+
+        model_config = current_item.data(Qt.ItemDataRole.UserRole)
+        provider_name = model_config.get("provider_name", "")
+        model_name = model_config.get("model_name", "")
+
+        if value == 0:
+            self.unified_config.remove_chunking_threshold(provider_name, model_name)
+        else:
+            self.unified_config.set_chunking_threshold(provider_name, model_name, value)
+
+        # Update display text of selected item
+        display_model = model_name
+        available_models = self._cached_models.get(provider_name, [])
+        if model_name == "default" or (available_models and model_name not in available_models):
+            display_model = "(Auto-select)"
+        chunking_suffix = f" [{value} Kw]" if value else " [Auto]"
+        current_item.setText(f"{provider_name}: {display_model}{chunking_suffix}")
+
+        # Emit config changed to trigger save
+        self.config_changed.emit()
+        self._show_save_toast(f"✅ Chunking for {provider_name}:{model_name} saved")
 
     def _add_model_to_task_priority(self):
         """Add model to task priority list using real provider/model detection - Claude Generated"""
@@ -1743,6 +1736,13 @@ class UnifiedProviderTab(QWidget):
             # Trigger force refresh in background (non-blocking)
             self.alima_manager.provider_status_service.refresh_all(force=True)
 
+            # Invalidate local cache so next _load_configuration picks up fresh data
+            self._cached_providers = self._detection_service.get_available_providers()
+            self._cached_models = {
+                prov: self._detection_service.get_available_models(prov)
+                for prov in self._cached_providers
+            }
+
             # Show immediate feedback
             QMessageBox.information(
                 self, "Refresh Started",
@@ -1758,32 +1758,9 @@ class UnifiedProviderTab(QWidget):
             QMessageBox.critical(self, "Refresh Error", f"Failed to start provider refresh:\n\n{str(e)}")
     
     def _test_all_providers(self):
-        """Test connections to all enabled providers - Claude Generated"""
-        enabled_providers = [p for p in self.unified_config.providers if p.enabled]
-
-        if not enabled_providers:
-            QMessageBox.information(self, "No Providers", "No enabled providers to test.")
-            return
-
-        # Simple message box implementation since status tab is removed
-        test_results = []
-        test_results.append("🧪 Provider Connection Test Results:\n")
-
-        # Test each provider (simplified for now)
-        for provider in enabled_providers:
-            # Simulate test result
-            if provider.provider_type == "ollama":
-                success = True
-                message = "Connection successful (simulated)"
-            else:
-                success = len(provider.api_key or "") > 0
-                message = "API key configured" if success else "No API key configured"
-
-            status_icon = "✅" if success else "❌"
-            test_results.append(f"{status_icon} {provider.name}: {message}")
-
-        # Show results in message box
-        QMessageBox.information(self, "Provider Test Results", "\n".join(test_results))
+        """Test connections to all enabled providers via ProviderStatusService - Claude Generated"""
+        # Delegate to _refresh_models which already uses ProviderStatusService
+        self._refresh_models()
     
     def _show_save_toast(self, message: str, duration: int = 2000, error: bool = False):
         """Show toast notification via main window's global status bar - Claude Generated"""
@@ -1914,37 +1891,12 @@ class UnifiedProviderTab(QWidget):
                 self._show_save_toast(f"❌ Save aborted: task name mismatch", error=True)
                 return
 
-            # CRITICAL FIX: Save proper TaskPreference object instead of dictionary - Claude Generated
-            # Map task name to TaskType enum - Use TaskType enum NAMES (UPPERCASE) as keys
-            # Only 6 LLM tasks allowed in task_preferences (see TaskPreference.LLM_TASKS)
-            task_type_mapping = {
-                'INITIALISATION': UnifiedTaskType.INITIALISATION,
-                'KEYWORDS': UnifiedTaskType.KEYWORDS,
-                'CLASSIFICATION': UnifiedTaskType.CLASSIFICATION,
-                'DK_CLASSIFICATION': UnifiedTaskType.DK_CLASSIFICATION,
-                'VISION': UnifiedTaskType.VISION,
-                'CHUNKED_PROCESSING': UnifiedTaskType.CHUNKED_PROCESSING,
-                # Legacy lowercase aliases - for backward compatibility with old configs
-                'initialisation': UnifiedTaskType.INITIALISATION,
-                'keywords': UnifiedTaskType.KEYWORDS,
-                'classification': UnifiedTaskType.CLASSIFICATION,
-                'dk_classification': UnifiedTaskType.DK_CLASSIFICATION,
-                'vision': UnifiedTaskType.VISION,
-                'chunked': UnifiedTaskType.CHUNKED_PROCESSING,
-                'chunked_processing': UnifiedTaskType.CHUNKED_PROCESSING,
-                # Legacy prompt-specific names
-                'rephrase': UnifiedTaskType.KEYWORDS,
-                'image_text_extraction': UnifiedTaskType.VISION,
-                'keywords_chunked': UnifiedTaskType.CHUNKED_PROCESSING,
-                'extract_initial_keywords': UnifiedTaskType.INITIALISATION,
-            }
-
             # Get existing TaskPreference to preserve settings
             existing_pref = self.config.unified_config.task_preferences.get(task_name)
 
             # Determine task type - try mapping, fallback to extracting from enum values
-            if task_name in task_type_mapping:
-                task_type = task_type_mapping[task_name]
+            if task_name in self.TASK_TYPE_MAPPING:
+                task_type = self.TASK_TYPE_MAPPING[task_name]
             else:
                 # Try to find matching task by enum value
                 try:
@@ -1953,12 +1905,9 @@ class UnifiedProviderTab(QWidget):
                     self.logger.warning(f"Unknown task name '{task_name}', using INITIALISATION as fallback")
                     task_type = UnifiedTaskType.INITIALISATION
 
-            # Determine chunking_threshold: read from spinbox for keywords, preserve for others
-            if task_name == "keywords":
-                spinbox_val = self.chunking_threshold_spinbox.value()
-                chunking_threshold = None if spinbox_val == 0 else spinbox_val  # 0 → None = Auto
-            else:
-                chunking_threshold = existing_pref.chunking_threshold if existing_pref else None
+            # Chunking is now per-model via unified_config.model_chunking_thresholds
+            # Preserve existing task-level chunking_threshold for backward compat - Claude Generated
+            chunking_threshold = existing_pref.chunking_threshold if existing_pref else None
 
             # Create proper TaskPreference object
             task_preference = TaskPreference(
@@ -2080,35 +2029,34 @@ class UnifiedProviderTab(QWidget):
     def _validate_and_filter_model_priority(self, model_priority: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Validate model_priority entries against available models and filter invalid ones - Claude Generated"""
         try:
-            detection_service = ProviderDetectionService()
-            available_providers = detection_service.get_available_providers()
-            
+            available_providers = self._cached_providers
+
             validated_priority = []
             removed_entries = []
-            
+
             for entry in model_priority:
                 provider_name = entry.get("provider_name")
                 model_name = entry.get("model_name")
-                
+
                 # Skip entries with missing data
                 if not provider_name or not model_name:
                     removed_entries.append(f"Incomplete entry: {entry}")
                     continue
-                
+
                 # Provider offline? Still show it (user should see configured preferences)
                 if provider_name not in available_providers:
                     self.logger.debug(f"Provider {provider_name} offline, but keeping preference visible")
                     validated_priority.append(entry)
                     continue
-                
+
                 # Special case: "auto" is always valid
                 if model_name == "auto" or model_name == "default":
                     validated_priority.append(entry)
                     continue
-                
-                # Check if model is available for this provider
+
+                # Check if model is available for this provider (from cache)
                 try:
-                    available_models = detection_service.get_available_models(provider_name)
+                    available_models = self._cached_models.get(provider_name, [])
                     if available_models and model_name in available_models:
                         validated_priority.append(entry)
                     else:
