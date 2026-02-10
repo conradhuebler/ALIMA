@@ -249,7 +249,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
 
         # Configure the mock AlimaManager to return a predictable result
         mock_analysis_result = AnalysisResult(
-            full_text="<dk_class>DK 614.7, RVK QZ 123</dk_class>",
+            full_text="<dk_classification>DK 614.7, RVK QZ 123</dk_classification>",
             matched_keywords={},
             gnd_systematic=""
         )
@@ -258,14 +258,14 @@ class TestPipelineStepExecutor(unittest.TestCase):
             analysis_result=mock_analysis_result,
             prompt_config=Mock(spec=object),
             status="completed",
-            task_name="dk_class",
+            task_name="dk_classification",
             model_used=model,
             provider_used=provider
         )
         self.mock_alima_manager.analyze_abstract.return_value = mock_task_state
 
         # 2. Act: Call the method we are testing
-        dk_classifications = self.executor.execute_dk_classification(
+        dk_classifications, llm_analysis = self.executor.execute_dk_classification(
             original_abstract=original_abstract,
             dk_search_results=dk_search_results,
             model=model,
@@ -275,7 +275,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # 3. Assert: Check if the results are correct
         self.mock_alima_manager.analyze_abstract.assert_called_once()
         call_args, call_kwargs = self.mock_alima_manager.analyze_abstract.call_args
-        self.assertEqual(call_kwargs['task'], "dk_class")
+        self.assertEqual(call_kwargs['task'], "dk_classification")
         self.assertEqual(call_kwargs['model'], model)
         self.assertEqual(call_kwargs['provider'], provider)
         self.assertIn("614.7", call_args[0].keywords) # Check if formatted catalog data is in prompt

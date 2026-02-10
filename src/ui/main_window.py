@@ -48,6 +48,7 @@ from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
 from ..core.pipeline_manager import PipelineManager
 from ..utils.config_manager import ConfigManager
+from ..utils.pipeline_utils import PipelineResultFormatter
 
 
 # Legacy config import removed - using unified config system now
@@ -59,6 +60,8 @@ from .image_analysis_tab import ImageAnalysisTab
 from .styles import get_main_stylesheet
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
+from .dk_classification_tab import DkClassificationTab
+from .dk_analysis_tab import DkAnalysisTab
 import logging
 
 
@@ -477,6 +480,18 @@ class MainWindow(QMainWindow):
         # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
         # self.image_analysis_tab.text_extracted.connect(self.abstract_tab.set_abstract)
 
+        # DK Classification Tab - Claude Generated
+        self.dk_classification_tab = DkClassificationTab()
+
+        # DK Analysis Tab (AbstractTab variant) - Claude Generated
+        self.dk_analysis_tab = DkAnalysisTab(
+            alima_manager=self.alima_manager,
+            llm_service=self.llm_service,
+            cache_manager=self.cache_manager,
+            pipeline_manager=self.pipeline_manager,
+            main_window=self,
+        )
+
         # Pipeline Tab - Claude Generated
         self.pipeline_tab = PipelineTab(
             alima_manager=self.alima_manager,
@@ -500,20 +515,28 @@ class MainWindow(QMainWindow):
         # Central distribution via on_pipeline_results_ready slot
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_results_ready)
 
+        # Intermediate step distribution for better live feedback - Claude Generated
+        self.pipeline_tab.analysis_results_ready.connect(self.on_intermediate_analysis_ready)
+
+        # Connect to dedicated DK classification tab
+        self.pipeline_tab.pipeline_results_ready.connect(self.dk_classification_tab.update_data)
+
         # Update window title when pipeline completes - Claude Generated
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_title_update)
 
         # Add Pipeline tab first
         self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")
 
-        # Individual tabs
-        self.tabs.addTab(self.crossref_tab, "Crossref DOI Lookup")
-        self.tabs.addTab(self.image_analysis_tab, "Bilderkennung")
-        self.tabs.addTab(self.abstract_tab, "Abstract-Analyse")
-        self.tabs.addTab(self.search_tab, "GND-Suche")
-        self.tabs.addTab(self.analyse_keywords, "Verifikation")
-        self.tabs.addTab(self.ub_search_tab, "UB Suche")
-        self.tabs.addTab(self.analysis_review_tab, "Analyse-Review")
+        # Individual tabs with icons and proper naming
+        self.tabs.addTab(self.crossref_tab, "🌐 DOI")
+        self.tabs.addTab(self.image_analysis_tab, "📷 Bild")
+        self.tabs.addTab(self.abstract_tab, "📝 Abstract")
+        self.tabs.addTab(self.search_tab, "🔍 GND-Suche")
+        self.tabs.addTab(self.analyse_keywords, "✅ Verifikation")
+        self.tabs.addTab(self.dk_analysis_tab, "📚 DK-Zuordnung")
+        self.tabs.addTab(self.dk_classification_tab, "📊 DK-Statistik")
+        self.tabs.addTab(self.ub_search_tab, "📚 UB-Suche")
+        self.tabs.addTab(self.analysis_review_tab, "📊 Review")
 
         # Globale Statusleiste
         self.global_status_bar = GlobalStatusBar()
@@ -559,6 +582,8 @@ class MainWindow(QMainWindow):
                 self.abstract_tab.set_models_and_providers(available_models, available_providers)
             if hasattr(self, 'analyse_keywords'):
                 self.analyse_keywords.set_models_and_providers(available_models, available_providers)
+            if hasattr(self, 'dk_analysis_tab'):
+                self.dk_analysis_tab.set_models_and_providers(available_models, available_providers)
             if hasattr(self, 'ub_search_tab'):
                 self.ub_search_tab.set_models_and_providers(available_models, available_providers)
 
@@ -600,6 +625,11 @@ class MainWindow(QMainWindow):
                 # Handle case where it's already a string
                 keywords_str = str(analysis_state.initial_keywords)
             self.abstract_tab.set_keywords(keywords_str)
+
+        # Ensure history is updated during live pipeline runs - Claude Generated
+        if analysis_state:
+            self.abstract_tab.add_external_analysis_to_history(analysis_state)
+            self.logger.debug("Updated AbstractTab history with pipeline results")
 
         if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
             llm_response = analysis_state.initial_llm_call_details.response_full_text
@@ -672,7 +702,27 @@ class MainWindow(QMainWindow):
                         keywords_text = str(final_keywords)
                     self.ub_search_tab.update_keywords(keywords_text)
 
-        # 5. 📊 Analyse-Review Tab - Sende finale Ergebnisse
+        # 5. 📚 DK-Zuordnung & DK-Statistik Tab - Claude Generated
+        if analysis_state.original_abstract:
+            self.dk_analysis_tab.set_abstract(analysis_state.original_abstract)
+
+        # Distribute flattened DK results to dk_analysis_tab for display
+        if hasattr(analysis_state, 'dk_search_results_flattened') and analysis_state.dk_search_results_flattened:
+            # Format for display in keywords_edit of AbstractTab - Claude Generated
+            dk_summary_text = PipelineResultFormatter.format_dk_results_for_prompt(
+                analysis_state.dk_search_results_flattened
+            )
+            self.dk_analysis_tab.set_keywords(dk_summary_text)
+
+        if hasattr(analysis_state, 'dk_llm_analysis') and analysis_state.dk_llm_analysis:
+            self.dk_analysis_tab.display_llm_response(analysis_state.dk_llm_analysis.response_full_text)
+            self.dk_analysis_tab.add_external_analysis_to_history(analysis_state) # History uses KeywordAnalysisState
+
+        if hasattr(analysis_state, 'dk_classifications') and analysis_state.dk_classifications:
+            self.dk_classification_tab.update_data(analysis_state)
+            self.logger.info("✅ DK statistics and analysis tabs populated with pipeline results.")
+
+        # 6. 📊 Analyse-Review Tab - Sende finale Ergebnisse
         # Pass data if we have EITHER keywords analysis OR DK classifications - Claude Generated
         if analysis_state.final_llm_analysis or analysis_state.dk_classifications:
             # Extract keywords if available
@@ -704,6 +754,44 @@ class MainWindow(QMainWindow):
             self.logger.info(f"DK classifications available: {len(analysis_state.dk_classifications)} entries")
 
         self.logger.info("Pipeline results successfully distributed to all tabs")
+
+        # Auto-navigate to DK Classification tab if results are available - Claude Generated
+        if hasattr(analysis_state, 'dk_classifications') and analysis_state.dk_classifications:
+            # Find index of DK classification tab
+            for i in range(self.tabs.count()):
+                if self.tabs.tabText(i) == "📚 DK-Zuordnung":
+                    self.tabs.setCurrentIndex(i)
+                    break
+
+    @pyqtSlot(object)
+    def on_intermediate_analysis_ready(self, analysis_result):
+        """Update AbstractTab during live pipeline run - Claude Generated"""
+        if not analysis_result:
+            return
+
+        self.logger.info("Updating AbstractTab with intermediate pipeline result")
+
+        # 1. Update text display
+        if hasattr(analysis_result, 'task_name') and analysis_result.task_name in ["dk_class", "dk_classification"]:
+            target_tab = self.dk_analysis_tab
+        else:
+            target_tab = self.abstract_tab
+
+        if hasattr(analysis_result, 'full_text'):
+            target_tab.display_llm_response(analysis_result.full_text)
+        elif hasattr(analysis_result, 'response_full_text'):
+            target_tab.display_llm_response(analysis_result.response_full_text)
+
+        # 2. Update keywords if available
+        if hasattr(analysis_result, 'matched_keywords') and analysis_result.matched_keywords:
+            keywords_str = ", ".join(analysis_result.matched_keywords.keys())
+            target_tab.set_keywords(keywords_str)
+        elif hasattr(analysis_result, 'extracted_gnd_keywords') and analysis_result.extracted_gnd_keywords:
+            keywords_str = ", ".join(analysis_result.extracted_gnd_keywords)
+            target_tab.set_keywords(keywords_str)
+        elif hasattr(analysis_result, 'extracted_gnd_classes') and analysis_result.extracted_gnd_classes:
+            classes_str = ", ".join(analysis_result.extracted_gnd_classes)
+            target_tab.set_keywords(classes_str)
 
     def update_window_title(self, arbeitstitel: str = None):
         """Update window title with optional work title - Claude Generated"""

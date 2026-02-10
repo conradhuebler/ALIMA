@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QProgressBar,
     QFrame,
+    QGridLayout,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from .workers import StoppableWorker
@@ -31,6 +32,8 @@ from .styles import (
     get_button_styles,
     get_status_label_styles,
     get_image_preview_style,
+    LAYOUT,
+    COLORS,
 )
 
 # Simple text recognition prompt
@@ -143,14 +146,17 @@ class ImageAnalysisTab(QWidget):
         """Setup the user interface"""
         # Apply main stylesheet
         self.setStyleSheet(get_main_stylesheet())
+        btn_styles = get_button_styles()
 
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(12)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(LAYOUT["spacing"])
+        main_layout.setContentsMargins(
+            LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
+        )
 
         # Control bar at the top
         control_bar = QHBoxLayout()
-        control_bar.setContentsMargins(0, 0, 0, 10)
+        control_bar.setContentsMargins(0, 0, 0, 5)
 
         # Status label
         self.status_label = QLabel("Status: Bereit")
@@ -174,14 +180,17 @@ class ImageAnalysisTab(QWidget):
         # Left panel for image and settings
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setSpacing(15)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(LAYOUT["spacing"])
 
         # File selection group
         file_group = QGroupBox("Bildauswahl")
         file_layout = QVBoxLayout(file_group)
         file_layout.setContentsMargins(10, 20, 10, 10)
+        file_layout.setSpacing(LAYOUT["inner_spacing"])
 
         self.file_button = QPushButton("📁 Bild auswählen")
+        self.file_button.setStyleSheet(btn_styles["secondary"])
         self.file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_button)
 
@@ -204,57 +213,58 @@ class ImageAnalysisTab(QWidget):
         provider_group = QGroupBox("LLM Provider Einstellungen")
         provider_layout = QVBoxLayout(provider_group)
         provider_layout.setContentsMargins(10, 20, 10, 10)
-        provider_layout.setSpacing(12)
+        provider_layout.setSpacing(LAYOUT["inner_spacing"])
 
         # Provider selection
-        provider_label = QLabel("Provider:")
-        provider_label.setStyleSheet("font-weight: bold;")
-        provider_layout.addWidget(provider_label)
+        provider_grid = QGridLayout()
+        provider_grid.setSpacing(LAYOUT["inner_spacing"])
+
+        provider_grid.addWidget(QLabel("Provider:"), 0, 0)
         self.provider_combo = QComboBox()
         self.provider_combo.currentTextChanged.connect(self.update_models)
-        provider_layout.addWidget(self.provider_combo)
+        provider_grid.addWidget(self.provider_combo, 0, 1)
 
-        # Model selection
-        model_label = QLabel("Modell:")
-        model_label.setStyleSheet("font-weight: bold;")
-        provider_layout.addWidget(model_label)
+        provider_grid.addWidget(QLabel("Modell:"), 1, 0)
         self.model_combo = QComboBox()
-        provider_layout.addWidget(self.model_combo)
+        provider_grid.addWidget(self.model_combo, 1, 1)
+
+        provider_layout.addLayout(provider_grid)
 
         # Temperature slider
+        temp_layout = QHBoxLayout()
         self.temperature_label = QLabel("Temperatur: 0.70")
-        self.temperature_label.setStyleSheet("font-weight: bold;")
-        provider_layout.addWidget(self.temperature_label)
+        temp_layout.addWidget(self.temperature_label)
         self.temperature_slider = QSlider(Qt.Orientation.Horizontal)
         self.temperature_slider.setRange(0, 100)
         self.temperature_slider.setValue(70)
         self.temperature_slider.valueChanged.connect(self.update_temperature_label)
-        provider_layout.addWidget(self.temperature_slider)
+        temp_layout.addWidget(self.temperature_slider)
+        provider_layout.addLayout(temp_layout)
 
         # Seed input
-        seed_label = QLabel("Seed:")
-        seed_label.setStyleSheet("font-weight: bold;")
-        provider_layout.addWidget(seed_label)
+        seed_layout = QHBoxLayout()
+        seed_layout.addWidget(QLabel("Seed:"))
         self.seed_input = QSpinBox()
         self.seed_input.setRange(0, 1000000000)
         self.seed_input.setValue(0)
-        provider_layout.addWidget(self.seed_input)
+        seed_layout.addWidget(self.seed_input)
+        provider_layout.addLayout(seed_layout)
 
-        provider_group.setLayout(provider_layout)
         left_layout.addWidget(provider_group)
-
         left_layout.addStretch()
         main_splitter.addWidget(left_panel)
 
         # Right panel for prompt and results
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setSpacing(15)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(LAYOUT["spacing"])
 
         # Prompt group
         prompt_group = QGroupBox("Prompt Konfiguration")
         prompt_layout = QVBoxLayout(prompt_group)
         prompt_layout.setContentsMargins(10, 20, 10, 10)
+        prompt_layout.setSpacing(LAYOUT["inner_spacing"])
 
         prompt_label = QLabel("Prompt für Textextraktion:")
         prompt_label.setStyleSheet("font-weight: bold;")
@@ -264,48 +274,31 @@ class ImageAnalysisTab(QWidget):
         self.prompt_input.setPlaceholderText("Prompt für die Bildanalyse...")
         self.prompt_input.setText(DEFAULT_PROMPT)
         self.prompt_input.setMaximumHeight(120)
+        self.prompt_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         prompt_layout.addWidget(self.prompt_input)
 
         right_layout.addWidget(prompt_group)
 
         # Action buttons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(LAYOUT["spacing"])
 
         self.analyze_button = QPushButton("🔍 Text extrahieren")
         self.analyze_button.clicked.connect(self.analyze_image)
-        self.analyze_button.setStyleSheet(get_button_styles()["primary"])
+        self.analyze_button.setStyleSheet(btn_styles["primary"])
         button_layout.addWidget(self.analyze_button)
 
-        # Stop button - Claude Generated
+        # Stop button
         self.stop_analysis_button = QPushButton("⏹️ Stop")
-        self.stop_analysis_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """
-        )
-        self.stop_analysis_button.setVisible(False)  # Hidden until analysis starts
+        self.stop_analysis_button.setStyleSheet(btn_styles["error"])
+        self.stop_analysis_button.setVisible(False)
         self.stop_analysis_button.clicked.connect(self.on_stop_analysis_requested)
         button_layout.addWidget(self.stop_analysis_button)
 
         self.send_to_abstract_button = QPushButton("📤 An Abstract-Tab senden")
         self.send_to_abstract_button.clicked.connect(self.send_to_abstract_tab)
         self.send_to_abstract_button.setEnabled(False)
-        self.send_to_abstract_button.setStyleSheet(get_button_styles()["success"])
+        self.send_to_abstract_button.setStyleSheet(btn_styles["success"])
         button_layout.addWidget(self.send_to_abstract_button)
 
         button_layout.addStretch()
@@ -321,6 +314,7 @@ class ImageAnalysisTab(QWidget):
         self.output_field.setPlaceholderText(
             "Der extrahierte Text wird hier angezeigt..."
         )
+        self.output_field.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         results_layout.addWidget(self.output_field)
 
         right_layout.addWidget(results_group)

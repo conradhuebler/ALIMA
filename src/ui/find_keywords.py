@@ -33,9 +33,13 @@ from ..core.search_cli import SearchCLI
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..utils.config_models import PipelineStepConfig, PipelineMode
 from .workers import PipelineWorker
-
-
-# SearchWorker class removed - now using central SearchCLI directly - Claude Generated
+from .styles import (
+    get_main_stylesheet,
+    get_button_styles,
+    get_status_label_styles,
+    LAYOUT,
+    COLORS,
+)
 
 
 class GNDSystemFilterWidget(QGroupBox):
@@ -54,7 +58,7 @@ class GNDSystemFilterWidget(QGroupBox):
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche des GND-Systematik-Filters"""
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
+        layout.setSpacing(LAYOUT["inner_spacing"])
         layout.setContentsMargins(10, 20, 10, 10)
 
         # Suchbereich für GND-Systematiken
@@ -68,12 +72,15 @@ class GNDSystemFilterWidget(QGroupBox):
         search_layout.addWidget(self.system_input)
 
         buttons_layout = QVBoxLayout()
+        btn_styles = get_button_styles()
 
         self.add_button = QPushButton("Hinzufügen")
+        self.add_button.setStyleSheet(btn_styles["secondary"])
         self.add_button.clicked.connect(self.add_system)
         buttons_layout.addWidget(self.add_button)
 
         self.clear_button = QPushButton("Zurücksetzen")
+        self.clear_button.setStyleSheet(btn_styles["secondary"])
         self.clear_button.clicked.connect(self.clear_systems)
         buttons_layout.addWidget(self.clear_button)
 
@@ -96,17 +103,18 @@ class GNDSystemFilterWidget(QGroupBox):
 
         # Knopf zur Anwendung der Filter
         self.apply_button = QPushButton("Filter anwenden")
+        self.apply_button.setStyleSheet(btn_styles["primary"])
         self.apply_button.clicked.connect(self.apply_filter)
         layout.addWidget(self.apply_button)
 
-    def add_system(self):
+    def add_system(self, system=None):
         """Fügt eine GND-Systematik zur Filterliste hinzu"""
-        system = self.system_input.toPlainText().strip()
+        if system is None or isinstance(system, bool):
+            system = self.system_input.toPlainText().strip()
+
         if not system:
             return
-        self.add_system(system)
 
-    def add_system(self, system):
         # Prüfe, ob diese Systematik bereits hinzugefügt wurde
         if system in self.selected_systems:
             return
@@ -129,6 +137,7 @@ class GNDSystemFilterWidget(QGroupBox):
 
         # Lösch-Button
         delete_btn = QPushButton("Entfernen")
+        delete_btn.setStyleSheet(get_button_styles()["error"])
         delete_btn.clicked.connect(lambda _, r=row, s=system: self.remove_system(r, s))
         self.systems_table.setCellWidget(row, 2, delete_btn)
 
@@ -209,82 +218,24 @@ class SearchTab(QWidget):
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche des Such-Tabs"""
+        # Use main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+        btn_styles = get_button_styles()
+
         # Hauptlayout mit Abständen
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(15, 15, 15, 15)
-
-        # Farbdefinitionen für das UI (identisch mit AbstractTab)
-        primary_color = "#4a86e8"  # Blau
-        secondary_color = "#6aa84f"  # Grün
-        accent_color = "#f1c232"  # Gold
-        bg_light = "#f8f9fa"  # Hell-Grau
-        text_color = "#333333"  # Dunkelgrau
-        error_color = "#e74c3c"  # Rot
-
-        # Globale QSS-Stile (identisch mit AbstractTab)
-        self.setStyleSheet(
-            f"""
-            QGroupBox {{
-                font-weight: bold;
-                border: 1px solid #ccc;
-                border-radius: 8px;
-                margin-top: 12px;
-                background-color: {bg_light};
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                background-color: {bg_light};
-            }}
-            QPushButton {{
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                background-color: {primary_color};
-                color: white;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #3a76d8;
-            }}
-            QPushButton:pressed {{
-                background-color: #2a66c8;
-            }}
-            QLabel {{
-                color: {text_color};
-            }}
-            QCheckBox {{
-                color: {text_color};
-                spacing: 5px;
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-            }}
-            QTableWidget {{
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                background-color: white;
-            }}
-            QTextEdit {{
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                padding: 6px;
-                background-color: white;
-                font-size: 11pt;
-            }}
-        """
+        layout.setSpacing(LAYOUT["spacing"])
+        layout.setContentsMargins(
+            LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
         )
 
         # ========= Kontrolleiste oben (wie bei AbstractTab) =========
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(0, 0, 0, 5)
 
-        # Status-Label (ersetzt den separaten Status-Bereich)
+        # Status-Label
         self.status_label = QLabel("Aktueller Status: Bereit")
-        self.status_label.setStyleSheet("font-weight: bold;")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
         control_bar.addWidget(self.status_label)
 
         control_bar.addStretch(1)
@@ -299,10 +250,18 @@ class SearchTab(QWidget):
 
         layout.addLayout(control_bar)
 
+        # Splitter between search input and results
+        main_splitter = QSplitter(Qt.Orientation.Vertical)
+
         # ========= Suchbereich =========
+        search_widget = QWidget()
+        search_box_layout = QVBoxLayout(search_widget)
+        search_box_layout.setContentsMargins(0, 0, 0, 0)
+        search_box_layout.setSpacing(LAYOUT["spacing"])
+
         search_group = QGroupBox("Schlagwortsuche")
         search_layout = QVBoxLayout(search_group)
-        search_layout.setSpacing(8)
+        search_layout.setSpacing(LAYOUT["inner_spacing"])
         search_layout.setContentsMargins(10, 20, 10, 10)
 
         # Hauptsuchfeld mit Beschreibung
@@ -314,17 +273,18 @@ class SearchTab(QWidget):
         self.search_input.setPlaceholderText(
             "Suchbegriffe (durch Komma getrennt oder in Anführungszeichen für exakte Phrasen)"
         )
-        self.search_input.setMaximumHeight(100)  # Höhe begrenzen
+        self.search_input.setMaximumHeight(100)
+        self.search_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         search_layout.addWidget(self.search_input)
 
         # Suchoptionen-Bereich
         options_frame = QFrame()
         options_frame.setStyleSheet(
-            f"background-color: #e8f0fe; border-radius: 6px; padding: 8px;"
+            f"background-color: {COLORS['background_dark']}; border-radius: 6px; padding: 4px;"
         )
         options_layout = QHBoxLayout(options_frame)
 
-        # Checkboxen für die verschiedenen Suchquellen mit verbesserten Labels
+        # Checkboxen für die verschiedenen Suchquellen
         sources_label = QLabel("Suchquellen:")
         sources_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         options_layout.addWidget(sources_label)
@@ -353,46 +313,40 @@ class SearchTab(QWidget):
         options_layout.addWidget(results_label)
 
         self.num_results = QSpinBox()
-        self.num_results.setMinimum(1)
-        self.num_results.setMaximum(50)
+        self.num_results.setRange(1, 50)
         self.num_results.setValue(10)
         self.num_results.setToolTip(
             "Maximale Anzahl zu verarbeitender Ergebnisse pro Quelle"
         )
-        self.num_results.setStyleSheet("background-color: white; padding: 2px;")
         options_layout.addWidget(self.num_results)
 
         search_layout.addWidget(options_frame)
 
-        # Suchbutton (hervorgehoben)
+        # Suchbutton
         self.search_button = QPushButton("Suche starten")
-        self.search_button.setMinimumHeight(40)
+        self.search_button.setStyleSheet(btn_styles["primary"])
         self.search_button.clicked.connect(self.perform_search)
         self.search_button.setShortcut("Ctrl+Return")
         search_layout.addWidget(self.search_button)
 
-        layout.addWidget(search_group)
+        search_box_layout.addWidget(search_group)
+        main_splitter.addWidget(search_widget)
 
         # ========= Ergebnisbereich =========
-        results_splitter = QSplitter(Qt.Orientation.Vertical)
-
-        # Separator-Linie vor den Ergebnissen (wie bei AbstractTab)
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.HLine)
-        separator.setStyleSheet(
-            "background-color: #cccccc; height: 2px; margin: 8px 0px;"
-        )
-        layout.addWidget(separator)
+        results_container = QWidget()
+        results_container_layout = QVBoxLayout(results_container)
+        results_container_layout.setContentsMargins(0, 0, 0, 0)
+        results_container_layout.setSpacing(LAYOUT["spacing"])
 
         # Obere Sektion: Ergebnistabelle und Details
         results_group = QGroupBox("Suchergebnisse")
         results_box_layout = QVBoxLayout(results_group)
-        results_box_layout.setSpacing(8)
+        results_box_layout.setSpacing(LAYOUT["inner_spacing"])
         results_box_layout.setContentsMargins(10, 20, 10, 10)
 
         upper_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Ergebnistabelle mit verbessertem Styling
+        # Ergebnistabelle
         table_frame = QWidget()
         table_layout = QVBoxLayout(table_frame)
         table_layout.setContentsMargins(0, 0, 0, 0)
@@ -406,26 +360,16 @@ class SearchTab(QWidget):
         self.results_table.setHorizontalHeaderLabels(
             ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit", "GND-Systematik"]
         )
-        self.results_table.setStyleSheet(
-            """
-            QHeaderView::section {
-                background-color: #f0f0f0;
-                padding: 4px;
-                border: 1px solid #ddd;
-                font-weight: bold;
-            }
-        """
-        )
         self.results_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
         )
         self.results_table.setAlternatingRowColors(True)
-        self.results_table.verticalHeader().setVisible(False)  # Verstecke Row-Header
+        self.results_table.verticalHeader().setVisible(False)
 
         table_layout.addWidget(self.results_table)
         upper_splitter.addWidget(table_frame)
 
-        # Details-Sektion mit besserer Formatierung
+        # Details-Sektion
         details_widget = QWidget()
         details_layout = QVBoxLayout(details_widget)
         details_layout.setContentsMargins(0, 0, 0, 0)
@@ -436,28 +380,10 @@ class SearchTab(QWidget):
 
         self.details_display = QTextEdit()
         self.details_display.setReadOnly(True)
-        self.details_display.setStyleSheet(
-            """
-            QTextEdit {
-                background-color: #f9f9f9;
-                line-height: 1.3;
-            }
-        """
-        )
         details_layout.addWidget(self.details_display)
 
         self.update_button = QPushButton("Eintrag aktualisieren")
-        self.update_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {secondary_color};
-                padding: 6px 12px;
-            }}
-            QPushButton:hover {{
-                background-color: #5a9840;
-            }}
-        """
-        )
+        self.update_button.setStyleSheet(btn_styles["secondary"])
         self.update_button.clicked.connect(self.update_selected_entry)
         details_layout.addWidget(self.update_button)
 
@@ -466,140 +392,72 @@ class SearchTab(QWidget):
 
         results_box_layout.addWidget(upper_splitter)
 
-        # Wo vorher der DDC-Filter-Bereich war, fügen wir ein Tab-Widget ein
         # ========= Filter-Bereich mit Tabs =========
-        filter_group = QGroupBox("Filteroptionen für Schlagwortgenerierung")
+        filter_group = QGroupBox("Filter- und Generierungsoptionen")
         filter_layout = QVBoxLayout(filter_group)
-        filter_layout.setSpacing(8)
+        filter_layout.setSpacing(LAYOUT["inner_spacing"])
         filter_layout.setContentsMargins(10, 20, 10, 10)
 
-        # Tab-Widget für DDC und GND-Systematik
         self.filter_tabs = QTabWidget()
 
-        # DDC-Tab (bestehender Code)
+        # DDC-Filter Tab
         ddc_widget = QWidget()
         ddc_layout = QVBoxLayout(ddc_widget)
-        ddc_layout.setSpacing(8)
+        ddc_layout.setSpacing(LAYOUT["inner_spacing"])
         ddc_layout.setContentsMargins(10, 10, 10, 10)
 
-        # DDC-Checkboxen in einem schönen Grid-Layout
         ddc_frame = QFrame()
         ddc_frame.setStyleSheet(
-            f"background-color: #f0f8ff; border-radius: 6px; padding: 8px;"
+            f"background-color: {COLORS['background_dark']}; border-radius: 6px; padding: 4px;"
         )
         ddc_grid = QGridLayout(ddc_frame)
-        ddc_grid.setSpacing(10)
+        ddc_grid.setSpacing(8)
 
-        # Erste Zeile: Beschriftung
         ddc_label = QLabel("Einzubeziehende DDC-Klassen:")
         ddc_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         ddc_grid.addWidget(ddc_label, 0, 0, 1, 5)
 
-        # DDC-Checkboxen in 2 Reihen
-        self.ddc1_check = QCheckBox("DDC 1xx (Philosophie)")
-        self.ddc1_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc1_check, 1, 0)
+        # DDC Checkboxes
+        self.ddc_checks = []
+        ddc_labels = [
+            "1xx (Phil.)", "2xx (Rel.)", "3xx (Sozial.)", "4xx (Spr.)", "5xx (Nat.)",
+            "6xx (Tech.)", "7xx (Kunst)", "8xx (Lit.)", "9xx (Gesch.)", "X (Sonstige)"
+        ]
+        for i, label in enumerate(ddc_labels):
+            check = QCheckBox(label)
+            check.setChecked(True)
+            self.ddc_checks.append(check)
+            ddc_grid.addWidget(check, 1 if i < 5 else 2, i % 5)
 
-        self.ddc2_check = QCheckBox("DDC 2xx (Religion)")
-        self.ddc2_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc2_check, 1, 1)
-
-        self.ddc3_check = QCheckBox("DDC 3xx (Sozialwiss.)")
-        self.ddc3_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc3_check, 1, 2)
-
-        self.ddc4_check = QCheckBox("DDC 4xx (Sprache)")
-        self.ddc4_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc4_check, 1, 3)
-
-        self.ddc5_check = QCheckBox("DDC 5xx (Naturwiss.)")
-        self.ddc5_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc5_check, 1, 4)
-
-        self.ddc6_check = QCheckBox("DDC 6xx (Technik)")
-        self.ddc6_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc6_check, 2, 0)
-
-        self.ddc7_check = QCheckBox("DDC 7xx (Kunst)")
-        self.ddc7_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc7_check, 2, 1)
-
-        self.ddc8_check = QCheckBox("DDC 8xx (Literatur)")
-        self.ddc8_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc8_check, 2, 2)
-
-        self.ddc9_check = QCheckBox("DDC 9xx (Geschichte)")
-        self.ddc9_check.setChecked(True)
-        ddc_grid.addWidget(self.ddc9_check, 2, 3)
-
-        self.ddcX_check = QCheckBox("DDC X (Sonstige)")
-        self.ddcX_check.setChecked(True)
-        ddc_grid.addWidget(self.ddcX_check, 2, 4)
+        # Compatibility names
+        self.ddc1_check, self.ddc2_check, self.ddc3_check, self.ddc4_check, self.ddc5_check = self.ddc_checks[:5]
+        self.ddc6_check, self.ddc7_check, self.ddc8_check, self.ddc9_check, self.ddcX_check = self.ddc_checks[5:]
 
         ddc_layout.addWidget(ddc_frame)
 
-        # Button zur DDC-Schlagwortgenerierung
-        self.ddc_regenerate_button = QPushButton(
-            "Nach DDC gefilterte Schlagwörter generieren"
-        )
-        self.ddc_regenerate_button.setToolTip(
-            "Erzeugt eine gefilterte Liste von Schlagwörtern basierend auf DDC-Klassen"
-        )
-        self.ddc_regenerate_button.setMinimumHeight(40)
-        self.ddc_regenerate_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {accent_color};
-                color: black;
-            }}
-            QPushButton:hover {{
-                background-color: #e1b222;
-            }}
-        """
-        )
-        # ddc_regenerate_button connection removed - DDC filtering now handled by PipelineManager - Claude Generated
+        self.ddc_regenerate_button = QPushButton("DDC-gefilterte Schlagwörter")
+        self.ddc_regenerate_button.setStyleSheet(btn_styles["accent"])
         ddc_layout.addWidget(self.ddc_regenerate_button)
 
-        # Zum Tab hinzufügen
         self.filter_tabs.addTab(ddc_widget, "DDC-Filter")
 
-        # GND-Systematik-Tab (neu)
+        # GND-Systematik Tab
         self.gnd_filter_widget = GNDSystemFilterWidget(self, self.cache_manager)
-        self.filter_tabs.addTab(self.gnd_filter_widget, "GND-Systematik-Filter")
+        self.filter_tabs.addTab(self.gnd_filter_widget, "GND-Systematik")
 
-        # GND filter button connection removed - GND filtering now handled by PipelineManager - Claude Generated
-
-        # Tab-Widget zum Layout hinzufügen
         filter_layout.addWidget(self.filter_tabs)
 
-        # Füge die gesamte Filter-Gruppe zum Layout hinzu
-        results_box_layout.addWidget(filter_group)
-
-        # Button zur Schlagwortgenerierung
         self.regenerate_button = QPushButton("Gefilterte Schlagwörter generieren")
-        self.regenerate_button.setToolTip(
-            "Erzeugt eine gefilterte Liste von Schlagwörtern basierend auf DDC-Klassen"
-        )
-        self.regenerate_button.setMinimumHeight(40)
-        self.regenerate_button.setStyleSheet(
-            f"""
-            QPushButton {{
-                background-color: {accent_color};
-                color: black;
-            }}
-            QPushButton:hover {{
-                background-color: #e1b222;
-            }}
-        """
-        )
-        # regenerate_button connection removed - filtering now handled by PipelineManager - Claude Generated
+        self.regenerate_button.setStyleSheet(btn_styles["accent"])
         filter_layout.addWidget(self.regenerate_button)
 
-        # Füge Filter-Bereich zur Ergebnisgruppe hinzu
         results_box_layout.addWidget(filter_group)
+        results_container_layout.addWidget(results_group)
 
-        # Füge die gesamte Ergebnisgruppe zum Layout hinzu
-        layout.addWidget(results_group)
+        main_splitter.addWidget(results_container)
+        main_splitter.setSizes([300, 700])
+
+        layout.addWidget(main_splitter)
 
         # Verbinde Signals
         self.results_table.itemSelectionChanged.connect(self.show_details)
@@ -624,7 +482,6 @@ class SearchTab(QWidget):
                 config = json.load(f)
 
             # Versuche, den Katalog-Token aus verschiedenen möglichen Stellen zu laden
-            # Option 1: Direkt im Hauptbereich
             if "catalog_token" in config:
                 self.catalog_token = config["catalog_token"]
 
@@ -660,6 +517,7 @@ class SearchTab(QWidget):
                 self.status_label.setText(
                     "Bitte geben Sie mindestens einen Suchbegriff ein."
                 )
+                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
                 self.search_button.setEnabled(True)
                 self.progressBar.setVisible(False)
                 return
@@ -670,6 +528,7 @@ class SearchTab(QWidget):
             # Keine gültigen Suchbegriffe
             if not search_terms:
                 self.status_label.setText("Keine gültigen Suchbegriffe gefunden.")
+                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
                 self.search_button.setEnabled(True)
                 self.progressBar.setVisible(False)
                 return
@@ -727,6 +586,7 @@ class SearchTab(QWidget):
 
                 # Update status when search actually starts
                 self.status_label.setText("Verbindung zu Suchservices...")
+                self.status_label.setStyleSheet(get_status_label_styles()["info"])
 
                 self.pipeline_worker.start()
             else:
@@ -771,13 +631,13 @@ class SearchTab(QWidget):
     def process_search_results(self, results: dict):
         """Processes the search results from the CLI and displays them."""
         self.process_results(results)
-        # finalise_catalog_search logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
 
         # UI-Updates nach der Suche
         self.search_button.setEnabled(True)
         self.status_label.setText(
             f"Suche abgeschlossen - {len(self.flat_results)} Ergebnisse gefunden"
         )
+        self.status_label.setStyleSheet(get_status_label_styles()["success"])
         self.progressBar.setVisible(False)
         QApplication.processEvents()
 
@@ -785,6 +645,7 @@ class SearchTab(QWidget):
         """Handles errors from the search worker."""
         self.logger.error(f"Search error: {error_message}")
         self.status_label.setText(f"Fehler: {error_message}")
+        self.status_label.setStyleSheet(get_status_label_styles()["error"])
         self.search_button.setEnabled(True)
         self.progressBar.setVisible(False)
 
@@ -798,7 +659,6 @@ class SearchTab(QWidget):
         QApplication.processEvents()  # UI aktualisieren
 
     def extract_search_terms(self, text):
-        """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
         """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
         # Extrahiere Begriffe, die in Anführungszeichen stehen
         quoted_pattern = r'"([^"]+)"'
@@ -956,10 +816,6 @@ class SearchTab(QWidget):
         # Generiere Initial-Prompt
         self.generate_initial_prompt(sorted_results)
 
-    # finalise_catalog_search method removed - logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
-
-    # determine_relation method removed - relationship logic now handled by PipelineManager - Claude Generated
-    # Stub implementation restored for backward compatibility - Claude Generated
     def determine_relation(self, keyword: str, search_term: str) -> int:
         """Determine relationship between keyword and search term - Claude Generated
 
@@ -980,11 +836,8 @@ class SearchTab(QWidget):
 
     def generate_initial_prompt(self, sorted_results):
         """Generate initial prompt from results - Stub for compatibility - Claude Generated
-
         Pipeline now handles prompt generation.
-        This is a no-op stub for backward compatibility with process_results.
         """
-        # No-op: Pipeline handles prompt generation
         pass
 
     def update_database_entry(self, gnd_id, title, data):
@@ -992,17 +845,6 @@ class SearchTab(QWidget):
         if not self.cache_manager.gnd_entry_exists(gnd_id):
             # Lege neuen Eintrag an
             self.cache_manager.insert_gnd_entry(gnd_id, title=title)
-
-        # Bei neuen Einträgen oder relevanten Einträgen aktualisiere die Daten
-
-        # vorübergehend nicht durchführend
-        # entry = self.cache_manager.get_gnd_entry(gnd_id)
-        # if entry and entry["created_at"] == entry["updated_at"]:
-        # Dieser Eintrag wurde noch nicht aktualisiert
-        #    if (
-        #        title != gnd_id
-        #    ):  # Ignoriere Einträge, bei denen der Titel die GND-ID ist
-        #        self.update_entry(gnd_id)
 
     def display_results(self, sorted_results):
         """Zeigt die Suchergebnisse in der Tabelle an"""
@@ -1036,24 +878,13 @@ class SearchTab(QWidget):
             self.results_table.setItem(row, 2, count_item)
             self.results_table.setItem(row, 3, rel_item)
 
-            # TODO replace with unified knowledge manager
-            #entry = self.cache_manager.get_gnd_entry(gnd_id)
-            #if entry:
-            #    gnd_system_item = QTableWidgetItem(entry.get("gnd_systems"))
-            #    self.results_table.setItem(row, 4, gnd_system_item)
-
-    # generate_initial_prompt method removed - prompt generation now handled by PipelineManager - Claude Generated
-
-    # generate_ddc_prompt method removed - DDC filtering now handled by PipelineManager - Claude Generated
-
-    # generate_gnd_prompt method removed - GND filtering now handled by PipelineManager - Claude Generated
-
     def update_selected_entry(self):
         """Aktualisiert den aktuell ausgewählten Eintrag"""
         # Hole den ausgewählten GND-Eintrag aus der Tabelle
         selected_items = self.results_table.selectedItems()
         if not selected_items:
             self.status_label.setText("Kein Eintrag ausgewählt.")
+            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
             return
 
         # Hole die GND-ID aus der ausgewählten Zeile
@@ -1086,6 +917,7 @@ class SearchTab(QWidget):
         try:
             # Status aktualisieren
             self.status_label.setText(f"Aktualisiere GND-Eintrag: {gnd_id}")
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
 
             # Fortschritt anzeigen
             if self.progressBar.isVisible():
@@ -1126,6 +958,7 @@ class SearchTab(QWidget):
 
                 # Status aktualisieren
                 self.status_label.setText(f"GND-Eintrag aktualisiert: {gnd_id}")
+                self.status_label.setStyleSheet(get_status_label_styles()["success"])
 
             else:
                 # Fehlermeldung
@@ -1136,6 +969,7 @@ class SearchTab(QWidget):
                 )
                 self.logger.error(f"Fehler bei GND {gnd_id}: {error_msg}")
                 self.status_label.setText(f"Fehler bei GND {gnd_id}: {error_msg}")
+                self.status_label.setStyleSheet(get_status_label_styles()["error"])
 
             # Fortschritt anzeigen
             if self.progressBar.isVisible():
@@ -1247,25 +1081,25 @@ class SearchTab(QWidget):
         """
         Display search results from pipeline - Claude Generated
         This method allows the SearchTab to act as a viewer for pipeline results
-        
+
         Args:
             results: Dictionary of search results from pipeline search step
         """
         self.logger.info(f"Displaying pipeline search results: {len(results)} terms")
-        
+
         # Clear existing results and UI state
         self.results_table.setRowCount(0)
-        self.result_list.clear() 
+        self.result_list.clear()
         self.gnd_ids.clear()
         self.details_display.clear()
-        
+
         # Process and display the results using existing logic
         self.process_results(results)
-        # finalise_catalog_search logic moved to PipelineStepExecutor._validate_catalog_subjects - Claude Generated
-        
+
         # Update status
         self.status_label.setText(
             f"Pipeline-Ergebnisse angezeigt - {len(getattr(self, 'flat_results', []))} Ergebnisse"
         )
-        
+        self.status_label.setStyleSheet(get_status_label_styles()["success"])
+
         self.logger.info("Pipeline search results displayed successfully")

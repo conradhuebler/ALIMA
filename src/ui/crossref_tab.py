@@ -1,5 +1,8 @@
 # crossref_tab.py
 
+import logging
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -10,9 +13,15 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QMessageBox,
     QTabWidget,
+    QGroupBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-import logging
+from .styles import (
+    get_main_stylesheet,
+    get_button_styles,
+    get_status_label_styles,
+    LAYOUT,
+    COLORS,
+)
 
 from ..utils.doi_resolver import resolve_input_to_text, UnifiedResolver
 
@@ -28,24 +37,45 @@ class CrossrefTab(QWidget):
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche."""
-        layout = QVBoxLayout()
+        # Use main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+        btn_styles = get_button_styles()
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(LAYOUT["spacing"])
+        layout.setContentsMargins(
+            LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
+        )
+
+        # Status Label
+        self.status_label = QLabel("Status: Bereit")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        layout.addWidget(self.status_label)
 
         # Eingabefeld und Button
-        input_layout = QHBoxLayout()
+        input_group = QGroupBox("DOI Abfrage")
+        input_layout = QHBoxLayout(input_group)
+        input_layout.setSpacing(LAYOUT["inner_spacing"])
+
         self.doi_input = QLineEdit()
         self.doi_input.setPlaceholderText(
             "Gib die DOI ein, z.B. 10.1007/978-3-031-47390-6"
         )
+        self.doi_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+
         self.fetch_button = QPushButton("Abfrage starten")
+        self.fetch_button.setStyleSheet(btn_styles["primary"])
         self.fetch_button.clicked.connect(self.perform_search)
         self.fetch_button.setToolTip(
             "Starte die Abfrage der Crossref API bzw. via Springer EBooks"
         )
-        self.fetch_button.setEnabled(True)
         self.fetch_button.setShortcut("Ctrl+Return")
+
         input_layout.addWidget(QLabel("DOI:"))
         input_layout.addWidget(self.doi_input)
         input_layout.addWidget(self.fetch_button)
+
+        layout.addWidget(input_group)
 
         # Ergebnisanzeige mit Tabs
         self.result_tabs = QTabWidget()
@@ -54,24 +84,28 @@ class CrossrefTab(QWidget):
         self.main_result = QTextEdit()
         self.main_result.setReadOnly(True)
         self.main_result.setPlaceholderText("Hier werden die Ergebnisse angezeigt...")
+        self.main_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.result_tabs.addTab(self.main_result, "Hauptergebnisse")
 
         # Tab für About
         self.about_result = QTextEdit()
         self.about_result.setReadOnly(True)
         self.about_result.setPlaceholderText("Über dieses Buch...")
+        self.about_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.result_tabs.addTab(self.about_result, "Über das Buch")
 
         # Tab für Inhaltsverzeichnis
         self.toc_result = QTextEdit()
         self.toc_result.setReadOnly(True)
         self.toc_result.setPlaceholderText("Inhaltsverzeichnis...")
+        self.toc_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.result_tabs.addTab(self.toc_result, "Inhaltsverzeichnis")
 
         # Tab für Keywords
         self.keywords_result = QTextEdit()
         self.keywords_result.setReadOnly(True)
         self.keywords_result.setPlaceholderText("Schlüsselwörter...")
+        self.keywords_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.result_tabs.addTab(self.keywords_result, "Schlüsselwörter")
 
         # Standardmäßig alle Tabs außer dem Haupttab ausblenden
@@ -79,7 +113,6 @@ class CrossrefTab(QWidget):
         self.result_tabs.setTabVisible(2, False)
         self.result_tabs.setTabVisible(3, False)
 
-        layout.addLayout(input_layout)
         layout.addWidget(self.result_tabs)
 
         self.setLayout(layout)
@@ -95,6 +128,8 @@ class CrossrefTab(QWidget):
 
         # Use central DOI resolver instead of worker - Claude Generated
         self.fetch_button.setEnabled(False)
+        self.status_label.setText("Status: Abfrage läuft...")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
         self.main_result.clear()
         self.about_result.clear()
         self.toc_result.clear()
@@ -106,7 +141,7 @@ class CrossrefTab(QWidget):
             # Use UnifiedResolver for full metadata - Claude Generated
             resolver = UnifiedResolver(self.logger)
             success, metadata, text_result = resolver.resolve(doi)
-            
+
             if success:
                 # Convert metadata to expected format for display_results
                 if metadata:
@@ -118,19 +153,21 @@ class CrossrefTab(QWidget):
                         "DOI": doi,
                         "Abstract": text_result or "No content available",
                         "Authors": "Not available",
-                        "Publisher": "Not available", 
+                        "Publisher": "Not available",
                         "Published": "Not available",
                         "Container-Title": "Not available",
                         "URL": f"https://doi.org/{doi}"
                     }
                     self.display_results(basic_metadata)
+                self.status_label.setText("Status: Abfrage erfolgreich")
+                self.status_label.setStyleSheet(get_status_label_styles()["success"])
             else:
                 self.handle_error(text_result or "DOI resolution failed")
-                
+
         except Exception as e:
             self.logger.error(f"DOI resolution error: {str(e)}")
             self.handle_error(f"Error resolving DOI: {str(e)}")
-        
+
         finally:
             self.fetch_button.setEnabled(True)
 

@@ -137,7 +137,7 @@
       ]
     ]
   },
-  "dk_class": {
+  "dk_classification": {
     "fields": [
       "prompt",
       "system",

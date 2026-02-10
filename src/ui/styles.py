@@ -28,6 +28,16 @@ COLORS = {
     "border": "#cccccc",
     "border_light": "#e0e0e0",
     "border_dark": "#999999",
+    "shadow": "rgba(0, 0, 0, 0.1)",
+}
+
+# Standard layout constants
+LAYOUT = {
+    "margin": 15,
+    "spacing": 12,
+    "inner_spacing": 8,
+    "border_radius": 8,
+    "input_font_size": 11,
 }
 
 
@@ -273,7 +283,38 @@ def get_main_stylesheet():
     QSplitter::handle:vertical {{
         height: 2px;
     }}
-    
+
+    /* Scrollbars */
+    QScrollBar:vertical {{
+        border: none;
+        background: {COLORS['background_light']};
+        width: 10px;
+        margin: 0px;
+    }}
+
+    QScrollBar::handle:vertical {{
+        background: {COLORS['border']};
+        min-height: 20px;
+        border-radius: 5px;
+    }}
+
+    QScrollBar::handle:vertical:hover {{
+        background: {COLORS['border_dark']};
+    }}
+
+    QScrollBar:horizontal {{
+        border: none;
+        background: {COLORS['background_light']};
+        height: 10px;
+        margin: 0px;
+    }}
+
+    QScrollBar::handle:horizontal {{
+        background: {COLORS['border']};
+        min-width: 20px;
+        border-radius: 5px;
+    }}
+
     /* Tree widgets */
     QTreeWidget {{
         border: 1px solid {COLORS['border']};

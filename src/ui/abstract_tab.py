@@ -64,7 +64,13 @@ from ..core.data_models import AbstractData, AnalysisResult, KeywordAnalysisStat
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..utils.config_models import PipelineStepConfig, PipelineMode
-from .workers import PipelineWorker
+from .styles import (
+    get_main_stylesheet,
+    get_button_styles,
+    get_status_label_styles,
+    LAYOUT,
+    COLORS,
+)
 
 from pathlib import Path
 import os
@@ -72,7 +78,10 @@ import json
 import logging
 import re
 import tempfile
-import PyPDF2
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
 import threading
 import time
 from typing import List, Tuple, Dict, Optional
@@ -198,9 +207,15 @@ class AbstractTab(QWidget):
 
     def setup_ui(self):
         """Set up the user interface with restructured layout."""
+        # Use main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+        btn_styles = get_button_styles()
+
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(12)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(LAYOUT["spacing"])
+        main_layout.setContentsMargins(
+            LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
+        )
 
         # ======== Control Bar ========
         control_bar = QHBoxLayout()
@@ -217,11 +232,13 @@ class AbstractTab(QWidget):
         # LEFT SIDE: Input Group (Abstract/Keywords)
         self.input_group = QGroupBox("Eingabe")
         input_layout = QVBoxLayout(self.input_group)
+        input_layout.setSpacing(LAYOUT["inner_spacing"])
 
         header_layout = QHBoxLayout()
         header_layout.addWidget(QLabel("Abstract / Text:"))
         header_layout.addStretch(1)
         self.pdf_button = QPushButton("PDF importieren")
+        self.pdf_button.setStyleSheet(btn_styles["secondary"])
         self.pdf_button.clicked.connect(self.import_pdf)
         header_layout.addWidget(self.pdf_button)
         input_layout.addLayout(header_layout)
@@ -229,7 +246,7 @@ class AbstractTab(QWidget):
         self.abstract_edit = QTextEdit()
         # Increase font size
         font = self.abstract_edit.font()
-        font.setPointSize(11)
+        font.setPointSize(LAYOUT["input_font_size"])
         self.abstract_edit.setFont(font)
         input_layout.addWidget(self.abstract_edit)
 
@@ -238,7 +255,7 @@ class AbstractTab(QWidget):
         self.keywords_edit.setMaximumHeight(80)
         # Increase font size
         font = self.keywords_edit.font()
-        font.setPointSize(11)
+        font.setPointSize(LAYOUT["input_font_size"])
         self.keywords_edit.setFont(font)
         input_layout.addWidget(self.keywords_edit)
 
@@ -248,9 +265,12 @@ class AbstractTab(QWidget):
 
         config_widget = QWidget()
         config_main_layout = QVBoxLayout(config_widget)
+        config_main_layout.setContentsMargins(0, 0, 0, 0)
 
         self.config_group = QGroupBox("KI-Konfiguration")
-        config_layout = QHBoxLayout(self.config_group)  # Changed from QVBoxLayout
+        config_layout = QHBoxLayout(self.config_group)
+        config_layout.setContentsMargins(10, 20, 10, 10)
+        config_layout.setSpacing(LAYOUT["inner_spacing"])
 
         # LEFT: Prompt + Parameter Tabs
         left_config_layout = QVBoxLayout()
@@ -259,9 +279,11 @@ class AbstractTab(QWidget):
         # -- Prompt Tab --
         prompt_tab = QWidget()
         prompt_layout = QVBoxLayout(prompt_tab)
+        prompt_layout.setSpacing(LAYOUT["inner_spacing"])
 
         prompt_selection_group = QGroupBox("Prompt-Auswahl")
         prompt_selection_layout = QGridLayout(prompt_selection_group)
+        prompt_selection_layout.setSpacing(LAYOUT["inner_spacing"])
         prompt_selection_layout.addWidget(QLabel("Task:"), 0, 0)
         self.task_selector_combo = QComboBox()
         self.task_selector_combo.currentIndexChanged.connect(self.on_task_selected)
@@ -287,6 +309,7 @@ class AbstractTab(QWidget):
         # -- Parameters Tab --
         params_tab = QWidget()
         params_layout = QGridLayout(params_tab)
+        params_layout.setSpacing(LAYOUT["inner_spacing"])
 
         # Temperature
         params_layout.addWidget(QLabel("Temperatur:"), 0, 0)
@@ -356,12 +379,13 @@ class AbstractTab(QWidget):
 
         # RIGHT: Provider & Chunking Controls
         right_config_layout = QVBoxLayout()
+        right_config_layout.setSpacing(LAYOUT["inner_spacing"])
 
         provider_model_group = QGroupBox("Provider & Modell")
         provider_model_layout = QGridLayout(provider_model_group)
+        provider_model_layout.setSpacing(LAYOUT["inner_spacing"])
         provider_model_layout.addWidget(QLabel("Provider:"), 0, 0)
         self.provider_combo = QComboBox()
-        # Initialize with placeholder - will be populated by ProviderStatusService - Claude Generated
         self.provider_combo.addItem("Loading providers...")
         self.provider_combo.currentTextChanged.connect(self.on_provider_manually_changed)
         provider_model_layout.addWidget(self.provider_combo, 0, 1)
@@ -370,17 +394,19 @@ class AbstractTab(QWidget):
         self.model_combo.currentTextChanged.connect(self.on_model_manually_changed)
         provider_model_layout.addWidget(self.model_combo, 1, 1)
 
-        # Add reset button for explicit selections - Claude Generated
+        # Add reset button for explicit selections
         reset_selection_btn = QPushButton("🔄")
         reset_selection_btn.setToolTip("Reset provider/model to prompt defaults")
         reset_selection_btn.setMaximumWidth(40)
+        reset_selection_btn.setStyleSheet(btn_styles["secondary"])
         reset_selection_btn.clicked.connect(self.reset_explicit_selections)
         provider_model_layout.addWidget(reset_selection_btn, 1, 2)
 
         right_config_layout.addWidget(provider_model_group)
 
-        chunk_group = QGroupBox("Chunking-Kontrolle (optional)")
+        chunk_group = QGroupBox("Chunking-Kontrolle")
         chunk_layout = QVBoxLayout(chunk_group)
+        chunk_layout.setSpacing(LAYOUT["inner_spacing"])
         self.enable_chunk_abstract = QCheckBox("Abstract-Chunking")
         self.abstract_chunk_slider = QSlider(Qt.Orientation.Horizontal)
         self.abstract_chunk_slider.setEnabled(False)
@@ -409,15 +435,15 @@ class AbstractTab(QWidget):
 
         # ======== Analysis Button Area (inside input widget) ========
         analysis_button_layout = QHBoxLayout()
+        analysis_button_layout.setSpacing(LAYOUT["spacing"])
         self.analyze_button = QPushButton("Analyse starten")
+        self.analyze_button.setStyleSheet(btn_styles["primary"])
         self.analyze_button.clicked.connect(self.start_analysis)
         analysis_button_layout.addWidget(self.analyze_button)
 
         # Cancel button (initially hidden)
         self.cancel_button = QPushButton("Abbrechen")
-        self.cancel_button.setStyleSheet(
-            "QPushButton { background-color: #d32f2f; color: white; }"
-        )
+        self.cancel_button.setStyleSheet(btn_styles["error"])
         self.cancel_button.clicked.connect(self.cancel_analysis)
         self.cancel_button.setVisible(False)
         analysis_button_layout.addWidget(self.cancel_button)
@@ -426,20 +452,24 @@ class AbstractTab(QWidget):
 
         # Status label for analysis feedback
         self.status_label = QLabel("Bereit")
-        self.status_label.setStyleSheet("QLabel { color: #4caf50; font-weight: bold; }")
+        self.status_label.setStyleSheet(get_status_label_styles()["success"])
         analysis_button_layout.addWidget(self.status_label)
 
         # Create input widget that includes input/config and analysis buttons (this will be hidden/shown)
         self.input_widget = QWidget()
         input_widget_layout = QVBoxLayout(self.input_widget)
+        input_widget_layout.setContentsMargins(0, 0, 0, 0)
+        input_widget_layout.setSpacing(LAYOUT["spacing"])
         input_widget_layout.addWidget(input_config_splitter)
         input_widget_layout.addLayout(analysis_button_layout)
 
         # ======== Control Button Area (always visible) ========
         control_button_layout = QHBoxLayout()
+        control_button_layout.setSpacing(LAYOUT["spacing"])
 
         # Toggle view button (always visible)
         self.toggle_input_button = QPushButton("Eingabe ausblenden")
+        self.toggle_input_button.setStyleSheet(btn_styles["secondary"])
         self.toggle_input_button.clicked.connect(self.toggle_input_visibility)
         control_button_layout.addWidget(self.toggle_input_button)
 
@@ -454,6 +484,8 @@ class AbstractTab(QWidget):
         # Container for control buttons and splitter
         main_container = QWidget()
         main_container_layout = QVBoxLayout(main_container)
+        main_container_layout.setContentsMargins(0, 0, 0, 0)
+        main_container_layout.setSpacing(LAYOUT["spacing"])
 
         # Add control buttons (always visible)
         main_container_layout.addLayout(control_button_layout)
@@ -467,37 +499,28 @@ class AbstractTab(QWidget):
         # ======== Results Area ========
         results_widget = QWidget()
         results_main_layout = QVBoxLayout(results_widget)
+        results_main_layout.setContentsMargins(0, 0, 0, 0)
 
         self.results_group = QGroupBox("Analyseergebnis")
         results_layout = QHBoxLayout(self.results_group)
+        results_layout.setContentsMargins(10, 20, 10, 10)
+        results_layout.setSpacing(LAYOUT["inner_spacing"])
 
-        # Results text area with enhanced styling
+        # Results text area
         self.results_edit = QTextEdit()
         self.results_edit.setReadOnly(True)
         # Increase font size
         font = self.results_edit.font()
-        font.setPointSize(11)
+        font.setPointSize(LAYOUT["input_font_size"])
         self.results_edit.setFont(font)
-        # Add better styling for streaming text
-        self.results_edit.setStyleSheet(
-            """
-            QTextEdit {
-                border: 2px solid #e0e0e0;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: #fafafa;
-            }
-            QTextEdit:focus {
-                border-color: #2196f3;
-            }
-        """
-        )
         results_layout.addWidget(self.results_edit)
 
         # Results navigation sidebar
         nav_widget = QWidget()
         nav_widget.setMaximumWidth(250)
         nav_layout = QVBoxLayout(nav_widget)
+        nav_layout.setSpacing(LAYOUT["inner_spacing"])
+        nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.addWidget(QLabel("Ausgaben-Historie:"))
 
         self.results_list = QListWidget()
@@ -505,6 +528,7 @@ class AbstractTab(QWidget):
         nav_layout.addWidget(self.results_list)
 
         clear_button = QPushButton("Historie löschen")
+        clear_button.setStyleSheet(btn_styles["secondary"])
         clear_button.clicked.connect(self.clear_results_history)
         nav_layout.addWidget(clear_button)
 
@@ -1058,6 +1082,14 @@ class AbstractTab(QWidget):
         threading.Thread(target=reset_status, daemon=True).start()
 
     def import_pdf(self):
+        if PyPDF2 is None:
+            QMessageBox.warning(
+                self,
+                "Fehler beim PDF-Import",
+                "Das Modul 'PyPDF2' ist nicht installiert. Bitte installieren Sie es mit 'pip install PyPDF2'.",
+            )
+            return
+
         file_name, _ = QFileDialog.getOpenFileName(
             self, "PDF importieren", "", "PDF Files (*.pdf)"
         )
@@ -1081,6 +1113,8 @@ class AbstractTab(QWidget):
     def display_llm_response(self, response_text: str):
         """Display LLM response in results area - Claude Generated"""
         self.results_edit.setPlainText(response_text)
+        # Ensure it scrolls to top for better reading experience
+        self.results_edit.verticalScrollBar().setValue(0)
 
     def _update_results_text(self, text_chunk: str, step_id: str = None):
         """Appends text chunks to the results_edit QTextEdit with enhanced feedback - Claude Generated"""

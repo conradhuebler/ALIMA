@@ -1,5 +1,6 @@
 import re
 import requests
+import logging
 from bs4 import BeautifulSoup
 from PyQt6.QtWidgets import (
     QTreeWidget,
@@ -20,16 +21,18 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QGroupBox,
     QFileDialog,
+    QGridLayout,
+    QHeaderView,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
-import logging
-from .abstract_tab import AbstractTab
-from ..core.katalog_subject import SubjectExtractor
-from ..llm.llm_service import LlmService
-from ..core.alima_manager import AlimaManager
-from ..utils.clients.biblio_client import BiblioClient  # Claude Generated - SOAP API testing
-
+from .styles import (
+    get_main_stylesheet,
+    get_button_styles,
+    get_status_label_styles,
+    LAYOUT,
+    COLORS,
+)
 
 class AdditionalTitlesWorker(QThread):
     """Worker für das Laden zusätzlicher Titel"""
@@ -345,20 +348,46 @@ class UBSearchTab(QWidget):
 
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
-        layout = QVBoxLayout()
+        # Use main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+        btn_styles = get_button_styles()
 
-        # Mode Selection - Claude Generated SOAP API Testing
-        mode_layout = QHBoxLayout()
-        mode_layout.addWidget(QLabel("Suchmethod:"))
+        layout = QVBoxLayout(self)
+        layout.setSpacing(LAYOUT["spacing"])
+        layout.setContentsMargins(
+            LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
+        )
+
+        # Mode Selection
+        mode_group = QGroupBox("Sucheinstellungen")
+        mode_layout = QGridLayout(mode_group)
+        mode_layout.setSpacing(LAYOUT["inner_spacing"])
+
+        mode_layout.addWidget(QLabel("Suchmethode:"), 0, 0)
         self.mode_selector = QComboBox()
         self.mode_selector.addItems(["Web-Katalog (HTML)", "SOAP API (BiblioClient)"])
         self.mode_selector.currentIndexChanged.connect(self.on_mode_changed)
-        mode_layout.addWidget(self.mode_selector)
-        layout.addLayout(mode_layout)
+        mode_layout.addWidget(self.mode_selector, 0, 1)
 
-        # SOAP API Configuration Panel - Claude Generated
+        # Hit count control
+        mode_layout.addWidget(QLabel("Max. Treffer:"), 1, 0)
+        self.num_results = QSlider(Qt.Orientation.Horizontal)
+        self.num_results.setRange(1, 60)
+        self.num_results.setValue(20)
+        self.num_results.setTickInterval(5)
+        self.num_results.valueChanged.connect(self.update_num_results)
+        mode_layout.addWidget(self.num_results, 1, 1)
+
+        self.num_label = QLabel(str(self.num_results.value()))
+        self.num_label.setFixedWidth(30)
+        mode_layout.addWidget(self.num_label, 1, 2)
+
+        layout.addWidget(mode_group)
+
+        # SOAP API Configuration Panel
         self.soap_config_group = QGroupBox("SOAP API Einstellungen")
-        soap_config_layout = QVBoxLayout()
+        soap_config_layout = QVBoxLayout(self.soap_config_group)
+        soap_config_layout.setSpacing(LAYOUT["inner_spacing"])
 
         token_layout = QHBoxLayout()
         token_layout.addWidget(QLabel("API Token:"))
@@ -369,68 +398,53 @@ class UBSearchTab(QWidget):
         soap_config_layout.addLayout(token_layout)
 
         debug_layout = QHBoxLayout()
-        self.debug_checkbox = QCheckBox("Debug-Modus (zeige XML-Response)")
+        self.debug_checkbox = QCheckBox("Debug-Modus (XML)")
         self.debug_checkbox.setChecked(False)
         debug_layout.addWidget(self.debug_checkbox)
-        self.show_raw_response_checkbox = QCheckBox("Zeige Rohdaten")
+        self.show_raw_response_checkbox = QCheckBox("Rohdaten anzeigen")
         self.show_raw_response_checkbox.setChecked(True)
         debug_layout.addWidget(self.show_raw_response_checkbox)
-        debug_layout.addStretch()
+        self.enable_web_fallback_checkbox = QCheckBox("Web-Fallback")
+        self.enable_web_fallback_checkbox.setChecked(True)
+        debug_layout.addWidget(self.enable_web_fallback_checkbox)
         soap_config_layout.addLayout(debug_layout)
 
-        # Fallback Option - Claude Generated
-        fallback_layout = QHBoxLayout()
-        self.enable_web_fallback_checkbox = QCheckBox("Web-Scraping Fallback (bei SOAP-Fehler)")
-        self.enable_web_fallback_checkbox.setChecked(True)
-        fallback_layout.addWidget(self.enable_web_fallback_checkbox)
-        fallback_layout.addStretch()
-        soap_config_layout.addLayout(fallback_layout)
-
-        # XML Export Options - Claude Generated
+        # XML Export Options
         xml_layout = QHBoxLayout()
-        self.save_xml_checkbox = QCheckBox("XML-Responses speichern (Debug)")
+        self.save_xml_checkbox = QCheckBox("XML speichern")
         self.save_xml_checkbox.setChecked(False)
         self.save_xml_checkbox.toggled.connect(self.on_save_xml_toggled)
         xml_layout.addWidget(self.save_xml_checkbox)
 
         self.xml_path_display = QLineEdit()
         self.xml_path_display.setReadOnly(True)
-        self.xml_path_display.setPlaceholderText("Pfad für XML-Dateien (optional)")
+        self.xml_path_display.setPlaceholderText("Pfad (optional)")
         xml_layout.addWidget(self.xml_path_display)
 
-        self.xml_browse_button = QPushButton("📁 Durchsuchen...")
+        self.xml_browse_button = QPushButton("📁")
+        self.xml_browse_button.setMaximumWidth(40)
         self.xml_browse_button.clicked.connect(self.select_xml_save_path)
         self.xml_browse_button.setEnabled(False)
         xml_layout.addWidget(self.xml_browse_button)
-
         soap_config_layout.addLayout(xml_layout)
 
-        self.soap_config_group.setLayout(soap_config_layout)
-        self.soap_config_group.setVisible(False)  # Hidden by default
+        self.soap_config_group.setVisible(False)
         layout.addWidget(self.soap_config_group)
 
-        # Input-Bereich
-        input_layout = QVBoxLayout()
+        # Input Area
+        input_group = QGroupBox("Eingabe")
+        input_layout = QVBoxLayout(input_group)
+        input_layout.setSpacing(LAYOUT["inner_spacing"])
+
         input_layout.addWidget(QLabel("Schlagworte (kommagetrennt):"))
-        self.abstract = ""
         self.keywords_input = QTextEdit()
-        self.keywords_input.setPlaceholderText("Geben Sie hier Ihre Schlagworte ein...")
+        self.keywords_input.setPlaceholderText("Schlagworte eingeben...")
         self.keywords_input.setMaximumHeight(100)
+        self.keywords_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         input_layout.addWidget(self.keywords_input)
 
-        config_layout = QHBoxLayout()
-        self.num_results = QSlider(Qt.Orientation.Horizontal)
-        self.num_results.setRange(0, 60)
-        self.num_results.setValue(20)
-        self.num_results.setTickInterval(1)
-        self.num_results.valueChanged.connect(self.update_num_results)
-
-        # Temperatur-Label
-        self.num_label = QLabel(f"Maximale Treffer: {self.num_results.value()}")
-        config_layout.addWidget(self.num_results)
-        config_layout.addWidget(self.num_label)
-        input_layout.addLayout(config_layout)
         self.search_button = QPushButton("Suche starten")
+        self.search_button.setStyleSheet(btn_styles["primary"])
         self.search_button.clicked.connect(self.start_search)
         input_layout.addWidget(self.search_button)
 
@@ -438,65 +452,63 @@ class UBSearchTab(QWidget):
         self.progress_bar.setVisible(False)
         input_layout.addWidget(self.progress_bar)
 
-        self.status_label = QLabel()
+        self.status_label = QLabel("Bereit")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
         input_layout.addWidget(self.status_label)
-        layout.addLayout(input_layout)
 
+        layout.addWidget(input_group)
+
+        # Main splitter for results
         self.mainsplitter = QSplitter(Qt.Orientation.Vertical)
 
-        # Detailansicht
+        # Results Overview
+        results_group = QGroupBox("Suchergebnisse (Übersicht)")
+        results_layout = QVBoxLayout(results_group)
         self.results_view = QTextEdit()
         self.results_view.setReadOnly(True)
+        results_layout.addWidget(self.results_view)
+        self.mainsplitter.addWidget(results_group)
 
-        # Splitter für geteilte Ansicht
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Detailed Splitter (Tree and Details)
+        details_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # TreeView für die Klassifikationen
+        # TreeView for classifications
+        tree_container = QGroupBox("Klassifikationen")
+        tree_layout = QVBoxLayout(tree_container)
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels(["Klassifikation", "Anzahl"])
         self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
-        self.tree_widget.setSortingEnabled(True)  # Sortierung aktivieren
-        splitter.addWidget(self.tree_widget)
+        self.tree_widget.setSortingEnabled(True)
+        tree_layout.addWidget(self.tree_widget)
+        details_splitter.addWidget(tree_container)
 
-        # Detailansicht
+        # Detail view for selected classification
+        detail_container = QGroupBox("Zugehörige Titel")
+        detail_layout = QVBoxLayout(detail_container)
         self.detail_view = QTextEdit()
         self.detail_view.setReadOnly(True)
-        splitter.addWidget(self.detail_view)
+        detail_layout.addWidget(self.detail_view)
+        details_splitter.addWidget(detail_container)
 
-        # Raw Response Debug Viewer - Claude Generated
+        details_splitter.setStretchFactor(0, 1)
+        details_splitter.setStretchFactor(1, 2)
+
+        self.mainsplitter.addWidget(details_splitter)
+        self.mainsplitter.setStretchFactor(0, 1)
+        self.mainsplitter.setStretchFactor(1, 2)
+
+        layout.addWidget(self.mainsplitter)
+
+        # Debug Tabs
         self.debug_tabs = QTabWidget()
         self.raw_response_view = QTextEdit()
         self.raw_response_view.setReadOnly(True)
         self.raw_response_view.setMaximumHeight(150)
-        font = QFont("Courier")
-        font.setPointSize(9)
-        self.raw_response_view.setFont(font)
+        self.raw_response_view.setFont(QFont("Courier", 9))
         self.debug_tabs.addTab(self.raw_response_view, "🔍 Raw Responses (Debug)")
-        self.debug_tabs.setVisible(False)  # Hidden by default
+        self.debug_tabs.setVisible(False)
         layout.addWidget(self.debug_tabs)
 
-        # Remove AI tabs and replace with direct calls
-        # self.ai_tabs = QTabWidget()
-        # self.ai_search = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
-        # self.ai_search.template_name = "ub_search"
-        # self.ai_search.set_task("dk_list")
-        # self.ai_tabs.addTab(self.ai_search, "DK-Zuordnung")
-        # self.ai_classification = AbstractTab(alima_manager=self.alima_manager, llm_service=self.llm)
-        # self.ai_classification.template_name = "classification"
-        # self.ai_classification.set_abstract(self.abstract)
-        # self.ai_classification.set_task("dk_class")
-        # self.ai_tabs.addTab(self.ai_classification, "DK-Klassifizierung")
-        # splitter.addWidget(self.ai_tabs)
-
-        # Setze die Stretchfaktoren für den Splitter
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        splitter.setStretchFactor(2, 3)
-
-        # Layout zusammenbauen
-        self.mainsplitter.addWidget(self.results_view)
-        self.mainsplitter.addWidget(splitter)
-        layout.addWidget(self.mainsplitter)
         self.setLayout(layout)
 
     def set_models_and_providers(self, models: dict, providers: list):

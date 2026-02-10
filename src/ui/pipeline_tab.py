@@ -21,7 +21,10 @@ from PyQt6.QtWidgets import (
     QSlider,
     QMessageBox,
     QLineEdit,
-    QCheckBox
+    QCheckBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QFont, QPalette, QPixmap
@@ -403,30 +406,33 @@ class PipelineTab(QWidget):
 
         # Enhanced tab styling
         self.pipeline_tabs.setStyleSheet(
-            """
-            QTabWidget::pane {
+            f"""
+            QTabWidget::pane {{
                 border: 1px solid #ddd;
                 background: white;
-            }
-            QTabWidget::tab-bar {
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }}
+            QTabWidget::tab-bar {{
                 alignment: left;
-            }
-            QTabBar::tab {
+            }}
+            QTabBar::tab {{
                 background: #f5f5f5;
                 border: 1px solid #ddd;
                 padding: 12px 8px;
-                margin: 2px;
-                min-width: 15px;
-                border-radius: 4px;
-            }
-            QTabBar::tab:selected {
+                margin-bottom: 2px;
+                border-top-left-radius: 4px;
+                border-bottom-left-radius: 4px;
+                min-width: 100px;
+            }}
+            QTabBar::tab:selected {{
                 background: #2196f3;
                 color: white;
-                border-color: #1976d2;
-            }
-            QTabBar::tab:hover {
+                border-right: none;
+            }}
+            QTabBar::tab:hover:!selected {{
                 background: #e3f2fd;
-            }
+            }}
         """
         )
 
@@ -1072,10 +1078,10 @@ class PipelineTab(QWidget):
         # Final classification results
         results_group = QGroupBox("Finale DK/RVK-Klassifikationen")
         results_layout = QVBoxLayout(results_group)
-        
+
         self.dk_classification_results = QTextEdit()
         self.dk_classification_results.setReadOnly(True)
-        self.dk_classification_results.setMinimumHeight(150)
+        self.dk_classification_results.setMinimumHeight(400)
         self.dk_classification_results.setPlaceholderText(
             "Finale DK/RVK-Klassifikationen vom LLM werden hier angezeigt...\n"
             "Format: DK 666.76, RVK Q12, RVK QC 130, ..."
@@ -1083,75 +1089,14 @@ class PipelineTab(QWidget):
         results_layout.addWidget(self.dk_classification_results)
         layout.addWidget(results_group)
 
+        # Statistics Group (Compact) - Claude Generated
+        self.dk_compact_stats = QLabel()
+        self.dk_compact_stats.setWordWrap(True)
+        self.dk_compact_stats.setTextFormat(Qt.TextFormat.RichText)
+        self.dk_compact_stats.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
+        layout.addWidget(self.dk_compact_stats)
+
         return widget
-
-    def _format_dk_classifications_with_titles(
-        self,
-        dk_classifications: List[str],
-        dk_search_results: List[Dict[str, Any]]
-    ) -> str:
-        """Format DK classifications with catalog titles using HTML - Claude Generated"""
-        if not dk_classifications:
-            return "Keine DK/RVK-Klassifikationen generiert"
-
-        html_parts = []
-        html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
-
-        for idx, dk_code in enumerate(dk_classifications, 1):
-            titles, total_count = self._get_titles_for_dk_code(dk_code, dk_search_results)
-
-            # Color-coding basierend auf Häufigkeit (Konfidenz)
-            if total_count > 50:
-                color, bg_color = "#2d5016", "#d4edda"  # Dunkelgrün - sehr sicher
-            elif total_count > 20:
-                color, bg_color = "#0c5460", "#d1ecf1"  # Türkis - sicher
-            else:
-                color, bg_color = "#664d03", "#fff3cd"  # Braun/Orange - geringe Konfidenz
-
-            # Header mit Konfidenz-Indikator
-            html_parts.append(
-                f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
-                f"border-left: 4px solid {color}; border-radius: 4px;'>"
-                f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
-            )
-
-            if total_count > 0:
-                confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
-                html_parts.append(f"<p style='color: {color}; font-weight: bold;'>{confidence_bar} {total_count} Titel</p>")
-            html_parts.append("</div>")
-
-            # Titelliste (max. 5 Titel im Pipeline-Tab)
-            if titles:
-                html_parts.append("<ol style='font-size: 9pt; padding-left: 30px;'>")
-                for title in titles[:5]:
-                    safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    html_parts.append(f"<li>{safe_title}</li>")
-                html_parts.append("</ol>")
-
-                if total_count > 5:
-                    html_parts.append(f"<p style='color: #888; font-style: italic; padding-left: 20px;'>... und {total_count - 5} weitere Titel</p>")
-
-        html_parts.append("</body></html>")
-        return "".join(html_parts)
-
-    def _get_titles_for_dk_code(
-        self,
-        dk_code: str,
-        dk_search_results: List[Dict[str, Any]]
-    ) -> tuple[list, int]:
-        """Extract titles for a specific DK code - Claude Generated"""
-        if not dk_search_results:
-            return ([], 0)
-
-        normalized_code = dk_code.replace("DK ", "").strip()
-
-        for result in dk_search_results:
-            result_code = str(result.get("dk", "")).strip()
-            if result_code == normalized_code:
-                titles = result.get("titles", [])
-                return (titles[:50], len(titles))  # Max 50 für Display
-
-        return ([], 0)
 
     def _filter_dk_search_results(self):
         """Filter displayed DK search results based on search input - Claude Generated"""
@@ -1228,6 +1173,80 @@ class PipelineTab(QWidget):
             result_lines.append(result_line)
 
         self.dk_search_results.setPlainText("\n".join(result_lines))
+
+    def _format_dk_classifications_with_titles(
+        self,
+        dk_classifications: List[str],
+        dk_search_results: List[Dict[str, Any]],
+        max_titles_per_code: int = 5
+    ) -> str:
+        """Format DK classifications with catalog titles using HTML - Claude Generated"""
+        if not dk_classifications:
+            return "Keine DK/RVK-Klassifikationen generiert"
+
+        html_parts = []
+        html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
+
+        for idx, dk_code in enumerate(dk_classifications, 1):
+            titles, total_count = self._get_titles_for_dk_code(dk_code, dk_search_results)
+
+            # Color-coding based on frequency (confidence)
+            if total_count > 50:
+                color, bg_color = "#2d5016", "#d4edda"  # Dark green
+            elif total_count > 20:
+                color, bg_color = "#0c5460", "#d1ecf1"  # Teal
+            else:
+                color, bg_color = "#664d03", "#fff3cd"  # Brown/Orange
+
+            # Header with confidence indicator
+            html_parts.append(
+                f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
+                f"border-left: 4px solid {color}; border-radius: 4px;'>"
+                f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
+            )
+
+            if total_count > 0:
+                confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
+                html_parts.append(
+                    f"<p style='color: {color}; font-weight: bold; margin: 5px 0 2px 0;'>"
+                    f"{confidence_bar} {total_count} Katalog-Treffer</p>"
+                    f"<p style='color: {color}; font-size: 9pt; opacity: 0.8; margin: 0 0 10px 0;'>"
+                    f"📚 Diese Klassifikation wurde in {total_count} Titel{'n' if total_count != 1 else ''} gefunden.</p>"
+                )
+            html_parts.append("</div>")
+
+            # Title list
+            if titles:
+                html_parts.append("<ol style='font-size: 9pt; padding-left: 30px;'>")
+                for title in titles[:max_titles_per_code]:
+                    safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html_parts.append(f"<li>{safe_title}</li>")
+                html_parts.append("</ol>")
+
+                if total_count > max_titles_per_code:
+                    html_parts.append(f"<p style='color: #888; font-style: italic; padding-left: 20px;'>... und {total_count - max_titles_per_code} weitere Titel</p>")
+
+        html_parts.append("</body></html>")
+        return "".join(html_parts)
+
+    def _get_titles_for_dk_code(
+        self,
+        dk_code: str,
+        dk_search_results: List[Dict[str, Any]]
+    ) -> tuple[list, int]:
+        """Extract titles for a specific DK code - Claude Generated"""
+        if not dk_search_results:
+            return ([], 0)
+
+        normalized_code = dk_code.replace("DK ", "").strip()
+
+        for result in dk_search_results:
+            result_code = str(result.get("dk", "")).strip()
+            if result_code == normalized_code:
+                titles = result.get("titles", [])
+                return (titles[:50], len(titles))  # Max 50 for display
+
+        return ([], 0)
 
     def start_auto_pipeline(self):
         """Start the automatic pipeline in background thread - Claude Generated"""
@@ -1767,6 +1786,19 @@ class PipelineTab(QWidget):
                     else:
                         self.dk_input_summary.setPlainText("Katalog-Suchergebnisse für LLM-Analyse")
 
+                # Update compact stats - Claude Generated
+                if hasattr(self, "dk_compact_stats"):
+                    stats = step.output_data.get("statistics")
+                    if stats:
+                        total = stats.get("total_classifications", 0)
+                        dedup = stats.get("deduplication_stats", {})
+                        orig = dedup.get("original_count", 0)
+                        rate = dedup.get("deduplication_rate", "0%")
+                        self.dk_compact_stats.setText(
+                            f"📊 <b>DK-Statistik:</b> {orig} Katalogtreffer → <b>{total}</b> unikale Klassifikationen "
+                            f"(Deduplizierungsrate: {rate})"
+                        )
+
         # End any active streaming for this step
         if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:
             self.stream_widget.end_llm_streaming()
@@ -2040,11 +2072,18 @@ class PipelineTab(QWidget):
                     self.logger.info("Emitting DOI metadata to CrossrefTab")
                     self.metadata_ready.emit(metadata)
             
-            # Emit keyword analysis results to AbstractTab 
-            elif step.step_id in ["initialisation", "keywords"] and "analysis_result" in step.output_data:
-                analysis_result = step.output_data["analysis_result"]
-                self.logger.info(f"Emitting {step.step_id} analysis results to AbstractTab")
-                self.analysis_results_ready.emit(analysis_result)
+            # Emit keyword analysis results to AbstractTab (and DkAnalysisTab)
+            elif step.step_id in ["initialisation", "keywords", "dk_classification"]:
+                if "analysis_result" in step.output_data:
+                    analysis_result = step.output_data["analysis_result"]
+                    self.logger.info(f"Emitting {step.step_id} analysis results to AbstractTab")
+                    self.analysis_results_ready.emit(analysis_result)
+                elif "llm_analysis" in step.output_data:
+                    llm_analysis = step.output_data["llm_analysis"]
+                    self.logger.info(f"Emitting {step.step_id} LLM analysis results to Tabs")
+                    # We reuse the same signal, as AbstractTab can handle LlmKeywordAnalysis too
+                    # (Need to ensure AbstractTab's slot can handle both or we wrap it)
+                    self.analysis_results_ready.emit(llm_analysis)
                 
         except Exception as e:
             self.logger.error(f"Error emitting step results to tabs: {e}")

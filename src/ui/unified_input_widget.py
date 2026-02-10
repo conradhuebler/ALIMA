@@ -26,7 +26,10 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 import os
-import PyPDF2
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
 import requests
 from datetime import datetime
 

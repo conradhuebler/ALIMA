@@ -20,11 +20,18 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor, QColor
 import logging
+import os
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import List, Optional, Dict, Any
 
+from .styles import (
+    get_main_stylesheet,
+    get_button_styles,
+    get_status_label_styles,
+    LAYOUT,
+    COLORS,
+)
 from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis
-from ..utils.pipeline_utils import AnalysisPersistence
 
 # K10+/WinIBW export format tags - Claude Generated
 # These can be moved to config later for configurability
@@ -103,34 +110,46 @@ class AnalysisReviewTab(QWidget):
 
     def setup_ui(self):
         """Setup the user interface"""
+        # Apply main stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+        btn_styles = get_button_styles()
+
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(12)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(LAYOUT["spacing"])
+        main_layout.setContentsMargins(
+            LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
+        )
 
         # Control buttons
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(LAYOUT["inner_spacing"])
 
         self.load_button = QPushButton("Analyse laden")
+        self.load_button.setStyleSheet(btn_styles["secondary"])
         self.load_button.clicked.connect(self.load_analysis)
         button_layout.addWidget(self.load_button)
 
-        # Batch mode toggle button - Claude Generated
+        # Batch mode toggle button
         self.batch_toggle_button = QPushButton("📋 Batch-Ansicht")
+        self.batch_toggle_button.setStyleSheet(btn_styles["secondary"])
         self.batch_toggle_button.clicked.connect(self.toggle_batch_mode)
         self.batch_toggle_button.setCheckable(True)
         button_layout.addWidget(self.batch_toggle_button)
 
         self.export_button = QPushButton("Als JSON exportieren")
+        self.export_button.setStyleSheet(btn_styles["secondary"])
         self.export_button.clicked.connect(self.export_analysis)
         self.export_button.setEnabled(False)
         button_layout.addWidget(self.export_button)
 
-        self.use_keywords_button = QPushButton("Keywords in Suche verwenden")
+        self.use_keywords_button = QPushButton("Suche: Keywords")
+        self.use_keywords_button.setStyleSheet(btn_styles["accent"])
         self.use_keywords_button.clicked.connect(self.use_keywords_in_search)
         self.use_keywords_button.setEnabled(False)
         button_layout.addWidget(self.use_keywords_button)
 
-        self.use_abstract_button = QPushButton("Abstract in Analyse verwenden")
+        self.use_abstract_button = QPushButton("Analyse: Abstract")
+        self.use_abstract_button.setStyleSheet(btn_styles["accent"])
         self.use_abstract_button.clicked.connect(self.use_abstract_in_analysis)
         self.use_abstract_button.setEnabled(False)
         button_layout.addWidget(self.use_abstract_button)
@@ -138,7 +157,7 @@ class AnalysisReviewTab(QWidget):
         button_layout.addStretch()
         main_layout.addLayout(button_layout)
 
-        # Batch review table - Claude Generated (initially hidden)
+        # Batch review table
         self.setup_batch_table()
         main_layout.addWidget(self.batch_table_widget)
 
@@ -182,20 +201,18 @@ class AnalysisReviewTab(QWidget):
 
     def init_detail_tabs(self):
         """Initialize the detail tabs"""
+        btn_styles = get_button_styles()
+
         # Original Abstract tab
         self.abstract_text = QTextEdit()
         self.abstract_text.setReadOnly(True)
-        font = self.abstract_text.font()
-        font.setPointSize(11)
-        self.abstract_text.setFont(font)
+        self.abstract_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.details_tabs.addTab(self.abstract_text, "Original Abstract")
 
         # Initial Keywords tab
         self.initial_keywords_text = QTextEdit()
         self.initial_keywords_text.setReadOnly(True)
-        font = self.initial_keywords_text.font()
-        font.setPointSize(11)
-        self.initial_keywords_text.setFont(font)
+        self.initial_keywords_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.details_tabs.addTab(self.initial_keywords_text, "Initial Keywords")
 
         # Search Results tab
@@ -210,33 +227,28 @@ class AnalysisReviewTab(QWidget):
         # GND Compliant Keywords tab
         self.gnd_keywords_text = QTextEdit()
         self.gnd_keywords_text.setReadOnly(True)
-        font = self.gnd_keywords_text.font()
-        font.setPointSize(11)
-        self.gnd_keywords_text.setFont(font)
-        self.details_tabs.addTab(self.gnd_keywords_text, "GND-konforme Keywords")
+        self.gnd_keywords_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.details_tabs.addTab(self.gnd_keywords_text, "GND-Keywords")
 
         # Final Analysis tab
         self.final_analysis_text = QTextEdit()
         self.final_analysis_text.setReadOnly(True)
-        font = self.final_analysis_text.font()
-        font.setPointSize(11)
-        self.final_analysis_text.setFont(font)
+        self.final_analysis_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.details_tabs.addTab(self.final_analysis_text, "Finale Analyse")
 
-        # Chunk Details tab - Claude Generated (shows intermediate chunked analysis responses)
+        # Chunk Details tab
         self.chunk_details_text = QTextEdit()
         self.chunk_details_text.setReadOnly(True)
-        font = self.chunk_details_text.font()
-        font.setPointSize(11)
-        self.chunk_details_text.setFont(font)
-        self.details_tabs.addTab(self.chunk_details_text, "Chunk-Details (Zwischenergebnisse)")
+        self.chunk_details_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.details_tabs.addTab(self.chunk_details_text, "Chunks")
 
-        # Iteration History tab - Claude Generated
+        # Iteration History tab
         iteration_widget = QWidget()
         iteration_layout = QVBoxLayout(iteration_widget)
+        iteration_layout.setSpacing(LAYOUT["inner_spacing"])
 
         iteration_label = QLabel("<b>🔄 Iterative GND-Suche Verlauf</b>")
-        iteration_label.setFont(QFont("Arial", 11))
+        iteration_label.setFont(QFont("Segoe UI", 11))
         iteration_layout.addWidget(iteration_label)
 
         # Iteration table
@@ -251,52 +263,44 @@ class AnalysisReviewTab(QWidget):
 
         # Summary label
         self.iteration_summary_label = QLabel("")
-        self.iteration_summary_label.setFont(QFont("Arial", 10))
         self.iteration_summary_label.setTextFormat(Qt.TextFormat.RichText)
         iteration_layout.addWidget(self.iteration_summary_label)
 
         # Missing concepts details
         missing_concepts_label = QLabel("<b>Letzte fehlende Konzepte:</b>")
-        missing_concepts_label.setFont(QFont("Arial", 10))
         iteration_layout.addWidget(missing_concepts_label)
 
         self.missing_concepts_text = QTextEdit()
         self.missing_concepts_text.setReadOnly(True)
         self.missing_concepts_text.setMaximumHeight(100)
-        font = self.missing_concepts_text.font()
-        font.setPointSize(10)
-        self.missing_concepts_text.setFont(font)
+        self.missing_concepts_text.setFont(QFont("Segoe UI", 10))
         iteration_layout.addWidget(self.missing_concepts_text)
 
         iteration_layout.addStretch()
 
-        self.details_tabs.addTab(iteration_widget, "🔄 Iterationsverlauf")
+        self.details_tabs.addTab(iteration_widget, "Iterationsverlauf")
 
-        # DK/RVK Classifications tab - Claude Generated
+        # DK/RVK Classifications tab
         self.dk_classification_display = QTextEdit()
         self.dk_classification_display.setReadOnly(True)
-        font = self.dk_classification_display.font()
-        font.setPointSize(11)
-        self.dk_classification_display.setFont(font)
-        self.details_tabs.addTab(self.dk_classification_display, "DK/RVK-Klassifikationen")
+        self.dk_classification_display.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.details_tabs.addTab(self.dk_classification_display, "DK/RVK")
 
-        # K10+ Export tab - Claude Generated
+        # K10+ Export tab
         k10plus_widget = QWidget()
         k10plus_layout = QVBoxLayout(k10plus_widget)
+        k10plus_layout.setSpacing(LAYOUT["inner_spacing"])
 
         k10plus_label = QLabel("K10+/WinIBW Katalog-Export Format:")
-        k10plus_label.setFont(QFont("Arial", 10))
         k10plus_layout.addWidget(k10plus_label)
 
         self.k10plus_text = QTextEdit()
         self.k10plus_text.setReadOnly(True)
-        font = self.k10plus_text.font()
-        font.setPointSize(11)
-        font.setFamily("Courier")  # Monospace for better readability
-        self.k10plus_text.setFont(font)
+        self.k10plus_text.setFont(QFont("Courier New", 11))
         k10plus_layout.addWidget(self.k10plus_text)
 
         copy_button = QPushButton("📋 In Zwischenablage kopieren")
+        copy_button.setStyleSheet(btn_styles["primary"])
         copy_button.clicked.connect(self.copy_k10plus_to_clipboard)
         k10plus_layout.addWidget(copy_button)
 
@@ -305,19 +309,19 @@ class AnalysisReviewTab(QWidget):
         # Statistics tab
         self.stats_text = QTextEdit()
         self.stats_text.setReadOnly(True)
-        font = self.stats_text.font()
-        font.setPointSize(11)
-        self.stats_text.setFont(font)
+        self.stats_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         self.details_tabs.addTab(self.stats_text, "Statistiken")
 
-        # DK Statistics tab - Claude Generated (Deduplication metrics and frequency analysis)
+        # DK Statistics tab
         dk_stats_widget = QWidget()
         dk_stats_layout = QVBoxLayout(dk_stats_widget)
+        dk_stats_layout.setSpacing(LAYOUT["spacing"])
 
         # Deduplication Summary Group
         self.dk_dedup_summary = QGroupBox("📊 Deduplication Summary")
         dedup_layout = QVBoxLayout()
-        self.dk_dedup_labels = {}  # Store labels for dynamic updates
+        dedup_layout.setSpacing(LAYOUT["inner_spacing"])
+        self.dk_dedup_labels = {}
         dedup_layout.addWidget(self._create_stat_label("original", "Original Classifications:"))
         dedup_layout.addWidget(self._create_stat_label("final", "After Deduplication:"))
         dedup_layout.addWidget(self._create_stat_label("removed", "Duplicates Removed:"))
@@ -328,7 +332,7 @@ class AnalysisReviewTab(QWidget):
 
         # Top 10 Table
         top10_label = QLabel("<b>Top 10 Most Frequent Classifications</b>")
-        top10_label.setFont(QFont("Arial", 11))
+        top10_label.setFont(QFont("Segoe UI", 11))
         dk_stats_layout.addWidget(top10_label)
 
         self.dk_top10_table = QTableWidget()
@@ -342,7 +346,7 @@ class AnalysisReviewTab(QWidget):
 
         # Keyword Coverage Table
         coverage_label = QLabel("<b>Keyword Coverage</b>")
-        coverage_label.setFont(QFont("Arial", 11))
+        coverage_label.setFont(QFont("Segoe UI", 11))
         dk_stats_layout.addWidget(coverage_label)
 
         self.dk_coverage_table = QTableWidget()

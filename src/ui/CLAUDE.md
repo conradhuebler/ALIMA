@@ -12,6 +12,7 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 - `AbstractTab`: Primary text analysis interface with chunking workflow
 - `SearchTab` (find_keywords.py): GND keyword search and browse interface
 - `AnalysisReviewTab`: Analysis workflow review and result management (enhanced with auto-receive)
+- `🆕 DkClassificationTab`: Dedicated view for DK/RVK classification results and statistics
 - `CrossrefTab`: DOI metadata lookup and Crossref integration
 - `UBSearchTab`: University library search interface
 - `ImageAnalysisTab`: AI-powered image analysis functionality
@@ -168,7 +169,8 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 1. **✅ ADDED - Batch Processing Dialog**: Tab-based batch processing with filters and progress tracking
 
 ### Previously COMPLETED Tasks
-1. **✅ TESTED - Vertical Pipeline UI**: Complete implementation with visual step indicators
+1. **✅ TESTED - UI Refactoring & Unification**: All tabs refactored with `QSplitter` and unified styling
+2. **✅ TESTED - Vertical Pipeline UI**: Complete implementation with visual step indicators
 2. **✅ TESTED - Global Status Integration**: Real-time provider and cache monitoring  
 3. **✅ TESTED - Automated Data Transfer**: AbstractTab → AnalysisReviewTab workflow
 4. **✅ APPROVED - Pipeline Manager Integration**: Full workflow orchestration system

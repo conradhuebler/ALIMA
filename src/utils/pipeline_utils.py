@@ -1689,10 +1689,10 @@ class PipelineStepExecutor:
         dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,  # Claude Generated - Only pass classifications with >= N occurrences
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
-    ) -> List[str]:
+    ) -> Tuple[List[str], Optional["LlmKeywordAnalysis"]]:
         """
         Execute LLM-based DK classification using pre-fetched catalog search results with intelligent provider selection - Claude Generated
-        
+
         Args:
             original_abstract: The original abstract text for analysis
             dk_search_results: List of DK classification results from catalog search
@@ -1704,12 +1704,14 @@ class PipelineStepExecutor:
                                   will be passed to the LLM for analysis. Default: 10.
                                   This reduces prompt size and focuses on most relevant classifications.
             **kwargs: Additional parameters for LLM (temperature, top_p, etc.)
-            
+
         Returns:
-            List of selected DK classification codes
-            
+            Tuple containing:
+            - List of selected DK classification codes
+            - LlmKeywordAnalysis object with details of the LLM call
+
         Note:
-            The frequency threshold helps manage large result sets by filtering out 
+            The frequency threshold helps manage large result sets by filtering out
             classifications that occur infrequently in the catalog, which are typically
             less relevant for the given abstract.
         """
@@ -1727,7 +1729,7 @@ class PipelineStepExecutor:
         if not dk_search_results:
             if stream_callback:
                 stream_callback("Keine DK-Suchergebnisse vorhanden - DK-Klassifikation übersprungen\n", "dk_classification")
-            return []
+            return [], None
 
         if stream_callback:
             stream_callback(f"Starte DK-Klassifikation mit {len(dk_search_results)} Katalog-Einträgen\n", "dk_classification")
@@ -1790,72 +1792,9 @@ class PipelineStepExecutor:
         if self.logger:
             self.logger.info(f"DK title filter: {len(results_with_titles)} with titles, {titleless_count} without titles excluded")
 
-        # Format catalog results for LLM prompt with aggregated data
-        catalog_results = []
-        for result in results_with_titles:
-            # Handle aggregated format from _aggregate_dk_results
-            if "dk" in result and "count" in result and "titles" in result:
-                # Aggregated format with count and titles
-                dk_code = result.get("dk", "")
-                count = result.get("count", 0)
-                titles = result.get("titles", [])
-                matched_keywords = result.get("matched_keywords", [])  # NEW: Use matched_keywords from deduplication - Claude Generated Step 4
-                classification_type = result.get("classification_type", "DK")
-                avg_confidence = result.get("avg_confidence", 0.0)
+        # Format catalog results for LLM prompt with aggregated data - Claude Generated
+        catalog_text = PipelineResultFormatter.format_dk_results_for_prompt(results_with_titles)
 
-                # Format with count, keywords, and sample titles
-                if dk_code:
-                    # Show up to 3 sample titles to keep prompt manageable
-                    sample_titles = titles # nope lets go with all
-                    title_text = " | ".join(sample_titles)
-                    #if len(titles) > 3:
-                    #    title_text += f" | ... (und {len(titles) - 3} weitere)"
-
-                    # NEW: Include keywords in the output - Claude Generated Step 4
-                    keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
-                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}\nBeispieltitel: {title_text}"
-                    catalog_results.append(entry)
-            elif "source_title" in result and "dk" in result:
-                # Individual result format from extract_dk_classifications_for_keywords
-                dk_code = result.get("dk", "")
-                title = result.get("source_title", "")
-                keyword = result.get("keyword", "")
-                classification_type = result.get("classification_type", "DK")
-                
-                # Format individual classification
-                if dk_code and title:
-                    entry = f"{classification_type}: {dk_code} | Titel: {title}"
-                    catalog_results.append(entry)
-            else:
-                # Legacy format support
-                title = result.get("title", "")
-                subjects = result.get("subjects", [])
-                dk_classifications = result.get("dk", [])
-                rvk_classifications = result.get("rvk", [])
-                
-                # Format legacy results
-                if title:
-                    entry = f"Titel: {title}"
-                    if subjects:
-                        entry += f" | Schlagworte: {', '.join(subjects)}"
-                    if dk_classifications:
-                        if isinstance(dk_classifications, str):
-                            entry += f" | DK: {dk_classifications}"
-                        elif isinstance(dk_classifications, list):
-                            valid_dk = [dk for dk in dk_classifications if len(str(dk)) > 1]
-                            if valid_dk:
-                                entry += f" | DK: {', '.join(map(str, valid_dk))}"
-                    if rvk_classifications:
-                        if isinstance(rvk_classifications, str):
-                            entry += f" | RVK: {rvk_classifications}"
-                        elif isinstance(rvk_classifications, list):
-                            entry += f" | RVK: {', '.join(map(str, rvk_classifications))}"
-                    
-                    catalog_results.append(entry)
-
-        # Prepare data for LLM classification
-        catalog_text = "\n".join(catalog_results)
-        
         # Create AbstractData for LLM call
         from ..core.data_models import AbstractData
         abstract_data = AbstractData(
@@ -1879,7 +1818,7 @@ class PipelineStepExecutor:
         try:
             task_state = self.alima_manager.analyze_abstract(
                 abstract_data=abstract_data,
-                task="dk_class",
+                task="dk_classification",
                 model=model,
                 provider=provider,
                 stream_callback=alima_stream_callback,
@@ -1890,23 +1829,37 @@ class PipelineStepExecutor:
             if task_state.status == "failed":
                 if stream_callback:
                     stream_callback(f"LLM-Klassifikation fehlgeschlagen: {task_state.analysis_result.full_text}\n", "dk_classification")
-                return []
+                return [], None
 
             # Extract DK classifications from LLM response
             response_text = task_state.analysis_result.full_text
             dk_classifications = self._extract_dk_from_response(response_text)
-            
+
+            # Construct LlmKeywordAnalysis object for history/display - Claude Generated
+            from ..core.data_models import LlmKeywordAnalysis
+            llm_analysis = LlmKeywordAnalysis(
+                task_name="dk_classification",
+                model_used=task_state.model_used or model or "unknown",
+                provider_used=task_state.provider_used or provider or "unknown",
+                prompt_template=task_state.prompt_config.prompt if task_state.prompt_config else "",
+                filled_prompt="", # We don't store the filled prompt to save space
+                temperature=task_state.prompt_config.temp if task_state.prompt_config else 0.7,
+                seed=task_state.prompt_config.seed if task_state.prompt_config else 0,
+                response_full_text=response_text,
+                extracted_gnd_classes=dk_classifications
+            )
+
             if stream_callback:
                 stream_callback(f"DK-Klassifikation abgeschlossen: {len(dk_classifications)} DK-Codes extrahiert\n", "dk_classification")
-                
-            return dk_classifications
-            
+
+            return dk_classifications, llm_analysis
+
         except Exception as e:
             if self.logger:
                 self.logger.error(f"LLM DK classification failed: {e}")
             if stream_callback:
                 stream_callback(f"LLM-Klassifikation-Fehler: {str(e)}\n", "dk_classification")
-            return []
+            return [], None
 
     def _extract_dk_from_response(self, response_text: str) -> List[str]:
         """Extract DK and RVK classifications from LLM response - Claude Generated
@@ -3112,6 +3065,146 @@ class PipelineResultFormatter:
                 search_results_text += f"  - {formatted_keyword}\n"
 
         return search_results_text
+
+    @staticmethod
+    def format_dk_results_for_prompt(dk_results: List[Dict[str, Any]]) -> str:
+        """Format DK/RVK results for LLM prompt or UI display - Claude Generated"""
+        catalog_results = []
+        for result in dk_results:
+            # Handle aggregated format from _aggregate_dk_results
+            if "dk" in result and "count" in result and "titles" in result:
+                # Aggregated format with count and titles
+                dk_code = result.get("dk", "")
+                count = result.get("count", 0)
+                titles = result.get("titles", [])
+                matched_keywords = result.get("matched_keywords", [])
+                classification_type = result.get("classification_type", "DK")
+
+                if dk_code:
+                    title_text = " | ".join(titles)
+                    keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
+                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}\nBeispieltitel: {title_text}"
+                    catalog_results.append(entry)
+            elif "source_title" in result and "dk" in result:
+                # Individual result format
+                dk_code = result.get("dk", "")
+                title = result.get("source_title", "")
+                classification_type = result.get("classification_type", "DK")
+
+                if dk_code and title:
+                    entry = f"{classification_type}: {dk_code} | Titel: {title}"
+                    catalog_results.append(entry)
+            else:
+                # Legacy format support
+                title = result.get("title", "")
+                subjects = result.get("subjects", [])
+                dk_class = result.get("dk", [])
+                rvk_class = result.get("rvk", [])
+
+                if title:
+                    entry = f"Titel: {title}"
+                    if subjects:
+                        entry += f" | Schlagworte: {', '.join(subjects)}"
+
+                    # Handle DK
+                    if isinstance(dk_class, str):
+                        entry += f" | DK: {dk_class}"
+                    elif isinstance(dk_class, list):
+                        valid_dk = [dk for dk in dk_class if len(str(dk)) > 1]
+                        if valid_dk:
+                            entry += f" | DK: {', '.join(map(str, valid_dk))}"
+
+                    # Handle RVK
+                    if isinstance(rvk_class, str):
+                        entry += f" | RVK: {rvk_class}"
+                    elif isinstance(rvk_class, list):
+                        entry += f" | RVK: {', '.join(map(str, rvk_class))}"
+
+                    catalog_results.append(entry)
+
+        return "\n".join(catalog_results)
+
+    @staticmethod
+    def parse_dk_results_from_text(text: str) -> List[Dict[str, Any]]:
+        """Parse DK/RVK results back from formatted text into dictionary format - Claude Generated"""
+        import re
+        import logging
+        logger = logging.getLogger(__name__)
+        results = []
+
+        if not text:
+            return results
+
+        # Regex for the main entry line: "[Type]: [DK Code] (Häufigkeit: [Count])"
+        # We make it more flexible: optional spaces, optional prefix
+        entry_pattern = r'(?:^|\n)\s*(DK|RVK):\s*([A-Z0-9.\-\s/]+?)\s*(?:\(Häufigkeit:\s*(\d+)\))'
+
+        lines = text.split('\n')
+        current_entry = None
+
+        logger.debug(f"Parsing DK results from text ({len(text)} chars)")
+
+        # First attempt: Try to parse the structured format with frequencies and titles
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check if this is a new entry line
+            match = re.search(entry_pattern, line)
+            if match:
+                if current_entry:
+                    results.append(current_entry)
+
+                current_entry = {
+                    "classification_type": match.group(1),
+                    "dk": match.group(2).strip(),
+                    "count": int(match.group(3)) if match.group(3) else 1,
+                    "matched_keywords": [],
+                    "titles": []
+                }
+            elif current_entry:
+                # Check for Keywords line
+                if "Keywords:" in line:
+                    kw_text = line.split("Keywords:")[1].strip()
+                    if kw_text and kw_text.lower() != "keine":
+                        # Split by comma, semicolon or pipe
+                        current_entry["matched_keywords"] = [k.strip() for k in re.split(r'[;,|]', kw_text) if k.strip()]
+
+                # Check for Beispieltitel line
+                elif "Beispieltitel:" in line:
+                    title_text = line.split("Beispieltitel:")[1].strip()
+                    if title_text:
+                        current_entry["titles"] = [t.strip() for t in title_text.split("|") if t.strip()]
+
+        # Don't forget the last entry
+        if current_entry:
+            results.append(current_entry)
+
+        # Fallback: If no structured entries found, try simple comma-separated DK/RVK codes
+        if not results:
+            logger.debug("No structured DK entries found, trying simple fallback parser")
+            # Look for things like "DK 614.7", "DK: 614.7", "RVK QZ 123"
+            simple_pattern = r'(DK|RVK):?\s*([A-Z0-9.\-\s/]+?)(?=[,\n;]|$)'
+            matches = re.finditer(simple_pattern, text)
+            for match in matches:
+                code = match.group(2).strip()
+                # Basic validation: code shouldn't be too long and should have some digits/uppercase
+                if 1 < len(code) < 30:
+                    results.append({
+                        "classification_type": match.group(1),
+                        "dk": code,
+                        "count": 1,
+                        "matched_keywords": [],
+                        "titles": []
+                    })
+
+        if results:
+            logger.info(f"✅ Successfully parsed {len(results)} DK entries from text context")
+        else:
+            logger.warning("⚠️ No DK entries could be parsed from the provided text context")
+
+        return results
 
     @staticmethod
     def get_gnd_compliant_keywords(

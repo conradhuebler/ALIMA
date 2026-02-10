@@ -1279,27 +1279,35 @@ class PipelineManager:
     def _execute_dk_classification_step(self, step: PipelineStep) -> bool:
         """Execute DK classification step using LLM analysis - Claude Generated"""
         try:
-            # Get DK search results from previous step
+            # Get DK search results from previous step or current analysis state - Claude Generated
+            dk_search_results = []
             previous_step = self._get_previous_step("dk_search")
-            if not previous_step or not previous_step.output_data:
+            if previous_step and previous_step.output_data:
+                dk_search_results = previous_step.output_data.get("dk_search_results_flattened",
+                                                                   previous_step.output_data.get("dk_search_results", []))
+
+            if not dk_search_results and self.current_analysis_state:
+                dk_search_results = getattr(self.current_analysis_state, 'dk_search_results_flattened', [])
+                if dk_search_results:
+                    self.logger.info(f"Using {len(dk_search_results)} DK results from analysis state (no completed dk_search step found)")
+
+            if not dk_search_results:
                 self.logger.warning("No DK search results available for classification")
                 step.output_data = {"dk_classifications": []}
                 return True
 
-            # Use flattened DK-centric format for LLM prompt building - Claude Generated
-            # Falls back to original format if flattened not available (backward compatibility)
-            dk_search_results = previous_step.output_data.get("dk_search_results_flattened",
-                                                               previous_step.output_data.get("dk_search_results", []))
-            
-            # Get original abstract text
-            input_step = self._get_previous_step("input")
+            # Get original abstract text - Claude Generated
             original_abstract = ""
+            input_step = self._get_previous_step("input")
             if input_step and input_step.output_data:
                 original_abstract = input_step.output_data.get("text", "")
+
+            if not original_abstract and self.current_analysis_state:
+                original_abstract = self.current_analysis_state.original_abstract
             
             # Use the shared pipeline executor for DK classification
             step_config = self.config.get_step_config("dk_classification")
-            dk_classifications = self.pipeline_executor.execute_dk_classification(
+            dk_classifications, llm_analysis = self.pipeline_executor.execute_dk_classification(
                 dk_search_results=dk_search_results,
                 original_abstract=original_abstract,
                 model=step.model or step_config.model or "cogito:32b",
@@ -1310,7 +1318,7 @@ class PipelineManager:
                 dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),  # Claude Generated
                 repetition_penalty=step_config.repetition_penalty,
             )
-            
+
             # Prepare search summary for display
             search_summary_lines = []
             for result in dk_search_results[:5]:  # Show first 5 for summary
@@ -1321,6 +1329,7 @@ class PipelineManager:
 
             step.output_data = {
                 "dk_classifications": dk_classifications,
+                "llm_analysis": llm_analysis,  # Store the LlmKeywordAnalysis object - Claude Generated
                 "dk_search_summary": "\n".join(search_summary_lines),
                 "dk_search_results_flattened": dk_search_results  # ← Preserve for GUI display - Claude Generated
             }
@@ -1328,6 +1337,7 @@ class PipelineManager:
             # Transfer DK classifications to analysis state - Claude Generated
             if self.current_analysis_state:
                 self.current_analysis_state.dk_classifications = dk_classifications
+                self.current_analysis_state.dk_llm_analysis = llm_analysis  # Store in analysis state - Claude Generated
                 # IMPORTANT: Preserve dk_search_results from dk_search step (don't overwrite)
                 # This ensures the title list is available in review tab even after dk_classification
 
@@ -1552,59 +1562,94 @@ class PipelineManager:
                 keywords_list = []
                 mock_search_results = {}
 
-                # Check if keywords are embedded in input (format: "abstract\n\nExisting Keywords: kw1, kw2")
-                if step_id == "keywords" and "Existing Keywords:" in input_data:
+                # Check if keywords or DK results are embedded in input (format: "abstract\n\nExisting Keywords: ...")
+                if "Existing Keywords:" in input_data:
                     parts = input_data.split("Existing Keywords:")
                     if len(parts) == 2:
                         abstract_text = parts[0].strip()
                         keywords_part = parts[1].strip()
+                        self.logger.info(f"Found 'Existing Keywords:' marker in input (length: {len(keywords_part)})")
 
-                        # Parse keywords with GND-ID format - Claude Generated
-                        import re
-                        gnd_pattern = r"(.*?)\s*\(GND-ID:\s*([^)]+)\)"
+                        if step_id == "keywords":
+                            # Parse keywords with GND-ID format - Claude Generated
+                            import re
+                            gnd_pattern = r"(.*?)\s*\(GND-ID:\s*([^)]+)\)"
 
-                        keywords_list = []
-                        mock_results = {"user_provided": {}}
+                            keywords_list = []
+                            mock_results = {"user_provided": {}}
 
-                        # Split by both comma and newline to support different formats - Claude Generated
-                        keyword_items = re.split(r'[,\n]+', keywords_part)
+                            # Split by both comma and newline to support different formats - Claude Generated
+                            keyword_items = re.split(r'[,\n]+', keywords_part)
 
-                        for kw in keyword_items:
-                            kw = kw.strip()
-                            if not kw:
-                                continue
+                            for kw in keyword_items:
+                                kw = kw.strip()
+                                if not kw:
+                                    continue
 
-                            # Try to extract GND-ID from format "Keyword (GND-ID: 123456)"
-                            match = re.match(gnd_pattern, kw)
-                            if match:
-                                keyword_text = match.group(1).strip()
-                                gnd_id = match.group(2).strip()
+                                # Try to extract GND-ID from format "Keyword (GND-ID: 123456)"
+                                match = re.match(gnd_pattern, kw)
+                                if match:
+                                    keyword_text = match.group(1).strip()
+                                    gnd_id = match.group(2).strip()
 
-                                # Lookup in knowledge_manager for additional data - Claude Generated
-                                gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
-                                final_keyword = gnd_title if gnd_title else keyword_text
+                                    # Lookup in knowledge_manager for additional data - Claude Generated
+                                    gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
+                                    final_keyword = gnd_title if gnd_title else keyword_text
 
-                                keywords_list.append(final_keyword)
-                                mock_results["user_provided"][final_keyword] = {
-                                    "count": 1,
-                                    "gndid": {gnd_id},  # Real GND-ID from parsed text!
-                                    "ddc": set(),
-                                    "dk": set()
-                                }
-                                self.logger.debug(f"Parsed GND keyword: '{final_keyword}' (GND-ID: {gnd_id})")
+                                    keywords_list.append(final_keyword)
+                                    mock_results["user_provided"][final_keyword] = {
+                                        "count": 1,
+                                        "gndid": {gnd_id},  # Real GND-ID from parsed text!
+                                        "ddc": set(),
+                                        "dk": set()
+                                    }
+                                    self.logger.debug(f"Parsed GND keyword: '{final_keyword}' (GND-ID: {gnd_id})")
+                                else:
+                                    # Plain keyword without GND-ID
+                                    keywords_list.append(kw)
+                                    mock_results["user_provided"][kw] = {
+                                        "count": 1,
+                                        "gndid": set(),  # No GND-ID
+                                        "ddc": set(),
+                                        "dk": set()
+                                    }
+                                    self.logger.debug(f"Parsed plain keyword: '{kw}'")
+
+                            mock_search_results = mock_results
+                            self.logger.info(f"✅ Parsed {len(keywords_list)} keywords (with GND lookup) for keywords step")
+
+                        elif step_id == "dk_classification":
+                            # Parse DK results from formatted text - Claude Generated
+                            self.logger.info(f"Attempting to parse DK results from context area...")
+                            parsed_dk_results = PipelineResultFormatter.parse_dk_results_from_text(keywords_part)
+
+                            if parsed_dk_results:
+                                self.logger.info(f"✅ Successfully parsed {len(parsed_dk_results)} DK results for dk_classification step")
                             else:
-                                # Plain keyword without GND-ID
-                                keywords_list.append(kw)
-                                mock_results["user_provided"][kw] = {
-                                    "count": 1,
-                                    "gndid": set(),  # No GND-ID
-                                    "ddc": set(),
-                                    "dk": set()
-                                }
-                                self.logger.debug(f"Parsed plain keyword: '{kw}'")
+                                self.logger.warning(f"⚠️ Failed to parse any DK results from context area. Context preview: {keywords_part[:100]}...")
 
-                        mock_search_results = mock_results
-                        self.logger.info(f"✅ Parsed {len(keywords_list)} keywords (with GND lookup) for keywords step")
+                            # Inject simulated previous steps for classification logic to find - Claude Generated
+                            input_step = PipelineStep(
+                                step_id="input",
+                                name="Input",
+                                status="completed",
+                                output_data={"text": abstract_text}
+                            )
+                            dk_search_step = PipelineStep(
+                                step_id="dk_search",
+                                name="DK Search",
+                                status="completed",
+                                output_data={
+                                    "dk_search_results_flattened": parsed_dk_results,
+                                    "dk_search_results": []
+                                }
+                            )
+                            # Initialize pipeline_steps with these simulated steps
+                            self.pipeline_steps = [input_step, dk_search_step]
+
+                            # Ensure current_analysis_state also has these results
+                            if hasattr(self, 'current_analysis_state') and self.current_analysis_state:
+                                self.current_analysis_state.dk_search_results_flattened = parsed_dk_results
 
                 # Convert mock_search_results Dict to List[SearchResult] for data model consistency
                 search_result_objects = self._convert_search_results_to_objects(mock_search_results)
@@ -1617,15 +1662,47 @@ class PipelineManager:
                     search_results=search_result_objects,
                     initial_llm_call_details=None,
                     final_llm_analysis=None,
+                    dk_search_results_flattened=parsed_dk_results  # ← NEW: Populate from parsed results
                 )
+
+                # Special case: create simulated previous steps for dk_classification - Claude Generated
+                if step_id == "dk_classification" and parsed_dk_results:
+                    input_step = PipelineStep(
+                        step_id="input",
+                        name="Input",
+                        status="completed",
+                        output_data={"text": abstract_text}
+                    )
+                    dk_search_step = PipelineStep(
+                        step_id="dk_search",
+                        name="DK Search",
+                        status="completed",
+                        output_data={
+                            "dk_search_results_flattened": parsed_dk_results,
+                            "dk_search_results": []
+                        }
+                    )
+                    # Initialize pipeline_steps with these simulated steps
+                    self.pipeline_steps = [input_step, dk_search_step]
+                    self.logger.debug(f"Simulated completed steps for single-step execution: {[s.step_id for s in self.pipeline_steps]}")
+
                 self.logger.info(f"✅ Initialized analysis state with {len(abstract_text)} characters for single step execution")
 
-            # Create a single step
+            # Create the target step
             step = PipelineStep(
                 step_id=step_id,
                 name=self.step_definitions.get(step_id, {}).get("name", step_id),
                 input_data=input_data
             )
+
+            # Ensure the target step is in pipeline_steps for _get_step_by_id - Claude Generated
+            if self.pipeline_steps:
+                # If we have simulated steps, add this one to the list
+                self.pipeline_steps.append(step)
+            else:
+                # Otherwise initialize list with just this step
+                # (Note: execute_step will recreate full list if it finds only 1 step or list empty)
+                self.pipeline_steps = [step]
 
             # Get provider/model from config
             step_config = config.get_step_config(step_id)
