@@ -1541,6 +1541,30 @@ class PipelineStepConfigWidget(QWidget):
         )
         params_layout.addWidget(self.p_spinbox, 1, 2)
 
+        # Repetition Penalty
+        params_layout.addWidget(QLabel("Repetition Penalty:"), 2, 0)
+        self.rep_penalty_slider = QSlider(Qt.Orientation.Horizontal)
+        self.rep_penalty_slider.setRange(100, 200)  # 1.00–2.00 mapped as integers
+        self.rep_penalty_slider.setValue(100)        # default 1.0
+        self.rep_penalty_slider.valueChanged.connect(lambda v: self.rep_penalty_spinbox.setValue(v / 100.0))
+        params_layout.addWidget(self.rep_penalty_slider, 2, 1)
+
+        self.rep_penalty_spinbox = QDoubleSpinBox()
+        self.rep_penalty_spinbox.setRange(1.0, 2.0)
+        self.rep_penalty_spinbox.setValue(1.0)
+        self.rep_penalty_spinbox.setDecimals(2)
+        self.rep_penalty_spinbox.setSingleStep(0.05)
+        self.rep_penalty_spinbox.setToolTip(
+            "Strafe für wiederholte Tokens.\n"
+            "1.0 = aus (Provider-Default)\n"
+            "Ollama: repeat_penalty, OpenAI: repetition_penalty\n"
+            "Gemini / Anthropic: wird ignoriert"
+        )
+        self.rep_penalty_spinbox.valueChanged.connect(
+            lambda v: self.rep_penalty_slider.setValue(int(v * 100))
+        )
+        params_layout.addWidget(self.rep_penalty_spinbox, 2, 2)
+
         layout.addWidget(params_group)
 
         # Iterative Refinement Section - PROMINENT PLACEMENT - Claude Generated
@@ -1623,33 +1647,18 @@ class PipelineStepConfigWidget(QWidget):
             layout.addWidget(dk_group)
 
         # Keyword Chunking Parameters (only for keywords step)
+        # Note: Chunking-Schwellwert is configured in Settings → Task Preferences → keywords
         if self.step_id == "keywords":
             chunking_group = QGroupBox("Keyword Chunking")
             chunking_layout = QGridLayout(chunking_group)
 
-            # Chunking Threshold with Auto-Detection support - Claude Generated
-            chunking_layout.addWidget(QLabel("Chunking-Schwellwert:"), 0, 0)
-            self.chunking_threshold_spinbox = QSpinBox()
-            self.chunking_threshold_spinbox.setRange(0, 2000)  # 0 = Auto-detect
-            self.chunking_threshold_spinbox.setValue(0)  # Default to auto-detect
-            self.chunking_threshold_spinbox.setSuffix(" Keywords")
-            self.chunking_threshold_spinbox.setSpecialValueText("Auto")  # Show "Auto" when value is 0
-            self.chunking_threshold_spinbox.setToolTip(
-                "Anzahl Keywords ab der Chunking aktiviert wird\n"
-                "0 = Automatische Erkennung basierend auf Modell\n"
-                "Große Modelle (>30B): ~1000 Keywords\n"
-                "Mittlere Modelle (13-14B): ~500 Keywords\n"
-                "Kleine Modelle (<7B): ~200-300 Keywords"
-            )
-            chunking_layout.addWidget(self.chunking_threshold_spinbox, 0, 1)
-
             # Chunking Task
-            chunking_layout.addWidget(QLabel("Chunking-Task:"), 1, 0)
+            chunking_layout.addWidget(QLabel("Chunking-Task:"), 0, 0)
             self.chunking_task_combo = QComboBox()
             self.chunking_task_combo.addItems(["keywords_chunked", "rephrase"])
             self.chunking_task_combo.setCurrentText("keywords_chunked")
             self.chunking_task_combo.setToolTip("Task für Chunk-Verarbeitung")
-            chunking_layout.addWidget(self.chunking_task_combo, 1, 1)
+            chunking_layout.addWidget(self.chunking_task_combo, 0, 1)
 
             layout.addWidget(chunking_group)
 
@@ -1942,11 +1951,12 @@ class PipelineStepConfigWidget(QWidget):
                 except Exception as e:
                     pass  # Fall back to default system prompt
 
-        # Add keyword chunking parameters if available (keywords step only) - Claude Generated
-        if hasattr(self, "chunking_threshold_spinbox"):
-            threshold_value = self.chunking_threshold_spinbox.value()
-            # Store 0 as None to indicate auto-detection, or store explicit value
-            config["keyword_chunking_threshold"] = None if threshold_value == 0 else threshold_value
+        # Repetition penalty — only store if != 1.0 (1.0 means "off")
+        rep_val = self.rep_penalty_spinbox.value()
+        if rep_val != 1.0:
+            config["repetition_penalty"] = rep_val
+
+        # Chunking task (keywords step only); threshold is in Task Preferences
         if hasattr(self, "chunking_task_combo"):
             config["chunking_task"] = self.chunking_task_combo.currentText()
             
@@ -2003,15 +2013,9 @@ class PipelineStepConfigWidget(QWidget):
         if "system_prompt" in config and hasattr(self, "system_prompt"):
             self.system_prompt.setPlainText(config["system_prompt"])
 
-        # Set keyword chunking parameters if available (keywords step only) - Claude Generated
-        if "keyword_chunking_threshold" in config and hasattr(
-            self, "chunking_threshold_spinbox"
-        ):
-            threshold_value = config["keyword_chunking_threshold"]
-            # Handle None (auto-detect) as 0 in UI
-            self.chunking_threshold_spinbox.setValue(
-                0 if threshold_value is None else threshold_value
-            )
+        # Repetition penalty
+        if "repetition_penalty" in config:
+            self.rep_penalty_spinbox.setValue(config["repetition_penalty"])
 
         if "chunking_task" in config and hasattr(self, "chunking_task_combo"):
             index = self.chunking_task_combo.findText(config["chunking_task"])
@@ -2318,6 +2322,7 @@ class PipelineConfigDialog(QDialog):
             top_p=config_dict.get("top_p"),
             max_tokens=config_dict.get("max_tokens"),
             seed=config_dict.get("seed"),
+            repetition_penalty=config_dict.get("repetition_penalty"),
             custom_params=config_dict.get("custom_params", {}),
             task_type=config_dict.get("task_type"),
         )
