@@ -708,11 +708,11 @@ class MainWindow(QMainWindow):
 
         # Distribute flattened DK results to dk_analysis_tab for display
         if hasattr(analysis_state, 'dk_search_results_flattened') and analysis_state.dk_search_results_flattened:
-            # Format for display in keywords_edit of AbstractTab - Claude Generated
-            dk_summary_text = PipelineResultFormatter.format_dk_results_for_prompt(
-                analysis_state.dk_search_results_flattened
-            )
-            self.dk_analysis_tab.set_keywords(dk_summary_text)
+            # Use flattened (DK-centric) results with titles for display
+            self.dk_analysis_tab.set_keywords(analysis_state.dk_search_results_flattened)
+        elif hasattr(analysis_state, 'dk_search_results') and analysis_state.dk_search_results:
+            # Fallback to keyword-centric if flattened not available
+            self.dk_analysis_tab.set_keywords(analysis_state.dk_search_results)
 
         if hasattr(analysis_state, 'dk_llm_analysis') and analysis_state.dk_llm_analysis:
             self.dk_analysis_tab.display_llm_response(analysis_state.dk_llm_analysis.response_full_text)

@@ -1990,9 +1990,15 @@ class PipelineStepExecutor:
                         "keyword_counts": {}
                     }
 
-                # Merge titles (deduplicate using set)
+                # Merge titles (deduplicate using set) - Claude Generated
+                # Filter out placeholder titles from cache that should not be displayed
                 title_set = set(grouped[key]["titles"])
                 for title in cls.get("titles", []):
+                    # Skip placeholder titles from classification cache - Claude Generated
+                    if title.startswith("Cached Catalog Entry for RSN"):
+                        continue
+                    if title == "Cached Author":
+                        continue
                     if title not in title_set:
                         grouped[key]["titles"].append(title)
                         title_set.add(title)
@@ -2992,22 +2998,6 @@ class PipelineJsonManager:
             if "dk_classifications" in data and isinstance(data["dk_classifications"], str):
                 data["dk_classifications"] = [dk.strip() for dk in data["dk_classifications"].split(",") if dk.strip()]
 
-            # Convert dk_search_results from keyword-centric to DK-centric format if needed - Claude Generated
-            if "dk_search_results" in data and data["dk_search_results"]:
-                dk_sr = data["dk_search_results"]
-                # Check if format is keyword-centric (has "keyword" and "classifications" keys)
-                if isinstance(dk_sr, list) and len(dk_sr) > 0 and isinstance(dk_sr[0], dict):
-                    if "classifications" in dk_sr[0] and "keyword" in dk_sr[0]:
-                        # KEYWORD-CENTRIC FORMAT: Convert to DK-CENTRIC
-                        logger.info(f"Converting dk_search_results from keyword-centric to DK-centric format (loaded from JSON)")
-                        # Flatten: extract classifications from keyword wrappers
-                        dk_sr_flattened = []
-                        for kw_result in dk_sr:
-                            classifications = kw_result.get("classifications", [])
-                            dk_sr_flattened.extend(classifications)
-                        data["dk_search_results"] = dk_sr_flattened
-                        logger.info(f"Conversion complete: {len(dk_sr)} keywords → {len(dk_sr_flattened)} DK classifications")
-
             return KeywordAnalysisState(**data)
 
         except FileNotFoundError:
@@ -3067,10 +3057,44 @@ class PipelineResultFormatter:
         return search_results_text
 
     @staticmethod
+    def _filter_placeholder_titles(titles: List[str]) -> List[str]:
+        """Filter out placeholder titles from classification cache - Claude Generated"""
+        filtered = []
+        for title in titles:
+            # Skip placeholder titles that should not be shown to users or LLM
+            if title.startswith("Cached Catalog Entry for RSN"):
+                continue
+            if title == "Cached Author":
+                continue
+            if not title.strip():  # Skip empty strings
+                continue
+            filtered.append(title)
+        return filtered
+
+    @staticmethod
     def format_dk_results_for_prompt(dk_results: List[Dict[str, Any]]) -> str:
         """Format DK/RVK results for LLM prompt or UI display - Claude Generated"""
         catalog_results = []
         for result in dk_results:
+            # Handle keyword-centric format (fallback) - Claude Generated
+            if "keyword" in result and "classifications" in result:
+                classifications = result.get("classifications", [])
+                for cl in classifications:
+                    dk_code = cl.get("dk", "")
+                    titles = cl.get("titles", [])
+                    classification_type = cl.get("classification_type", "DK")
+
+                    if dk_code:
+                        # Filter placeholder titles - Claude Generated
+                        filtered_titles = PipelineResultFormatter._filter_placeholder_titles(titles)
+                        # Only show titles if available - Claude Generated
+                        entry = f"{classification_type}: {dk_code}"
+                        if filtered_titles:
+                            title_text = " | ".join(filtered_titles[:5]) # Limit to 5 titles for keyword-centric
+                            entry += f"\nBeispieltitel: {title_text}"
+                        catalog_results.append(entry)
+                continue
+
             # Handle aggregated format from _aggregate_dk_results
             if "dk" in result and "count" in result and "titles" in result:
                 # Aggregated format with count and titles
@@ -3081,9 +3105,13 @@ class PipelineResultFormatter:
                 classification_type = result.get("classification_type", "DK")
 
                 if dk_code:
-                    title_text = " | ".join(titles)
                     keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
-                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}\nBeispieltitel: {title_text}"
+                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}"
+                    # Filter placeholder titles and only show if available - Claude Generated
+                    filtered_titles = PipelineResultFormatter._filter_placeholder_titles(titles)
+                    if filtered_titles:
+                        title_text = " | ".join(filtered_titles)
+                        entry += f"\nBeispieltitel: {title_text}"
                     catalog_results.append(entry)
             elif "source_title" in result and "dk" in result:
                 # Individual result format

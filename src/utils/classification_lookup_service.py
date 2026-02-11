@@ -181,16 +181,17 @@ class ClassificationLookupService:
         # Get classifications for this RSN
         classifications = self._rsn_to_classifications[rsn_str]
 
-        # Construct a title-like response that mimics SOAP results
+        # Construct a title-like response that mimics SOAP results - Claude Generated
+        # NOTE: No real title data available in classification cache, only RSN and classifications
         title_details = {
             "rsn": rsn,
-            "title": f"Cached Catalog Entry for RSN {rsn}",
+            "title": "",  # Empty string, not placeholder - no real title data available
             "classifications": classifications,
-            # Add some dummy data to make it look realistic
-            "author": ["Cached Author"],
-            "publication": "Cached Publisher, 2024",
-            "isbn": f"978-{rsn}",
-            "subjects": [f"Subject for RSN {rsn}"],
+            # Minimal metadata - no placeholder data that could be mistaken for real content
+            "author": [],
+            "publication": "",
+            "isbn": "",
+            "subjects": [],
             "mab_subjects": [],
             "decimal_classifications": [cls.replace("DK ", "") for cls in classifications if cls.startswith("DK ")],
             "rvk_classifications": [cls.replace("RVK ", "") for cls in classifications if cls.startswith("RVK ")]
