@@ -1174,6 +1174,17 @@ class PipelineStepExecutor:
                     # Claude Generated - Use GND title with optional synonym expansion
                     gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
                     if gnd_title:
+                        # Claude Generated - Store GND fact in database for DB fallback verification
+                        # This enables DB lookup when LLM hallucinates wrong GND-IDs
+                        synonyms_list = self.cache_manager.get_gnd_synonyms_by_id(gnd_id) or []
+                        self.cache_manager.store_gnd_fact(
+                            gnd_id,
+                            {
+                                'title': gnd_title,
+                                'synonyms': '; '.join(synonyms_list) if synonyms_list else '',
+                            }
+                        )
+
                         # Check if we should expand synonyms and if this title is relevant
                         if expand_synonyms:
                             # Check if this title already appears in our keyword list
@@ -1203,6 +1214,16 @@ class PipelineStepExecutor:
                     else:
                         # Fallback to original keyword if GND title not found
                         formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
+
+                        # Claude Generated - Store GND fact even with unknown title for DB fallback
+                        self.cache_manager.store_gnd_fact(
+                            gnd_id,
+                            {
+                                'title': keyword,  # Use search keyword as title
+                                'synonyms': '',
+                            }
+                        )
+
                         # Check for duplicates before adding - Claude Generated
                         if formatted_keyword not in seen_keywords:
                             seen_keywords.add(formatted_keyword)
@@ -1259,9 +1280,13 @@ class PipelineStepExecutor:
         task: str,
         stream_callback: Optional[callable] = None,
         mode=None,
+        full_gnd_pool_for_verification: List[str] = None,  # Claude Generated - for chunk verification
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute single keyword analysis without chunking - Claude Generated"""
+
+        # Use full pool for verification if provided, else use chunk pool - Claude Generated
+        verification_pool = full_gnd_pool_for_verification if full_gnd_pool_for_verification is not None else gnd_compliant_keywords
 
         # Create abstract data with correct placeholder mapping
         abstract_data = AbstractData(
@@ -1309,11 +1334,13 @@ class PipelineStepExecutor:
         )
 
         # Verify keywords against GND pool - Claude Generated
+        # Use verification_pool (full pool for chunks, or chunk pool for non-chunked)
         verification_result = verify_keywords_against_gnd_pool(
             extracted_keywords=final_keywords,
-            gnd_pool_keywords=gnd_compliant_keywords,
+            gnd_pool_keywords=verification_pool,  # Claude Generated - use full pool for chunk verification
             stream_callback=stream_callback,
             step_id=kwargs.get("step_id", "keywords"),
+            knowledge_manager=self.cache_manager,  # Pass for DB fallback verification
         )
         final_keywords = verification_result["verified"]
 
@@ -1355,6 +1382,10 @@ class PipelineStepExecutor:
         **kwargs,
     ) -> Tuple[List[str], List[str], LlmKeywordAnalysis]:
         """Execute keyword analysis with chunking for large keyword sets - Claude Generated"""
+
+        # Store full GND pool for verification across all chunks - Claude Generated
+        # This ensures keywords verified in one chunk are accepted in all chunks
+        full_gnd_pool = gnd_compliant_keywords
 
         # Calculate optimal chunk size for equal distribution
         total_keywords = len(gnd_compliant_keywords)
@@ -1416,6 +1447,7 @@ class PipelineStepExecutor:
                 task=chunking_task,  # Use chunking task (e.g., "keywords_chunked" or "rephrase")
                 stream_callback=stream_callback,
                 mode=mode,
+                full_gnd_pool_for_verification=full_gnd_pool,  # Claude Generated - pass full pool
                 **kwargs,
             )
 
@@ -1480,6 +1512,7 @@ class PipelineStepExecutor:
             task=task,  # Use normal keywords task, NOT chunking_task!
             stream_callback=stream_callback,
             mode=mode,
+            full_gnd_pool_for_verification=full_gnd_pool,  # Claude Generated - pass full pool
             **kwargs,
         )
 
@@ -1496,6 +1529,7 @@ class PipelineStepExecutor:
             gnd_pool_keywords=gnd_compliant_keywords,
             stream_callback=stream_callback,
             step_id=kwargs.get("step_id", "keywords"),
+            knowledge_manager=self.cache_manager,  # Pass for DB fallback verification
         )
         final_keywords = verification_result["verified"]
 
@@ -1579,6 +1613,41 @@ class PipelineStepExecutor:
                         deduplicated.append(keyword)
 
         return deduplicated
+
+    def _lookup_gnd_id_from_db(self, keyword_normalized: str) -> Optional[str]:
+        """Lookup GND-ID for a keyword from database - Claude Generated
+
+        Args:
+            keyword_normalized: Normalized keyword text (lowercase, whitespace normalized)
+
+        Returns:
+            GND-ID string if found in database, None otherwise
+        """
+        if not self.cache_manager:
+            return None
+
+        try:
+            # Try exact title match first
+            from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
+            ukm = self.cache_manager
+
+            # Search by keyword/title
+            # The UnifiedKnowledgeManager has a search_by_keywords method
+            results = ukm.search_by_keywords([keyword_normalized], fuzzy_threshold=90)
+
+            if results and len(results) > 0:
+                # Get first result's GND-ID
+                first_result = results[0]
+                if isinstance(first_result, dict) and 'gnd_id' in first_result:
+                    gnd_id = first_result['gnd_id']
+                    return gnd_id
+
+            return None
+
+        except Exception as e:
+            if self.logger:
+                self.logger.debug(f"DB lookup error for '{keyword_normalized}': {e}")
+            return None
 
     def _extract_keywords_enhanced(
         self,
@@ -2483,6 +2552,7 @@ def verify_keywords_against_gnd_pool(
     gnd_pool_keywords: List[str],
     stream_callback: Optional[callable] = None,
     step_id: str = "keywords",
+    knowledge_manager = None,  # Claude Generated - for DB fallback verification
 ) -> Dict[str, Any]:
     """Verify LLM-extracted keywords against the GND pool from step 2 - Claude Generated
 
@@ -2491,12 +2561,16 @@ def verify_keywords_against_gnd_pool(
         gnd_pool_keywords: The gnd_compliant_keywords built from search results (step 2)
         stream_callback: Optional callback for live progress feedback
         step_id: Pipeline step ID for callback routing
+        knowledge_manager: Optional UnifiedKnowledgeManager for DB fallback verification
 
     Returns:
         Dict with keys: verified (list), rejected (list), stats (dict)
     """
     import logging
     vlog = logging.getLogger(__name__)
+
+    # Debug: Check if knowledge_manager is available
+    vlog.info(f"🔍 Verifikation: knowledge_manager={'verfügbar' if knowledge_manager else 'NICHT verfügbar'}")
 
     if not gnd_pool_keywords:
         vlog.warning("⚠️ GND pool is empty - skipping verification")
@@ -2550,12 +2624,61 @@ def verify_keywords_against_gnd_pool(
             if kw_text in text_lower_to_pool:
                 matched_pool_kw = text_lower_to_pool[kw_text]
 
+        # Database lookup fallback - Claude Generated
+        # If keyword not in pool, search by text in database (ignore LLM's GND-ID)
+        if not matched_pool_kw:
+            if knowledge_manager:
+                kw_text = kw.split('(')[0].strip()
+                vlog.info(f"  🔍 DB-Suche nach '{kw_text}'")
+
+                try:
+                    # Search GND entries by title/synonyms - this is the authoritative source
+                    results = knowledge_manager.search_gnd_by_title(kw_text, fuzzy_threshold=90)
+                    vlog.info(f"  🔍 DB-Suche Ergebnisse: {len(results)} Treffer")
+
+                    if results and len(results) > 0:
+                        first_result = results[0]
+                        if isinstance(first_result, dict) and 'gnd_id' in first_result:
+                            db_gnd_id = first_result['gnd_id']
+                            db_title = first_result.get('title', kw_text)
+                            # Use GND-ID from database (authoritative)
+                            matched_pool_kw = f"{db_title} (GND-ID: {db_gnd_id})"
+                            vlog.info(f"  💾 DB-Treffer: '{kw_text}' → {db_title} (GND-ID: {db_gnd_id})")
+
+                            # Check if we corrected an LLM error
+                            if gnd_id_match:
+                                llm_gnd_id = gnd_id_match.group(1)
+                                if llm_gnd_id != db_gnd_id:
+                                    vlog.info(f"  ✅ DB-verifiziert mit Korrektur: '{kw}' → '{matched_pool_kw}'")
+                                    if stream_callback:
+                                        stream_callback(f"  ✅ {kw_text} - DB-verifiziert (GND-ID korrigiert: {llm_gnd_id} → {db_gnd_id})\n", step_id)
+                                else:
+                                    vlog.info(f"  ✅ DB-verifiziert: '{matched_pool_kw}'")
+                                    if stream_callback:
+                                        stream_callback(f"  ✅ {kw_text} - DB-verifiziert\n", step_id)
+                            else:
+                                # LLM had no GND-ID, we added it from DB
+                                vlog.info(f"  ✅ DB-verifiziert: '{kw}' → '{matched_pool_kw}'")
+                                if stream_callback:
+                                    stream_callback(f"  ✅ {kw_text} - DB-verifiziert (GND-ID ergänzt)\n", step_id)
+                        else:
+                            vlog.warning(f"  ⚠️ DB-Ergebnis hat keine GND-ID für '{kw_text}'")
+                    else:
+                        vlog.info(f"  ❌ Kein DB-Eintrag für '{kw_text}' gefunden")
+                except Exception as e:
+                    vlog.warning(f"  ⚠️ DB-Suche Fehler für '{kw_text}': {e}")
+            else:
+                # knowledge_manager not available
+                kw_text = kw.split('(')[0].strip()
+                vlog.warning(f"  ⚠️ DB-Lookup für '{kw_text}' nicht möglich - knowledge_manager fehlt")
+
         if matched_pool_kw:
             verified.append(matched_pool_kw)
-            vlog.info(f"  ✅ Verifiziert: {kw[:60]} → Pool: {matched_pool_kw[:60]}")
-            if stream_callback:
-                short_name = matched_pool_kw.split('(')[0].strip()
-                stream_callback(f"  ✅ {short_name} - GND-verifiziert\n", step_id)
+            if matched_pool_kw != kw:  # Only log if it's from pool (not DB)
+                vlog.info(f"  ✅ Verifiziert: {kw[:60]} → Pool: {matched_pool_kw[:60]}")
+                if stream_callback:
+                    short_name = matched_pool_kw.split('(')[0].strip()
+                    stream_callback(f"  ✅ {short_name} - GND-verifiziert\n", step_id)
         else:
             rejected.append(kw)
             vlog.warning(f"  ❌ Abgelehnt: {kw[:60]} - nicht im GND-Pool")
@@ -2720,13 +2843,21 @@ def extract_keywords_from_descriptive_text(
                         break
 
                 if not found:
-                    # FIXED: Keywords without GND validation are now INCLUDED in DK search - Claude Generated
-                    # All LLM-identified keywords are used to ensure complete catalog coverage:
-                    # - Keywords WITH GND-IDs: Full metadata from GND database
-                    # - Keywords WITHOUT GND-IDs: Plain text search (user requirement: "das DARF nicht passieren")
-                    # - Preserves LLM analysis intent while maximizing catalog search coverage
-                    logger.info(f"  ℹ️ No GND match for '{raw_kw}' - using as plain keyword in DK search")
-                    unmatched_keywords.append(raw_kw)  # Will be included in DK search via all_keywords
+                    # Try database lookup for GND-ID before treating as plain keyword - Claude Generated
+                    db_gnd_id = self._lookup_gnd_id_from_db(raw_kw_normalized)
+                    if db_gnd_id:
+                        # Found GND-ID in database - create proper GND keyword format
+                        gnd_keyword = f"{raw_kw} (GND-ID: {db_gnd_id})"
+                        exact_matches.append(gnd_keyword)
+                        logger.info(f"  🔍 DB lookup matched '{raw_kw}' -> {db_gnd_id}")
+                    else:
+                        # FIXED: Keywords without GND validation are now INCLUDED in DK search - Claude Generated
+                        # All LLM-identified keywords are used to ensure complete catalog coverage:
+                        # - Keywords WITH GND-IDs: Full metadata from GND database
+                        # - Keywords WITHOUT GND-IDs: Plain text search (user requirement: "das DARF nicht passieren")
+                        # - Preserves LLM analysis intent while maximizing catalog search coverage
+                        logger.info(f"  ℹ️ No GND match for '{raw_kw}' - using as plain keyword in DK search")
+                        unmatched_keywords.append(raw_kw)  # Will be included in DK search via all_keywords
 
         # Combine GND-matched and plain keywords for complete DK search - Claude Generated FIX
         all_keywords = exact_matches + unmatched_keywords

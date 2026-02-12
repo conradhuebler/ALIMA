@@ -1277,7 +1277,79 @@ class UnifiedKnowledgeManager:
         if entry:
             return entry.title
         return None
-    
+
+    def get_gnd_synonyms_by_id(self, gnd_id: str) -> List[str]:
+        """Get GND synonyms by ID - Claude Generated
+
+        Args:
+            gnd_id: GND identifier
+
+        Returns:
+            List of synonym strings (empty list if not found or no synonyms)
+        """
+        entry = self.get_gnd_fact(gnd_id)
+        if entry and entry.synonyms:
+            # Split by semicolon and strip whitespace
+            return [s.strip() for s in entry.synonyms.split(';') if s.strip()]
+        return []
+
+    def search_gnd_by_title(self, keyword_text: str, fuzzy_threshold: int = 90) -> List[Dict[str, str]]:
+        """Search GND entries by title or synonyms - Claude Generated
+
+        Args:
+            keyword_text: Keyword text to search for
+            fuzzy_threshold: Minimum similarity threshold (0-100), not used for exact match
+
+        Returns:
+            List of dicts with 'gnd_id', 'title', 'synonyms' keys
+        """
+        try:
+            keyword_lower = keyword_text.lower().strip()
+            self.logger.debug(f"Searching GND by title: '{keyword_text}'")
+
+            # Exact match on title (case-insensitive)
+            exact_match = self.db_manager.fetch_one(
+                "SELECT gnd_id, title, synonyms FROM gnd_entries WHERE LOWER(title) = ?",
+                [keyword_lower]
+            )
+
+            if exact_match:
+                self.logger.debug(f"Found exact title match for '{keyword_text}': {exact_match[0]}")
+                return [{
+                    'gnd_id': exact_match[0],
+                    'title': exact_match[1],
+                    'synonyms': exact_match[2] or ''
+                }]
+
+            # Fallback: Check if keyword appears in synonyms (semicolon-separated)
+            synonym_matches = self.db_manager.fetch_all(
+                """SELECT gnd_id, title, synonyms FROM gnd_entries
+                   WHERE synonyms LIKE ?""",
+                [f"%{keyword_lower}%"]
+            )
+
+            results = []
+            for row in synonym_matches:
+                # Verify it's actually a full synonym match (not partial)
+                synonyms = row[2] or ''
+                synonym_list = [s.strip().lower() for s in synonyms.split(';')]
+                if keyword_lower in synonym_list:
+                    results.append({
+                        'gnd_id': row[0],
+                        'title': row[1],
+                        'synonyms': row[2] or ''
+                    })
+
+            if results:
+                self.logger.debug(f"Found {len(results)} synonym match(es) for '{keyword_text}'")
+            else:
+                self.logger.debug(f"No GND entry found for '{keyword_text}'")
+            return results
+
+        except Exception as e:
+            self.logger.warning(f"Error searching GND by title '{keyword_text}': {e}")
+            return []
+
     def save_to_file(self):
         """CacheManager compatibility - Claude Generated"""
         # For QtSql databases, this ensures any pending operations are committed
