@@ -521,6 +521,10 @@ class MainWindow(QMainWindow):
         # Connect to dedicated DK classification tab
         self.pipeline_tab.pipeline_results_ready.connect(self.dk_classification_tab.update_data)
 
+        # Connect to SearchTab for GND post-processing transparency - Claude Generated
+        self.pipeline_tab.pipeline_results_ready.connect(self.search_tab.update_data)
+        self.search_tab.selection_changed.connect(self.on_search_selection_changed)
+
         # Update window title when pipeline completes - Claude Generated
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_title_update)
 
@@ -783,15 +787,18 @@ class MainWindow(QMainWindow):
             target_tab.display_llm_response(analysis_result.response_full_text)
 
         # 2. Update keywords if available
-        if hasattr(analysis_result, 'matched_keywords') and analysis_result.matched_keywords:
-            keywords_str = ", ".join(analysis_result.matched_keywords.keys())
-            target_tab.set_keywords(keywords_str)
-        elif hasattr(analysis_result, 'extracted_gnd_keywords') and analysis_result.extracted_gnd_keywords:
-            keywords_str = ", ".join(analysis_result.extracted_gnd_keywords)
-            target_tab.set_keywords(keywords_str)
-        elif hasattr(analysis_result, 'extracted_gnd_classes') and analysis_result.extracted_gnd_classes:
-            classes_str = ", ".join(analysis_result.extracted_gnd_classes)
-            target_tab.set_keywords(classes_str)
+        # Don't overwrite dk_analysis_tab keywords — its keywords_edit holds
+        # DK search results as INPUT for analysis, not as output display - Claude Generated
+        if target_tab is not self.dk_analysis_tab:
+            if hasattr(analysis_result, 'matched_keywords') and analysis_result.matched_keywords:
+                keywords_str = ", ".join(analysis_result.matched_keywords.keys())
+                target_tab.set_keywords(keywords_str)
+            elif hasattr(analysis_result, 'extracted_gnd_keywords') and analysis_result.extracted_gnd_keywords:
+                keywords_str = ", ".join(analysis_result.extracted_gnd_keywords)
+                target_tab.set_keywords(keywords_str)
+            elif hasattr(analysis_result, 'extracted_gnd_classes') and analysis_result.extracted_gnd_classes:
+                classes_str = ", ".join(analysis_result.extracted_gnd_classes)
+                target_tab.set_keywords(classes_str)
 
     def update_window_title(self, arbeitstitel: str = None):
         """Update window title with optional work title - Claude Generated"""
@@ -806,6 +813,36 @@ class MainWindow(QMainWindow):
         if analysis_state and hasattr(analysis_state, 'working_title') and analysis_state.working_title:
             self.update_window_title(analysis_state.working_title)
             self.logger.info(f"Window title updated: {analysis_state.working_title}")
+
+    @pyqtSlot(dict)
+    def on_search_selection_changed(self, changes):
+        """Handle GND selection changes from SearchTab - Claude Generated
+
+        Receives user modifications to GND keyword selection and propagates
+        them to AnalysisReviewTab for final export integration.
+
+        Args:
+            changes: Dict with 'modified' (selection changes) and 'manual' (additions)
+        """
+        modified = changes.get('modified', {})
+        manual = changes.get('manual', [])
+
+        self.logger.info(
+            f"GND selection changed: {len(modified)} modifications, {len(manual)} manual additions"
+        )
+
+        # TODO: Update analysis state with modifications
+        # For now, just log the changes and show a notification
+        if modified or manual:
+            total_changes = len(modified) + len(manual)
+            self.global_status_bar.show_notification(
+                f"✅ GND-Auswahl aktualisiert: {total_changes} Änderungen",
+                duration=3000
+            )
+
+        # Future enhancement: Propagate to AnalysisReviewTab
+        # if hasattr(self, 'analysis_review_tab'):
+        #     self.analysis_review_tab.update_gnd_selection(changes)
 
     @pyqtSlot(str)
     def update_gnd_keywords(self, keywords):

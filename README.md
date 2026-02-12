@@ -43,6 +43,7 @@ ALIMA ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Techno
 3.  **Abhängigkeiten installieren:**
     ```bash
     pip install -r requirements.txt
+    playwright install
     ```
 
 ## Konfiguration

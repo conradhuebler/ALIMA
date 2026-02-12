@@ -358,6 +358,11 @@ class UBSearchTab(QWidget):
             LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
         )
 
+        # Status Label at top (consistent with other tabs) - Claude Generated
+        self.status_label = QLabel("Bereit")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        layout.addWidget(self.status_label)
+
         # Mode Selection
         mode_group = QGroupBox("Sucheinstellungen")
         mode_layout = QGridLayout(mode_group)
@@ -378,55 +383,47 @@ class UBSearchTab(QWidget):
         self.num_results.valueChanged.connect(self.update_num_results)
         mode_layout.addWidget(self.num_results, 1, 1)
 
-        self.num_label = QLabel(str(self.num_results.value()))
-        self.num_label.setFixedWidth(30)
+        self.num_label = QLabel(f"Anzahl Treffer: {self.num_results.value()}")
+        self.num_label.setMinimumWidth(120)
         mode_layout.addWidget(self.num_label, 1, 2)
 
         layout.addWidget(mode_group)
 
-        # SOAP API Configuration Panel
+        # SOAP API Configuration Panel (compact grid layout) - Claude Generated
         self.soap_config_group = QGroupBox("SOAP API Einstellungen")
-        soap_config_layout = QVBoxLayout(self.soap_config_group)
-        soap_config_layout.setSpacing(LAYOUT["inner_spacing"])
+        soap_grid = QGridLayout(self.soap_config_group)
+        soap_grid.setSpacing(LAYOUT["inner_spacing"])
 
-        token_layout = QHBoxLayout()
-        token_layout.addWidget(QLabel("API Token:"))
+        # Row 0: Token
+        soap_grid.addWidget(QLabel("API Token:"), 0, 0)
         self.token_input = QLineEdit()
         self.token_input.setPlaceholderText("Katalog-API Token (optional)")
         self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        token_layout.addWidget(self.token_input)
-        soap_config_layout.addLayout(token_layout)
+        soap_grid.addWidget(self.token_input, 0, 1, 1, 4)
 
-        debug_layout = QHBoxLayout()
-        self.debug_checkbox = QCheckBox("Debug-Modus (XML)")
+        # Row 1: Checkboxes + XML export in one row
+        self.debug_checkbox = QCheckBox("Debug (XML)")
         self.debug_checkbox.setChecked(False)
-        debug_layout.addWidget(self.debug_checkbox)
-        self.show_raw_response_checkbox = QCheckBox("Rohdaten anzeigen")
+        soap_grid.addWidget(self.debug_checkbox, 1, 0)
+        self.show_raw_response_checkbox = QCheckBox("Rohdaten")
         self.show_raw_response_checkbox.setChecked(True)
-        debug_layout.addWidget(self.show_raw_response_checkbox)
+        soap_grid.addWidget(self.show_raw_response_checkbox, 1, 1)
         self.enable_web_fallback_checkbox = QCheckBox("Web-Fallback")
         self.enable_web_fallback_checkbox.setChecked(True)
-        debug_layout.addWidget(self.enable_web_fallback_checkbox)
-        soap_config_layout.addLayout(debug_layout)
-
-        # XML Export Options
-        xml_layout = QHBoxLayout()
-        self.save_xml_checkbox = QCheckBox("XML speichern")
+        soap_grid.addWidget(self.enable_web_fallback_checkbox, 1, 2)
+        self.save_xml_checkbox = QCheckBox("XML speichern:")
         self.save_xml_checkbox.setChecked(False)
         self.save_xml_checkbox.toggled.connect(self.on_save_xml_toggled)
-        xml_layout.addWidget(self.save_xml_checkbox)
-
+        soap_grid.addWidget(self.save_xml_checkbox, 1, 3)
         self.xml_path_display = QLineEdit()
         self.xml_path_display.setReadOnly(True)
-        self.xml_path_display.setPlaceholderText("Pfad (optional)")
-        xml_layout.addWidget(self.xml_path_display)
-
-        self.xml_browse_button = QPushButton("📁")
-        self.xml_browse_button.setMaximumWidth(40)
+        self.xml_path_display.setPlaceholderText("Pfad...")
+        soap_grid.addWidget(self.xml_path_display, 1, 4)
+        self.xml_browse_button = QPushButton("...")
+        self.xml_browse_button.setMaximumWidth(30)
         self.xml_browse_button.clicked.connect(self.select_xml_save_path)
         self.xml_browse_button.setEnabled(False)
-        xml_layout.addWidget(self.xml_browse_button)
-        soap_config_layout.addLayout(xml_layout)
+        soap_grid.addWidget(self.xml_browse_button, 1, 5)
 
         self.soap_config_group.setVisible(False)
         layout.addWidget(self.soap_config_group)
@@ -451,10 +448,6 @@ class UBSearchTab(QWidget):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         input_layout.addWidget(self.progress_bar)
-
-        self.status_label = QLabel("Bereit")
-        self.status_label.setStyleSheet(get_status_label_styles()["info"])
-        input_layout.addWidget(self.status_label)
 
         layout.addWidget(input_group)
 

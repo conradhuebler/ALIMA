@@ -17,9 +17,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QGridLayout,
-    QTabWidget,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont, QColor, QIcon
 from typing import Dict, List, Optional
 import logging
@@ -42,133 +41,6 @@ from .styles import (
 )
 
 
-class GNDSystemFilterWidget(QGroupBox):
-    """
-    Widget zum Filtern nach GND-Systematiken.
-    Erlaubt das manuelle Hinzufügen/Entfernen von GND-Systematiken für die Filterung.
-    """
-
-    def __init__(self, parent=None, cache_manager=None):
-        super().__init__("GND-Systematik-Filter", parent)
-        self.cache_manager = cache_manager
-        self.selected_systems = set()  # Aktuell ausgewählte GND-Systematiken
-
-        self.init_ui()
-
-    def init_ui(self):
-        """Initialisiert die Benutzeroberfläche des GND-Systematik-Filters"""
-        layout = QVBoxLayout(self)
-        layout.setSpacing(LAYOUT["inner_spacing"])
-        layout.setContentsMargins(10, 20, 10, 10)
-
-        # Suchbereich für GND-Systematiken
-        search_layout = QHBoxLayout()
-
-        self.system_input = QTextEdit()
-        self.system_input.setPlaceholderText(
-            "GND-Systematik eingeben (z.B. '7.12' für Musik)"
-        )
-        self.system_input.setMaximumHeight(60)
-        search_layout.addWidget(self.system_input)
-
-        buttons_layout = QVBoxLayout()
-        btn_styles = get_button_styles()
-
-        self.add_button = QPushButton("Hinzufügen")
-        self.add_button.setStyleSheet(btn_styles["secondary"])
-        self.add_button.clicked.connect(self.add_system)
-        buttons_layout.addWidget(self.add_button)
-
-        self.clear_button = QPushButton("Zurücksetzen")
-        self.clear_button.setStyleSheet(btn_styles["secondary"])
-        self.clear_button.clicked.connect(self.clear_systems)
-        buttons_layout.addWidget(self.clear_button)
-
-        search_layout.addLayout(buttons_layout)
-        layout.addLayout(search_layout)
-
-        # Tabelle für ausgewählte GND-Systematiken
-        self.systems_table = QTableWidget()
-        self.systems_table.setColumnCount(3)
-        self.systems_table.setHorizontalHeaderLabels(
-            ["GND-Systematik", "Beschreibung", "Aktion"]
-        )
-        self.systems_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
-        self.systems_table.setAlternatingRowColors(True)
-        self.systems_table.verticalHeader().setVisible(False)
-
-        layout.addWidget(self.systems_table)
-
-        # Knopf zur Anwendung der Filter
-        self.apply_button = QPushButton("Filter anwenden")
-        self.apply_button.setStyleSheet(btn_styles["primary"])
-        self.apply_button.clicked.connect(self.apply_filter)
-        layout.addWidget(self.apply_button)
-
-    def add_system(self, system=None):
-        """Fügt eine GND-Systematik zur Filterliste hinzu"""
-        if system is None or isinstance(system, bool):
-            system = self.system_input.toPlainText().strip()
-
-        if not system:
-            return
-
-        # Prüfe, ob diese Systematik bereits hinzugefügt wurde
-        if system in self.selected_systems:
-            return
-
-        # Füge zur Menge hinzu
-        self.selected_systems.add(system)
-
-        # Füge zur Tabelle hinzu
-        row = self.systems_table.rowCount()
-        self.systems_table.insertRow(row)
-
-        # Erstelle Items für die Tabelle
-        system_item = QTableWidgetItem(system)
-        self.systems_table.setItem(row, 0, system_item)
-
-        # Beschreibung (könnte aus einer Datenbank kommen)
-        description = "empty"
-        desc_item = QTableWidgetItem(description)
-        self.systems_table.setItem(row, 1, desc_item)
-
-        # Lösch-Button
-        delete_btn = QPushButton("Entfernen")
-        delete_btn.setStyleSheet(get_button_styles()["error"])
-        delete_btn.clicked.connect(lambda _, r=row, s=system: self.remove_system(r, s))
-        self.systems_table.setCellWidget(row, 2, delete_btn)
-
-        # Leere das Eingabefeld
-        self.system_input.clear()
-
-    def remove_system(self, row, system):
-        """Entfernt eine GND-Systematik aus der Filterliste"""
-        self.systems_table.removeRow(row)
-        self.selected_systems.remove(system)
-
-    def clear_systems(self):
-        """Entfernt alle GND-Systematiken aus der Filterliste"""
-        self.systems_table.setRowCount(0)
-        self.selected_systems.clear()
-
-    def apply_filter(self):
-        """Wendet die GND-Systematik-Filter an und generiert eine gefilterte Liste von Schlagwörtern"""
-        # Implementierung der Filterlogik hier
-        if not self.selected_systems:
-            return
-
-        # Diese Methode sollte die Hauptsuche informieren, nach welchen GND-Systematiken gefiltert werden soll
-        # Signal könnte hier emittiert werden
-        pass
-
-    def get_selected_systems(self):
-        """Gibt die aktuell ausgewählten GND-Systematiken zurück"""
-        return list(self.selected_systems)
-
-
 class SearchTab(QWidget):
     """
     Tab für die unified GND-Schlagwortsuche
@@ -181,6 +53,7 @@ class SearchTab(QWidget):
     search_completed = pyqtSignal(dict)
     keywords_found = pyqtSignal(str)
     keywords_exact = pyqtSignal(str)
+    selection_changed = pyqtSignal(dict)  # Emits modified_selections - Claude Generated
 
     def __init__(
         self,
@@ -204,6 +77,14 @@ class SearchTab(QWidget):
         self.catalog_token = ""
         self.catalog_search_url = ""
         self.catalog_details = ""
+
+        # Pipeline integration state tracking - Claude Generated
+        self.original_pipeline_state = None
+        self.current_display_state = None
+        self.modified_selections = {}  # {gnd_id: 'selected'/'deselected'}
+        self.manual_additions = []  # List of manually added GND entries
+        self.has_unsaved_changes = False
+        self.cache_status = {}  # Cache for GND entry status (cache/new/outdated)
 
         # Use injected central PipelineManager instead of creating redundant instance - Claude Generated
         self.pipeline_manager = pipeline_manager
@@ -249,6 +130,24 @@ class SearchTab(QWidget):
         control_bar.addWidget(self.progressBar)
 
         layout.addLayout(control_bar)
+
+        # ========= Transparency Section (Collapsible) =========
+        self.transparency_group = QGroupBox("📋 Pipeline-Mapping")
+        self.transparency_group.setCheckable(True)
+        self.transparency_group.setChecked(False)  # Collapsed by default
+        transparency_layout = QVBoxLayout(self.transparency_group)
+        transparency_layout.setContentsMargins(10, 10, 10, 10)
+        transparency_layout.setSpacing(5)
+
+        self.transparency_text = QTextEdit()
+        self.transparency_text.setReadOnly(True)
+        self.transparency_text.setMaximumHeight(250)
+        self.transparency_text.setPlaceholderText(
+            "Mapping-Details werden nach Pipeline-Ausführung hier angezeigt..."
+        )
+        transparency_layout.addWidget(self.transparency_text)
+
+        layout.addWidget(self.transparency_group)
 
         # Splitter between search input and results
         main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -358,7 +257,7 @@ class SearchTab(QWidget):
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(5)
         self.results_table.setHorizontalHeaderLabels(
-            ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit", "GND-Systematik"]
+            ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit", "Status"]
         )
         self.results_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -392,66 +291,62 @@ class SearchTab(QWidget):
 
         results_box_layout.addWidget(upper_splitter)
 
-        # ========= Filter-Bereich mit Tabs =========
-        filter_group = QGroupBox("Filter- und Generierungsoptionen")
-        filter_layout = QVBoxLayout(filter_group)
-        filter_layout.setSpacing(LAYOUT["inner_spacing"])
-        filter_layout.setContentsMargins(10, 20, 10, 10)
+        # ========= Manual Search Panel (Collapsible) - Claude Generated =========
+        self.manual_search_group = QGroupBox("➕ Manuelle Nachsuche")
+        self.manual_search_group.setCheckable(False)
+        self.manual_search_group.setVisible(False)  # Hidden by default
+        manual_layout = QHBoxLayout(self.manual_search_group)
+        manual_layout.setContentsMargins(10, 10, 10, 10)
 
-        self.filter_tabs = QTabWidget()
+        manual_layout.addWidget(QLabel("Zusätzlicher Suchbegriff:"))
+        self.manual_search_input = QTextEdit()
+        self.manual_search_input.setPlaceholderText("Begriff für manuelle Suche eingeben...")
+        self.manual_search_input.setMaximumHeight(60)
+        manual_layout.addWidget(self.manual_search_input)
 
-        # DDC-Filter Tab
-        ddc_widget = QWidget()
-        ddc_layout = QVBoxLayout(ddc_widget)
-        ddc_layout.setSpacing(LAYOUT["inner_spacing"])
-        ddc_layout.setContentsMargins(10, 10, 10, 10)
+        self.manual_search_button = QPushButton("Suchen")
+        self.manual_search_button.setStyleSheet(btn_styles["primary"])
+        self.manual_search_button.clicked.connect(self.perform_manual_search)
+        manual_layout.addWidget(self.manual_search_button)
 
-        ddc_frame = QFrame()
-        ddc_frame.setStyleSheet(
-            f"background-color: {COLORS['background_dark']}; border-radius: 6px; padding: 4px;"
+        results_box_layout.addWidget(self.manual_search_group)
+
+        # ========= Action Buttons - Claude Generated =========
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(10)
+
+        self.toggle_manual_button = QPushButton("🔧 Manuelle Nachsuche")
+        self.toggle_manual_button.setCheckable(True)
+        self.toggle_manual_button.setStyleSheet(btn_styles["secondary"])
+        self.toggle_manual_button.setToolTip(
+            "Aktiviert manuelle Suche für zusätzliche GND-Schlagwörter, "
+            "die die Pipeline nicht gefunden hat"
         )
-        ddc_grid = QGridLayout(ddc_frame)
-        ddc_grid.setSpacing(8)
+        self.toggle_manual_button.toggled.connect(self.manual_search_group.setVisible)
+        actions_layout.addWidget(self.toggle_manual_button)
 
-        ddc_label = QLabel("Einzubeziehende DDC-Klassen:")
-        ddc_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        ddc_grid.addWidget(ddc_label, 0, 0, 1, 5)
+        actions_layout.addStretch(1)
 
-        # DDC Checkboxes
-        self.ddc_checks = []
-        ddc_labels = [
-            "1xx (Phil.)", "2xx (Rel.)", "3xx (Sozial.)", "4xx (Spr.)", "5xx (Nat.)",
-            "6xx (Tech.)", "7xx (Kunst)", "8xx (Lit.)", "9xx (Gesch.)", "X (Sonstige)"
-        ]
-        for i, label in enumerate(ddc_labels):
-            check = QCheckBox(label)
-            check.setChecked(True)
-            self.ddc_checks.append(check)
-            ddc_grid.addWidget(check, 1 if i < 5 else 2, i % 5)
+        # Keep existing update button, renamed for clarity
+        self.update_button.setText("🔄 DNB-Sync Selected")
+        self.update_button.setToolTip(
+            "Aktualisiert alle ausgewählten (✅) GND-Einträge mit aktuellen Daten von der DNB. "
+            "Holt DDC-Klassifikationen und GND-Systematiken."
+        )
+        actions_layout.addWidget(self.update_button)
 
-        # Compatibility names
-        self.ddc1_check, self.ddc2_check, self.ddc3_check, self.ddc4_check, self.ddc5_check = self.ddc_checks[:5]
-        self.ddc6_check, self.ddc7_check, self.ddc8_check, self.ddc9_check, self.ddcX_check = self.ddc_checks[5:]
+        self.save_changes_button = QPushButton("💾 Änderungen Speichern")
+        self.save_changes_button.setStyleSheet(btn_styles["accent"])
+        self.save_changes_button.setEnabled(False)
+        self.save_changes_button.setToolTip(
+            "Speichert Ihre Änderungen an der GND-Auswahl zurück in den Analyse-Status. "
+            "Änderungen werden dann in anderen Tabs sichtbar."
+        )
+        self.save_changes_button.clicked.connect(self.save_changes)
+        actions_layout.addWidget(self.save_changes_button)
 
-        ddc_layout.addWidget(ddc_frame)
+        results_box_layout.addLayout(actions_layout)
 
-        self.ddc_regenerate_button = QPushButton("DDC-gefilterte Schlagwörter")
-        self.ddc_regenerate_button.setStyleSheet(btn_styles["accent"])
-        ddc_layout.addWidget(self.ddc_regenerate_button)
-
-        self.filter_tabs.addTab(ddc_widget, "DDC-Filter")
-
-        # GND-Systematik Tab
-        self.gnd_filter_widget = GNDSystemFilterWidget(self, self.cache_manager)
-        self.filter_tabs.addTab(self.gnd_filter_widget, "GND-Systematik")
-
-        filter_layout.addWidget(self.filter_tabs)
-
-        self.regenerate_button = QPushButton("Gefilterte Schlagwörter generieren")
-        self.regenerate_button.setStyleSheet(btn_styles["accent"])
-        filter_layout.addWidget(self.regenerate_button)
-
-        results_box_layout.addWidget(filter_group)
         results_container_layout.addWidget(results_group)
 
         main_splitter.addWidget(results_container)
@@ -461,6 +356,7 @@ class SearchTab(QWidget):
 
         # Verbinde Signals
         self.results_table.itemSelectionChanged.connect(self.show_details)
+        self.results_table.itemDoubleClicked.connect(self.on_result_double_clicked)  # Claude Generated
 
     def _load_catalog_token(self):
         """
@@ -497,6 +393,8 @@ class SearchTab(QWidget):
 
     def perform_search(self):
         """Führt die Suche mit den ausgewählten Quellen durch - Claude Generated"""
+        self.logger.info("=== perform_search() called ===")
+
         # UI-Updates vor der Suche
         self.search_button.setEnabled(False)
         self.status_label.setText("Suche wird durchgeführt...")
@@ -511,6 +409,7 @@ class SearchTab(QWidget):
         try:
             # Eingabetext verarbeiten
             text = self.search_input.toPlainText().strip()
+            self.logger.info(f"Search input text: '{text}'")
 
             # Keine Suchbegriffe vorhanden
             if not text:
@@ -549,56 +448,79 @@ class SearchTab(QWidget):
                 )
                 suggester_types.append(SuggesterType.LOBID)
 
-            # Use PipelineManager integration if available - Claude Generated
-            if self.pipeline_manager:
-                # 1. Create ad-hoc PipelineConfig for search step only
-                adhoc_config = PipelineConfig()
-                adhoc_config.auto_advance = False  # Important: We want only the search step
+            self.logger.info(f"Selected suggester types: {suggester_types}")
+            self.logger.info(f"Search terms: {search_terms}")
 
-                # 2. Configure search suggesters (convert enum to string)
-                suggester_names = []
-                for sug_type in suggester_types:
-                    if sug_type == SuggesterType.LOBID:
-                        suggester_names.append("lobid")
-                    elif sug_type == SuggesterType.SWB:
-                        suggester_names.append("swb")
-                    elif sug_type == SuggesterType.CATALOG:
-                        suggester_names.append("catalog")
+            # Direct suggester usage for standalone search - Claude Generated
+            # This is simpler and faster than using the full pipeline
+            self.progressBar.setMaximum(100)
+            self.progressBar.setValue(10)
 
-                adhoc_config.search_suggesters = suggester_names
-
-                # 3. Prepare input as comma-separated keywords
-                input_text = ", ".join(search_terms)
-
-                # 4. Use centralized PipelineWorker with PipelineManager
-                self.pipeline_worker = PipelineWorker(
-                    pipeline_manager=self.pipeline_manager,
-                    input_text=input_text,
-                    input_type="keywords"  # Indicate we're starting with keywords
-                )
-
-                # Set the ad-hoc configuration
-                self.pipeline_worker.pipeline_manager.set_config(adhoc_config)
-
-                # 5. Connect callbacks to handle search results
-                self.pipeline_worker.step_completed.connect(self.on_search_completed)
-                self.pipeline_worker.step_error.connect(self.on_search_error)
-
-                # Update status when search actually starts
-                self.status_label.setText("Verbindung zu Suchservices...")
-                self.status_label.setStyleSheet(get_status_label_styles()["info"])
-
-                self.pipeline_worker.start()
+            # Determine single suggester type
+            # MetaSuggester expects a single SuggesterType, not a list
+            # IMPORTANT: Don't use ALL to avoid triggering catalog DK lookups outside pipeline
+            if len(suggester_types) == 1:
+                selected_type = suggester_types[0]
+            elif SuggesterType.LOBID in suggester_types and SuggesterType.SWB in suggester_types:
+                # Both Lobid and SWB: Use Lobid as primary, manually merge SWB below
+                selected_type = SuggesterType.LOBID
+                self.use_swb_fallback = True
+            elif SuggesterType.LOBID in suggester_types:
+                selected_type = SuggesterType.LOBID
+                self.use_swb_fallback = False
+            elif SuggesterType.SWB in suggester_types:
+                selected_type = SuggesterType.SWB
+                self.use_swb_fallback = False
             else:
-                # Single Source of Truth: Only PipelineManager allowed - Claude Generated
-                error_msg = "PipelineManager nicht verfügbar - Suche kann nicht durchgeführt werden"
-                self.logger.error(error_msg)
-                self.handle_error(error_msg)
-                return
+                selected_type = SuggesterType.LOBID  # Fallback
+                self.use_swb_fallback = False
+
+            self.logger.info(f"Using suggester type: {selected_type}, SWB fallback: {self.use_swb_fallback}")
+
+            # Create MetaSuggester with selected type
+            self.logger.info("Creating MetaSuggester...")
+            meta_suggester = MetaSuggester(
+                suggester_type=selected_type
+            )
+            self.logger.info("MetaSuggester created successfully")
+
+            # Perform search (search() expects a list of terms)
+            self.status_label.setText(f"Suche nach {len(search_terms)} Begriff(en)...")
+            QApplication.processEvents()
+
+            self.progressBar.setValue(30)
+            self.logger.info("Starting search...")
+            combined_results = meta_suggester.search(search_terms)
+            self.logger.info(f"Search completed, got {len(combined_results)} results")
+
+            # If both Lobid and SWB selected, merge SWB results
+            if self.use_swb_fallback and SuggesterType.SWB in suggester_types:
+                self.progressBar.setValue(50)
+                self.logger.info("Adding SWB results...")
+                swb_suggester = MetaSuggester(suggester_type=SuggesterType.SWB)
+                swb_results = swb_suggester.search(search_terms)
+
+                # Merge results
+                for term, term_results in swb_results.items():
+                    if term not in combined_results:
+                        combined_results[term] = {}
+                    combined_results[term].update(term_results)
+
+                self.logger.info(f"After SWB merge: {len(combined_results)} results")
+
+            self.progressBar.setValue(80)
+
+            # Process and display results
+            self.process_search_results(combined_results)
 
         except Exception as e:
-            self.logger.error(f"Search error: {str(e)}")
+            self.logger.error(f"Search error: {str(e)}", exc_info=True)
+            import traceback
+            self.logger.error(f"Full traceback:\n{traceback.format_exc()}")
             self.handle_error(str(e))
+        finally:
+            self.search_button.setEnabled(True)
+            self.progressBar.setVisible(False)
 
     def on_search_completed(self, step: PipelineStep):
         """Handle search completion with PipelineStep integration - Claude Generated"""
@@ -714,7 +636,7 @@ class SearchTab(QWidget):
             self.flat_results.clear()
 
         for search_term, term_results in results.items():
-            self.logger.info(f"Verarbeite Suchbegriff: {search_term}")
+            self.logger.info(f"Verarbeite Suchbegriff: {search_term}, Anzahl Ergebnisse: {len(term_results) if term_results else 0}")
 
             # Handle case where term_results is a list instead of dict
             if isinstance(term_results, list):
@@ -742,19 +664,10 @@ class SearchTab(QWidget):
                             if gnd_id:
                                 self.gnd_ids.append(gnd_id)
                             else:
-                                self.logger.info(f"Get from DB: {keyword}")
-                                entry = self.cache_manager.get_gnd_keyword(keyword)
-                                if entry:
-                                    # Verwende GND-ID aus Cache
-                                    gnd_id = entry["gnd_id"]
-                                else:
-                                    self.unkown_terms.append(keyword)
-
-                                self.logger.debug(
-                                    f"Verwende GND-ID aus Cache: {gnd_id}"
-                                )
-                                if gnd_id:
-                                    self.gnd_ids.append(gnd_id)
+                                self.logger.warning(f"No GND-ID found for keyword: {keyword}")
+                                self.unkown_terms.append(keyword)
+                                # Skip entries without GND-ID
+                                continue
 
                             # Füge zur flachen Liste hinzu
                             if gnd_id:
@@ -771,12 +684,13 @@ class SearchTab(QWidget):
             else:
                 # Original dict handling code
                 for keyword, data in term_results.items():
-                    self.logger.info(f"Verarbeite Schlagwort: {keyword}")
+                    self.logger.debug(f"Verarbeite Schlagwort: {keyword}, Data: {data}")
                     # Bestimme die Beziehung zum Suchbegriff
                     relation = self.determine_relation(keyword, search_term)
 
                     # Ermittle GND-ID (erste aus dem Set oder leer)
                     gnd_id = next(iter(data.get("gndid", [])), "")
+                    self.logger.debug(f"  Extracted GND-ID: {gnd_id}")
 
                     # Anzahl der Treffer
                     count = data.get("count", 1)
@@ -785,17 +699,9 @@ class SearchTab(QWidget):
                     if gnd_id:
                         self.gnd_ids.append(gnd_id)
                     else:
-                        self.logger.info(f"Get from DB: {keyword}")
-                        entry = self.cache_manager.get_gnd_keyword(keyword)
-                        if entry:
-                            # Verwende GND-ID aus Cache
-                            gnd_id = entry["gnd_id"]
-                        else:
-                            self.unkown_terms.append(keyword)
-
-                        self.logger.debug(f"Verwende GND-ID aus Cache: {gnd_id}")
-                        if gnd_id:
-                            self.gnd_ids.append(gnd_id)
+                        self.logger.warning(f"No GND-ID found for keyword: {keyword}")
+                        self.unkown_terms.append(keyword)
+                        # Continue anyway, the code below will handle missing GND-ID
 
                     # Füge zur flachen Liste hinzu
                     if gnd_id:
@@ -809,6 +715,8 @@ class SearchTab(QWidget):
 
         # Sortiere Ergebnisse nach Relation und dann nach Count
         sorted_results = sorted(self.flat_results, key=lambda x: (x[3], -x[2]))
+
+        self.logger.info(f"Gefundene GND-Einträge: {len(sorted_results)}")
 
         # Zeige Ergebnisse in der Tabelle an
         self.display_results(sorted_results)
@@ -879,36 +787,64 @@ class SearchTab(QWidget):
             self.results_table.setItem(row, 3, rel_item)
 
     def update_selected_entry(self):
-        """Aktualisiert den aktuell ausgewählten Eintrag"""
-        # Hole den ausgewählten GND-Eintrag aus der Tabelle
-        selected_items = self.results_table.selectedItems()
-        if not selected_items:
-            self.status_label.setText("Kein Eintrag ausgewählt.")
+        """Batch DNB sync for all selected/displayed entries - Claude Generated"""
+        from .workers import DNBSyncWorker
+
+        # Collect GND-IDs: either selected entries or all displayed entries with ✅
+        selected_gnd_ids = []
+
+        for row in range(self.results_table.rowCount()):
+            begriff_item = self.results_table.item(row, 0)
+            if begriff_item and begriff_item.text().startswith("✅"):
+                gnd_id = self.results_table.item(row, 1).text()
+                selected_gnd_ids.append(gnd_id)
+
+        if not selected_gnd_ids:
+            self.status_label.setText("Keine ausgewählten Einträge zum Synchronisieren")
             self.status_label.setStyleSheet(get_status_label_styles()["warning"])
             return
 
-        # Hole die GND-ID aus der ausgewählten Zeile
-        row = selected_items[0].row()
-        gnd_id = self.results_table.item(row, 1).text()
+        # Disable button and show progress
+        self.update_button.setEnabled(False)
+        self.update_button.setText(f"Synchronisiere {len(selected_gnd_ids)} Einträge...")
+        self.progressBar.setVisible(True)
+        self.progressBar.setValue(0)
+        self.progressBar.setMaximum(100)
 
-        # Aktualisiere den Eintrag
-        if gnd_id:
-            self.update_button.setEnabled(False)
-            self.update_button.setText("Wird aktualisiert...")
-            self.progressBar.setVisible(True)
-            self.progressBar.setValue(0)
-            self.progressBar.setMaximum(100)
-            self.progressBar.setValue(10)
-            QApplication.processEvents()
+        self.status_label.setText(f"Starte DNB-Sync für {len(selected_gnd_ids)} Einträge...")
+        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        QApplication.processEvents()
 
-            self.update_entry(gnd_id)
+        # Start worker thread
+        self.sync_worker = DNBSyncWorker(selected_gnd_ids, self.cache_manager)
+        self.sync_worker.progress.connect(self.progressBar.setValue)
+        self.sync_worker.finished.connect(self.on_sync_finished)
+        self.sync_worker.start()
 
-            self.update_button.setEnabled(True)
-            self.update_button.setText("Eintrag aktualisieren")
-            self.progressBar.setVisible(False)
+    def on_sync_finished(self, success_count, error_count):
+        """Handle DNB sync completion - Claude Generated"""
+        total = success_count + error_count
 
-            # Zeige aktualisierte Details an
+        # Re-enable button
+        self.update_button.setEnabled(True)
+        self.update_button.setText("🔄 DNB-Sync Selected")
+        self.progressBar.setVisible(False)
+
+        # Update status
+        if error_count == 0:
+            self.status_label.setText(f"DNB-Sync erfolgreich: {success_count} Einträge aktualisiert")
+            self.status_label.setStyleSheet(get_status_label_styles()["success"])
+        else:
+            self.status_label.setText(
+                f"DNB-Sync abgeschlossen: {success_count} erfolgreich, {error_count} Fehler"
+            )
+            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+
+        # Refresh details if an entry is currently selected
+        if self.results_table.selectedItems():
             self.show_details()
+
+        self.logger.info(f"DNB sync completed: {success_count}/{total} successful")
 
     def update_entry(self, gnd_id: str):
         """Aktualisiert einen GND-Eintrag mit Daten aus der DNB"""
@@ -994,7 +930,7 @@ class SearchTab(QWidget):
 
         if gnd_id and self.cache_manager.gnd_entry_exists(gnd_id):
             # Hole Eintrag aus der Datenbank
-            gnd_entry = self.cache_manager.get_gnd_entry(gnd_id)
+            gnd_entry = self.cache_manager.get_gnd_entry_by_id(gnd_id)
 
             # Formatierter Text mit HTML-Styling
             details = f"""<html>
@@ -1054,29 +990,6 @@ class SearchTab(QWidget):
         """Aktualisiert das Suchfeld mit den gegebenen Schlüsselwörtern"""
         self.search_input.setText(keywords)
 
-    def set_gnd_systematic(self, systematic: str):
-        """
-        Setzt die GND-Systematik für die Filterung.
-
-        Args:
-            systematic: String mit '|'-separierten GND-Systematiken
-        """
-        if systematic:
-            # Split by | and filter out empty strings
-            systematics = [sys.strip() for sys in systematic.split("|") if sys.strip()]
-
-            # Clear existing filters first
-            self.gnd_filter_widget.clear_systems()
-
-            # Add each systematic to filter
-            for sys in systematics:
-                self.gnd_filter_widget.add_system(sys)
-
-            # Apply the filter
-            self.gnd_filter_widget.apply_filter()
-        else:
-            self.gnd_filter_widget.clear_systems()
-
     def display_search_results(self, results: Dict) -> None:
         """
         Display search results from pipeline - Claude Generated
@@ -1103,3 +1016,497 @@ class SearchTab(QWidget):
         self.status_label.setStyleSheet(get_status_label_styles()["success"])
 
         self.logger.info("Pipeline search results displayed successfully")
+
+    @pyqtSlot(object)
+    def update_data(self, analysis_state):
+        """Receive pipeline results and display with transparency - Claude Generated
+
+        This slot is called when the pipeline completes, transforming the SearchTab
+        into a post-processing view that shows:
+        1. Which init-keywords led to which GND entries (mapping transparency)
+        2. Which GND entries were selected in final_keywords (usage transparency)
+        3. Which entries came from cache vs. newly fetched (cache status)
+
+        Args:
+            analysis_state: KeywordAnalysisState object with pipeline results
+        """
+        if not analysis_state:
+            self.logger.warning("update_data called with empty analysis_state")
+            self.status_label.setText("Keine Pipeline-Ergebnisse verfügbar")
+            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+            self.transparency_text.setHtml(
+                "<p style='color: orange;'><b>Keine Pipeline-Daten geladen</b></p>"
+                "<p>Führen Sie die Pipeline aus, um GND-Suchergebnisse zu sehen.</p>"
+            )
+            return
+
+        try:
+            # Store original state for tracking modifications
+            self.original_pipeline_state = analysis_state
+            self.current_display_state = analysis_state
+            self.modified_selections = {}
+            self.manual_additions = []
+            self.has_unsaved_changes = False
+
+            # Extract data from analysis_state
+            initial_keywords = analysis_state.initial_keywords or []
+            search_results = analysis_state.search_results or []
+            final_keywords = []
+            if analysis_state.final_llm_analysis:
+                final_keywords = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
+
+            self.logger.info(
+                f"Processing pipeline data: {len(initial_keywords)} init keywords, "
+                f"{len(search_results)} search results, {len(final_keywords)} final keywords"
+            )
+
+            # Handle empty search results
+            if not search_results:
+                self.status_label.setText("Pipeline hat keine GND-Einträge gefunden")
+                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+                self.transparency_text.setHtml(
+                    "<p style='color: orange;'><b>Keine Suchergebnisse</b></p>"
+                    "<p>Die Pipeline hat keine GND-Schlagwörter gefunden. "
+                    "Verwenden Sie die manuelle Nachsuche unten.</p>"
+                )
+                self.results_table.setRowCount(0)
+                return
+
+            # Query cache status for all GND entries
+            self._query_cache_status(search_results)
+
+            # Build mapping table (init-keyword → GND entries)
+            self._build_mapping_table(initial_keywords, search_results, final_keywords)
+
+            # Display results with transparency overlays
+            self._display_pipeline_results(search_results, final_keywords)
+
+            # Update status with helpful hint about double-click
+            total_entries = sum(len(sr.results) for sr in search_results)
+            self.status_label.setText(
+                f"✅ Pipeline-Ergebnisse: {total_entries} GND-Einträge "
+                f"({len(final_keywords)} ausgewählt) | 💡 Doppelklick zum Umschalten"
+            )
+            self.status_label.setStyleSheet(get_status_label_styles()["success"])
+
+            self.logger.info("Pipeline results successfully loaded in SearchTab")
+
+        except Exception as e:
+            self.logger.error(f"Error in update_data: {e}", exc_info=True)
+            self.status_label.setText(f"Fehler beim Laden der Pipeline-Ergebnisse: {str(e)}")
+            self.status_label.setStyleSheet(get_status_label_styles()["error"])
+
+    def _query_cache_status(self, search_results: List) -> None:
+        """Query cache status for each GND entry - Claude Generated
+
+        Populates self.cache_status with GND-ID → status mapping:
+        - 'cache': Entry exists in DB and is recent (< 90 days)
+        - 'outdated': Entry exists but is old (>= 90 days)
+        - 'new': Entry was newly fetched (not in cache or no timestamp)
+
+        Args:
+            search_results: List of SearchResult objects from pipeline
+        """
+        from datetime import datetime, timedelta
+
+        self.cache_status = {}
+
+        for search_result in search_results:
+            for gnd_id in search_result.results.keys():
+                try:
+                    # Check if entry exists in cache
+                    entry = self.cache_manager.get_gnd_entry_by_id(gnd_id)
+
+                    if entry and entry.get('updated_at'):
+                        # Parse timestamp and check age
+                        try:
+                            updated_str = entry.get('updated_at')
+                            # Handle different date formats
+                            if 'T' in updated_str:
+                                updated_dt = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
+                            else:
+                                updated_dt = datetime.strptime(updated_str, '%Y-%m-%d %H:%M:%S')
+
+                            age_days = (datetime.now() - updated_dt.replace(tzinfo=None)).days
+
+                            if age_days >= 90:
+                                self.cache_status[gnd_id] = 'outdated'
+                            else:
+                                self.cache_status[gnd_id] = 'cache'
+                        except (ValueError, AttributeError) as e:
+                            self.logger.debug(f"Could not parse date for {gnd_id}: {e}")
+                            self.cache_status[gnd_id] = 'cache'  # Assume cache if exists
+                    elif entry:
+                        # Entry exists but no timestamp
+                        self.cache_status[gnd_id] = 'cache'
+                    else:
+                        # No entry found - newly fetched
+                        self.cache_status[gnd_id] = 'new'
+
+                except Exception as e:
+                    self.logger.debug(f"Error checking cache for {gnd_id}: {e}")
+                    self.cache_status[gnd_id] = 'new'
+
+        self.logger.info(f"Cache status queried for {len(self.cache_status)} entries")
+
+    def _build_mapping_table(self, initial_keywords: List[str], search_results: List,
+                             final_keywords: List[str]) -> None:
+        """Build mapping from init-keywords to GND entries - Claude Generated
+
+        Creates HTML representation showing which pipeline keywords led to which
+        GND entries, and which were ultimately selected by the LLM.
+
+        Args:
+            initial_keywords: List of initial keywords from pipeline
+            search_results: List of SearchResult objects
+            final_keywords: List of GND-IDs selected in final analysis
+        """
+        mapping_text = "<h3>Pipeline-Mapping (Initial Keywords → GND-Einträge)</h3>"
+        mapping_text += "<p style='color: gray; font-size: 0.9em;'>"
+        mapping_text += "Zeigt welche Pipeline-Keywords zu welchen GND-Einträgen führten:</p>"
+
+        if not initial_keywords:
+            mapping_text += "<p style='color: orange;'><b>Keine Initial-Keywords gefunden</b></p>"
+            # Store for transparency section (to be added in Phase 4)
+            self.mapping_html = mapping_text
+            return
+
+        for init_kw in initial_keywords:
+            # Find search results for this keyword
+            matching_results = [sr for sr in search_results if sr.search_term == init_kw]
+
+            if not matching_results:
+                continue
+
+            mapping_text += f"<p style='margin-top: 12px;'><b>🔍 \"{init_kw}\"</b>:</p><ul style='margin-left: 20px;'>"
+
+            for sr in matching_results:
+                for gnd_id, entry_data in sr.results.items():
+                    label = entry_data.get('label', 'N/A')
+                    is_used = gnd_id in final_keywords
+
+                    if is_used:
+                        status = "✅ <span style='color: green; font-weight: bold;'>[Verwendet]</span>"
+                    else:
+                        status = "<span style='color: gray;'>[Nicht verwendet]</span>"
+
+                    mapping_text += f"<li>{label} (GND:{gnd_id}) {status}</li>"
+
+            mapping_text += "</ul>"
+
+        # Display in transparency section - Claude Generated
+        self.transparency_text.setHtml(mapping_text)
+        self.logger.debug("Mapping table built and displayed successfully")
+
+    def _display_pipeline_results(self, search_results: List, final_keywords: List[str]) -> None:
+        """Display search results with transparency indicators - Claude Generated
+
+        Shows results table with columns:
+        - Checkbox (✅ for selected, ☐ for available)
+        - Begriff (term name)
+        - GND-ID
+        - Init-Kw (which initial keyword found this)
+        - Status (cache indicator: 💾/🌐/⚠️)
+        - Häufigkeit (frequency count)
+
+        Selected entries get light green background highlighting.
+
+        Args:
+            search_results: List of SearchResult objects from pipeline
+            final_keywords: List of GND-IDs selected in final_keywords
+        """
+        self.results_table.setRowCount(0)
+
+        # Status icons
+        status_icons = {
+            'cache': '💾',
+            'new': '🌐',
+            'outdated': '⚠️'
+        }
+
+        status_tooltips = {
+            'cache': 'Aus Datenbank-Cache',
+            'new': 'Neu geholt von Lobid/SWB',
+            'outdated': 'Cache älter als 90 Tage'
+        }
+
+        for search_result in search_results:
+            init_keyword = search_result.search_term
+
+            for gnd_id, entry_data in search_result.results.items():
+                row = self.results_table.rowCount()
+                self.results_table.insertRow(row)
+
+                # Determine if selected in final_keywords
+                is_selected = gnd_id in final_keywords
+
+                # Column 0: Begriff
+                begriff = entry_data.get('label', entry_data.get('title', 'N/A'))
+                begriff_item = QTableWidgetItem(begriff)
+                if is_selected:
+                    begriff_item.setFont(QFont("Segoe UI", weight=QFont.Weight.Bold))
+                    begriff_item.setForeground(QColor("#2e7d32"))  # Dark green
+                    begriff_item.setText(f"✅ {begriff}")
+                self.results_table.setItem(row, 0, begriff_item)
+
+                # Column 1: GND-ID
+                gnd_item = QTableWidgetItem(gnd_id)
+                self.results_table.setItem(row, 1, gnd_item)
+
+                # Column 2: Häufigkeit
+                count = entry_data.get('count', 0)
+                count_item = QTableWidgetItem(str(count))
+                count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.results_table.setItem(row, 2, count_item)
+
+                # Column 3: Ähnlichkeit (relation - keep existing column for compatibility)
+                relation = self.determine_relation(begriff, init_keyword)
+                relation_symbols = ["=", "≈", "≠"]
+                relation_colors = [QColor("#4caf50"), QColor("#ff9800"), QColor("#9e9e9e")]
+                rel_item = QTableWidgetItem(relation_symbols[relation])
+                rel_item.setForeground(relation_colors[relation])
+                rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                # Add init-keyword as tooltip for transparency
+                init_kw_display = init_keyword[:30] + "..." if len(init_keyword) > 30 else init_keyword
+                rel_item.setToolTip(f"Initial-Keyword: {init_keyword}")
+                self.results_table.setItem(row, 3, rel_item)
+
+                # Column 4: Status (cache indicator - transparency feature)
+                status = self.cache_status.get(gnd_id, 'new')
+                status_item = QTableWidgetItem(status_icons[status])
+                status_item.setToolTip(status_tooltips[status])
+                status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.results_table.setItem(row, 4, status_item)
+
+                # Row highlighting for selected entries
+                if is_selected:
+                    for col in range(5):
+                        item = self.results_table.item(row, col)
+                        if item:
+                            item.setBackground(QColor("#e8f5e9"))  # Light green
+
+        self.logger.info(f"Displayed {self.results_table.rowCount()} pipeline results")
+
+    def perform_manual_search(self):
+        """Perform manual GND search and add results to display - Claude Generated
+
+        Allows expert users to search for additional GND keywords that the pipeline
+        might have missed. Results are added with a special 🔧 indicator.
+        """
+        search_term = self.manual_search_input.toPlainText().strip()
+        if not search_term:
+            self.status_label.setText("Bitte einen Suchbegriff eingeben")
+            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+            return
+
+        try:
+            self.status_label.setText(f"Manuelle Suche: {search_term}")
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+            self.manual_search_button.setEnabled(False)
+            QApplication.processEvents()
+
+            # Direct suggester usage - simpler than pipeline
+            search_terms = self.extract_search_terms(search_term)
+
+            # Use Lobid + SWB for manual searches (NOT Catalog to avoid DK lookups)
+            lobid_suggester = MetaSuggester(suggester_type=SuggesterType.LOBID)
+            all_results = lobid_suggester.search(search_terms)
+
+            # Also search SWB and merge
+            swb_suggester = MetaSuggester(suggester_type=SuggesterType.SWB)
+            swb_results = swb_suggester.search(search_terms)
+
+            # Merge SWB results into Lobid results
+            for term, term_results in swb_results.items():
+                if term not in all_results:
+                    all_results[term] = {}
+                all_results[term].update(term_results)
+
+            added_count = 0
+            for term, results in all_results.items():
+                if results:
+                    # Add results to display with manual indicator
+                    for keyword, data in results.items():
+                        # Extract GND-ID
+                        gnd_ids = data.get('gndid', set())
+                        gnd_id = next(iter(gnd_ids), None)
+
+                        if not gnd_id:
+                            continue
+
+                        # Check if already in display
+                        already_exists = False
+                        for row in range(self.results_table.rowCount()):
+                            existing_id = self.results_table.item(row, 1).text()
+                            if existing_id == gnd_id:
+                                already_exists = True
+                                break
+
+                        if not already_exists:
+                            # Add to table with manual indicator
+                            row = self.results_table.rowCount()
+                            self.results_table.insertRow(row)
+
+                            begriff_item = QTableWidgetItem(f"🔧 {keyword}")
+                            begriff_item.setForeground(QColor("#1976d2"))  # Blue for manual
+                            self.results_table.setItem(row, 0, begriff_item)
+
+                            gnd_item = QTableWidgetItem(gnd_id)
+                            self.results_table.setItem(row, 1, gnd_item)
+
+                            count_item = QTableWidgetItem(str(data.get('count', 0)))
+                            count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                            self.results_table.setItem(row, 2, count_item)
+
+                            rel_item = QTableWidgetItem("🔧")
+                            rel_item.setToolTip("Manuell hinzugefügt")
+                            rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                            self.results_table.setItem(row, 3, rel_item)
+
+                            status_item = QTableWidgetItem("🆕")
+                            status_item.setToolTip("Manuelle Addition")
+                            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                            self.results_table.setItem(row, 4, status_item)
+
+                            # Highlight row
+                            for col in range(5):
+                                item = self.results_table.item(row, col)
+                                if item:
+                                    item.setBackground(QColor("#e3f2fd"))  # Light blue
+
+                            # Track as manual addition
+                            self.manual_additions.append({
+                                'gnd_id': gnd_id,
+                                'label': keyword,
+                                'search_term': term
+                            })
+                            added_count += 1
+
+            if added_count > 0:
+                self.status_label.setText(f"Manuelle Suche: {added_count} neue Einträge hinzugefügt")
+                self.status_label.setStyleSheet(get_status_label_styles()["success"])
+                self.has_unsaved_changes = True
+                self.save_changes_button.setEnabled(True)
+            else:
+                self.status_label.setText("Manuelle Suche: Keine neuen Einträge gefunden")
+                self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
+            self.manual_search_input.clear()
+
+        except Exception as e:
+            self.logger.error(f"Manual search error: {e}", exc_info=True)
+            self.status_label.setText(f"Fehler bei manueller Suche: {str(e)}")
+            self.status_label.setStyleSheet(get_status_label_styles()["error"])
+        finally:
+            self.manual_search_button.setEnabled(True)
+
+    def save_changes(self):
+        """Save modified selections back to analysis state - Claude Generated
+
+        Emits selection_changed signal with:
+        - modified: Dict of GND-IDs with 'selected'/'deselected' status changes
+        - manual: List of manually added entries
+        """
+        if not (self.modified_selections or self.manual_additions):
+            return
+
+        # Emit signal to MainWindow
+        self.selection_changed.emit({
+            'modified': self.modified_selections,
+            'manual': self.manual_additions
+        })
+
+        self.status_label.setText(
+            f"Änderungen gespeichert: {len(self.modified_selections)} geändert, "
+            f"{len(self.manual_additions)} manuell hinzugefügt"
+        )
+        self.status_label.setStyleSheet(get_status_label_styles()["success"])
+        self.has_unsaved_changes = False
+        self.save_changes_button.setEnabled(False)
+
+        self.logger.info(
+            f"GND selection changes saved: {len(self.modified_selections)} modified, "
+            f"{len(self.manual_additions)} manual additions"
+        )
+
+    def on_result_double_clicked(self, item):
+        """Toggle selection status when row is double-clicked - Claude Generated
+
+        Allows users to manually adjust which GND entries should be included
+        in the final keywords. Tracks changes for saving back to analysis state.
+        """
+        if not self.original_pipeline_state:
+            # No pipeline data loaded, ignore
+            return
+
+        row = item.row()
+        gnd_id = self.results_table.item(row, 1).text()
+        begriff_item = self.results_table.item(row, 0)
+        begriff_text = begriff_item.text()
+
+        # Get original selection status
+        final_keywords = []
+        if self.original_pipeline_state.final_llm_analysis:
+            final_keywords = self.original_pipeline_state.final_llm_analysis.extracted_gnd_keywords or []
+
+        was_originally_selected = gnd_id in final_keywords
+
+        # Determine current display status
+        is_currently_selected = begriff_text.startswith("✅")
+
+        # Toggle selection
+        if is_currently_selected:
+            # Deselect
+            new_text = begriff_text.replace("✅ ", "")
+            begriff_item.setText(new_text)
+            begriff_item.setFont(QFont("Segoe UI", weight=QFont.Weight.Normal))
+            begriff_item.setForeground(QColor("#000000"))  # Black
+
+            # Remove highlighting
+            for col in range(5):
+                cell_item = self.results_table.item(row, col)
+                if cell_item:
+                    # Check if manual addition (light blue)
+                    if cell_item.background().color() == QColor("#e3f2fd"):
+                        continue  # Keep manual addition highlighting
+                    cell_item.setBackground(QColor("#ffffff"))  # White
+
+            # Track modification
+            if was_originally_selected:
+                self.modified_selections[gnd_id] = 'deselected'
+            else:
+                # Was not originally selected, and we're deselecting - remove from modifications
+                if gnd_id in self.modified_selections:
+                    del self.modified_selections[gnd_id]
+
+        else:
+            # Select
+            if not begriff_text.startswith("✅"):
+                new_text = f"✅ {begriff_text.replace('🔧 ', '')}"  # Remove manual indicator if present
+                begriff_item.setText(new_text)
+            begriff_item.setFont(QFont("Segoe UI", weight=QFont.Weight.Bold))
+            begriff_item.setForeground(QColor("#2e7d32"))  # Dark green
+
+            # Add highlighting
+            for col in range(5):
+                cell_item = self.results_table.item(row, col)
+                if cell_item:
+                    cell_item.setBackground(QColor("#e8f5e9"))  # Light green
+
+            # Track modification
+            if not was_originally_selected:
+                self.modified_selections[gnd_id] = 'selected'
+            else:
+                # Was originally selected, and we're selecting again - remove from modifications
+                if gnd_id in self.modified_selections:
+                    del self.modified_selections[gnd_id]
+
+        # Update save button state
+        if self.modified_selections or self.manual_additions:
+            self.has_unsaved_changes = True
+            self.save_changes_button.setEnabled(True)
+        else:
+            self.has_unsaved_changes = False
+            self.save_changes_button.setEnabled(False)
+
+        self.logger.debug(f"Toggled selection for {gnd_id}: {self.modified_selections.get(gnd_id, 'no change')}")

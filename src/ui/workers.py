@@ -158,3 +158,87 @@ class PipelineWorker(StoppableWorker):
         except Exception as e:
             self.logger.error(f"Pipeline worker error: {e}")
             # Emit error signal if needed
+
+
+class DNBSyncWorker(QThread):
+    """Worker thread for batch DNB sync operations - Claude Generated
+
+    Fetches updated DNB classifications for multiple GND entries in parallel.
+    Emits progress signals for UI feedback.
+    """
+
+    # Signals
+    progress = pyqtSignal(int)  # Progress percentage (0-100)
+    entry_synced = pyqtSignal(str, bool)  # gnd_id, success
+    finished = pyqtSignal(int, int)  # success_count, error_count
+
+    def __init__(self, gnd_ids, cache_manager):
+        """Initialize DNB sync worker
+
+        Args:
+            gnd_ids: List of GND-IDs to sync
+            cache_manager: UnifiedKnowledgeManager instance for DB updates
+        """
+        super().__init__()
+        self.gnd_ids = gnd_ids
+        self.cache_manager = cache_manager
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        """Execute batch DNB sync in background thread - Claude Generated"""
+        from ..core.dnb_utils import get_dnb_classification
+
+        success = 0
+        errors = 0
+        total = len(self.gnd_ids)
+
+        self.logger.info(f"Starting DNB sync for {total} entries")
+
+        for i, gnd_id in enumerate(self.gnd_ids):
+            try:
+                # Fetch DNB classification
+                dnb_class = get_dnb_classification(gnd_id)
+
+                if dnb_class and dnb_class.get("status") == "success":
+                    # Extract data
+                    term = dnb_class.get("preferred_name", "")
+
+                    # DDCs extrahieren und formatieren
+                    ddc_list = dnb_class.get("ddc", [])
+                    ddc = ";".join(f"{d['code']}({d['determinancy']})" for d in ddc_list)
+
+                    # GND-Kategorien extrahieren
+                    gnd_category = dnb_class.get("gnd_subject_categories", [])
+                    gnd_category = ";".join(gnd_category)
+
+                    # Allgemeine Kategorie
+                    category = dnb_class.get("category", "")
+
+                    # Update database
+                    self.cache_manager.update_gnd_entry(
+                        gnd_id,
+                        title=term,
+                        ddcs=ddc,
+                        gnd_systems=gnd_category,
+                        classification=category,
+                    )
+
+                    success += 1
+                    self.entry_synced.emit(gnd_id, True)
+                    self.logger.debug(f"Successfully synced {gnd_id}")
+                else:
+                    errors += 1
+                    self.entry_synced.emit(gnd_id, False)
+                    self.logger.warning(f"Failed to sync {gnd_id}: {dnb_class.get('error_message', 'Unknown error')}")
+
+            except Exception as e:
+                errors += 1
+                self.entry_synced.emit(gnd_id, False)
+                self.logger.error(f"Error syncing {gnd_id}: {e}")
+
+            # Update progress
+            progress_percent = int((i + 1) / total * 100)
+            self.progress.emit(progress_percent)
+
+        self.finished.emit(success, errors)
+        self.logger.info(f"DNB sync completed: {success} success, {errors} errors")

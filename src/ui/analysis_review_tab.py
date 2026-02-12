@@ -28,6 +28,7 @@ from .styles import (
     get_main_stylesheet,
     get_button_styles,
     get_status_label_styles,
+    get_confidence_style,
     LAYOUT,
     COLORS,
 )
@@ -356,7 +357,12 @@ class AnalysisReviewTab(QWidget):
         dk_stats_layout.addWidget(self.dk_coverage_table)
 
         dk_stats_layout.addStretch()
-        self.details_tabs.addTab(dk_stats_widget, "📊 DK-Statistik")
+        self.details_tabs.addTab(dk_stats_widget, "DK-Statistik")
+
+        # Initially hide tabs that are empty until data is available - Claude Generated
+        # Indices: 5=Chunks, 6=Iterationsverlauf, 7=DK/RVK, 8=K10+ Export, 10=DK-Statistik
+        for idx in (5, 6, 7, 8, 10):
+            self.details_tabs.setTabVisible(idx, False)
 
     def load_analysis(self):
         """Load analysis from JSON file - Claude Generated (Refactored)"""
@@ -594,6 +600,7 @@ class AnalysisReviewTab(QWidget):
 
             # Chunk Details - Claude Generated (show intermediate chunked analysis responses)
             if hasattr(llm, 'chunk_responses') and llm.chunk_responses:
+                self.details_tabs.setTabVisible(5, True)  # Show Chunks tab
                 chunk_text = f"Chunked Analysis ({len(llm.chunk_responses)} chunks):\n"
                 chunk_text += "=" * 70 + "\n\n"
 
@@ -610,6 +617,12 @@ class AnalysisReviewTab(QWidget):
             self.chunk_details_text.setPlainText("Keine LLM-Analyse verfügbar")
 
         # DK/RVK Classifications - Claude Generated (HTML-formatted with enhanced transparency)
+        has_dk = bool(self.current_analysis.dk_classifications)
+        self.details_tabs.setTabVisible(7, has_dk)   # DK/RVK tab
+        self.details_tabs.setTabVisible(8, has_dk or bool(
+            self.current_analysis.final_llm_analysis and
+            self.current_analysis.final_llm_analysis.extracted_gnd_keywords
+        ))  # K10+ Export tab
         if self.current_analysis.dk_classifications:
             html_parts = []
             html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
@@ -618,17 +631,8 @@ class AnalysisReviewTab(QWidget):
                 # Get titles for this classification
                 titles, total_count = self._get_titles_for_classification(dk_code)
 
-                # Determine color based on frequency (confidence level)
-                # More titles = higher confidence in this classification
-                if total_count > 50:
-                    color = "#2d5016"  # Dark green - very confident
-                    bg_color = "#d4edda"
-                elif total_count > 20:
-                    color = "#0c5460"  # Teal - confident
-                    bg_color = "#d1ecf1"
-                else:
-                    color = "#664d03"  # Brown/orange - low confidence
-                    bg_color = "#fff3cd"
+                # Determine color based on frequency (confidence level) - Claude Generated
+                color, bg_color, _, _ = get_confidence_style(total_count)
 
                 # Classification header with background
                 html_parts.append(
@@ -691,9 +695,13 @@ class AnalysisReviewTab(QWidget):
         self.populate_statistics()
 
         # DK Statistics - Claude Generated
+        has_dk_stats = bool(self.current_analysis.dk_statistics)
+        self.details_tabs.setTabVisible(10, has_dk_stats)  # DK-Statistik tab
         self.populate_dk_statistics()
 
         # Iteration History - Claude Generated
+        has_iterations = bool(self.current_analysis.refinement_iterations)
+        self.details_tabs.setTabVisible(6, has_iterations)  # Iterationsverlauf tab
         self.populate_iteration_history()
 
     def populate_iteration_history(self):
@@ -930,23 +938,12 @@ class AnalysisReviewTab(QWidget):
                 kw_display += f' (+{len(keywords)-3} more)'
             self.dk_top10_table.setItem(row, 4, QTableWidgetItem(kw_display))
 
-            # Confidence (color-coded)
+            # Confidence (color-coded) - Claude Generated
             unique_titles = item.get('unique_titles', item.get('count', 0))
-            if unique_titles > 50:
-                confidence = "🟩🟩🟩🟩🟩 Very High"
-                color = "#d4edda"
-            elif unique_titles > 20:
-                confidence = "🟩🟩🟩 High"
-                color = "#d1ecf1"
-            elif unique_titles > 5:
-                confidence = "🟩🟩 Medium"
-                color = "#fff3cd"
-            else:
-                confidence = "🟩 Low"
-                color = "#f8d7da"
+            text_color, bg_color, label, bar = get_confidence_style(unique_titles)
 
-            conf_item = QTableWidgetItem(confidence)
-            conf_item.setBackground(QColor(color))
+            conf_item = QTableWidgetItem(f"{bar} {label}")
+            conf_item.setBackground(QColor(bg_color))
             self.dk_top10_table.setItem(row, 5, conf_item)
 
         self.dk_top10_table.resizeColumnsToContents()

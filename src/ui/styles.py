@@ -29,6 +29,15 @@ COLORS = {
     "border_light": "#e0e0e0",
     "border_dark": "#999999",
     "shadow": "rgba(0, 0, 0, 0.1)",
+    # Confidence level colors (text, background) - Claude Generated
+    "confidence_very_high_text": "#2d5016",
+    "confidence_very_high_bg": "#d4edda",
+    "confidence_high_text": "#0c5460",
+    "confidence_high_bg": "#d1ecf1",
+    "confidence_medium_text": "#664d03",
+    "confidence_medium_bg": "#fff3cd",
+    "confidence_low_text": "#721c24",
+    "confidence_low_bg": "#f8d7da",
 }
 
 # Standard layout constants
@@ -487,6 +496,46 @@ def get_status_label_styles():
         "info": f"color: {COLORS['primary']}; font-weight: bold;",
         "muted": f"color: {COLORS['text_muted']};",
     }
+
+
+def get_confidence_style(count: int) -> tuple:
+    """Get color styling based on confidence/frequency count - Claude Generated
+
+    Args:
+        count: Number of catalog hits or unique titles
+
+    Returns:
+        Tuple of (text_color, bg_color, label, bar)
+        where bar is emoji confidence indicator
+    """
+    if count > 50:
+        return (
+            COLORS["confidence_very_high_text"],
+            COLORS["confidence_very_high_bg"],
+            "Very High",
+            "\U0001f7e9" * 5,
+        )
+    elif count > 20:
+        return (
+            COLORS["confidence_high_text"],
+            COLORS["confidence_high_bg"],
+            "High",
+            "\U0001f7e9" * 3,
+        )
+    elif count > 5:
+        return (
+            COLORS["confidence_medium_text"],
+            COLORS["confidence_medium_bg"],
+            "Medium",
+            "\U0001f7e9" * 2,
+        )
+    else:
+        return (
+            COLORS["confidence_low_text"],
+            COLORS["confidence_low_bg"],
+            "Low",
+            "\U0001f7e9",
+        )
 
 
 def get_image_preview_style():

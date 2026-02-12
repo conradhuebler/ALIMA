@@ -1,7 +1,7 @@
 # crossref_tab.py
 
 import logging
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QThread
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget,
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QTabWidget,
     QGroupBox,
+    QProgressBar,
 )
 from .styles import (
     get_main_stylesheet,
@@ -24,6 +25,27 @@ from .styles import (
 )
 
 from ..utils.doi_resolver import resolve_input_to_text, UnifiedResolver
+
+
+class CrossrefWorker(QThread):
+    """Worker thread for non-blocking DOI resolution - Claude Generated"""
+
+    result_ready = pyqtSignal(bool, object, str)  # success, metadata, text_result
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, doi: str):
+        super().__init__()
+        self.doi = doi
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        try:
+            resolver = UnifiedResolver(self.logger)
+            success, metadata, text_result = resolver.resolve(self.doi)
+            self.result_ready.emit(success, metadata, text_result or "")
+        except Exception as e:
+            self.logger.error(f"DOI resolution error: {str(e)}")
+            self.error_occurred.emit(f"Error resolving DOI: {str(e)}")
 
 
 class CrossrefTab(QWidget):
@@ -77,6 +99,12 @@ class CrossrefTab(QWidget):
 
         layout.addWidget(input_group)
 
+        # Progress bar (indeterminate) - Claude Generated
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # Indeterminate
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
         # Ergebnisanzeige mit Tabs
         self.result_tabs = QTabWidget()
 
@@ -118,7 +146,7 @@ class CrossrefTab(QWidget):
         self.setLayout(layout)
 
     def perform_search(self):
-        """Startet die API-Abfrage - Claude Generated"""
+        """Startet die API-Abfrage via Worker-Thread - Claude Generated"""
         doi = self.doi_input.text().strip()
         if not doi:
             QMessageBox.warning(
@@ -126,50 +154,54 @@ class CrossrefTab(QWidget):
             )
             return
 
-        # Use central DOI resolver instead of worker - Claude Generated
         self.fetch_button.setEnabled(False)
+        self.progress_bar.setVisible(True)
         self.status_label.setText("Status: Abfrage läuft...")
         self.status_label.setStyleSheet(get_status_label_styles()["info"])
         self.main_result.clear()
         self.about_result.clear()
         self.toc_result.clear()
         self.keywords_result.clear()
-
         self.main_result.append("Starte Abfrage...")
 
-        try:
-            # Use UnifiedResolver for full metadata - Claude Generated
-            resolver = UnifiedResolver(self.logger)
-            success, metadata, text_result = resolver.resolve(doi)
+        # Launch worker thread - Claude Generated
+        self._worker = CrossrefWorker(doi)
+        self._worker.result_ready.connect(self._on_result_ready)
+        self._worker.error_occurred.connect(self._on_worker_error)
+        self._worker.finished.connect(self._on_worker_finished)
+        self._worker.start()
 
-            if success:
-                # Convert metadata to expected format for display_results
-                if metadata:
-                    self.display_results(metadata)
-                else:
-                    # Fallback: create basic metadata from text result
-                    basic_metadata = {
-                        "Title": "DOI Resolution Result",
-                        "DOI": doi,
-                        "Abstract": text_result or "No content available",
-                        "Authors": "Not available",
-                        "Publisher": "Not available",
-                        "Published": "Not available",
-                        "Container-Title": "Not available",
-                        "URL": f"https://doi.org/{doi}"
-                    }
-                    self.display_results(basic_metadata)
-                self.status_label.setText("Status: Abfrage erfolgreich")
-                self.status_label.setStyleSheet(get_status_label_styles()["success"])
+    def _on_result_ready(self, success: bool, metadata: object, text_result: str):
+        """Handle worker result - Claude Generated"""
+        doi = self.doi_input.text().strip()
+        if success:
+            if metadata:
+                self.display_results(metadata)
             else:
-                self.handle_error(text_result or "DOI resolution failed")
+                basic_metadata = {
+                    "Title": "DOI Resolution Result",
+                    "DOI": doi,
+                    "Abstract": text_result or "No content available",
+                    "Authors": "Not available",
+                    "Publisher": "Not available",
+                    "Published": "Not available",
+                    "Container-Title": "Not available",
+                    "URL": f"https://doi.org/{doi}"
+                }
+                self.display_results(basic_metadata)
+            self.status_label.setText("Status: Abfrage erfolgreich")
+            self.status_label.setStyleSheet(get_status_label_styles()["success"])
+        else:
+            self.handle_error(text_result or "DOI resolution failed")
 
-        except Exception as e:
-            self.logger.error(f"DOI resolution error: {str(e)}")
-            self.handle_error(f"Error resolving DOI: {str(e)}")
+    def _on_worker_error(self, error_message: str):
+        """Handle worker error - Claude Generated"""
+        self.handle_error(error_message)
 
-        finally:
-            self.fetch_button.setEnabled(True)
+    def _on_worker_finished(self):
+        """Cleanup after worker completes - Claude Generated"""
+        self.fetch_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
 
     def display_results(self, results: dict):
         """Zeigt die Ergebnisse der API-Abfrage an."""
