@@ -1561,6 +1561,8 @@ class PipelineManager:
                 abstract_text = input_data
                 keywords_list = []
                 mock_search_results = {}
+                parsed_dk_results = []  # Safe default for non-DK steps - Claude Generated
+                self.logger.debug(f"Initialized parsed_dk_results=[] for step_id='{step_id}'")
 
                 # Check if keywords or DK results are embedded in input (format: "abstract\n\nExisting Keywords: ...")
                 if "Existing Keywords:" in input_data:
@@ -1623,33 +1625,15 @@ class PipelineManager:
                             self.logger.info(f"Attempting to parse DK results from context area...")
                             parsed_dk_results = PipelineResultFormatter.parse_dk_results_from_text(keywords_part)
 
+                            # Validate parser always returns list - Claude Generated
+                            if not isinstance(parsed_dk_results, list):
+                                self.logger.warning(f"⚠️ parse_dk_results_from_text returned {type(parsed_dk_results).__name__} instead of list, using empty list")
+                                parsed_dk_results = []
+
                             if parsed_dk_results:
                                 self.logger.info(f"✅ Successfully parsed {len(parsed_dk_results)} DK results for dk_classification step")
                             else:
-                                self.logger.warning(f"⚠️ Failed to parse any DK results from context area. Context preview: {keywords_part[:100]}...")
-
-                            # Inject simulated previous steps for classification logic to find - Claude Generated
-                            input_step = PipelineStep(
-                                step_id="input",
-                                name="Input",
-                                status="completed",
-                                output_data={"text": abstract_text}
-                            )
-                            dk_search_step = PipelineStep(
-                                step_id="dk_search",
-                                name="DK Search",
-                                status="completed",
-                                output_data={
-                                    "dk_search_results_flattened": parsed_dk_results,
-                                    "dk_search_results": []
-                                }
-                            )
-                            # Initialize pipeline_steps with these simulated steps
-                            self.pipeline_steps = [input_step, dk_search_step]
-
-                            # Ensure current_analysis_state also has these results
-                            if hasattr(self, 'current_analysis_state') and self.current_analysis_state:
-                                self.current_analysis_state.dk_search_results_flattened = parsed_dk_results
+                                self.logger.warning(f"⚠️ No DK results parsed from context area. Context preview: {keywords_part[:100]}...")
 
                 # Convert mock_search_results Dict to List[SearchResult] for data model consistency
                 search_result_objects = self._convert_search_results_to_objects(mock_search_results)
@@ -1666,7 +1650,7 @@ class PipelineManager:
                 )
 
                 # Special case: create simulated previous steps for dk_classification - Claude Generated
-                if step_id == "dk_classification" and parsed_dk_results:
+                if step_id == "dk_classification":
                     input_step = PipelineStep(
                         step_id="input",
                         name="Input",
