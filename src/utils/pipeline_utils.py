@@ -1154,6 +1154,24 @@ class PipelineStepExecutor:
         gnd_compliant_keywords = []
         seen_keywords = set()  # Track added keywords to prevent duplicates - Claude Generated
 
+        # Claude Generated - Phase 2 optimization: Batch load all GND entries
+        # Collect all unique GND-IDs first
+        all_gnd_ids = set()
+        for results in search_results.values():
+            for keyword, data in results.items():
+                gnd_ids = data.get("gndid", set())
+                all_gnd_ids.update(gnd_ids)
+
+        # Batch query: retrieve all GND entries in optimized batches instead of N individual queries
+        if all_gnd_ids:
+            if self.logger:
+                self.logger.info(f"🚀 Batch loading {len(all_gnd_ids)} GND entries (chunks of 50)")
+            gnd_entries_cache = self.cache_manager.get_gnd_facts_batch(list(all_gnd_ids))
+            if self.logger:
+                self.logger.info(f"✅ Retrieved {len(gnd_entries_cache)}/{len(all_gnd_ids)} entries from database")
+        else:
+            gnd_entries_cache = {}
+
         for results in search_results.values():
             for keyword, data in results.items():
                 gnd_ids = data.get("gndid", set())
@@ -1171,36 +1189,35 @@ class PipelineStepExecutor:
 
                 # Process keywords WITH GND-IDs
                 for gnd_id in gnd_ids:
-                    # Claude Generated - Use GND title with optional synonym expansion
-                    gnd_title = self.cache_manager.get_gnd_title_by_id(gnd_id)
-                    if gnd_title:
-                        # Claude Generated - Store GND fact in database for DB fallback verification
-                        # This enables DB lookup when LLM hallucinates wrong GND-IDs
-                        synonyms_list = self.cache_manager.get_gnd_synonyms_by_id(gnd_id) or []
-                        self.cache_manager.store_gnd_fact(
-                            gnd_id,
-                            {
-                                'title': gnd_title,
-                                'synonyms': '; '.join(synonyms_list) if synonyms_list else '',
-                            }
-                        )
+                    # Claude Generated - Lookup from in-memory cache (no database query - Phase 2 optimization)
+                    gnd_entry = gnd_entries_cache.get(gnd_id)
+
+                    if gnd_entry and gnd_entry.title:
+                        gnd_title = gnd_entry.title
+
+                        # DEFENSIVE: Explicit validation before split() to prevent accessing invalid pointers - Claude Generated
+                        synonyms_list = []
+                        if gnd_entry.synonyms:
+                            try:
+                                # Validate it's actually a string before calling split()
+                                if isinstance(gnd_entry.synonyms, str) and len(gnd_entry.synonyms) > 0:
+                                    synonyms_list = [s.strip() for s in gnd_entry.synonyms.split(';') if s.strip()]
+                            except Exception as syn_error:
+                                if self.logger:
+                                    self.logger.debug(f"Failed to parse synonyms for {gnd_id}: {syn_error}")
+                                synonyms_list = []
 
                         # Check if we should expand synonyms and if this title is relevant
                         if expand_synonyms:
                             # Check if this title already appears in our keyword list
                             title_in_keywords = any(gnd_title.lower() in kw.lower() for kw in [keyword] + list(results.keys()))
-                            
-                            if title_in_keywords:
-                                synonyms = self.cache_manager.get_gnd_synonyms_by_id(gnd_id)
-                                if synonyms:
-                                    # Format with synonyms: "Limnologie (Seenkunde; Süßwasserbiologie) (GND-ID: 4035769-7)"
-                                    synonym_text = "; ".join(synonyms)
-                                    formatted_keyword = f"{gnd_title} ({synonym_text}) (GND-ID: {gnd_id})"
-                                else:
-                                    # No synonyms available
-                                    formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
+
+                            if title_in_keywords and synonyms_list:
+                                # Format with synonyms: "Limnologie (Seenkunde; Süßwasserbiologie) (GND-ID: 4035769-7)"
+                                synonym_text = "; ".join(synonyms_list)
+                                formatted_keyword = f"{gnd_title} ({synonym_text}) (GND-ID: {gnd_id})"
                             else:
-                                # Title not in keywords, don't expand synonyms
+                                # No synonyms available or title not in keywords
                                 formatted_keyword = f"{gnd_title} (GND-ID: {gnd_id})"
                         else:
                             # No synonym expansion
@@ -1214,15 +1231,6 @@ class PipelineStepExecutor:
                     else:
                         # Fallback to original keyword if GND title not found
                         formatted_keyword = f"{keyword} (GND-ID: {gnd_id})"
-
-                        # Claude Generated - Store GND fact even with unknown title for DB fallback
-                        self.cache_manager.store_gnd_fact(
-                            gnd_id,
-                            {
-                                'title': keyword,  # Use search keyword as title
-                                'synonyms': '',
-                            }
-                        )
 
                         # Check for duplicates before adding - Claude Generated
                         if formatted_keyword not in seen_keywords:
@@ -1516,22 +1524,9 @@ class PipelineStepExecutor:
             **kwargs,
         )
 
-        # Extract final keywords from <final_list> tag - Claude Generated (Fix: Use <final_list> as source of truth)
-        # This ensures that the LLM's explicit final list is used, not text-matching which causes duplicates
-        final_keywords_all, final_keywords = extract_keywords_from_descriptive_text(
-            final_single_result[2].response_full_text,
-            deduplicated_keywords
-        )
-
-        # Verify final keywords against original GND pool (not just deduplicated chunks) - Claude Generated
-        verification_result = verify_keywords_against_gnd_pool(
-            extracted_keywords=final_keywords,
-            gnd_pool_keywords=gnd_compliant_keywords,
-            stream_callback=stream_callback,
-            step_id=kwargs.get("step_id", "keywords"),
-            knowledge_manager=self.cache_manager,  # Pass for DB fallback verification
-        )
-        final_keywords = verification_result["verified"]
+        # Use already verified keywords from _execute_single_keyword_analysis() - Claude Generated
+        # No need to re-extract or re-verify since _execute_single_keyword_analysis() already does both
+        final_keywords = final_single_result[0]  # Already verified keywords
 
         # Update the LlmKeywordAnalysis to include chunk information
         final_llm_analysis = LlmKeywordAnalysis(
@@ -1546,7 +1541,7 @@ class PipelineStepExecutor:
             extracted_gnd_keywords=final_keywords,  # Use verified keywords only - Claude Generated
             extracted_gnd_classes=final_single_result[1],
             chunk_responses=combined_responses,  # Store chunk responses separately - Claude Generated
-            verification=verification_result,  # Store verification details - Claude Generated
+            verification=final_single_result[2].verification,  # Use verification from _execute_single_keyword_analysis() - Claude Generated
         )
 
         return final_keywords, final_single_result[1], final_llm_analysis

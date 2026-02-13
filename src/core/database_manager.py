@@ -7,6 +7,7 @@ Claude Generated
 """
 
 import logging
+import threading
 from typing import Dict, List, Optional, Any, Union
 from PyQt6.QtSql import QSqlDatabase, QSqlQuery, QSqlError
 from PyQt6.QtCore import QCoreApplication
@@ -34,6 +35,9 @@ class DatabaseManager:
         self.config = database_config
         self.connection_name = connection_name
         self._connection: Optional[QSqlDatabase] = None
+        # Thread-local storage for per-thread connections - Claude Generated
+        # QSqlDatabase connections CANNOT be shared across threads (causes segfaults)
+        self._thread_local = threading.local()
 
         # Ensure QCoreApplication exists for QtSql
         if not QCoreApplication.instance():
@@ -47,8 +51,12 @@ class DatabaseManager:
     def get_connection(self) -> QSqlDatabase:
         """
         Get or create database connection with appropriate driver.
-        Thread-safe with named connections.
+        Thread-safe: each thread gets its own QSqlDatabase connection.
         Claude Generated
+
+        CRITICAL: QSqlDatabase connections CANNOT be shared across threads.
+        Using a main-thread connection from a worker thread causes segfaults.
+        This method creates per-thread connections using thread-local storage.
 
         Returns:
             QSqlDatabase connection object
@@ -56,51 +64,65 @@ class DatabaseManager:
         Raises:
             RuntimeError: If connection cannot be established
         """
-        if self._connection and self._connection.isOpen():
-            return self._connection
+        # Create thread-specific connection name - Claude Generated
+        thread_id = threading.current_thread().ident
+        thread_conn_name = f"{self.connection_name}_{thread_id}"
 
-        # Remove existing connection if present
-        if QSqlDatabase.contains(self.connection_name):
-            QSqlDatabase.removeDatabase(self.connection_name)
+        # Check if this thread already has an open connection
+        if hasattr(self._thread_local, 'connection') and self._thread_local.connection is not None:
+            if QSqlDatabase.contains(thread_conn_name):
+                conn = QSqlDatabase.database(thread_conn_name)
+                if conn.isOpen():
+                    return conn
 
-        # Select appropriate driver
+        # Remove stale connection if present
+        if QSqlDatabase.contains(thread_conn_name):
+            QSqlDatabase.removeDatabase(thread_conn_name)
+
+        # Select appropriate driver and create connection
         if self.config.db_type.lower() in ['sqlite', 'sqlite3']:
             driver_name = "QSQLITE"
-            self._connection = QSqlDatabase.addDatabase(driver_name, self.connection_name)
-            self._connection.setDatabaseName(self.config.sqlite_path)
+            connection = QSqlDatabase.addDatabase(driver_name, thread_conn_name)
+            connection.setDatabaseName(self.config.sqlite_path)
 
         elif self.config.db_type.lower() == 'mysql':
             driver_name = "QMYSQL"
-            self._connection = QSqlDatabase.addDatabase(driver_name, self.connection_name)
-            self._connection.setHostName(self.config.host)
-            self._connection.setPort(self.config.port)
-            self._connection.setDatabaseName(self.config.database)
-            self._connection.setUserName(self.config.username)
-            self._connection.setPassword(self.config.password)
-            self._connection.setConnectOptions(f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}")
+            connection = QSqlDatabase.addDatabase(driver_name, thread_conn_name)
+            connection.setHostName(self.config.host)
+            connection.setPort(self.config.port)
+            connection.setDatabaseName(self.config.database)
+            connection.setUserName(self.config.username)
+            connection.setPassword(self.config.password)
+            connection.setConnectOptions(f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}")
 
         elif self.config.db_type.lower() == 'mariadb':
             driver_name = "QMARIADB"
-            self._connection = QSqlDatabase.addDatabase(driver_name, self.connection_name)
-            self._connection.setHostName(self.config.host)
-            self._connection.setPort(self.config.port)
-            self._connection.setDatabaseName(self.config.database)
-            self._connection.setUserName(self.config.username)
-            self._connection.setPassword(self.config.password)
-            self._connection.setConnectOptions(f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}")
+            connection = QSqlDatabase.addDatabase(driver_name, thread_conn_name)
+            connection.setHostName(self.config.host)
+            connection.setPort(self.config.port)
+            connection.setDatabaseName(self.config.database)
+            connection.setUserName(self.config.username)
+            connection.setPassword(self.config.password)
+            connection.setConnectOptions(f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}")
 
         else:
             raise ValueError(f"Unsupported database type: {self.config.db_type}")
 
         # Attempt to open connection
-        if not self._connection.open():
-            error = self._connection.lastError()
+        if not connection.open():
+            error = connection.lastError()
             error_msg = f"Failed to open database connection: {error.text()}"
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        self.logger.info(f"✅ Database connection established: {driver_name} ({self.config.db_type})")
-        return self._connection
+        # Store in thread-local storage
+        self._thread_local.connection = connection
+
+        # Also store as _connection for backward compatibility (main thread)
+        self._connection = connection
+
+        self.logger.info(f"✅ Database connection established: {driver_name} ({self.config.db_type}) [thread {thread_id}]")
+        return connection
 
     def execute_query(self, sql: str, params: Optional[List[Any]] = None) -> bool:
         """
@@ -138,7 +160,13 @@ class DatabaseManager:
             self.logger.error(f"SQL: {sql}")
             self.logger.error(f"Params: {params}")
             self.logger.error(error_msg)
+            query.finish()
+            query.clear()
             raise RuntimeError(error_msg)
+
+        # CRITICAL: Explicitly finish query to free resources and release database lock - Claude Generated
+        query.finish()
+        query.clear()
 
         return True
 
@@ -174,19 +202,30 @@ class DatabaseManager:
             self.logger.error(f"SQL: {sql}")
             self.logger.error(f"Params: {params}")
             self.logger.error(error_msg)
+            query.finish()
+            query.clear()
             raise RuntimeError(error_msg)
 
-        # Get first result
+        # Get first result with explicit data copying - Claude Generated
+        result = None
         if query.next():
             record = query.record()
             result = {}
             for i in range(record.count()):
                 field_name = record.fieldName(i)
                 field_value = query.value(i)
-                result[field_name] = field_value
-            return result
+                if field_value is None:
+                    result[field_name] = None
+                elif isinstance(field_value, str):
+                    result[field_name] = str(field_value)  # Force copy
+                else:
+                    result[field_name] = field_value
 
-        return None
+        # CRITICAL: Explicitly finish query to free resources - Claude Generated
+        query.finish()
+        query.clear()
+
+        return result
 
     def fetch_all(self, sql: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
         """
@@ -220,9 +259,12 @@ class DatabaseManager:
             self.logger.error(f"SQL: {sql}")
             self.logger.error(f"Params: {params}")
             self.logger.error(error_msg)
+            query.finish()
+            query.clear()
             raise RuntimeError(error_msg)
 
-        # Collect all results
+        # Collect all results with EXPLICIT DATA COPYING - Claude Generated
+        # CRITICAL: Force immediate conversion to Python types to prevent accessing freed memory
         results = []
         while query.next():
             record = query.record()
@@ -230,8 +272,21 @@ class DatabaseManager:
             for i in range(record.count()):
                 field_name = record.fieldName(i)
                 field_value = query.value(i)
-                row[field_name] = field_value
+
+                # CRITICAL: Convert QVariant to Python types immediately
+                # This prevents accessing freed memory after query.finish()
+                if field_value is None:
+                    row[field_name] = None
+                elif isinstance(field_value, str):
+                    row[field_name] = str(field_value)  # Force copy
+                else:
+                    row[field_name] = field_value
             results.append(row)
+
+        # CRITICAL: Explicitly finish query to free resources - Claude Generated
+        # PyQt6's QSqlQuery can cause segfaults if query memory is accessed after freed
+        query.finish()
+        query.clear()
 
         return results
 
@@ -322,15 +377,31 @@ class DatabaseManager:
 
     def close_connection(self):
         """
-        Close database connection and clean up.
+        Close database connection and clean up all thread-specific connections.
         Claude Generated
         """
-        if self._connection and self._connection.isOpen():
-            self._connection.close()
-            self.logger.info(f"Database connection closed: {self.connection_name}")
+        # Close current thread's connection
+        thread_id = threading.current_thread().ident
+        thread_conn_name = f"{self.connection_name}_{thread_id}"
 
+        if QSqlDatabase.contains(thread_conn_name):
+            conn = QSqlDatabase.database(thread_conn_name)
+            if conn.isOpen():
+                conn.close()
+            QSqlDatabase.removeDatabase(thread_conn_name)
+            self.logger.info(f"Database connection closed: {thread_conn_name}")
+
+        # Also clean up legacy connection name (backward compatibility)
         if QSqlDatabase.contains(self.connection_name):
+            conn = QSqlDatabase.database(self.connection_name)
+            if conn.isOpen():
+                conn.close()
             QSqlDatabase.removeDatabase(self.connection_name)
+
+        if hasattr(self._thread_local, 'connection'):
+            self._thread_local.connection = None
+
+        self._connection = None
 
     def begin_transaction(self) -> bool:
         """

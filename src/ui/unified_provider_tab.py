@@ -115,13 +115,22 @@ class TaskModelSelectionDialog(QDialog):
         # Model selection
         model_group = QGroupBox("🎯 Select Model")
         model_layout = QVBoxLayout(model_group)
-        
-        model_info_label = QLabel("Choose a specific model or use auto-selection:")
+
+        model_info_label = QLabel("Choose a model, type to filter/search, or press Enter to validate:")
         model_layout.addWidget(model_info_label)
-        
+
+        # Make model combo editable for quick filtering/typing - Claude Generated
         self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)  # Don't add custom items
+        # Enable substring filtering - Claude Generated
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        # Validate selected model exists when losing focus or pressing Enter - Claude Generated
+        self.model_combo.lineEdit().editingFinished.connect(self._validate_model_selection)
         model_layout.addWidget(self.model_combo)
-        
+
         layout.addWidget(model_group)
 
         # Status label for model detection feedback - Claude Generated
@@ -271,6 +280,36 @@ class TaskModelSelectionDialog(QDialog):
                 if self.model_combo.itemData(i) == current_model:
                     self.model_combo.setCurrentIndex(i)
                     break
+
+    def _validate_model_selection(self) -> None:
+        """Validate that typed model name exists in available models - Claude Generated"""
+        current_text = self.model_combo.currentText().strip()
+
+        if not current_text:
+            return  # Empty is OK (will show as "No models available" handling)
+
+        # Check if text matches any available model (case-insensitive)
+        model_found = False
+        for i in range(self.model_combo.count()):
+            item_text = self.model_combo.itemText(i)
+            if item_text.lower() == current_text.lower():
+                # Found exact match - select it
+                self.model_combo.setCurrentIndex(i)
+                model_found = True
+                self.status_label.setText(f"✅ Model '{current_text}' verified")
+                break
+
+        if not model_found and current_text != "No models available":
+            # Model doesn't exist - show error and reset
+            self.status_label.setText(
+                f"❌ Model '{current_text}' not found in {self.provider_combo.currentText()}"
+            )
+            self.status_label.setStyleSheet(
+                "QLabel { color: #d32f2f; font-style: italic; margin: 5px; }"
+            )
+            # Clear the input
+            self.model_combo.lineEdit().clear()
+            self.status_label.setStyleSheet("QLabel { color: #666; font-style: italic; margin: 5px; }")
 
     def accept(self) -> None:
         """Override accept to update cached models before closing - Claude Generated
@@ -779,11 +818,17 @@ class UnifiedProviderTab(QWidget):
         add_task_model_btn = QPushButton("➕ Add Model")
         add_task_model_btn.clicked.connect(self._add_model_to_task_priority)
         task_button_layout.addWidget(add_task_model_btn)
-        
+
+        # Bulk add model to all tasks (except vision) - Claude Generated
+        bulk_add_task_model_btn = QPushButton("➕➕ Add to All Tasks")
+        bulk_add_task_model_btn.setToolTip("Add model to all text-based tasks (excludes vision)")
+        bulk_add_task_model_btn.clicked.connect(self._bulk_add_model_to_tasks)
+        task_button_layout.addWidget(bulk_add_task_model_btn)
+
         remove_task_model_btn = QPushButton("➖ Remove Model")
         remove_task_model_btn.clicked.connect(self._remove_model_from_task_priority)
         task_button_layout.addWidget(remove_task_model_btn)
-        
+
         task_button_layout.addStretch()
         
         reset_task_btn = QPushButton("🔄 Reset Task")
@@ -1588,7 +1633,110 @@ class UnifiedProviderTab(QWidget):
                 # CRITICAL FIX: Mark UI as dirty and save immediately using explicit task name - Claude Generated
                 self.task_ui_dirty = True
                 self._save_current_task_preferences(explicit_task_name=selected_task_name)
-    
+
+    def _bulk_add_model_to_tasks(self):
+        """Add model to all text-based tasks (excludes vision) - Claude Generated"""
+        # Show model selection dialog
+        dialog = TaskModelSelectionDialog(
+            config_manager=self.config_manager,
+            task_name="bulk",  # Generic task indicator
+            current_model_info=None,
+            parent=self
+        )
+        dialog.setWindowTitle("Add Model to All Text Tasks")
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            provider_name, model_name = dialog.get_selected_model()
+            if not provider_name or not model_name:
+                return
+
+            # Define text-based tasks (exclude vision)
+            text_tasks = [
+                "initialisation",
+                "keywords",
+                "rephrase",
+                "dk_classification",
+                "rvk_classification",
+                "ddc_classification"
+            ]
+
+            # Confirm bulk operation
+            reply = QMessageBox.question(
+                self,
+                "Confirm Bulk Add",
+                f"Add model '{provider_name}/{model_name}' to {len(text_tasks)} text-based tasks?\n\n"
+                f"Tasks: {', '.join(text_tasks)}\n\n"
+                f"This will append to existing preferences for each task.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # Save current task to restore later
+            original_task = self.current_editing_task
+
+            # Add model to each text task
+            added_count = 0
+            for task_name in text_tasks:
+                try:
+                    # Find task in list
+                    task_item = None
+                    for i in range(self.task_categories_list.count()):
+                        item = self.task_categories_list.item(i)
+                        if item.data(Qt.ItemDataRole.UserRole):
+                            item_task_name = item.data(Qt.ItemDataRole.UserRole).get("task_name")
+                            if item_task_name == task_name:
+                                task_item = item
+                                break
+
+                    if not task_item:
+                        self.logger.warning(f"Task '{task_name}' not found in task list")
+                        continue
+
+                    # Select the task (loads its preferences)
+                    self.task_categories_list.setCurrentItem(task_item)
+
+                    # Create model item
+                    display_model = "(Auto-select)" if model_name == "default" else model_name
+                    item_text = f"{provider_name}: {display_model}"
+                    item = QListWidgetItem(item_text)
+                    item.setData(Qt.ItemDataRole.UserRole, {
+                        "provider_name": provider_name,
+                        "model_name": model_name
+                    })
+
+                    # Add to priority list
+                    self.task_model_priority_list.addItem(item)
+
+                    # Mark dirty and save
+                    self.task_ui_dirty = True
+                    self._save_current_task_preferences(explicit_task_name=task_name)
+
+                    added_count += 1
+                    self.logger.info(f"Bulk add: Added {provider_name}/{model_name} to {task_name}")
+
+                except Exception as e:
+                    self.logger.error(f"Failed to add model to task '{task_name}': {e}")
+                    continue
+
+            # Restore original task selection
+            if original_task:
+                for i in range(self.task_categories_list.count()):
+                    item = self.task_categories_list.item(i)
+                    if item.data(Qt.ItemDataRole.UserRole):
+                        if item.data(Qt.ItemDataRole.UserRole).get("task_name") == original_task:
+                            self.task_categories_list.setCurrentItem(item)
+                            break
+
+            # Show result
+            QMessageBox.information(
+                self,
+                "Bulk Add Complete",
+                f"Successfully added model to {added_count}/{len(text_tasks)} tasks."
+            )
+
     def _remove_model_from_task_priority(self):
         """Remove selected model from task priority list - Claude Generated"""
         # Try main list first

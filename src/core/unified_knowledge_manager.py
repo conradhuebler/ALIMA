@@ -387,7 +387,85 @@ class UnifiedKnowledgeManager:
         except Exception as e:
             self.logger.error(f"Error retrieving GND fact {gnd_id}: {e}")
             return None
-    
+
+    def get_gnd_facts_batch(self, gnd_ids: List[str]) -> Dict[str, GNDEntry]:
+        """Retrieve multiple GND facts in a single batch query - Claude Generated
+
+        Args:
+            gnd_ids: List of GND identifiers to retrieve
+
+        Returns:
+            Dictionary mapping gnd_id -> GNDEntry for found entries
+            Missing IDs are not included in the result
+
+        Performance: Processes in chunks of 100 IDs to avoid memory issues with PyQt6 QSqlQuery
+                     For large batches, automatically splits into multiple smaller queries
+        """
+        if not gnd_ids:
+            return {}
+
+        try:
+            results = {}
+
+            # REDUCED: Conservative chunk size to avoid QSqlQuery memory issues - Claude Generated
+            # Testing shows segfaults with 100+ chunk size, 50 is safer for large batches (1080+ entries)
+            chunk_size = 50
+
+            for i in range(0, len(gnd_ids), chunk_size):
+                chunk = gnd_ids[i:i + chunk_size]
+
+                try:
+                    # Build parameterized query: WHERE gnd_id IN (?, ?, ...)
+                    placeholders = ','.join(['?'] * len(chunk))
+                    query = f"SELECT * FROM gnd_entries WHERE gnd_id IN ({placeholders})"
+
+                    rows = self.db_manager.fetch_all(query, chunk)
+
+                    for row in rows:
+                        try:
+                            # DEFENSIVE: Validate all fields before creating GNDEntry - Claude Generated
+                            gnd_id = row.get('gnd_id')
+                            if not gnd_id:
+                                self.logger.warning(f"Row missing gnd_id: {row}")
+                                continue
+
+                            # Validate title exists
+                            title = row.get('title', '')
+                            if not title:
+                                self.logger.warning(f"GND entry {gnd_id} has no title")
+                                continue
+
+                            # Safe synonym handling with explicit None check
+                            synonyms = row.get('synonyms')
+                            if synonyms is not None and not isinstance(synonyms, str):
+                                synonyms = str(synonyms)  # Force conversion
+
+                            results[gnd_id] = GNDEntry(
+                                gnd_id=gnd_id,
+                                title=title,
+                                description=row.get('description'),
+                                synonyms=synonyms,
+                                ddcs=row.get('ddcs'),
+                                ppn=row.get('ppn'),
+                                created_at=row.get('created_at'),
+                                updated_at=row.get('updated_at')
+                            )
+                        except Exception as row_error:
+                            self.logger.warning(f"Failed to create GNDEntry for {row.get('gnd_id', 'unknown')}: {row_error}")
+                            continue
+
+                except Exception as chunk_error:
+                    self.logger.error(f"Error processing chunk {i}-{i+chunk_size}: {chunk_error}")
+                    # Continue with next chunk instead of failing entirely
+                    continue
+
+            self.logger.debug(f"Batch query: Retrieved {len(results)}/{len(gnd_ids)} GND entries ({len(gnd_ids)//chunk_size + 1} chunks of {chunk_size})")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Error in batch GND query: {e}")
+            return {}
+
     # === CLASSIFICATION FACTS MANAGEMENT ===
     
     def store_classification_fact(self, code: str, classification_type: str, title: str = None,
