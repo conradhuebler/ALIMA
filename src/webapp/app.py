@@ -347,12 +347,41 @@ async def cancel_session(session_id: str) -> dict:
         }
 
 
+@app.get("/api/models")
+async def get_available_models() -> list:
+    """Get available provider/model combinations for override dropdown - Claude Generated"""
+    try:
+        app_context = AppContext()
+        services = app_context.get_services()
+        config_manager = services['config_manager']
+        unified_config = config_manager.get_unified_config()
+        enabled_providers = unified_config.get_enabled_providers()
+
+        models = []
+        for provider in enabled_providers:
+            provider_name = provider.name
+            available = getattr(provider, 'available_models', []) or []
+            if not available and getattr(provider, 'preferred_model', None):
+                available = [provider.preferred_model]
+            for model in available:
+                models.append({
+                    "provider": provider_name,
+                    "model": model,
+                    "value": f"{provider_name}|{model}"
+                })
+        return models
+    except Exception as e:
+        logger.error(f"Error getting models: {e}")
+        return []
+
+
 @app.post("/api/analyze/{session_id}")
 async def start_analysis(
     session_id: str,
     input_type: str = Form(...),  # "text", "doi", "pdf", "img"
     content: Optional[str] = Form(None),  # For text/doi
     file: Optional[UploadFile] = File(None),  # For pdf/img
+    global_override: Optional[str] = Form(None),  # "provider|model" override - Claude Generated
 ) -> dict:
     """Start pipeline analysis - Direct execution with LLM queueing - Claude Generated (2026-01-13)"""
     # Auto-create session if not exists (for /webapp route with injected sessionId) - Claude Generated (2026-01-13)
@@ -384,7 +413,7 @@ async def start_analysis(
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -927,6 +956,7 @@ async def run_analysis(
     content: Optional[str],
     file_contents: Optional[bytes],
     filename: Optional[str],
+    global_override: Optional[str] = None,
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -1006,6 +1036,17 @@ async def run_analysis(
 
         # Create pipeline config from preferences
         pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
+
+        # Apply global override if provided - Claude Generated
+        if global_override:
+            provider, model = PipelineConfig.parse_override_string(global_override)
+            pipeline_config.global_provider_override = provider
+            pipeline_config.global_model_override = model
+            pipeline_config.apply_global_override()
+            logger.info(f"🔬 Webapp global override applied: {provider}/{model}")
+
+        # Set config on pipeline manager (was missing - config was built but never applied)
+        pipeline_manager.set_config(pipeline_config)
 
         # Define callbacks for live updates - Claude Generated
         def on_step_started(step):

@@ -79,11 +79,73 @@ class PipelineConfig:
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
 
+    # Global provider/model override for all LLM steps - Claude Generated
+    global_provider_override: Optional[str] = None
+    global_model_override: Optional[str] = None
+
     def __post_init__(self):
         """Initialize step configs with proper defaults - Claude Generated"""
-        # Ensure all step_configs are PipelineStepConfig objects
-        # In the new approach, we only accept PipelineStepConfig objects directly
-        pass
+        # Apply global override if set
+        if self.global_provider_override or self.global_model_override:
+            self.apply_global_override()
+
+    @staticmethod
+    def parse_override_string(override: str) -> tuple:
+        """Parse override string into (provider, model) - Claude Generated
+
+        Supported formats:
+            provider|model      — explicit pipe separator
+            provider/model      — slash separator (natural for provider/model)
+            provider             — provider only, no model
+
+        Examples:
+            "gemini|gemini-2.0-flash"          → ("gemini", "gemini-2.0-flash")
+            "openai_compatible/glm-4.6:cloud"  → ("openai_compatible", "glm-4.6:cloud")
+            "ollama|cogito:14b"                → ("ollama", "cogito:14b")
+            "gemini"                           → ("gemini", None)
+
+        Returns:
+            Tuple of (provider, model) where model may be None
+        """
+        if not override or not override.strip():
+            return (None, None)
+
+        override = override.strip()
+
+        # Try pipe separator first (highest priority, unambiguous)
+        if "|" in override:
+            parts = override.split("|", 1)
+            return (parts[0].strip(), parts[1].strip() if parts[1].strip() else None)
+
+        # Try slash separator
+        if "/" in override:
+            parts = override.split("/", 1)
+            return (parts[0].strip(), parts[1].strip() if parts[1].strip() else None)
+
+        # No separator — provider only
+        return (override, None)
+
+    def apply_global_override(self):
+        """Apply global provider/model override to all LLM steps - Claude Generated
+
+        Overrides provider and/or model for initialisation, keywords, and dk_classification.
+        Non-LLM steps (input, search, dk_search) are not affected.
+        """
+        llm_steps = ["initialisation", "keywords", "dk_classification"]
+        logger = logging.getLogger(__name__)
+
+        for step_id in llm_steps:
+            if step_id not in self.step_configs:
+                continue
+            step_config = self.step_configs[step_id]
+            if self.global_provider_override:
+                step_config.provider = self.global_provider_override
+            if self.global_model_override:
+                step_config.model = self.global_model_override
+
+        provider = self.global_provider_override or "(unchanged)"
+        model = self.global_model_override or "(unchanged)"
+        logger.info(f"🔬 Global override applied: {provider}/{model} → {llm_steps}")
     
     @classmethod
     def create_from_provider_preferences(cls, config_manager) -> 'PipelineConfig':

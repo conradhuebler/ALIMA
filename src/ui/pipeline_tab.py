@@ -317,6 +317,32 @@ class PipelineTab(QWidget):
         except Exception as e:
             self.logger.error(f"Error syncing iterative search controls: {e}")
 
+    def _populate_global_override_combo(self):
+        """Populate the global override combo with available provider/model pairs - Claude Generated"""
+        try:
+            self.global_override_combo.clear()
+            self.global_override_combo.addItem("-- Standard --", None)
+
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            unified_config = config_manager.get_unified_config()
+            enabled_providers = unified_config.get_enabled_providers()
+
+            for provider in enabled_providers:
+                provider_name = provider.name
+                models = getattr(provider, 'available_models', []) or []
+                if not models and getattr(provider, 'preferred_model', None):
+                    models = [provider.preferred_model]
+
+                for model in models:
+                    display = f"{provider_name} | {model}"
+                    data = f"{provider_name}|{model}"
+                    self.global_override_combo.addItem(display, data)
+
+            self.logger.info(f"🔬 Override combo populated: {self.global_override_combo.count() - 1} models")
+        except Exception as e:
+            self.logger.error(f"Error populating override combo: {e}")
+
     def update_current_step_duration(self):
         """Update the duration of the currently running step - Claude Generated"""
         if (
@@ -382,16 +408,16 @@ class PipelineTab(QWidget):
 
     def setup_pipeline_area(self, main_layout):
         """Setup main pipeline area with streaming feedback - Claude Generated"""
-        # Create a main splitter for pipeline steps and streaming
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Create a main splitter for pipeline steps and streaming - Claude Generated
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left side: Pipeline steps as vertical tabs
-        steps_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.steps_splitter = QSplitter(Qt.Orientation.Vertical)
 
         self.pipeline_tabs = QTabWidget()
         self.pipeline_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self.pipeline_tabs.setTabShape(QTabWidget.TabShape.Rounded)
-        self.pipeline_tabs.setMinimumWidth(500)  # Reduced from 600
+        self.pipeline_tabs.setMinimumWidth(300)  # Reduced for small screens - Claude Generated
 
         # Set tab width to be smaller
         self.pipeline_tabs.setStyleSheet(
@@ -438,29 +464,32 @@ class PipelineTab(QWidget):
 
         # Create pipeline step tabs
         self.create_pipeline_step_tabs()
-        steps_splitter.addWidget(self.pipeline_tabs)
+        self.steps_splitter.addWidget(self.pipeline_tabs)
 
         # Add compact pipeline control/progress widget below steps
         control_widget = self.create_compact_pipeline_control()
-        steps_splitter.addWidget(control_widget)
+        self.steps_splitter.addWidget(control_widget)
 
-        # Set initial sizes for steps area (smaller control area, more space for steps)
-        steps_splitter.setSizes([450, 100])
-        main_splitter.addWidget(steps_splitter)
+        # Stretch factors + fallback sizes - Claude Generated
+        self.steps_splitter.setStretchFactor(0, 4)
+        self.steps_splitter.setStretchFactor(1, 1)
+        self.steps_splitter.setSizes([400, 100])
+        self.main_splitter.addWidget(self.steps_splitter)
 
         # Right side: Live streaming widget
         self.stream_widget = PipelineStreamWidget()
 
         # Connect streaming widget signals
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)
-        # self.stream_widget.pause_pipeline.connect(self.pause_pipeline)  # TODO: Implement pause
 
-        main_splitter.addWidget(self.stream_widget)
+        self.main_splitter.addWidget(self.stream_widget)
 
-        # Set splitter sizes (more space for streaming widget)
-        main_splitter.setSizes([500, 700])
+        # Stretch factors + fallback sizes - Claude Generated
+        self.main_splitter.setStretchFactor(0, 2)
+        self.main_splitter.setStretchFactor(1, 3)
+        self.main_splitter.setSizes([400, 600])
 
-        main_layout.addWidget(main_splitter)
+        main_layout.addWidget(self.main_splitter)
 
     def _get_task_provider_model(self, task_name: str) -> tuple[str, str]:
         """
@@ -607,6 +636,32 @@ class PipelineTab(QWidget):
         )
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
         buttons_layout.addWidget(self.auto_pipeline_button)
+
+        # Global Model Override ComboBox - Claude Generated
+        override_label = QLabel("🔬")
+        override_label.setToolTip("Modell-Override: Erzwingt ein Modell für alle LLM-Steps")
+        buttons_layout.addWidget(override_label)
+
+        self.global_override_combo = QComboBox()
+        self.global_override_combo.setMinimumWidth(180)
+        self.global_override_combo.setMaximumWidth(300)
+        self.global_override_combo.setToolTip(
+            "Globaler Override: Erzwingt Provider/Modell für alle LLM-Steps\n"
+            "(Initialisation, Keywords, DK-Klassifikation)\n\n"
+            "\"-- Standard --\" = Normale Provider-Auswahl"
+        )
+        self.global_override_combo.setStyleSheet(
+            """
+            QComboBox {
+                padding: 4px 8px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                font-size: 11px;
+            }
+            """
+        )
+        self._populate_global_override_combo()
+        buttons_layout.addWidget(self.global_override_combo)
 
         # Iterative Search Controls - Claude Generated (placed prominently next to Auto-Pipeline)
         iterative_container = QWidget()
@@ -913,7 +968,7 @@ class PipelineTab(QWidget):
         # Results area
         self.initialisation_result = QTextEdit()
         self.initialisation_result.setReadOnly(True)
-        self.initialisation_result.setMinimumHeight(120)  # Increased from 100
+        self.initialisation_result.setMinimumHeight(60)  # Reduced for small screens - Claude Generated
         self.initialisation_result.setMaximumHeight(200)  # Allow more space
         self.initialisation_result.setPlaceholderText(
             "Freie Schlagworte werden hier angezeigt..."
@@ -931,7 +986,7 @@ class PipelineTab(QWidget):
         # Search results area
         self.search_result = QTextEdit()
         self.search_result.setReadOnly(True)
-        self.search_result.setMinimumHeight(120)  # Increased from 100
+        self.search_result.setMinimumHeight(60)  # Reduced for small screens - Claude Generated
         # self.search_result.setMaximumHeight(200)  # Allow more space
         self.search_result.setPlaceholderText("Suchergebnisse werden hier angezeigt...")
         layout.addWidget(QLabel("GND-Suchergebnisse:"))
@@ -947,7 +1002,7 @@ class PipelineTab(QWidget):
         # Keywords results
         self.keywords_result = QTextEdit()
         self.keywords_result.setReadOnly(True)
-        self.keywords_result.setMinimumHeight(120)  # Increased from 100
+        self.keywords_result.setMinimumHeight(60)  # Reduced for small screens - Claude Generated
         self.keywords_result.setMaximumHeight(200)  # Allow more space
         self.keywords_result.setPlaceholderText(
             "Finale Schlagworte werden hier angezeigt..."
@@ -959,6 +1014,11 @@ class PipelineTab(QWidget):
 
     def create_dk_search_step_widget(self) -> QWidget:
         """Create DK search step widget for catalog search results - Claude Generated"""
+        # Wrap content in scroll area to prevent layout blowout - Claude Generated
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -1047,7 +1107,7 @@ class PipelineTab(QWidget):
 
         self.dk_search_results = QTextEdit()
         self.dk_search_results.setReadOnly(True)
-        self.dk_search_results.setMinimumHeight(200)
+        self.dk_search_results.setMinimumHeight(80)  # Reduced for small screens - Claude Generated
         self.dk_search_results.setPlaceholderText(
             "Katalog-Suchergebnisse für DK/RVK-Klassifikationen werden hier angezeigt...\n"
             "Format: DK: 666.76 (Häufigkeit: 3) | Beispieltitel: ... | Keywords: ..."
@@ -1055,10 +1115,16 @@ class PipelineTab(QWidget):
         results_layout.addWidget(self.dk_search_results)
         layout.addWidget(results_group)
 
-        return widget
+        scroll_area.setWidget(widget)
+        return scroll_area
 
     def create_dk_classification_step_widget(self) -> QWidget:
         """Create DK classification step widget for LLM analysis - Claude Generated"""
+        # Wrap content in scroll area to prevent layout blowout - Claude Generated
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -1081,7 +1147,7 @@ class PipelineTab(QWidget):
 
         self.dk_classification_results = QTextEdit()
         self.dk_classification_results.setReadOnly(True)
-        self.dk_classification_results.setMinimumHeight(400)
+        self.dk_classification_results.setMinimumHeight(100)  # Reduced for small screens - Claude Generated
         self.dk_classification_results.setPlaceholderText(
             "Finale DK/RVK-Klassifikationen vom LLM werden hier angezeigt...\n"
             "Format: DK 666.76, RVK Q12, RVK QC 130, ..."
@@ -1096,7 +1162,24 @@ class PipelineTab(QWidget):
         self.dk_compact_stats.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
         layout.addWidget(self.dk_compact_stats)
 
-        return widget
+        scroll_area.setWidget(widget)
+        return scroll_area
+
+    def save_splitter_state(self, settings):
+        """Save splitter positions to QSettings - Claude Generated"""
+        if hasattr(self, 'main_splitter'):
+            settings.setValue("pipeline/main_splitter", self.main_splitter.saveState())
+        if hasattr(self, 'steps_splitter'):
+            settings.setValue("pipeline/steps_splitter", self.steps_splitter.saveState())
+
+    def restore_splitter_state(self, settings):
+        """Restore splitter positions from QSettings - Claude Generated"""
+        state = settings.value("pipeline/main_splitter")
+        if state and hasattr(self, 'main_splitter'):
+            self.main_splitter.restoreState(state)
+        state = settings.value("pipeline/steps_splitter")
+        if state and hasattr(self, 'steps_splitter'):
+            self.steps_splitter.restoreState(state)
 
     def _filter_dk_search_results(self):
         """Filter displayed DK search results based on search input - Claude Generated"""
@@ -1261,6 +1344,9 @@ class PipelineTab(QWidget):
             )
             return
 
+        # Apply global model override from combo box - Claude Generated
+        self._apply_global_override_from_gui()
+
         # Update DK configuration from GUI widgets - Claude Generated
         self._update_dk_config_from_gui()
 
@@ -1305,6 +1391,27 @@ class PipelineTab(QWidget):
         # Notify streaming widget
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_pipeline_started("pipeline_thread")
+
+    def _apply_global_override_from_gui(self):
+        """Apply global provider/model override from combo box to pipeline config - Claude Generated"""
+        if not hasattr(self, 'global_override_combo'):
+            return
+
+        override_data = self.global_override_combo.currentData()
+        config = self.pipeline_manager.config
+        if not config:
+            return
+
+        if override_data:
+            provider, model = PipelineConfig.parse_override_string(override_data)
+            config.global_provider_override = provider
+            config.global_model_override = model
+            config.apply_global_override()
+            self.logger.info(f"🔬 GUI override applied: {provider}/{model}")
+        else:
+            # "-- Standard --" selected, clear any previous override
+            config.global_provider_override = None
+            config.global_model_override = None
 
     def _update_dk_config_from_gui(self):
         """

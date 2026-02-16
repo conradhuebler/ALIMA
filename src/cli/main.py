@@ -111,6 +111,10 @@ def create_argument_parser():
     pipeline_parser.add_argument("--dk-frequency-threshold", type=int, default=DEFAULT_DK_FREQUENCY_THRESHOLD, help=f"Min DK frequency (default: {DEFAULT_DK_FREQUENCY_THRESHOLD})")
     pipeline_parser.add_argument("--force-update", action="store_true", help="Force catalog cache update")
 
+    # Global provider/model override - Claude Generated
+    pipeline_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",
+                                 help="Force ALL LLM steps: PROVIDER/MODEL or PROVIDER|MODEL (e.g. gemini/gemini-2.0-flash, openai_compatible/glm-4.6:cloud)")
+
     # Keyword chunking
     pipeline_parser.add_argument("--keyword-chunking-threshold", type=int, help="Keyword count threshold for chunking")
     pipeline_parser.add_argument("--chunking-task", type=str, help="Task for chunked processing")
@@ -137,6 +141,8 @@ def create_argument_parser():
     batch_parser.add_argument("--step-seed", action="append", help="Set seed for step")
     batch_parser.add_argument("--suggesters", nargs="+", default=["lobid", "swb"], help="Search suggesters")
     batch_parser.add_argument("--disable-dk-classification", action="store_true", help="Disable DK classification")
+    batch_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",
+                              help="Force ALL LLM steps: PROVIDER/MODEL or PROVIDER|MODEL")
 
     # Show-protocol command
     show_protocol_parser = subparsers.add_parser(

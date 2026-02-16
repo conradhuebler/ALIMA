@@ -385,5 +385,19 @@ class PipelineConfigBuilder:
                 logger.warning(f"max_iterations {args.max_iterations} out of range, clamped to {max_iter}")
             overrides['keywords']['max_refinement_iterations'] = max_iter
 
+        # Parse --override (global provider/model for all LLM steps) - Claude Generated
+        if hasattr(args, 'global_override') and args.global_override:
+            from ..core.pipeline_manager import PipelineConfig
+            provider, model = PipelineConfig.parse_override_string(args.global_override)
+            builder.baseline.global_provider_override = provider
+            builder.baseline.global_model_override = model
+            logger.info(f"Global override: {provider}/{model}")
+
         # Apply all overrides with validation
-        return builder.apply_overrides(overrides)
+        config = builder.apply_overrides(overrides)
+
+        # Apply global override after step-specific overrides - Claude Generated
+        if builder.baseline.global_provider_override or builder.baseline.global_model_override:
+            builder.baseline.apply_global_override()
+
+        return config

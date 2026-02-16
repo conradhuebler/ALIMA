@@ -2839,7 +2839,18 @@ def extract_keywords_from_descriptive_text(
 
                 if not found:
                     # Try database lookup for GND-ID before treating as plain keyword - Claude Generated
-                    db_gnd_id = self._lookup_gnd_id_from_db(raw_kw_normalized)
+                    db_gnd_id = None
+                    try:
+                        from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
+                        ukm = UnifiedKnowledgeManager()
+                        results = ukm.search_by_keywords([raw_kw_normalized], fuzzy_threshold=90)
+                        if results and len(results) > 0:
+                            first_result = results[0]
+                            if isinstance(first_result, dict) and 'gnd_id' in first_result:
+                                db_gnd_id = first_result['gnd_id']
+                    except Exception as db_err:
+                        logger.debug(f"DB lookup error for '{raw_kw_normalized}': {db_err}")
+
                     if db_gnd_id:
                         # Found GND-ID in database - create proper GND keyword format
                         gnd_keyword = f"{raw_kw} (GND-ID: {db_gnd_id})"

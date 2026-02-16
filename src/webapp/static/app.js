@@ -21,7 +21,28 @@ class AlimaWebapp {
     // Initialize session when app loads - Claude Generated
     async initializeSession() {
         await this.createNewSession();
+        await this.loadModelOverrides();
         console.log('Ready for analysis');
+    }
+
+    // Load available models for override dropdown - Claude Generated
+    async loadModelOverrides() {
+        try {
+            const response = await fetch('/api/models');
+            if (!response.ok) return;
+            const models = await response.json();
+            const select = document.getElementById('model-override');
+            if (!select) return;
+            models.forEach(m => {
+                const option = document.createElement('option');
+                option.value = m.value;
+                option.textContent = `${m.provider} | ${m.model}`;
+                select.appendChild(option);
+            });
+            console.log(`Loaded ${models.length} models for override dropdown`);
+        } catch (e) {
+            console.error('Failed to load models:', e);
+        }
     }
 
     // Pipeline step definitions
@@ -410,6 +431,12 @@ class AlimaWebapp {
             } else if (this.cameraBlob) {
                 formData.append('file', this.cameraBlob, 'camera_photo.jpg');
                 this.cameraBlob = null;
+            }
+
+            // Add global model override if selected - Claude Generated
+            const overrideSelect = document.getElementById('model-override');
+            if (overrideSelect && overrideSelect.value) {
+                formData.append('global_override', overrideSelect.value);
             }
 
             const response = await fetch(`/api/analyze/${this.sessionId}`, {
