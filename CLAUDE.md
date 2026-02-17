@@ -113,7 +113,7 @@
 ### ✅ DK Deduplication Statistics Display - Phase 2 COMPLETE
 - ✅ **Critical Bug Fixes**: Fixed `dk_statistics` loading in CLI (3 functions), corrected GUI tab indices
 - ✅ **CLI Statistics Display**: `format_dk_statistics()` shows deduplication metrics, Top 10 classifications, keyword coverage
-- ✅ **GUI Statistics Tab**: New "📊 DK-Statistik" tab with deduplication summary, Top 10 table, keyword coverage mapping
+- ✅ **GUI Statistics Tab**: Statistics panel in unified "📊 DK-Analyse" tab with deduplication summary, Top 10 table, keyword coverage mapping
 - ✅ **Color-Coded Confidence**: Visual indicators based on catalog frequency (Green/Teal/Yellow/Red)
 - ✅ **Backward Compatible**: Old JSON files gracefully handled with fallback messages
 
@@ -122,6 +122,11 @@
   - Three detection methods: char patterns, N-gram counting, window similarity (Jaccard)
   - Auto-abort with parameter variation suggestions (temperature, repetition_penalty, top_p)
   - Configurable via `RepetitionDetectionConfig` in config.json
+  - **Grace Period** (2026-02-17): 2s wait before aborting to prevent false positives
+    - Allows LLM self-correction during grace period
+    - Shows countdown timer: "⏳ Auto-Abbruch in 1.5s"
+    - Success message on resolution: "✅ Wiederholung behoben"
+    - Configurable 0-10s (0 = immediate abort, 2s = default)
 - ✅ **Per-Model Chunking Thresholds**: Model-specific keyword chunking configuration
   - `UnifiedProviderConfig.model_chunking_thresholds` stores per-provider/model settings
   - Priority: explicit override > per-model config > pattern match > default (500)
@@ -130,6 +135,7 @@
   - Shows detection type and details
   - Retry buttons with suggested parameter variations
   - Emits `retry_with_variations` signal for pipeline retry
+  - **Countdown Timer**: 100ms QTimer updates during grace period
 
 ### WIP: Token Control & Chunking
 - Implement token size control with slider (1-50 keywords per chunk)

@@ -74,6 +74,7 @@ class AlimaManager:
                     # Master switches
                     enabled=rep_config.enabled,
                     auto_abort=rep_config.auto_abort,
+                    grace_period_seconds=getattr(rep_config, 'grace_period_seconds', 2.0),  # Claude Generated (2026-02-17)
                     # N-gram detection
                     ngram_size=rep_config.ngram_size,
                     ngram_threshold=rep_config.ngram_threshold,
@@ -128,6 +129,7 @@ class AlimaManager:
         system: Optional[str] = None,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         repetition_penalty: Optional[float] = None,
+        on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> TaskState:
         # Log analysis start with workflow-relevant info - Claude Generated
         provider_display = provider if provider else "auto"
@@ -177,6 +179,11 @@ class AlimaManager:
                 task,
                 model,
                 stream_callback,
+                temperature,
+                p_value,
+                seed,
+                repetition_penalty,
+                on_repetition_detected,
             )
         else:
             variables = {
@@ -205,6 +212,7 @@ class AlimaManager:
                 p_value,
                 seed,
                 repetition_penalty,
+                on_repetition_detected,
             )
 
         status = "completed" if "Error" not in analysis_result.full_text else "failed"
@@ -240,6 +248,7 @@ class AlimaManager:
         p_value: float = 0.1,
         seed: int = 0,
         repetition_penalty: Optional[float] = None,
+        on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
         self.logger.info(
@@ -255,6 +264,7 @@ class AlimaManager:
             p_value,
             seed,
             repetition_penalty,
+            on_repetition_detected,
         )
         if response_text is None:
             return AnalysisResult(full_text="Error: LLM call failed.")
@@ -283,6 +293,11 @@ class AlimaManager:
         task: str = "",
         model: str = "",
         stream_callback: Optional[callable] = None,
+        temperature: float = 0.7,
+        p_value: float = 0.1,
+        seed: int = 0,
+        repetition_penalty: Optional[float] = None,
+        on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> AnalysisResult:
         chunk_results = []
 
@@ -310,7 +325,16 @@ class AlimaManager:
                 }
                 formatted_prompt = prompt_config.prompt.format(**variables)
                 response_text = self._generate_response(
-                    request_id, prompt_config, formatted_prompt, provider, stream_callback
+                    request_id,
+                    prompt_config,
+                    formatted_prompt,
+                    provider,
+                    stream_callback,
+                    temperature,
+                    p_value,
+                    seed,
+                    repetition_penalty,
+                    on_repetition_detected,
                 )
                 if response_text is None:
                     return AnalysisResult(
@@ -319,7 +343,16 @@ class AlimaManager:
                 chunk_results.append(response_text)
 
         combined_text = self._combine_chunk_results(
-            request_id, chunk_results, prompt_config, provider, stream_callback
+            request_id,
+            chunk_results,
+            prompt_config,
+            provider,
+            stream_callback,
+            temperature,
+            p_value,
+            seed,
+            repetition_penalty,
+            on_repetition_detected,
         )
         if combined_text is None:
             return AnalysisResult(
@@ -344,6 +377,11 @@ class AlimaManager:
         prompt_config: PromptConfigData,
         provider: Optional[str] = None,
         stream_callback: Optional[callable] = None,
+        temperature: float = 0.7,
+        p_value: float = 0.1,
+        seed: int = 0,
+        repetition_penalty: Optional[float] = None,
+        on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> Optional[str]:
         if len(chunk_results) == 1:
             return chunk_results[0]
@@ -360,7 +398,16 @@ class AlimaManager:
         formatted_prompt = combination_prompt_text.format(chunks=combined_input)
 
         return self._generate_response(
-            request_id, prompt_config, formatted_prompt, provider, stream_callback
+            request_id,
+            prompt_config,
+            formatted_prompt,
+            provider,
+            stream_callback,
+            temperature,
+            p_value,
+            seed,
+            repetition_penalty,
+            on_repetition_detected,
         )
 
     def _generate_response(
@@ -374,7 +421,7 @@ class AlimaManager:
         p_value: float = 0.1,
         seed: int = 0,
         repetition_penalty: Optional[float] = None,
-        on_repetition_detected: Optional[Callable[[RepetitionResult, List[Dict]], None]] = None,
+        on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> Optional[str]:
         # Acquire LLM semaphore (max 3 concurrent LLM calls) - Claude Generated (2026-01-13)
         semaphore_acquired_time = time.time()
@@ -433,6 +480,12 @@ class AlimaManager:
             self.repetition_detector.reset()
             repetition_aborted = False
 
+            # Grace period state tracking - Claude Generated (2026-02-17)
+            repetition_grace_start: Optional[float] = None  # Timestamp when grace period started
+            repetition_last_detected: Optional[RepetitionResult] = None  # Last detection result
+            repetition_count = 0  # Count total detections
+            repetition_resolved_count = 0  # Count successful resolutions
+
             try:
                 chunk_count = 0
                 for text_chunk in response_generator:
@@ -444,30 +497,63 @@ class AlimaManager:
                     # Check for repetition patterns - Claude Generated
                     rep_result = self.repetition_detector.add_chunk(text_chunk)
                     if rep_result and rep_result.is_repetitive:
-                        self.logger.warning(f"🔄 REPETITION_DETECTED: {rep_result.detection_type} - {rep_result.details}")
+                        # Repetition detected - handle grace period - Claude Generated (2026-02-17)
+                        if repetition_grace_start is None:
+                            # START grace period
+                            repetition_grace_start = time.time()
+                            repetition_last_detected = rep_result
+                            repetition_count += 1  # Count first detection
 
-                        # Generate parameter suggestions
-                        suggestions = get_parameter_variation_suggestions(
-                            temperature=temperature,
-                            top_p=p_value,
-                            repetition_penalty=repetition_penalty or 1.0,
-                            detection_type=rep_result.detection_type,
-                        )
+                            self.logger.warning(f"🔄 REPETITION_DETECTED: {rep_result.detection_type} - {rep_result.details}")
+                            self.logger.info(f"⏳ GRACE_PERIOD_STARTED: {self.repetition_detector.config.grace_period_seconds}s countdown")
 
-                        # Call the repetition callback if provided
-                        if on_repetition_detected:
-                            on_repetition_detected(rep_result, suggestions)
+                            # Generate parameter suggestions
+                            suggestions = get_parameter_variation_suggestions(
+                                temperature=temperature,
+                                top_p=p_value,
+                                repetition_penalty=repetition_penalty or 1.0,
+                                detection_type=rep_result.detection_type,
+                            )
 
-                        # Auto-abort if configured
-                        if self.repetition_detector.config.auto_abort:
-                            self.logger.warning(f"🛑 AUTO_ABORT: Cancelling generation due to repetition")
-                            repetition_aborted = True
-                            # Try to cancel the LLM generation
-                            try:
-                                self.llm_service.cancel_generation(reason="repetition_detected")
-                            except Exception as cancel_err:
-                                self.logger.debug(f"Cancel generation not supported: {cancel_err}")
-                            break
+                            # Call callback with grace_period=True
+                            if on_repetition_detected:
+                                on_repetition_detected(
+                                    rep_result,
+                                    suggestions,
+                                    True,  # grace_period
+                                    False,  # resolved
+                                    self.repetition_detector.config.grace_period_seconds  # grace_seconds
+                                )
+                        else:
+                            # CONTINUE grace period - repetition persists
+                            repetition_last_detected = rep_result
+                            elapsed = time.time() - repetition_grace_start
+
+                            # Check if grace period expired
+                            if elapsed >= self.repetition_detector.config.grace_period_seconds:
+                                # ABORT after grace period
+                                if self.repetition_detector.config.auto_abort:
+                                    self.logger.warning(f"🛑 AUTO_ABORT: Grace period expired ({elapsed:.1f}s), cancelling generation")
+                                    repetition_aborted = True
+                                    # Try to cancel the LLM generation
+                                    try:
+                                        self.llm_service.cancel_generation(reason="repetition_persistent")
+                                    except Exception as cancel_err:
+                                        self.logger.debug(f"Cancel generation not supported: {cancel_err}")
+                                    break
+                    else:
+                        # No repetition in this chunk - check for resolution - Claude Generated (2026-02-17)
+                        if repetition_grace_start is not None:
+                            # RESOLVED - repetition stopped during grace period
+                            elapsed = time.time() - repetition_grace_start
+                            repetition_resolved_count += 1  # Count resolution
+                            self.logger.info(f"✅ REPETITION_RESOLVED: Stopped after {elapsed:.1f}s, continuing generation")
+                            repetition_grace_start = None
+                            repetition_last_detected = None
+
+                            # Notify UI that repetition resolved
+                            if on_repetition_detected:
+                                on_repetition_detected(None, [], False, True, 0.0)  # result, suggestions, grace_period, resolved, grace_seconds
 
                     if stream_callback:
                         self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")
@@ -486,6 +572,13 @@ class AlimaManager:
                     self.logger.info(f"⚠️ LLM_STREAM_ABORTED: {chunk_count} chunks, {len(full_response_text)} chars (repetition detected)")
                 else:
                     self.logger.info(f"✅ LLM_STREAM_COMPLETE: {chunk_count} chunks, {len(full_response_text)} chars total")
+
+                # Log repetition statistics summary - Claude Generated (2026-02-17)
+                if repetition_count > 0:
+                    self.logger.info(
+                        f"📊 REPETITION_SUMMARY: {repetition_count} Wiederholung(en) erkannt, "
+                        f"{repetition_resolved_count} erfolgreich behoben durch Grace Period ({self.repetition_detector.config.grace_period_seconds}s)"
+                    )
 
             except Exception as e:
                 self.logger.error(

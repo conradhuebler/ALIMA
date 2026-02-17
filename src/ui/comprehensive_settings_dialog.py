@@ -6,8 +6,8 @@ Claude Generated
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, 
-    QFormLayout, QLineEdit, QSpinBox, QComboBox, QCheckBox,
+    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
+    QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox,
     QPushButton, QTextEdit, QLabel, QGroupBox, QScrollArea,
     QMessageBox, QFileDialog, QProgressDialog, QGridLayout,
     QSplitter, QListWidget, QListWidgetItem, QStackedWidget,
@@ -1121,6 +1121,20 @@ class ComprehensiveSettingsDialog(QDialog):
         self.repetition_char_threshold.setToolTip("Consecutive identical characters before triggering (e.g., '!!!')")
         repetition_layout.addRow("Char Repeat Threshold:", self.repetition_char_threshold)
 
+        # Grace period setting - Claude Generated (2026-02-17)
+        self.repetition_grace_period = QDoubleSpinBox()
+        self.repetition_grace_period.setRange(0.0, 10.0)
+        self.repetition_grace_period.setSingleStep(0.5)
+        self.repetition_grace_period.setValue(2.0)
+        self.repetition_grace_period.setDecimals(1)
+        self.repetition_grace_period.setSuffix(" s")
+        self.repetition_grace_period.setToolTip(
+            "Wartezeit vor Auto-Abbruch bei Wiederholungen\n"
+            "0 = sofortiger Abbruch (alte Verhalten)\n"
+            "2-5 = empfohlen für False-Positive-Vermeidung"
+        )
+        repetition_layout.addRow("Grace Period:", self.repetition_grace_period)
+
         repetition_group.setLayout(repetition_layout)
         layout.addWidget(repetition_group)
 
@@ -1989,6 +2003,7 @@ class ComprehensiveSettingsDialog(QDialog):
             self.repetition_ngram_threshold.setValue(rep_config.ngram_threshold)
             self.repetition_min_text.setValue(rep_config.min_text_length)
             self.repetition_char_threshold.setValue(rep_config.char_repeat_threshold)
+            self.repetition_grace_period.setValue(getattr(rep_config, 'grace_period_seconds', 2.0))  # Claude Generated (2026-02-17)
         else:
             # Use defaults
             self.repetition_enabled.setChecked(True)
@@ -1996,6 +2011,7 @@ class ComprehensiveSettingsDialog(QDialog):
             self.repetition_ngram_threshold.setValue(8)
             self.repetition_min_text.setValue(1000)
             self.repetition_char_threshold.setValue(80)
+            self.repetition_grace_period.setValue(2.0)  # Claude Generated (2026-02-17)
 
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
@@ -2467,6 +2483,7 @@ class ComprehensiveSettingsDialog(QDialog):
             ngram_threshold=self.repetition_ngram_threshold.value(),
             min_text_length=self.repetition_min_text.value(),
             char_repeat_threshold=self.repetition_char_threshold.value(),
+            grace_period_seconds=self.repetition_grace_period.value(),  # Claude Generated (2026-02-17)
             # Keep other values at defaults or from existing config
             ngram_size=getattr(config.repetition_config, 'ngram_size', 6) if hasattr(config, 'repetition_config') else 6,
             window_size=getattr(config.repetition_config, 'window_size', 300) if hasattr(config, 'repetition_config') else 300,

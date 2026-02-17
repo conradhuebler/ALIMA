@@ -675,6 +675,7 @@ class RepetitionDetectionConfig:
     enabled: bool = True              # Enable repetition detection
     auto_abort: bool = True           # Automatically abort on detection
     show_suggestions: bool = True     # Show parameter variation suggestions
+    grace_period_seconds: float = 2.0 # Wait before aborting (0 = immediate, Claude Generated)
 
     # N-gram detection
     ngram_size: int = 6               # Words per N-gram (longer = more specific)

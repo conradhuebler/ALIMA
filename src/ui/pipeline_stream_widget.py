@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QSplitter,
     QCheckBox,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QThread
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QPalette
@@ -46,6 +47,13 @@ class PipelineStreamWidget(QWidget):
 
         self.setup_ui()
 
+        # Size policy: Vertical Ignored to prevent sizeHint propagation to window - Claude Generated
+        # Both this widget AND stream_text must have Ignored to prevent window expansion on streaming
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,   # Horizontal: darf wachsen
+            QSizePolicy.Policy.Ignored      # Vertical: sizeHint ignorieren (kritisch für Multi-Monitor!)
+        )
+
     def setup_ui(self):
         """Setup der Stream UI - Claude Generated"""
         layout = QVBoxLayout(self)
@@ -66,7 +74,14 @@ class PipelineStreamWidget(QWidget):
         # Main streaming text widget
         self.stream_text = QTextEdit()
         self.stream_text.setReadOnly(True)
-        self.stream_text.setMinimumHeight(300)
+        self.stream_text.setMinimumHeight(200)  # Minimum for readability - Claude Generated
+
+        # Size policy: Horizontal Expanding, Vertical Ignored to prevent sizeHint growth - Claude Generated
+        # Ignored policy ensures the widget doesn't influence window size based on content - Claude Generated
+        self.stream_text.setSizePolicy(
+            QSizePolicy.Policy.Expanding,   # Horizontal: darf wachsen
+            QSizePolicy.Policy.Ignored      # Vertical: Layout entscheidet, sizeHint ignorieren
+        )
 
         # Enhanced styling for readability
         font = QFont("Consolas", 10)  # Monospace font for structured output
@@ -178,6 +193,13 @@ class PipelineStreamWidget(QWidget):
         self.warning_details_label.setStyleSheet("color: #ffe0b2;")
         warning_layout.addWidget(self.warning_details_label)
 
+        # Countdown label (for grace period) - Claude Generated (2026-02-17)
+        self.countdown_label = QLabel("")
+        self.countdown_label.setWordWrap(True)
+        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold; margin-top: 4px;")
+        self.countdown_label.setVisible(False)
+        warning_layout.addWidget(self.countdown_label)
+
         # Suggestions section
         suggestions_label = QLabel("💡 Empfohlene Anpassungen:")
         suggestions_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
@@ -201,8 +223,21 @@ class PipelineStreamWidget(QWidget):
 
         layout.addWidget(self.repetition_warning_frame)
 
-    def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict]):
-        """Show repetition warning with suggestions - Claude Generated"""
+    def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict],
+                                 grace_period: bool = False, grace_seconds: float = 2.0):
+        """Show repetition warning with optional countdown - Claude Generated (2026-02-17)
+
+        Args:
+            detection_type: Type of repetition detected
+            details: Detection details
+            suggestions: Parameter variation suggestions
+            grace_period: If True, show countdown timer
+            grace_seconds: Grace period duration in seconds
+        """
+        # DON'T show the warning panel during streaming - too disruptive!
+        # Just track silently and show summary at the end - Claude Generated (2026-02-17)
+        return
+
         self.current_suggestions = suggestions
 
         # Set warning title based on detection type
@@ -213,6 +248,25 @@ class PipelineStreamWidget(QWidget):
         }
         self.warning_title_label.setText(type_labels.get(detection_type, "Wiederholung erkannt"))
         self.warning_details_label.setText(details)
+
+        # Handle grace period countdown - Claude Generated (2026-02-17)
+        if grace_period:
+            # START countdown timer
+            import time
+            self.grace_period_end = time.time() + grace_seconds
+            self.grace_timer = QTimer(self)
+            self.grace_timer.timeout.connect(self._update_countdown)
+            self.grace_timer.start(100)  # Update every 100ms
+
+            # Show countdown label
+            self.countdown_label.setText(f"⏳ Auto-Abbruch in {grace_seconds:.1f}s (bei anhaltender Wiederholung)")
+            self.countdown_label.setVisible(True)
+        else:
+            # Immediate warning (old behavior)
+            self.countdown_label.setVisible(False)
+            # Stop timer if it's running
+            if hasattr(self, 'grace_timer') and self.grace_timer.isActive():
+                self.grace_timer.stop()
 
         # Clear existing suggestion buttons
         while self.suggestions_button_layout.count():
@@ -239,17 +293,28 @@ class PipelineStreamWidget(QWidget):
         # Show the warning panel
         self.repetition_warning_frame.setVisible(True)
 
-        # Log the warning
-        self.add_pipeline_message(
-            f"🔄 {type_labels.get(detection_type, 'Wiederholung')}: {details}",
-            "warning",
-            self.current_step_id
-        )
+        # NOTE: Don't log to pipeline stream during streaming - it fragments the LLM output!
+        # The warning panel already shows this information visually - Claude Generated (2026-02-17)
 
-    def hide_repetition_warning(self):
-        """Hide the repetition warning panel - Claude Generated"""
-        self.repetition_warning_frame.setVisible(False)
-        self.current_suggestions = []
+    def _update_countdown(self):
+        """Update countdown timer display - Claude Generated (2026-02-17)"""
+        import time
+        remaining = self.grace_period_end - time.time()
+        if remaining > 0:
+            self.countdown_label.setText(f"⏳ Auto-Abbruch in {remaining:.1f}s (bei anhaltender Wiederholung)")
+        else:
+            self.countdown_label.setText("⏳ Abbruch erfolgt...")
+            self.grace_timer.stop()
+
+    def hide_repetition_warning(self, resolved: bool = False):
+        """Hide the repetition warning panel - Claude Generated (2026-02-17)
+
+        Args:
+            resolved: If True, log success message
+        """
+        # Panel is disabled during streaming - nothing to do - Claude Generated (2026-02-17)
+        # Statistics are shown in the log summary at the end
+        pass
 
     def _on_suggestion_clicked(self, params: Dict):
         """Handle suggestion button click - Claude Generated"""
@@ -573,3 +638,7 @@ class PipelineStreamWidget(QWidget):
         self.step_start_times.clear()
         self.is_streaming = False
         self.current_working_title = None  # Reset title for new pipeline - Claude Generated
+
+        # Clear stream content and hide repetition warning
+        self.clear_stream()
+        self.hide_repetition_warning()

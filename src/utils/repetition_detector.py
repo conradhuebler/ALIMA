@@ -56,6 +56,7 @@ class RepetitionDetectorConfig:
     # Behavior
     enabled: bool = True
     auto_abort: bool = True          # Automatically abort on detection
+    grace_period_seconds: float = 2.0  # Wait before aborting (0 = immediate) - Claude Generated (2026-02-17)
 
 
 @dataclass

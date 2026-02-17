@@ -381,6 +381,7 @@ class PipelineManager:
         self.stream_callback: Optional[Callable] = (
             None  # Callback for LLM streaming tokens
         )
+        self.repetition_detected_callback: Optional[Callable] = None  # Claude Generated (2026-02-17)
 
         # Interrupt handling with thread-safety - Claude Generated
         import threading
@@ -439,6 +440,7 @@ class PipelineManager:
         step_error: Optional[Callable] = None,
         pipeline_completed: Optional[Callable] = None,
         stream_callback: Optional[Callable] = None,
+        repetition_detected: Optional[Callable] = None,  # Claude Generated (2026-02-17)
     ):
         """Set callbacks for pipeline events - Claude Generated"""
         self.step_started_callback = step_started
@@ -446,6 +448,7 @@ class PipelineManager:
         self.step_error_callback = step_error
         self.pipeline_completed_callback = pipeline_completed
         self.stream_callback = stream_callback
+        self.repetition_detected_callback = repetition_detected  # Claude Generated (2026-02-17)
 
     def set_interrupt_flag(self, lock, is_interrupted_func: Callable) -> None:
         """Set interrupt check function from worker - Claude Generated
@@ -929,6 +932,10 @@ class PipelineManager:
                     f"Initialisation: Mapped system_prompt to system parameter"
                 )
 
+            # Add repetition callback to filtered_config - Claude Generated (2026-02-17)
+            if self.repetition_detected_callback:
+                filtered_config["on_repetition_detected"] = self.repetition_detected_callback
+
             keywords, gnd_classes, llm_analysis, llm_title = (
                 self.pipeline_executor.execute_initial_keyword_extraction(
                     abstract_text=self.current_analysis_state.original_abstract,
@@ -1196,6 +1203,10 @@ class PipelineManager:
                 )
             else:
                 # Standard single-pass execution
+                # Add repetition callback to filtered_config - Claude Generated (2026-02-17)
+                if self.repetition_detected_callback:
+                    filtered_config["on_repetition_detected"] = self.repetition_detected_callback
+
                 final_keywords, _, llm_analysis = (
                     self.pipeline_executor.execute_final_keyword_analysis(
                         original_abstract=self.current_analysis_state.original_abstract,
@@ -1369,17 +1380,25 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK classification
             step_config = self.config.get_step_config("dk_classification")
-            dk_classifications, llm_analysis = self.pipeline_executor.execute_dk_classification(
-                dk_search_results=dk_search_results,
-                original_abstract=original_abstract,
-                model=step.model or step_config.model or "cogito:32b",
-                provider=step.provider or step_config.provider or "ollama",
-                stream_callback=self._stream_callback_adapter,
-                temperature=step_config.temperature or 0.7,
-                top_p=step_config.top_p or 0.1,
-                dk_frequency_threshold=getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),  # Claude Generated
-                repetition_penalty=step_config.repetition_penalty,
-            )
+
+            # Prepare kwargs for DK classification - Claude Generated (2026-02-17)
+            dk_kwargs = {
+                "dk_search_results": dk_search_results,
+                "original_abstract": original_abstract,
+                "model": step.model or step_config.model or "cogito:32b",
+                "provider": step.provider or step_config.provider or "ollama",
+                "stream_callback": self._stream_callback_adapter,
+                "temperature": step_config.temperature or 0.7,
+                "top_p": step_config.top_p or 0.1,
+                "dk_frequency_threshold": getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),
+                "repetition_penalty": step_config.repetition_penalty,
+            }
+
+            # Add repetition callback if available
+            if self.repetition_detected_callback:
+                dk_kwargs["on_repetition_detected"] = self.repetition_detected_callback
+
+            dk_classifications, llm_analysis = self.pipeline_executor.execute_dk_classification(**dk_kwargs)
 
             # Prepare search summary for display
             search_summary_lines = []
@@ -1457,6 +1476,15 @@ class PipelineManager:
                         current_step.status = "completed"
                         if self.step_completed_callback:
                             self.step_completed_callback(current_step)
+
+                            # NEW: Allow main thread time to process completion and display messages - Claude Generated
+                            # This prevents output interleaving where next step's output appears before
+                            # previous step's completion summary (especially critical for GUI event queue)
+                            import time
+                            completion_delay_steps = ["initialisation", "keywords", "dk_classification"]
+                            if current_step.step_id in completion_delay_steps:
+                                time.sleep(0.2)  # 200ms for main thread to process completion signals
+                                self.logger.debug(f"✅ Delayed 200ms after {current_step.step_id} completion for UI processing")
 
                 self.current_step_index += 1
 
