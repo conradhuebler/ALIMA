@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QScrollArea,
     QGroupBox,
     QLabel,
@@ -24,7 +25,8 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView
+    QHeaderView,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QFont, QPalette, QPixmap
@@ -61,6 +63,9 @@ class PipelineStepWidget(QFrame):
         self.setFrameStyle(QFrame.Shape.Box)
         self.setLineWidth(2)
 
+        # Prevent sizeHint propagation from child QTextEdits - Claude Generated
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 10, 15, 10)
 
@@ -94,11 +99,6 @@ class PipelineStepWidget(QFrame):
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(0, 10, 0, 0)
         layout.addWidget(self.content_widget)
-
-        # Progress bar (hidden by default)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
 
         # Now that all UI elements are created, update the display - Claude Generated
         self.update_status_display()
@@ -180,8 +180,6 @@ class PipelineStepWidget(QFrame):
             self.setStyleSheet(
                 "QFrame { border-color: #2196f3; background-color: #e3f2fd; }"
             )
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 0)  # Indeterminate
 
         elif self.step.status == "completed":
             self.status_label.setText("✓")
@@ -191,7 +189,6 @@ class PipelineStepWidget(QFrame):
             self.setStyleSheet(
                 "QFrame { border-color: #4caf50; background-color: #e8f5e8; }"
             )
-            self.progress_bar.setVisible(False)
 
         elif self.step.status == "error":
             self.status_label.setText("✗")
@@ -201,7 +198,6 @@ class PipelineStepWidget(QFrame):
             self.setStyleSheet(
                 "QFrame { border-color: #d32f2f; background-color: #ffebee; }"
             )
-            self.progress_bar.setVisible(False)
 
         # Always update provider/model display when status changes - Claude Generated
         self._update_provider_model_display()
@@ -373,6 +369,9 @@ class PipelineTab(QWidget):
 
     def setup_ui(self):
         """Setup the pipeline UI - Claude Generated"""
+        # Prevent sizeHint propagation to MainWindow to avoid automatic window resizing - Claude Generated
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
+
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -383,10 +382,9 @@ class PipelineTab(QWidget):
         title_layout.setContentsMargins(5, 5, 5, 5)
         title_layout.setSpacing(3)
 
-        # Title label (shown after initialisation) - Claude Generated
+        # Title label (always visible, empty until title generated) - Claude Generated
         self.title_label = QLabel()
         self.title_label.setStyleSheet("font-size: 11px; color: #555555; padding: 2px;")
-        self.title_label.setVisible(False)  # Hidden until title generated
         title_layout.addWidget(self.title_label)
 
         # Title override field - Claude Generated
@@ -398,7 +396,10 @@ class PipelineTab(QWidget):
         self.title_override_field.editingFinished.connect(self.on_title_override_changed)
         title_layout.addWidget(self.title_override_field)
 
-        title_widget.setMaximumHeight(65)
+        # Reserve enough space for both widgets to prevent window resize - Claude Generated
+        # Use fixed size policy to prevent dynamic height changes that would resize the main window
+        title_widget.setFixedHeight(70)  # Tight fit: label (11px font + 2px padding) + field (10px font + 6px padding*2) + margins (5+5) + spacing (3)
+        title_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         # Widget visible from start (label hidden until title generated) - Claude Generated
         self.title_widget = title_widget
         main_layout.addWidget(title_widget)
@@ -410,6 +411,7 @@ class PipelineTab(QWidget):
         """Setup main pipeline area with streaming feedback - Claude Generated"""
         # Create a main splitter for pipeline steps and streaming - Claude Generated
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setChildrenCollapsible(True)  # Allow children to collapse instead of expanding window - Claude Generated
 
         # Left side: Pipeline steps as vertical tabs
         self.steps_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -445,7 +447,7 @@ class PipelineTab(QWidget):
             QTabBar::tab {{
                 background: #f5f5f5;
                 border: 1px solid #ddd;
-                padding: 12px 8px;
+                #padding: 12px 8px; # do not set padding to avoid increasing tab height/width
                 margin-bottom: 2px;
                 border-top-left-radius: 4px;
                 border-bottom-left-radius: 4px;
@@ -470,10 +472,10 @@ class PipelineTab(QWidget):
         control_widget = self.create_compact_pipeline_control()
         self.steps_splitter.addWidget(control_widget)
 
-        # Stretch factors + fallback sizes - Claude Generated
-        self.steps_splitter.setStretchFactor(0, 4)
-        self.steps_splitter.setStretchFactor(1, 1)
-        self.steps_splitter.setSizes([400, 100])
+        # Stretch factors: 80% tabs, 20% controls - Claude Generated
+        self.steps_splitter.setStretchFactor(0, 8)
+        self.steps_splitter.setStretchFactor(1, 2)
+        # No setSizes() - let stretch factors control layout
         self.main_splitter.addWidget(self.steps_splitter)
 
         # Right side: Live streaming widget
@@ -484,10 +486,10 @@ class PipelineTab(QWidget):
 
         self.main_splitter.addWidget(self.stream_widget)
 
-        # Stretch factors + fallback sizes - Claude Generated
-        self.main_splitter.setStretchFactor(0, 2)
-        self.main_splitter.setStretchFactor(1, 3)
-        self.main_splitter.setSizes([400, 600])
+        # Stretch factors: 50:50 balanced split - Claude Generated
+        self.main_splitter.setStretchFactor(0, 1)  # Steps
+        self.main_splitter.setStretchFactor(1, 1)  # Stream
+        self.main_splitter.setSizes([500, 500])  # Truly balanced initial split
 
         main_layout.addWidget(self.main_splitter)
 
@@ -785,7 +787,7 @@ class PipelineTab(QWidget):
             }
         """
         )
-        self.stop_pipeline_button.setVisible(False)  # Hidden until pipeline starts
+        self.stop_pipeline_button.setEnabled(False)  # Disabled until pipeline starts
         self.stop_pipeline_button.clicked.connect(self.on_stop_pipeline_requested)
         buttons_layout.addWidget(self.stop_pipeline_button)
 
@@ -960,210 +962,263 @@ class PipelineTab(QWidget):
                 return step_widget.step
         return None
 
-    def create_initialisation_step_widget(self) -> QWidget:
-        """Create initialisation step widget - Claude Generated"""
+    def _create_text_result_widget(
+        self, label_text: str, placeholder: str, min_height: int = 80, max_height: int = 300
+    ) -> tuple[QWidget, QTextEdit]:
+        """
+        Helper method to create standardized text result widgets.
+        Returns tuple of (widget, text_edit) for consistent layout.
+        Claude Generated
+        """
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(4)  # Reduziert von default - Claude Generated
+        layout.setContentsMargins(0, 0, 0, 0)  # Keine extra margins
+
+        # Label kompakter gestylt
+        label = QLabel(label_text)
+        label.setStyleSheet(
+            "font-weight: bold; font-size: 11px; color: #555; padding: 2px;"
+        )
+        label.setMaximumHeight(18)  # Explizite Height
+        label.setWordWrap(False)  # Keine Zeilenumbrüche
 
         # Results area
-        self.initialisation_result = QTextEdit()
-        self.initialisation_result.setReadOnly(True)
-        self.initialisation_result.setMinimumHeight(60)  # Reduced for small screens - Claude Generated
-        self.initialisation_result.setMaximumHeight(200)  # Allow more space
-        self.initialisation_result.setPlaceholderText(
-            "Freie Schlagworte werden hier angezeigt..."
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setMinimumHeight(min_height)
+        text_edit.setMaximumHeight(max_height)
+        text_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout.addWidget(QLabel("Extrahierte freie Schlagworte:"))
-        layout.addWidget(self.initialisation_result)
+        text_edit.setPlaceholderText(placeholder)
 
+        layout.addWidget(label, 0)  # Stretch 0
+        layout.addWidget(text_edit, 1)  # Stretch 1
+
+        return widget, text_edit
+
+    def create_initialisation_step_widget(self) -> QWidget:
+        """Create initialisation step widget - Claude Generated"""
+        widget, self.initialisation_result = self._create_text_result_widget(
+            label_text="Extrahierte freie Schlagworte:",
+            placeholder="Freie Schlagworte werden hier angezeigt..."
+        )
         return widget
 
     def create_search_step_widget(self) -> QWidget:
         """Create search step widget - Claude Generated"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # Search results area
-        self.search_result = QTextEdit()
-        self.search_result.setReadOnly(True)
-        self.search_result.setMinimumHeight(60)  # Reduced for small screens - Claude Generated
-        # self.search_result.setMaximumHeight(200)  # Allow more space
-        self.search_result.setPlaceholderText("Suchergebnisse werden hier angezeigt...")
-        layout.addWidget(QLabel("GND-Suchergebnisse:"))
-        layout.addWidget(self.search_result)
-
+        widget, self.search_result = self._create_text_result_widget(
+            label_text="GND-Suchergebnisse:",
+            placeholder="Suchergebnisse werden hier angezeigt..."
+        )
         return widget
 
     def create_keywords_step_widget(self) -> QWidget:
         """Create keywords step widget (Verbale Erschließung) - Claude Generated"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # Keywords results
-        self.keywords_result = QTextEdit()
-        self.keywords_result.setReadOnly(True)
-        self.keywords_result.setMinimumHeight(60)  # Reduced for small screens - Claude Generated
-        self.keywords_result.setMaximumHeight(200)  # Allow more space
-        self.keywords_result.setPlaceholderText(
-            "Finale Schlagworte werden hier angezeigt..."
+        widget, self.keywords_result = self._create_text_result_widget(
+            label_text="Finale GND-Schlagworte:",
+            placeholder="Finale Schlagworte werden hier angezeigt..."
         )
-        layout.addWidget(QLabel("Finale GND-Schlagworte:"))
-        layout.addWidget(self.keywords_result)
-
         return widget
 
     def create_dk_search_step_widget(self) -> QWidget:
-        """Create DK search step widget for catalog search results - Claude Generated"""
-        # Wrap content in scroll area to prevent layout blowout - Claude Generated
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-
+        """Create DK search step with splitter for controls/results - Claude Generated"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Search configuration section
-        config_group = QGroupBox("Katalog-Such-Konfiguration")
-        config_layout = QVBoxLayout(config_group)
-        
-        # Max results control
-        max_results_layout = QHBoxLayout()
-        max_results_layout.addWidget(QLabel("Max. Ergebnisse:"))
+        # ═══ Splitter zwischen Controls und Results ═══
+        self.dk_search_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.dk_search_splitter.setChildrenCollapsible(True)  # Allow collapse
+
+        # Top: Controls (Config + Filter)
+        controls_widget = QWidget()
+        controls_layout = QVBoxLayout(controls_widget)
+        controls_layout.setContentsMargins(5, 5, 5, 5)
+        controls_layout.setSpacing(8)
+
+        # Config Section (kompakter)
+        config_header = QLabel("⚙️ Katalog-Such-Konfiguration")
+        config_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        controls_layout.addWidget(config_header)
+
+        # Kompakte Grid-Layout statt 3 separate Rows
+        config_grid = QGridLayout()
+        config_grid.setSpacing(8)
+
+        # Row 0: Max Results + Frequency (nebeneinander)
+        config_grid.addWidget(QLabel("Max. Ergebnisse:"), 0, 0)
         self.dk_search_max_results = QSpinBox()
         self.dk_search_max_results.setRange(5, 100)
         from ..utils.pipeline_defaults import DEFAULT_DK_MAX_RESULTS
         self.dk_search_max_results.setValue(DEFAULT_DK_MAX_RESULTS)
         self.dk_search_max_results.setToolTip("Max. Katalog-Suchergebnisse pro Keyword")
-        max_results_layout.addWidget(self.dk_search_max_results)
-        max_results_layout.addStretch()
-        config_layout.addLayout(max_results_layout)
+        config_grid.addWidget(self.dk_search_max_results, 0, 1)
 
-        # Frequency threshold control - Claude Generated
-        freq_layout = QHBoxLayout()
-        freq_layout.addWidget(QLabel("Min. Häufigkeit:"))
+        config_grid.addWidget(QLabel("Min. Häufigkeit:"), 0, 2)
         self.dk_frequency_threshold = QSpinBox()
         self.dk_frequency_threshold.setRange(1, 50)
         from ..utils.pipeline_defaults import DEFAULT_DK_FREQUENCY_THRESHOLD
         self.dk_frequency_threshold.setValue(DEFAULT_DK_FREQUENCY_THRESHOLD)
-        self.dk_frequency_threshold.setToolTip("Nur DK-Codes mit >= N Vorkommen im Katalog werden an LLM übergeben")
-        freq_layout.addWidget(self.dk_frequency_threshold)
-        freq_layout.addStretch()
-        config_layout.addLayout(freq_layout)
+        self.dk_frequency_threshold.setToolTip("Nur DK-Codes mit >= N Vorkommen")
+        config_grid.addWidget(self.dk_frequency_threshold, 0, 3)
 
-        # Force update checkbox - Claude Generated
+        config_grid.setColumnStretch(4, 1)  # Push to left
+        controls_layout.addLayout(config_grid)
+
+        # Row 1: Force Update Checkbox
         from PyQt6.QtWidgets import QCheckBox
         self.force_update_checkbox = QCheckBox("Katalog-Cache ignorieren")
         self.force_update_checkbox.setToolTip(
-            "Erzwingt Live-Suche im Katalog und ignoriert gecachte Ergebnisse.\n"
-            "Neue Titel werden mit bestehenden zusammengeführt (keine Ersetzung)."
+            "Erzwingt Live-Suche im Katalog und ignoriert gecachte Ergebnisse."
         )
         self.force_update_checkbox.setChecked(False)
-        config_layout.addWidget(self.force_update_checkbox)
+        controls_layout.addWidget(self.force_update_checkbox)
 
-        layout.addWidget(config_group)
+        # Filter Section (kompakter)
+        filter_header = QLabel("🔍 Ergebnisse filtern")
+        filter_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        controls_layout.addWidget(filter_header)
 
-        # Filter/Search controls - Claude Generated
-        filter_group = QGroupBox("Ergebnisse filtern")
-        filter_layout = QVBoxLayout(filter_group)
+        # Filter Grid
+        filter_grid = QGridLayout()
+        filter_grid.setSpacing(8)
 
-        # Search input
-        search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("Suchen:"))
+        # Row 0: Search + Clear + Mode + Count
+        filter_grid.addWidget(QLabel("Suchen:"), 0, 0)
         self.dk_search_filter_input = QLineEdit()
-        self.dk_search_filter_input.setPlaceholderText("Stichwort zum Filtern eingeben...")
+        self.dk_search_filter_input.setPlaceholderText("Filter eingeben...")
         self.dk_search_filter_input.textChanged.connect(self._filter_dk_search_results)
-        search_layout.addWidget(self.dk_search_filter_input)
+        filter_grid.addWidget(self.dk_search_filter_input, 0, 1, 1, 2)  # Span 2 cols
 
-        # Clear filter button
-        clear_filter_btn = QPushButton("Löschen")
-        clear_filter_btn.setMaximumWidth(80)
+        clear_filter_btn = QPushButton("×")
+        clear_filter_btn.setMaximumWidth(30)
+        clear_filter_btn.setToolTip("Filter löschen")
         clear_filter_btn.clicked.connect(lambda: self.dk_search_filter_input.clear())
-        search_layout.addWidget(clear_filter_btn)
-        filter_layout.addLayout(search_layout)
+        filter_grid.addWidget(clear_filter_btn, 0, 3)
 
-        # Filter mode selector
-        filter_mode_layout = QHBoxLayout()
-        filter_mode_layout.addWidget(QLabel("Filtern nach:"))
+        filter_grid.addWidget(QLabel("Modus:"), 0, 4)
         self.dk_filter_mode = QComboBox()
-        self.dk_filter_mode.addItems(["Alle Felder", "Nur Titel", "Nur DK-Codes", "Nur Keywords"])
+        self.dk_filter_mode.addItems(["Alle", "Titel", "DK-Codes", "Keywords"])
         self.dk_filter_mode.currentTextChanged.connect(self._filter_dk_search_results)
-        filter_mode_layout.addWidget(self.dk_filter_mode)
-        filter_mode_layout.addStretch()
+        filter_grid.addWidget(self.dk_filter_mode, 0, 5)
 
-        # Match counter
         self.dk_filter_count_label = QLabel("")
         self.dk_filter_count_label.setStyleSheet("color: #666; font-size: 10px;")
-        filter_mode_layout.addWidget(self.dk_filter_count_label)
-        filter_layout.addLayout(filter_mode_layout)
+        filter_grid.addWidget(self.dk_filter_count_label, 0, 6)
 
-        layout.addWidget(filter_group)
+        filter_grid.setColumnStretch(7, 1)  # Push to left
+        controls_layout.addLayout(filter_grid)
 
-        # Store raw data for filtering - Claude Generated
-        self.dk_search_raw_data = []
+        controls_layout.addStretch()  # Push controls to top
+        self.dk_search_splitter.addWidget(controls_widget)
 
-        # Search results display
-        results_group = QGroupBox("Katalog-Suchergebnisse")
-        results_layout = QVBoxLayout(results_group)
+        # Bottom: Results
+        results_widget = QWidget()
+        results_layout = QVBoxLayout(results_widget)
+        results_layout.setContentsMargins(5, 5, 5, 5)
+
+        results_header = QLabel("📊 Katalog-Suchergebnisse")
+        results_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        results_layout.addWidget(results_header)
+
+        self.dk_search_raw_data = []  # Store for filtering
 
         self.dk_search_results = QTextEdit()
         self.dk_search_results.setReadOnly(True)
-        self.dk_search_results.setMinimumHeight(80)  # Reduced for small screens - Claude Generated
+        self.dk_search_results.setMinimumHeight(80)
+        # KEIN setMaximumHeight mehr! - Claude Generated
+        self.dk_search_results.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.dk_search_results.setPlaceholderText(
-            "Katalog-Suchergebnisse für DK/RVK-Klassifikationen werden hier angezeigt...\n"
-            "Format: DK: 666.76 (Häufigkeit: 3) | Beispieltitel: ... | Keywords: ..."
+            "Katalog-Suchergebnisse für DK/RVK-Klassifikationen..."
         )
         results_layout.addWidget(self.dk_search_results)
-        layout.addWidget(results_group)
+        self.dk_search_splitter.addWidget(results_widget)
 
-        scroll_area.setWidget(widget)
-        return scroll_area
+        # Splitter ratio: 25% controls, 75% results
+        self.dk_search_splitter.setStretchFactor(0, 1)
+        self.dk_search_splitter.setStretchFactor(1, 3)
+        self.dk_search_splitter.setSizes([120, 360])  # Initial
+
+        layout.addWidget(self.dk_search_splitter)
+        # ═══ END Splitter ═══
+
+        return widget
 
     def create_dk_classification_step_widget(self) -> QWidget:
-        """Create DK classification step widget for LLM analysis - Claude Generated"""
-        # Wrap content in scroll area to prevent layout blowout - Claude Generated
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-
+        """Create DK classification step widget with splitter between input/results - Claude Generated"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Input data summary
-        input_group = QGroupBox("Eingangsdaten für LLM-Klassifikation")
-        input_layout = QVBoxLayout(input_group)
-        
+        # ═══ Splitter zwischen Input und Results ═══
+        self.dk_classification_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.dk_classification_splitter.setChildrenCollapsible(False)
+
+        # Top: Input Summary
+        input_widget = QWidget()
+        input_layout = QVBoxLayout(input_widget)
+        input_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Header statt GroupBox
+        input_header = QLabel("📥 Eingangsdaten für LLM-Klassifikation")
+        input_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        input_layout.addWidget(input_header)
+
         self.dk_input_summary = QTextEdit()
         self.dk_input_summary.setReadOnly(True)
-        self.dk_input_summary.setMaximumHeight(100)
+        self.dk_input_summary.setMinimumHeight(60)  # Reduziert von 80 - Claude Generated
+        # KEIN setMaximumHeight mehr! - Claude Generated
+        self.dk_input_summary.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.dk_input_summary.setPlaceholderText(
             "Zusammenfassung der Katalog-Suchergebnisse für LLM..."
         )
         input_layout.addWidget(self.dk_input_summary)
-        layout.addWidget(input_group)
+        self.dk_classification_splitter.addWidget(input_widget)
 
-        # Final classification results
-        results_group = QGroupBox("Finale DK/RVK-Klassifikationen")
-        results_layout = QVBoxLayout(results_group)
+        # Bottom: Results Display
+        results_widget = QWidget()
+        results_layout = QVBoxLayout(results_widget)
+        results_layout.setContentsMargins(5, 5, 5, 5)
+
+        # Header statt GroupBox
+        results_header = QLabel("✅ Finale DK/RVK-Klassifikationen")
+        results_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        results_layout.addWidget(results_header)
 
         self.dk_classification_results = QTextEdit()
         self.dk_classification_results.setReadOnly(True)
-        self.dk_classification_results.setMinimumHeight(100)  # Reduced for small screens - Claude Generated
+        self.dk_classification_results.setMinimumHeight(60)  # Reduziert von 80 - Claude Generated
+        # KEIN setMaximumHeight mehr! - Claude Generated
+        self.dk_classification_results.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.dk_classification_results.setPlaceholderText(
             "Finale DK/RVK-Klassifikationen vom LLM werden hier angezeigt...\n"
             "Format: DK 666.76, RVK Q12, RVK QC 130, ..."
         )
         results_layout.addWidget(self.dk_classification_results)
-        layout.addWidget(results_group)
+        self.dk_classification_splitter.addWidget(results_widget)
 
-        # Statistics Group (Compact) - Claude Generated
+        # Splitter ratio: 30% input, 70% results (results wichtiger)
+        self.dk_classification_splitter.setStretchFactor(0, 3)
+        self.dk_classification_splitter.setStretchFactor(1, 7)
+        self.dk_classification_splitter.setSizes([100, 250])  # Initial
+
+        layout.addWidget(self.dk_classification_splitter)
+        # ═══ END Splitter ═══
+
+        # Statistics Label (bleibt)
         self.dk_compact_stats = QLabel()
         self.dk_compact_stats.setWordWrap(True)
         self.dk_compact_stats.setTextFormat(Qt.TextFormat.RichText)
         self.dk_compact_stats.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
         layout.addWidget(self.dk_compact_stats)
 
-        scroll_area.setWidget(widget)
-        return scroll_area
+        return widget
 
     def save_splitter_state(self, settings):
         """Save splitter positions to QSettings - Claude Generated"""
@@ -1203,15 +1258,15 @@ class PipelineTab(QWidget):
             keywords = [k.lower() for k in result.get("keywords", [])]
 
             match = False
-            if filter_mode == "Alle Felder":
+            if filter_mode == "Alle":
                 match = (filter_text in dk_code or
                         any(filter_text in title for title in titles) or
                         any(filter_text in kw for kw in keywords))
-            elif filter_mode == "Nur Titel":
+            elif filter_mode == "Titel":
                 match = any(filter_text in title for title in titles)
-            elif filter_mode == "Nur DK-Codes":
+            elif filter_mode == "DK-Codes":
                 match = filter_text in dk_code
-            elif filter_mode == "Nur Keywords":
+            elif filter_mode == "Keywords":
                 match = any(filter_text in kw for kw in keywords)
 
             if match:
@@ -1362,8 +1417,7 @@ class PipelineTab(QWidget):
         # Update status
         self.pipeline_status_label.setText("Pipeline läuft...")
         self.auto_pipeline_button.setEnabled(False)
-        self.stop_pipeline_button.setVisible(True)  # Show stop button - Claude Generated
-        self.stop_pipeline_button.setEnabled(True)
+        self.stop_pipeline_button.setEnabled(True)  # Enable stop button - Claude Generated
 
         # Get force_update flag from checkbox - Claude Generated
         force_update = getattr(self, 'force_update_checkbox', None)
@@ -1381,6 +1435,7 @@ class PipelineTab(QWidget):
         self.pipeline_worker.pipeline_completed.connect(self.on_pipeline_completed)
         self.pipeline_worker.stream_token.connect(self.on_llm_stream_token)
         self.pipeline_worker.aborted.connect(self.on_pipeline_aborted)  # Claude Generated
+        self.pipeline_worker.repetition_detected.connect(self.on_repetition_detected)  # Claude Generated (2026-02-17)
 
         # Start the worker
         self.pipeline_worker.start()
@@ -1631,9 +1686,31 @@ class PipelineTab(QWidget):
         if hasattr(self, "dk_input_summary"):
             self.dk_input_summary.clear()
 
-        # Reset status
+        # Reset title display - Claude Generated
+        if hasattr(self, "title_label"):
+            self.title_label.clear()
+        if hasattr(self, "title_override_field"):
+            self.title_override_field.clear()
+            self.title_override_field.setPlaceholderText("Optional: Arbeitstitel überschreiben")
+
+        # Reset DK filter controls - Claude Generated
+        if hasattr(self, "dk_search_filter_input"):
+            self.dk_search_filter_input.clear()
+        if hasattr(self, "dk_filter_mode"):
+            self.dk_filter_mode.setCurrentIndex(0)  # "Alle Felder"
+        if hasattr(self, "dk_filter_count_label"):
+            self.dk_filter_count_label.setText("")
+        if hasattr(self, "dk_search_raw_data"):
+            self.dk_search_raw_data = []
+
+        # Reset status label style - Claude Generated
+        self.pipeline_status_label.setStyleSheet("")
         self.pipeline_status_label.setText("Bereit für Pipeline-Start")
         self.auto_pipeline_button.setEnabled(True)
+
+        # Reset stream widget completely - Claude Generated
+        if hasattr(self, "stream_widget"):
+            self.stream_widget.reset_for_new_pipeline()
 
     def on_config_changed(self):
         """Handle configuration changes - Claude Generated (Webcam Feature)"""
@@ -1811,9 +1888,8 @@ class PipelineTab(QWidget):
                 self.pipeline_manager.current_analysis_state.working_title):
                 working_title = self.pipeline_manager.current_analysis_state.working_title
 
-                # Show title label
+                # Update title label text
                 self.title_label.setText(f"📋 {working_title}")
-                self.title_label.setVisible(True)
 
                 # Pre-fill override field if not already set
                 if not self.title_override_field.text().strip():
@@ -1992,7 +2068,7 @@ class PipelineTab(QWidget):
 
         self.pipeline_status_label.setText("Pipeline abgeschlossen ✓")
         self.auto_pipeline_button.setEnabled(True)
-        self.stop_pipeline_button.setVisible(False)  # Hide stop button - Claude Generated
+        self.stop_pipeline_button.setEnabled(False)  # Disable stop button - Claude Generated
         self.pipeline_completed.emit()
 
         # Stop status bar timer and progress
@@ -2054,9 +2130,8 @@ class PipelineTab(QWidget):
 
         # Reset button states
         self.auto_pipeline_button.setEnabled(True)
-        self.stop_pipeline_button.setVisible(False)
         self.stop_pipeline_button.setText("⏹️ Stop")
-        self.stop_pipeline_button.setEnabled(True)
+        self.stop_pipeline_button.setEnabled(False)
 
         # Update status
         self.pipeline_status_label.setText("Pipeline abgebrochen")
@@ -2101,7 +2176,32 @@ class PipelineTab(QWidget):
 
             # End streaming if we get a final token (this would need refinement based on actual LLM response patterns)
             # For now, we'll leave the line open and let the step completion handle ending
-    
+
+    def on_repetition_detected(self, result, suggestions: list, grace_period: bool, resolved: bool, grace_seconds: float):
+        """Handle repetition detection from LLM - Claude Generated (2026-02-17)
+
+        Args:
+            result: RepetitionResult object (None if resolved)
+            suggestions: List of parameter variation suggestions
+            grace_period: True if grace period active
+            resolved: True if repetition resolved during grace period
+            grace_seconds: Grace period duration in seconds
+        """
+        if resolved:
+            # Repetition resolved - hide warning
+            self.stream_widget.hide_repetition_warning(resolved=True)
+        elif result:
+            # Repetition detected - show warning
+            detection_type = result.detection_type
+            details = result.details
+            self.stream_widget.show_repetition_warning(
+                detection_type=detection_type,
+                details=details,
+                suggestions=suggestions,
+                grace_period=grace_period,
+                grace_seconds=grace_seconds
+            )
+
     def _load_catalog_config(self) -> tuple[str, str, str]:
         """Load catalog configuration from ConfigManager - Claude Generated"""
         # Initialize default values

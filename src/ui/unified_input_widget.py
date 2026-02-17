@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QApplication,
     QLineEdit,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QMimeData, QUrl, pyqtSlot
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage
@@ -93,6 +94,8 @@ class TextExtractionWorker(StoppableWorker):
         self.progress_updated.emit("PDF wird gelesen...")
 
         try:
+            if PyPDF2 is None:
+                raise ImportError("PyPDF2 ist nicht installiert. Bitte mit 'pip install PyPDF2' installieren.")
             with open(self.source_data, "rb") as file:
                 reader = PyPDF2.PdfReader(file)
                 text_parts = []
@@ -641,7 +644,7 @@ class UnifiedInputWidget(QWidget):
     def setup_ui(self):
         """Setup der UI - Claude Generated"""
         layout = QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(8)  # Reduced from 15px - Claude Generated
 
         # Header mit Titel
         header_layout = QHBoxLayout()
@@ -661,11 +664,42 @@ class UnifiedInputWidget(QWidget):
 
         layout.addLayout(header_layout)
 
-        # Main input area: Drop Zone + Input Methods side by side
-        self.create_main_input_area(layout)
+        # ═══ Main Splitter between Input Area and Text Display ═══
+        self.main_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.main_splitter.setChildrenCollapsible(True)
 
-        # Text Display Area
-        self.create_text_display(layout)
+        # Top: Input Area (Frames + Methods)
+        input_area_widget = QWidget()
+        input_area_layout = QVBoxLayout(input_area_widget)
+        input_area_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Frames Area
+        frames_layout = QHBoxLayout()
+        frames_layout.setSpacing(8)
+        self.create_drop_zone_compact(frames_layout)
+        self.create_webcam_capture_frame(frames_layout)
+        input_area_layout.addLayout(frames_layout)
+
+        # Input Methods
+        self.create_input_methods_horizontal(input_area_layout)
+
+        self.main_splitter.addWidget(input_area_widget)
+
+        # Bottom: Text Display Area
+        text_display_widget = QWidget()
+        text_display_layout = QVBoxLayout(text_display_widget)
+        text_display_layout.setContentsMargins(0, 0, 0, 0)
+        self.create_text_display_content(text_display_layout)
+
+        self.main_splitter.addWidget(text_display_widget)
+
+        # Splitter ratio: 40% input area, 60% text display
+        self.main_splitter.setStretchFactor(0, 2)  # Input area
+        self.main_splitter.setStretchFactor(1, 3)  # Text display
+        self.main_splitter.setSizes([300, 450])  # Initial split bei 750px
+
+        layout.addWidget(self.main_splitter)
+        # ═══ END Splitter ═══
 
         # Progress Area
         self.progress_bar = QProgressBar()
@@ -675,22 +709,6 @@ class UnifiedInputWidget(QWidget):
         layout.addWidget(self.progress_label)
         layout.addWidget(self.progress_bar)
 
-    def create_main_input_area(self, layout):
-        """Create main input area with capture frames and input methods - Claude Generated (Webcam Feature)"""
-        # Top area: Capture Frames (horizontal)
-        frames_layout = QHBoxLayout()
-        frames_layout.setSpacing(15)
-
-        # Left: Drop Zone
-        self.create_drop_zone_compact(frames_layout)
-
-        # Right: Webcam Capture Frame (conditionally visible)
-        self.create_webcam_capture_frame(frames_layout)
-
-        layout.addLayout(frames_layout)
-
-        # Bottom area: Input Methods (horizontal button bar)
-        self.create_input_methods_horizontal(layout)
 
     def create_drop_zone_compact(self, layout):
         """Create compact drop zone - Claude Generated"""
@@ -701,7 +719,7 @@ class UnifiedInputWidget(QWidget):
         self.drop_frame = QFrame()
         self.drop_frame.setFrameStyle(QFrame.Shape.Box)
         self.drop_frame.setLineWidth(2)
-        self.drop_frame.setMinimumHeight(120)
+        self.drop_frame.setMinimumHeight(80)  # Reduced from 120 - Claude Generated
         self.drop_frame.setStyleSheet(
             """
             QFrame {
@@ -743,7 +761,7 @@ class UnifiedInputWidget(QWidget):
         self.webcam_frame = QFrame()
         self.webcam_frame.setFrameStyle(QFrame.Shape.Box)
         self.webcam_frame.setLineWidth(2)
-        self.webcam_frame.setMinimumHeight(120)
+        self.webcam_frame.setMinimumHeight(80)  # Reduced from 120 - Claude Generated
         self.webcam_frame.setStyleSheet(
             """
             QFrame {
@@ -787,7 +805,7 @@ class UnifiedInputWidget(QWidget):
         """Create horizontal input methods bar - Claude Generated (Webcam Feature)"""
         methods_group = QGroupBox("🔧 Eingabemethoden")
         methods_layout = QHBoxLayout(methods_group)
-        methods_layout.setSpacing(10)
+        methods_layout.setSpacing(6)  # Reduced from 10px - Claude Generated
 
         # File selection button
         file_button = QPushButton("📁 Datei auswählen")
@@ -813,96 +831,30 @@ class UnifiedInputWidget(QWidget):
 
         layout.addWidget(methods_group)
 
-    def create_drop_zone(self, layout):
-        """Create drag and drop zone - Claude Generated"""
-        self.drop_zone = QFrame()
-        self.drop_zone.setFrameStyle(QFrame.Shape.Box)
-        self.drop_zone.setLineWidth(2)
-        self.drop_zone.setStyleSheet(
-            """
-            QFrame {
-                border: 2px dashed #ccc;
-                border-radius: 8px;
-                background-color: #f9f9f9;
-                min-height: 80px;
-            }
-            QFrame:hover {
-                border-color: #2196f3;
-                background-color: #e3f2fd;
-            }
-        """
+    def create_text_display_content(self, layout):
+        """Create text display content without GroupBox wrapper - Claude Generated"""
+        # Header Label statt GroupBox Title
+        header_label = QLabel("📄 Extrahierter Text")
+        header_label.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #333; padding: 5px;"
         )
-
-        drop_layout = QVBoxLayout(self.drop_zone)
-        drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        drop_icon = QLabel("🎯")
-        drop_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_icon.setStyleSheet("font-size: 32px; color: #666;")
-        drop_layout.addWidget(drop_icon)
-
-        drop_text = QLabel("Dateien hierher ziehen oder klicken zum Auswählen")
-        drop_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_text.setStyleSheet("color: #666; font-weight: bold;")
-        drop_layout.addWidget(drop_text)
-
-        drop_hint = QLabel("PDF, Bilder, oder Text kopieren und einfügen")
-        drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_hint.setStyleSheet("color: #999; font-size: 11px;")
-        drop_layout.addWidget(drop_hint)
-
-        # Make drop zone clickable
-        self.drop_zone.mousePressEvent = self.on_drop_zone_clicked
-
-        layout.addWidget(self.drop_zone)
-
-    def create_input_methods(self, layout):
-        """Create input method tabs - Claude Generated"""
-        methods_group = QGroupBox("Eingabemethoden")
-        methods_layout = QVBoxLayout(methods_group)
-
-        # Quick action buttons
-        button_layout = QHBoxLayout()
-
-        # File button
-        file_button = QPushButton("📁 Datei auswählen")
-        file_button.clicked.connect(self.select_file)
-        button_layout.addWidget(file_button)
-
-        # DOI button
-        doi_button = QPushButton("🔗 DOI eingeben")
-        doi_button.clicked.connect(self.enter_doi)
-        button_layout.addWidget(doi_button)
-
-        # URL button
-        url_button = QPushButton("🌐 URL eingeben")
-        url_button.clicked.connect(self.enter_url)
-        button_layout.addWidget(url_button)
-
-        # Paste button
-        paste_button = QPushButton("📋 Einfügen")
-        paste_button.clicked.connect(self.paste_from_clipboard)
-        button_layout.addWidget(paste_button)
-
-        methods_layout.addLayout(button_layout)
-        layout.addWidget(methods_group)
-
-    def create_text_display(self, layout):
-        """Create text display area - Claude Generated"""
-        display_group = QGroupBox("Extrahierter Text")
-        display_layout = QVBoxLayout(display_group)
+        layout.addWidget(header_label)
 
         # Source info
         self.source_info_label = QLabel("Keine Quelle ausgewählt")
         self.source_info_label.setStyleSheet(
             "font-weight: bold; color: #666; padding: 5px;"
         )
-        display_layout.addWidget(self.source_info_label)
+        layout.addWidget(self.source_info_label)
 
-        # Text area
+        # Text area (mit neuen Constraints)
         self.text_display = QTextEdit()
         self.text_display.setPlaceholderText("Text wird hier angezeigt...")
-        self.text_display.setMinimumHeight(200)
+        self.text_display.setMinimumHeight(150)  # Reduziert von 200 - Claude Generated
+        # KEIN setMaximumHeight mehr! - Claude Generated
+        self.text_display.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding  # Geändert von Preferred - Claude Generated
+        )
 
         # Enhanced styling
         font = QFont()
@@ -923,7 +875,7 @@ class UnifiedInputWidget(QWidget):
         """
         )
 
-        display_layout.addWidget(self.text_display)
+        layout.addWidget(self.text_display)
 
         # Action buttons for text
         text_actions = QHBoxLayout()
@@ -977,8 +929,7 @@ class UnifiedInputWidget(QWidget):
         edit_button.clicked.connect(self.enable_text_editing)
         text_actions.addWidget(edit_button)
 
-        display_layout.addLayout(text_actions)
-        layout.addWidget(display_group)
+        layout.addLayout(text_actions)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle drag enter event - Claude Generated"""
@@ -1088,22 +1039,6 @@ class UnifiedInputWidget(QWidget):
                 "Nicht unterstützt",
                 f"Dateityp {file_ext} wird nicht unterstützt!",
             )
-
-    def enter_doi(self):
-        """Enter DOI for metadata extraction - Claude Generated"""
-        from PyQt6.QtWidgets import QInputDialog
-
-        doi, ok = QInputDialog.getText(self, "DOI eingeben", "DOI:")
-        if ok and doi.strip():
-            self.extract_text("doi", doi.strip())
-
-    def enter_url(self):
-        """Enter URL for text extraction - Claude Generated"""
-        from PyQt6.QtWidgets import QInputDialog
-
-        url, ok = QInputDialog.getText(self, "URL eingeben", "URL:")
-        if ok and url.strip():
-            self.extract_text("url", url.strip())
 
     def process_doi_url_input(self):
         """Process DOI or URL input with auto-detection - Claude Generated"""
