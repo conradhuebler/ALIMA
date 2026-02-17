@@ -3479,14 +3479,18 @@ def _extract_from_pdf_pipeline(
 ) -> Tuple[str, str, str]:
     """Extract text from PDF with LLM fallback for pipeline - Claude Generated"""
     import os
-    import PyPDF2
     from pathlib import Path
-    
+
+    try:
+        import PyPDF2
+    except ImportError:
+        raise ImportError("PyPDF2 ist nicht installiert. Bitte mit 'pip install PyPDF2' installieren.")
+
     filename = os.path.basename(pdf_path)
-    
+
     if stream_callback:
         stream_callback(f"📄 PDF wird gelesen: {filename}")
-    
+
     try:
         with open(pdf_path, "rb") as file:
             reader = PyPDF2.PdfReader(file)

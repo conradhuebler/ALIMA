@@ -1095,6 +1095,8 @@ class AbstractTab(QWidget):
         )
         if file_name:
             try:
+                if PyPDF2 is None:
+                    raise ImportError("PyPDF2 ist nicht installiert. Bitte mit 'pip install PyPDF2' installieren.")
                 with open(file_name, "rb") as f:
                     reader = PyPDF2.PdfReader(f)
                     text = "".join(page.extract_text() for page in reader.pages)

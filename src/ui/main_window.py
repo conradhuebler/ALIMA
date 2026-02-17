@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QProgressBar,
     QTextEdit,
+    QSizePolicy,
 )
 import requests
 import gzip
@@ -54,14 +55,13 @@ from ..utils.pipeline_utils import PipelineResultFormatter
 # Legacy config import removed - using unified config system now
 from .crossref_tab import CrossrefTab
 from .analysis_review_tab import AnalysisReviewTab
-from .ubsearch_tab import UBSearchTab
+from .dk_analysis_unified_tab import DkAnalysisUnifiedTab
 from .tablewidget import TableWidget, DatabaseViewerDialog
 from .image_analysis_tab import ImageAnalysisTab
 from .styles import get_main_stylesheet
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
-from .dk_classification_tab import DkClassificationTab
-from .dk_analysis_tab import DkAnalysisTab
+# dk_classification_tab and dk_analysis_tab replaced by dk_analysis_unified_tab
 import logging
 
 
@@ -380,7 +380,20 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Initialisiert die Benutzeroberfläche"""
         self.setWindowTitle("ALIMA - Automatisierte Schlagwortgenerierung")
-        self.setGeometry(100, 100, 1400, 900)
+        # Responsive window size: 85% of screen, max 1400x900, centered - Claude Generated
+        from PyQt6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            w = min(int(available.width() * 0.85), 1400)
+            h = min(int(available.height() * 0.85), 900)
+            x = available.x() + (available.width() - w) // 2
+            y = available.y() + (available.height() - h) // 2
+            self.setGeometry(x, y, w, h)
+            # Note: setMaximumSize removed - it breaks maximize button functionality
+            # The size policy "Ignored" on streaming widgets prevents window expansion instead
+        else:
+            self.setGeometry(100, 100, 1400, 900)
 
         # Apply main stylesheet
         self.setStyleSheet(get_main_stylesheet())
@@ -395,6 +408,8 @@ class MainWindow(QMainWindow):
 
         # Tab-Widget
         self.tabs = QTabWidget()
+        # Prevent tab sizeHint changes from resizing the main window - Claude Generated
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         main_layout.addWidget(self.tabs)
 
         # Tabs erstellen
@@ -439,12 +454,6 @@ class MainWindow(QMainWindow):
         # self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
         self.analyse_keywords.set_task("keywords")
 
-        self.ub_search_tab = UBSearchTab(
-            alima_manager=self.alima_manager,
-            llm_service=self.llm_service,
-            main_window=self,
-        )
-
         # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
         # self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
         # self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
@@ -480,17 +489,19 @@ class MainWindow(QMainWindow):
         # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
         # self.image_analysis_tab.text_extracted.connect(self.abstract_tab.set_abstract)
 
-        # DK Classification Tab - Claude Generated
-        self.dk_classification_tab = DkClassificationTab()
-
-        # DK Analysis Tab (AbstractTab variant) - Claude Generated
-        self.dk_analysis_tab = DkAnalysisTab(
+        # Unified DK Analysis Tab - combines DK-Zuordnung, DK-Statistik, and UB-Suche - Claude Generated
+        self.dk_analysis_unified_tab = DkAnalysisUnifiedTab(
             alima_manager=self.alima_manager,
             llm_service=self.llm_service,
             cache_manager=self.cache_manager,
             pipeline_manager=self.pipeline_manager,
             main_window=self,
         )
+
+        # Backward compatibility aliases - Claude Generated
+        self.dk_analysis_tab = self.dk_analysis_unified_tab
+        self.dk_classification_tab = self.dk_analysis_unified_tab
+        self.ub_search_tab = self.dk_analysis_unified_tab
 
         # Pipeline Tab - Claude Generated
         self.pipeline_tab = PipelineTab(
@@ -537,9 +548,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.abstract_tab, "📝 Abstract")
         self.tabs.addTab(self.search_tab, "🔍 GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "✅ Verifikation")
-        self.tabs.addTab(self.dk_analysis_tab, "📚 DK-Zuordnung")
-        self.tabs.addTab(self.dk_classification_tab, "📊 DK-Statistik")
-        self.tabs.addTab(self.ub_search_tab, "📚 UB-Suche")
+        self.tabs.addTab(self.dk_analysis_unified_tab, "📊 DK-Analyse")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
 
         # Globale Statusleiste
@@ -699,9 +708,9 @@ class MainWindow(QMainWindow):
             if hasattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords'):
                 final_keywords = analysis_state.final_llm_analysis.extracted_gnd_keywords
                 if final_keywords:
-                    # Format keywords properly for UB search
+                    # Format keywords properly for UB search (comma-separated)
                     if isinstance(final_keywords, list):
-                        keywords_text = "\n".join(final_keywords)
+                        keywords_text = ", ".join(final_keywords)
                     else:
                         keywords_text = str(final_keywords)
                     self.ub_search_tab.update_keywords(keywords_text)
@@ -964,9 +973,17 @@ class MainWindow(QMainWindow):
 
         self.tabs.setCurrentIndex(0)
 
+        # Restore pipeline splitter states - Claude Generated
+        if hasattr(self, 'pipeline_tab'):
+            self.pipeline_tab.restore_splitter_state(self.settings)
+
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
+
+        # Save pipeline splitter states - Claude Generated
+        if hasattr(self, 'pipeline_tab'):
+            self.pipeline_tab.save_splitter_state(self.settings)
 
     def _on_config_changed(self):
         """Handle configuration changes from comprehensive settings dialog - Claude Generated"""

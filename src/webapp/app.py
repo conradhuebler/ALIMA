@@ -1081,6 +1081,14 @@ async def run_analysis(
             else:
                 logger.info(f"ℹ️ Not initialisation step, skipping working_title update")
 
+            # NEW: Add delay after LLM steps to allow WebSocket to fetch buffered tokens - Claude Generated
+            llm_steps = ["initialisation", "keywords", "dk_classification"]
+            if step.step_id in llm_steps:
+                # Wait for WebSocket to transmit buffered tokens (2x poll interval + margin)
+                import time
+                time.sleep(0.7)  # 700ms = 500ms poll + 200ms margin
+                logger.info(f"✅ Waited 700ms for streaming token transmission after {step.step_id}")
+
             # Auto-save after each step completion - Claude Generated
             if session.autosave_enabled:
                 try:

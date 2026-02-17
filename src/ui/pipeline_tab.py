@@ -104,6 +104,8 @@ class PipelineStepWidget(QFrame):
         self.update_status_display()
 
     def _update_provider_model_display(self):
+        return
+        
         """Update provider/model display with task preference indicators - Claude Generated"""
         # Safety check: ensure the label exists before updating - Claude Generated
         if not hasattr(self, 'provider_model_label') or not self.provider_model_label:
@@ -581,7 +583,7 @@ class PipelineTab(QWidget):
         # Step 5: DK Search (catalog search)
         dk_search_step = PipelineStep(
             step_id="dk_search",
-            name="📊 SCHRITT 5: DK-KATALOG-SUCHE (Optional)",
+            name="📊 SCHRITT 5: DK-KATALOG-SUCHE",
             status="pending",
         )
         dk_search_widget = self.create_dk_search_step_widget()
@@ -594,7 +596,7 @@ class PipelineTab(QWidget):
         dk_provider, dk_model = self._get_task_provider_model("dk_classification")
         dk_classification_step = PipelineStep(
             step_id="dk_classification",
-            name="📚 SCHRITT 6: DK-KLASSIFIKATION (Optional)",
+            name="📚 SCHRITT 6: DK-KLASSIFIKATION",
             status="pending",
             provider=dk_provider,
             model=dk_model,
@@ -986,8 +988,8 @@ class PipelineTab(QWidget):
         # Results area
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
-        text_edit.setMinimumHeight(min_height)
-        text_edit.setMaximumHeight(max_height)
+        #text_edit.setMinimumHeight(min_height)
+        #text_edit.setMaximumHeight(max_height)
         text_edit.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -1008,6 +1010,7 @@ class PipelineTab(QWidget):
 
     def create_search_step_widget(self) -> QWidget:
         """Create search step widget - Claude Generated"""
+        # TODO - erweitern um Tabelle mit Ergebnissen (Freies Schlagwort für Suche, GND-Schlagworte, Häufigkeiten) und Filtermöglichkeiten; vergleichbar mit standalone-tab für GND-Suche
         widget, self.search_result = self._create_text_result_widget(
             label_text="GND-Suchergebnisse:",
             placeholder="Suchergebnisse werden hier angezeigt..."
@@ -1016,6 +1019,7 @@ class PipelineTab(QWidget):
 
     def create_keywords_step_widget(self) -> QWidget:
         """Create keywords step widget (Verbale Erschließung) - Claude Generated"""
+        # TODO - erweitern um Tabelle mit Ergebnissen ggf anpassen an Verschlagwortungsrelevante Dinge, welche Schlagworte ignoriert wurde ...
         widget, self.keywords_result = self._create_text_result_widget(
             label_text="Finale GND-Schlagworte:",
             placeholder="Finale Schlagworte werden hier angezeigt..."
@@ -1064,7 +1068,7 @@ class PipelineTab(QWidget):
         config_grid.addWidget(self.dk_frequency_threshold, 0, 3)
 
         config_grid.setColumnStretch(4, 1)  # Push to left
-        controls_layout.addLayout(config_grid)
+        #controls_layout.addLayout(config_grid)
 
         # Row 1: Force Update Checkbox
         from PyQt6.QtWidgets import QCheckBox
@@ -1073,7 +1077,7 @@ class PipelineTab(QWidget):
             "Erzwingt Live-Suche im Katalog und ignoriert gecachte Ergebnisse."
         )
         self.force_update_checkbox.setChecked(False)
-        controls_layout.addWidget(self.force_update_checkbox)
+        #controls_layout.addWidget(self.force_update_checkbox)
 
         # Filter Section (kompakter)
         filter_header = QLabel("🔍 Ergebnisse filtern")

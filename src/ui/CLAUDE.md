@@ -12,9 +12,8 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 - `AbstractTab`: Primary text analysis interface with chunking workflow
 - `SearchTab` (find_keywords.py): GND keyword search and browse interface
 - `AnalysisReviewTab`: Analysis workflow review and result management (enhanced with auto-receive)
-- `🆕 DkClassificationTab`: Dedicated view for DK/RVK classification results and statistics
+- `🆕 DkAnalysisUnifiedTab`: Unified DK analysis combining DK-Zuordnung, DK-Statistik, and UB-Suche (Claude Generated)
 - `CrossrefTab`: DOI metadata lookup and Crossref integration
-- `UBSearchTab`: University library search interface
 - `ImageAnalysisTab`: AI-powered image analysis functionality
 
 **Supporting Components:**
@@ -64,6 +63,14 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 - Step-by-step workflow navigation
 - Result comparison and validation
 - Data transfer between analysis stages
+
+**DkAnalysisUnifiedTab - DK Analysis (Claude Generated):**
+- Unified tab combining DK-Zuordnung, DK-Statistik, and UB-Suche
+- Inherits from AbstractTab for LLM functionality
+- Integrated statistics panel (Top-10, Dedup, Confidence colors)
+- UB catalog search (Web + SOAP API)
+- Auto-fill keywords from pipeline results
+- Backward compatibility with old tab interfaces
 
 ### Threading and Responsiveness
 **Background Operations:**
