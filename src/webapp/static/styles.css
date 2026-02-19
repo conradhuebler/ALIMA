@@ -307,10 +307,12 @@ body {
 /* Dark variant (stream) */
 .card--dark {
     background: var(--clr-dark);
-    border-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.07);
     color: #e2e8f0;
     display: flex;
     flex-direction: column;
+    /* Subtle top accent line */
+    border-top: 2px solid rgba(37, 99, 235, 0.45);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -535,68 +537,53 @@ body {
 .btn-full { flex: 1; }
 
 /* ═══════════════════════════════════════════════════
-   PIPELINE TIMELINE
+   PIPELINE TIMELINE — Vertical sidebar layout
    ═══════════════════════════════════════════════════ */
 .pipeline-timeline {
     display: flex;
-    overflow-x: auto;
+    flex-direction: column;
     gap: 0;
-    scrollbar-width: thin;
-    scrollbar-color: var(--clr-border) transparent;
-    padding-bottom: var(--sp-2);
+    padding: var(--sp-1) 0;
 }
 
-/* Each step */
+/* Each step: icon left, text right */
 .step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--sp-2);
-    flex: 1;
-    min-width: 72px;
-    padding: var(--sp-3) var(--sp-2) var(--sp-2);
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: var(--sp-3);
+    padding: 7px 0;
     position: relative;
-    text-align: center;
+    align-items: flex-start;
     transition: all var(--ease-base);
 }
 
-/* Connector lines (left half → this step) */
-.step:not(:first-child)::before {
-    content: '';
-    position: absolute;
-    top: calc(var(--sp-3) + 16px);   /* align with icon center (padding + half of 32px) */
-    left: 0;
-    right: 50%;
-    height: 2px;
-    background: var(--clr-border);
-    z-index: 0;
-    transition: background var(--ease-base);
-}
-
-/* Connector lines (this step → right half) */
+/* Vertical connector line — runs from bottom of icon down to next step */
 .step:not(:last-child)::after {
     content: '';
     position: absolute;
-    top: calc(var(--sp-3) + 16px);
-    left: 50%;
-    right: 0;
-    height: 2px;
+    left: 17px;          /* center of 36px column = 18px, minus 1px for visual centering */
+    top: calc(7px + 36px); /* padding-top + icon height */
+    bottom: 0;
+    width: 2px;
     background: var(--clr-border);
     z-index: 0;
     transition: background var(--ease-base);
 }
 
-/* Icon circle — wraps .step-status (emoji inserted by app.js) */
+/* No ::before needed for vertical layout */
+.step::before { display: none; }
+
+/* Icon circle */
 .step-status {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: var(--clr-surface-2);
     border: 2px solid var(--clr-border);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     position: relative;
     z-index: 1;
     flex-shrink: 0;
@@ -604,21 +591,21 @@ body {
     line-height: 1;
 }
 
-.step-content { width: 100%; }
+.step-content {
+    padding-top: 7px; /* vertically align text with icon center */
+}
 
 .step-name {
     font-family: var(--font-display);
-    font-size: 0.67rem;
+    font-size: 0.8rem;
     font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
     color: var(--clr-muted);
     line-height: 1.2;
     transition: color var(--ease-base);
 }
 
 .step-info {
-    font-size: 0.62rem;
+    font-size: 0.72rem;
     color: var(--clr-subtle);
     margin-top: 2px;
     line-height: 1.3;
@@ -638,11 +625,12 @@ body {
     animation: ripple 1.6s ease-in-out infinite;
 }
 
-.step.running .step-name { color: var(--clr-warning); }
+.step.running .step-name  { color: var(--clr-warning); }
+.step.running .step-info  { color: var(--clr-warning); opacity: 0.7; }
 
 .step.running:not(:last-child)::after {
-    background: var(--clr-warning);
-    opacity: 0.45;
+    background: linear-gradient(to bottom, var(--clr-warning), var(--clr-border));
+    opacity: 0.6;
 }
 
 .step.completed .step-status {
@@ -652,10 +640,6 @@ body {
 }
 
 .step.completed .step-name { color: var(--clr-success); }
-
-.step.completed:not(:first-child)::before {
-    background: var(--clr-success);
-}
 
 .step.completed:not(:last-child)::after {
     background: var(--clr-success);
@@ -670,9 +654,9 @@ body {
 .step.error .step-name { color: var(--clr-error); }
 
 @keyframes ripple {
-    0%   { box-shadow: 0 0 0 0   rgba(217, 119, 6, 0.5); }
-    70%  { box-shadow: 0 0 0 9px rgba(217, 119, 6, 0);   }
-    100% { box-shadow: 0 0 0 0   rgba(217, 119, 6, 0);   }
+    0%   { box-shadow: 0 0 0 0    rgba(217, 119, 6, 0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(217, 119, 6, 0);    }
+    100% { box-shadow: 0 0 0 0    rgba(217, 119, 6, 0);    }
 }
 
 .autosave-chip {
@@ -867,17 +851,19 @@ body {
 
 .stream-title {
     font-family: var(--font-display);
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #cbd5e1;
+    color: #e2e8f0;
 }
 
 .stream-subtitle {
-    font-size: 0.68rem;
+    font-size: 0.7rem;
     color: var(--clr-stream-muted);
     font-weight: 500;
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
 }
 
 /* Collapsible body */
@@ -1073,29 +1059,32 @@ body {
     .editor-btns { width: 100%; }
     .btn-analyze  { min-height: 48px; }
 
-    /* Stream body: more room on tablet */
-    .stream-body       { max-height: 300px; }
+    /* Stream body: generous height on tablet */
+    .stream-body              { max-height: 420px; }
     .stream-body.is-collapsed { max-height: 0; }
-    .stream-text       { max-height: 260px; }
+    .stream-text              { max-height: 380px; font-size: 0.82rem; }
 
-    /* Hide stream toggle on tablet (always visible) */
+    /* Stream toggle hidden on tablet+ */
     .stream-toggle-btn { display: none; }
 }
 
 /* ═══════════════════════════════════════════════════
    RESPONSIVE — DESKTOP 1100px+
+   Stream-Spalte ist breiter als Editor — sie ist der
+   Fokus während der Analyse.
    ═══════════════════════════════════════════════════ */
 @media (min-width: 1100px) {
 
     .workspace {
-        grid-template-columns: 290px 1fr 360px;
+        /* Input: fixed, Editor: 1fr, Stream: 1.5fr  */
+        grid-template-columns: 260px 1fr 1.5fr;
         grid-template-areas: "input editor stream";
         grid-template-rows: 1fr;
         height: calc(100vh - var(--header-h));
         overflow: hidden;
         align-items: stretch;
         padding: var(--sp-5);
-        gap: var(--sp-5);
+        gap: var(--sp-4);
     }
 
     .panel {
@@ -1118,10 +1107,12 @@ body {
         resize: none;
     }
 
-    /* Stream fills full column height */
+    /* Stream fills full column height, slightly elevated */
     .card--dark {
         height: 100%;
         overflow: hidden;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.06),
+                    0 8px 40px rgba(0, 0, 0, 0.35);
     }
 
     .stream-body {
@@ -1139,7 +1130,13 @@ body {
     .stream-text {
         max-height: none;
         flex: 1;
+        /* Slightly larger on desktop where stream is the focal point */
+        font-size: 0.84rem;
+        line-height: 1.8;
     }
+
+    /* Stream toggle hidden — always open on desktop */
+    .stream-toggle-btn { display: none; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1147,7 +1144,8 @@ body {
    ═══════════════════════════════════════════════════ */
 @media (min-width: 1440px) {
     .workspace {
-        grid-template-columns: 320px 1fr 420px;
+        grid-template-columns: 280px 1fr 1.6fr;
+        gap: var(--sp-5);
     }
 }
 
