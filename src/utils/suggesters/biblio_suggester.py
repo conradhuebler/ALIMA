@@ -102,9 +102,9 @@ class BiblioSuggester(BaseSuggester):
                     # Log keys of all entries
             for key, entry in results.items():
                 if isinstance(entry, dict):
-                    self.logger.info(f"Entry '{key}' keys: {entry.keys()}")
+                    self.logger.debug(f"Entry '{key}' keys: {entry.keys()}")
                 else:
-                    self.logger.info(f"Entry '{key}' type: {type(entry)}")
+                    self.logger.debug(f"Entry '{key}' type: {type(entry)}")
             # Emit signals for progress tracking
             for search_term in searches:
                 self.currentTerm.emit(search_term)

@@ -173,7 +173,7 @@ class PipelineConfig:
                     first_provider = enabled_providers[0]
                     default_provider = first_provider.name
                     default_model = first_provider.preferred_model or ""
-                    logger.info(f"No pipeline default set, using first provider: {default_provider}")
+                    logger.debug(f"No pipeline default set, using first provider: {default_provider}")
                 else:
                     logger.warning("No enabled providers found")
                     return cls()
@@ -242,7 +242,7 @@ class PipelineConfig:
                     if override_provider and override_provider != "auto":
                         step_configs[step_id].provider = override_provider
                         step_configs[step_id].model = override_model or default_model
-                        logger.info(f"Step override for {step_id}: {override_provider}/{override_model}")
+                        logger.debug(f"Step override for {step_id}: {override_provider}/{override_model}")
 
             return cls(
                 auto_advance=True,
@@ -388,20 +388,21 @@ class PipelineManager:
         self._interrupt_lock = threading.Lock()
         self._interrupt_check_func: Optional[Callable] = None
         self._is_interrupted = False
-        self.logger.info("Pipeline manager initialized with thread-safe interrupt support")
+        self._abort_step_event = threading.Event()  # Step-only abort, does not stop pipeline - Claude Generated
+        self.logger.debug("Pipeline manager initialized with thread-safe interrupt support")
 
 
     def set_config(self, config: PipelineConfig):
         """Set pipeline configuration - Claude Generated"""
         self.config = config
-        self.logger.info(f"Pipeline configuration updated: {config}")
+        self.logger.debug(f"Pipeline configuration updated: {config}")
 
         # Migrate legacy "abstract" step to "initialisation" - Claude Generated
         if hasattr(config, 'step_configs') and config.step_configs and 'abstract' in config.step_configs:
             config.step_configs['initialisation'] = config.step_configs.pop('abstract')
             self.logger.info("✅ Migrated legacy 'abstract' step configuration to 'initialisation'")
 
-        # Debug: Log modern step configurations in detail
+        # Log step configurations at debug level
         if hasattr(config, 'step_configs') and config.step_configs:
             for step_id, step_config in config.step_configs.items():
                 # Handle both dict and PipelineStepConfig objects - Claude Generated
@@ -415,9 +416,9 @@ class PipelineManager:
                     enabled = step_config.enabled
 
                 config_status = "configured" if provider and model else "auto-selected"
-                self.logger.info(f"Step '{step_id}': status={config_status}, enabled={enabled}")
+                self.logger.debug(f"Step '{step_id}': status={config_status}, enabled={enabled}")
         else:
-            self.logger.info("No modern step configurations found")
+            self.logger.debug("No modern step configurations found")
 
     def reload_config(self):
         """Reload pipeline configuration from provider preferences - Claude Generated"""
@@ -465,6 +466,21 @@ class PipelineManager:
         with self._interrupt_lock:
             self._interrupt_check_func = is_interrupted_func
             self._external_lock = lock  # Store reference to external lock if needed
+        # Forward COMBINED check to AlimaManager streaming loop:
+        # stops on full worker interrupt OR step-only abort (does not stop pipeline) - Claude Generated
+        abort_event = self._abort_step_event
+
+        def _step_abort_once():
+            # Single-shot: triggers once and immediately clears itself.
+            # Only the ONE currently-streaming LLM call is aborted;
+            # subsequent chunk calls run normally.  - Claude Generated
+            if abort_event.is_set():
+                abort_event.clear()
+                return True
+            return False
+
+        combined_check = lambda: is_interrupted_func() or _step_abort_once()
+        self.alima_manager.set_interrupt_callback(combined_check)
         self.logger.debug("Interrupt check function registered with PipelineManager (thread-safe)")
 
     def _check_interruption(self):
@@ -483,6 +499,18 @@ class PipelineManager:
             with self._interrupt_lock:
                 self._is_interrupted = True
             raise InterruptedError("Pipeline interrupted by user")
+
+    def abort_current_step(self) -> None:
+        """Abort only the current LLM generation without stopping the pipeline - Claude Generated
+
+        Sets a step-level abort event that the streaming loop in AlimaManager
+        checks via the combined interrupt callback.  The event is cleared
+        automatically before the next LLM call so subsequent steps run normally.
+        _check_interruption() (used at step boundaries) does NOT check this event,
+        so the pipeline continues after the current generation is aborted.
+        """
+        self._abort_step_event.set()
+        self.logger.info("🛑 Step-only abort requested – pipeline will continue after current generation")
 
     def start_pipeline(self, input_text: str, input_type: str = "text", input_source: str = None, force_update: bool = False) -> str:
         """Start a new pipeline execution - Claude Generated"""
@@ -909,6 +937,9 @@ class PipelineManager:
 
         # Execute using shared pipeline executor
         try:
+            # Clear step-only abort before starting LLM call - Claude Generated
+            self._abort_step_event.clear()
+
             # Only pass parameters that AlimaManager.analyze_abstract() expects
             allowed_params = [
                 "use_chunking_abstract",
@@ -1100,6 +1131,9 @@ class PipelineManager:
 
         # Execute using shared pipeline executor
         try:
+            # Clear step-only abort before starting LLM call - Claude Generated
+            self._abort_step_event.clear()
+
             # Only pass parameters that AlimaManager.analyze_abstract() expects
             # Note: prompt_template removed - let PromptService load correct prompt based on task
             allowed_params = [

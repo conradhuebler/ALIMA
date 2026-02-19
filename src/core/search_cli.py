@@ -50,7 +50,7 @@ class SearchCLI:
         combined_results = {}
 
         for suggester_type in suggester_types:
-            self.logger.info(f"Searching with {suggester_type.value} suggester")
+            self.logger.debug(f"Searching with {suggester_type.value} suggester")
 
             try:
                 suggester = MetaSuggester(

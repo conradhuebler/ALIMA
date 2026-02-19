@@ -111,7 +111,7 @@ class MetaSuggester(BaseSuggester):
             force_download: Whether to force data download/preparation
         """
         for name, suggester in self.suggesters.items():
-            self.logger.info(f"Preparing {name.value} suggester")
+            self.logger.debug(f"Preparing {name.value} suggester")
             suggester.prepare(force_download)
 
     def search(self, terms: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
@@ -142,7 +142,7 @@ class MetaSuggester(BaseSuggester):
 
         # Call each suggester with mapping-first logic
         for suggester_type, suggester in self.suggesters.items():
-            self.logger.info(f"Searching with {suggester_type.value} suggester")
+            self.logger.debug(f"Searching with {suggester_type.value} suggester")
             
             # Week 2: Try mappings first if enabled
             if self.enable_mapping_search:

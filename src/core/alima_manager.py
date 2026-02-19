@@ -63,10 +63,13 @@ class AlimaManager:
         # Initialize Repetition Detector - Claude Generated
         self._init_repetition_detector()
 
+        # Interrupt callback for streaming loop - Claude Generated
+        self._interrupt_check_func: Optional[Callable[[], bool]] = None
+
     def _init_repetition_detector(self):
         """Initialize repetition detector from config - Claude Generated"""
         try:
-            config = self.config_manager.get_config()
+            config = self.config_manager.load_config()
             rep_config = getattr(config, 'repetition_config', None)
 
             if rep_config:
@@ -92,7 +95,7 @@ class AlimaManager:
                 detector_config = RepetitionDetectorConfig()
 
             self.repetition_detector = RepetitionDetector(detector_config)
-            self.logger.info(f"RepetitionDetector initialized: ngram={detector_config.ngram_threshold}, min_text={detector_config.min_text_length}, enabled={detector_config.enabled}")
+            self.logger.debug(f"RepetitionDetector initialized: ngram={detector_config.ngram_threshold}, min_text={detector_config.min_text_length}, enabled={detector_config.enabled}")
         except Exception as e:
             self.logger.warning(f"Failed to initialize RepetitionDetector: {e}, using defaults")
             self.repetition_detector = RepetitionDetector()
@@ -101,7 +104,7 @@ class AlimaManager:
         """Set the Ollama URL for LLM requests."""
         self.ollama_url = url
         self.llm_service.set_ollama_url(url)  # Update the LLM service with the new URL
-        self.logger.info(f"Ollama URL set to: {self.ollama_url}")
+        self.logger.debug(f"Ollama URL set to: {self.ollama_url}")
 
     def set_ollama_port(self, port: int):
         """Set the Ollama port for LLM requests."""
@@ -109,7 +112,16 @@ class AlimaManager:
         self.llm_service.set_ollama_port(
             port
         )  # Update the LLM service with the new port
-        self.logger.info(f"Ollama port set to: {self.ollama_port}")
+        self.logger.debug(f"Ollama port set to: {self.ollama_port}")
+
+    def set_interrupt_callback(self, func: Optional[Callable[[], bool]]) -> None:
+        """Set interrupt check function for streaming loop - Claude Generated
+
+        Args:
+            func: Callable returning True if streaming should stop immediately.
+                  Pass None to clear.
+        """
+        self._interrupt_check_func = func
 
     def analyze_abstract(
         self,
@@ -134,7 +146,7 @@ class AlimaManager:
         # Log analysis start with workflow-relevant info - Claude Generated
         provider_display = provider if provider else "auto"
         self.logger.info(f"🚀 Starting analysis: task={task}, provider={provider_display}, model={model}")
-        self.logger.info(f"⚙️  Parameters: temperature={temperature}, top_p={p_value}, seed={seed}")
+        self.logger.debug(f"Parameters: temperature={temperature}, top_p={p_value}, seed={seed}")
         request_id = str(uuid.uuid4())
 
         if prompt_template:
@@ -251,8 +263,8 @@ class AlimaManager:
         on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
-        self.logger.info(
-            f"Formatted prompt for request {request_id}: {formatted_prompt}"
+        self.logger.debug(
+            f"Formatted prompt for request {request_id}: {formatted_prompt[:200]}..."
         )
         response_text = self._generate_response(
             request_id,
@@ -437,8 +449,7 @@ class AlimaManager:
             if queue_wait_time > 0.1:  # Only log if waited > 100ms
                 self.logger.info(f"⏳ LLM request {request_id} waited {queue_wait_time:.1f}s in queue")
 
-            # CRITICAL DEBUG: Provider resolution for Smart Mode - Claude Generated
-            self.logger.info(f"🔍 PROVIDER_RESOLUTION: input provider='{provider}', models={prompt_config.models}")
+            self.logger.debug(f"PROVIDER_RESOLUTION: input provider='{provider}', models={prompt_config.models}")
 
             # Provider must be explicitly provided - no more guessing - Claude Generated
             if not provider:
@@ -447,12 +458,11 @@ class AlimaManager:
 
             actual_provider = provider
 
-            self.logger.info(f"🔍 PROVIDER_RESOLVED: actual_provider='{actual_provider}'")
+            self.logger.debug(f"PROVIDER_RESOLVED: actual_provider='{actual_provider}'")
 
-            # CRITICAL DEBUG: LLM service call - Claude Generated
             llm_model = prompt_config.models[0] if prompt_config.models else "default"
-            self.logger.info(f"🚀 LLM_SERVICE_CALL: provider='{actual_provider}', model='{llm_model}'")
-            self.logger.info(f"🔄 STREAM_CALLBACK: {'✅ YES' if stream_callback else '❌ NONE'}")
+            self.logger.debug(f"LLM_SERVICE_CALL: provider='{actual_provider}', model='{llm_model}'")
+            self.logger.debug(f"STREAM_CALLBACK: {'present' if stream_callback else 'none'}")
 
             response_generator = self.llm_service.generate_response(
                 provider=actual_provider,
@@ -467,7 +477,7 @@ class AlimaManager:
                 repetition_penalty=repetition_penalty,
             )
 
-            self.logger.info(f"📊 LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
+            self.logger.debug(f"LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
 
             full_response_text = ""
             if response_generator is None:
@@ -493,6 +503,16 @@ class AlimaManager:
                         continue  # Skip None chunks
                     chunk_count += 1
                     full_response_text += text_chunk
+
+                    # Check for external interrupt (e.g. user pressed Stop) - Claude Generated
+                    if self._interrupt_check_func and self._interrupt_check_func():
+                        self.logger.info("🛑 STREAM_INTERRUPTED: User requested stop during streaming")
+                        if hasattr(response_generator, 'close'):
+                            try:
+                                response_generator.close()
+                            except Exception:
+                                pass
+                        break
 
                     # Check for repetition patterns - Claude Generated
                     rep_result = self.repetition_detector.add_chunk(text_chunk)
