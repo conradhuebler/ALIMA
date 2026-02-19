@@ -2,204 +2,281 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ALIMA - Pipeline Analysis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>ALIMA — Automatische Katalogerschließung</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Manrope:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="header-content">
-                <div class="header-title">
-                    <div class="logo">
-                        <svg viewBox="0 0 48 48" width="40" height="40">
-                            <rect x="4" y="8" width="40" height="32" rx="4" fill="#0066cc" opacity="0.1"/>
-                            <path d="M12 16L24 28L36 16" stroke="#0066cc" stroke-width="2" fill="none" stroke-linecap="round"/>
-                            <rect x="10" y="32" width="28" height="2" fill="#0066cc"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <h1>ALIMA</h1>
-                        <p class="header-subtitle">Automatische Katalogerschließung und Metadaten-Analyse</p>
-                    </div>
-                </div>
 
-                <!-- Global Queue Status Badge - Claude Generated (2026-01-13) -->
-                <div id="global-queue-badge" class="queue-badge" style="display: none;">
-                    <div class="queue-indicator" id="queue-indicator"></div>
-                    <div class="queue-stats">
-                        <span id="queue-llm-active">0</span>/<span id="queue-llm-max">3</span> LLM ·
-                        <span id="queue-pipeline-active">0</span> Pipelines
-                    </div>
+    <!-- ═══════════════════════════════════
+         HEADER — Glassmorphism sticky
+         ═══════════════════════════════════ -->
+    <header class="site-header">
+        <div class="header-inner">
+            <div class="brand">
+                <div class="brand-logo" aria-hidden="true">
+                    <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+                        <rect width="34" height="34" rx="9" fill="#2563EB"/>
+                        <path d="M7 25L17 9L27 25" stroke="white" stroke-width="2.5"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                        <line x1="11" y1="21" x2="23" y2="21"
+                              stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-name">ALIMA</span>
+                    <span class="brand-tagline">Automatische Katalogerschließung</span>
                 </div>
             </div>
-        </header>
 
-        <main>
-            <!-- Reconnect banner for running/completed sessions after page reload - Claude Generated -->
-            <div id="reconnect-banner" style="display:none; background:#e3f2fd; border:1px solid #1976d2; border-radius:8px; padding:12px 16px; margin-bottom:12px; align-items:center; gap:12px; flex-wrap:wrap;">
-                <span id="reconnect-message" style="flex:1; color:#1976d2; min-width:200px;"></span>
-                <button id="reconnect-btn" class="btn" style="background:#1976d2; color:white; white-space:nowrap;">🔌 Wiederverbinden</button>
-                <button id="reconnect-dismiss" class="btn btn-secondary" style="white-space:nowrap;">Ignorieren</button>
+            <div id="global-queue-badge" class="queue-badge" style="display: none;">
+                <span class="queue-dot" id="queue-indicator"></span>
+                <span class="queue-label">
+                    <span id="queue-llm-active">0</span>/<span id="queue-llm-max">3</span> LLM
+                    &middot;
+                    <span id="queue-pipeline-active">0</span> Pipeline
+                </span>
             </div>
+        </div>
+    </header>
 
-            <div class="layout">
-                <!-- Input Panel (Left) - Input Methods + Pipeline -->
-                <div class="input-panel">
-                    <!-- INPUT METHODS IN TABS (TOP) - zum Befüllen des Textfeldes -->
-                    <div class="input-section">
-                        <div class="input-methods-section">
-                            <h3>Eingabequellen</h3>
-                            <div class="input-tabs">
-                                <button class="tab-btn active" data-tab="doi-tab">📄 DOI/URL</button>
-                                <button class="tab-btn" data-tab="file-tab">📁 Datei</button>
-                                <button class="tab-btn" data-tab="camera-tab">📷 Kamera</button>
-                            </div>
+    <!-- ═══════════════════════════════════
+         RECONNECT BANNER
+         ═══════════════════════════════════ -->
+    <div id="reconnect-banner" class="reconnect-banner" style="display: none;">
+        <div class="reconnect-inner">
+            <svg class="reconnect-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <circle cx="12" cy="16" r="0.5" fill="currentColor"/>
+            </svg>
+            <p id="reconnect-message" class="reconnect-msg"></p>
+            <div class="reconnect-actions">
+                <button id="reconnect-btn" class="btn btn-info btn-sm">🔌 Wiederverbinden</button>
+                <button id="reconnect-dismiss" class="btn btn-ghost btn-sm">Ignorieren</button>
+            </div>
+        </div>
+    </div>
 
-                            <!-- DOI/URL Input Tab -->
-                            <div id="doi-tab" class="tab-content active">
-                                <div class="tab-input-group">
-                                    <input type="text" id="doi-input"
-                                           placeholder="z.B. 10.1007/... oder https://...">
-                                    <button id="doi-resolve-btn" class="btn btn-tab">🔍 Text laden</button>
-                                </div>
-                                <p style="font-size: 0.85em; color: #666; margin-top: 8px;">Text wird ins Eingabefeld übernommen</p>
-                            </div>
+    <!-- ═══════════════════════════════════
+         MAIN WORKSPACE
+         ═══════════════════════════════════ -->
+    <main class="workspace">
 
-                            <!-- File Upload with Drag & Drop Tab -->
-                            <div id="file-tab" class="tab-content">
-                                <div class="file-upload" id="file-upload-area">
-                                    <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt">
-                                    <div class="file-upload-content">
-                                        <p class="file-upload-icon">⬆</p>
-                                        <p class="file-upload-text">Datei hier ablegen oder klicken</p>
-                                        <p class="file-upload-hint">PDF, Bild oder TXT</p>
-                                    </div>
-                                    <span id="file-name" class="file-name"></span>
-                                </div>
-                                <p style="font-size: 0.85em; color: #666; margin-top: 8px;">Text wird extrahiert und ins Eingabefeld übernommen</p>
-                            </div>
+        <!-- ─── LEFT PANEL: Input Sources + Pipeline ─── -->
+        <aside class="panel panel-input">
 
-                            <!-- Camera Input Tab -->
-                            <div id="camera-tab" class="tab-content">
-                                <div class="camera-container">
-                                    <video id="camera-video" playsinline autoplay muted></video>
-                                    <canvas id="camera-canvas" style="display: none;"></canvas>
-                                    <div class="camera-controls">
-                                        <!-- STAGE 1: Initial -->
-                                        <button id="camera-start-btn" class="btn btn-camera">Kamera starten</button>
+            <!-- Input Source Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-label">Eingabequellen</h2>
+                </div>
 
-                                        <!-- STAGE 2: Live camera -->
-                                        <button id="camera-capture-btn" class="btn btn-camera" style="display: none;">Foto machen</button>
-                                        <button id="camera-stop-btn" class="btn btn-camera" style="display: none;">Stoppen</button>
+                <div class="tab-pills" role="tablist">
+                    <button class="tab-btn active" data-tab="doi-tab" role="tab" aria-selected="true">
+                        <span class="tab-icon" aria-hidden="true">📄</span>DOI / URL
+                    </button>
+                    <button class="tab-btn" data-tab="file-tab" role="tab" aria-selected="false">
+                        <span class="tab-icon" aria-hidden="true">📁</span>Datei
+                    </button>
+                    <button class="tab-btn" data-tab="camera-tab" role="tab" aria-selected="false">
+                        <span class="tab-icon" aria-hidden="true">📷</span>Kamera
+                    </button>
+                </div>
 
-                                        <!-- STAGE 3: Preview mode -->
-                                        <div id="camera-preview-actions" class="camera-preview-actions" style="display: none;">
-                                            <button id="camera-confirm-btn" class="btn btn-camera btn-confirm">✓ Übernehmen</button>
-                                            <button id="camera-retake-btn" class="btn btn-camera btn-retake">🔄 Erneut</button>
-                                        </div>
-                                    </div>
-                                    <div id="camera-preview" class="camera-preview" style="display: none;">
-                                        <img id="camera-image" src="" alt="Vorschau">
-                                        <p class="preview-hint">Text wird extrahiert und ins Eingabefeld übernommen</p>
-                                    </div>
-                                </div>
-                            </div>
+                <!-- DOI/URL Tab -->
+                <div id="doi-tab" class="tab-content active" role="tabpanel">
+                    <div class="input-row">
+                        <input type="text" id="doi-input" class="field"
+                               placeholder="10.1007/... oder https://...">
+                        <button id="doi-resolve-btn" class="btn btn-primary btn-sm">Laden</button>
+                    </div>
+                    <p class="hint">Text wird ins Eingabefeld übernommen</p>
+                </div>
+
+                <!-- File Upload Tab -->
+                <div id="file-tab" class="tab-content" role="tabpanel">
+                    <div class="dropzone" id="file-upload-area">
+                        <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt"
+                               aria-label="Datei auswählen">
+                        <div class="dropzone-body" aria-hidden="true">
+                            <div class="dropzone-icon">⬆</div>
+                            <p class="dropzone-text">Datei ablegen oder klicken</p>
+                            <p class="dropzone-hint">PDF, Bild oder TXT</p>
                         </div>
                     </div>
+                    <span id="file-name" class="file-badge"></span>
+                    <p class="hint">Text wird extrahiert und ins Eingabefeld übernommen</p>
+                </div>
 
-                    <!-- Pipeline & Results Panel (BOTTOM of left column) -->
-                    <div class="pipeline-panel">
-                        <div class="pipeline-section">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <h2>Pipeline</h2>
-                                <!-- Auto-Save Status Indicator - Claude Generated (2026-01-06) -->
-                                <span id="autosave-status" style="font-size: 0.75em; color: #888; display: none;">
-                                    💾 Gespeichert
-                                </span>
-                            </div>
-                            <div id="pipeline-steps" class="pipeline-steps">
-                                <!-- Steps werden hier dynamisch eingefügt -->
-                            </div>
+                <!-- Camera Tab -->
+                <div id="camera-tab" class="tab-content" role="tabpanel">
+                    <div class="camera-rig">
+                        <video id="camera-video" class="camera-feed" playsinline autoplay muted></video>
+                        <canvas id="camera-canvas" style="display: none;"></canvas>
+
+                        <div class="camera-controls">
+                            <button id="camera-start-btn" class="btn btn-outline btn-sm btn-full">
+                                📷 Kamera starten
+                            </button>
+                            <button id="camera-capture-btn" class="btn btn-primary btn-sm btn-full"
+                                    style="display: none;">
+                                📸 Foto machen
+                            </button>
+                            <button id="camera-stop-btn" class="btn btn-ghost btn-sm"
+                                    style="display: none;">
+                                ✕ Stoppen
+                            </button>
                         </div>
 
-                        <div class="extracted-text-section" id="extracted-text-section" style="display: none;">
-                            <h3>Extrahierter Text (aus Input)</h3>
-                            <pre id="extracted-text" class="extracted-text"></pre>
+                        <div id="camera-preview-actions" class="camera-actions" style="display: none;">
+                            <button id="camera-confirm-btn" class="btn btn-success btn-sm btn-full">
+                                ✓ Übernehmen
+                            </button>
+                            <button id="camera-retake-btn" class="btn btn-outline btn-sm btn-full">
+                                ↺ Erneut
+                            </button>
                         </div>
 
-                        <div id="results-panel" class="results-panel" style="display: none;">
-                            <h3>Zusammenfassung</h3>
-                            <div id="results-summary" class="results-summary"></div>
-                            <div class="results-buttons">
-                                <button id="export-btn" class="btn btn-secondary">
-                                    📥 JSON Exportieren
-                                </button>
-                                <!-- Recovery button (hidden by default) - Claude Generated -->
-                                <button id="recovery-btn" class="btn" style="display: none; background-color: #ff9800;">
-                                    🔄 Ergebnisse wiederherstellen
-                                </button>
-                                <span id="recovery-message" style="display: none; color: #ff9800; margin-left: 10px; font-size: 0.9em;"></span>
-                                <button id="clear-btn" class="btn btn-secondary">
-                                    Neue Analyse
-                                </button>
-                            </div>
+                        <div id="camera-preview" class="camera-preview" style="display: none;">
+                            <img id="camera-image" class="camera-preview-img" src="" alt="Kamera-Vorschau">
+                            <p class="hint">Text wird extrahiert und übernommen</p>
                         </div>
                     </div>
                 </div>
 
-                <!-- Input Text Box (Right) - Full height textarea -->
-                <div class="input-text-box">
-                    <div class="input-header">
-                        <h2>📝 Finaler Eingabetext</h2>
-                        <button id="clear-text-btn" class="btn btn-small">🗑 Leeren</button>
-                    </div>
-                    <textarea id="text-input"
-                              placeholder="Eingabetext wird hier angezeigt oder geben Sie Text direkt ein..."
-                              rows="8"></textarea>
+            </div><!-- /.card (inputs) -->
 
-                    <!-- Working title field - Claude Generated -->
-                    <div class="title-section" id="title-section" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-                        <div id="title-label-section" style="font-size: 0.9em; color: #666; margin-bottom: 5px; display: none;">
-                            <strong>📋 Arbeitstitel:</strong> <span id="title-display" style="color: #333;"></span>
-                        </div>
-                        <input type="text" id="title-override"
-                               placeholder="Optional: Arbeitstitel überschreiben"
-                               style="width: 100%; padding: 8px; font-size: 0.9em; border: 1px solid #ddd; border-radius: 3px;">
-                    </div>
+            <!-- Pipeline Timeline Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-label">Pipeline</h2>
+                    <span id="autosave-status" class="autosave-chip" style="display: none;">
+                        💾 Gespeichert
+                    </span>
+                </div>
+                <div id="pipeline-steps" class="pipeline-timeline">
+                    <!-- Dynamisch von app.js befüllt -->
+                </div>
+            </div>
 
-                    <div class="button-group">
-                        <select id="model-override" title="Globaler Modell-Override für alle LLM-Steps"
-                                style="padding: 8px; border: 1px solid #ddd; border-radius: 3px; font-size: 0.9em; max-width: 250px;">
-                            <option value="">-- Standard --</option>
-                        </select>
-                        <button id="analyze-btn" class="btn btn-primary">
-                            ▶ Analyse starten
+            <!-- Extracted Text (conditional) -->
+            <div id="extracted-text-section" class="card" style="display: none;">
+                <div class="card-header">
+                    <h2 class="card-label">Extrahierter Text</h2>
+                </div>
+                <pre id="extracted-text" class="extracted-text"></pre>
+            </div>
+
+            <!-- Results Panel (conditional) -->
+            <div id="results-panel" class="card card--success" style="display: none;">
+                <div class="card-header">
+                    <h2 class="card-label card-label--success">✓ Analyse abgeschlossen</h2>
+                </div>
+                <div id="results-summary" class="results-list"></div>
+                <div class="results-actions">
+                    <button id="export-btn" class="btn btn-outline btn-sm">📥 JSON exportieren</button>
+                    <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;">
+                        🔄 Wiederherstellen
+                    </button>
+                    <button id="clear-btn" class="btn btn-ghost btn-sm">Neue Analyse</button>
+                </div>
+                <span id="recovery-message" class="recovery-note" style="display: none;"></span>
+            </div>
+
+        </aside><!-- /.panel-input -->
+
+        <!-- ─── CENTER PANEL: Text Editor ─── -->
+        <section class="panel panel-editor">
+            <div class="card card--tall">
+                <div class="card-header">
+                    <h2 class="card-label">
+                        <span aria-hidden="true">✏</span> Eingabetext
+                    </h2>
+                    <button id="clear-text-btn" class="btn btn-ghost btn-sm">Leeren</button>
+                </div>
+
+                <textarea id="text-input" class="editor-textarea"
+                          placeholder="Text direkt eingeben oder über Eingabequellen laden …"></textarea>
+
+                <!-- Title Section -->
+                <div id="title-section" class="title-block">
+                    <div id="title-label-section" class="title-display" style="display: none;">
+                        <span class="title-key">📋 Arbeitstitel:</span>
+                        <span id="title-display" class="title-val"></span>
+                    </div>
+                    <input type="text" id="title-override" class="field"
+                           placeholder="Optional: Arbeitstitel überschreiben">
+                </div>
+
+                <!-- Editor Actions (fixed on mobile, inline on desktop) -->
+                <div class="editor-footer">
+                    <select id="model-override" class="field field--select"
+                            title="Globaler Modell-Override für alle LLM-Steps">
+                        <option value="">— Standard-Modell —</option>
+                    </select>
+                    <div class="editor-btns">
+                        <button id="analyze-btn" class="btn btn-primary btn-analyze">
+                            <span aria-hidden="true">▶</span> Analyse starten
                         </button>
-                        <button id="cancel-btn" class="btn btn-danger" style="display: none;">
+                        <button id="cancel-btn" class="btn btn-danger btn-sm" style="display: none;">
                             ⏹ Abbrechen
                         </button>
                     </div>
                 </div>
 
-                <!-- Output Panel (Full Width Bottom) -->
-                <div id="stream-output" class="stream-output">
-                    <div class="stream-header">
-                        <h3>Ausgabe (LLM-Streaming)</h3>
-                        <button id="clear-logs-btn" class="btn btn-small">🗑 Logs löschen</button>
+            </div><!-- /.card -->
+        </section><!-- /.panel-editor -->
+
+        <!-- ─── RIGHT PANEL: Stream Output ─── -->
+        <section class="panel panel-stream">
+            <div id="stream-output" class="card card--dark">
+                <div class="stream-header">
+                    <div class="stream-header-left">
+                        <button id="stream-toggle" class="stream-toggle-btn"
+                                aria-label="Ausgabe ein-/ausklappen" aria-expanded="true">
+                            <span class="toggle-chevron" aria-hidden="true">▾</span>
+                        </button>
+                        <div class="stream-title-group">
+                            <h2 class="stream-title">Ausgabe</h2>
+                            <span class="stream-subtitle">LLM-Streaming</span>
+                        </div>
                     </div>
-                    <pre id="stream-text"></pre>
+                    <button id="clear-logs-btn" class="btn btn-ghost-dark btn-sm">Löschen</button>
+                </div>
+
+                <div id="stream-body" class="stream-body">
+                    <pre id="stream-text" class="stream-text"></pre>
                 </div>
             </div>
-        </main>
-    </div>
+        </section><!-- /.panel-stream -->
 
-    <!-- Inject session ID from server BEFORE app.js loads - Claude Generated (2026-01-13) -->
+    </main><!-- /.workspace -->
+
+    <!-- Session ID injection — MUST be before app.js -->
     <script>
         window.sessionId = "{{ session_id }}";
         console.log(`Session ID injected BEFORE app.js: ${window.sessionId}`);
     </script>
-
     <script src="/static/app.js"></script>
+
+    <!-- Stream collapse toggle (mobile UX, cosmetic only) -->
+    <script>
+        (function () {
+            var btn = document.getElementById('stream-toggle');
+            var body = document.getElementById('stream-body');
+            if (!btn || !body) return;
+            btn.addEventListener('click', function () {
+                var isCollapsed = body.classList.toggle('is-collapsed');
+                btn.setAttribute('aria-expanded', String(!isCollapsed));
+                btn.querySelector('.toggle-chevron').textContent = isCollapsed ? '▸' : '▾';
+            });
+        }());
+    </script>
+
 </body>
 </html>
