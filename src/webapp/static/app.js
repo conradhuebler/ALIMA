@@ -22,7 +22,122 @@ class AlimaWebapp {
     async initializeSession() {
         await this.createNewSession();
         await this.loadModelOverrides();
+        // Check if current URL session is already active (page refresh scenario)
+        const reconnectedCurrent = await this.checkCurrentSessionState();
+        // If not, check localStorage for a different running session
+        if (!reconnectedCurrent) await this.checkForRunningSession();
         console.log('Ready for analysis');
+    }
+
+    // Check if the current session (from URL) is already running or completed - Claude Generated
+    async checkCurrentSessionState() {
+        if (!this.sessionId) return false;
+        try {
+            const resp = await fetch(`/api/session/${this.sessionId}`);
+            if (!resp.ok) return false;
+            const data = await resp.json();
+            if (data.status === 'running') {
+                this.isAnalyzing = true;
+                this.updateButtonState();
+                this.showResultsPanel();
+                this.enableExportButton(true);
+                localStorage.setItem('alima_running_session', this.sessionId);
+                this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse…\n`);
+                this.connectWebSocket();
+                return true;
+            } else if (data.status === 'completed' && data.results && Object.keys(data.results).length > 0) {
+                this.handleAnalysisComplete({
+                    status: 'completed',
+                    results: data.results,
+                    current_step: data.current_step || 'classification'
+                });
+                return true;
+            }
+        } catch (e) { /* fresh session, ignore */ }
+        return false;
+    }
+
+    // Check localStorage for a previously running session and offer reconnect - Claude Generated
+    async checkForRunningSession() {
+        const savedId = localStorage.getItem('alima_running_session');
+        if (!savedId || savedId === this.sessionId) return;
+
+        try {
+            const resp = await fetch(`/api/session/${savedId}`);
+            if (!resp.ok) {
+                localStorage.removeItem('alima_running_session');
+                return;
+            }
+            const data = await resp.json();
+
+            if (data.status === 'running') {
+                this.showReconnectBanner(savedId, 'running', data);
+            } else if (data.status === 'completed') {
+                this.showReconnectBanner(savedId, 'completed', data);
+            } else {
+                localStorage.removeItem('alima_running_session');
+            }
+        } catch (e) {
+            console.warn('Could not check saved session:', e);
+            localStorage.removeItem('alima_running_session');
+        }
+    }
+
+    // Show banner offering reconnect to saved session - Claude Generated
+    showReconnectBanner(savedId, status, data) {
+        const banner = document.getElementById('reconnect-banner');
+        const msg = document.getElementById('reconnect-message');
+        const reconnectBtn = document.getElementById('reconnect-btn');
+        const dismissBtn = document.getElementById('reconnect-dismiss');
+        if (!banner || !msg) return;
+
+        const shortId = savedId.substring(0, 8);
+        if (status === 'running') {
+            msg.textContent = `⚡ Pipeline läuft noch (Session ${shortId}…, Schritt: ${data.current_step || '?'}) — Wiederverbinden?`;
+            reconnectBtn.textContent = '🔌 Wiederverbinden';
+        } else {
+            msg.textContent = `✅ Abgeschlossene Analyse gefunden (Session ${shortId}…) — Ergebnisse anzeigen?`;
+            reconnectBtn.textContent = '📂 Ergebnisse anzeigen';
+        }
+
+        banner.style.display = 'flex';
+
+        reconnectBtn.onclick = () => {
+            banner.style.display = 'none';
+            this.reconnectToSession(savedId, status, data);
+        };
+        dismissBtn.onclick = () => {
+            banner.style.display = 'none';
+            localStorage.removeItem('alima_running_session');
+        };
+    }
+
+    // Reconnect to a saved session (running or completed) - Claude Generated
+    reconnectToSession(savedId, status, data) {
+        // Switch to saved session
+        this.sessionId = savedId;
+        const url = new URL(window.location);
+        url.searchParams.set('session', savedId);
+        window.history.replaceState(null, '', url);
+
+        this.showResultsPanel();
+
+        if (status === 'running') {
+            this.isAnalyzing = true;
+            this.updateButtonState();
+            this.enableExportButton(true);
+            this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)\n`);
+            this.connectWebSocket();
+        } else {
+            // Completed: fetch results directly from session and display
+            this.handleAnalysisComplete({
+                status: 'completed',
+                results: data.results,
+                current_step: data.current_step || 'classification'
+            });
+            this.appendStreamText(`📂 Ergebnisse der abgeschlossenen Analyse wiederhergestellt.\n`);
+            localStorage.removeItem('alima_running_session');
+        }
     }
 
     // Load available models for override dropdown - Claude Generated
@@ -451,6 +566,9 @@ class AlimaWebapp {
             const data = await response.json();
             console.log('Analysis started:', data);
 
+            // Persist session ID so page reload can reconnect - Claude Generated
+            localStorage.setItem('alima_running_session', this.sessionId);
+
             // Show results panel immediately - Claude Generated (2026-01-06)
             this.showResultsPanel();
 
@@ -474,7 +592,7 @@ class AlimaWebapp {
 
         let lastStep = null;
         let pollCount = 0;
-        const maxPolls = 300; // 2.5 minutes max (300 * 0.5s)
+        const maxPolls = 2400; // 20 minutes max (2400 * 0.5s)
 
         const pollInterval = setInterval(async () => {
             pollCount++;
@@ -580,24 +698,43 @@ class AlimaWebapp {
                 this.updatePipelineStatus(msg);
             } else if (msg.type === 'complete') {
                 this.handleAnalysisComplete(msg);
+            } else if (msg.type === 'error') {
+                // Server-side timeout or error - fall back to polling - Claude Generated
+                console.warn('Server WS error:', msg.error);
+                this.showRecoveryOption();
+                if (this.isAnalyzing) {
+                    this.connectViaPolling();
+                }
             }
         };
 
         this.ws.onerror = (error) => {
-            wsConnected = true; // Prevent timeout from firing
             clearTimeout(wsTimeout);
-            console.error('WebSocket error:', error);
-            this.appendStreamText(`⚠️ WebSocket error, using polling...`);
-            this.showRecoveryOption(); // Show recovery button on error - Claude Generated
-            this.connectViaPolling();
+            console.error('WebSocket error (wasConnected=' + wsConnected + '):', error);
+            if (wsConnected) {
+                // Error on an established connection - show recovery and fall back
+                this.showRecoveryOption();
+                if (this.isAnalyzing) {
+                    this.appendStreamText(`\n⚠️ WebSocket-Fehler, wechsle zu Polling…\n`);
+                    this.connectViaPolling();
+                }
+            } else {
+                // Connection attempt failed - silent fallback, no user-visible noise
+                this.connectViaPolling();
+            }
         };
 
         this.ws.onclose = (event) => {
-            console.log('WebSocket closed:', event.code);
+            console.log('WebSocket closed (code=' + event.code + ', wasConnected=' + wsConnected + ')');
 
-            // Abnormal closure (timeout or error) - Claude Generated
-            if (event.code === 1006 || event.code === 1011) {
+            // Only react to abnormal closure if WS was actually established - Claude Generated
+            // Code 1006 can also fire when the 2s timeout calls this.ws.close() before connection
+            if ((event.code === 1006 || event.code === 1011) && wsConnected) {
                 this.showRecoveryOption();
+                if (this.isAnalyzing) {
+                    this.appendStreamText(`\n⚠️ Verbindung unterbrochen, wechsle zu Polling…\n`);
+                    this.connectViaPolling();
+                }
             }
         };
     }
@@ -736,6 +873,9 @@ class AlimaWebapp {
 
         this.isAnalyzing = false;
         this.updateButtonState();
+
+        // Clear persisted session - pipeline is done - Claude Generated
+        localStorage.removeItem('alima_running_session');
 
         // Update export button to "completed" state - Claude Generated (2026-01-06)
         if (msg.status === 'completed') {
@@ -1008,6 +1148,9 @@ class AlimaWebapp {
             extractedSection.style.display = 'none';
             document.getElementById('extracted-text').textContent = '';
         }
+
+        // Clear persisted session on explicit "Neue Analyse" - Claude Generated
+        localStorage.removeItem('alima_running_session');
 
         // Cleanup old session
         if (this.sessionId) {

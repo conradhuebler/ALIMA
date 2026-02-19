@@ -21,6 +21,8 @@ import sys
 # Add project root to sys.path BEFORE importing src modules
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,9 +41,12 @@ from src.utils.config_manager import ConfigManager
 from src.utils.doi_resolver import resolve_input_to_text
 from src.utils.pipeline_utils import PipelineJsonManager
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Setup logging - Claude Generated: configurable via LOG_LEVEL env var
+_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
+# Suppress HTTP polling spam from uvicorn access logs at INFO level
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 # Get project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -53,7 +58,20 @@ AUTOSAVE_MAX_AGE_HOURS = 24  # Auto-cleanup files older than this (hours)
 WEBSOCKET_TIMEOUT_SECONDS = 1800  # WebSocket idle timeout (30 minutes = 1800s)
 WEBSOCKET_HEARTBEAT_INTERVAL = 5  # Heartbeat interval in seconds (5s)
 
-app = FastAPI(title="ALIMA Webapp", description="Pipeline widget as web interface")
+# Lifespan context manager replaces deprecated on_event - Claude Generated
+@asynccontextmanager
+async def lifespan(app):
+    """Startup and shutdown lifecycle - Claude Generated"""
+    logger.info("Starting ALIMA Webapp...")
+    logger.info(f"Auto-Save: {'Enabled' if AUTOSAVE_ENABLED else 'Disabled'} | Timeout: {WEBSOCKET_TIMEOUT_SECONDS}s | Cleanup: {AUTOSAVE_MAX_AGE_HOURS}h")
+    cleanup_old_autosaves()
+    logger.info("Webapp initialization complete")
+    yield
+    logger.info("Shutting down ALIMA Webapp...")
+    logger.info("Webapp shutdown complete")
+
+
+app = FastAPI(title="ALIMA Webapp", description="Pipeline widget as web interface", lifespan=lifespan)
 
 # CORS middleware for development
 app.add_middleware(
@@ -684,21 +702,6 @@ def cleanup_old_autosaves(max_age_hours: int = None):
         logger.error(f"Cleanup error: {e}")
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize webapp on startup - Claude Generated"""
-    logger.info("🚀 Starting ALIMA Webapp...")
-    logger.info(f"Auto-Save: {'Enabled' if AUTOSAVE_ENABLED else 'Disabled'} | Timeout: {WEBSOCKET_TIMEOUT_SECONDS}s | Cleanup: {AUTOSAVE_MAX_AGE_HOURS}h")
-    cleanup_old_autosaves()  # Uses global config
-    logger.info("✓ Webapp initialization complete")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Shutdown webapp gracefully - Claude Generated"""
-    logger.info("🛑 Shutting down ALIMA Webapp...")
-    logger.info("✓ Webapp shutdown complete")
-
 
 @app.get("/api/queue/status")
 async def get_queue_status() -> dict:
@@ -1055,39 +1058,31 @@ async def run_analysis(
 
         def on_step_completed(step):
             session.current_step = step.step_id
-            logger.info(f"Step completed: {step.step_id} (type: {type(step.step_id)}, repr: {repr(step.step_id)})")
+            logger.info(f"Step completed: {step.step_id}")
+
+            # Sync analysis state reference so autosave has access - Claude Generated
+            # Must be set here because start_pipeline() hasn't returned yet when callbacks fire
+            session.current_analysis_state = pipeline_manager.current_analysis_state
 
             # Update working title after initialisation - Claude Generated
-            logger.info(f"Checking if step_id matches 'initialisation': {step.step_id} == 'initialisation' -> {step.step_id == 'initialisation'}")
-
             if step.step_id == "initialisation":
-                logger.info(f"✓ Initialisation step completed, checking for working_title...")
-                if pipeline_manager.current_analysis_state:
-                    logger.info(f"✓ Analysis state exists")
-                    if hasattr(pipeline_manager.current_analysis_state, 'working_title'):
-                        wt = pipeline_manager.current_analysis_state.working_title
-                        logger.info(f"✓ Found working_title attribute: '{wt}'")
-                        session.working_title = wt
-                        # Also update session.results for WebSocket transmission - Claude Generated
-                        if not session.results:
-                            session.results = {}
-                        session.results['working_title'] = wt
-                        logger.info(f"✅ Session working title set to: {session.working_title}")
-                        logger.info(f"✅ Session results updated with working_title: {session.results.get('working_title')}")
-                    else:
-                        logger.warning("⚠️ Analysis state has no working_title attribute")
+                if pipeline_manager.current_analysis_state and hasattr(pipeline_manager.current_analysis_state, 'working_title'):
+                    wt = pipeline_manager.current_analysis_state.working_title
+                    logger.debug(f"Working title from analysis state: '{wt}'")
+                    session.working_title = wt
+                    if not session.results:
+                        session.results = {}
+                    session.results['working_title'] = wt
+                    logger.info(f"Session working title set: {wt}")
                 else:
-                    logger.warning("⚠️ No current_analysis_state available")
-            else:
-                logger.info(f"ℹ️ Not initialisation step, skipping working_title update")
+                    logger.warning("No working_title available after initialisation")
 
-            # NEW: Add delay after LLM steps to allow WebSocket to fetch buffered tokens - Claude Generated
+            # Add delay after LLM steps to allow WebSocket to fetch buffered tokens - Claude Generated
             llm_steps = ["initialisation", "keywords", "dk_classification"]
             if step.step_id in llm_steps:
-                # Wait for WebSocket to transmit buffered tokens (2x poll interval + margin)
                 import time
                 time.sleep(0.7)  # 700ms = 500ms poll + 200ms margin
-                logger.info(f"✅ Waited 700ms for streaming token transmission after {step.step_id}")
+                logger.debug(f"Waited 700ms for streaming token transmission after {step.step_id}")
 
             # Auto-save after each step completion - Claude Generated
             if session.autosave_enabled:
@@ -1103,6 +1098,9 @@ async def run_analysis(
 
         def on_pipeline_completed(analysis_state):
             logger.info(f"Pipeline completed, storing results")
+
+            # Sync analysis state reference so autosave has access - Claude Generated
+            session.current_analysis_state = analysis_state
 
             # Use shared extraction helper (DRY principle) - Claude Generated
             session.results = _extract_results_from_analysis_state(analysis_state)
@@ -1161,8 +1159,7 @@ async def run_analysis(
             # Buffer tokens by step for periodic transmission via WebSocket
             if step_id:
                 session.add_streaming_token(token, step_id)
-            # Use info level for visibility (same as input extraction) - Claude Generated
-            logger.info(f"Token [{step_id}]: {token[:30] if len(token) > 30 else token}...")
+            logger.debug(f"Token [{step_id}]: {token[:30] if len(token) > 30 else token}...")
 
         # Run pipeline in background thread - Claude Generated
         def execute_pipeline():

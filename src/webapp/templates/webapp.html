@@ -36,6 +36,13 @@
         </header>
 
         <main>
+            <!-- Reconnect banner for running/completed sessions after page reload - Claude Generated -->
+            <div id="reconnect-banner" style="display:none; background:#e3f2fd; border:1px solid #1976d2; border-radius:8px; padding:12px 16px; margin-bottom:12px; align-items:center; gap:12px; flex-wrap:wrap;">
+                <span id="reconnect-message" style="flex:1; color:#1976d2; min-width:200px;"></span>
+                <button id="reconnect-btn" class="btn" style="background:#1976d2; color:white; white-space:nowrap;">🔌 Wiederverbinden</button>
+                <button id="reconnect-dismiss" class="btn btn-secondary" style="white-space:nowrap;">Ignorieren</button>
+            </div>
+
             <div class="layout">
                 <!-- Input Panel (Left) - Input Methods + Pipeline -->
                 <div class="input-panel">

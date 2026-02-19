@@ -477,16 +477,34 @@ class PipelineStepExecutor:
                 "search",
             )
 
-        # Execute search using context manager for automatic cleanup - Claude Generated
+        # Execute search per keyword for live progress updates - Claude Generated
+        search_results = {}
         with SearchCLI(
             self.cache_manager,
             catalog_token=catalog_token or "",
             catalog_search_url=catalog_search_url or "",
             catalog_details_url=catalog_details_url or ""
         ) as search_cli:
-            search_results = search_cli.search(
-                search_terms=keywords_list, suggester_types=suggester_types
-            )
+            for keyword in keywords_list:
+                if stream_callback:
+                    stream_callback(f"🔍 Suche '{keyword}'...\n", "search")
+
+                kw_results = search_cli.search(
+                    search_terms=[keyword], suggester_types=suggester_types
+                )
+
+                # Merge into combined results
+                for term, term_data in kw_results.items():
+                    if term not in search_results:
+                        search_results[term] = {}
+                    search_results[term].update(term_data)
+
+                if stream_callback:
+                    total_hits = sum(
+                        details.get('count', 0)
+                        for details in search_results.get(keyword, {}).values()
+                    )
+                    stream_callback(f"    ✓ '{keyword}': {total_hits} Treffer\n", "search")
 
         # Post-process catalog results: validate subjects against cache and SWB
         if "catalog" in suggesters:
@@ -494,18 +512,7 @@ class PipelineStepExecutor:
                 search_results, stream_callback
             )
 
-        # Stream detailed results per keyword if callback provided - Claude Generated
         if stream_callback:
-            stream_callback("--> Auswertung der Suchergebnisse:\n", "search")
-
-            for search_term, gnd_results in search_results.items():
-                # Sum up all count values for this initial keyword
-                total_hits = sum(details.get('count', 0) for details in gnd_results.values())
-                stream_callback(
-                    f"    - Freies Schlagwort '{search_term}': {total_hits} Treffer in Katalogen gefunden.\n",
-                    "search"
-                )
-
             stream_callback("--> Suche abgeschlossen.\n", "search")
 
         return search_results
@@ -1527,6 +1534,15 @@ class PipelineStepExecutor:
         # Use already verified keywords from _execute_single_keyword_analysis() - Claude Generated
         # No need to re-extract or re-verify since _execute_single_keyword_analysis() already does both
         final_keywords = final_single_result[0]  # Already verified keywords
+
+        # Fallback: Konsolidierungs-Call abgebrochen oder leer, aber deduplizierte
+        # Keywords aus Chunks sind valide → direkt verwenden.  - Claude Generated
+        if not final_keywords and deduplicated_keywords:
+            self.logger.info(
+                f"⚠️ Consolidation returned empty – using {len(deduplicated_keywords)} "
+                f"deduplicated chunk keywords directly"
+            )
+            final_keywords = deduplicated_keywords
 
         # Update the LlmKeywordAnalysis to include chunk information
         final_llm_analysis = LlmKeywordAnalysis(
@@ -2708,9 +2724,9 @@ def extract_keywords_from_descriptive_text(
     """
     Extract keywords from LLM descriptive text with robust fallback - Claude Generated
 
-    Supports two formats:
-    1. Primary: "Keyword (1234567-8)" format
-    2. Fallback: "<final_list>Keyword1|Keyword2|...</final_list>" format
+    Supports two formats (in priority order):
+    1. Primary: "<final_list>…</final_list>" scoped – GND regex applied only inside tags
+    2. Fallback: Full-text GND regex if no <final_list> tags are present
 
     Returns:
         Tuple[List[str], List[str]]:
@@ -2725,9 +2741,21 @@ def extract_keywords_from_descriptive_text(
     # Debug: Log input for diagnosis - Claude Generated
     logger.info(f"🔍 extract_keywords: input={len(text)} chars, available_gnd={len(gnd_compliant_keywords)}")
 
+    # Remove <think> blocks (reasoning steps) before any parsing - Claude Generated
+    clean_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    # Attempt to scope extraction to <final_list> content - Claude Generated
+    final_list_match = re.search(r'<final_list>\s*(.*?)\s*</final_list>', clean_text, re.DOTALL | re.IGNORECASE)
+    if final_list_match:
+        extraction_scope = final_list_match.group(1)
+        logger.info(f"✅ <final_list> found – scoping extraction to {len(extraction_scope)} chars")
+    else:
+        extraction_scope = clean_text
+        logger.warning("⚠️ No <final_list> found – falling back to full text extraction")
+
     # PRIMARY METHOD: Regex for "Keyword (1234567-8)" format
     pattern = re.compile(r"\b([A-Za-zäöüÄÖÜß\s-]+?)\s*\((\d{7}-\d|\d{7}-\d{1,2})\)")
-    matches = pattern.findall(text)
+    matches = pattern.findall(extraction_scope)
 
     all_extracted_keywords = []
     exact_matches = []
@@ -2785,7 +2813,6 @@ def extract_keywords_from_descriptive_text(
     # FALLBACK METHOD: Parse <final_list> format - Claude Generated
     logger.warning("⚠️ Regex found NO matches - trying <final_list> fallback")
 
-    final_list_match = re.search(r'<final_list>\s*([^<]+)\s*</final_list>', text, re.DOTALL)
     if final_list_match:
         final_list_content = final_list_match.group(1).strip()
         logger.info(f"✅ Found <final_list>: {final_list_content[:100]}")
