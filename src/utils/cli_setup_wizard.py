@@ -35,6 +35,11 @@ class CLISetupWizard:
         self.catalog_search_url = ""
         self.catalog_details_url = ""
         self.catalog_token = ""
+        # Load institution presets - Claude Generated
+        from .preset_loader import PresetLoader
+        self._presets = PresetLoader.load()
+        if self._presets.institution_name:
+            print(f"💼 Institutions-Presets geladen: {self._presets.institution_name}")
 
     def run(self) -> bool:
         """Run the setup wizard - Claude Generated
@@ -126,8 +131,20 @@ class CLISetupWizard:
         """Setup Ollama provider - Claude Generated"""
         print("\n🔹 Ollama Konfiguration\n")
 
-        host = input("Ollama Host (Standard: localhost): ").strip() or "localhost"
-        port_str = input("Ollama Port (Standard: 11434): ").strip() or "11434"
+        # Use preset URL as default if available - Claude Generated
+        preset_host = "localhost"
+        preset_port = 11434
+        if self._presets.llm_provider_type in ('ollama', '') and self._presets.llm_base_url:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(self._presets.llm_base_url)
+                preset_host = parsed.hostname or preset_host
+                preset_port = parsed.port or preset_port
+            except Exception:
+                pass
+
+        host = input(f"Ollama Host (Standard: {preset_host}): ").strip() or preset_host
+        port_str = input(f"Ollama Port (Standard: {preset_port}): ").strip() or str(preset_port)
 
         try:
             port = int(port_str)
@@ -160,12 +177,21 @@ class CLISetupWizard:
         """Setup OpenAI-compatible provider - Claude Generated"""
         print("\n🔷 OpenAI-Compatible API Konfiguration\n")
 
-        base_url = input("API Basis-URL (z.B. http://localhost:8000/v1): ").strip()
+        # Use preset URL/key as defaults if provider type matches - Claude Generated
+        preset_url = ""
+        preset_key = ""
+        if self._presets.llm_provider_type == 'openai_compatible':
+            preset_url = self._presets.llm_base_url
+            preset_key = self._presets.llm_api_key
+
+        prompt_url = f"API Basis-URL (Standard: {preset_url}): " if preset_url else "API Basis-URL (z.B. http://localhost:8000/v1): "
+        base_url = input(prompt_url).strip() or preset_url
         if not base_url:
             print("❌ Basis-URL erforderlich")
             return self._setup_openai_compatible()
 
-        api_key = input("API-Schlüssel (oder leer lassen falls nicht erforderlich): ").strip()
+        prompt_key = f"API-Schlüssel (Standard: {'(aus Preset)' if preset_key else 'leer'}): " if preset_key else "API-Schlüssel (oder leer lassen falls nicht erforderlich): "
+        api_key = input(prompt_key).strip() or preset_key
 
         print("\n🧪 Teste Verbindung...\n")
         result = OllamaConnectionValidator.test_openai_compatible(base_url, api_key)
@@ -194,7 +220,10 @@ class CLISetupWizard:
         print("\n🟡 Google Gemini API Konfiguration\n")
         print("API-Schlüssel erhalten Sie unter: https://aistudio.google.com/app/apikey\n")
 
-        api_key = input("Geben Sie Ihren Gemini API-Schlüssel ein: ").strip()
+        # Use preset key as default if provider type matches - Claude Generated
+        preset_key = self._presets.llm_api_key if self._presets.llm_provider_type == 'gemini' else ""
+        prompt = f"Gemini API-Schlüssel (Standard: aus Preset): " if preset_key else "Geben Sie Ihren Gemini API-Schlüssel ein: "
+        api_key = input(prompt).strip() or preset_key
         if not api_key:
             print("❌ API-Schlüssel erforderlich")
             return self._setup_gemini()
@@ -221,7 +250,10 @@ class CLISetupWizard:
         print("\n🔴 Anthropic Claude API Konfiguration\n")
         print("API-Schlüssel erhalten Sie unter: https://console.anthropic.com/\n")
 
-        api_key = input("Geben Sie Ihren Anthropic API-Schlüssel ein: ").strip()
+        # Use preset key as default if provider type matches - Claude Generated
+        preset_key = self._presets.llm_api_key if self._presets.llm_provider_type == 'anthropic' else ""
+        prompt = f"Anthropic API-Schlüssel (Standard: aus Preset): " if preset_key else "Geben Sie Ihren Anthropic API-Schlüssel ein: "
+        api_key = input(prompt).strip() or preset_key
         if not api_key:
             print("❌ API-Schlüssel erforderlich")
             return self._setup_anthropic()
@@ -407,22 +439,51 @@ class CLISetupWizard:
         print("Für die DK-Analyse und UB-Suche kann ein Libero-SOAP-Katalog eingebunden werden.")
         print("Dieser Schritt ist optional.\n")
 
-        choice = input("Katalog konfigurieren? (j/n, Standard: n): ").lower().strip()
+        # Show preset values if available - Claude Generated
+        preset_search = self._presets.catalog_soap_search_url
+        preset_details = self._presets.catalog_soap_details_url
+        preset_token = self._presets.catalog_token
+        has_presets = bool(preset_search or preset_details)
+
+        if has_presets:
+            print("💼 Institutions-Presets verfügbar:")
+            if preset_search:
+                print(f"   Search URL: {preset_search}")
+            if preset_details:
+                print(f"   Details URL: {preset_details}")
+            if preset_token:
+                print(f"   Token: (gesetzt)")
+            print("   Eingabe leer lassen = Preset übernehmen\n")
+            default_choice = 'j'
+        else:
+            default_choice = 'n'
+
+        choice = input(f"Katalog konfigurieren? (j/n, Standard: {default_choice}): ").lower().strip() or default_choice
         if choice != 'j':
-            print("⏭️  Katalog übersprungen")
+            # If presets exist and user skips, still apply presets silently
+            if has_presets:
+                self.catalog_search_url = preset_search
+                self.catalog_details_url = preset_details
+                self.catalog_token = preset_token
+                print("✅ Katalog-Presets übernommen")
+            else:
+                print("⏭️  Katalog übersprungen")
             return
 
-        self.catalog_search_url = input(
+        search_prompt = f"SOAP Search URL (Standard: {preset_search or 'leer'}): " if preset_search else (
             "SOAP Search URL\n"
             "  (z.B. https://katalog.ub.example.de/libero/LiberoWebServices.CatalogueSearcher.cls): "
-        ).strip()
+        )
+        self.catalog_search_url = input(search_prompt).strip() or preset_search
 
-        self.catalog_details_url = input(
+        details_prompt = f"SOAP Details URL (Standard: {preset_details or 'leer'}): " if preset_details else (
             "SOAP Details URL\n"
             "  (z.B. https://katalog.ub.example.de/libero/LiberoWebServices.LibraryAPI.cls): "
-        ).strip()
+        )
+        self.catalog_details_url = input(details_prompt).strip() or preset_details
 
-        self.catalog_token = input("Auth-Token (leer lassen falls nicht erforderlich): ").strip()
+        token_prompt = "Auth-Token (Standard: aus Preset): " if preset_token else "Auth-Token (leer lassen falls nicht erforderlich): "
+        self.catalog_token = input(token_prompt).strip() or preset_token
 
         if self.catalog_search_url or self.catalog_token:
             print("✅ Katalog-Konfiguration gespeichert")

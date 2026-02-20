@@ -601,8 +601,10 @@ class CatalogConfig:
     
     # Libero SOAP configuration (original)
     catalog_token: str = ''
-    catalog_search_url: str = 'https://katalog.ub.uni-leipzig.de/Search/Results'
-    catalog_details_url: str = 'https://katalog.ub.uni-leipzig.de/Record'
+    catalog_search_url: str = ''
+    catalog_details_url: str = ''
+    catalog_web_search_url: str = ''   # Web frontend search URL (BiblioClient web fallback)
+    catalog_web_record_url: str = ''   # Web frontend record base URL (BiblioClient web fallback)
     
     # MARC XML / SRU configuration - Claude Generated
     sru_base_url: str = ''  # SRU endpoint URL (e.g., "https://services.dnb.de/sru/dnb")

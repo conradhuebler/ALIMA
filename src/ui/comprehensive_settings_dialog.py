@@ -919,13 +919,21 @@ class ComprehensiveSettingsDialog(QDialog):
         libero_layout.addRow("", self.libero_token_btn)
 
         self.catalog_search_url = QLineEdit()
-        self.catalog_search_url.setToolTip("Search URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Search/Results)")
-        libero_layout.addRow("Search URL:", self.catalog_search_url)
-        
+        self.catalog_search_url.setToolTip("SOAP search endpoint URL (e.g., https://libero.ub.example.de/libero/LiberoWebServices.CatalogueSearcher.cls)")
+        libero_layout.addRow("SOAP Search URL:", self.catalog_search_url)
+
         self.catalog_details_url = QLineEdit()
-        self.catalog_details_url.setToolTip("Details URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Record)")
-        libero_layout.addRow("Details URL:", self.catalog_details_url)
-        
+        self.catalog_details_url.setToolTip("SOAP details endpoint URL (e.g., https://libero.ub.example.de/libero/LiberoWebServices.LibraryAPI.cls)")
+        libero_layout.addRow("SOAP Details URL:", self.catalog_details_url)
+
+        self.catalog_web_search_url = QLineEdit()
+        self.catalog_web_search_url.setToolTip("Web frontend search URL for web-scraping fallback (e.g., https://katalog.ub.example.de/Search/Results). Leave empty to disable web fallback.")
+        libero_layout.addRow("Web Search URL:", self.catalog_web_search_url)
+
+        self.catalog_web_record_url = QLineEdit()
+        self.catalog_web_record_url.setToolTip("Web frontend record base URL for web-scraping fallback (e.g., https://katalog.ub.example.de/Record/). Leave empty to disable web fallback.")
+        libero_layout.addRow("Web Record URL:", self.catalog_web_record_url)
+
         self.libero_group.setLayout(libero_layout)
         layout.addWidget(self.libero_group)
         
@@ -1989,6 +1997,8 @@ class ComprehensiveSettingsDialog(QDialog):
         self.catalog_token.setText(config.catalog.catalog_token)
         self.catalog_search_url.setText(config.catalog.catalog_search_url)
         self.catalog_details_url.setText(config.catalog.catalog_details_url)
+        self.catalog_web_search_url.setText(getattr(config.catalog, 'catalog_web_search_url', ''))
+        self.catalog_web_record_url.setText(getattr(config.catalog, 'catalog_web_record_url', ''))
         
         # SRU settings
         self.sru_preset_combo.setCurrentText(config.catalog.sru_preset)
@@ -2466,6 +2476,8 @@ class ComprehensiveSettingsDialog(QDialog):
             catalog_token=self.catalog_token.text(),
             catalog_search_url=self.catalog_search_url.text(),
             catalog_details_url=self.catalog_details_url.text(),
+            catalog_web_search_url=self.catalog_web_search_url.text(),
+            catalog_web_record_url=self.catalog_web_record_url.text(),
             sru_base_url=self.sru_base_url.text(),
             sru_database=self.sru_database.text(),
             sru_schema=self.sru_schema.currentText(),

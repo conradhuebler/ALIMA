@@ -20,18 +20,20 @@ class SubjectExtractor(QThread):
     error_occurred = pyqtSignal(str)
     status_updated = pyqtSignal(str)
 
-    def __init__(self, max_results=1):
+    def __init__(self, max_results=1, base_url: str = "", record_base_url: str = ""):
         """
         Initialisiert den SubjectExtractor.
 
         Args:
             max_results (int): Maximale Anzahl von Ergebnissen, die verarbeitet werden sollen.
+            base_url (str): Web frontend search URL (empty = disabled)
+            record_base_url (str): Web frontend record base URL (empty = disabled)
         """
         super().__init__()
         self.max_results = max_results
         self.search_term = None  # Wird in run() gesetzt
-        self.base_url = "https://katalog.ub.tu-freiberg.de/Search/Results"
-        self.record_base_url = "https://katalog.ub.tu-freiberg.de/Record/"
+        self.base_url = base_url
+        self.record_base_url = record_base_url
 
         # Logger einrichten
         self.logger = logging.getLogger(__name__)
@@ -142,7 +144,7 @@ class SubjectExtractor(QThread):
                     title = title_elem.get_text(strip=True)
                     # Erstelle vollständigen URL
                     if href.startswith("/"):
-                        record_url = f"https://katalog.ub.tu-freiberg.de{href}"
+                        record_url = f"{self.record_base_url.rstrip('/')}{href}"
                     else:
                         record_url = href
                     title_elements[record_id] = (title, record_url)

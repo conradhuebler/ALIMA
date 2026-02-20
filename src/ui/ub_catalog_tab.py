@@ -52,14 +52,20 @@ class DkSearchWorker(QThread):
             catalog_token = ""
             catalog_search_url = ""
             catalog_details_url = ""
+            catalog_web_search_url = ""
+            catalog_web_record_url = ""
             try:
                 from ..utils.config_manager import ConfigManager
                 catalog_config = ConfigManager().get_catalog_config()
                 catalog_token = getattr(catalog_config, "catalog_token", "") or ""
                 catalog_search_url = getattr(catalog_config, "catalog_search_url", "") or ""
                 catalog_details_url = getattr(catalog_config, "catalog_details_url", "") or ""
+                catalog_web_search_url = getattr(catalog_config, "catalog_web_search_url", "") or ""
+                catalog_web_record_url = getattr(catalog_config, "catalog_web_record_url", "") or ""
             except Exception as cfg_err:
                 self.logger.debug(f"Could not read catalog config: {cfg_err}")
+                catalog_web_search_url = ""
+                catalog_web_record_url = ""
 
             result = self.executor.execute_dk_search(
                 keywords=self.keywords,
@@ -68,6 +74,8 @@ class DkSearchWorker(QThread):
                 catalog_token=catalog_token,
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
+                catalog_web_search_url=catalog_web_search_url,
+                catalog_web_record_url=catalog_web_record_url,
                 strict_gnd_validation=False,   # UI accepts plain keywords without GND-IDs
             )
             if not isinstance(result, dict):

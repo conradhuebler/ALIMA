@@ -2175,6 +2175,8 @@ class PipelineStepExecutor:
         catalog_token: str = None,
         catalog_search_url: str = None,
         catalog_details_url: str = None,
+        catalog_web_search_url: str = None,
+        catalog_web_record_url: str = None,
         force_update: bool = False,  # Claude Generated
         strict_gnd_validation: bool = True,  # EXPERT OPTION: Allow disabling strict GND validation
     ) -> List[Dict[str, Any]]:
@@ -2249,6 +2251,8 @@ class PipelineStepExecutor:
                     enable_web_fallback=True,  # Claude Generated - Explicitly enable web fallback
                     soap_search_url=catalog_search_url or "",  # Claude Generated - from CatalogConfig
                     soap_details_url=catalog_details_url or "",  # Claude Generated - from CatalogConfig
+                    web_search_url=catalog_web_search_url or "",  # Claude Generated - from CatalogConfig
+                    web_record_url=catalog_web_record_url or "",  # Claude Generated - from CatalogConfig
                 )
                 
         except Exception as e:

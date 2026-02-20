@@ -108,6 +108,8 @@ class FirstStartWizard(QWizard):
                 catalog_search_url=self.catalog_page.soap_search_url.text().strip(),
                 catalog_details_url=self.catalog_page.soap_details_url.text().strip(),
                 catalog_token=self.catalog_page.catalog_token.text().strip(),
+                catalog_web_search_url=self.catalog_page.web_search_url.text().strip(),
+                catalog_web_record_url=self.catalog_page.web_record_url.text().strip(),
             )
 
             # Save configuration
@@ -917,6 +919,20 @@ class CatalogSetupPage(QWizardPage):
         self.catalog_token.setPlaceholderText("Auth-Token (falls erforderlich)")
         form.addRow("Token:", self.catalog_token)
 
+        self.web_search_url = QLineEdit()
+        self.web_search_url.setPlaceholderText(
+            "https://katalog.ub.example.de/Search/Results"
+        )
+        self.web_search_url.setToolTip("Web-Frontend-URL für Scraping-Fallback (optional)")
+        form.addRow("Web Search URL:", self.web_search_url)
+
+        self.web_record_url = QLineEdit()
+        self.web_record_url.setPlaceholderText(
+            "https://katalog.ub.example.de/Record/"
+        )
+        self.web_record_url.setToolTip("Web-Frontend-Record-URL für Scraping-Fallback (optional)")
+        form.addRow("Web Record URL:", self.web_record_url)
+
         soap_box.setLayout(form)
         layout.addWidget(soap_box)
 
@@ -955,6 +971,10 @@ class CatalogSetupPage(QWizardPage):
             self.soap_details_url.setText(presets.catalog_soap_details_url)
         if presets.catalog_token:
             self.catalog_token.setText(presets.catalog_token)
+        if presets.catalog_web_search_url:
+            self.web_search_url.setText(presets.catalog_web_search_url)
+        if presets.catalog_web_record_url:
+            self.web_record_url.setText(presets.catalog_web_record_url)
         logger.debug("Catalog preset applied")
 
     def _fetch_token_dialog(self):

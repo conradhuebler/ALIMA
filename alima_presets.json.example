@@ -1,0 +1,21 @@
+{
+  "_comment": "ALIMA Institutions-Presets — Diese Datei als 'alima_presets.json' im Programmverzeichnis ablegen.",
+  "_comment2": "Felder können leer gelassen werden. Alle Werte sind optional und vom Nutzer überschreibbar.",
+  "institution_name": "Meine Universität",
+  "llm": {
+    "_comment": "provider_type: 'ollama', 'openai_compatible', 'gemini', 'anthropic'",
+    "provider_type": "ollama",
+    "provider_name": "Uni-LLM-Server",
+    "base_url": "http://llm.uni-example.de:11434",
+    "api_key": ""
+  },
+  "catalog": {
+    "_comment": "Libero SOAP-Endpunkte für UB-Katalog und DK-Analyse",
+    "soap_search_url": "https://libero.ub.uni-example.de/libero/LiberoWebServices.CatalogueSearcher.cls",
+    "soap_details_url": "https://libero.ub.uni-example.de/libero/LiberoWebServices.LibraryAPI.cls",
+    "token": "",
+    "_comment2": "Web-Frontend-URLs für Web-Scraping-Fallback (optional, leer lassen = kein Fallback)",
+    "web_search_url": "https://katalog.ub.uni-example.de/Search/Results",
+    "web_record_url": "https://katalog.ub.uni-example.de/Record/"
+  }
+}

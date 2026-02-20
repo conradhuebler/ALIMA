@@ -1319,6 +1319,8 @@ class PipelineManager:
                 catalog_token = getattr(step_config, 'catalog_token', '') or getattr(catalog_config, "catalog_token", "")
                 catalog_search_url = getattr(step_config, 'catalog_search_url', '') or getattr(catalog_config, "catalog_search_url", "")
                 catalog_details_url = getattr(step_config, 'catalog_details_url', '') or getattr(catalog_config, "catalog_details_url", "")
+                catalog_web_search_url = getattr(catalog_config, "catalog_web_search_url", "")
+                catalog_web_record_url = getattr(catalog_config, "catalog_web_record_url", "")
                 strict_gnd_validation = getattr(catalog_config, "strict_gnd_validation_for_dk_search", True)
 
             except Exception as e:
@@ -1326,6 +1328,8 @@ class PipelineManager:
                 catalog_token = getattr(step_config, 'catalog_token', '')
                 catalog_search_url = getattr(step_config, 'catalog_search_url', '')
                 catalog_details_url = getattr(step_config, 'catalog_details_url', '')
+                catalog_web_search_url = ""
+                catalog_web_record_url = ""
                 strict_gnd_validation = True
 
             dk_search_result = self.pipeline_executor.execute_dk_search(
@@ -1335,6 +1339,8 @@ class PipelineManager:
                 catalog_token=catalog_token,
                 catalog_search_url=catalog_search_url,
                 catalog_details_url=catalog_details_url,
+                catalog_web_search_url=catalog_web_search_url,
+                catalog_web_record_url=catalog_web_record_url,
                 force_update=getattr(self, 'force_update', False),  # Claude Generated
                 strict_gnd_validation=strict_gnd_validation,  # EXPERT OPTION - Claude Generated
             )

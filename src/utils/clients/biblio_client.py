@@ -57,13 +57,11 @@ class BiblioClient:
     """
     # Configuration flag to disable SQL database caching for testing - Claude Generated
 
-    SEARCH_URL = "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.CatalogueSearcher.cls"
-    DETAILS_URL = (
-        "https://libero.ub.tu-freiberg.de:443/libero/LiberoWebServices.LibraryAPI.cls"
-    )
+    SEARCH_URL = ""
+    DETAILS_URL = ""
     # Web catalog URLs for fallback - Claude Generated
-    WEB_SEARCH_URL = "https://katalog.ub.tu-freiberg.de/Search/Results"
-    WEB_RECORD_BASE_URL = "https://katalog.ub.tu-freiberg.de/Record/"
+    WEB_SEARCH_URL = ""
+    WEB_RECORD_BASE_URL = ""
 
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
@@ -71,7 +69,8 @@ class BiblioClient:
     def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "",
                  enable_web_fallback: bool = True, timeout: int = 10,
                  rate_limit_delay_ms: int = 1000, use_json_cache: bool = True,
-                 soap_search_url: str = "", soap_details_url: str = ""):
+                 soap_search_url: str = "", soap_details_url: str = "",
+                 web_search_url: str = "", web_record_url: str = ""):
         """
         Initialize the extractor with the given token.
 
@@ -85,6 +84,8 @@ class BiblioClient:
             use_json_cache: Use JSON file cache for RSN→details lookups (True=fast via JSON, False=SOAP only) - Claude Generated
             soap_search_url: SOAP search endpoint URL; falls back to class default if empty - Claude Generated
             soap_details_url: SOAP details endpoint URL; falls back to class default if empty - Claude Generated
+            web_search_url: Web frontend search URL for fallback scraping; disables web fallback if empty - Claude Generated
+            web_record_url: Web frontend record base URL for fallback scraping - Claude Generated
 
         Note:
             - use_json_cache: Controls RSN detail lookups (step 2 of DK search)
@@ -94,9 +95,12 @@ class BiblioClient:
         # Instance-level URL overrides (fall back to class-level defaults) - Claude Generated
         self.SEARCH_URL = soap_search_url or BiblioClient.SEARCH_URL
         self.DETAILS_URL = soap_details_url or BiblioClient.DETAILS_URL
+        self.WEB_SEARCH_URL = web_search_url or BiblioClient.WEB_SEARCH_URL
+        self.WEB_RECORD_BASE_URL = web_record_url or BiblioClient.WEB_RECORD_BASE_URL
         self.debug = debug
         self.save_xml_path = save_xml_path
-        self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
+        # Web fallback only active when a web_search_url is configured - Claude Generated
+        self.enable_web_fallback = enable_web_fallback and bool(self.WEB_SEARCH_URL)
         self.use_json_cache = use_json_cache  # Claude Generated - JSON cache toggle for testing
         self.disable_sql_cache = False  # Claude Generated - SQL DB cache toggle (default: use cache)
         self._using_web_mode = False  # Claude Generated - Track if we switched to web pipeline
