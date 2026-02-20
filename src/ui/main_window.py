@@ -500,7 +500,7 @@ class MainWindow(QMainWindow):
         )
 
         # UB Catalog Tab - standalone dk_search step - Claude Generated
-        self.ub_catalog_tab = UBCatalogTab(parent=self)
+        self.ub_catalog_tab = UBCatalogTab(pipeline_manager=self.pipeline_manager, parent=self)
 
         # Backward compatibility aliases - Claude Generated
         self.dk_analysis_tab = self.dk_analysis_unified_tab

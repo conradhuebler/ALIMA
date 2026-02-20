@@ -5,19 +5,14 @@ and aggregates DK/RVK classifications with statistics.
 Claude Generated
 """
 
-import re
-import requests
 import logging
-from datetime import datetime
-from bs4 import BeautifulSoup
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLabel, QGroupBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSplitter, QTabWidget,
-    QPushButton, QProgressBar, QMessageBox, QSlider,
-    QComboBox, QCheckBox, QLineEdit, QGridLayout,
-    QTreeWidget, QTreeWidgetItem, QFileDialog,
+    QHeaderView, QSplitter,
+    QPushButton, QProgressBar, QMessageBox, QSpinBox,
+    QTreeWidget, QTreeWidgetItem,
 )
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QColor
@@ -31,287 +26,56 @@ from .styles import (
 
 
 # ============================================================================
-# Worker Classes
+# Worker Class
 # ============================================================================
 
-class AdditionalTitlesWorker(QThread):
-    """Worker for loading additional titles"""
+class DkSearchWorker(QThread):
+    """Thin worker that delegates to PipelineStepExecutor.execute_dk_search - Claude Generated"""
 
-    titles_ready = pyqtSignal(list)
+    result_ready   = pyqtSignal(dict)   # full pipeline result dict
     error_occurred = pyqtSignal(str)
+    status_updated = pyqtSignal(str)    # stream_callback messages
 
-    def __init__(self, classification):
+    def __init__(self, keywords: list, executor, max_results: int = 40):
         super().__init__()
-        self.classification = classification
-        self.logger = logging.getLogger(__name__)
-
-    def setNumResults(self, num_results):
-        self.num_results = num_results
+        self.keywords    = keywords
+        self.executor    = executor
+        self.max_results = max_results
+        self.logger      = logging.getLogger(__name__)
 
     def run(self):
         try:
-            url = "https://katalog.ub.tu-freiberg.de/Search/Results"
-            params = {
-                "lookfor": self.classification,
-                "type": "udk_raw_de105",
-                "limit": self.num_results,
-            }
-            response = requests.get(url, params=params)
-            self.logger.info(f"Generated URL: {response.url}")
-            if response.status_code != 200:
-                raise Exception(f"HTTP Error {response.status_code}")
-            soup = BeautifulSoup(response.text, "html.parser")
-            titles = []
+            def _cb(msg, step_id="dk_search"):
+                self.status_updated.emit(str(msg))
 
-            for title_link in soup.find_all("a", class_="title getFull"):
-                record_id = title_link.get("id", "").split("|")[-1]
-                title_text = title_link.text.strip()
-                year_span = title_link.find("span", class_="year")
-                year = year_span.text.strip("()") if year_span else ""
+            # Read catalog token from config (same pattern as pipeline_manager.py) - Claude Generated
+            catalog_token = ""
+            catalog_search_url = ""
+            catalog_details_url = ""
+            try:
+                from ..utils.config_manager import ConfigManager
+                catalog_config = ConfigManager().get_catalog_config()
+                catalog_token = getattr(catalog_config, "catalog_token", "") or ""
+                catalog_search_url = getattr(catalog_config, "catalog_search_url", "") or ""
+                catalog_details_url = getattr(catalog_config, "catalog_details_url", "") or ""
+            except Exception as cfg_err:
+                self.logger.debug(f"Could not read catalog config: {cfg_err}")
 
-                if record_id and title_text:
-                    titles.append(
-                        {
-                            "id": record_id,
-                            "title": title_text,
-                            "year": year,
-                            "url": f"https://katalog.ub.tu-freiberg.de/Record/{record_id}",
-                        }
-                    )
-
-            self.titles_ready.emit(titles)
-
-        except Exception as e:
-            self.logger.error(
-                f"Error loading additional titles: {str(e)}", exc_info=True
+            result = self.executor.execute_dk_search(
+                keywords=self.keywords,
+                stream_callback=_cb,
+                max_results=self.max_results,
+                catalog_token=catalog_token,
+                catalog_search_url=catalog_search_url,
+                catalog_details_url=catalog_details_url,
+                strict_gnd_validation=False,   # UI accepts plain keywords without GND-IDs
             )
+            if not isinstance(result, dict):
+                result = {"classifications": result, "statistics": {}, "keyword_results": []}
+            self.result_ready.emit(result)
+        except Exception as e:
+            self.logger.error(f"DkSearchWorker failed: {e}", exc_info=True)
             self.error_occurred.emit(str(e))
-
-
-class UBSearchWorker(QThread):
-    """Worker-Thread for UB Web Catalog search"""
-
-    progress_updated = pyqtSignal(int, int)
-    result_ready = pyqtSignal(dict)
-    error_occurred = pyqtSignal(str)
-    status_updated = pyqtSignal(str)
-
-    def __init__(self, keywords):
-        super().__init__()
-        self.keywords = keywords
-        self.base_search_url = "https://katalog.ub.tu-freiberg.de/Search/Results"
-        self.base_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
-        self.logger = logging.getLogger(__name__)
-
-    def setNumResults(self, num_results):
-        self.num_results = num_results
-
-    def run(self):
-        try:
-            results = {}
-            total = len(self.keywords)
-
-            for i, keyword in enumerate(self.keywords, 1):
-                self.status_updated.emit(f"Processing keyword: {keyword}")
-                results[keyword] = self.process_keyword(keyword)
-                self.progress_updated.emit(i, total)
-
-            self.result_ready.emit(results)
-
-        except Exception as e:
-            self.logger.error(f"Worker thread error: {str(e)}", exc_info=True)
-            self.error_occurred.emit(f"Search error: {str(e)}")
-
-    def extract_record_ids(self, soup):
-        record_ids = set()
-        save_links = soup.find_all("a", class_="save-record")
-
-        for link in save_links:
-            record_id = link.get("data-id")
-            if record_id:
-                record_ids.add(record_id)
-
-        return list(record_ids)
-
-    def get_classification_numbers(self, record_id):
-        try:
-            response = requests.get(f"{self.base_record_url}{record_id}")
-            if response.status_code != 200:
-                return None
-
-            soup = BeautifulSoup(response.text, "html.parser")
-            numbers = []
-
-            title = "No title available"
-            title_element = soup.find("h1", attrs={"property": "name"})
-            if title_element:
-                title = title_element.text.strip()
-
-            dk_links = soup.find_all(
-                "a", href=re.compile(r"lookfor=DK.*?&type=udk_raw_de105")
-            )
-            for dk_link in dk_links:
-                dk_match = re.search(r"DK\s+([\d\.:]+)", dk_link.text)
-                if dk_match:
-                    numbers.append(("DK", dk_match.group(1), title))
-
-            q_links = soup.find_all(
-                "a", href=re.compile(r"lookfor=Q[A-Z]?\s*\d+.*?&type=udk_raw_de105")
-            )
-            for q_link in q_links:
-                q_match = re.search(r"Q[A-Z]?\s*[\d\s]+", q_link.text)
-                if q_match:
-                    numbers.append(("Q", q_match.group().strip(), title))
-
-            return numbers if numbers else None
-
-        except Exception as e:
-            self.logger.error(
-                f"Error fetching classification numbers for {record_id}: {str(e)}",
-                exc_info=True,
-            )
-            return None
-
-    def process_keyword(self, keyword):
-        try:
-            params = {
-                "hiddenFilters[]": [
-                    'institution:"DE-105"',
-                    '-format:"Article"',
-                    '-format:"ElectronicArticle"',
-                ],
-                "join": "AND",
-                "bool0[]": "AND",
-                "lookfor0[]": keyword,
-                "type0[]": "AllFields",
-                "filter[]": 'facet_avail:"Local"',
-                "limit": self.num_results,
-            }
-
-            self.logger.debug(f"Searching for keyword: {keyword}")
-            response = requests.get(self.base_search_url, params=params)
-            if response.status_code != 200:
-                self.logger.warning(
-                    f"HTTP {response.status_code} for keyword {keyword}"
-                )
-                return []
-
-            soup = BeautifulSoup(response.text, "html.parser")
-            record_ids = self.extract_record_ids(soup)
-
-            results = []
-            for record_id in record_ids:
-                numbers = self.get_classification_numbers(record_id)
-                if numbers:
-                    for number_type, number, title in numbers:
-                        results.append((number_type, number, record_id, title))
-
-            return results
-
-        except Exception as e:
-            self.logger.error(
-                f"Error processing keyword {keyword}: {str(e)}", exc_info=True
-            )
-            self.error_occurred.emit(
-                f"Error processing '{keyword}': {str(e)}"
-            )
-            return []
-
-
-class BiblioClientWorker(QThread):
-    """Worker-Thread for BiblioClient (SOAP API) search"""
-
-    progress_updated = pyqtSignal(int, int)
-    result_ready = pyqtSignal(dict)
-    error_occurred = pyqtSignal(str)
-    status_updated = pyqtSignal(str)
-    raw_response = pyqtSignal(str)
-
-    def __init__(self, keywords: list, token: str = "", debug: bool = False,
-                 save_xml_path: str = "", enable_web_fallback: bool = True):
-        super().__init__()
-        self.keywords = keywords
-        self.token = token
-        self.debug = debug
-        self.save_xml_path = save_xml_path
-        self.enable_web_fallback = enable_web_fallback
-        self.logger = logging.getLogger(__name__)
-        self.num_results = 20
-
-    def setNumResults(self, num_results):
-        self.num_results = num_results
-
-    def run(self):
-        try:
-            from ..utils.biblio_client import BiblioClient
-            client = BiblioClient(
-                token=self.token,
-                debug=self.debug,
-                save_xml_path=self.save_xml_path,
-                enable_web_fallback=self.enable_web_fallback,
-            )
-            classification_info = {}
-
-            for keyword_idx, keyword in enumerate(self.keywords):
-                self.status_updated.emit(f"Searching for: {keyword}")
-                self.progress_updated.emit(keyword_idx, len(self.keywords))
-
-                search_results = client.search(keyword, search_type="ku")
-
-                if not search_results:
-                    self.logger.info(f"No results for keyword: {keyword}")
-                    continue
-
-                for item in search_results[: self.num_results]:
-                    rsn = item.get("rsn")
-                    if not rsn:
-                        continue
-
-                    details = client.get_title_details(rsn)
-
-                    if details and details.get("classifications"):
-                        classifications = details.get("classifications", [])
-                        decimal_classes = client.extract_decimal_classifications(
-                            classifications
-                        )
-
-                        for dk in decimal_classes:
-                            key = f"DK {dk}"
-                            if key not in classification_info:
-                                classification_info[key] = {
-                                    "count": 0,
-                                    "titles": [],
-                                    "details": [],
-                                }
-                            classification_info[key]["count"] += 1
-                            title = details.get("title", "")
-                            if title and title not in classification_info[key]["titles"]:
-                                classification_info[key]["titles"].append(title)
-                            classification_info[key]["details"].append(details)
-
-                    if self.debug:
-                        self.raw_response.emit(
-                            f"RSN {rsn}: title={details.get('title')}, "
-                            f"classifications={details.get('classifications')}"
-                        )
-
-            result_data = {
-                "method": "BiblioClient SOAP API",
-                "keywords": self.keywords,
-                "classifications": classification_info,
-                "total_unique_classifications": len(classification_info),
-            }
-
-            if self.save_xml_path:
-                self.raw_response.emit(
-                    f"XML responses saved to: {self.save_xml_path}"
-                )
-
-            self.result_ready.emit(result_data)
-
-        except Exception as e:
-            self.logger.error(f"BiblioClient search failed: {str(e)}", exc_info=True)
-            self.error_occurred.emit(f"BiblioClient error: {str(e)}")
 
 
 # ============================================================================
@@ -319,7 +83,7 @@ class BiblioClientWorker(QThread):
 # ============================================================================
 
 class UBSearchPanel(QWidget):
-    """UB Katalog Search Panel - integrates Web and SOAP API search"""
+    """UB Katalog Search Panel - uses pipeline executor for DK search - Claude Generated"""
 
     result_ready = pyqtSignal(dict)  # Emitted after results are displayed
 
@@ -327,8 +91,13 @@ class UBSearchPanel(QWidget):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self.current_worker = None
-        self.biblio_results = None
+        self._executor = None
+        self._current_result = {}
         self.setup_ui()
+
+    def set_executor(self, executor):
+        """Inject the PipelineStepExecutor - Claude Generated"""
+        self._executor = executor
 
     def setup_ui(self):
         self.setStyleSheet(get_main_stylesheet())
@@ -338,86 +107,37 @@ class UBSearchPanel(QWidget):
         layout.setSpacing(LAYOUT["spacing"])
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Mode Selection
-        mode_group = QGroupBox("Search Settings")
-        mode_layout = QGridLayout(mode_group)
-        mode_layout.setSpacing(LAYOUT["inner_spacing"])
-
-        mode_layout.addWidget(QLabel("Search Method:"), 0, 0)
-        self.mode_selector = QComboBox()
-        self.mode_selector.addItems(["Web Catalog (HTML)", "SOAP API (BiblioClient)"])
-        self.mode_selector.currentIndexChanged.connect(self.on_mode_changed)
-        mode_layout.addWidget(self.mode_selector, 0, 1)
-
-        mode_layout.addWidget(QLabel("Max Results:"), 1, 0)
-        self.num_results = QSlider(Qt.Orientation.Horizontal)
-        self.num_results.setRange(1, 60)
-        self.num_results.setValue(20)
-        self.num_results.setTickInterval(5)
-        self.num_results.valueChanged.connect(self.update_num_results)
-        mode_layout.addWidget(self.num_results, 1, 1)
-
-        self.num_label = QLabel(f"Results: {self.num_results.value()}")
-        self.num_label.setMinimumWidth(100)
-        mode_layout.addWidget(self.num_label, 1, 2)
-
-        layout.addWidget(mode_group)
-
-        # SOAP API Configuration Panel
-        self.soap_config_group = QGroupBox("SOAP API Settings")
-        soap_grid = QGridLayout(self.soap_config_group)
-        soap_grid.setSpacing(LAYOUT["inner_spacing"])
-
-        soap_grid.addWidget(QLabel("API Token:"), 0, 0)
-        self.token_input = QLineEdit()
-        self.token_input.setPlaceholderText("Catalog API Token (optional)")
-        self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        soap_grid.addWidget(self.token_input, 0, 1, 1, 4)
-
-        self.debug_checkbox = QCheckBox("Debug (XML)")
-        soap_grid.addWidget(self.debug_checkbox, 1, 0)
-        self.show_raw_response_checkbox = QCheckBox("Raw Data")
-        self.show_raw_response_checkbox.setChecked(True)
-        soap_grid.addWidget(self.show_raw_response_checkbox, 1, 1)
-        self.enable_web_fallback_checkbox = QCheckBox("Web Fallback")
-        self.enable_web_fallback_checkbox.setChecked(True)
-        soap_grid.addWidget(self.enable_web_fallback_checkbox, 1, 2)
-        self.save_xml_checkbox = QCheckBox("Save XML:")
-        self.save_xml_checkbox.setChecked(False)
-        self.save_xml_checkbox.toggled.connect(self.on_save_xml_toggled)
-        soap_grid.addWidget(self.save_xml_checkbox, 1, 3)
-        self.xml_path_display = QLineEdit()
-        self.xml_path_display.setReadOnly(True)
-        self.xml_path_display.setPlaceholderText("Path...")
-        soap_grid.addWidget(self.xml_path_display, 1, 4)
-        self.xml_browse_button = QPushButton("...")
-        self.xml_browse_button.setMaximumWidth(30)
-        self.xml_browse_button.clicked.connect(self.select_xml_save_path)
-        self.xml_browse_button.setEnabled(False)
-        soap_grid.addWidget(self.xml_browse_button, 1, 5)
-
-        self.soap_config_group.setVisible(False)
-        layout.addWidget(self.soap_config_group)
-
         # Input Area
-        input_group = QGroupBox("Input")
+        input_group = QGroupBox("Suche")
         input_layout = QVBoxLayout(input_group)
         input_layout.setSpacing(LAYOUT["inner_spacing"])
 
-        input_layout.addWidget(QLabel("Keywords (comma-separated):"))
+        # Keywords + max results row
+        kw_row = QHBoxLayout()
+        kw_row.addWidget(QLabel("Keywords (kommagetrennt):"))
+        kw_row.addStretch()
+        kw_row.addWidget(QLabel("Max. Treffer:"))
+        self.num_results = QSpinBox()
+        self.num_results.setRange(1, 60)
+        self.num_results.setValue(40)
+        self.num_results.setMinimumWidth(60)
+        kw_row.addWidget(self.num_results)
+        input_layout.addLayout(kw_row)
+
         self.keywords_input = QTextEdit()
-        self.keywords_input.setPlaceholderText("Enter keywords...")
+        self.keywords_input.setPlaceholderText("Keywords eingeben...")
         self.keywords_input.setMaximumHeight(80)
         self.keywords_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         input_layout.addWidget(self.keywords_input)
 
-        self.search_button = QPushButton("Start Search")
+        self.search_button = QPushButton("Suchen")
         self.search_button.setStyleSheet(btn_styles["primary"])
         self.search_button.clicked.connect(self.start_search)
         input_layout.addWidget(self.search_button)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 0)  # indeterminate
         input_layout.addWidget(self.progress_bar)
 
         layout.addWidget(input_group)
@@ -426,17 +146,17 @@ class UBSearchPanel(QWidget):
         self.results_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # TreeView for classifications
-        tree_container = QGroupBox("Classifications")
+        tree_container = QGroupBox("Klassifikationen")
         tree_layout = QVBoxLayout(tree_container)
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Classification", "Count"])
+        self.tree_widget.setHeaderLabels(["Klassifikation", "Treffer"])
         self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
         self.tree_widget.setSortingEnabled(True)
         tree_layout.addWidget(self.tree_widget)
         self.results_splitter.addWidget(tree_container)
 
         # Detail view for selected classification
-        detail_container = QGroupBox("Associated Titles")
+        detail_container = QGroupBox("Zugehörige Titel")
         detail_layout = QVBoxLayout(detail_container)
         self.detail_view = QTextEdit()
         self.detail_view.setReadOnly(True)
@@ -448,215 +168,102 @@ class UBSearchPanel(QWidget):
 
         layout.addWidget(self.results_splitter)
 
-        # Debug output
-        self.debug_tabs = QTabWidget()
-        self.raw_response_view = QTextEdit()
-        self.raw_response_view.setReadOnly(True)
-        self.raw_response_view.setMaximumHeight(120)
-        self.raw_response_view.setFont(QFont("Courier", 9))
-        self.debug_tabs.addTab(self.raw_response_view, "Raw Responses (Debug)")
-        self.debug_tabs.setVisible(False)
-        layout.addWidget(self.debug_tabs)
-
     def set_keywords(self, keywords: str):
         """Set keywords in the search input"""
         self.keywords_input.setPlainText(keywords)
 
-    def update_num_results(self, value):
-        self.num_label.setText(f"Results: {value}")
-
-    def on_mode_changed(self, index):
-        is_soap_mode = index == 1
-        self.soap_config_group.setVisible(is_soap_mode)
-
-    def on_save_xml_toggled(self, checked):
-        self.xml_browse_button.setEnabled(checked)
-
-    def select_xml_save_path(self):
-        directory = QFileDialog.getExistingDirectory(
-            self, "Select Directory for XML Debug Files", ""
-        )
-        if directory:
-            self.xml_path_display.setText(directory)
-
     def start_search(self):
-        keywords_text = self.keywords_input.toPlainText().strip()
-        if not keywords_text:
-            QMessageBox.warning(
-                self, "Input Error", "Please enter at least one keyword."
-            )
+        if self._executor is None:
+            QMessageBox.warning(self, "Fehler", "Kein Pipeline-Executor verfügbar.")
             return
 
-        keywords = [k.strip() for k in keywords_text.split(",") if k.strip()]
-        unique_keywords = list(dict.fromkeys(keywords))
+        keywords = [k.strip() for k in self.keywords_input.toPlainText().split(",") if k.strip()]
+        if not keywords:
+            QMessageBox.warning(self, "Eingabe", "Bitte mindestens ein Stichwort eingeben.")
+            return
 
         self.search_button.setEnabled(False)
         self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.detail_view.clear()
+        self.detail_view.setHtml("<p><b>Suche läuft…</b></p>")
 
-        if self.mode_selector.currentIndex() == 1:  # SOAP API mode
-            token = self.token_input.text().strip() or ""
-            debug = self.debug_checkbox.isChecked()
-            save_xml = self.xml_path_display.text() if self.save_xml_checkbox.isChecked() else ""
-            enable_web_fallback = self.enable_web_fallback_checkbox.isChecked()
-            self.current_worker = BiblioClientWorker(
-                unique_keywords,
-                token=token,
-                debug=debug,
-                save_xml_path=save_xml,
-                enable_web_fallback=enable_web_fallback,
-            )
-            self.current_worker.raw_response.connect(self.append_raw_response)
-        else:  # Web Catalog mode
-            self.current_worker = UBSearchWorker(unique_keywords)
-
-        self.current_worker.progress_updated.connect(self.update_progress)
-        self.current_worker.result_ready.connect(self.display_results)
-        self.current_worker.error_occurred.connect(self.handle_error)
-        self.current_worker.status_updated.connect(self.append_raw_response)
+        self.current_worker = DkSearchWorker(
+            keywords=list(dict.fromkeys(keywords)),
+            executor=self._executor,
+            max_results=self.num_results.value(),
+        )
+        self.current_worker.result_ready.connect(self._on_worker_done)
+        self.current_worker.status_updated.connect(self._append_status)
+        self.current_worker.error_occurred.connect(self._handle_error)
         self.current_worker.finished.connect(self.search_finished)
-        self.current_worker.setNumResults(self.num_results.value())
         self.current_worker.start()
 
-    def update_progress(self, current, total):
-        progress = int((current / total) * 100)
-        self.progress_bar.setValue(progress)
-
-    def display_results(self, results):
-        self.detail_view.clear()
-
-        if isinstance(results, dict) and "method" in results:
-            self._display_biblio_results(results)
-        else:
-            self._display_web_results(results)
-
-        # Notify listeners that results are ready
-        self.result_ready.emit(results)
-
-    def _display_biblio_results(self, results: dict):
-        self.biblio_results = results
-        classifications = results.get("classifications", {})
-
-        self.tree_widget.clear()
-        for class_key in sorted(classifications.keys()):
-            class_data = classifications[class_key]
-            count = class_data.get("count", 0)
-
-            item = QTreeWidgetItem([class_key, str(count)])
-            item.setData(0, Qt.ItemDataRole.UserRole, class_key)
-            item.setData(0, Qt.ItemDataRole.UserRole + 1, "biblio")
-            self.tree_widget.addTopLevelItem(item)
-
-        self.append_raw_response(
-            f"Displayed BiblioClient results: {len(classifications)} classifications"
-        )
-
-    def _display_web_results(self, results: dict):
-        self.tree_widget.clear()
-
-        number_mapping = {}
-        for keyword, entries in results.items():
-            if not entries:
-                continue
-
-            for entry in entries:
-                if not entry:
-                    continue
-
-                number_type, number, record_id, title = entry
-                key = f"{number_type} {number}"
-                if key not in number_mapping:
-                    number_mapping[key] = set()
-                number_mapping[key].add((record_id, title))
-
-        for key in sorted(number_mapping.keys()):
-            count = len(number_mapping[key])
-            item = QTreeWidgetItem([key, str(count)])
-            item.setData(0, Qt.ItemDataRole.UserRole, key)
-            self.tree_widget.addTopLevelItem(item)
-
-    def on_tree_item_clicked(self, item, column):
-        key = item.data(0, Qt.ItemDataRole.UserRole)
-        method_type = item.data(0, Qt.ItemDataRole.UserRole + 1)
-
-        if key:
-            if method_type == "biblio":
-                self.display_biblio_titles(key)
-            else:
-                self.fetch_additional_titles(key)
-
-    def display_biblio_titles(self, classification_key: str):
-        self.detail_view.clear()
-
-        if not self.biblio_results:
-            self.detail_view.append("No BiblioClient results available")
-            return
-
-        classifications = self.biblio_results.get("classifications", {})
-        class_data = classifications.get(classification_key)
-
-        if not class_data:
-            self.detail_view.append(f"No data for {classification_key}")
-            return
-
-        titles = class_data.get("titles", [])
-
-        html = [f"<h3>Titles for {classification_key}:</h3>"]
-        html.append(f"<p><b>Count:</b> {class_data.get('count', 0)}</p>")
-
-        if titles:
-            html.append("<h4>Title List:</h4><ul>")
-            for title in titles:
-                html.append(f"<li>{title}</li>")
-            html.append("</ul>")
-        else:
-            html.append("<p><i>No titles available</i></p>")
-
-        self.detail_view.setHtml("".join(html))
-
-    def fetch_additional_titles(self, classification):
-        self.detail_view.clear()
-        self.detail_view.append(f"Loading additional titles for {classification}...")
-
-        self.additional_worker = AdditionalTitlesWorker(classification)
-        self.additional_worker.titles_ready.connect(self.display_additional_titles)
-        self.additional_worker.error_occurred.connect(self.handle_error)
-        self.additional_worker.setNumResults(self.num_results.value())
-        self.additional_worker.start()
-
-    def display_additional_titles(self, titles):
-        self.detail_view.clear()
-
-        if not titles:
-            self.detail_view.append("No additional titles found.")
-            return
-
-        html = ["<h3>Found Titles:</h3><ul>"]
-        for title in titles:
-            html.append(
-                f'<li><a href="{title["url"]}">{title["title"]}</a> '
-                f'({title["year"]})</li>'
+    def _on_worker_done(self, result: dict):
+        """Handle completed search result - Claude Generated"""
+        self._current_result = result
+        classifications = result.get("classifications", [])
+        self._populate_tree(classifications)
+        # Clear status messages and show a hint / auto-select first item
+        if classifications:
+            self.detail_view.setHtml(
+                "<p style='color:gray'><i>Klassifikation in der linken Liste anklicken, "
+                "um zugehörige Titel anzuzeigen.</i></p>"
             )
-        html.append("</ul>")
+            # Auto-select and display the top result
+            first = self.tree_widget.topLevelItem(0)
+            if first:
+                self.tree_widget.setCurrentItem(first)
+                self.on_tree_item_clicked(first, 0)
+        else:
+            self.detail_view.setHtml("<p><i>Keine Klassifikationen gefunden.</i></p>")
+        self.result_ready.emit(result)
 
+    def _populate_tree(self, classifications: list):
+        """Fill tree widget from pipeline classifications list - Claude Generated"""
+        self.tree_widget.clear()
+        for cls in classifications:  # already sorted by count desc from pipeline
+            cls_type = cls.get("classification_type", cls.get("type", "DK"))
+            dk_code  = cls.get("dk", "")
+            key      = f"{cls_type} {dk_code}".strip()
+            count    = cls.get("count", 0)
+            item     = QTreeWidgetItem([key, str(count)])
+            item.setData(0, Qt.ItemDataRole.UserRole, cls)
+            self.tree_widget.addTopLevelItem(item)
+
+    def on_tree_item_clicked(self, item, col):
+        """Show titles and matched keywords for the selected classification - Claude Generated"""
+        cls = item.data(0, Qt.ItemDataRole.UserRole)
+        if not cls:
+            return
+        titles   = cls.get("titles", [])
+        keywords = cls.get("matched_keywords", []) or cls.get("keywords", [])
+        count    = cls.get("count", 0)
+        html = [f"<h3>{item.text(0)} &nbsp;({count}×)</h3>"]
+        if keywords:
+            html.append(f"<p><b>Keywords:</b> {', '.join(keywords)}</p>")
+        if titles:
+            html.append(f"<h4>Beispieltitel ({len(titles)}):</h4><ul>")
+            for t in titles[:20]:
+                # Escape HTML special chars to prevent broken markup
+                t_safe = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                html.append(f"<li>{t_safe}</li>")
+            html.append("</ul>")
+            if len(titles) > 20:
+                html.append(f"<p><i>… und {len(titles)-20} weitere</i></p>")
+        else:
+            html.append(
+                "<p><i>Keine Titel im Cache – "
+                "Suche wurde möglicherweise über Web-Fallback ohne Titeldetails durchgeführt.</i></p>"
+            )
         self.detail_view.setHtml("".join(html))
 
-    def append_raw_response(self, response_text):
-        if not self.show_raw_response_checkbox.isChecked():
-            return
+    def _append_status(self, msg: str):
+        """Append progress message to detail view - Claude Generated"""
+        self.detail_view.append(msg.rstrip())
 
-        self.debug_tabs.setVisible(True)
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        self.raw_response_view.append(f"[{timestamp}] {response_text}")
-        self.raw_response_view.verticalScrollBar().setValue(
-            self.raw_response_view.verticalScrollBar().maximum()
-        )
-
-    def handle_error(self, error_message):
-        self.logger.error(f"Error: {error_message}")
-        self.append_raw_response(f"ERROR: {error_message}")
-        QMessageBox.critical(self, "Error", error_message)
+    def _handle_error(self, error_message: str):
+        self.logger.error(f"DK search error: {error_message}")
+        self.detail_view.append(f"<b style='color:red'>Fehler:</b> {error_message}")
+        QMessageBox.critical(self, "Fehler", error_message)
 
     def search_finished(self):
         self.search_button.setEnabled(True)
@@ -769,10 +376,13 @@ class UBCatalogTab(QWidget):
 
     search_completed = pyqtSignal(list)  # Emits results_flattened for DK-Analyse
 
-    def __init__(self, parent=None):
+    def __init__(self, pipeline_manager=None, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
+        self._pipeline_manager = pipeline_manager
         self.setup_ui()
+        if pipeline_manager is not None and hasattr(pipeline_manager, 'pipeline_executor'):
+            self.ub_search_panel.set_executor(pipeline_manager.pipeline_executor)
 
     def setup_ui(self):
         self.setStyleSheet(get_main_stylesheet())
@@ -819,86 +429,18 @@ class UBCatalogTab(QWidget):
         self.ub_search_panel.set_keywords(keywords)
 
     @pyqtSlot(dict)
-    def _on_search_results(self, results: dict):
+    def _on_search_results(self, result: dict):
         """
-        Convert raw search results to DK statistics and emit search_completed.
-        Handles both Web Catalog and BiblioClient result formats.
+        Handle pipeline search result: update stats panel and emit search_completed.
+        The pipeline result dict already has the correct format for both consumers.
         Claude Generated
         """
-        # Normalize both result formats to a unified dk_dict
-        if isinstance(results, dict) and "method" in results:
-            # BiblioClient format: {"method": "...", "classifications": {key: {count, titles}}}
-            classifications = results.get("classifications", {})
-            dk_dict = {
-                key: {
-                    "count": data.get("count", 0),
-                    "titles": data.get("titles", []),
-                    "keywords": [],
-                }
-                for key, data in classifications.items()
-            }
-        else:
-            # Web Catalog format: {keyword: [(type, number, record_id, title), ...]}
-            dk_dict = {}
-            for keyword, entries in results.items():
-                for entry in entries or []:
-                    if len(entry) != 4:
-                        continue
-                    number_type, number, record_id, title = entry
-                    key = f"{number_type} {number}"
-                    if key not in dk_dict:
-                        dk_dict[key] = {"count": 0, "titles": [], "keywords": []}
-                    dk_dict[key]["count"] += 1
-                    if title and title not in dk_dict[key]["titles"]:
-                        dk_dict[key]["titles"].append(title)
-                    if keyword not in dk_dict[key]["keywords"]:
-                        dk_dict[key]["keywords"].append(keyword)
+        statistics      = result.get("statistics", {})
+        classifications = result.get("classifications", [])
 
-        if not dk_dict:
-            return
+        if statistics:
+            self.stats_panel.update_statistics(statistics)
 
-        # Build dk_statistics for the stats panel
-        total_counts = sum(v["count"] for v in dk_dict.values())
-        unique_count = len(dk_dict)
-        rate = max(0.0, (1.0 - unique_count / total_counts) * 100) if total_counts > 0 else 0.0
-
-        dk_statistics = {
-            "total_classifications": unique_count,
-            "deduplication_stats": {
-                "original_count": total_counts,
-                "deduplication_rate": f"{rate:.0f}%",
-            },
-            "most_frequent": [
-                {
-                    "dk": key,
-                    "count": data["count"],
-                    "unique_titles": len(data["titles"]),
-                    "keywords": data["keywords"][:3],
-                }
-                for key, data in sorted(
-                    dk_dict.items(), key=lambda x: x[1]["count"], reverse=True
-                )[:10]
-            ],
-        }
-
-        self.stats_panel.update_statistics(dk_statistics)
-
-        # Build results_flattened in pipeline format for DK-Analyse LLM input
-        # Format matches _flatten_keyword_centric_results() output expected by
-        # PipelineResultFormatter.format_dk_results_for_prompt()
-        results_flattened = []
-        for key, data in sorted(dk_dict.items(), key=lambda x: x[1]["count"], reverse=True):
-            parts = key.split(" ", 1)
-            cls_type = parts[0] if len(parts) == 2 else "DK"
-            cls_code = parts[1] if len(parts) == 2 else key
-            results_flattened.append({
-                "dk": cls_code,
-                "type": cls_type,
-                "classification_type": cls_type,
-                "titles": data["titles"],
-                "count": data["count"],
-                "matched_keywords": data.get("keywords", []),
-                "keyword_counts": {},
-            })
-
-        self.search_completed.emit(results_flattened)
+        if classifications:
+            # classifications list already in pipeline format expected by DK-Analyse
+            self.search_completed.emit(classifications)
