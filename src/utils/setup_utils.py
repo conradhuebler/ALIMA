@@ -372,6 +372,83 @@ class ConfigurationBuilder:
         return config
 
 
+class LiberoTokenFetcher:
+    """Fetches authentication token from Libero SOAP service - Claude Generated"""
+
+    @staticmethod
+    def fetch(soap_url: str, username: str, password: str) -> 'SetupResult':
+        """Authenticate with Libero and retrieve session token.
+
+        soap_url: any Libero SOAP URL (scheme+host extracted automatically)
+        Returns: SetupResult(success=True, data=token) or SetupResult(success=False, message=error)
+        """
+        try:
+            from urllib.parse import quote
+            import xml.etree.ElementTree as ET
+
+            parsed = urlparse(soap_url)
+            if not parsed.scheme or not parsed.netloc:
+                return SetupResult(False, "Ungültige SOAP-URL — zuerst eine Search URL eintragen")
+
+            auth_url = (
+                f"{parsed.scheme}://{parsed.netloc}"
+                f"/libero/LiberoWebServices.Authenticate.cls"
+                f"?soap_method=Login&Username={quote(username, safe='')}"
+                f"&Password={quote(password, safe='')}"
+            )
+            response = requests.get(auth_url, timeout=10)
+            response.raise_for_status()
+
+            root = ET.fromstring(response.text)
+            token_el = root.find('.//{http://libero.com.au}Token')
+            if token_el is None:
+                token_el = root.find('.//Token')
+
+            if token_el is None or not (token_el.text or '').strip():
+                msg_el = (root.find('.//{http://libero.com.au}Message')
+                          or root.find('.//Message'))
+                msg = msg_el.text if msg_el is not None else "Kein Token in der Antwort"
+                return SetupResult(False, msg)
+
+            return SetupResult(True, "Token erfolgreich erstellt", data=token_el.text.strip())
+
+        except requests.RequestException as e:
+            return SetupResult(False, f"Verbindungsfehler: {e}")
+        except ET.ParseError as e:
+            return SetupResult(False, f"Ungültige XML-Antwort: {e}")
+        except Exception as e:
+            return SetupResult(False, f"Fehler: {e}")
+
+    @staticmethod
+    def fetch_from_url(auth_url: str) -> 'SetupResult':
+        """Fetch token using a pre-built auth URL (e.g. manually edited by user) - Claude Generated"""
+        try:
+            import xml.etree.ElementTree as ET
+
+            response = requests.get(auth_url, timeout=10)
+            response.raise_for_status()
+
+            root = ET.fromstring(response.text)
+            token_el = root.find('.//{http://libero.com.au}Token')
+            if token_el is None:
+                token_el = root.find('.//Token')
+
+            if token_el is None or not (token_el.text or '').strip():
+                msg_el = (root.find('.//{http://libero.com.au}Message')
+                          or root.find('.//Message'))
+                msg = msg_el.text if msg_el is not None else "Kein Token in der Antwort"
+                return SetupResult(False, msg)
+
+            return SetupResult(True, "Token erfolgreich erstellt", data=token_el.text.strip())
+
+        except requests.RequestException as e:
+            return SetupResult(False, f"Verbindungsfehler: {e}")
+        except ET.ParseError as e:
+            return SetupResult(False, f"Ungültige XML-Antwort: {e}")
+        except Exception as e:
+            return SetupResult(False, f"Fehler: {e}")
+
+
 class PromptValidator:
     """Validates prompts.json availability - Claude Generated"""
 

@@ -8,7 +8,7 @@ Claude Generated
 from PyQt6.QtWidgets import (
     QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QRadioButton, QButtonGroup, QComboBox, QPushButton, QProgressDialog,
-    QMessageBox, QGroupBox, QSpinBox, QCheckBox, QFileDialog, QTextEdit
+    QMessageBox, QGroupBox, QSpinBox, QCheckBox, QFileDialog, QTextEdit, QDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QFont, QIcon, QPixmap
@@ -21,6 +21,7 @@ from ..utils.setup_utils import (
     OllamaConnectionValidator, APIKeyValidator, GNDDatabaseDownloader,
     ConfigurationBuilder, PromptValidator, SetupResult
 )
+from ..utils.preset_loader import PresetLoader, InstitutionPresets
 
 
 logger = logging.getLogger(__name__)
@@ -36,11 +37,14 @@ class FirstStartWizard(QWizard):
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
 
+        # Load institution presets (empty if no alima_presets.json found) - Claude Generated
+        self._presets = PresetLoader.load()
+
         # Initialize pages
-        self.welcome_page = WelcomePage()
+        self.welcome_page = WelcomePage(presets=self._presets)
         self.addPage(self.welcome_page)
 
-        self.llm_page = LLMSetupPage()
+        self.llm_page = LLMSetupPage(presets=self._presets)
         self.addPage(self.llm_page)
 
         self.model_page = ModelSelectionPage()
@@ -49,7 +53,7 @@ class FirstStartWizard(QWizard):
         self.gnd_page = GNDDatabasePage()
         self.addPage(self.gnd_page)
 
-        self.catalog_page = CatalogSetupPage()
+        self.catalog_page = CatalogSetupPage(presets=self._presets)
         self.addPage(self.catalog_page)
 
         self.summary_page = SummaryPage()
@@ -189,7 +193,7 @@ class FirstStartWizard(QWizard):
 class WelcomePage(QWizardPage):
     """Welcome page introducing ALIMA - Claude Generated"""
 
-    def __init__(self):
+    def __init__(self, presets: 'InstitutionPresets | None' = None):
         super().__init__()
         self.setTitle("Willkommen bei ALIMA")
         self.setSubTitle("Automatische Bibliotheksindexierung und Metadatenanalyse")
@@ -216,6 +220,19 @@ class WelcomePage(QWizardPage):
         description.setWordWrap(True)
         layout.addWidget(description)
 
+        # Institution preset banner - Claude Generated
+        if presets and presets.institution_name:
+            preset_banner = QLabel(
+                f"🏛️ Konfiguriert für: {presets.institution_name}\n"
+                "Vorausgefüllte Einstellungen können überschrieben werden."
+            )
+            preset_banner.setStyleSheet(
+                "background-color: #dbeafe; color: #1e3a5f; "
+                "padding: 8px; border-radius: 5px; border: 1px solid #93c5fd;"
+            )
+            preset_banner.setWordWrap(True)
+            layout.addWidget(preset_banner)
+
         # Info box
         info = QLabel(
             "💡 Tipp: Sie können diese Einstellungen jederzeit im Anwendungsmenü ändern."
@@ -235,7 +252,7 @@ class WelcomePage(QWizardPage):
 class LLMSetupPage(QWizardPage):
     """LLM Provider configuration page - Claude Generated"""
 
-    def __init__(self):
+    def __init__(self, presets: 'InstitutionPresets | None' = None):
         super().__init__()
         self.setTitle("LLM-Anbieter einrichten")
         self.setSubTitle("Wählen Sie aus, wo Ihre KI-Modelle laufen sollen")
@@ -328,8 +345,53 @@ class LLMSetupPage(QWizardPage):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
+        # Preset hint label (hidden until presets applied) - Claude Generated
+        self._preset_hint = QLabel("🏛️ (Institutions-Standard)")
+        self._preset_hint.setStyleSheet("color: gray; font-style: italic; font-size: 11px;")
+        self._preset_hint.setVisible(False)
+        layout.addWidget(self._preset_hint)
+
         layout.addStretch()
         self.setLayout(layout)
+
+        # Apply institution presets after all widgets are created - Claude Generated
+        if presets and presets.has_llm():
+            self._apply_presets(presets)
+
+    def _apply_presets(self, presets: 'InstitutionPresets') -> None:
+        """Pre-fill LLM fields from institution presets - Claude Generated"""
+        provider_map = {
+            'ollama': self.ollama_radio,
+            'openai_compatible': self.openai_radio,
+            'gemini': self.gemini_radio,
+            'anthropic': self.anthropic_radio,
+        }
+        if presets.llm_provider_type in provider_map:
+            provider_map[presets.llm_provider_type].setChecked(True)
+
+        if presets.llm_base_url:
+            provider = presets.llm_provider_type
+            if provider in ('ollama', ''):
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(presets.llm_base_url)
+                    host = parsed.hostname or presets.llm_base_url
+                    port = parsed.port or 11434
+                    self.ollama_host_input.setText(host)
+                    self.ollama_port_input.setValue(port)
+                except Exception:
+                    self.ollama_host_input.setText(presets.llm_base_url)
+            elif provider == 'openai_compatible':
+                self.base_url_input.setText(presets.llm_base_url)
+
+        if presets.llm_api_key:
+            self.api_key_input.setText(presets.llm_api_key)
+
+        if presets.llm_provider_name:
+            self.provider_name = presets.llm_provider_name
+
+        self._preset_hint.setVisible(True)
+        logger.debug(f"LLM preset applied: provider={presets.llm_provider_type}")
 
     def _on_provider_changed(self):
         """Update UI when provider selection changes - Claude Generated (fixed visibility)"""
@@ -820,7 +882,7 @@ class GNDDatabasePage(QWizardPage):
 class CatalogSetupPage(QWizardPage):
     """Optional Libero SOAP catalog configuration page - Claude Generated"""
 
-    def __init__(self):
+    def __init__(self, presets: 'InstitutionPresets | None' = None):
         super().__init__()
         self.setTitle("Katalog-Konfiguration")
         self.setSubTitle("Optional: Verbindung zum Bibliothekskatalog einrichten")
@@ -858,6 +920,14 @@ class CatalogSetupPage(QWizardPage):
         soap_box.setLayout(form)
         layout.addWidget(soap_box)
 
+        # Token login button row - Claude Generated
+        token_btn_layout = QHBoxLayout()
+        self.token_login_btn = QPushButton("🔑 Token erstellen...")
+        self.token_login_btn.clicked.connect(self._fetch_token_dialog)
+        token_btn_layout.addWidget(self.token_login_btn)
+        token_btn_layout.addStretch()
+        layout.addLayout(token_btn_layout)
+
         # Connection test row
         test_layout = QHBoxLayout()
         self.test_button = QPushButton("🧪 Verbindung testen")
@@ -872,6 +942,32 @@ class CatalogSetupPage(QWizardPage):
 
         layout.addStretch()
         self.setLayout(layout)
+
+        # Apply institution presets after all widgets are created - Claude Generated
+        if presets and presets.has_catalog():
+            self._apply_presets(presets)
+
+    def _apply_presets(self, presets: 'InstitutionPresets') -> None:
+        """Pre-fill catalog fields from institution presets - Claude Generated"""
+        if presets.catalog_soap_search_url:
+            self.soap_search_url.setText(presets.catalog_soap_search_url)
+        if presets.catalog_soap_details_url:
+            self.soap_details_url.setText(presets.catalog_soap_details_url)
+        if presets.catalog_token:
+            self.catalog_token.setText(presets.catalog_token)
+        logger.debug("Catalog preset applied")
+
+    def _fetch_token_dialog(self):
+        """Open Libero login dialog and write token into token field - Claude Generated"""
+        url = self.soap_search_url.text().strip()
+        if not url:
+            QMessageBox.warning(self, "URL fehlt",
+                                "Bitte zuerst eine SOAP Search URL eintragen.")
+            return
+        from .libero_login_dialog import LiberoLoginDialog
+        dialog = LiberoLoginDialog(soap_url=url, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.catalog_token.setText(dialog.token)
 
     def _test_connection(self):
         """Non-blocking HTTP reachability check - Claude Generated"""

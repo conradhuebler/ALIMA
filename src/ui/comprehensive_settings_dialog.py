@@ -913,7 +913,11 @@ class ComprehensiveSettingsDialog(QDialog):
         self.catalog_token.setEchoMode(QLineEdit.EchoMode.Password)
         self.catalog_token.setToolTip("API token for Libero SOAP catalog access")
         libero_layout.addRow("Catalog Token:", self.catalog_token)
-        
+
+        self.libero_token_btn = QPushButton("🔑 Token erstellen...")
+        self.libero_token_btn.clicked.connect(self._fetch_libero_token_dialog)
+        libero_layout.addRow("", self.libero_token_btn)
+
         self.catalog_search_url = QLineEdit()
         self.catalog_search_url.setToolTip("Search URL for Libero catalog (e.g., https://katalog.ub.uni-leipzig.de/Search/Results)")
         libero_layout.addRow("Search URL:", self.catalog_search_url)
@@ -991,6 +995,19 @@ class ComprehensiveSettingsDialog(QDialog):
         
         return widget
     
+    def _fetch_libero_token_dialog(self):
+        """Open Libero login dialog and write token into token field - Claude Generated"""
+        from PyQt6.QtWidgets import QMessageBox, QDialog
+        url = self.catalog_search_url.text().strip()
+        if not url:
+            QMessageBox.warning(self, "URL fehlt",
+                                "Bitte zuerst eine Search URL eintragen.")
+            return
+        from .libero_login_dialog import LiberoLoginDialog
+        dialog = LiberoLoginDialog(soap_url=url, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.catalog_token.setText(dialog.token)
+
     def _on_catalog_type_changed(self, catalog_type: str):
         """Handle catalog type selection changes - Claude Generated"""
         is_libero = catalog_type == "libero_soap"
