@@ -1,23 +1,29 @@
-# ALIMA
+# ALIMA — Automated Library Indexing and Metadata Assignment
 
-Ein leistungsstarkes Werkzeug zur automatisierten Schlagwortgenerierung und Klassifikation mit KI-Unterstützung, entwickelt an der Universitätsbibliothek "Georgius Agricola" der TU Bergakademie Freiberg.
+**Intelligente Sacherschließung mit Large Language Models** — Ein leistungsstarkes Werkzeug zur **automatisierten Generierung von GND-konformen Schlagwörtern und DK/RVK-Klassifikationen** basierend auf KI-Analyse von Dokumentinhalten.
+
+Entwickelt an der Universitätsbibliothek "Georgius Agricola" der TU Bergakademie Freiberg.
 
 ## Anmerkung des Autors
 ALIMA sowie die Dokumentation sind größtenteils mit Claude erstellt. LLM sind oft übereuphorisch und sehen Dinge als fertig an, auch wenn sie es noch nicht sind. Gleichzeitig ändern sich dank Agentic Coding Dinge schneller, als sie dokumentiert werden können. ALIMA ist demnach noch in der Entwicklung und noch nicht alle dokumentierten Funktionen sind als fertig anzusehen.
 
 ## Überblick
 
-ALIMA ist eine Python-basierte Desktop-Anwendung, die fortschrittliche KI-Technologien mit bibliothekarischen Informationssystemen verbindet. Die Anwendung unterstützt bei der Generierung von präzisen, GND-konformen Schlagwörtern und der Zuweisung von DK/RVK-Klassifikationen.
+ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Indexing)** mit künstlicher Intelligenz. Sie analysiert Dokumente vollautomatisch und generiert standardisierte, GND-konforme Schlagwörter sowie DK/RVK-Klassifikationen — ohne manuelle Katalogisierung.
+
+**Sacherschließung** (auch "Indexierung" oder "Metadaten-Zuweisung" genannt) ist der bibliothekarische Prozess, ein Dokument durch standardisierte Schlagwörter und Klassifikationssysteme zu beschreiben, damit es optimal auffindbar wird. ALIMA automatisiert diesen Prozess mittels großer Sprachmodelle (LLMs).
 
 ## Hauptfunktionen
 
-*   **Zentraler Pipeline-Workflow:** Eine einheitliche, mehrstufige Pipeline (Input → Initialisierung → GND-Suche → Verifikation → DK-Klassifikation) bildet den Kern der Analyse.
-*   **Flexible Dateneingabe:** Unterstützung für Texteingabe, DOI/URL-Auflösung sowie die automatische Texterkennung (OCR) aus PDF- und Bilddateien.
-*   **Multi-Provider-Unterstützung:** Kompatibel mit verschiedenen LLM-Anbietern (Ollama, Gemini, OpenAI-kompatible APIs).
-*   **Intelligente Provider-Auswahl:** Ein "Smart Mode" wählt automatisch den besten Provider und das beste Modell basierend auf der Aufgabe und benutzerdefinierten Präferenzen.
-*   **Stapelverarbeitung:** Möglichkeit zur automatisierten Analyse einer großen Anzahl von Dokumenten über die Kommandozeile.
-*   **Interaktive GUI:** Eine auf PyQt6 basierende Oberfläche zur Steuerung der Pipeline, Konfiguration und Überprüfung der Ergebnisse.
-*   **WebAPP:** Eine WebAPP, lauffähig auf einem Server als einfach backend. Die Konfiguration für die WebApp ist dieselbe wie für das Qt6-Gui and die Kommandozeile
+*   **🎯 Automatische Sacherschließung:** Vollautomatische Generierung von GND-Schlagwörtern und DK/RVK-Klassifikationen aus Dokumentinhalten — Ersatz für manuelle Katalogisierung
+*   **🔄 Intelligente 5-Schritt Pipeline:** Input → Freie Keywords → GND-Suche → Verifikation → DK-Klassifikation — eine optimierte Abfolge für präzise Metadaten
+*   **📥 Flexible Dateneingabe:** Texte, DOI/URL-Auflösung, PDF-Extraktion, OCR von Bildern und gescannten Dokumenten
+*   **🤖 Multi-Provider LLM-Support:** Funktioniert mit Ollama, Claude, Gemini, OpenAI und kompatiblen APIs
+*   **⚡ Intelligente Provider-Auswahl:** Automatische Wahl des besten Modells basierend auf Aufgabe und Nutzerpräferenzen
+*   **📦 Batch-Verarbeitung:** 100+ Dokumente automatisch analysieren und Ergebnisse exportieren
+*   **🖥️ GUI (PyQt6):** Desktop-Anwendung mit visuellem Pipeline-Workflow und detallierter Ergebnisanalyse
+*   **🌐 WebAPP:** Server-basierte Schnittstelle für webbasierte Nutzung — gleiche Konfiguration wie GUI und CLI
+*   **📤 Katalog-Integration:** K10+/WinIBW-Export für direktes Einfügen in Bibliothekskataloge
 
 ## Installation
 
