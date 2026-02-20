@@ -3236,10 +3236,11 @@ class PipelineResultFormatter:
         return filtered
 
     @staticmethod
-    def format_dk_results_for_prompt(dk_results: List[Dict[str, Any]]) -> str:
-        """Format DK/RVK results for LLM prompt or UI display - Claude Generated"""
+    def format_dk_results_for_prompt(dk_results: List[Dict[str, Any]], max_results: int = 60) -> str:
+        """Format DK/RVK results for LLM prompt or UI display - Claude Generated
+        max_results caps total entries to prevent context-length overflow."""
         catalog_results = []
-        for result in dk_results:
+        for result in dk_results[:max_results]:
             # Handle keyword-centric format (fallback) - Claude Generated
             if "keyword" in result and "classifications" in result:
                 classifications = result.get("classifications", [])
@@ -3271,10 +3272,10 @@ class PipelineResultFormatter:
                 if dk_code:
                     keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
                     entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}"
-                    # Filter placeholder titles and only show if available - Claude Generated
+                    # Filter placeholder titles, cap at 5 to control prompt length - Claude Generated
                     filtered_titles = PipelineResultFormatter._filter_placeholder_titles(titles)
                     if filtered_titles:
-                        title_text = " | ".join(filtered_titles)
+                        title_text = " | ".join(filtered_titles[:5])
                         entry += f"\nBeispieltitel: {title_text}"
                     catalog_results.append(entry)
             elif "source_title" in result and "dk" in result:

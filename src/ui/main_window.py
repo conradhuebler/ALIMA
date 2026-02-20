@@ -56,6 +56,7 @@ from ..utils.pipeline_utils import PipelineResultFormatter
 from .crossref_tab import CrossrefTab
 from .analysis_review_tab import AnalysisReviewTab
 from .dk_analysis_unified_tab import DkAnalysisUnifiedTab
+from .ub_catalog_tab import UBCatalogTab
 from .tablewidget import TableWidget, DatabaseViewerDialog
 from .image_analysis_tab import ImageAnalysisTab
 from .styles import get_main_stylesheet
@@ -498,10 +499,13 @@ class MainWindow(QMainWindow):
             main_window=self,
         )
 
+        # UB Catalog Tab - standalone dk_search step - Claude Generated
+        self.ub_catalog_tab = UBCatalogTab(parent=self)
+
         # Backward compatibility aliases - Claude Generated
         self.dk_analysis_tab = self.dk_analysis_unified_tab
         self.dk_classification_tab = self.dk_analysis_unified_tab
-        self.ub_search_tab = self.dk_analysis_unified_tab
+        self.ub_search_tab = self.ub_catalog_tab
 
         # Pipeline Tab - Claude Generated
         self.pipeline_tab = PipelineTab(
@@ -532,6 +536,12 @@ class MainWindow(QMainWindow):
         # Connect to dedicated DK classification tab
         self.pipeline_tab.pipeline_results_ready.connect(self.dk_classification_tab.update_data)
 
+        # Auto-fill UB-Katalog with GND keywords from pipeline - Claude Generated
+        self.pipeline_tab.pipeline_results_ready.connect(self.ub_catalog_tab.update_from_pipeline)
+
+        # Forward UB catalog search results to DK-Analyse for LLM input - Claude Generated
+        self.ub_catalog_tab.search_completed.connect(self.dk_analysis_unified_tab.receive_catalog_results)
+
         # Connect to SearchTab for GND post-processing transparency - Claude Generated
         self.pipeline_tab.pipeline_results_ready.connect(self.search_tab.update_data)
         self.search_tab.selection_changed.connect(self.on_search_selection_changed)
@@ -548,6 +558,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.abstract_tab, "📝 Abstract")
         self.tabs.addTab(self.search_tab, "🔍 GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "✅ Verifikation")
+        self.tabs.addTab(self.ub_catalog_tab, "📚 UB-Katalog")        # NEW - Claude Generated
         self.tabs.addTab(self.dk_analysis_unified_tab, "📊 DK-Analyse")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
 
@@ -597,10 +608,10 @@ class MainWindow(QMainWindow):
                 self.analyse_keywords.set_models_and_providers(available_models, available_providers)
             if hasattr(self, 'dk_analysis_tab'):
                 self.dk_analysis_tab.set_models_and_providers(available_models, available_providers)
-            if hasattr(self, 'ub_search_tab'):
+            if hasattr(self, 'ub_search_tab') and hasattr(self.ub_search_tab, 'set_models_and_providers'):
                 self.ub_search_tab.set_models_and_providers(available_models, available_providers)
 
-            self.logger.info(f"Updated tabs with {len(available_providers)} providers")
+            self.logger.debug(f"Updated tabs with {len(available_providers)} providers")
 
         except Exception as e:
             self.logger.error(f"Error updating tabs with provider info: {e}")
@@ -612,19 +623,19 @@ class MainWindow(QMainWindow):
             self.alima_manager.provider_status_service.status_updated.connect(
                 self.update_tabs_with_provider_info
             )
-            self.logger.info("Connected to ProviderStatusService signals")
+            self.logger.debug("Connected to ProviderStatusService signals")
         else:
             self.logger.warning("ProviderStatusService not available for signal connections")
 
         # REMOVED: Central Ollama signal management - hardcoded connections caused app hangs - Claude Generated
         # Signal connections removed to prevent deadlock/hang issues
         # Ollama provider changes now handled through unified provider system
-        self.logger.info("Ollama signal connections disabled to prevent app hangs")
+        self.logger.debug("Ollama signal connections disabled to prevent app hangs")
 
     @pyqtSlot(object)
     def on_pipeline_results_ready(self, analysis_state):
         """Central slot for distributing pipeline results to specialized tabs - Claude Generated"""
-        self.logger.info("Distributing pipeline results to specialized tabs")
+        self.logger.debug("Distributing pipeline results to specialized tabs")
 
         # 1. Abstract-Analyse Tab: Set abstract + initial keywords + LLM response
         if analysis_state.original_abstract:
@@ -703,17 +714,8 @@ class MainWindow(QMainWindow):
                     analysis_state.final_llm_analysis.response_full_text
                 )
 
-        # 4. UB Suche Tab: Set final extracted GND keywords
-        if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-            if hasattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords'):
-                final_keywords = analysis_state.final_llm_analysis.extracted_gnd_keywords
-                if final_keywords:
-                    # Format keywords properly for UB search (comma-separated)
-                    if isinstance(final_keywords, list):
-                        keywords_text = ", ".join(final_keywords)
-                    else:
-                        keywords_text = str(final_keywords)
-                    self.ub_search_tab.update_keywords(keywords_text)
+        # 4. UB-Katalog Tab: GND keywords auto-filled via pipeline_results_ready signal
+        # (wired to ub_catalog_tab.update_from_pipeline — Claude Generated)
 
         # 5. 📚 DK-Zuordnung & DK-Statistik Tab - Claude Generated
         if analysis_state.original_abstract:
@@ -886,7 +888,7 @@ class MainWindow(QMainWindow):
                     if term:
                         gnd_terms.append(term)
             self.logger.info(gnd_terms)
-            self.ub_search_tab.update_keywords(keywords)
+            self.ub_catalog_tab.update_keywords(keywords)
             return gnd_terms
 
         except Exception as e:
@@ -993,47 +995,33 @@ class MainWindow(QMainWindow):
     def _refresh_components(self):
         """Refresh all components with new configuration - Claude Generated"""
         try:
-            self.logger.info("Starting component refresh after configuration change...")
-
             # 1. Reload LLM service configuration and reinitialize providers
             if hasattr(self, 'llm_service'):
-                self.logger.info("Reloading LLM service providers...")
                 self.llm_service.reload_providers()
-                self.logger.info("✓ LLM service providers reloaded")
 
             # 2. Refresh provider status to update reachability and available models
             if hasattr(self, 'llm_service'):
-                self.logger.info("Refreshing provider status...")
                 self.llm_service.refresh_all_provider_status()
-                self.logger.info("✓ Provider status refreshed")
 
             # 3. Reload pipeline configuration to use updated provider preferences
             if hasattr(self, 'pipeline_manager'):
-                self.logger.info("Reloading pipeline configuration...")
                 self.pipeline_manager.reload_config()
-                self.logger.info("✓ Pipeline configuration reloaded")
 
             # 4. Update tabs with new provider information
-            self.logger.info("Updating tabs with provider information...")
             self.update_tabs_with_provider_info()
-            self.logger.info("✓ Tabs updated with provider info")
 
             # 5. Update global status bar with new provider and cache info
             if hasattr(self, 'global_status_bar'):
-                self.logger.info("Updating global status bar...")
                 self.global_status_bar.update_provider_info()
                 self.global_status_bar.update_cache_status()
-                self.logger.info("✓ Global status bar updated")
 
             # 6. Notify tabs about configuration changes (custom handlers)
             for i in range(self.tabs.count()):
                 tab = self.tabs.widget(i)
                 if hasattr(tab, 'on_config_changed'):
-                    tab_name = self.tabs.tabText(i)
-                    self.logger.info(f"Notifying tab '{tab_name}' about config change...")
                     tab.on_config_changed()
 
-            self.logger.info("✅ Component refresh completed successfully - configuration is now active")
+            self.logger.info("Configuration refreshed (providers, pipeline, tabs, status bar)")
 
             # Show user feedback
             if hasattr(self, 'global_status_bar'):
@@ -1498,16 +1486,13 @@ class MainWindow(QMainWindow):
                 )
                 self.logger.info("✅ Analysis review tab populated with final results")
 
-            # 6. 🏛️ UB Suche Tab - Keywords for library catalog search
+            # 6. 📚 UB-Katalog Tab - Keywords for library catalog search
             if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
                 # Type-safe join - Claude Generated (Fix for string parsing bug)
                 final_kw = state.final_llm_analysis.extracted_gnd_keywords
                 final_keywords = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
-                if hasattr(self.ub_search_tab, 'update_keywords'):
-                    self.ub_search_tab.update_keywords(final_keywords)
-                if hasattr(self.ub_search_tab, 'set_abstract') and state.original_abstract:
-                    self.ub_search_tab.set_abstract(state.original_abstract)
-                self.logger.info("✅ UB search tab populated with final keywords")
+                self.ub_catalog_tab.update_keywords(final_keywords)
+                self.logger.info("✅ UB-Katalog tab populated with final keywords")
 
             # 7. 🖼️ Bilderkennung Tab - Show OCR details if input was image
             # Note: Currently we don't have image source info in KeywordAnalysisState
@@ -2157,34 +2142,26 @@ class MainWindow(QMainWindow):
 
         # Prüfung 0: config.json existiert im Config-Verzeichnis? - Claude Generated (UnifiedProviderConfig)
         config_file_exists = self.config_manager.config_file.exists()
-        self.logger.info(f"  🔍 First-run check - config.json exists: {config_file_exists} (path={self.config_manager.config_file})")
 
         if not config_file_exists:
-            self.logger.info("  ✗ config.json missing - definite first-run condition")
+            self.logger.debug("config.json missing - first-run condition")
             return True  # Definit First-Run
 
         # Prüfung 1: Keine Provider konfiguriert
         no_providers = len(config.unified_config.providers) == 0
-        self.logger.info(f"  🔍 no_providers: {no_providers} (provider_count={len(config.unified_config.providers)})")
 
         # Prüfung 2: prompts.json existiert nicht
         prompts_missing = not Path(config.system_config.prompts_path).exists()
-        self.logger.info(f"  🔍 prompts_missing: {prompts_missing} (path={config.system_config.prompts_path})")
 
         # Prüfung 3: Datenbank existiert nicht
         # UNIFIED: Use database_config.sqlite_path as single source of truth - Claude Generated
         db_missing = not Path(config.database_config.sqlite_path).exists()
-        self.logger.info(f"  🔍 db_missing: {db_missing} (path={config.database_config.sqlite_path})")
 
         # First-Run wenn mindestens 2 von 3 fehlen
         missing_count = sum([no_providers, prompts_missing, db_missing])
-        self.logger.info(f"  🔍 missing_count: {missing_count}/3")
 
         is_empty = missing_count >= 2
-        if is_empty:
-            self.logger.info("  ✗ Configuration is empty - first-run condition detected")
-        else:
-            self.logger.info("  ✓ Configuration appears valid")
+        self.logger.debug(f"First-run check: providers={not no_providers}, prompts={not prompts_missing}, db={not db_missing} → empty={is_empty}")
 
         return is_empty
 

@@ -161,7 +161,7 @@ class AbstractTab(QWidget):
     def set_task(self, task: str):
         """Set the task type for model recommendations and update UI - Claude Generated"""
         self.task = task
-        self.logger.info(f"Task set to: {self.task}")
+        self.logger.debug(f"Task set to: {self.task}")
 
         # Programmatic change - disable tracking - Claude Generated
         self.user_interaction_mode = False
@@ -201,7 +201,7 @@ class AbstractTab(QWidget):
                 else:
                     # Model not available in new provider - clear explicit selection
                     self.explicit_model_selection = None
-                    self.logger.info(f"⚠️ Model '{current_model}' not available for provider '{provider}'")
+                    self.logger.debug(f"Model '{current_model}' not available for provider '{provider}'")
 
         self.user_interaction_mode = True  # Re-enable tracking
 
@@ -581,18 +581,13 @@ class AbstractTab(QWidget):
                 elif state.initial_llm_call_details:
                     result_text = state.initial_llm_call_details.response_full_text
 
-                # DEBUG: Log what we're restoring - Claude Generated
-                self.logger.info(f"History restore: result_text length = {len(result_text) if result_text else 0}")
-                self.logger.info(f"History restore: has final_llm = {state.final_llm_analysis is not None}")
-                self.logger.info(f"History restore: has initial_llm = {state.initial_llm_call_details is not None}")
+                self.logger.debug(f"History restore: result_text length={len(result_text) if result_text else 0}, final_llm={state.final_llm_analysis is not None}, initial_llm={state.initial_llm_call_details is not None}")
 
                 if result_text:
                     self.results_edit.setPlainText(result_text)
-                    self.logger.info("✅ Results successfully restored")
+                    self.logger.debug("Results successfully restored from history")
                 else:
-                    self.logger.warning("⚠️ No result text to restore - state may be incomplete")
-
-                self.logger.info("Successfully restored analysis state from history")
+                    self.logger.warning("No result text to restore - state may be incomplete")
             else:
                 # Fallback: Old string-based mechanism for backward compatibility - Claude Generated
                 index = self.results_list.row(item)
@@ -788,7 +783,7 @@ class AbstractTab(QWidget):
                 self.user_interaction_mode = True  # Re-enable tracking
             else:
                 # User has explicit selection - PRESERVE it
-                self.logger.info(f"🔒 Preserving user's explicit model selection: {self.explicit_model_selection}")
+                self.logger.debug(f"Preserving user's explicit model selection: {self.explicit_model_selection}")
 
     def set_model(self, model_name: str):
         self.chosen_model = model_name
@@ -797,7 +792,7 @@ class AbstractTab(QWidget):
         """Called when user manually changes provider combo - Claude Generated"""
         if self.user_interaction_mode:
             self.explicit_provider_selection = provider
-            self.logger.info(f"👤 User explicitly selected provider: {provider}")
+            self.logger.debug(f"User explicitly selected provider: {provider}")
             # Update models for new provider
             self.update_models(provider)
 
@@ -805,13 +800,13 @@ class AbstractTab(QWidget):
         """Called when user manually changes model combo - Claude Generated"""
         if self.user_interaction_mode:
             self.explicit_model_selection = model
-            self.logger.info(f"👤 User explicitly selected model: {model}")
+            self.logger.debug(f"User explicitly selected model: {model}")
 
     def reset_explicit_selections(self):
         """Clear explicit selections and revert to task preference defaults - Claude Generated"""
         self.explicit_provider_selection = None
         self.explicit_model_selection = None
-        self.logger.info("🔄 Cleared explicit selections - reverting to task preference defaults")
+        self.logger.debug("Cleared explicit selections - reverting to task preference defaults")
 
         # Apply task preference first, then prompt defaults - Claude Generated
         self._apply_task_preference()
@@ -914,22 +909,9 @@ class AbstractTab(QWidget):
     def on_analysis_completed(self, step: PipelineStep):
         """Handle analysis completion with PipelineStep integration - Claude Generated"""
 
-        # DEBUG: Log step.output_data structure - Claude Generated
-        self.logger.info("=" * 50)
-        self.logger.info("🔍 DEBUG: on_analysis_completed called")
-        self.logger.info(f"step.output_data type: {type(step.output_data)}")
-        self.logger.info(f"step.output_data is None: {step.output_data is None}")
-        if step.output_data:
-            self.logger.info(f"step.output_data attributes: {dir(step.output_data)}")
-            if hasattr(step.output_data, '__dict__'):
-                self.logger.info(f"step.output_data.__dict__: {step.output_data.__dict__}")
-            if isinstance(step.output_data, dict):
-                self.logger.info(f"step.output_data keys: {list(step.output_data.keys())}")
-
         # Get currently displayed text (from streaming) - Claude Generated
         current_results_text = self.results_edit.toPlainText()
-        self.logger.info(f"📝 Current results_edit text length: {len(current_results_text)}")
-        self.logger.info("=" * 50)
+        self.logger.debug(f"on_analysis_completed: output_data type={type(step.output_data).__name__}, results_text length={len(current_results_text)}")
 
         # Reset analysis state
         self.is_analysis_running = False
@@ -981,6 +963,10 @@ class AbstractTab(QWidget):
         # Handle dict-based output_data with llm_analysis (from pipeline keywords step) - Claude Generated
         elif step.output_data and isinstance(step.output_data, dict) and 'llm_analysis' in step.output_data:
             llm_analysis = step.output_data['llm_analysis']
+
+            if llm_analysis is None:
+                # LLM call failed (e.g. prompt too long, API error) - nothing to display
+                return
 
             # Create state object for history - Claude Generated
             keywords_list = llm_analysis.extracted_gnd_keywords if llm_analysis.extracted_gnd_keywords else []
@@ -1179,7 +1165,7 @@ class AbstractTab(QWidget):
                         if model_idx >= 0:
                             self.model_combo.setCurrentIndex(model_idx)
                     self.user_interaction_mode = True
-                    self.logger.info(f"📋 Applied task preference for '{self.task}': {prov}/{model}")
+                    self.logger.debug(f"Applied task preference for '{self.task}': {prov}/{model}")
                     return
 
             self.logger.debug(f"No available provider/model from task preference for '{self.task}'")
