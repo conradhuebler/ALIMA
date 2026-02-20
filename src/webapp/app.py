@@ -45,8 +45,13 @@ from src.utils.pipeline_utils import PipelineJsonManager
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
-# Suppress HTTP polling spam from uvicorn access logs at INFO level
-logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+class _SuppressSessionPolling(logging.Filter):
+    """Filter out high-frequency GET /api/session/{id} polling from access logs."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not ("GET /api/session/" in msg and "200" in msg)
 
 # Get project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -62,6 +67,8 @@ WEBSOCKET_HEARTBEAT_INTERVAL = 5  # Heartbeat interval in seconds (5s)
 @asynccontextmanager
 async def lifespan(app):
     """Startup and shutdown lifecycle - Claude Generated"""
+    # Suppress session-polling spam AFTER uvicorn has configured its loggers
+    logging.getLogger("uvicorn.access").addFilter(_SuppressSessionPolling())
     logger.info("Starting ALIMA Webapp...")
     logger.info(f"Auto-Save: {'Enabled' if AUTOSAVE_ENABLED else 'Disabled'} | Timeout: {WEBSOCKET_TIMEOUT_SECONDS}s | Cleanup: {AUTOSAVE_MAX_AGE_HOURS}h")
     cleanup_old_autosaves()
@@ -176,6 +183,7 @@ class Session:
         self.created_at = datetime.now().isoformat()
         self.status = "idle"  # idle, running, completed, error
         self.current_step = None
+        self.current_step_status = None  # 'running' or 'completed' - Claude Generated
         self.input_data = None
         self.results = {}
         self.error_message = None
@@ -229,6 +237,7 @@ class Session:
         """Complete session reset - clear all data - Claude Generated"""
         self.status = "idle"
         self.current_step = None
+        self.current_step_status = None
         self.input_data = None
         self.results = {}
         self.error_message = None
@@ -798,6 +807,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "type": "status",
                 "status": session.status,
                 "current_step": session.current_step,
+                "current_step_status": session.current_step_status,  # 'running' or 'completed' - Claude Generated
                 "results": make_json_serializable(session.results),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
                 "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
@@ -1054,10 +1064,12 @@ async def run_analysis(
         # Define callbacks for live updates - Claude Generated
         def on_step_started(step):
             session.current_step = step.step_id
+            session.current_step_status = 'running'  # Claude Generated
             logger.info(f"Step started: {step.step_id}")
 
         def on_step_completed(step):
             session.current_step = step.step_id
+            session.current_step_status = 'completed'  # Claude Generated
             logger.info(f"Step completed: {step.step_id}")
 
             # Sync analysis state reference so autosave has access - Claude Generated

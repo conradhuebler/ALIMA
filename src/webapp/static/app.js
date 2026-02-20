@@ -764,12 +764,14 @@ class AlimaWebapp {
             };
 
             const displayStep = stepMap[msg.current_step] || msg.current_step;
-            this.updateStepStatus(displayStep, 'running');
+            const stepStatus = msg.current_step_status || 'running';  // Claude Generated
+            this.updateStepStatus(displayStep, stepStatus);
 
             // Mark previous steps as completed
             const stepIndex = this.steps.findIndex(s => s.id === displayStep);
+            const upTo = stepStatus === 'completed' ? stepIndex : stepIndex - 1;
 
-            for (let i = 0; i < stepIndex; i++) {
+            for (let i = 0; i <= upTo; i++) {
                 this.updateStepStatus(this.steps[i].id, 'completed');
             }
 
