@@ -3117,6 +3117,9 @@ class PipelineJsonManager:
                 if "final_keywords" in data:
                     data.pop("final_keywords")  # Redundant - extracted from final_llm_analysis
                     removed_fields.append("final_keywords")
+                if "verification" in data:
+                    data.pop("verification")  # Already nested inside final_llm_analysis
+                    removed_fields.append("verification")
 
                 if removed_fields:
                     logger.info(f"Removed webapp-specific fields: {', '.join(removed_fields)}")
