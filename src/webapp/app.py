@@ -659,6 +659,10 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
         # DK Classification Results
         "dk_classifications": ensure_json_serializable(dk_classifications),
         "dk_search_results": ensure_json_serializable(dk_search_results),
+        "dk_search_results_flattened": ensure_json_serializable(
+            getattr(analysis_state, 'dk_search_results_flattened', [])),
+        "dk_statistics": ensure_json_serializable(
+            getattr(analysis_state, 'dk_statistics', None)),
 
         # LLM Analysis Details
         "initial_llm_call_details": ensure_json_serializable(initial_llm_details),

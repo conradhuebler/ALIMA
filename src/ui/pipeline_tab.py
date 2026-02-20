@@ -303,7 +303,7 @@ class PipelineTab(QWidget):
                         self.iterative_search_checkbox.blockSignals(True)
                         self.iterative_search_checkbox.setChecked(enabled)
                         self.iterative_search_checkbox.blockSignals(False)
-                        self.logger.info(f"🔄 Synced iterative search checkbox: {enabled}")
+                        self.logger.debug(f"Synced iterative search checkbox: {enabled}")
 
                     # Sync max iterations spinbox
                     if hasattr(self, 'max_iterations_spin'):
@@ -311,7 +311,7 @@ class PipelineTab(QWidget):
                         self.max_iterations_spin.blockSignals(True)
                         self.max_iterations_spin.setValue(max_iter)
                         self.max_iterations_spin.blockSignals(False)
-                        self.logger.info(f"🔄 Synced max iterations: {max_iter}")
+                        self.logger.debug(f"Synced max iterations: {max_iter}")
         except Exception as e:
             self.logger.error(f"Error syncing iterative search controls: {e}")
 
@@ -337,7 +337,7 @@ class PipelineTab(QWidget):
                     data = f"{provider_name}|{model}"
                     self.global_override_combo.addItem(display, data)
 
-            self.logger.info(f"🔬 Override combo populated: {self.global_override_combo.count() - 1} models")
+            self.logger.debug(f"Override combo populated: {self.global_override_combo.count() - 1} models")
         except Exception as e:
             self.logger.error(f"Error populating override combo: {e}")
 
@@ -485,6 +485,7 @@ class PipelineTab(QWidget):
 
         # Connect streaming widget signals
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)
+        self.stream_widget.abort_generation_requested.connect(self.on_abort_current_step_requested)  # Claude Generated
 
         self.main_splitter.addWidget(self.stream_widget)
 
@@ -518,7 +519,7 @@ class PipelineTab(QWidget):
                         else:
                             provider = getattr(first_pref, 'provider_name', 'openai_compatible')
                             model = getattr(first_pref, 'model_name', 'gpt-4')
-                        self.logger.info(f"Loaded task preference for {task_name}: {provider}/{model}")
+                        self.logger.debug(f"Loaded task preference for {task_name}: {provider}/{model}")
                         return provider, model
         except Exception as e:
             self.logger.warning(f"Could not load task preference for {task_name}: {e}")
@@ -1718,13 +1719,13 @@ class PipelineTab(QWidget):
 
     def on_config_changed(self):
         """Handle configuration changes - Claude Generated (Webcam Feature)"""
-        self.logger.info("Pipeline tab: Handling config change")
+        self.logger.debug("Pipeline tab: Handling config change")
 
     def on_iterative_search_toggled(self, state):
         """Handle iterative search checkbox toggle - Claude Generated"""
         enabled = state == Qt.CheckState.Checked.value
 
-        self.logger.info(f"🔄 Iterative search toggled: {enabled}")
+        self.logger.debug(f"Iterative search toggled: {enabled}")
 
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:
@@ -1750,7 +1751,7 @@ class PipelineTab(QWidget):
 
     def on_max_iterations_changed(self, value):
         """Handle max iterations spinbox change - Claude Generated"""
-        self.logger.info(f"🔄 Max iterations changed: {value}")
+        self.logger.debug(f"Max iterations changed: {value}")
 
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:
@@ -1768,7 +1769,7 @@ class PipelineTab(QWidget):
         # Update webcam frame visibility in unified input widget
         if hasattr(self, 'unified_input') and self.unified_input:
             self.unified_input._update_webcam_frame_visibility()
-            self.logger.info("Webcam frame visibility updated")
+            self.logger.debug("Webcam frame visibility updated")
 
     @pyqtSlot(object)
     def on_step_started(self, step: PipelineStep):
@@ -2114,6 +2115,12 @@ class PipelineTab(QWidget):
             "Die komplette Analyse-Pipeline wurde erfolgreich abgeschlossen!",
         )
 
+    def on_abort_current_step_requested(self):
+        """Abort only the current LLM generation; pipeline continues - Claude Generated"""
+        if self.pipeline_worker and self.pipeline_worker.isRunning():
+            self.logger.info("User requested step-only abort (pipeline continues)")
+            self.pipeline_worker.abort_current_step()
+
     def on_stop_pipeline_requested(self):
         """Handle stop button click - Claude Generated"""
         if self.pipeline_worker and self.pipeline_worker.isRunning():
@@ -2224,7 +2231,7 @@ class PipelineTab(QWidget):
             catalog_details_url = catalog_config.catalog_details_url
 
             if catalog_token:
-                self.logger.info(f"Loaded catalog token from config (length: {len(catalog_token)})")
+                self.logger.debug(f"Loaded catalog token from config (length: {len(catalog_token)})")
             else:
                 self.logger.warning("No catalog token found in config")
 
@@ -2256,7 +2263,7 @@ class PipelineTab(QWidget):
                 "catalog_details_url": self.catalog_details_url,
             })
         
-        self.logger.info(f"Updated pipeline config with catalog settings (token present: {bool(self.catalog_token)})")
+        self.logger.debug(f"Updated pipeline config with catalog settings (token present: {bool(self.catalog_token)})")
 
     def _emit_step_results_to_tabs(self, step: PipelineStep) -> None:
         """
@@ -2272,7 +2279,7 @@ class PipelineTab(QWidget):
             # Emit search results to SearchTab
             if step.step_id == "search" and "search_results" in step.output_data:
                 search_results = step.output_data["search_results"]
-                self.logger.info(f"Emitting search results to SearchTab: {len(search_results)} terms")
+                self.logger.debug(f"Emitting search results to SearchTab: {len(search_results)} terms")
                 self.search_results_ready.emit(search_results)
             
             # Emit DOI resolution results to CrossrefTab
@@ -2280,18 +2287,18 @@ class PipelineTab(QWidget):
                 # If input was from DOI resolution, emit metadata if available
                 if "metadata" in step.output_data:
                     metadata = step.output_data["metadata"]
-                    self.logger.info("Emitting DOI metadata to CrossrefTab")
+                    self.logger.debug("Emitting DOI metadata to CrossrefTab")
                     self.metadata_ready.emit(metadata)
             
             # Emit keyword analysis results to AbstractTab (and DkAnalysisTab)
             elif step.step_id in ["initialisation", "keywords", "dk_classification"]:
                 if "analysis_result" in step.output_data:
                     analysis_result = step.output_data["analysis_result"]
-                    self.logger.info(f"Emitting {step.step_id} analysis results to AbstractTab")
+                    self.logger.debug(f"Emitting {step.step_id} analysis results to AbstractTab")
                     self.analysis_results_ready.emit(analysis_result)
                 elif "llm_analysis" in step.output_data:
                     llm_analysis = step.output_data["llm_analysis"]
-                    self.logger.info(f"Emitting {step.step_id} LLM analysis results to Tabs")
+                    self.logger.debug(f"Emitting {step.step_id} LLM analysis results to Tabs")
                     # We reuse the same signal, as AbstractTab can handle LlmKeywordAnalysis too
                     # (Need to ensure AbstractTab's slot can handle both or we wrap it)
                     self.analysis_results_ready.emit(llm_analysis)
@@ -2338,8 +2345,14 @@ class PipelineTab(QWidget):
                 if state.search_results and hasattr(self, 'search_result'):
                     search_count = len(state.search_results)
                     total_results = sum(len(sr.results) for sr in state.search_results)
+                    # Also list the GND terms found (same as gnd_treffer during live runs)
+                    gnd_terms = []
+                    for sr in state.search_results:
+                        gnd_terms.extend(sr.results.keys())
+                    gnd_terms_text = "\n".join(sorted(set(gnd_terms)))
                     self.search_result.setPlainText(
-                        f"📁 Geladene Suchergebnisse:\n{search_count} Suchvorgänge mit {total_results} Ergebnissen"
+                        f"📁 Geladene Suchergebnisse:\n{search_count} Suchvorgänge mit {total_results} Ergebnissen\n\n"
+                        f"{gnd_terms_text}"
                     )
 
                 if state.final_llm_analysis and hasattr(self, 'keywords_result'):
@@ -2354,7 +2367,7 @@ class PipelineTab(QWidget):
                 if state.dk_classifications and hasattr(self, 'dk_classification_results'):
                     html_display = self._format_dk_classifications_with_titles(
                         state.dk_classifications,
-                        state.dk_search_results
+                        state.dk_search_results_flattened  # flattened format has {dk, titles} at top level
                     )
                     self.dk_classification_results.setHtml(
                         f"<div style='background: #E8F5E8; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>"
