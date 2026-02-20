@@ -201,6 +201,7 @@ class Session:
         self.current_analysis_state = None  # Reference to PipelineManager state
         self.working_title = None  # Working title from initialisation step - Claude Generated
         self.dk_search_progress = None  # DK search progress info (current/total/percent) - Claude Generated
+        self.pipeline_manager_ref = None  # Reference for step-abort - Claude Generated
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -372,6 +373,22 @@ async def cancel_session(session_id: str) -> dict:
             "status": session.status,
             "message": "Session is not running"
         }
+
+
+@app.post("/api/session/{session_id}/abort_step")
+async def abort_current_step_endpoint(session_id: str) -> dict:
+    """Abort only the current LLM generation; pipeline continues - Claude Generated"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session = sessions[session_id]
+    pm = session.pipeline_manager_ref  # Local ref to avoid race condition
+    if session.status == "running" and pm is not None:
+        pm.abort_current_step()
+        logger.info(f"Step-abort requested for session {session_id}")
+        return {"session_id": session_id, "status": "step_abort_requested",
+                "message": "Current LLM step will be aborted; pipeline continues"}
+    return {"session_id": session_id, "status": session.status,
+            "message": "No active LLM step to abort"}
 
 
 @app.get("/api/models")
@@ -1193,6 +1210,15 @@ async def run_analysis(
                     stream_callback=on_stream_token,
                 )
 
+                # Store reference and wire interrupt callback for step-abort - Claude Generated
+                session.pipeline_manager_ref = pipeline_manager
+                if hasattr(pipeline_manager, 'set_interrupt_flag'):
+                    import threading
+                    pipeline_manager.set_interrupt_flag(
+                        threading.Lock(),
+                        lambda: session.abort_requested
+                    )
+
                 # Start pipeline with correct input_type - Claude Generated (FIX: Use actual input_type, not always "text")
                 # This ensures PDFs use LLM-OCR and images use vision models
                 logger.info(f"Starting pipeline execution with input_type={input_type}")
@@ -1210,6 +1236,8 @@ async def run_analysis(
                 logger.error(f"Pipeline execution error: {str(e)}", exc_info=True)
                 session.status = "error"
                 session.error_message = str(e)
+            finally:
+                session.pipeline_manager_ref = None  # Clear reference after pipeline ends - Claude Generated
 
         # Run in executor to avoid blocking
         await asyncio.to_thread(execute_pipeline)

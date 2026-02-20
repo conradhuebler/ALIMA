@@ -249,6 +249,11 @@ class AlimaWebapp {
             this.cancelAnalysis();
         });
 
+        // Abort-step button (stop LLM call, pipeline continues) - Claude Generated
+        document.getElementById('abort-step-btn').addEventListener('click', () => {
+            this.abortCurrentStep();
+        });
+
         // Clear logs button
         document.getElementById('clear-logs-btn').addEventListener('click', () => {
             document.getElementById('stream-text').textContent = '';
@@ -1260,6 +1265,9 @@ class AlimaWebapp {
 
         // Show/hide cancel button - Claude Generated
         document.getElementById('cancel-btn').style.display = this.isAnalyzing ? 'block' : 'none';
+
+        // Show/hide abort-step button - Claude Generated
+        document.getElementById('abort-step-btn').style.display = this.isAnalyzing ? 'block' : 'none';
     }
 
     // Clear session (rename of clearResults) - Claude Generated
@@ -1295,6 +1303,22 @@ class AlimaWebapp {
         } catch (error) {
             console.error('Error cancelling analysis:', error);
             alert('Fehler beim Abbrechen: ' + error.message);
+        }
+    }
+
+    // Abort only the current LLM step; pipeline continues - Claude Generated
+    async abortCurrentStep() {
+        if (!this.isAnalyzing || !this.sessionId) return;
+        try {
+            const response = await fetch(`/api/session/${this.sessionId}/abort_step`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            console.log('Step-abort response:', data);
+            this.appendStreamText('\n🛑 Schritt abgebrochen – Pipeline läuft weiter\n');
+        } catch (error) {
+            console.error('Error aborting step:', error);
+            // Silent failure OK - step may have already finished
         }
     }
 
