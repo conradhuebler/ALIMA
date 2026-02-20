@@ -294,13 +294,22 @@ class CLISetupWizard:
         """Interactive GND database setup - Claude Generated"""
         print("\n\n📌 Schritt 3: GND-Normdatenbank (Optional)\n")
         print("Die GND (Gemeinsame Normdatei) Datenbank enthält deutsche Schlagwörter.")
-        print("Der Download verbessert Schlagwort-Vorschläge und Suchgenauigkeit.")
-        print("Dies ist optional - Sie können stattdessen die Lobid-API verwenden.\n")
+        print("Der Download verbessert Schlagwort-Vorschläge und Suchgenauigkeit.\n")
+        print("Optionen:")
+        print("  1) Von DNB herunterladen (~300 MB, ~5-10 Min. Import)")
+        print("  2) Datenbankdatei importieren (schnell, wenn .db-Datei vorhanden)")
+        print("  3) Überspringen (Lobid-API verwenden)\n")
 
-        choice = input("GND-Datenbank herunterladen? (j/n): ").lower().strip()
+        while True:
+            choice = input("Option auswählen (1-3): ").strip()
+            if choice in ['1', '2', '3']:
+                break
+            print("❌ Ungültige Auswahl. Bitte wählen Sie 1-3.")
 
-        if choice == 'j':
+        if choice == '1':
             self._download_gnd_database()
+        elif choice == '2':
+            self._import_gnd_database_file()
         else:
             print("⏭️  GND-Datenbank übersprungen (verwende Lobid-API)")
 
@@ -326,6 +335,57 @@ class CLISetupWizard:
             retry = input("Download erneut versuchen? (j/n): ").lower()
             if retry == 'j':
                 self._download_gnd_database()
+
+    def _import_gnd_database_file(self):
+        """Import an existing SQLite database file by copying it - Claude Generated"""
+        import shutil
+        import sqlite3
+        from pathlib import Path
+
+        print("\n🗄️  Datenbankdatei importieren\n")
+
+        while True:
+            source_path = input("Pfad zur .db-Datei eingeben: ").strip()
+            if not source_path:
+                print("❌ Kein Pfad angegeben.")
+                retry = input("Erneut versuchen? (j/n): ").lower()
+                if retry != 'j':
+                    return
+                continue
+
+            source = Path(source_path)
+            if not source.exists():
+                print(f"❌ Datei nicht gefunden: {source_path}")
+                retry = input("Anderen Pfad versuchen? (j/n): ").lower()
+                if retry != 'j':
+                    return
+                continue
+
+            # Basic SQLite validity check
+            try:
+                conn = sqlite3.connect(str(source))
+                conn.execute("SELECT 1")
+                conn.close()
+            except sqlite3.DatabaseError:
+                print(f"❌ Keine gültige SQLite-Datenbank: {source_path}")
+                retry = input("Anderen Pfad versuchen? (j/n): ").lower()
+                if retry != 'j':
+                    return
+                continue
+
+            break
+
+        config = self.config_manager.load_config()
+        target = Path(config.database_config.sqlite_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            shutil.copy2(str(source), str(target))
+            print(f"\n✅ Datenbank erfolgreich importiert")
+            print(f"   Quelle: {source_path}")
+            print(f"   Ziel:   {target}\n")
+        except Exception as e:
+            print(f"\n❌ Import fehlgeschlagen: {e}\n")
 
     def _print_summary(self):
         """Print configuration summary - Claude Generated"""

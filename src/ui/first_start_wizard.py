@@ -122,12 +122,57 @@ class FirstStartWizard(QWizard):
                     "verwendet, bis der Import fertig ist."
                 )
 
+            # Handle direct DB file import - Claude Generated
+            elif (hasattr(self.gnd_page, 'import_db_radio') and
+                  self.gnd_page.import_db_radio.isChecked() and
+                  self.gnd_page.db_file_input.text()):
+                self._import_database_file(self.gnd_page.db_file_input.text(), self.config)
+
             logger.info(f"First-start wizard completed: provider={provider_type}, models={len(models)}")
             super().accept()
 
         except Exception as e:
             logger.error(f"Error completing wizard: {str(e)}", exc_info=True)
             QMessageBox.critical(self, "Setup Error", f"Error saving configuration:\n{str(e)}")
+
+    def _import_database_file(self, source_path: str, config) -> None:
+        """Copy an existing SQLite database file to the ALIMA database location - Claude Generated"""
+        import shutil
+        try:
+            source = Path(source_path)
+            target = Path(config.database_config.sqlite_path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            # Basic SQLite validity check
+            import sqlite3
+            try:
+                conn = sqlite3.connect(str(source))
+                conn.execute("SELECT 1")
+                conn.close()
+            except sqlite3.DatabaseError:
+                QMessageBox.warning(
+                    self,
+                    "Ungültige Datenbankdatei",
+                    f"Die Datei ist keine gültige SQLite-Datenbank:\n{source_path}"
+                )
+                return
+
+            shutil.copy2(str(source), str(target))
+            logger.info(f"Database imported: {source} -> {target}")
+            QMessageBox.information(
+                self,
+                "Datenbank importiert",
+                f"✅ Datenbank erfolgreich importiert!\n\n"
+                f"Quelle: {source_path}\n"
+                f"Ziel: {target}"
+            )
+        except Exception as e:
+            logger.error(f"Database import failed: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Import fehlgeschlagen",
+                f"Die Datenbankdatei konnte nicht importiert werden:\n{str(e)}"
+            )
 
 
 class WelcomePage(QWizardPage):
@@ -532,7 +577,8 @@ class GNDDatabasePage(QWizardPage):
             "Die Datenbank wird sowohl bei GND-Download als auch bei Lobid-API für interne\n"
             "Verifikation und Abgleich verwendet.\n\n"
             "Optionen:\n"
-            "• Download: Vollständige lokale Datenbank (~300 MB, schneller)\n"
+            "• Download: Vollständige lokale Datenbank (~300 MB, ~5-10 Min. Import)\n"
+            "• Datenbankdatei importieren: Bestehende .db-Datei kopieren (schnellste Option)\n"
             "• Überspringen: Lobid-API lädt Daten bei Bedarf nach (langsamer beim Start)\n\n"
             "Der Import läuft nach Setup im Hintergrund, Sie können ALIMA sofort nutzen."
         )
@@ -547,8 +593,11 @@ class GNDDatabasePage(QWizardPage):
         self.download_radio.setChecked(True)
         options_layout.addWidget(self.download_radio)
 
-        self.local_radio = QRadioButton("📂 Aus lokaler Datei laden")
+        self.local_radio = QRadioButton("📂 Aus lokaler XML/GZ-Datei laden")
         options_layout.addWidget(self.local_radio)
+
+        self.import_db_radio = QRadioButton("🗄️  Bestehende Datenbankdatei importieren (schnellste Option)")
+        options_layout.addWidget(self.import_db_radio)
 
         self.skip_radio = QRadioButton("⏭️  Überspringen (Lobid-API verwenden)")
         options_layout.addWidget(self.skip_radio)
@@ -556,7 +605,7 @@ class GNDDatabasePage(QWizardPage):
         options_box.setLayout(options_layout)
         layout.addWidget(options_box)
 
-        # File selector (visible only for local file option)
+        # File selector (visible only for local XML/GZ file option)
         self.file_layout = QHBoxLayout()
         file_label = QLabel("GND-Datei:")
         self.file_input = QLineEdit()
@@ -567,10 +616,25 @@ class GNDDatabasePage(QWizardPage):
         self.file_layout.addWidget(file_button)
 
         layout.addLayout(self.file_layout)
+
+        # DB file selector (visible only for import_db_radio option) - Claude Generated
+        self.db_file_layout = QHBoxLayout()
+        db_file_label = QLabel("Datenbankdatei:")
+        self.db_file_input = QLineEdit()
+        self.db_file_input.setPlaceholderText("Pfad zur alima_knowledge.db ...")
+        db_file_button = QPushButton("Durchsuchen...")
+        db_file_button.clicked.connect(self._select_db_file)
+        self.db_file_layout.addWidget(db_file_label)
+        self.db_file_layout.addWidget(self.db_file_input)
+        self.db_file_layout.addWidget(db_file_button)
+
+        layout.addLayout(self.db_file_layout)
+
         self._update_file_visibility()
 
         self.download_radio.toggled.connect(self._update_file_visibility)
         self.local_radio.toggled.connect(self._update_file_visibility)
+        self.import_db_radio.toggled.connect(self._update_file_visibility)
 
         # Download status
         self.status_label = QLabel("")
@@ -586,15 +650,20 @@ class GNDDatabasePage(QWizardPage):
         self.setLayout(layout)
 
     def _update_file_visibility(self):
-        """Show/hide file selector based on selection - Claude Generated"""
-        show_file = self.local_radio.isChecked()
+        """Show/hide file selectors based on selection - Claude Generated"""
+        show_xml = self.local_radio.isChecked()
+        show_db = self.import_db_radio.isChecked()
         for i in range(self.file_layout.count()):
             widget = self.file_layout.itemAt(i).widget()
             if widget:
-                widget.setVisible(show_file)
+                widget.setVisible(show_xml)
+        for i in range(self.db_file_layout.count()):
+            widget = self.db_file_layout.itemAt(i).widget()
+            if widget:
+                widget.setVisible(show_db)
 
     def _select_file(self):
-        """Select GND file - Claude Generated"""
+        """Select GND XML/GZ file - Claude Generated"""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "GND-Datenbankdatei auswählen",
@@ -603,6 +672,17 @@ class GNDDatabasePage(QWizardPage):
         )
         if file_path:
             self.file_input.setText(file_path)
+
+    def _select_db_file(self):
+        """Select existing SQLite database file - Claude Generated"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "ALIMA-Datenbankdatei auswählen",
+            "",
+            "SQLite-Datenbank (*.db);;Alle Dateien (*)"
+        )
+        if file_path:
+            self.db_file_input.setText(file_path)
 
     def _download_gnd(self):
         """Download GND database - Claude Generated"""
@@ -688,6 +768,15 @@ class GNDDatabasePage(QWizardPage):
             if not self.file_input.text():
                 QMessageBox.warning(self, "Datei erforderlich", "Bitte wählen Sie eine GND-Datei aus.")
                 return False
+        elif self.import_db_radio.isChecked():
+            if not self.db_file_input.text():
+                QMessageBox.warning(self, "Datei erforderlich",
+                                    "Bitte wählen Sie eine Datenbankdatei (.db) aus.")
+                return False
+            if not Path(self.db_file_input.text()).exists():
+                QMessageBox.warning(self, "Datei nicht gefunden",
+                                    "Die ausgewählte Datenbankdatei wurde nicht gefunden.")
+                return False
         elif self.skip_radio.isChecked():
             # Confirm skip action with option to go back - Claude Generated (improved UX, updated text)
             msgBox = QMessageBox(self)
@@ -754,6 +843,8 @@ class SummaryPage(QWizardPage):
             gnd_option = "Überspringen (Lobid-API verwenden)"
         elif wizard.gnd_page.local_radio.isChecked():
             gnd_option = f"Aus Datei laden: {wizard.gnd_page.file_input.text()}"
+        elif wizard.gnd_page.import_db_radio.isChecked():
+            gnd_option = f"Datenbankdatei importieren: {wizard.gnd_page.db_file_input.text()}"
 
         # Build model selections summary - Claude Generated
         model_summary = ""
