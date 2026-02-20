@@ -521,6 +521,9 @@ class AlimaWebapp {
             return;
         }
 
+        // Request notification permission on first run (user gesture required) - Claude Generated
+        await this.requestNotificationPermission();
+
         // Always use text input type for analysis - Claude Generated
         // The text field is the primary source for analysis
         // Input methods (DOI, File, Webcam) just populate this field
@@ -758,9 +761,10 @@ class AlimaWebapp {
             const stepMap = {
                 'initialisation': 'initialisation',
                 'search': 'search',
-                'dk_search': 'search',  // dk_search maps to search visually
+                'dk_search': 'search',          // dk_search maps to search visually
                 'keywords': 'keywords',
-                'classification': 'classification'
+                'classification': 'classification',
+                'dk_classification': 'classification',  // Claude Generated
             };
 
             const displayStep = stepMap[msg.current_step] || msg.current_step;
@@ -886,6 +890,35 @@ class AlimaWebapp {
 
         if (this.ws) {
             this.ws.close();
+        }
+
+        // Browser notification on completion - Claude Generated
+        const title = msg.results?.working_title || null;
+        this.showPipelineNotification(msg.status, title, msg.error);
+    }
+
+    // Request browser notification permission once, on first pipeline start - Claude Generated
+    async requestNotificationPermission() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'default') {
+            await Notification.requestPermission();
+        }
+    }
+
+    // Show browser notification for pipeline end - Claude Generated
+    showPipelineNotification(status, workingTitle, errorMsg) {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+        if (status === 'completed') {
+            const body = workingTitle
+                ? `„${workingTitle}" — Schlagwörter & Klassifikation fertig`
+                : 'Sacherschließung abgeschlossen';
+            new Notification('ALIMA ✅', { body });
+        } else if (status === 'error') {
+            const body = errorMsg
+                ? `Fehler: ${errorMsg}`
+                : 'Pipeline-Fehler aufgetreten';
+            new Notification('ALIMA ❌', { body });
         }
     }
 
