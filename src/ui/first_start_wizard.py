@@ -49,6 +49,9 @@ class FirstStartWizard(QWizard):
         self.gnd_page = GNDDatabasePage()
         self.addPage(self.gnd_page)
 
+        self.catalog_page = CatalogSetupPage()
+        self.addPage(self.catalog_page)
+
         self.summary_page = SummaryPage()
         self.addPage(self.summary_page)
 
@@ -94,6 +97,14 @@ class FirstStartWizard(QWizard):
 
             # Mark first run as completed
             self.config.system_config.first_run_completed = True
+
+            # Save catalog SOAP configuration - Claude Generated
+            from ..utils.config_models import CatalogConfig
+            self.config.catalog_config = CatalogConfig(
+                catalog_search_url=self.catalog_page.soap_search_url.text().strip(),
+                catalog_details_url=self.catalog_page.soap_details_url.text().strip(),
+                catalog_token=self.catalog_page.catalog_token.text().strip(),
+            )
 
             # Save configuration
             config_manager = ConfigManager()
@@ -806,6 +817,102 @@ class GNDDatabasePage(QWizardPage):
         return True
 
 
+class CatalogSetupPage(QWizardPage):
+    """Optional Libero SOAP catalog configuration page - Claude Generated"""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Katalog-Konfiguration")
+        self.setSubTitle("Optional: Verbindung zum Bibliothekskatalog einrichten")
+
+        layout = QVBoxLayout()
+
+        explanation = QLabel(
+            "Für die DK-Analyse und UB-Suche kann ein lokaler Bibliothekskatalog "
+            "(Libero SOAP) eingebunden werden. Dieser Schritt ist optional — "
+            "lassen Sie die Felder leer, um ihn zu überspringen."
+        )
+        explanation.setWordWrap(True)
+        layout.addWidget(explanation)
+
+        soap_box = QGroupBox("Libero SOAP-Zugang")
+        form = QFormLayout()
+
+        self.soap_search_url = QLineEdit()
+        self.soap_search_url.setPlaceholderText(
+            "https://katalog.ub.example.de/libero/LiberoWebServices.CatalogueSearcher.cls"
+        )
+        form.addRow("SOAP Search URL:", self.soap_search_url)
+
+        self.soap_details_url = QLineEdit()
+        self.soap_details_url.setPlaceholderText(
+            "https://katalog.ub.example.de/libero/LiberoWebServices.LibraryAPI.cls"
+        )
+        form.addRow("SOAP Details URL:", self.soap_details_url)
+
+        self.catalog_token = QLineEdit()
+        self.catalog_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.catalog_token.setPlaceholderText("Auth-Token (falls erforderlich)")
+        form.addRow("Token:", self.catalog_token)
+
+        soap_box.setLayout(form)
+        layout.addWidget(soap_box)
+
+        # Connection test row
+        test_layout = QHBoxLayout()
+        self.test_button = QPushButton("🧪 Verbindung testen")
+        self.test_button.clicked.connect(self._test_connection)
+        test_layout.addWidget(self.test_button)
+        test_layout.addStretch()
+        layout.addLayout(test_layout)
+
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+    def _test_connection(self):
+        """Non-blocking HTTP reachability check - Claude Generated"""
+        url = self.soap_search_url.text().strip()
+        if not url:
+            self.status_label.setText("⚠️  Bitte erst eine SOAP Search URL eingeben.")
+            self.status_label.setStyleSheet("color: orange;")
+            return
+
+        self.test_button.setEnabled(False)
+        self.status_label.setText("🔄 Teste Verbindung...")
+        self.status_label.setStyleSheet("color: gray;")
+
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        try:
+            import requests
+            r = requests.head(url, timeout=5)
+            # SOAP server returns 400/405/500 for HEAD (expects POST) — still reachable
+            if r.status_code in [200, 400, 405, 500]:
+                self.status_label.setText(
+                    f"✅ Server antwortet (HTTP {r.status_code}) — SOAP-Endpunkt erreichbar."
+                )
+                self.status_label.setStyleSheet("color: green;")
+            else:
+                self.status_label.setText(
+                    f"⚠️  Server antwortete mit HTTP {r.status_code}. URL prüfen."
+                )
+                self.status_label.setStyleSheet("color: orange;")
+        except Exception as exc:
+            self.status_label.setText(f"❌ Verbindung fehlgeschlagen: {exc}")
+            self.status_label.setStyleSheet("color: red;")
+        finally:
+            self.test_button.setEnabled(True)
+
+    def validatePage(self) -> bool:
+        """All fields optional — always valid - Claude Generated"""
+        return True
+
+
 class SummaryPage(QWizardPage):
     """Configuration summary page - Claude Generated"""
 
@@ -856,6 +963,16 @@ class SummaryPage(QWizardPage):
         else:
             model_summary = "\n🎯 Modell-Zuordnungen: Standard"
 
+        # Build catalog summary - Claude Generated
+        catalog_token = wizard.catalog_page.catalog_token.text().strip()
+        catalog_url = wizard.catalog_page.soap_search_url.text().strip()
+        if catalog_url:
+            catalog_summary = f"Konfiguriert ✅ ({catalog_url[:50]}{'…' if len(catalog_url) > 50 else ''})"
+        elif catalog_token:
+            catalog_summary = "Konfiguriert ✅ (nur Token, URLs leer)"
+        else:
+            catalog_summary = "Übersprungen (kein SOAP konfiguriert)"
+
         summary = f"""
 ALIMA Konfiguration - Zusammenfassung
 ══════════════════════════════════════
@@ -869,6 +986,9 @@ ALIMA Konfiguration - Zusammenfassung
 
 📚 GND-Datenbank:
    Option: {gnd_option}
+
+🏛️ Katalog-SOAP:
+   {catalog_summary}
 
 ✅ Setup abgeschlossen!
    Klicken Sie auf "Fertig stellen" um ALIMA zu starten.

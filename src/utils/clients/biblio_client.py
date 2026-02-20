@@ -48,6 +48,7 @@ logger.setLevel(logging.DEBUG)  # Logger captures all levels
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 logger.addHandler(error_handler)
+logger.propagate = False  # Prevent duplicate output via root logger
 
 
 class BiblioClient:
@@ -67,7 +68,10 @@ class BiblioClient:
     # MAB-Tags für Schlagwörter
     MAB_SUBJECT_TAGS = ["0902", "0907", "0912", "0917", "0922", "0927"]
 
-    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "", enable_web_fallback: bool = True, timeout: int = 10, rate_limit_delay_ms: int = 1000, use_json_cache: bool = True):
+    def __init__(self, token: str = "", debug: bool = False, save_xml_path: str = "",
+                 enable_web_fallback: bool = True, timeout: int = 10,
+                 rate_limit_delay_ms: int = 1000, use_json_cache: bool = True,
+                 soap_search_url: str = "", soap_details_url: str = ""):
         """
         Initialize the extractor with the given token.
 
@@ -79,12 +83,17 @@ class BiblioClient:
             timeout: Request timeout in seconds (default: 10, reduced from 30 for fast failover when server down) - Claude Generated (2026-01-13)
             rate_limit_delay_ms: Milliseconds to wait between searches (default: 1000ms) - Claude Generated
             use_json_cache: Use JSON file cache for RSN→details lookups (True=fast via JSON, False=SOAP only) - Claude Generated
+            soap_search_url: SOAP search endpoint URL; falls back to class default if empty - Claude Generated
+            soap_details_url: SOAP details endpoint URL; falls back to class default if empty - Claude Generated
 
         Note:
             - use_json_cache: Controls RSN detail lookups (step 2 of DK search)
             - disable_sql_cache: Can be set via set_disable_sql_cache() to disable keyword→RSN DB caching (step 1)
         """
         self.token = token if token else ""  # Use provided token from config
+        # Instance-level URL overrides (fall back to class-level defaults) - Claude Generated
+        self.SEARCH_URL = soap_search_url or BiblioClient.SEARCH_URL
+        self.DETAILS_URL = soap_details_url or BiblioClient.DETAILS_URL
         self.debug = debug
         self.save_xml_path = save_xml_path
         self.enable_web_fallback = enable_web_fallback  # Claude Generated - Web fallback toggle
@@ -134,21 +143,8 @@ class BiblioClient:
     def log_performance_stats(self):
         """Log performance statistics - Claude Generated"""
         stats = self.get_performance_stats()
-        logger.info("=" * 60)
-        logger.info("📊 PERFORMANCE STATISTICS")
-        logger.info("=" * 60)
-        logger.info(f"  JSON Cache: {'ENABLED' if stats['cache_enabled'] else 'DISABLED'}")
-        logger.info(f"  JSON Cache Hits: {stats['json_cache_hits']}")
-        logger.info(f"  SOAP Calls: {stats['soap_calls']}")
-        logger.info(f"  Total Lookups: {stats['total_lookups']}")
-        logger.info(f"  JSON Hit Rate: {stats['json_hit_rate']:.1f}%")
-        if stats['json_hit_rate'] > 80:
-            logger.info(f"  ✅ Excellent cache performance!")
-        elif stats['json_hit_rate'] > 50:
-            logger.info(f"  ⚠️  Moderate cache performance")
-        elif stats['total_lookups'] > 0:
-            logger.info(f"  ❌ Poor cache performance")
-        logger.info("=" * 60)
+        logger.debug(f"Performance: {stats['json_cache_hits']} cache hits, {stats['soap_calls']} SOAP calls, "
+                     f"{stats['total_lookups']} total, {stats['json_hit_rate']:.1f}% hit rate")
 
     def _apply_rate_limit(self):
         """Apply rate limiting delay between searches - Claude Generated"""
@@ -230,7 +226,7 @@ class BiblioClient:
         self.session_request_count += 1
 
         if self.session_request_count >= self.session_max_requests:
-            logger.info(f"🔄 Resetting session after {self.session_request_count} requests to prevent staleness")
+            logger.debug(f"Resetting session after {self.session_request_count} requests")
             self.session.close()
             self.session = requests.Session()
             self.session_request_count = 0
@@ -386,7 +382,7 @@ class BiblioClient:
                 items = root.findall(path)
                 if items:
                     items_found = True
-                    logger.info(f"Found {len(items)} items with path {path}")
+                    logger.debug(f"Found {len(items)} items with path {path}")
                     break
 
             if not items_found:
@@ -409,7 +405,7 @@ class BiblioClient:
                     result_item[tag] = text
                 result_items.append(result_item)
 
-            logger.info(f"Parsed {len(result_items)} result items")
+            logger.debug(f"Parsed {len(result_items)} result items")
             if self.debug and result_items:
                 logger.debug(f"First result item: {result_items[0]}")
 
@@ -500,7 +496,7 @@ class BiblioClient:
                     cached_details = json_lookup.get_title_details_from_rsn(rsn_int)
                     if cached_details:
                         self._json_cache_hits += 1  # Track for statistics
-                        logger.info(f"✅ JSON CACHE HIT for RSN {rsn} (skipped SOAP)")
+                        logger.debug(f"JSON CACHE HIT for RSN {rsn}")
                         # Track that we used JSON optimization for delay calculation
                         if not hasattr(self, '_json_lookups_used'):
                             self._json_lookups_used = 0
@@ -550,7 +546,7 @@ class BiblioClient:
         try:
             # Track SOAP call for statistics - Claude Generated
             self._soap_calls += 1
-            logger.info(f"🌐 SOAP REQUEST for RSN {rsn} (call #{self._soap_calls})")
+            logger.debug(f"SOAP REQUEST for RSN {rsn} (call #{self._soap_calls})")
 
             response = self.session.post(
                 self.DETAILS_URL,
@@ -678,8 +674,8 @@ class BiblioClient:
                     break
 
             # Log if no classifications found to help debugging
-            if not classifications and self.debug:
-                logger.warning(f"❌ No classifications found for RSN {rsn} using any of {len(classification_paths)} paths")
+            if not classifications:
+                logger.debug(f"No classifications found for RSN {rsn}")
 
             details["classifications"] = classifications
 
@@ -708,7 +704,7 @@ class BiblioClient:
             title_paths = [".//Title", ".//{http://libero.com.au}Title"]
             details["title"] = self._extract_text_multiple_paths(root, title_paths)
             if not details["title"]:
-                logger.warning(f"⚠️ No title found for RSN {rsn} - checked paths: {title_paths}")
+                logger.debug(f"No title found for RSN {rsn}")
 
             details["author"] = self._extract_authors(root)
             if not details["author"]:
@@ -736,7 +732,7 @@ class BiblioClient:
                 title_text = details.get("title", "")
                 dk_from_title = self._extract_dk_from_text(title_text)
                 if dk_from_title:
-                    logger.info(f"Extracted DK numbers from title text for RSN {rsn}: {dk_from_title}")
+                    logger.debug(f"Extracted DK numbers from title text for RSN {rsn}: {dk_from_title}")
                     details["classifications"] = dk_from_title
                     details["_source"] = "extracted_from_title"  # Mark as fallback source
 
@@ -760,7 +756,7 @@ class BiblioClient:
                          f"Classifications: {cls_count} | Subjects: {subj_count} | MAB: {mab_count}")
 
             if extracted_fields == 0:
-                logger.warning(f"⚠️ No data extracted for RSN {rsn} - SOAP response empty or malformed")
+                logger.debug(f"No data extracted for RSN {rsn} - SOAP response empty or malformed")
             elif cls_count == 0:
                 logger.debug(f"⚠️ RSN {rsn}: No classifications found (DK/RVK missing)")
 
@@ -1272,7 +1268,7 @@ class BiblioClient:
         # Use dynamic delay based on JSON vs SOAP lookup ratio - Claude Generated
         effective_delay = self._get_appropriate_delay(delay)
 
-        logger.info(f"Processing {stats['attempted']} items with {effective_delay:.2f}s delay...")
+        logger.debug(f"Processing {stats['attempted']} items with {effective_delay:.2f}s delay...")
 
         for i, item in enumerate(results[:max_items]):
             if i > 0:
@@ -1358,24 +1354,13 @@ class BiblioClient:
 
             processed_items.append(merged_details)
 
-        # DIAGNOSTIC: Comprehensive statistics summary - Claude Generated
-        logger.info(f"📊 Details call statistics for this search:")
-        logger.info(f"   🎯 Attempted: {stats['attempted']} items")
-        logger.info(f"   ✅ Succeeded: {stats['succeeded']} ({stats['succeeded']*100//stats['attempted'] if stats['attempted'] else 0}%)")
-        logger.info(f"   ❌ Failed: {stats['attempted'] - stats['succeeded']} total")
-
-        if stats['attempted'] - stats['succeeded'] > 0:
-            logger.info(f"      └─ No RSN: {stats['no_rsn']}")
-            logger.info(f"      └─ Empty response: {stats['empty_response']}")
-            logger.info(f"      └─ Timeout: {stats['exception_timeout']}")
-            logger.info(f"      └─ Connection error: {stats['exception_connection']}")
-            logger.info(f"      └─ Other exceptions: {stats['exception_other']}")
-
-        logger.info(f"   📚 With classifications: {stats['with_classifications']}/{stats['succeeded']}")
-        logger.info(f"   📭 Without classifications: {stats['without_classifications']}/{stats['succeeded']}")
-
-        if stats['without_classifications'] > 0:
-            logger.warning(f"⚠️ {stats['without_classifications']} items had no DK/RVK classifications despite successful Details call")
+        # DIAGNOSTIC: Statistics summary - Claude Generated
+        failed = stats['attempted'] - stats['succeeded']
+        logger.debug(f"Details stats: {stats['succeeded']}/{stats['attempted']} succeeded, "
+                     f"{stats['with_classifications']} with classifications, {stats['without_classifications']} without")
+        if failed > 0:
+            logger.warning(f"{failed} Details calls failed (timeout={stats['exception_timeout']}, "
+                          f"connection={stats['exception_connection']}, other={stats['exception_other']})")
 
         return processed_items
 
@@ -1403,14 +1388,14 @@ class BiblioClient:
         results = {}
         
         for search_term in search_terms:
-            logger.info(f"Searching catalog subjects for: {search_term}")
+            logger.debug(f"Searching catalog subjects for: {search_term}")
 
             # Search catalog for this term
             search_results = self.search(search_term)
 
             # Web fallback for search_subjects if SOAP fails - Claude Generated
             if not search_results and self.enable_web_fallback:
-                logger.info(f"SOAP search failed for subjects '{search_term}', trying web fallback")
+                logger.debug(f"SOAP search failed for subjects '{search_term}', trying web fallback")
                 search_results = self._search_web(search_term)
 
             #logger.info(f"Found {(search_results)} results for '{search_term}'")
@@ -1420,7 +1405,7 @@ class BiblioClient:
                 
             # Limit search results to prevent excessive processing - Claude Generated
             if len(search_results) > max_results * 2:
-                logger.info(f"Limiting search results for '{search_term}': {len(search_results)} -> {max_results * 2}")
+                logger.debug(f"Limiting search results for '{search_term}': {len(search_results)} -> {max_results * 2}")
                 search_results = search_results[:max_results * 2]
                 
             # Process results to extract subjects
@@ -1430,7 +1415,7 @@ class BiblioClient:
             # Convert to suggester format
             term_subjects = {}
             
-            logger.info(f"Processing {len(processed_items)} processed items for '{search_term}'")
+            logger.debug(f"Processing {len(processed_items)} processed items for '{search_term}'")
             
             for i, item in enumerate(processed_items):
                 # Debug: Show what's in each item
@@ -1472,14 +1457,13 @@ class BiblioClient:
             
             # Limit subjects per term to prevent excessive results - Claude Generated
             if len(term_subjects) > 50:
-                logger.info(f"Limiting subjects for '{search_term}': {len(term_subjects)} -> 50 (top by count)")
+                logger.debug(f"Limiting subjects for '{search_term}': {len(term_subjects)} -> 50 (top by count)")
                 # Sort by count and take top 50
                 sorted_subjects = sorted(term_subjects.items(), key=lambda x: x[1]["count"], reverse=True)
                 term_subjects = dict(sorted_subjects[:50])
             
             results[search_term] = term_subjects
-            logger.info(f"Found {len(term_subjects)} subjects for '{search_term}'")
-        logger.info(f"Results keys: {results.keys()}")
+            logger.debug(f"Found {len(term_subjects)} subjects for '{search_term}'")
 
         return results
 
@@ -1524,13 +1508,13 @@ class BiblioClient:
                 all_titles.extend(file_titles)
                 file_cached_keywords.add(clean_kw)
                 file_cached_count += 1
-                logger.info(f"📁 FILE CACHE HIT for '{clean_kw}': {len(file_titles)} titles from JSON files")
+                logger.debug(f"FILE CACHE HIT for '{clean_kw}': {len(file_titles)} titles from JSON files")
                 # Mark as cached to avoid live search
                 cached_keywords.add(clean_kw)
 
         # Log file-based cache statistics
         if file_cached_count > 0:
-            logger.info(f"📊 File-based cache hit: {file_cached_count}/{len(normalized_keywords)} keywords")
+            logger.debug(f"File-based cache hit: {file_cached_count}/{len(normalized_keywords)} keywords")
 
         # Try cache for each keyword with Rate Limiting & Circuit Breaker - Claude Generated FIX
         cached_count = file_cached_count  # Start with file-based hits
@@ -1562,7 +1546,7 @@ class BiblioClient:
                     continue
                 elif status != 'success':
                     # Cached failure - respect TTL
-                    logger.info(f"💾 Cached failure for '{clean_kw}': {status} - {error_msg}")
+                    logger.debug(f"Cached failure for '{clean_kw}': {status} - {error_msg}")
                     failed_keywords.append((clean_kw, status, error_msg))
                     self._record_search_success()  # Don't count as new failure
                     continue
@@ -1577,7 +1561,7 @@ class BiblioClient:
                 search_results = self.search(clean_kw, search_type="ku")
 
                 # DIAGNOSTIC: Log SOAP search result count - Claude Generated
-                logger.info(f"🔍 SOAP search for '{clean_kw}': found {len(search_results)} catalog entries")
+                logger.debug(f"SOAP search for '{clean_kw}': found {len(search_results)} catalog entries")
                 if search_results and len(search_results) > 0:
                     # Sample first 3 RSNs for verification
                     sample_rsns = [r.get('rsn', 'N/A') for r in search_results[:3]]
@@ -1607,15 +1591,12 @@ class BiblioClient:
                 processed = self.process_search_results(search_results, max_items=max_results, delay=adaptive_delay)
 
                 # DIAGNOSTIC: Log processed results summary - Claude Generated
-                logger.info(f"📋 Processed results for '{clean_kw}':")
-                logger.info(f"   - Total items processed: {len(processed)}")
                 if processed:
                     items_with_dk = sum(1 for item in processed if item.get('decimal_classifications'))
                     items_with_rvk = sum(1 for item in processed if item.get('rvk_classifications'))
-                    logger.info(f"   - Items with DK: {items_with_dk}")
-                    logger.info(f"   - Items with RVK: {items_with_rvk}")
+                    logger.debug(f"Processed '{clean_kw}': {len(processed)} items, DK={items_with_dk}, RVK={items_with_rvk}")
                 else:
-                    logger.warning(f"   ⚠️ NO items successfully processed (all Details calls failed)")
+                    logger.warning(f"No items successfully processed for '{clean_kw}' (all Details calls failed)")
 
                 for item in processed:
                     rsn = item.get("rsn")
@@ -1647,7 +1628,7 @@ class BiblioClient:
                     else:
                         logger.debug(f"🚫 SQL cache DISABLED: Not caching {len(title_list)} titles for '{clean_kw}'")
                     all_titles.extend(title_list)
-                    logger.info(f"💾 {'Cached' if not self.disable_sql_cache else 'Would cache'} {len(title_list)} titles for '{clean_kw}'")
+                    logger.debug(f"Cached {len(title_list)} titles for '{clean_kw}'")
                     self._record_search_success()
                 else:
                     # No classifications found in results

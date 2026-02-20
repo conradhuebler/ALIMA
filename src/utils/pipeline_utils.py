@@ -2246,14 +2246,10 @@ class PipelineStepExecutor:
                 extractor = BiblioClient(
                     token=catalog_token or "",  # Ensure string, not None
                     debug=self.logger.level <= 10 if self.logger else False,
-                    enable_web_fallback=True  # Claude Generated - Explicitly enable web fallback
+                    enable_web_fallback=True,  # Claude Generated - Explicitly enable web fallback
+                    soap_search_url=catalog_search_url or "",  # Claude Generated - from CatalogConfig
+                    soap_details_url=catalog_details_url or "",  # Claude Generated - from CatalogConfig
                 )
-                
-                # Set URLs if available
-                if catalog_search_url:
-                    extractor.SEARCH_URL = catalog_search_url
-                if catalog_details_url:
-                    extractor.DETAILS_URL = catalog_details_url
                 
         except Exception as e:
             error_msg = f"Catalog client initialization failed: {e}"

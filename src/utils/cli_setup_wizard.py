@@ -31,6 +31,10 @@ class CLISetupWizard:
         self.api_key = None
         self.available_models = []
         self.task_model_selections = {}  # {task_type.value: model_name}
+        # Catalog SOAP settings (optional) - Claude Generated
+        self.catalog_search_url = ""
+        self.catalog_details_url = ""
+        self.catalog_token = ""
 
     def run(self) -> bool:
         """Run the setup wizard - Claude Generated
@@ -43,6 +47,7 @@ class CLISetupWizard:
             self._setup_llm_provider()
             self._collect_task_model_selections()  # Collect task-specific model preferences
             self._setup_gnd_database()
+            self._setup_catalog()  # Optional SOAP catalog step - Claude Generated
             self._print_summary()
 
             # Create and save configuration
@@ -55,6 +60,15 @@ class CLISetupWizard:
                 task_model_selections=self.task_model_selections  # Pass task selections
             )
             config.system_config.first_run_completed = True
+
+            # Apply catalog SOAP settings if configured - Claude Generated
+            if self.catalog_search_url or self.catalog_details_url or self.catalog_token:
+                from .config_models import CatalogConfig
+                config.catalog_config = CatalogConfig(
+                    catalog_search_url=self.catalog_search_url,
+                    catalog_details_url=self.catalog_details_url,
+                    catalog_token=self.catalog_token,
+                )
 
             self.config_manager.save_config(config)
             logger.info("CLI setup wizard completed successfully")
@@ -387,6 +401,37 @@ class CLISetupWizard:
         except Exception as e:
             print(f"\n❌ Import fehlgeschlagen: {e}\n")
 
+    def _setup_catalog(self):
+        """Optional Libero SOAP catalog configuration step - Claude Generated"""
+        print("\n\n📌 Schritt 4: Katalog-Konfiguration (Optional)\n")
+        print("Für die DK-Analyse und UB-Suche kann ein Libero-SOAP-Katalog eingebunden werden.")
+        print("Dieser Schritt ist optional.\n")
+
+        choice = input("Katalog konfigurieren? (j/n, Standard: n): ").lower().strip()
+        if choice != 'j':
+            print("⏭️  Katalog übersprungen")
+            return
+
+        self.catalog_search_url = input(
+            "SOAP Search URL\n"
+            "  (z.B. https://katalog.ub.example.de/libero/LiberoWebServices.CatalogueSearcher.cls): "
+        ).strip()
+
+        self.catalog_details_url = input(
+            "SOAP Details URL\n"
+            "  (z.B. https://katalog.ub.example.de/libero/LiberoWebServices.LibraryAPI.cls): "
+        ).strip()
+
+        self.catalog_token = input("Auth-Token (leer lassen falls nicht erforderlich): ").strip()
+
+        if self.catalog_search_url or self.catalog_token:
+            print("✅ Katalog-Konfiguration gespeichert")
+        else:
+            print("⚠️  Keine Daten eingegeben, Katalog-Konfiguration übersprungen")
+            self.catalog_search_url = ""
+            self.catalog_details_url = ""
+            self.catalog_token = ""
+
     def _print_summary(self):
         """Print configuration summary - Claude Generated"""
         print("\n" + "=" * 60)
@@ -405,6 +450,15 @@ class CLISetupWizard:
         print(f"  Typ: SQLite")
         config = self.config_manager.load_config()
         print(f"  Pfad: {config.database_config.sqlite_path}")
+
+        # Catalog summary - Claude Generated
+        print(f"\nKatalog-SOAP:")
+        if self.catalog_search_url:
+            print(f"  Search URL: {self.catalog_search_url}")
+            print(f"  Details URL: {self.catalog_details_url or '(nicht gesetzt)'}")
+            print(f"  Token: {'(gesetzt)' if self.catalog_token else '(nicht gesetzt)'}")
+        else:
+            print(f"  Nicht konfiguriert (übersprungen)")
 
         print("\n" + "=" * 60)
         print("✅ ALIMA ist bereit zur Verwendung!")
