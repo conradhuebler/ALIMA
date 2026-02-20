@@ -128,6 +128,10 @@ class PipelineWorker(StoppableWorker):
         self.force_update = force_update  # Claude Generated
         self.logger = logging.getLogger(__name__)
 
+    def abort_current_step(self) -> None:
+        """Abort only the current LLM generation; pipeline continues - Claude Generated"""
+        self.pipeline_manager.abort_current_step()
+
     def run(self):
         """Execute pipeline in background thread - Claude Generated"""
         try:

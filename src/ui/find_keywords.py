@@ -147,7 +147,7 @@ class SearchTab(QWidget):
         )
         transparency_layout.addWidget(self.transparency_text)
 
-        layout.addWidget(self.transparency_group)
+        #layout.addWidget(self.transparency_group) # TODO -> bevor restoring, make it functional
 
         # Splitter between search input and results
         main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -209,7 +209,7 @@ class SearchTab(QWidget):
         # Ergebnisanzahl-Steuerung
         results_label = QLabel("Max. Ergebnisse:")
         results_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        options_layout.addWidget(results_label)
+        #options_layout.addWidget(results_label)
 
         self.num_results = QSpinBox()
         self.num_results.setRange(1, 50)
@@ -217,7 +217,7 @@ class SearchTab(QWidget):
         self.num_results.setToolTip(
             "Maximale Anzahl zu verarbeitender Ergebnisse pro Quelle"
         )
-        options_layout.addWidget(self.num_results)
+        #options_layout.addWidget(self.num_results)
 
         search_layout.addWidget(options_frame)
 
@@ -238,7 +238,7 @@ class SearchTab(QWidget):
         results_container_layout.setSpacing(LAYOUT["spacing"])
 
         # Obere Sektion: Ergebnistabelle und Details
-        results_group = QGroupBox("Suchergebnisse")
+        results_group = QGroupBox("Suchergebnisse") # TODO -> Table doesn't show the correct field (Begriff -> N/A, GND-ID -> name of keyword ) examine why bevor solving
         results_box_layout = QVBoxLayout(results_group)
         results_box_layout.setSpacing(LAYOUT["inner_spacing"])
         results_box_layout.setContentsMargins(10, 20, 10, 10)
@@ -369,7 +369,7 @@ class SearchTab(QWidget):
 
         try:
             if not self.config_file.exists():
-                self.logger.warning(
+                self.logger.debug(
                     f"Konfigurationsdatei nicht gefunden: {self.config_file}"
                 )
                 return default_token

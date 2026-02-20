@@ -988,8 +988,8 @@ class UnifiedKnowledgeManager:
                     total_dk += sum(1 for c in classifications if str(c).startswith('DK ') or str(c).replace('.', '', 1).isdigit())
                     total_rvk += sum(1 for c in classifications if str(c).startswith('RVK '))
 
-                self.logger.info(f"✅ Storing catalog cache for '{search_term}': {result_count} titles | "
-                                f"DK: {total_dk} | RVK: {total_rvk}")
+                self.logger.debug(f"Storing catalog cache for '{search_term}': {result_count} titles | "
+                                 f"DK: {total_dk} | RVK: {total_rvk}")
 
                 for title in titles[:3]:  # Log first 3 titles for success
                     classifications_count = len(title.get('classifications', []))
@@ -1119,7 +1119,7 @@ class UnifiedKnowledgeManager:
                 cls_data["avg_confidence"] = avg_confidence
                 result.append(cls_data)
 
-            self.logger.info(f"✅ Extracted {len(result)} unique classifications from {len(titles)} titles")
+            self.logger.debug(f"Extracted {len(result)} unique classifications from {len(titles)} titles")
             return result
 
         except Exception as e:

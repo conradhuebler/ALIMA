@@ -172,7 +172,7 @@ class ImageAnalysisTab(QWidget):
         self.progress_bar.setFormat("Analysiere... %p%")
         control_bar.addWidget(self.progress_bar)
 
-        main_layout.addLayout(control_bar)
+        #main_layout.addLayout(control_bar)
 
         # Create splitter for main layout
         main_splitter = QSplitter(Qt.Orientation.Horizontal)

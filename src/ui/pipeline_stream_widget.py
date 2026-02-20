@@ -35,6 +35,7 @@ class PipelineStreamWidget(QWidget):
     cancel_pipeline = pyqtSignal()
     pause_pipeline = pyqtSignal()
     retry_with_variations = pyqtSignal(dict)  # Retry with parameter variations - Claude Generated
+    abort_generation_requested = pyqtSignal()  # Immediate abort of running generation - Claude Generated
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -136,92 +137,81 @@ class PipelineStreamWidget(QWidget):
         stream_layout.addLayout(controls_layout)
         layout.addWidget(stream_group)
 
+    # Orange warning stylesheet (reused in show/hide) - Claude Generated
+    _STYLE_WARNING_ORANGE = """
+        QFrame {
+            background-color: #3d2a00;
+            border: 1px solid #ff9800;
+            border-radius: 3px;
+            padding: 1px;
+        }
+        QLabel { color: #ffcc80; }
+        QPushButton {
+            background-color: #ff9800;
+            color: #1e1e1e;
+            border: none;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-weight: bold;
+        }
+        QPushButton:hover { background-color: #ffb74d; }
+    """
+
     def create_repetition_warning_panel(self, layout):
-        """Create collapsible repetition warning panel - Claude Generated"""
+        """Create compact single-line repetition warning bar - Claude Generated"""
         self.repetition_warning_frame = QFrame()
-        self.repetition_warning_frame.setStyleSheet("""
-            QFrame {
-                background-color: #3d2a00;
-                border: 2px solid #ff9800;
-                border-radius: 6px;
-                padding: 8px;
-            }
-            QLabel {
-                color: #ffcc80;
-            }
-            QPushButton {
-                background-color: #ff9800;
-                color: #1e1e1e;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #ffb74d;
-            }
-        """)
+        self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
         self.repetition_warning_frame.setVisible(False)
+        self.repetition_warning_frame.setMaximumHeight(28)
 
-        warning_layout = QVBoxLayout(self.repetition_warning_frame)
-        warning_layout.setSpacing(8)
-
-        # Header with icon and message
-        header_layout = QHBoxLayout()
+        bar_layout = QHBoxLayout(self.repetition_warning_frame)
+        bar_layout.setContentsMargins(6, 1, 4, 1)
+        bar_layout.setSpacing(6)
 
         self.warning_icon_label = QLabel("⚠️")
-        self.warning_icon_label.setStyleSheet("font-size: 24px;")
-        header_layout.addWidget(self.warning_icon_label)
+        self.warning_icon_label.setStyleSheet("font-size: 11px;")
+        bar_layout.addWidget(self.warning_icon_label)
 
         self.warning_title_label = QLabel("Wiederholung erkannt")
-        self.warning_title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #ff9800;")
-        header_layout.addWidget(self.warning_title_label)
+        self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
+        bar_layout.addWidget(self.warning_title_label)
 
-        header_layout.addStretch()
+        self.warning_details_label = QLabel("")
+        self.warning_details_label.setWordWrap(False)
+        self.warning_details_label.setStyleSheet("color: #ffe0b2; font-size: 10px;")
+        bar_layout.addWidget(self.warning_details_label, 1)  # stretch fills remaining space
+
+        self.countdown_label = QLabel("")
+        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold; font-size: 10px;")
+        self.countdown_label.setVisible(False)
+        bar_layout.addWidget(self.countdown_label)
+
+        self.suggestions_button_layout = QHBoxLayout()
+        self.suggestions_button_layout.setSpacing(3)
+        bar_layout.addLayout(self.suggestions_button_layout)
+
+        self.abort_now_button = QPushButton("🛑 Abbrechen")
+        self.abort_now_button.setStyleSheet(
+            "background-color: #d32f2f; color: white; font-size: 10px; font-weight: bold;"
+            " border-radius: 3px; padding: 1px 5px;"
+        )
+        self.abort_now_button.clicked.connect(self._on_abort_requested)
+        bar_layout.addWidget(self.abort_now_button)
+
+        self.continue_button = QPushButton("Fortfahren")
+        self.continue_button.setStyleSheet(
+            "background-color: #555; color: #ccc; font-size: 10px; padding: 1px 5px;"
+        )
+        self.continue_button.clicked.connect(self.hide_repetition_warning)
+        bar_layout.addWidget(self.continue_button)
 
         self.dismiss_warning_button = QPushButton("✕")
-        self.dismiss_warning_button.setFixedSize(24, 24)
-        self.dismiss_warning_button.setStyleSheet("background-color: transparent; color: #ff9800;")
+        self.dismiss_warning_button.setFixedSize(18, 18)
+        self.dismiss_warning_button.setStyleSheet("background-color: transparent; color: #ff9800; padding: 0;")
         self.dismiss_warning_button.clicked.connect(self.hide_repetition_warning)
-        header_layout.addWidget(self.dismiss_warning_button)
+        bar_layout.addWidget(self.dismiss_warning_button)
 
-        warning_layout.addLayout(header_layout)
-
-        # Details label
-        self.warning_details_label = QLabel("")
-        self.warning_details_label.setWordWrap(True)
-        self.warning_details_label.setStyleSheet("color: #ffe0b2;")
-        warning_layout.addWidget(self.warning_details_label)
-
-        # Countdown label (for grace period) - Claude Generated (2026-02-17)
-        self.countdown_label = QLabel("")
-        self.countdown_label.setWordWrap(True)
-        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold; margin-top: 4px;")
-        self.countdown_label.setVisible(False)
-        warning_layout.addWidget(self.countdown_label)
-
-        # Suggestions section
-        suggestions_label = QLabel("💡 Empfohlene Anpassungen:")
-        suggestions_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
-        warning_layout.addWidget(suggestions_label)
-
-        # Suggestion buttons container
-        self.suggestions_button_layout = QHBoxLayout()
-        self.suggestions_button_layout.setSpacing(8)
-        warning_layout.addLayout(self.suggestions_button_layout)
-
-        # Continue without changes button
-        continue_layout = QHBoxLayout()
-        continue_layout.addStretch()
-
-        self.continue_button = QPushButton("Trotzdem fortfahren")
-        self.continue_button.setStyleSheet("background-color: #666; color: #fff;")
-        self.continue_button.clicked.connect(self.hide_repetition_warning)
-        continue_layout.addWidget(self.continue_button)
-
-        warning_layout.addLayout(continue_layout)
-
-        layout.addWidget(self.repetition_warning_frame)
+        layout.insertWidget(0, self.repetition_warning_frame)
 
     def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict],
                                  grace_period: bool = False, grace_seconds: float = 2.0):
@@ -234,11 +224,13 @@ class PipelineStreamWidget(QWidget):
             grace_period: If True, show countdown timer
             grace_seconds: Grace period duration in seconds
         """
-        # DON'T show the warning panel during streaming - too disruptive!
-        # Just track silently and show summary at the end - Claude Generated (2026-02-17)
-        return
-
         self.current_suggestions = suggestions
+
+        # Reset to orange warning state (in case previous run left it green) - Claude Generated
+        self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
+        self.warning_icon_label.setText("⚠️")
+        self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
+        self.continue_button.setVisible(True)
 
         # Set warning title based on detection type
         type_labels = {
@@ -251,6 +243,9 @@ class PipelineStreamWidget(QWidget):
 
         # Handle grace period countdown - Claude Generated (2026-02-17)
         if grace_period:
+            # Guard: stop existing timer before creating a new one - Claude Generated
+            if hasattr(self, 'grace_timer') and self.grace_timer.isActive():
+                self.grace_timer.stop()
             # START countdown timer
             import time
             self.grace_period_end = time.time() + grace_seconds
@@ -259,7 +254,7 @@ class PipelineStreamWidget(QWidget):
             self.grace_timer.start(100)  # Update every 100ms
 
             # Show countdown label
-            self.countdown_label.setText(f"⏳ Auto-Abbruch in {grace_seconds:.1f}s (bei anhaltender Wiederholung)")
+            self.countdown_label.setText(f"⏳ {grace_seconds:.1f}s")
             self.countdown_label.setVisible(True)
         else:
             # Immediate warning (old behavior)
@@ -274,12 +269,12 @@ class PipelineStreamWidget(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        # Add suggestion buttons
-        for i, suggestion in enumerate(suggestions[:4]):  # Max 4 buttons
+        # Add suggestion buttons (compact, max 3 to save space in bar)
+        for i, suggestion in enumerate(suggestions[:3]):
             button = QPushButton(suggestion.get("label", f"Option {i+1}"))
             button.setToolTip(suggestion.get("description", ""))
+            button.setStyleSheet("font-size: 10px; padding: 1px 4px;")
 
-            # Create closure for button click
             params = suggestion.get("params", {})
 
             def make_handler(p):
@@ -287,8 +282,6 @@ class PipelineStreamWidget(QWidget):
 
             button.clicked.connect(make_handler(params))
             self.suggestions_button_layout.addWidget(button)
-
-        self.suggestions_button_layout.addStretch()
 
         # Show the warning panel
         self.repetition_warning_frame.setVisible(True)
@@ -301,20 +294,70 @@ class PipelineStreamWidget(QWidget):
         import time
         remaining = self.grace_period_end - time.time()
         if remaining > 0:
-            self.countdown_label.setText(f"⏳ Auto-Abbruch in {remaining:.1f}s (bei anhaltender Wiederholung)")
+            self.countdown_label.setText(f"⏳ {remaining:.1f}s")
         else:
-            self.countdown_label.setText("⏳ Abbruch erfolgt...")
+            self.countdown_label.setText("⏳ …")
             self.grace_timer.stop()
 
     def hide_repetition_warning(self, resolved: bool = False):
-        """Hide the repetition warning panel - Claude Generated (2026-02-17)
+        """Hide or resolve the repetition warning panel - Claude Generated
 
         Args:
-            resolved: If True, log success message
+            resolved: If True, switch to green success state (panel stays visible).
+                      If False, actually hide the panel (explicit user dismiss or reset).
         """
-        # Panel is disabled during streaming - nothing to do - Claude Generated (2026-02-17)
-        # Statistics are shown in the log summary at the end
-        pass
+        if hasattr(self, 'grace_timer') and self.grace_timer.isActive():
+            self.grace_timer.stop()
+        self.countdown_label.setVisible(False)
+
+        if resolved:
+            # Switch to green "resolved" state – panel stays visible - Claude Generated
+            self.repetition_warning_frame.setStyleSheet("""
+                QFrame {
+                    background-color: #1b3a1f;
+                    border: 1px solid #4caf50;
+                    border-radius: 3px;
+                    padding: 1px;
+                }
+                QLabel { color: #a5d6a7; }
+                QPushButton {
+                    background-color: #2e7d32;
+                    color: #fff;
+                    border: none;
+                    border-radius: 3px;
+                    padding: 1px 5px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background-color: #43a047; }
+            """)
+            self.warning_icon_label.setText("✅")
+            self.warning_title_label.setText("Wiederholung behoben – Generation läuft weiter")
+            self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #4caf50;")
+            self.warning_details_label.setText("")
+
+            # Clear suggestion buttons
+            while self.suggestions_button_layout.count():
+                item = self.suggestions_button_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+            # Hide "Trotzdem fortfahren" button, keep abort button visible
+            self.continue_button.setVisible(False)
+
+            # Panel stays visible – no setVisible(False) call
+        else:
+            # Explicit dismiss or pipeline reset: really hide the panel - Claude Generated
+            self.repetition_warning_frame.setVisible(False)
+            # Restore orange warning style for next use - Claude Generated
+            self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
+            self.warning_icon_label.setText("⚠️")
+            self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
+            self.continue_button.setVisible(True)
+
+    def _on_abort_requested(self):
+        """Handle immediate abort button click - Claude Generated"""
+        self.hide_repetition_warning()
+        self.abort_generation_requested.emit()
 
     def _on_suggestion_clicked(self, params: Dict):
         """Handle suggestion button click - Claude Generated"""

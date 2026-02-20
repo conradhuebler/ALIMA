@@ -377,7 +377,7 @@ class ProviderStatusService(QObject):
         # Log result safely from main thread
         status = provider_info.get('status', 'unknown')
         model_count = provider_info.get('model_count', 0)
-        self.logger.info(f"Provider {provider_name}: {status} ({model_count} models)")
+        self.logger.debug(f"Provider {provider_name}: {status} ({model_count} models)")
 
         # Emit signals
         self.provider_tested.emit(provider_name, provider_info)

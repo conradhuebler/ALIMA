@@ -43,7 +43,7 @@ def main():
 
     # Check if the image was loaded successfully
     if pixmap.isNull():
-        logging.error("Failed to load splash screen image")
+        logging.warning("Failed to load splash screen image")
     else:
         splash = QSplashScreen(pixmap)
         splash.show()
