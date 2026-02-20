@@ -112,37 +112,37 @@ class UBSearchPanel(QWidget):
         input_layout = QVBoxLayout(input_group)
         input_layout.setSpacing(LAYOUT["inner_spacing"])
 
-        # Keywords + max results row
-        kw_row = QHBoxLayout()
-        kw_row.addWidget(QLabel("Keywords (kommagetrennt):"))
-        kw_row.addStretch()
-        kw_row.addWidget(QLabel("Max. Treffer:"))
-        self.num_results = QSpinBox()
-        self.num_results.setRange(1, 60)
-        self.num_results.setValue(40)
-        self.num_results.setMinimumWidth(60)
-        kw_row.addWidget(self.num_results)
-        input_layout.addLayout(kw_row)
+        # Keywords label
+        input_layout.addWidget(QLabel("Keywords (kommagetrennt):"))
 
         self.keywords_input = QTextEdit()
         self.keywords_input.setPlaceholderText("Keywords eingeben...")
-        self.keywords_input.setMaximumHeight(80)
+        self.keywords_input.setMaximumHeight(60)
         self.keywords_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
         input_layout.addWidget(self.keywords_input)
 
+        # Button row: [Suchen] [progress_bar, stretch] [Max.:] [spinbox]
         self.search_button = QPushButton("Suchen")
         self.search_button.setStyleSheet(btn_styles["primary"])
         self.search_button.clicked.connect(self.start_search)
-        input_layout.addWidget(self.search_button)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setRange(0, 0)  # indeterminate
-        input_layout.addWidget(self.progress_bar)
 
-        layout.addWidget(input_group)
+        self.num_results = QSpinBox()
+        self.num_results.setRange(1, 60)
+        self.num_results.setValue(40)
+        self.num_results.setMinimumWidth(60)
 
-        # Results Splitter
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.search_button)
+        button_row.addWidget(self.progress_bar, 1)
+        button_row.addWidget(QLabel("Max.:"))
+        button_row.addWidget(self.num_results)
+        input_layout.addLayout(button_row)
+
+        # Results Splitter (horizontal: Klassifikationen | Zugehörige Titel)
         self.results_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # TreeView for classifications
@@ -166,7 +166,15 @@ class UBSearchPanel(QWidget):
         self.results_splitter.setStretchFactor(0, 1)
         self.results_splitter.setStretchFactor(1, 2)
 
-        layout.addWidget(self.results_splitter)
+        # Vertical splitter: input (30%) | results (70%) — wie GND-Suche [300, 700]
+        panel_splitter = QSplitter(Qt.Orientation.Vertical)
+        panel_splitter.addWidget(input_group)
+        panel_splitter.addWidget(self.results_splitter)
+        panel_splitter.setSizes([300, 700])
+        panel_splitter.setStretchFactor(0, 0)
+        panel_splitter.setStretchFactor(1, 1)
+
+        layout.addWidget(panel_splitter)
 
     def set_keywords(self, keywords: str):
         """Set keywords in the search input"""
@@ -397,7 +405,6 @@ class UBCatalogTab(QWidget):
         # UBSearchPanel (full search functionality)
         self.ub_search_panel = UBSearchPanel()
         self.ub_search_panel.result_ready.connect(self._on_search_results)
-        layout.addWidget(self.ub_search_panel)
 
         # DKStatisticsPanel (below search)
         stats_group = QGroupBox("DK Classification Statistics")
@@ -408,7 +415,15 @@ class UBCatalogTab(QWidget):
         )
         self.stats_panel = DKStatisticsPanel()
         stats_layout.addWidget(self.stats_panel)
-        layout.addWidget(stats_group)
+
+        # Vertical splitter: search+results (700) | stats (300) — analog zu GND-Suche
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.ub_search_panel)
+        splitter.addWidget(stats_group)
+        splitter.setSizes([700, 300])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        layout.addWidget(splitter)
 
     @pyqtSlot(object)
     def update_from_pipeline(self, analysis_state):
