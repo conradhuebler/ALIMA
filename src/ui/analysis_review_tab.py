@@ -184,6 +184,11 @@ class AnalysisReviewTab(QWidget):
 
         main_layout.addWidget(self.main_splitter)
 
+    def refresh_styles(self):
+        """Re-apply styles after theme change — Claude Generated"""
+        from .styles import get_main_stylesheet
+        self.setStyleSheet(get_main_stylesheet())
+
     def _create_stat_label(self, key: str, label_text: str) -> QLabel:
         """Create a statistics label widget - Claude Generated
 

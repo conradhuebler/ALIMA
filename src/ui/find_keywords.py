@@ -358,6 +358,13 @@ class SearchTab(QWidget):
         self.results_table.itemSelectionChanged.connect(self.show_details)
         self.results_table.itemDoubleClicked.connect(self.on_result_double_clicked)  # Claude Generated
 
+    def refresh_styles(self):
+        """Re-apply styles after theme change — Claude Generated"""
+        from .styles import get_main_stylesheet, get_status_label_styles
+        self.setStyleSheet(get_main_stylesheet())
+        if hasattr(self, 'status_label'):
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
     def _load_catalog_token(self):
         """
         Lädt den Katalog-Token aus der Konfigurationsdatei.

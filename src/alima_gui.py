@@ -6,12 +6,49 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QDialog
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QPalette, QColor
 from src.ui.main_window import MainWindow
 from src.ui.first_start_wizard import FirstStartWizard
 from src.utils.logging_utils import setup_logging
 from src.utils.config_manager import ConfigManager
 import logging
+
+
+def is_system_dark_mode(app: QApplication) -> bool:
+    """Detect if the system is in dark mode by checking window background lightness — Claude Generated"""
+    bg = app.palette().color(QPalette.ColorRole.Window)
+    return bg.lightness() < 128
+
+
+def _apply_dark_app_palette(app: QApplication):
+    """Apply dark QPalette to the application — Claude Generated"""
+    from src.ui.styles import DARK_COLORS
+    palette = QPalette()
+    bg = QColor(DARK_COLORS["background"])
+    bg_light = QColor(DARK_COLORS["background_light"])
+    text = QColor(DARK_COLORS["text"])
+    border = QColor(DARK_COLORS["border"])
+    primary = QColor(DARK_COLORS["primary"])
+
+    palette.setColor(QPalette.ColorRole.Window, bg)
+    palette.setColor(QPalette.ColorRole.WindowText, text)
+    palette.setColor(QPalette.ColorRole.Base, bg_light)
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(DARK_COLORS["background_dark"]))
+    palette.setColor(QPalette.ColorRole.Text, text)
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Button, bg_light)
+    palette.setColor(QPalette.ColorRole.ButtonText, text)
+    palette.setColor(QPalette.ColorRole.Highlight, primary)
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(DARK_COLORS["background_light"]))
+    palette.setColor(QPalette.ColorRole.ToolTipText, text)
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(DARK_COLORS["text_muted"]))
+    app.setPalette(palette)
+
+
+def _apply_light_app_palette(app: QApplication):
+    """Restore default light QPalette — Claude Generated"""
+    app.setPalette(app.style().standardPalette())
 
 
 def main():

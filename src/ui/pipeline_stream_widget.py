@@ -59,33 +59,65 @@ class PipelineStreamWidget(QWidget):
         """Setup der Stream UI - Claude Generated"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
+        layout.setSpacing(0)
 
-        # Main streaming area
+        # Main streaming area (header + text)
         self.create_streaming_area(layout)
 
-        # Repetition warning panel (initially hidden) - Claude Generated
+        # Repetition warning panel at bottom (initially hidden) - Claude Generated
         self.create_repetition_warning_panel(layout)
 
     def create_streaming_area(self, layout):
-        """Create main streaming text area - Claude Generated"""
-        stream_group = QGroupBox("📝 Pipeline-Aktivität (Live)")
-        stream_layout = QVBoxLayout(stream_group)
+        """Create main streaming text area with compact header - Claude Generated"""
+        # Compact header row (replaces QGroupBox) - Claude Generated
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(6, 3, 6, 3)
+        header_layout.setSpacing(6)
+
+        title_label = QLabel("📝 Live")
+        title_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #888;")
+        header_layout.addWidget(title_label)
+
+        header_layout.addStretch()
+
+        self.auto_scroll_checkbox = QCheckBox("Auto-scroll")
+        self.auto_scroll_checkbox.setChecked(True)
+        self.auto_scroll_checkbox.setStyleSheet("font-size: 10px; color: #888;")
+        header_layout.addWidget(self.auto_scroll_checkbox)
+
+        self.clear_button = QPushButton("🗑️")
+        self.clear_button.setFixedSize(26, 22)
+        self.clear_button.setToolTip("Stream leeren")
+        self.clear_button.setStyleSheet(
+            "QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px; font-size: 11px; }"
+            "QPushButton:hover { background: #333; }"
+        )
+        self.clear_button.clicked.connect(self.clear_stream)
+        header_layout.addWidget(self.clear_button)
+
+        self.save_log_button = QPushButton("💾")
+        self.save_log_button.setFixedSize(26, 22)
+        self.save_log_button.setToolTip("Log speichern")
+        self.save_log_button.setStyleSheet(
+            "QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px; font-size: 11px; }"
+            "QPushButton:hover { background: #333; }"
+        )
+        self.save_log_button.clicked.connect(self.save_stream_log)
+        header_layout.addWidget(self.save_log_button)
+
+        layout.addLayout(header_layout)
 
         # Main streaming text widget
         self.stream_text = QTextEdit()
         self.stream_text.setReadOnly(True)
-        self.stream_text.setMinimumHeight(200)  # Minimum for readability - Claude Generated
+        self.stream_text.setMinimumHeight(200)
 
-        # Size policy: Horizontal Expanding, Vertical Ignored to prevent sizeHint growth - Claude Generated
-        # Ignored policy ensures the widget doesn't influence window size based on content - Claude Generated
         self.stream_text.setSizePolicy(
-            QSizePolicy.Policy.Expanding,   # Horizontal: darf wachsen
-            QSizePolicy.Policy.Ignored      # Vertical: Layout entscheidet, sizeHint ignorieren
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Ignored
         )
 
-        # Enhanced styling for readability
-        font = QFont("Consolas", 10)  # Monospace font for structured output
+        font = QFont("Consolas", 10)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.stream_text.setFont(font)
 
@@ -94,8 +126,8 @@ class PipelineStreamWidget(QWidget):
             QTextEdit {
                 background-color: #1e1e1e;
                 color: #f8f8f2;
-                border: 1px solid #444;
-                border-radius: 4px;
+                border: none;
+                border-top: 1px solid #333;
                 padding: 8px;
                 font-family: 'Consolas', 'Monaco', monospace;
             }
@@ -112,30 +144,10 @@ class PipelineStreamWidget(QWidget):
             QScrollBar::handle:vertical:hover {
                 background: #777;
             }
-        """
+            """
         )
 
-        stream_layout.addWidget(self.stream_text)
-
-        # Stream controls
-        controls_layout = QHBoxLayout()
-
-        self.auto_scroll_checkbox = QCheckBox("🔄 Auto-scroll")
-        self.auto_scroll_checkbox.setChecked(True)
-        controls_layout.addWidget(self.auto_scroll_checkbox)
-
-        controls_layout.addStretch()
-
-        self.clear_button = QPushButton("🗑️ Leeren")
-        self.clear_button.clicked.connect(self.clear_stream)
-        controls_layout.addWidget(self.clear_button)
-
-        self.save_log_button = QPushButton("💾 Log speichern")
-        self.save_log_button.clicked.connect(self.save_stream_log)
-        controls_layout.addWidget(self.save_log_button)
-
-        stream_layout.addLayout(controls_layout)
-        layout.addWidget(stream_group)
+        layout.addWidget(self.stream_text)
 
     # Orange warning stylesheet (reused in show/hide) - Claude Generated
     _STYLE_WARNING_ORANGE = """
@@ -211,7 +223,7 @@ class PipelineStreamWidget(QWidget):
         self.dismiss_warning_button.clicked.connect(self.hide_repetition_warning)
         bar_layout.addWidget(self.dismiss_warning_button)
 
-        layout.insertWidget(0, self.repetition_warning_frame)
+        layout.addWidget(self.repetition_warning_frame)
 
     def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict],
                                  grace_period: bool = False, grace_seconds: float = 2.0):

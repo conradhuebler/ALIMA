@@ -326,6 +326,13 @@ class ImageAnalysisTab(QWidget):
 
         main_layout.addWidget(main_splitter)
 
+    def refresh_styles(self):
+        """Re-apply styles after theme change — Claude Generated"""
+        from .styles import get_main_stylesheet, get_status_label_styles
+        self.setStyleSheet(get_main_stylesheet())
+        if hasattr(self, 'status_label'):
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
     def load_providers_and_models(self):
         """Load available providers and models"""
         try:

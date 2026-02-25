@@ -342,32 +342,26 @@ class PipelineTab(QWidget):
             self.logger.error(f"Error populating override combo: {e}")
 
     def update_current_step_duration(self):
-        """Update the duration of the currently running step - Claude Generated"""
+        """Update the duration of the currently running step in the status label - Claude Generated"""
         if (
             self.current_running_step
             and self.current_running_step in self.step_start_times
-            and hasattr(self, "step_progress_labels")
-            and self.current_running_step in self.step_progress_labels
         ):
-
-            # Calculate current duration
             duration_seconds = (
                 datetime.now() - self.step_start_times[self.current_running_step]
             ).total_seconds()
 
             step_name = {
                 "input": "Input",
-                "initialisation": "Initialisierung", 
+                "initialisation": "Initialisierung",
                 "search": "Suche",
                 "keywords": "Schlagworte",
                 "dk_search": "DK-Katalog-Suche",
                 "dk_classification": "DK-Klassifikation",
             }.get(self.current_running_step, self.current_running_step.title())
 
-            # Update the label with live duration
-            self.step_progress_labels[self.current_running_step].setText(
-                f"▶ {step_name} ({duration_seconds:.1f}s)"
-            )
+            if hasattr(self, "pipeline_status_label"):
+                self.pipeline_status_label.setText(f"▶ {step_name} ({duration_seconds:.1f}s)")
 
     def setup_ui(self):
         """Setup the pipeline UI - Claude Generated"""
@@ -377,6 +371,12 @@ class PipelineTab(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Compact toolbar with primary actions - Claude Generated
+        self.create_toolbar(main_layout)
+
+        # Collapsible advanced panel (model override + iterative search) - Claude Generated
+        self.create_advanced_panel(main_layout)
 
         # Working title display and override field - Claude Generated
         title_widget = QWidget()
@@ -411,13 +411,15 @@ class PipelineTab(QWidget):
 
     def setup_pipeline_area(self, main_layout):
         """Setup main pipeline area with streaming feedback - Claude Generated"""
+        # Splitter user-resize tracking - Claude Generated
+        self._user_has_resized_splitter = False
+
         # Create a main splitter for pipeline steps and streaming - Claude Generated
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.main_splitter.setChildrenCollapsible(True)  # Allow children to collapse instead of expanding window - Claude Generated
+        self.main_splitter.setChildrenCollapsible(True)
+        self.main_splitter.splitterMoved.connect(self._on_user_resized_splitter)  # Claude Generated
 
-        # Left side: Pipeline steps as vertical tabs
-        self.steps_splitter = QSplitter(Qt.Orientation.Vertical)
-
+        # Left side: Pipeline steps as vertical tabs (directly in main_splitter, no steps_splitter) - Claude Generated
         self.pipeline_tabs = QTabWidget()
         self.pipeline_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self.pipeline_tabs.setTabShape(QTabWidget.TabShape.Rounded)
@@ -466,19 +468,9 @@ class PipelineTab(QWidget):
         """
         )
 
-        # Create pipeline step tabs
+        # Create pipeline step tabs - direkt in main_splitter - Claude Generated
         self.create_pipeline_step_tabs()
-        self.steps_splitter.addWidget(self.pipeline_tabs)
-
-        # Add compact pipeline control/progress widget below steps
-        control_widget = self.create_compact_pipeline_control()
-        self.steps_splitter.addWidget(control_widget)
-
-        # Stretch factors: 80% tabs, 20% controls - Claude Generated
-        self.steps_splitter.setStretchFactor(0, 8)
-        self.steps_splitter.setStretchFactor(1, 2)
-        # No setSizes() - let stretch factors control layout
-        self.main_splitter.addWidget(self.steps_splitter)
+        self.main_splitter.addWidget(self.pipeline_tabs)
 
         # Right side: Live streaming widget
         self.stream_widget = PipelineStreamWidget()
@@ -489,10 +481,10 @@ class PipelineTab(QWidget):
 
         self.main_splitter.addWidget(self.stream_widget)
 
-        # Stretch factors: 50:50 balanced split - Claude Generated
-        self.main_splitter.setStretchFactor(0, 1)  # Steps
-        self.main_splitter.setStretchFactor(1, 1)  # Stream
-        self.main_splitter.setSizes([500, 500])  # Truly balanced initial split
+        # Initial split: 65% tabs (dominant when idle), 35% stream - Claude Generated
+        self.main_splitter.setStretchFactor(0, 65)
+        self.main_splitter.setStretchFactor(1, 35)
+        self.main_splitter.setSizes([650, 350])
 
         main_layout.addWidget(self.main_splitter)
 
@@ -608,15 +600,17 @@ class PipelineTab(QWidget):
         self.step_widgets["dk_classification"] = dk_classification_step_widget
         self.pipeline_tabs.addTab(dk_classification_step_widget, "📚 DK/RVK-Klassifikation")
 
-    def create_compact_pipeline_control(self) -> QWidget:
-        """Create compact pipeline control with progress and buttons - Claude Generated"""
-        control_widget = QWidget()
-        layout = QVBoxLayout(control_widget)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+    def create_toolbar(self, main_layout):
+        """Create compact toolbar with primary pipeline actions - Claude Generated"""
+        self.toolbar_frame = QFrame()
+        self.toolbar_frame.setFixedHeight(44)
+        self.toolbar_frame.setStyleSheet(
+            "QFrame { background: #f8f9fa; border-bottom: 1px solid #dee2e6; }"
+        )
 
-        # Top row: Pipeline buttons
-        buttons_layout = QHBoxLayout()
+        tb_layout = QHBoxLayout(self.toolbar_frame)
+        tb_layout.setContentsMargins(8, 4, 8, 4)
+        tb_layout.setSpacing(6)
 
         # Auto-pipeline button
         self.auto_pipeline_button = QPushButton("🚀 Auto-Pipeline")
@@ -626,26 +620,109 @@ class PipelineTab(QWidget):
                 background-color: #4caf50;
                 color: white;
                 border: none;
-                padding: 6px 12px;
+                padding: 5px 14px;
                 border-radius: 3px;
                 font-weight: bold;
                 font-size: 12px;
             }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """
+            QPushButton:hover { background-color: #45a049; }
+            QPushButton:disabled { background-color: #ccc; }
+            """
         )
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
-        buttons_layout.addWidget(self.auto_pipeline_button)
+        tb_layout.addWidget(self.auto_pipeline_button)
+
+        # Stop button (initially hidden, shown only when pipeline is running) - Claude Generated
+        self.stop_pipeline_button = QPushButton("⏹️ Stop")
+        self.stop_pipeline_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover { background-color: #da190b; }
+            QPushButton:disabled { background-color: #e57373; }
+            """
+        )
+        self.stop_pipeline_button.setVisible(False)
+        self.stop_pipeline_button.clicked.connect(self.on_stop_pipeline_requested)
+        tb_layout.addWidget(self.stop_pipeline_button)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedHeight(24)
+        sep.setStyleSheet("color: #ccc;")
+        tb_layout.addWidget(sep)
+
+        # Secondary actions (compact) - Claude Generated
+        self.load_json_button = QPushButton("📁 JSON laden")
+        self.load_json_button.setToolTip("Pipeline-State aus JSON-Datei laden")
+        self.load_json_button.clicked.connect(self.load_json_state)
+        tb_layout.addWidget(self.load_json_button)
+
+        config_btn = QPushButton("⚙️ Config")
+        config_btn.setToolTip("Pipeline-Konfiguration öffnen")
+        config_btn.clicked.connect(self.show_pipeline_config)
+        tb_layout.addWidget(config_btn)
+
+        reset_btn = QPushButton("🔄 Reset")
+        reset_btn.setToolTip("Pipeline zurücksetzen")
+        reset_btn.clicked.connect(self.reset_pipeline)
+        tb_layout.addWidget(reset_btn)
+
+        # Advanced toggle button - Claude Generated
+        self.advanced_toggle_button = QPushButton("▼ Erweitert")
+        self.advanced_toggle_button.setToolTip("Modell-Override und Iterative Suche einblenden")
+        self.advanced_toggle_button.setCheckable(True)
+        self.advanced_toggle_button.setStyleSheet(
+            """
+            QPushButton { background: transparent; border: 1px solid #ccc;
+                          padding: 3px 8px; border-radius: 3px; font-size: 11px; color: #555; }
+            QPushButton:hover { background: #e9ecef; }
+            QPushButton:checked { background: #e3f2fd; border-color: #90caf9; color: #1976d2; }
+            """
+        )
+        self.advanced_toggle_button.clicked.connect(self.toggle_advanced_panel)
+        tb_layout.addWidget(self.advanced_toggle_button)
+
+        tb_layout.addStretch()
+
+        # Mode indicator - Claude Generated
+        self.mode_indicator_label = QLabel()
+        self._update_mode_indicator()
+        tb_layout.addWidget(self.mode_indicator_label)
+
+        # Pipeline status label - Claude Generated
+        self.pipeline_status_label = QLabel("Bereit")
+        self.pipeline_status_label.setStyleSheet("font-size: 11px; color: #666; padding-left: 8px;")
+        tb_layout.addWidget(self.pipeline_status_label)
+
+        main_layout.addWidget(self.toolbar_frame)
+
+    def create_advanced_panel(self, main_layout):
+        """Create collapsible advanced options panel (hidden by default) - Claude Generated"""
+        self.advanced_frame = QFrame()
+        self.advanced_frame.setFixedHeight(38)
+        self.advanced_frame.setStyleSheet(
+            "QFrame { background: #f0f4f8; border-bottom: 1px solid #dee2e6; }"
+        )
+        self.advanced_frame.setVisible(False)
+
+        adv_layout = QHBoxLayout(self.advanced_frame)
+        adv_layout.setContentsMargins(8, 4, 8, 4)
+        adv_layout.setSpacing(10)
 
         # Global Model Override ComboBox - Claude Generated
-        override_label = QLabel("🔬")
-        override_label.setToolTip("Modell-Override: Erzwingt ein Modell für alle LLM-Steps")
-        buttons_layout.addWidget(override_label)
+        override_label = QLabel("🔬 Modell-Override:")
+        override_label.setStyleSheet("font-size: 11px; color: #555;")
+        override_label.setToolTip("Erzwingt Provider/Modell für alle LLM-Steps")
+        adv_layout.addWidget(override_label)
 
         self.global_override_combo = QComboBox()
         self.global_override_combo.setMinimumWidth(180)
@@ -656,24 +733,19 @@ class PipelineTab(QWidget):
             "\"-- Standard --\" = Normale Provider-Auswahl"
         )
         self.global_override_combo.setStyleSheet(
-            """
-            QComboBox {
-                padding: 4px 8px;
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                font-size: 11px;
-            }
-            """
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; }"
         )
         self._populate_global_override_combo()
-        buttons_layout.addWidget(self.global_override_combo)
+        adv_layout.addWidget(self.global_override_combo)
 
-        # Iterative Search Controls - Claude Generated (placed prominently next to Auto-Pipeline)
-        iterative_container = QWidget()
-        iterative_layout = QHBoxLayout(iterative_container)
-        iterative_layout.setContentsMargins(5, 0, 5, 0)
-        iterative_layout.setSpacing(8)
+        # Separator
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.VLine)
+        sep2.setFixedHeight(20)
+        sep2.setStyleSheet("color: #ccc;")
+        adv_layout.addWidget(sep2)
 
+        # Iterative Search Controls - Claude Generated
         self.iterative_search_checkbox = QCheckBox("🔄 Iterative GND-Suche")
         self.iterative_search_checkbox.setToolTip(
             "Wenn aktiviert: Automatische Suche nach fehlenden Konzepten\n"
@@ -682,171 +754,51 @@ class PipelineTab(QWidget):
             "⏱️ Verlängert Analysezeit um 30-70 Sekunden"
         )
         self.iterative_search_checkbox.setStyleSheet(
-            """
-            QCheckBox {
-                font-weight: bold;
-                color: #0066cc;
-                padding: 2px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-            }
-            """
+            "QCheckBox { font-weight: bold; color: #0066cc; font-size: 11px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }"
         )
-        iterative_layout.addWidget(self.iterative_search_checkbox)
+        adv_layout.addWidget(self.iterative_search_checkbox)
 
-        # Max iterations spinbox (compact)
         iterations_label = QLabel("Max:")
         iterations_label.setStyleSheet("color: #666; font-size: 10px;")
-        iterative_layout.addWidget(iterations_label)
+        adv_layout.addWidget(iterations_label)
 
         self.max_iterations_spin = QSpinBox()
         self.max_iterations_spin.setRange(1, 5)
         self.max_iterations_spin.setValue(2)
-        self.max_iterations_spin.setMaximumWidth(50)
+        self.max_iterations_spin.setFixedWidth(48)
         self.max_iterations_spin.setEnabled(False)
         self.max_iterations_spin.setToolTip("Max. Iterationen (1-5)")
-        self.max_iterations_spin.setStyleSheet(
-            """
-            QSpinBox {
-                padding: 2px;
-                font-size: 11px;
-            }
-            """
-        )
-        iterative_layout.addWidget(self.max_iterations_spin)
+        adv_layout.addWidget(self.max_iterations_spin)
 
-        iterative_layout.addStretch()
-
-        # Connect checkbox to enable/disable spinbox and update config
+        # Connect signals
         self.iterative_search_checkbox.stateChanged.connect(self.on_iterative_search_toggled)
         self.iterative_search_checkbox.toggled.connect(self.max_iterations_spin.setEnabled)
         self.max_iterations_spin.valueChanged.connect(self.on_max_iterations_changed)
 
-        buttons_layout.addWidget(iterative_container)
+        adv_layout.addStretch()
+        main_layout.addWidget(self.advanced_frame)
 
-        # Load JSON button - Claude Generated
-        self.load_json_button = QPushButton("📁 JSON laden")
-        self.load_json_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #2196f3;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #1976d2;
-            }
-            QPushButton:pressed {
-                background-color: #0d47a1;
-            }
+    def toggle_advanced_panel(self):
+        """Toggle visibility of the advanced options panel - Claude Generated"""
+        visible = not self.advanced_frame.isVisible()
+        self.advanced_frame.setVisible(visible)
+        self.advanced_toggle_button.setText("▲ Erweitert" if visible else "▼ Erweitert")
+
+    def adjust_for_pipeline_state(self, state: str):
+        """Adjust main splitter ratio based on pipeline state - Claude Generated
+        Respects user-adjusted splitter positions.
         """
-        )
-        self.load_json_button.clicked.connect(self.load_json_state)
-        self.load_json_button.setToolTip("Pipeline-State aus JSON-Datei laden")
-        buttons_layout.addWidget(self.load_json_button)
+        if self._user_has_resized_splitter:
+            return
+        if state == "running":
+            self.main_splitter.setSizes([450, 550])
+        else:  # idle / completed
+            self.main_splitter.setSizes([650, 350])
 
-        # Mode indicator
-        self.mode_indicator_label = QLabel()
-        self._update_mode_indicator()
-        buttons_layout.addWidget(self.mode_indicator_label)
-
-        # Configuration button
-        config_button = QPushButton("⚙️ Config")
-        config_button.setMaximumWidth(80)
-        config_button.clicked.connect(self.show_pipeline_config)
-        buttons_layout.addWidget(config_button)
-
-        # Reset button
-        reset_button = QPushButton("🔄 Reset")
-        reset_button.setMaximumWidth(80)
-        reset_button.clicked.connect(self.reset_pipeline)
-        buttons_layout.addWidget(reset_button)
-
-        # Stop button - Claude Generated
-        self.stop_pipeline_button = QPushButton("⏹️ Stop")
-        self.stop_pipeline_button.setMaximumWidth(80)
-        self.stop_pipeline_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 3px;
-                font-weight: bold;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """
-        )
-        self.stop_pipeline_button.setEnabled(False)  # Disabled until pipeline starts
-        self.stop_pipeline_button.clicked.connect(self.on_stop_pipeline_requested)
-        buttons_layout.addWidget(self.stop_pipeline_button)
-
-        # Pause button (TODO: implement)
-        pause_button = QPushButton("⏸️ Pause")
-        pause_button.setMaximumWidth(80)
-        pause_button.setEnabled(
-            False
-        )  # TODO: Enable when pause functionality is implemented
-        buttons_layout.addWidget(pause_button)
-
-        buttons_layout.addStretch()
-
-        # Pipeline status
-        self.pipeline_status_label = QLabel("Bereit für Pipeline-Start")
-        self.pipeline_status_label.setStyleSheet(
-            "font-weight: bold; color: #666; font-size: 11px;"
-        )
-        buttons_layout.addWidget(self.pipeline_status_label)
-
-        layout.addLayout(buttons_layout)
-
-        # Bottom area: Pipeline progress with timestamps
-        progress_group = QGroupBox("Pipeline-Fortschritt")
-        progress_group.setStyleSheet(
-            "QGroupBox { font-size: 11px; font-weight: bold; }"
-        )
-        progress_layout = QHBoxLayout(
-            progress_group
-        )  # Horizontal layout for compactness
-        progress_layout.setSpacing(10)
-
-        self.step_progress_labels = {}
-        steps = ["input", "initialisation", "search", "keywords", "dk_search", "dk_classification"]
-
-        for i, step_id in enumerate(steps):
-            step_name = {
-                "input": "Input",
-                "initialisation": "Initialisierung", 
-                "search": "Suche",
-                "keywords": "Schlagworte",
-                "dk_search": "DK-Katalog-Suche",
-                "dk_classification": "DK-Klassifikation",
-            }[step_id]
-
-            step_label = QLabel(f"{i+1}. {step_name}: ⏳")
-            step_label.setStyleSheet(
-                "padding: 3px; border-radius: 3px; font-size: 10px;"
-            )
-            step_label.setMinimumWidth(120)
-            self.step_progress_labels[step_id] = step_label
-            progress_layout.addWidget(step_label)
-
-        layout.addWidget(progress_group)
-
-        return control_widget
+    def _on_user_resized_splitter(self):
+        """Called when user drags the main splitter - Claude Generated"""
+        self._user_has_resized_splitter = True
 
     def _update_mode_indicator(self):
         """Update mode indicator to show current pipeline mode - Claude Generated"""
@@ -1229,17 +1181,13 @@ class PipelineTab(QWidget):
         """Save splitter positions to QSettings - Claude Generated"""
         if hasattr(self, 'main_splitter'):
             settings.setValue("pipeline/main_splitter", self.main_splitter.saveState())
-        if hasattr(self, 'steps_splitter'):
-            settings.setValue("pipeline/steps_splitter", self.steps_splitter.saveState())
 
     def restore_splitter_state(self, settings):
         """Restore splitter positions from QSettings - Claude Generated"""
         state = settings.value("pipeline/main_splitter")
         if state and hasattr(self, 'main_splitter'):
             self.main_splitter.restoreState(state)
-        state = settings.value("pipeline/steps_splitter")
-        if state and hasattr(self, 'steps_splitter'):
-            self.steps_splitter.restoreState(state)
+            self._user_has_resized_splitter = True  # Treat restored state as user preference
 
     def _filter_dk_search_results(self):
         """Filter displayed DK search results based on search input - Claude Generated"""
@@ -1419,10 +1367,11 @@ class PipelineTab(QWidget):
         if hasattr(self, "stream_widget"):
             self.stream_widget.reset_for_new_pipeline()
 
-        # Update status
+        # Update status and button visibility - Claude Generated
         self.pipeline_status_label.setText("Pipeline läuft...")
         self.auto_pipeline_button.setEnabled(False)
-        self.stop_pipeline_button.setEnabled(True)  # Enable stop button - Claude Generated
+        self.stop_pipeline_button.setVisible(True)
+        self.adjust_for_pipeline_state("running")
 
         # Get force_update flag from checkbox - Claude Generated
         force_update = getattr(self, 'force_update_checkbox', None)
@@ -1654,28 +1603,6 @@ class PipelineTab(QWidget):
             step_widget.step.status = "pending"
             step_widget.update_status_display()
 
-        # Reset progress labels
-        if hasattr(self, "step_progress_labels"):
-            steps = ["input", "initialisation", "search", "keywords", "dk_search", "dk_classification"]
-            for i, step_id in enumerate(steps):
-                if step_id in self.step_progress_labels:
-                    # Claude Generated - Fixed step name mapping with fallback for DK steps
-                    step_name = {
-                        "input": "Input",
-                        "initialisation": "Initialisierung",
-                        "search": "Suche",
-                        "keywords": "Schlagworte",
-                        "dk_search": "DK-Katalog-Suche",
-                        "dk_classification": "DK-Klassifikation",
-                    }.get(step_id, step_id.title())  # Use .get() with fallback
-
-                    self.step_progress_labels[step_id].setText(
-                        f"{i+1}. {step_name}: ⏳"
-                    )
-                    self.step_progress_labels[step_id].setStyleSheet(
-                        "padding: 3px; border-radius: 3px; font-size: 10px;"
-                    )
-
         # Clear results
         if hasattr(self, "initialisation_result"):
             self.initialisation_result.clear()
@@ -1708,10 +1635,12 @@ class PipelineTab(QWidget):
         if hasattr(self, "dk_search_raw_data"):
             self.dk_search_raw_data = []
 
-        # Reset status label style - Claude Generated
+        # Reset status and button states - Claude Generated
         self.pipeline_status_label.setStyleSheet("")
         self.pipeline_status_label.setText("Bereit für Pipeline-Start")
         self.auto_pipeline_button.setEnabled(True)
+        self.stop_pipeline_button.setVisible(False)
+        self.adjust_for_pipeline_state("idle")
 
         # Reset stream widget completely - Claude Generated
         if hasattr(self, "stream_widget"):
@@ -1786,25 +1715,6 @@ class PipelineTab(QWidget):
         self.current_running_step = step.step_id
         self.duration_update_timer.start()
 
-        # Update progress label with running indicator
-        if (
-            hasattr(self, "step_progress_labels")
-            and step.step_id in self.step_progress_labels
-        ):
-            step_name = {
-                "input": "Input",
-                "initialisation": "Initialisierung", 
-                "search": "Suche",
-                "keywords": "Schlagworte",
-                "dk_search": "DK-Katalog-Suche",
-                "dk_classification": "DK-Klassifikation",
-            }.get(step.step_id, step.step_id.title())
-
-            self.step_progress_labels[step.step_id].setText(f"▶ {step_name} (0.0s)")
-            self.step_progress_labels[step.step_id].setStyleSheet(
-                "background: #e3f2fd; padding: 4px; border-radius: 3px; color: #1976d2;"
-            )
-
         # Update global status bar with current provider info
         if self.main_window and hasattr(self.main_window, "global_status_bar"):
             if hasattr(step, "provider") and hasattr(step, "model"):
@@ -1838,35 +1748,6 @@ class PipelineTab(QWidget):
         if self.current_running_step == step.step_id:
             self.duration_update_timer.stop()
             self.current_running_step = None
-
-        # Update progress label with final duration
-        if (
-            hasattr(self, "step_progress_labels")
-            and step.step_id in self.step_progress_labels
-        ):
-            step_name = {
-                "input": "Input",
-                "initialisation": "Initialisierung", 
-                "search": "Suche",
-                "keywords": "Schlagworte",
-                "dk_search": "DK-Katalog-Suche",
-                "dk_classification": "DK-Klassifikation",
-            }.get(step.step_id, step.step_id.title())
-
-            # Calculate duration
-            duration_text = "?"
-            if step.step_id in self.step_start_times:
-                duration_seconds = (
-                    datetime.now() - self.step_start_times[step.step_id]
-                ).total_seconds()
-                duration_text = f"{duration_seconds:.1f}s"
-
-            self.step_progress_labels[step.step_id].setText(
-                f"✓ {step_name} ({duration_text})"
-            )
-            self.step_progress_labels[step.step_id].setStyleSheet(
-                "background: #e8f5e8; padding: 4px; border-radius: 3px; color: #2e7d32;"
-            )
 
         # Update global status bar
         if self.main_window and hasattr(self.main_window, "global_status_bar"):
@@ -2009,35 +1890,6 @@ class PipelineTab(QWidget):
             self.duration_update_timer.stop()
             self.current_running_step = None
 
-        # Update progress label with final duration
-        if (
-            hasattr(self, "step_progress_labels")
-            and step.step_id in self.step_progress_labels
-        ):
-            step_name = {
-                "input": "Input",
-                "initialisation": "Initialisierung", 
-                "search": "Suche",
-                "keywords": "Schlagworte",
-                "dk_search": "DK-Katalog-Suche",
-                "dk_classification": "DK-Klassifikation",
-            }.get(step.step_id, step.step_id.title())
-
-            # Calculate duration
-            duration_text = "?"
-            if step.step_id in self.step_start_times:
-                duration_seconds = (
-                    datetime.now() - self.step_start_times[step.step_id]
-                ).total_seconds()
-                duration_text = f"{duration_seconds:.1f}s"
-
-            self.step_progress_labels[step.step_id].setText(
-                f"✗ {step_name} ({duration_text})"
-            )
-            self.step_progress_labels[step.step_id].setStyleSheet(
-                "background: #ffebee; padding: 4px; border-radius: 3px; color: #c62828;"
-            )
-
         # Update global status bar
         if self.main_window and hasattr(self.main_window, "global_status_bar"):
             if hasattr(self.main_window.global_status_bar, "update_pipeline_status"):
@@ -2073,7 +1925,8 @@ class PipelineTab(QWidget):
 
         self.pipeline_status_label.setText("Pipeline abgeschlossen ✓")
         self.auto_pipeline_button.setEnabled(True)
-        self.stop_pipeline_button.setEnabled(False)  # Disable stop button - Claude Generated
+        self.stop_pipeline_button.setVisible(False)
+        self.adjust_for_pipeline_state("idle")
         self.pipeline_completed.emit()
 
         # Stop status bar timer and progress
@@ -2126,7 +1979,7 @@ class PipelineTab(QWidget):
         if self.pipeline_worker and self.pipeline_worker.isRunning():
             self.logger.info("User requested pipeline stop")
             self.stop_pipeline_button.setEnabled(False)
-            self.stop_pipeline_button.setText("⏹️ Stopping...")
+            self.stop_pipeline_button.setText("⏹ Stopping...")
             self.pipeline_status_label.setText("Beende Pipeline...")
             self.pipeline_worker.request_stop()
 
@@ -2142,7 +1995,9 @@ class PipelineTab(QWidget):
         # Reset button states
         self.auto_pipeline_button.setEnabled(True)
         self.stop_pipeline_button.setText("⏹️ Stop")
-        self.stop_pipeline_button.setEnabled(False)
+        self.stop_pipeline_button.setEnabled(True)
+        self.stop_pipeline_button.setVisible(False)
+        self.adjust_for_pipeline_state("idle")
 
         # Update status
         self.pipeline_status_label.setText("Pipeline abgebrochen")

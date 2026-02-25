@@ -2,6 +2,19 @@
 Unified UI styles for ALIMA application
 """
 
+# Module-level dark mode state — Claude Generated
+_dark_mode = False
+
+
+def set_dark_mode(dark: bool):
+    global _dark_mode
+    _dark_mode = dark
+
+
+def get_colors() -> dict:
+    return DARK_COLORS if _dark_mode else COLORS
+
+
 # Color palette
 COLORS = {
     "primary": "#4a86e8",  # Blue
@@ -40,6 +53,44 @@ COLORS = {
     "confidence_low_bg": "#f8d7da",
 }
 
+# Dark mode color palette — Claude Generated (Catppuccin-inspired)
+DARK_COLORS = {
+    "primary": "#4a86e8",
+    "primary_hover": "#3a76d8",
+    "primary_pressed": "#2a66c8",
+    "secondary": "#6aa84f",
+    "secondary_hover": "#5a984f",
+    "secondary_pressed": "#4a883f",
+    "accent": "#f1c232",
+    "accent_hover": "#e1b222",
+    "accent_pressed": "#d1a212",
+    "background": "#1e1e2e",
+    "background_light": "#252535",
+    "background_dark": "#161622",
+    "text": "#cdd6f4",
+    "text_light": "#a6adc8",
+    "text_muted": "#7f849c",
+    "error": "#f38ba8",
+    "error_hover": "#e37898",
+    "success": "#a6e3a1",
+    "success_hover": "#96d391",
+    "warning": "#f9e2af",
+    "warning_hover": "#e9d29f",
+    "border": "#45475a",
+    "border_light": "#313244",
+    "border_dark": "#6c7086",
+    "shadow": "rgba(0, 0, 0, 0.4)",
+    # Confidence level colors — dark tints
+    "confidence_very_high_text": "#a6e3a1",
+    "confidence_very_high_bg": "#1e2e1e",
+    "confidence_high_text": "#89dceb",
+    "confidence_high_bg": "#1e2a2e",
+    "confidence_medium_text": "#f9e2af",
+    "confidence_medium_bg": "#2e2a1e",
+    "confidence_low_text": "#f38ba8",
+    "confidence_low_bg": "#2e1e22",
+}
+
 # Standard layout constants
 LAYOUT = {
     "margin": 15,
@@ -57,26 +108,26 @@ def get_main_stylesheet():
     QWidget {{
         font-family: 'Segoe UI', Arial, sans-serif;
         font-size: 10pt;
-        color: {COLORS['text']};
+        color: {get_colors()['text']};
     }}
     
     /* Group boxes */
     QGroupBox {{
         font-weight: bold;
         font-size: 11pt;
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 8px;
         margin-top: 12px;
         padding-top: 10px;
-        background-color: {COLORS['background_light']};
+        background-color: {get_colors()['background_light']};
     }}
     
     QGroupBox::title {{
         subcontrol-origin: margin;
         left: 10px;
         padding: 0 5px;
-        background-color: {COLORS['background_light']};
-        color: {COLORS['text']};
+        background-color: {get_colors()['background_light']};
+        color: {get_colors()['text']};
     }}
     
     /* Primary buttons */
@@ -84,7 +135,7 @@ def get_main_stylesheet():
         border: none;
         border-radius: 2px;
         padding: 2px 5px;
-        background-color: {COLORS['primary']};
+        background-color: {get_colors()['primary']};
         color: white;
         font-weight: bold;
         font-size: 10pt;
@@ -92,62 +143,62 @@ def get_main_stylesheet():
     }}
     
     QPushButton:hover {{
-        background-color: {COLORS['primary_hover']};
+        background-color: {get_colors()['primary_hover']};
     }}
     
     QPushButton:pressed {{
-        background-color: {COLORS['primary_pressed']};
+        background-color: {get_colors()['primary_pressed']};
     }}
     
     QPushButton:disabled {{
-        background-color: {COLORS['background_dark']};
-        color: {COLORS['text_muted']};
+        background-color: {get_colors()['background_dark']};
+        color: {get_colors()['text_muted']};
     }}
     
     /* Text inputs */
     QTextEdit {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         padding: 8px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
         font-size: 11pt;
         line-height: 1.4;
     }}
     
     QTextEdit:focus {{
-        border: 2px solid {COLORS['primary']};
+        border: 2px solid {get_colors()['primary']};
     }}
     
     QLineEdit {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         padding: 8px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
         font-size: 10pt;
     }}
     
     QLineEdit:focus {{
-        border: 2px solid {COLORS['primary']};
+        border: 2px solid {get_colors()['primary']};
     }}
     
     /* Labels */
     QLabel {{
-        color: {COLORS['text']};
+        color: {get_colors()['text']};
         font-size: 10pt;
     }}
     
     /* Combo boxes */
     QComboBox {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         padding: 6px 8px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
         font-size: 10pt;
         min-height: 20px;
     }}
     
     QComboBox:focus {{
-        border: 2px solid {COLORS['primary']};
+        border: 2px solid {get_colors()['primary']};
     }}
     
     QComboBox::drop-down {{
@@ -163,7 +214,7 @@ def get_main_stylesheet():
     
     /* Checkboxes */
     QCheckBox {{
-        color: {COLORS['text']};
+        color: {get_colors()['text']};
         spacing: 8px;
         font-size: 10pt;
     }}
@@ -171,45 +222,45 @@ def get_main_stylesheet():
     QCheckBox::indicator {{
         width: 16px;
         height: 16px;
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 3px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
     }}
     
     QCheckBox::indicator:checked {{
-        background-color: {COLORS['primary']};
-        border: 1px solid {COLORS['primary']};
+        background-color: {get_colors()['primary']};
+        border: 1px solid {get_colors()['primary']};
     }}
     
     /* Tables */
     QTableWidget {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
-        background-color: {COLORS['background']};
-        gridline-color: {COLORS['border_light']};
+        background-color: {get_colors()['background']};
+        gridline-color: {get_colors()['border_light']};
         font-size: 10pt;
     }}
     
     QTableWidget::item {{
         padding: 8px;
-        border-bottom: 1px solid {COLORS['border_light']};
+        border-bottom: 1px solid {get_colors()['border_light']};
     }}
     
     QTableWidget::item:selected {{
-        background-color: {COLORS['primary']};
+        background-color: {get_colors()['primary']};
         color: white;
     }}
     
     QHeaderView::section {{
-        background-color: {COLORS['background_light']};
+        background-color: {get_colors()['background_light']};
         padding: 8px;
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         font-weight: bold;
     }}
     
     /* Progress bars */
     QProgressBar {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         text-align: center;
         font-size: 10pt;
@@ -217,52 +268,52 @@ def get_main_stylesheet():
     }}
     
     QProgressBar::chunk {{
-        background-color: {COLORS['primary']};
+        background-color: {get_colors()['primary']};
         border-radius: 3px;
     }}
     
     /* Sliders */
     QSlider::groove:horizontal {{
         height: 6px;
-        background: {COLORS['background_dark']};
+        background: {get_colors()['background_dark']};
         border-radius: 3px;
     }}
     
     QSlider::handle:horizontal {{
-        background: {COLORS['primary']};
-        border: 1px solid {COLORS['primary']};
+        background: {get_colors()['primary']};
+        border: 1px solid {get_colors()['primary']};
         width: 16px;
         margin: -5px 0;
         border-radius: 8px;
     }}
     
     QSlider::handle:horizontal:hover {{
-        background: {COLORS['primary_hover']};
+        background: {get_colors()['primary_hover']};
     }}
     
     /* Spin boxes */
     QSpinBox {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         padding: 6px 8px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
         font-size: 10pt;
     }}
     
     QSpinBox:focus {{
-        border: 2px solid {COLORS['primary']};
+        border: 2px solid {get_colors()['primary']};
     }}
     
     /* Tab widgets */
     QTabWidget::pane {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
     }}
     
     QTabBar::tab {{
-        background-color: {COLORS['background_light']};
-        border: 1px solid {COLORS['border']};
+        background-color: {get_colors()['background_light']};
+        border: 1px solid {get_colors()['border']};
         padding: 8px 16px;
         margin-right: 2px;
         border-bottom: none;
@@ -271,18 +322,18 @@ def get_main_stylesheet():
     }}
     
     QTabBar::tab:selected {{
-        background-color: {COLORS['background']};
-        border-bottom: 2px solid {COLORS['primary']};
+        background-color: {get_colors()['background']};
+        border-bottom: 2px solid {get_colors()['primary']};
     }}
     
     QTabBar::tab:hover {{
-        background-color: {COLORS['background_dark']};
+        background-color: {get_colors()['background_dark']};
     }}
     
     /* Splitters */
     QSplitter::handle {{
-        background-color: {COLORS['background_dark']};
-        border: 1px solid {COLORS['border']};
+        background-color: {get_colors()['background_dark']};
+        border: 1px solid {get_colors()['border']};
     }}
     
     QSplitter::handle:horizontal {{
@@ -296,54 +347,54 @@ def get_main_stylesheet():
     /* Scrollbars */
     QScrollBar:vertical {{
         border: none;
-        background: {COLORS['background_light']};
+        background: {get_colors()['background_light']};
         width: 10px;
         margin: 0px;
     }}
 
     QScrollBar::handle:vertical {{
-        background: {COLORS['border']};
+        background: {get_colors()['border']};
         min-height: 20px;
         border-radius: 5px;
     }}
 
     QScrollBar::handle:vertical:hover {{
-        background: {COLORS['border_dark']};
+        background: {get_colors()['border_dark']};
     }}
 
     QScrollBar:horizontal {{
         border: none;
-        background: {COLORS['background_light']};
+        background: {get_colors()['background_light']};
         height: 10px;
         margin: 0px;
     }}
 
     QScrollBar::handle:horizontal {{
-        background: {COLORS['border']};
+        background: {get_colors()['border']};
         min-width: 20px;
         border-radius: 5px;
     }}
 
     /* Tree widgets */
     QTreeWidget {{
-        border: 1px solid {COLORS['border']};
+        border: 1px solid {get_colors()['border']};
         border-radius: 4px;
-        background-color: {COLORS['background']};
+        background-color: {get_colors()['background']};
         font-size: 10pt;
     }}
     
     QTreeWidget::item {{
         padding: 4px;
-        border-bottom: 1px solid {COLORS['border_light']};
+        border-bottom: 1px solid {get_colors()['border_light']};
     }}
     
     QTreeWidget::item:selected {{
-        background-color: {COLORS['primary']};
+        background-color: {get_colors()['primary']};
         color: white;
     }}
     
     QTreeWidget::item:hover {{
-        background-color: {COLORS['background_light']};
+        background-color: {get_colors()['background_light']};
     }}
     """
 
@@ -353,7 +404,7 @@ def get_button_styles():
     return {
         "primary": f"""
             QPushButton {{
-                background-color: {COLORS['primary']};
+                background-color: {get_colors()['primary']};
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -363,19 +414,19 @@ def get_button_styles():
                 min-height: 20px;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['primary_hover']};
+                background-color: {get_colors()['primary_hover']};
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['primary_pressed']};
+                background-color: {get_colors()['primary_pressed']};
             }}
             QPushButton:disabled {{
-                background-color: {COLORS['background_dark']};
-                color: {COLORS['text_muted']};
+                background-color: {get_colors()['background_dark']};
+                color: {get_colors()['text_muted']};
             }}
         """,
         "secondary": f"""
             QPushButton {{
-                background-color: {COLORS['secondary']};
+                background-color: {get_colors()['secondary']};
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -385,20 +436,20 @@ def get_button_styles():
                 min-height: 20px;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['secondary_hover']};
+                background-color: {get_colors()['secondary_hover']};
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['secondary_pressed']};
+                background-color: {get_colors()['secondary_pressed']};
             }}
             QPushButton:disabled {{
-                background-color: {COLORS['background_dark']};
-                color: {COLORS['text_muted']};
+                background-color: {get_colors()['background_dark']};
+                color: {get_colors()['text_muted']};
             }}
         """,
         "accent": f"""
             QPushButton {{
-                background-color: {COLORS['accent']};
-                color: {COLORS['text']};
+                background-color: {get_colors()['accent']};
+                color: {get_colors()['text']};
                 border: none;
                 border-radius: 6px;
                 padding: 10px 20px;
@@ -407,19 +458,19 @@ def get_button_styles():
                 min-height: 20px;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['accent_hover']};
+                background-color: {get_colors()['accent_hover']};
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['accent_pressed']};
+                background-color: {get_colors()['accent_pressed']};
             }}
             QPushButton:disabled {{
-                background-color: {COLORS['background_dark']};
-                color: {COLORS['text_muted']};
+                background-color: {get_colors()['background_dark']};
+                color: {get_colors()['text_muted']};
             }}
         """,
         "success": f"""
             QPushButton {{
-                background-color: {COLORS['success']};
+                background-color: {get_colors()['success']};
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -429,20 +480,20 @@ def get_button_styles():
                 min-height: 20px;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['success_hover']};
+                background-color: {get_colors()['success_hover']};
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['success_hover']};
+                background-color: {get_colors()['success_hover']};
             }}
             QPushButton:disabled {{
-                background-color: {COLORS['background_dark']};
-                color: {COLORS['text_muted']};
+                background-color: {get_colors()['background_dark']};
+                color: {get_colors()['text_muted']};
             }}
         """,
         "warning": f"""
             QPushButton {{
-                background-color: {COLORS['warning']};
-                color: {COLORS['text']};
+                background-color: {get_colors()['warning']};
+                color: {get_colors()['text']};
                 border: none;
                 border-radius: 6px;
                 padding: 10px 20px;
@@ -451,19 +502,19 @@ def get_button_styles():
                 min-height: 20px;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['warning_hover']};
+                background-color: {get_colors()['warning_hover']};
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['warning_hover']};
+                background-color: {get_colors()['warning_hover']};
             }}
             QPushButton:disabled {{
-                background-color: {COLORS['background_dark']};
-                color: {COLORS['text_muted']};
+                background-color: {get_colors()['background_dark']};
+                color: {get_colors()['text_muted']};
             }}
         """,
         "error": f"""
             QPushButton {{
-                background-color: {COLORS['error']};
+                background-color: {get_colors()['error']};
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -473,14 +524,14 @@ def get_button_styles():
                 min-height: 20px;
             }}
             QPushButton:hover {{
-                background-color: {COLORS['error_hover']};
+                background-color: {get_colors()['error_hover']};
             }}
             QPushButton:pressed {{
-                background-color: {COLORS['error_hover']};
+                background-color: {get_colors()['error_hover']};
             }}
             QPushButton:disabled {{
-                background-color: {COLORS['background_dark']};
-                color: {COLORS['text_muted']};
+                background-color: {get_colors()['background_dark']};
+                color: {get_colors()['text_muted']};
             }}
         """,
     }
@@ -489,12 +540,12 @@ def get_button_styles():
 def get_status_label_styles():
     """Get status label styles"""
     return {
-        "default": f"color: {COLORS['text']};",
-        "success": f"color: {COLORS['success']}; font-weight: bold;",
-        "warning": f"color: {COLORS['warning']}; font-weight: bold;",
-        "error": f"color: {COLORS['error']}; font-weight: bold;",
-        "info": f"color: {COLORS['primary']}; font-weight: bold;",
-        "muted": f"color: {COLORS['text_muted']};",
+        "default": f"color: {get_colors()['text']};",
+        "success": f"color: {get_colors()['success']}; font-weight: bold;",
+        "warning": f"color: {get_colors()['warning']}; font-weight: bold;",
+        "error": f"color: {get_colors()['error']}; font-weight: bold;",
+        "info": f"color: {get_colors()['primary']}; font-weight: bold;",
+        "muted": f"color: {get_colors()['text_muted']};",
     }
 
 
@@ -510,29 +561,29 @@ def get_confidence_style(count: int) -> tuple:
     """
     if count > 50:
         return (
-            COLORS["confidence_very_high_text"],
-            COLORS["confidence_very_high_bg"],
+            get_colors()["confidence_very_high_text"],
+            get_colors()["confidence_very_high_bg"],
             "Very High",
             "\U0001f7e9" * 5,
         )
     elif count > 20:
         return (
-            COLORS["confidence_high_text"],
-            COLORS["confidence_high_bg"],
+            get_colors()["confidence_high_text"],
+            get_colors()["confidence_high_bg"],
             "High",
             "\U0001f7e9" * 3,
         )
     elif count > 5:
         return (
-            COLORS["confidence_medium_text"],
-            COLORS["confidence_medium_bg"],
+            get_colors()["confidence_medium_text"],
+            get_colors()["confidence_medium_bg"],
             "Medium",
             "\U0001f7e9" * 2,
         )
     else:
         return (
-            COLORS["confidence_low_text"],
-            COLORS["confidence_low_bg"],
+            get_colors()["confidence_low_text"],
+            get_colors()["confidence_low_bg"],
             "Low",
             "\U0001f7e9",
         )
@@ -542,10 +593,10 @@ def get_image_preview_style():
     """Get image preview container style"""
     return f"""
         QLabel {{
-            border: 2px dashed {COLORS['border']};
+            border: 2px dashed {get_colors()['border']};
             border-radius: 8px;
-            background-color: {COLORS['background_light']};
-            color: {COLORS['text_muted']};
+            background-color: {get_colors()['background_light']};
+            color: {get_colors()['text_muted']};
             font-size: 12pt;
             text-align: center;
             padding: 20px;

@@ -145,6 +145,13 @@ class CrossrefTab(QWidget):
 
         self.setLayout(layout)
 
+    def refresh_styles(self):
+        """Re-apply styles after theme change — Claude Generated"""
+        from .styles import get_main_stylesheet, get_status_label_styles
+        self.setStyleSheet(get_main_stylesheet())
+        if hasattr(self, 'status_label'):
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
     def perform_search(self):
         """Startet die API-Abfrage via Worker-Thread - Claude Generated"""
         doi = self.doi_input.text().strip()
