@@ -244,3 +244,6 @@ tags
 
 # MacOS
 .DS_Store
+
+# ALIMA institution-specific presets (may contain tokens/API keys)
+alima_presets.json

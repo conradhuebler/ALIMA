@@ -3,6 +3,50 @@
  * Handles UI interactions and WebSocket communication
  */
 
+/**
+ * ThemeManager — Dark/light mode with localStorage persistence and system-pref auto-detect.
+ * Runs synchronously before the DOM renders to prevent FOUC. — Claude Generated
+ */
+const ThemeManager = {
+    STORAGE_KEY: 'alima_theme',
+
+    /** Returns 'dark' or 'light' based on localStorage or system preference */
+    getEffective() {
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (stored === 'dark' || stored === 'light') return stored;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    },
+
+    /** Applies theme to <html> and updates toggle button emoji */
+    apply(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        const btn = document.getElementById('theme-toggle');
+        if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    },
+
+    /** Cycles between dark and light, persists choice */
+    toggle() {
+        const current = document.documentElement.getAttribute('data-theme') || this.getEffective();
+        const next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(this.STORAGE_KEY, next);
+        this.apply(next);
+    },
+
+    /** Initialize: apply saved/system theme and listen for system changes */
+    init() {
+        this.apply(this.getEffective());
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            // Only follow system if user has not made a manual choice
+            if (!localStorage.getItem(this.STORAGE_KEY)) {
+                this.apply(e.matches ? 'dark' : 'light');
+            }
+        });
+    },
+};
+
+// Run synchronously — prevents flash of wrong theme
+ThemeManager.init();
+
 class AlimaWebapp {
     constructor() {
         this.sessionId = null;
@@ -268,6 +312,10 @@ class AlimaWebapp {
                 this.processFileInput(e.target.files[0]);
             }
         });
+
+        // Theme toggle button — Claude Generated
+        const themeBtn = document.getElementById('theme-toggle');
+        if (themeBtn) themeBtn.addEventListener('click', () => ThemeManager.toggle());
 
         // Drag and drop
         this.setupDragAndDrop();

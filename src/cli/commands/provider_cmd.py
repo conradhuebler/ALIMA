@@ -545,59 +545,87 @@ def handle_provider_test(args, config_manager: ConfigManager, logger: logging.Lo
 
 
 def handle_provider_ollama(args, config_manager: ConfigManager, logger: logging.Logger):
-    """Handle Ollama provider configuration commands."""
-    if args.ollama_action == "status":
+    """Handle Ollama provider configuration commands. - Claude Generated"""
+    if args.ollama_action == "status" or args.ollama_action == "list":
         try:
             config = config_manager.load_config()
-            print("🔧 Current Ollama Configuration:")
-            print(f"   Local:    {'✅ Enabled' if config.unified_config.ollama.local_enabled else '❌ Disabled'} ({config.unified_config.ollama.local_host}:{config.unified_config.ollama.local_port})")
-            print(f"   Official: {'✅ Enabled' if config.unified_config.ollama.official_enabled else '❌ Disabled'} ({config.unified_config.ollama.official_base_url})")
-            print(f"   Native:   {'✅ Enabled' if config.unified_config.ollama.native_enabled else '❌ Disabled'} ({config.unified_config.ollama.native_host})")
-            print(f"   Active:   {config.unified_config.ollama.get_active_connection_type()}")
+            ollama_providers = config.unified_config.get_enabled_ollama_providers()
+            all_ollama = [p for p in config.unified_config.providers if p.provider_type == "ollama"]
+
+            if not all_ollama:
+                print("🔍 No native Ollama providers configured.")
+                print("   Use 'alima_cli.py provider ollama add --name <name> --host <host>' to add one.")
+                return
+
+            print(f"🚀 Native Ollama Providers ({len(all_ollama)} configured):")
+            print()
+            for p in all_ollama:
+                status = "✅ Enabled" if p.enabled else "❌ Disabled"
+                print(f"  {status}  {p.name}")
+                print(f"    URL:   {p.base_url}")
+                if p.api_key:
+                    print(f"    Key:   {'*' * 8}...")
+                if p.description:
+                    print(f"    Desc:  {p.description}")
+                print()
         except Exception as e:
             print(f"❌ Error loading Ollama configuration: {str(e)}")
 
-    elif args.ollama_action == "enable-local":
+    elif args.ollama_action == "add":
         try:
+            from src.utils.config_models import UnifiedProvider
             config = config_manager.load_config()
-            config.unified_config.ollama.local_enabled = True
-            config.unified_config.ollama.local_host = args.host
-            config.unified_config.ollama.local_port = args.port
-            config.unified_config.ollama.official_enabled = False
-            config.unified_config.ollama.native_enabled = False
-            config_manager.save_config(config)
-            print(f"✅ Local Ollama enabled: {args.host}:{args.port}")
-        except Exception as e:
-            print(f"❌ Error enabling local Ollama: {str(e)}")
 
-    elif args.ollama_action == "enable-official":
-        try:
-            config = config_manager.load_config()
-            config.unified_config.ollama.official_enabled = True
-            config.unified_config.ollama.official_base_url = args.base_url
-            config.unified_config.ollama.official_api_key = args.api_key
-            config.unified_config.ollama.local_enabled = False
-            config.unified_config.ollama.native_enabled = False
-            config_manager.save_config(config)
-            print(f"✅ Official Ollama API enabled: {args.base_url}")
-            print(f"   API Key: {args.api_key[:20]}...")
-        except Exception as e:
-            print(f"❌ Error enabling official Ollama: {str(e)}")
+            if config.unified_config.get_provider_by_name(args.name):
+                print(f"❌ Provider '{args.name}' already exists.")
+                return
 
-    elif args.ollama_action == "enable-native":
-        try:
-            config = config_manager.load_config()
-            config.unified_config.ollama.native_enabled = True
-            config.unified_config.ollama.native_host = args.host
-            if args.api_key:
-                config.unified_config.ollama.native_api_key = args.api_key
-            config.unified_config.ollama.local_enabled = False
-            config.unified_config.ollama.official_enabled = False
-            config_manager.save_config(config)
-            print(f"✅ Native Ollama client enabled: {args.host}")
-            if args.api_key:
-                print(f"   API Key: {args.api_key[:20]}...")
+            host = args.host
+            port = getattr(args, 'port', 11434)
+            # Build base_url from host+port
+            if host.startswith(('http://', 'https://')):
+                base_url = host.rstrip('/')
             else:
-                print("   No API key configured (local access)")
+                base_url = f"http://{host}"
+            if port and port != 11434 or (port == 11434 and ':' not in base_url.split('://', 1)[-1]):
+                # Only add port if not already in URL and it's non-default or explicitly provided
+                host_part = base_url.split('://', 1)[-1]
+                if ':' not in host_part:
+                    base_url = f"{base_url}:{port}"
+
+            new_provider = UnifiedProvider(
+                name=args.name,
+                provider_type='ollama',
+                base_url=base_url,
+                api_key=getattr(args, 'api_key', '') or '',
+                enabled=True,
+                description=getattr(args, 'description', '') or '',
+            )
+            config.unified_config.providers.append(new_provider)
+
+            success = config_manager.save_config(config)
+            if success:
+                print(f"✅ Native Ollama provider '{args.name}' added: {base_url}")
+            else:
+                print("❌ Failed to save configuration")
         except Exception as e:
-            print(f"❌ Error enabling native Ollama: {str(e)}")
+            logger.error(f"❌ Error adding Ollama provider: {e}")
+            import traceback; traceback.print_exc()
+
+    elif args.ollama_action == "remove":
+        try:
+            config = config_manager.load_config()
+            provider = config.unified_config.get_provider_by_name(args.name)
+            if not provider:
+                print(f"❌ Provider '{args.name}' not found.")
+                return
+            if provider.provider_type != 'ollama':
+                print(f"❌ Provider '{args.name}' is not a native Ollama provider.")
+                return
+            config.unified_config.providers = [p for p in config.unified_config.providers if p.name != args.name]
+            if config_manager.save_config(config):
+                print(f"✅ Ollama provider '{args.name}' removed.")
+            else:
+                print("❌ Failed to save configuration")
+        except Exception as e:
+            logger.error(f"❌ Error removing Ollama provider: {e}")

@@ -70,6 +70,17 @@
     --font-body:    'Manrope', system-ui, sans-serif;
     --font-mono:    'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 
+    /* Themeable surface tokens (overridden by dark mode) */
+    --clr-header-glass:          rgba(248, 250, 252, 0.82);
+    --clr-footer-glass:          rgba(255, 255, 255, 0.95);
+    --clr-tab-hover-bg:          rgba(255, 255, 255, 0.6);
+    --clr-reconnect-bg-from:     #eff6ff;
+    --clr-reconnect-bg-to:       #dbeafe;
+    --clr-reconnect-border:      #bfdbfe;
+    --clr-reconnect-text:        #1d4ed8;
+    --clr-card-success-border:   #bbf7d0;
+    --clr-card-success-bg-from:  #f0fdf4;
+
     /* Transitions */
     --ease-fast: 140ms ease;
     --ease-base: 240ms ease;
@@ -114,7 +125,7 @@ body {
     top: 0;
     z-index: 500;
     height: var(--header-h);
-    background: rgba(248, 250, 252, 0.82);
+    background: var(--clr-header-glass);
     backdrop-filter: blur(14px) saturate(1.6);
     -webkit-backdrop-filter: blur(14px) saturate(1.6);
     border-bottom: 1px solid var(--clr-border);
@@ -205,8 +216,8 @@ body {
    RECONNECT BANNER
    ═══════════════════════════════════════════════════ */
 .reconnect-banner {
-    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-    border-bottom: 1px solid #bfdbfe;
+    background: linear-gradient(135deg, var(--clr-reconnect-bg-from) 0%, var(--clr-reconnect-bg-to) 100%);
+    border-bottom: 1px solid var(--clr-reconnect-border);
 }
 
 .reconnect-inner {
@@ -220,7 +231,7 @@ body {
 }
 
 .reconnect-icon {
-    color: #1d4ed8;
+    color: var(--clr-reconnect-text);
     flex-shrink: 0;
 }
 
@@ -228,7 +239,7 @@ body {
     flex: 1;
     font-size: 0.88rem;
     font-weight: 600;
-    color: #1d4ed8;
+    color: var(--clr-reconnect-text);
     min-width: 180px;
 }
 
@@ -300,8 +311,8 @@ body {
 
 /* Success variant */
 .card--success {
-    border-color: #bbf7d0;
-    background: linear-gradient(160deg, #f0fdf4 0%, var(--clr-surface) 60%);
+    border-color: var(--clr-card-success-border);
+    background: linear-gradient(160deg, var(--clr-card-success-bg-from) 0%, var(--clr-surface) 60%);
 }
 
 /* Dark variant (stream) */
@@ -352,7 +363,7 @@ body {
 
 .tab-btn:hover {
     color: var(--clr-text);
-    background: rgba(255, 255, 255, 0.6);
+    background: var(--clr-tab-hover-bg);
 }
 
 .tab-btn.active {
@@ -783,7 +794,7 @@ body {
     right: 0;
     /* Safe area for notched phones */
     padding: var(--sp-3) var(--sp-4) max(var(--sp-3), env(safe-area-inset-bottom));
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--clr-footer-glass);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     border-top: 1px solid var(--clr-border);
@@ -1222,4 +1233,98 @@ body {
     .queue-details { gap: var(--sp-5); }
     .stat-value { font-size: 1.7rem; }
     .queue-icon { font-size: 2.4rem; }
+}
+
+/* ═══════════════════════════════════════════════════
+   THEME TOGGLE BUTTON
+   ═══════════════════════════════════════════════════ */
+.btn-theme-toggle {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-pill);
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background var(--ease-fast), border-color var(--ease-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.btn-theme-toggle:hover {
+    background: var(--clr-surface-2);
+    border-color: var(--clr-border-2);
+}
+
+/* ═══════════════════════════════════════════════════
+   DARK MODE — Tokyo Night palette
+   Activated by system preference OR manual [data-theme="dark"]
+   ═══════════════════════════════════════════════════ */
+
+/* System preference (when not overridden by data-theme="light") */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --clr-bg:        #0f1117;
+        --clr-surface:   #1a1b26;
+        --clr-surface-2: #16171f;
+        --clr-surface-3: #1e1f2e;
+        --clr-text:      #c0caf5;
+        --clr-muted:     #7982b4;
+        --clr-subtle:    #565f89;
+        --clr-border:    #292e42;
+        --clr-border-2:  #3b4261;
+        --clr-success:        #9ece6a;
+        --clr-success-bg:     rgba(158, 206, 106, 0.08);
+        --clr-warning:        #e0af68;
+        --clr-warning-bg:     rgba(224, 175, 104, 0.08);
+        --clr-error:          #f7768e;
+        --clr-error-bg:       rgba(247, 118, 142, 0.08);
+        --clr-info:           #7dcfff;
+        --clr-info-bg:        rgba(125, 207, 255, 0.08);
+        --clr-header-glass:   rgba(15, 17, 23, 0.85);
+        --clr-footer-glass:   rgba(26, 27, 38, 0.95);
+        --clr-tab-hover-bg:   rgba(255, 255, 255, 0.05);
+        --clr-reconnect-bg-from:    #1a2744;
+        --clr-reconnect-bg-to:      #1e2a5e;
+        --clr-reconnect-border:     #3b4d8a;
+        --clr-reconnect-text:       #7dcfff;
+        --clr-card-success-border:  #2a3f1e;
+        --clr-card-success-bg-from: #1a2e1a;
+        --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+}
+
+/* Manual toggle via JS — always wins over system preference */
+[data-theme="dark"] {
+    --clr-bg:        #0f1117;
+    --clr-surface:   #1a1b26;
+    --clr-surface-2: #16171f;
+    --clr-surface-3: #1e1f2e;
+    --clr-text:      #c0caf5;
+    --clr-muted:     #7982b4;
+    --clr-subtle:    #565f89;
+    --clr-border:    #292e42;
+    --clr-border-2:  #3b4261;
+    --clr-success:        #9ece6a;
+    --clr-success-bg:     rgba(158, 206, 106, 0.08);
+    --clr-warning:        #e0af68;
+    --clr-warning-bg:     rgba(224, 175, 104, 0.08);
+    --clr-error:          #f7768e;
+    --clr-error-bg:       rgba(247, 118, 142, 0.08);
+    --clr-info:           #7dcfff;
+    --clr-info-bg:        rgba(125, 207, 255, 0.08);
+    --clr-header-glass:   rgba(15, 17, 23, 0.85);
+    --clr-footer-glass:   rgba(26, 27, 38, 0.95);
+    --clr-tab-hover-bg:   rgba(255, 255, 255, 0.05);
+    --clr-reconnect-bg-from:    #1a2744;
+    --clr-reconnect-bg-to:      #1e2a5e;
+    --clr-reconnect-border:     #3b4d8a;
+    --clr-reconnect-text:       #7dcfff;
+    --clr-card-success-border:  #2a3f1e;
+    --clr-card-success-bg-from: #1a2e1a;
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
 }

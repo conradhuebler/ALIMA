@@ -268,6 +268,16 @@ def create_argument_parser():
 
     ollama_status_parser = ollama_subparsers.add_parser("status", help="Show current Ollama configuration")
 
+    ollama_add_parser = ollama_subparsers.add_parser("add", help="Add a native Ollama provider")
+    ollama_add_parser.add_argument("--name", required=True, help="Provider name (e.g. 'ollama_local')")
+    ollama_add_parser.add_argument("--host", required=True, help="Ollama server host/URL (e.g. 'http://localhost' or 'http://192.168.1.10')")
+    ollama_add_parser.add_argument("--port", type=int, default=11434, help="Ollama port (default: 11434)")
+    ollama_add_parser.add_argument("--api-key", default="", help="Optional API key")
+    ollama_add_parser.add_argument("--description", default="", help="Optional description")
+
+    ollama_remove_parser = ollama_subparsers.add_parser("remove", help="Remove a native Ollama provider")
+    ollama_remove_parser.add_argument("--name", required=True, help="Provider name to remove")
+
     # Migrate database command
     migrate_parser = subparsers.add_parser("migrate-db", help="Database migration and backup operations.")
     migrate_subparsers = migrate_parser.add_subparsers(dest="migrate_action", help="Migration actions")
