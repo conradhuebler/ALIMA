@@ -128,6 +128,12 @@ class DkAnalysisUnifiedTab(AbstractTab):
     # Backward compatibility
     # ------------------------------------------------------------------
 
+    def add_external_analysis_to_history(self, state, result_text: str = None):
+        """Override: use dk_llm_analysis as the default result text for this tab - Claude Generated"""
+        if result_text is None and hasattr(state, 'dk_llm_analysis') and state.dk_llm_analysis:
+            result_text = state.dk_llm_analysis.response_full_text
+        super().add_external_analysis_to_history(state, result_text=result_text)
+
     def set_abstract(self, abstract: str):
         """Set abstract text."""
         super().set_abstract(abstract)

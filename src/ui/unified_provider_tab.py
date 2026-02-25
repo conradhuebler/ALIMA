@@ -555,6 +555,29 @@ class ProviderEditDialog(QDialog):
         )
 
 
+class ModelFetchWorker(QThread):
+    """Background worker to fetch model lists for all providers without blocking the UI - Claude Generated"""
+
+    models_fetched = pyqtSignal(dict)  # provider_name -> [model_names]
+
+    def __init__(self, detection_service, providers: list):
+        super().__init__()
+        self.detection_service = detection_service
+        self.providers = providers
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        """Fetch models for each provider sequentially in background - Claude Generated"""
+        result = {}
+        for prov in self.providers:
+            try:
+                result[prov] = self.detection_service.get_available_models(prov)
+            except Exception as e:
+                self.logger.warning(f"ModelFetchWorker: failed to fetch models for {prov}: {e}")
+                result[prov] = []
+        self.models_fetched.emit(result)
+
+
 class UnifiedProviderTab(QWidget):
     """
     Unified Provider Configuration Tab - Claude Generated
@@ -854,9 +877,8 @@ class UnifiedProviderTab(QWidget):
             # Cache detection service and model lists to avoid repeated network calls - Claude Generated
             self._detection_service = ProviderDetectionService()
             self._cached_providers = self._detection_service.get_available_providers()
-            self._cached_models = {}  # provider_name -> [model_names]
-            for prov in self._cached_providers:
-                self._cached_models[prov] = self._detection_service.get_available_models(prov)
+            self._cached_models = {}  # will be populated by background worker - Claude Generated
+            self._start_background_model_fetch()
 
             # Check if we need to migrate from legacy configuration
             if not self.unified_config.providers and self.config:
@@ -902,6 +924,24 @@ class UnifiedProviderTab(QWidget):
             self.unified_config = UnifiedProviderConfig()
             self.config_changed.emit()
     
+    def _start_background_model_fetch(self):
+        """Start background worker to fetch model lists without blocking the UI - Claude Generated"""
+        if not self._cached_providers:
+            return
+        self._model_fetch_worker = ModelFetchWorker(self._detection_service, list(self._cached_providers))
+        self._model_fetch_worker.models_fetched.connect(self._on_models_fetched)
+        self._model_fetch_worker.start()
+        self.logger.debug("Started background model fetch for all providers")
+
+    def _on_models_fetched(self, models: dict):
+        """Slot called when background model fetch completes - Claude Generated"""
+        try:
+            self._cached_models.update(models)
+            self._populate_model_preferences()
+            self.logger.info(f"Background model fetch complete: {list(models.keys())}")
+        except Exception as e:
+            self.logger.error(f"Error applying fetched models: {e}")
+
     def _get_all_providers(self):
         """Get all providers from unified config + LLM config - Claude Generated"""
         all_providers = list(self.unified_config.providers)  # Start with unified providers
@@ -1882,14 +1922,8 @@ class UnifiedProviderTab(QWidget):
 
         try:
             # Trigger force refresh in background (non-blocking)
+            # Signal handlers (_on_provider_tested) will update _cached_models when results arrive
             self.alima_manager.provider_status_service.refresh_all(force=True)
-
-            # Invalidate local cache so next _load_configuration picks up fresh data
-            self._cached_providers = self._detection_service.get_available_providers()
-            self._cached_models = {
-                prov: self._detection_service.get_available_models(prov)
-                for prov in self._cached_providers
-            }
 
             # Show immediate feedback
             QMessageBox.information(
@@ -1946,9 +1980,12 @@ class UnifiedProviderTab(QWidget):
             hasattr(self.alima_manager, 'provider_status_service') and
             self.alima_manager.provider_status_service):
 
-            # Connect to status updates for automatic table refresh
+            # Connect to status updates for automatic table refresh + model preferences - Claude Generated
             self.alima_manager.provider_status_service.status_updated.connect(
                 self._populate_provider_table
+            )
+            self.alima_manager.provider_status_service.status_updated.connect(
+                self._populate_model_preferences
             )
 
             # Connect to individual provider tests for live updates
@@ -1963,12 +2000,18 @@ class UnifiedProviderTab(QWidget):
     def _on_provider_tested(self, provider_name: str, provider_info: dict):
         """Handle individual provider test completion - Claude Generated"""
         try:
-            # Refresh the table to show updated status
+            # Update local model cache from fresh provider_info so dropdowns stay current - Claude Generated
+            fresh_models = provider_info.get('models', [])
+            if fresh_models:
+                self._cached_models[provider_name] = fresh_models
+
+            # Refresh provider table and model-preferences dropdowns
             self._populate_provider_table()
+            self._populate_model_preferences()
 
             # Log the update
             status = provider_info.get('status', 'unknown')
-            model_count = provider_info.get('model_count', 0)
+            model_count = len(fresh_models) if fresh_models else provider_info.get('model_count', 0)
             self.logger.debug(f"Provider {provider_name} tested: {status} ({model_count} models)")
 
         except Exception as e:

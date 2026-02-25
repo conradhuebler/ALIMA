@@ -81,8 +81,11 @@ class SingleStepWorker(QThread):
 
     def run(self):
         """Execute single step in background thread - Claude Generated"""
+        # Save the current stream_callback so we can restore it after execution.
+        # This prevents one tab's worker from permanently stealing the callback of
+        # another tab that may have run before — Claude Generated
+        old_callback = getattr(self.pipeline_manager, 'stream_callback', None)
         try:
-            # Set streaming callback
             self.pipeline_manager.stream_callback = self.stream_token.emit
 
             # Execute single step
@@ -98,6 +101,9 @@ class SingleStepWorker(QThread):
         except Exception as e:
             self.logger.error(f"Single step worker error: {e}")
             self.step_error.emit(str(e))
+        finally:
+            # Restore previous callback so no other tab inherits our signal - Claude Generated
+            self.pipeline_manager.stream_callback = old_callback
 
 
 class PipelineWorker(StoppableWorker):

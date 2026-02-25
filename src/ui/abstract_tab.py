@@ -552,6 +552,13 @@ class AbstractTab(QWidget):
         self.populate_task_selector()
         self.user_interaction_mode = True
 
+    def refresh_styles(self):
+        """Re-apply styles after theme change — Claude Generated"""
+        from .styles import get_main_stylesheet, get_button_styles, get_status_label_styles
+        self.setStyleSheet(get_main_stylesheet())
+        if hasattr(self, 'status_label'):
+            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
     def load_result_from_history(self, item):
         """Load a result from the history list - Claude Generated (Enhanced for full state restoration)"""
         try:
@@ -642,8 +649,14 @@ class AbstractTab(QWidget):
             self.results_history.pop(0)
             self.results_list.takeItem(0)
 
-    def add_external_analysis_to_history(self, state: KeywordAnalysisState):
-        """Add externally loaded analysis to tab history - Claude Generated"""
+    def add_external_analysis_to_history(self, state: KeywordAnalysisState, result_text: str = None):
+        """Add externally loaded analysis to tab history - Claude Generated
+
+        Args:
+            state: Pipeline analysis state
+            result_text: Override for the displayed result text. When None, falls back to
+                         state.final_llm_analysis or state.initial_llm_call_details.
+        """
         import datetime
 
         # Extract display information from state
@@ -659,14 +672,14 @@ class AbstractTab(QWidget):
         # Create display info
         prompt_info = f"Loaded: {keyword_count} keywords"
 
-        # Extract result text
-        result_text = ""
-        if state.final_llm_analysis:
-            result_text = state.final_llm_analysis.response_full_text
-        elif state.initial_llm_call_details:
-            result_text = state.initial_llm_call_details.response_full_text
-        else:
-            result_text = f"Abstract: {state.original_abstract[:200]}..." if state.original_abstract else "No content"
+        # Use caller-supplied text if given; otherwise fall back to generic extraction - Claude Generated
+        if result_text is None:
+            if state.final_llm_analysis:
+                result_text = state.final_llm_analysis.response_full_text
+            elif state.initial_llm_call_details:
+                result_text = state.initial_llm_call_details.response_full_text
+            else:
+                result_text = f"Abstract: {state.original_abstract[:200]}..." if state.original_abstract else "No content"
 
         # Add to history with full state object
         self.add_result_to_history(result_text, prompt_info, state_object=state)

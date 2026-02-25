@@ -59,7 +59,7 @@ from .dk_analysis_unified_tab import DkAnalysisUnifiedTab
 from .ub_catalog_tab import UBCatalogTab
 from .tablewidget import TableWidget, DatabaseViewerDialog
 from .image_analysis_tab import ImageAnalysisTab
-from .styles import get_main_stylesheet
+from .styles import get_main_stylesheet, set_dark_mode
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
 # dk_classification_tab and dk_analysis_tab replaced by dk_analysis_unified_tab
@@ -365,6 +365,7 @@ class MainWindow(QMainWindow):
         self.available_models = {}
         self.available_providers = []
         self.gnd_import_worker = None  # Track GND import worker - Claude Generated
+        self._dark_mode = False  # Current theme state — Claude Generated
 
         self.init_ui()
         self.load_settings()
@@ -651,9 +652,15 @@ class MainWindow(QMainWindow):
             self.abstract_tab.set_keywords(keywords_str)
 
         # Ensure history is updated during live pipeline runs - Claude Generated
+        # Pass the correct step result for each tab to avoid cross-tab contamination - Claude Generated
         if analysis_state:
-            self.abstract_tab.add_external_analysis_to_history(analysis_state)
-            self.logger.debug("Updated AbstractTab history with pipeline results")
+            init_text = (
+                analysis_state.initial_llm_call_details.response_full_text
+                if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details
+                else None
+            )
+            self.abstract_tab.add_external_analysis_to_history(analysis_state, result_text=init_text)
+            self.logger.debug("Updated AbstractTab history with initialisation result")
 
         if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
             llm_response = analysis_state.initial_llm_call_details.response_full_text
@@ -710,9 +717,10 @@ class MainWindow(QMainWindow):
         # Display final LLM analysis if available
         if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
             if hasattr(analysis_state.final_llm_analysis, 'response_full_text'):
-                self.analyse_keywords.display_llm_response(
-                    analysis_state.final_llm_analysis.response_full_text
-                )
+                keywords_text = analysis_state.final_llm_analysis.response_full_text
+                self.analyse_keywords.display_llm_response(keywords_text)
+                # Add to history with the correct (keywords step) result text - Claude Generated
+                self.analyse_keywords.add_external_analysis_to_history(analysis_state, result_text=keywords_text)
 
         # 4. UB-Katalog Tab: GND keywords auto-filled via pipeline_results_ready signal
         # (wired to ub_catalog_tab.update_from_pipeline — Claude Generated)
@@ -730,8 +738,10 @@ class MainWindow(QMainWindow):
             self.dk_analysis_tab.set_keywords(analysis_state.dk_search_results)
 
         if hasattr(analysis_state, 'dk_llm_analysis') and analysis_state.dk_llm_analysis:
-            self.dk_analysis_tab.display_llm_response(analysis_state.dk_llm_analysis.response_full_text)
-            self.dk_analysis_tab.add_external_analysis_to_history(analysis_state) # History uses KeywordAnalysisState
+            dk_text = analysis_state.dk_llm_analysis.response_full_text
+            self.dk_analysis_tab.display_llm_response(dk_text)
+            # Pass DK-specific result text so history shows classification, not keywords - Claude Generated
+            self.dk_analysis_tab.add_external_analysis_to_history(analysis_state, result_text=dk_text)
 
         if hasattr(analysis_state, 'dk_classifications') and analysis_state.dk_classifications:
             self.dk_classification_tab.update_data(analysis_state)
@@ -786,9 +796,12 @@ class MainWindow(QMainWindow):
 
         self.logger.info("Updating AbstractTab with intermediate pipeline result")
 
-        # 1. Update text display
-        if hasattr(analysis_result, 'task_name') and analysis_result.task_name in ["dk_class", "dk_classification"]:
+        # 1. Route intermediate result to the correct tab based on task_name - Claude Generated
+        task_name = getattr(analysis_result, 'task_name', None)
+        if task_name in ["dk_class", "dk_classification"]:
             target_tab = self.dk_analysis_tab
+        elif task_name in ["keywords", "rephrase", "keywords_chunked"]:
+            target_tab = self.analyse_keywords
         else:
             target_tab = self.abstract_tab
 
@@ -979,13 +992,55 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'pipeline_tab'):
             self.pipeline_tab.restore_splitter_state(self.settings)
 
+        # Load dark mode preference — Claude Generated
+        from src.alima_gui import is_system_dark_mode
+        app = QApplication.instance()
+        saved = self.settings.value("dark_mode")
+        if saved is not None:
+            dark = saved == "true" or saved is True
+        else:
+            dark = is_system_dark_mode(app)
+        self.apply_theme(dark)
+
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
+        self.settings.setValue("dark_mode", self._dark_mode)
 
         # Save pipeline splitter states - Claude Generated
         if hasattr(self, 'pipeline_tab'):
             self.pipeline_tab.save_splitter_state(self.settings)
+
+    def apply_theme(self, dark: bool):
+        """Switch between dark and light theme — Claude Generated"""
+        from src.alima_gui import _apply_dark_app_palette, _apply_light_app_palette
+        self._dark_mode = dark
+        set_dark_mode(dark)
+        app = QApplication.instance()
+        if dark:
+            _apply_dark_app_palette(app)
+        else:
+            _apply_light_app_palette(app)
+        self.setStyleSheet(get_main_stylesheet())
+        self._reapply_tab_stylesheets()
+        label = "☀️ Helles Design" if dark else "🌙 Dunkles Design"
+        if hasattr(self, '_theme_action'):
+            self._theme_action.setText(label)
+        self.settings.setValue("dark_mode", dark)
+
+    def _reapply_tab_stylesheets(self):
+        """Re-apply stylesheets to all tabs after theme change — Claude Generated"""
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if tab and hasattr(tab, 'refresh_styles'):
+                try:
+                    tab.refresh_styles()
+                except Exception as e:
+                    self.logger.debug(f"refresh_styles on tab {i} failed: {e}")
+
+    def _toggle_theme(self):
+        """Toggle between dark and light theme — Claude Generated"""
+        self.apply_theme(not self._dark_mode)
 
     def _on_config_changed(self):
         """Handle configuration changes from comprehensive settings dialog - Claude Generated"""
@@ -2372,6 +2427,12 @@ class MainWindow(QMainWindow):
 
         # ========== Extras/Tools-Menü (Datenbank und Debug) ==========
         tools_menu = menubar.addMenu("E&xtras")
+
+        # Dark/light theme toggle — Claude Generated
+        self._theme_action = tools_menu.addAction("🌙 Dunkles Design")
+        self._theme_action.triggered.connect(self._toggle_theme)
+
+        tools_menu.addSeparator()
 
         # GND-Datenbank importieren (moved from Datei)
         import_action = tools_menu.addAction("📥 &GND-Datenbank importieren...")
