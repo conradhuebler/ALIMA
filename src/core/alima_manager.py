@@ -141,6 +141,7 @@ class AlimaManager:
         system: Optional[str] = None,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         repetition_penalty: Optional[float] = None,
+        think: Optional[bool] = None,
         on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> TaskState:
         # Log analysis start with workflow-relevant info - Claude Generated
@@ -195,6 +196,7 @@ class AlimaManager:
                 p_value,
                 seed,
                 repetition_penalty,
+                think,
                 on_repetition_detected,
             )
         else:
@@ -224,6 +226,7 @@ class AlimaManager:
                 p_value,
                 seed,
                 repetition_penalty,
+                think,
                 on_repetition_detected,
             )
 
@@ -260,6 +263,7 @@ class AlimaManager:
         p_value: float = 0.1,
         seed: int = 0,
         repetition_penalty: Optional[float] = None,
+        think: Optional[bool] = None,
         on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
@@ -276,6 +280,7 @@ class AlimaManager:
             p_value,
             seed,
             repetition_penalty,
+            think,
             on_repetition_detected,
         )
         if response_text is None:
@@ -309,6 +314,7 @@ class AlimaManager:
         p_value: float = 0.1,
         seed: int = 0,
         repetition_penalty: Optional[float] = None,
+        think: Optional[bool] = None,
         on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> AnalysisResult:
         chunk_results = []
@@ -346,6 +352,7 @@ class AlimaManager:
                     p_value,
                     seed,
                     repetition_penalty,
+                    think,
                     on_repetition_detected,
                 )
                 if response_text is None:
@@ -419,6 +426,7 @@ class AlimaManager:
             p_value,
             seed,
             repetition_penalty,
+            think,
             on_repetition_detected,
         )
 
@@ -433,6 +441,7 @@ class AlimaManager:
         p_value: float = 0.1,
         seed: int = 0,
         repetition_penalty: Optional[float] = None,
+        think: Optional[bool] = None,
         on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> Optional[str]:
         # Acquire LLM semaphore (max 3 concurrent LLM calls) - Claude Generated (2026-01-13)
@@ -475,6 +484,7 @@ class AlimaManager:
                 system=prompt_config.system,
                 stream=True,  # Enable streaming
                 repetition_penalty=repetition_penalty,
+                think=think,
             )
 
             self.logger.debug(f"LLM_SERVICE_RESULT: response_generator={response_generator is not None}")

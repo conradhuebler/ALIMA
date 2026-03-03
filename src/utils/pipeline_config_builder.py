@@ -175,6 +175,11 @@ class PipelineConfigBuilder:
                 step_config.seed = int(value)
                 return True, ""
 
+            elif param_name == "think":
+                # Think flag: enable/disable thinking mode
+                step_config.think = str(value).lower() in ("true", "1", "yes")
+                return True, ""
+
             elif param_name == "max_tokens":
                 # Max tokens validation
                 try:
@@ -341,6 +346,15 @@ class PipelineConfigBuilder:
                     overrides[step_name] = {}
                 if 'value' in parsed:
                     overrides[step_name]['seed'] = int(parsed['value'])
+
+        # Parse --step-think arguments
+        if hasattr(args, 'step_think') and args.step_think:
+            for step_think in args.step_think:
+                step_name, parsed = parser.parse_cli_step_override(step_think)
+                if step_name not in overrides:
+                    overrides[step_name] = {}
+                if 'value' in parsed:
+                    overrides[step_name]['think'] = parsed['value'].lower() in ("true", "1", "yes")
 
         # Parse --disable-dk-classification
         if hasattr(args, 'disable_dk_classification') and args.disable_dk_classification:

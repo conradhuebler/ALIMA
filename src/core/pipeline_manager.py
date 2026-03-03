@@ -887,6 +887,7 @@ class PipelineManager:
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
         repetition_penalty = step_config.repetition_penalty
+        think = step_config.think
 
         # Debug: Log the extracted configuration
         self.logger.info(
@@ -978,6 +979,7 @@ class PipelineManager:
                     p_value=top_p,
                     step_id=step.step_id,  # Pass step_id for proper callback handling
                     repetition_penalty=repetition_penalty,
+                    think=think,
                     **filtered_config,  # Pass remaining config parameters
                 )
             )
@@ -1082,6 +1084,7 @@ class PipelineManager:
         temperature = step_config.temperature or 0.7
         top_p = step_config.top_p or 0.1
         repetition_penalty = step_config.repetition_penalty
+        think = step_config.think
 
         # Debug: Log the extracted configuration
         self.logger.info(
@@ -1218,6 +1221,7 @@ class PipelineManager:
                         p_value=top_p,
                         step_id=step.step_id,
                         repetition_penalty=repetition_penalty,
+                        think=think,
                         **filtered_config,
                     )
                 )
@@ -1253,6 +1257,7 @@ class PipelineManager:
                         p_value=top_p,
                         step_id=step.step_id,  # Pass step_id for proper callback handling
                         repetition_penalty=repetition_penalty,
+                        think=think,
                         **filtered_config,  # Pass remaining config parameters
                     )
                 )
@@ -1432,6 +1437,7 @@ class PipelineManager:
                 "top_p": step_config.top_p or 0.1,
                 "dk_frequency_threshold": getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),
                 "repetition_penalty": step_config.repetition_penalty,
+                "think": step_config.think,
             }
 
             # Add repetition callback if available

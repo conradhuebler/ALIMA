@@ -33,6 +33,7 @@ from .styles import (
     COLORS,
 )
 from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis
+from ..utils.pipeline_utils import AnalysisPersistence
 
 # K10+/WinIBW export format tags - Claude Generated
 # These can be moved to config later for configurability
@@ -61,7 +62,7 @@ class AnalysisReviewTab(QWidget):
     def receive_analysis_data(
         self, abstract_text: str, keywords: str = "", analysis_result: str = "",
         dk_classifications: list = None, dk_search_results: list = None,
-        dk_statistics: dict = None
+        dk_statistics: dict = None, working_title: str = None
     ):
         """Receive analysis data from AbstractTab or Pipeline - Claude Generated (Refactored, Extended for DK)"""
         # Create KeywordAnalysisState for unified data handling
@@ -95,7 +96,8 @@ class AnalysisReviewTab(QWidget):
             dk_classifications=dk_classifications or [],
             dk_search_results=dk_search_results or [],
             dk_search_results_flattened=[],
-            dk_statistics=dk_statistics
+            dk_statistics=dk_statistics,
+            working_title=working_title
         )
 
         # Update UI

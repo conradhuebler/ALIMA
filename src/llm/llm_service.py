@@ -798,6 +798,7 @@ class LlmService(QObject):
         system: Optional[str] = "",
         stream: bool = True,
         repetition_penalty: Optional[float] = None,
+        think: Optional[bool] = None,
     ) -> Union[str, Any]:  # Return type can be str or a generator
         """
         Generate a response from the specified provider using the given parameters.
@@ -846,6 +847,8 @@ class LlmService(QObject):
 
         # Store repetition_penalty for provider generators (only when != 1.0)
         self.current_repetition_penalty = repetition_penalty if (repetition_penalty is not None and repetition_penalty != 1.0) else None
+        # Store think flag for provider generators
+        self.current_think = think
 
         try:
             # Log the request
@@ -1457,6 +1460,10 @@ class LlmService(QObject):
             if self.current_repetition_penalty is not None:
                 params.setdefault("extra_body", {})["repetition_penalty"] = self.current_repetition_penalty
 
+            # Add think flag via extra_body for OpenAI-compat providers that support it
+            if self.current_think is not None:
+                params.setdefault("extra_body", {})["think"] = self.current_think
+
             # Handle streaming option
             if stream:
                 response_stream = self.clients[provider].chat.completions.create(
@@ -1554,7 +1561,7 @@ class LlmService(QObject):
                     "top_p": p_value,
                 },
                 "stream": stream,
-                "think" : False
+                "think": self.current_think if self.current_think is not None else False
             }
 
             # Add seed if provided
@@ -1683,6 +1690,10 @@ class LlmService(QObject):
             # Add repeat_penalty if set (Ollama naming)
             if self.current_repetition_penalty is not None:
                 options['repeat_penalty'] = self.current_repetition_penalty
+
+            # Add think flag if set (Ollama thinking mode)
+            if self.current_think is not None:
+                options['think'] = self.current_think
 
             self.logger.info(f"Sending native Ollama request with model: {model}")
             

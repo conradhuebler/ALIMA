@@ -662,10 +662,16 @@ class PipelineStreamWidget(QWidget):
         else:
             default_filename = f"pipeline_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
+        from pathlib import Path
+        docs_dir = Path.home() / "Documents"
+        if not docs_dir.exists():
+            docs_dir = Path.home()
+        default_path = str(docs_dir / default_filename)
+
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Pipeline-Log speichern",
-            default_filename,
+            default_path,
             "Text Files (*.txt);;All Files (*)",
         )
 

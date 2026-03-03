@@ -62,6 +62,7 @@ from .image_analysis_tab import ImageAnalysisTab
 from .styles import get_main_stylesheet, set_dark_mode
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
+from .comparison_tab import ComparisonTab
 # dk_classification_tab and dk_analysis_tab replaced by dk_analysis_unified_tab
 import logging
 
@@ -517,6 +518,9 @@ class MainWindow(QMainWindow):
             main_window=self,
         )
 
+        # Comparison Tab - Claude Generated
+        self.comparison_tab = ComparisonTab(main_window=self)
+
         # Connect pipeline events to global status bar
         self.pipeline_tab.pipeline_started.connect(
             lambda: self.global_status_bar.update_pipeline_status("Pipeline", "running")
@@ -550,6 +554,9 @@ class MainWindow(QMainWindow):
         # Update window title when pipeline completes - Claude Generated
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_title_update)
 
+        # Keep comparison tab current with latest pipeline result - Claude Generated
+        self.pipeline_tab.pipeline_results_ready.connect(self.comparison_tab.load_from_current)
+
         # Add Pipeline tab first
         self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")
 
@@ -562,6 +569,11 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.ub_catalog_tab, "📚 UB-Katalog")        # NEW - Claude Generated
         self.tabs.addTab(self.dk_analysis_unified_tab, "📊 DK-Analyse")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
+
+        # Comparison tab - initially hidden until comparison is loaded - Claude Generated
+        self._comparison_tab_idx = self.tabs.addTab(self.comparison_tab, "🔍 Vergleich")
+        self.tabs.setTabVisible(self._comparison_tab_idx, False)
+        self.comparison_tab.comparison_loaded.connect(self._show_comparison_tab)
 
         # Globale Statusleiste
         self.global_status_bar = GlobalStatusBar()
@@ -765,7 +777,8 @@ class MainWindow(QMainWindow):
                 analysis_result=analysis_result,
                 dk_classifications=analysis_state.dk_classifications,
                 dk_search_results=analysis_state.dk_search_results,
-                dk_statistics=analysis_state.dk_statistics
+                dk_statistics=analysis_state.dk_statistics,
+                working_title=getattr(analysis_state, 'working_title', None)
             )
             self.logger.info("✅ Analysis review tab populated with pipeline results (keywords and/or DK).")
 
@@ -1537,7 +1550,8 @@ class MainWindow(QMainWindow):
                     full_response,
                     state.dk_classifications,
                     state.dk_search_results,
-                    state.dk_statistics
+                    state.dk_statistics,
+                    getattr(state, 'working_title', None)
                 )
                 self.logger.info("✅ Analysis review tab populated with final results")
 
@@ -1610,151 +1624,15 @@ class MainWindow(QMainWindow):
                 "Bitte führen Sie zuerst eine Analyse durch oder laden Sie ein Ergebnis in den 'Analyse-Review'-Tab."
             )
 
-    def compare_analysis_states(self):
-        """
-        Ermöglicht den Vergleich von zwei Analysis-States - Claude Generated
-        Diese Funktion ist eine Grundlage für erweiterte Analytics Features
-        """
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox, QDialog, QVBoxLayout, QTextEdit, QPushButton
+    def _open_comparison_tab(self):
+        """Show and switch to the comparison tab - Claude Generated"""
+        self.tabs.setTabVisible(self._comparison_tab_idx, True)
+        self.tabs.setCurrentIndex(self._comparison_tab_idx)
 
-        try:
-            # 1. Erste Datei auswählen
-            file1, _ = QFileDialog.getOpenFileName(
-                self,
-                "Erste Analyse-Datei auswählen",
-                "",
-                "JSON Files (*.json);;All Files (*)"
-            )
-            if not file1:
-                return
-
-            # 2. Zweite Datei auswählen
-            file2, _ = QFileDialog.getOpenFileName(
-                self,
-                "Zweite Analyse-Datei auswählen",
-                "",
-                "JSON Files (*.json);;All Files (*)"
-            )
-            if not file2:
-                return
-
-            # 3. Beide Dateien laden
-            from ..utils.pipeline_utils import PipelineJsonManager
-            state1 = PipelineJsonManager.load_analysis_state(file1)
-            state2 = PipelineJsonManager.load_analysis_state(file2)
-
-            # 4. Einfachen Vergleich erstellen
-            comparison_text = self._create_state_comparison(state1, state2, file1, file2)
-
-            # 5. Vergleichsdialog anzeigen
-            dialog = QDialog(self)
-            dialog.setWindowTitle("Analysis-State Vergleich")
-            dialog.setMinimumSize(800, 600)
-
-            layout = QVBoxLayout(dialog)
-            text_widget = QTextEdit()
-            text_widget.setPlainText(comparison_text)
-            text_widget.setReadOnly(True)
-            layout.addWidget(text_widget)
-
-            close_button = QPushButton("Schließen")
-            close_button.clicked.connect(dialog.accept)
-            layout.addWidget(close_button)
-
-            dialog.exec()
-
-        except Exception as e:
-            self.logger.error(f"Error comparing analysis states: {e}")
-            QMessageBox.critical(
-                self,
-                "Vergleichsfehler",
-                f"Die Analysis-States konnten nicht verglichen werden:\n\n{str(e)}"
-            )
-
-    def _create_state_comparison(self, state1, state2, file1, file2):
-        """
-        Erstellt einen textuellen Vergleich zwischen zwei Analysis-States - Claude Generated
-        """
-        from pathlib import Path
-
-        comparison_lines = []
-        comparison_lines.append("=== ANALYSIS-STATE VERGLEICH ===\n")
-        comparison_lines.append(f"Datei 1: {Path(file1).name}")
-        comparison_lines.append(f"Datei 2: {Path(file2).name}")
-        comparison_lines.append("\n" + "="*50 + "\n")
-
-        # Vergleiche Basis-Informationen
-        comparison_lines.append("📄 ABSTRACT/INPUT:")
-        if state1.original_abstract != state2.original_abstract:
-            comparison_lines.append("  ❌ UNTERSCHIEDLICH")
-            comparison_lines.append(f"  Datei 1: {len(state1.original_abstract or '')} Zeichen")
-            comparison_lines.append(f"  Datei 2: {len(state2.original_abstract or '')} Zeichen")
-        else:
-            comparison_lines.append("  ✅ IDENTISCH")
-
-        # Vergleiche Keywords
-        comparison_lines.append("\n🔑 INITIALE KEYWORDS:")
-        keywords1 = set(state1.initial_keywords)
-        keywords2 = set(state2.initial_keywords)
-
-        if keywords1 == keywords2:
-            comparison_lines.append("  ✅ IDENTISCH")
-        else:
-            comparison_lines.append("  ❌ UNTERSCHIEDLICH")
-            only_in_1 = keywords1 - keywords2
-            only_in_2 = keywords2 - keywords1
-            both = keywords1 & keywords2
-
-            if both:
-                comparison_lines.append(f"  🤝 Gemeinsam ({len(both)}): {', '.join(sorted(both))}")
-            if only_in_1:
-                comparison_lines.append(f"  📁 Nur in Datei 1 ({len(only_in_1)}): {', '.join(sorted(only_in_1))}")
-            if only_in_2:
-                comparison_lines.append(f"  📁 Nur in Datei 2 ({len(only_in_2)}): {', '.join(sorted(only_in_2))}")
-
-        # Vergleiche finale Keywords
-        comparison_lines.append("\n🎯 FINALE KEYWORDS:")
-        final1 = set(state1.final_llm_analysis.extracted_gnd_keywords) if state1.final_llm_analysis else set()
-        final2 = set(state2.final_llm_analysis.extracted_gnd_keywords) if state2.final_llm_analysis else set()
-
-        if final1 == final2:
-            comparison_lines.append("  ✅ IDENTISCH")
-        else:
-            comparison_lines.append("  ❌ UNTERSCHIEDLICH")
-            only_in_1 = final1 - final2
-            only_in_2 = final2 - final1
-            both = final1 & final2
-
-            if both:
-                comparison_lines.append(f"  🤝 Gemeinsam ({len(both)}): {', '.join(sorted(both))}")
-            if only_in_1:
-                comparison_lines.append(f"  📁 Nur in Datei 1 ({len(only_in_1)}): {', '.join(sorted(only_in_1))}")
-            if only_in_2:
-                comparison_lines.append(f"  📁 Nur in Datei 2 ({len(only_in_2)}): {', '.join(sorted(only_in_2))}")
-
-        # Vergleiche LLM-Details
-        comparison_lines.append("\n🤖 LLM-DETAILS:")
-        if state1.final_llm_analysis and state2.final_llm_analysis:
-            llm1 = state1.final_llm_analysis
-            llm2 = state2.final_llm_analysis
-
-            if llm1.provider_used != llm2.provider_used:
-                comparison_lines.append(f"  Provider: {llm1.provider_used} vs {llm2.provider_used}")
-            if llm1.model_used != llm2.model_used:
-                comparison_lines.append(f"  Model: {llm1.model_used} vs {llm2.model_used}")
-            if llm1.temperature != llm2.temperature:
-                comparison_lines.append(f"  Temperature: {llm1.temperature} vs {llm2.temperature}")
-        elif state1.final_llm_analysis:
-            comparison_lines.append("  📁 Nur Datei 1 hat LLM-Details")
-        elif state2.final_llm_analysis:
-            comparison_lines.append("  📁 Nur Datei 2 hat LLM-Details")
-        else:
-            comparison_lines.append("  ❌ Keine LLM-Details in beiden Dateien")
-
-        comparison_lines.append("\n" + "="*50)
-        comparison_lines.append("💡 Tipp: Verwende die Tabs zur detaillierteren Analyse der geladenen Daten!")
-
-        return "\n".join(comparison_lines)
+    def _show_comparison_tab(self):
+        """Signal handler: make comparison tab visible and switch to it - Claude Generated"""
+        self.tabs.setTabVisible(self._comparison_tab_idx, True)
+        self.tabs.setCurrentIndex(self._comparison_tab_idx)
 
     def _handle_file_extraction(self, filename: str) -> str:
         """Behandelt die Extraktion von gz-Dateien"""
@@ -2461,13 +2339,9 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
-        # Analysis-States vergleichen - Claude Generated
-        compare_states_action = tools_menu.addAction("🔍 Analysis-States &vergleichen...")
-        compare_states_action.triggered.connect(self.compare_analysis_states)
-
-        # GUI-Zustand exportieren - Claude Generated (marked as debug)
-        export_gui_state_action = tools_menu.addAction("🐛 GUI-Debug: Zustand &exportieren...")
-        export_gui_state_action.triggered.connect(self.export_current_gui_state)
+        # Erschließungsvergleich - Claude Generated
+        compare_states_action = tools_menu.addAction("🔍 Erschließungs&vergleich...")
+        compare_states_action.triggered.connect(self._open_comparison_tab)
 
         # ========== Bearbeiten-Menü ==========
         edit_menu = menubar.addMenu("&Bearbeiten")

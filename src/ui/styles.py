@@ -51,6 +51,13 @@ COLORS = {
     "confidence_medium_bg": "#fff3cd",
     "confidence_low_text": "#721c24",
     "confidence_low_bg": "#f8d7da",
+    # Comparison colors (shared=green, only_a=blue/teal, only_b=amber/orange) - Claude Generated
+    "comparison_shared_bg": "#d4edda",
+    "comparison_shared_text": "#2d5016",
+    "comparison_only_a_bg": "#d1ecf1",
+    "comparison_only_a_text": "#0c5460",
+    "comparison_only_b_bg": "#fff3cd",
+    "comparison_only_b_text": "#664d03",
 }
 
 # Dark mode color palette — Claude Generated (Catppuccin-inspired)
@@ -89,6 +96,13 @@ DARK_COLORS = {
     "confidence_medium_bg": "#2e2a1e",
     "confidence_low_text": "#f38ba8",
     "confidence_low_bg": "#2e1e22",
+    # Comparison colors — dark tints - Claude Generated
+    "comparison_shared_bg": "#1e2e1e",
+    "comparison_shared_text": "#a6e3a1",
+    "comparison_only_a_bg": "#1e2a2e",
+    "comparison_only_a_text": "#89dceb",
+    "comparison_only_b_bg": "#2e2a1e",
+    "comparison_only_b_text": "#f9e2af",
 }
 
 # Standard layout constants

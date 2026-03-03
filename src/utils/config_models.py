@@ -320,6 +320,7 @@ class PipelineStepConfig:
     max_tokens: Optional[int] = None
     seed: Optional[int] = None  # For reproducible results
     repetition_penalty: Optional[float] = None  # Penalise repeated tokens (Ollama repeat_penalty / OpenAI repetition_penalty)
+    think: Optional[bool] = None  # Enable/disable thinking mode (Ollama/OpenAI-compat extended thinking)
     custom_params: Dict[str, Any] = field(default_factory=dict)
 
     # Meta settings

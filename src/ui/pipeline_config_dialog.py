@@ -461,7 +461,21 @@ class HybridStepConfigWidget(QWidget):
         self.max_tokens_spinbox.setValue(2048)
         self.max_tokens_spinbox.valueChanged.connect(self._on_expert_config_changed)
         expert_layout.addWidget(self.max_tokens_spinbox, 2, 1)
-        
+
+        # Thinking Mode (Ollama/OpenAI-compat think flag) - Claude Generated
+        expert_layout.addWidget(QLabel("Thinking Mode:"), 3, 0)
+        self.think_checkbox = QCheckBox("Enable thinking (think=true)")
+        self.think_checkbox.setTristate(True)
+        self.think_checkbox.setCheckState(Qt.CheckState.PartiallyChecked)  # PartiallyChecked = not set (use default)
+        self.think_checkbox.setToolTip(
+            "Controls thinking/CoT mode for Ollama and compatible providers.\n"
+            "Partially checked (─) = use provider default (think not sent)\n"
+            "Checked (✓) = think=true\n"
+            "Unchecked (☐) = think=false"
+        )
+        self.think_checkbox.stateChanged.connect(self._on_expert_config_changed)
+        expert_layout.addWidget(self.think_checkbox, 3, 1)
+
         layout.addWidget(self.expert_group)
 
         # Expert Mode Prompt Editing (only visible in Expert mode) - Claude Generated
@@ -1271,6 +1285,14 @@ class HybridStepConfigWidget(QWidget):
         self.step_config.temperature = self.temperature_spinbox.value()
         self.step_config.top_p = self.top_p_spinbox.value()
         self.step_config.max_tokens = self.max_tokens_spinbox.value()
+        # Think checkbox: PartiallyChecked = None (use default), Checked = True, Unchecked = False
+        state = self.think_checkbox.checkState()
+        if state == Qt.CheckState.PartiallyChecked:
+            self.step_config.think = None
+        elif state == Qt.CheckState.Checked:
+            self.step_config.think = True
+        else:
+            self.step_config.think = False
         self.config_changed.emit()
     
     def _validate_configuration(self):
@@ -2323,6 +2345,7 @@ class PipelineConfigDialog(QDialog):
             max_tokens=config_dict.get("max_tokens"),
             seed=config_dict.get("seed"),
             repetition_penalty=config_dict.get("repetition_penalty"),
+            think=config_dict.get("think"),
             custom_params=config_dict.get("custom_params", {}),
             task_type=config_dict.get("task_type"),
         )
