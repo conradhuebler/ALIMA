@@ -22,6 +22,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QThread
 from PyQt6.QtGui import QFont, QTextCursor, QColor, QPalette
 from typing import Optional, Dict, Any, List
 import logging
+import time
 from datetime import datetime
 import json
 
@@ -45,6 +46,7 @@ class PipelineStreamWidget(QWidget):
         self.step_start_times: Dict[str, datetime] = {}
         self.current_working_title: Optional[str] = None  # For log filename - Claude Generated
         self.current_suggestions: List[Dict] = []  # Current retry suggestions - Claude Generated
+        self._last_scroll_time: float = 0.0  # Throttle auto-scroll to max 20/sec - Claude Generated
 
         self.setup_ui()
 
@@ -149,6 +151,26 @@ class PipelineStreamWidget(QWidget):
 
         layout.addWidget(self.stream_text)
 
+    # Green resolved stylesheet - Claude Generated
+    _STYLE_WARNING_GREEN = """
+        QFrame {
+            background-color: #1b3a1f;
+            border: 1px solid #4caf50;
+            border-radius: 3px;
+            padding: 1px;
+        }
+        QLabel { color: #a5d6a7; }
+        QPushButton {
+            background-color: #2e7d32;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-weight: bold;
+        }
+        QPushButton:hover { background-color: #43a047; }
+    """
+
     # Orange warning stylesheet (reused in show/hide) - Claude Generated
     _STYLE_WARNING_ORANGE = """
         QFrame {
@@ -169,12 +191,19 @@ class PipelineStreamWidget(QWidget):
         QPushButton:hover { background-color: #ffb74d; }
     """
 
+    # Transparent stylesheet for hidden warning panel (no visual footprint) - Claude Generated
+    _STYLE_WARNING_HIDDEN = """
+        QFrame { background: transparent; border: none; padding: 0; }
+        QLabel { color: transparent; }
+        QPushButton { background: transparent; border: none; color: transparent; }
+    """
+
     def create_repetition_warning_panel(self, layout):
         """Create compact single-line repetition warning bar - Claude Generated"""
         self.repetition_warning_frame = QFrame()
-        self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
-        self.repetition_warning_frame.setVisible(False)
-        self.repetition_warning_frame.setMaximumHeight(28)
+        self.repetition_warning_frame.setFixedHeight(28)  # Always reserves 28px, no layout shift - Claude Generated
+        self._warning_style_state = "hidden"  # Track style state to avoid redundant setStyleSheet - Claude Generated
+        self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
 
         bar_layout = QHBoxLayout(self.repetition_warning_frame)
         bar_layout.setContentsMargins(6, 1, 4, 1)
@@ -223,7 +252,25 @@ class PipelineStreamWidget(QWidget):
         self.dismiss_warning_button.clicked.connect(self.hide_repetition_warning)
         bar_layout.addWidget(self.dismiss_warning_button)
 
+        # Grace period countdown timer (created once, reused) - Claude Generated
+        self.grace_timer = QTimer(self)
+        self.grace_timer.timeout.connect(self._update_countdown)
+        self.grace_period_end = 0.0
+
         layout.addWidget(self.repetition_warning_frame)
+
+        # Start with children hidden (panel is transparent placeholder) - Claude Generated
+        self._set_warning_children_visible(False)
+
+    def _set_warning_children_visible(self, visible: bool):
+        """Show/hide warning panel content without changing frame size - Claude Generated
+        Frame stays at fixed 28px. When hidden, children are invisible and frame is transparent.
+        """
+        if not visible and self._warning_style_state != "hidden":
+            self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
+            self._warning_style_state = "hidden"
+        for child in self.repetition_warning_frame.findChildren(QWidget):
+            child.setVisible(visible)
 
     def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict],
                                  grace_period: bool = False, grace_seconds: float = 2.0):
@@ -239,7 +286,9 @@ class PipelineStreamWidget(QWidget):
         self.current_suggestions = suggestions
 
         # Reset to orange warning state (in case previous run left it green) - Claude Generated
-        self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
+        if self._warning_style_state != "orange":
+            self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
+            self._warning_style_state = "orange"
         self.warning_icon_label.setText("⚠️")
         self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
         self.continue_button.setVisible(True)
@@ -255,25 +304,15 @@ class PipelineStreamWidget(QWidget):
 
         # Handle grace period countdown - Claude Generated (2026-02-17)
         if grace_period:
-            # Guard: stop existing timer before creating a new one - Claude Generated
-            if hasattr(self, 'grace_timer') and self.grace_timer.isActive():
-                self.grace_timer.stop()
-            # START countdown timer
-            import time
             self.grace_period_end = time.time() + grace_seconds
-            self.grace_timer = QTimer(self)
-            self.grace_timer.timeout.connect(self._update_countdown)
-            self.grace_timer.start(100)  # Update every 100ms
+            self.grace_timer.stop()
+            self.grace_timer.start(200)  # Update every 200ms (reused timer) - Claude Generated
 
-            # Show countdown label
             self.countdown_label.setText(f"⏳ {grace_seconds:.1f}s")
             self.countdown_label.setVisible(True)
         else:
-            # Immediate warning (old behavior)
             self.countdown_label.setVisible(False)
-            # Stop timer if it's running
-            if hasattr(self, 'grace_timer') and self.grace_timer.isActive():
-                self.grace_timer.stop()
+            self.grace_timer.stop()
 
         # Clear existing suggestion buttons
         while self.suggestions_button_layout.count():
@@ -295,15 +334,14 @@ class PipelineStreamWidget(QWidget):
             button.clicked.connect(make_handler(params))
             self.suggestions_button_layout.addWidget(button)
 
-        # Show the warning panel
-        self.repetition_warning_frame.setVisible(True)
+        # Show the warning panel (children visible + orange style)
+        self._set_warning_children_visible(True)
 
         # NOTE: Don't log to pipeline stream during streaming - it fragments the LLM output!
         # The warning panel already shows this information visually - Claude Generated (2026-02-17)
 
     def _update_countdown(self):
         """Update countdown timer display - Claude Generated (2026-02-17)"""
-        import time
         remaining = self.grace_period_end - time.time()
         if remaining > 0:
             self.countdown_label.setText(f"⏳ {remaining:.1f}s")
@@ -318,30 +356,14 @@ class PipelineStreamWidget(QWidget):
             resolved: If True, switch to green success state (panel stays visible).
                       If False, actually hide the panel (explicit user dismiss or reset).
         """
-        if hasattr(self, 'grace_timer') and self.grace_timer.isActive():
-            self.grace_timer.stop()
+        self.grace_timer.stop()
         self.countdown_label.setVisible(False)
 
         if resolved:
             # Switch to green "resolved" state – panel stays visible - Claude Generated
-            self.repetition_warning_frame.setStyleSheet("""
-                QFrame {
-                    background-color: #1b3a1f;
-                    border: 1px solid #4caf50;
-                    border-radius: 3px;
-                    padding: 1px;
-                }
-                QLabel { color: #a5d6a7; }
-                QPushButton {
-                    background-color: #2e7d32;
-                    color: #fff;
-                    border: none;
-                    border-radius: 3px;
-                    padding: 1px 5px;
-                    font-weight: bold;
-                }
-                QPushButton:hover { background-color: #43a047; }
-            """)
+            if self._warning_style_state != "green":
+                self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_GREEN)
+                self._warning_style_state = "green"
             self.warning_icon_label.setText("✅")
             self.warning_title_label.setText("Wiederholung behoben – Generation läuft weiter")
             self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #4caf50;")
@@ -358,10 +380,8 @@ class PipelineStreamWidget(QWidget):
 
             # Panel stays visible – no setVisible(False) call
         else:
-            # Explicit dismiss or pipeline reset: really hide the panel - Claude Generated
-            self.repetition_warning_frame.setVisible(False)
-            # Restore orange warning style for next use - Claude Generated
-            self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
+            # Explicit dismiss or pipeline reset: hide children + transparent frame - Claude Generated
+            self._set_warning_children_visible(False)
             self.warning_icon_label.setText("⚠️")
             self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
             self.continue_button.setVisible(True)
@@ -445,7 +465,11 @@ class PipelineStreamWidget(QWidget):
             self.is_streaming = False
 
     def auto_scroll_to_bottom(self):
-        """Auto-scroll to bottom of text area - Claude Generated"""
+        """Auto-scroll to bottom of text area (throttled to max 20/sec) - Claude Generated"""
+        now = time.time()
+        if now - self._last_scroll_time < 0.05:  # 50ms minimum gap
+            return
+        self._last_scroll_time = now
         scrollbar = self.stream_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 

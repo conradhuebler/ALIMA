@@ -1,6 +1,7 @@
 """
 Erschließungsvergleich - Comparison Tab for ALIMA pipeline results.
 Compares two KeywordAnalysisState objects side-by-side with color-coded chips.
+Uses QTabWidget for sub-tab navigation instead of scroll-wall layout.
 Claude Generated
 """
 import difflib
@@ -14,18 +15,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QLabel,
-    QScrollArea,
-    QGroupBox,
     QTextEdit,
     QFileDialog,
     QMessageBox,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
+    QTabWidget,
     QFrame,
 )
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QFont
 
 from ..core.data_models import KeywordAnalysisState
 from ..utils.pipeline_utils import PipelineJsonManager
@@ -75,9 +71,13 @@ class ComparisonTab(QWidget):
         self.label_b.setStyleSheet(f"color: {get_colors()['text_light']}; font-style: italic;")
         toolbar.addWidget(self.label_b, 1)
 
-        self.btn_current = QPushButton("Aktuelles Ergebnis als A")
-        self.btn_current.clicked.connect(self._load_current_as_a)
-        toolbar.addWidget(self.btn_current)
+        self.btn_current_a = QPushButton("Aktuell → A")
+        self.btn_current_a.clicked.connect(self._load_current_as_a)
+        toolbar.addWidget(self.btn_current_a)
+
+        self.btn_current_b = QPushButton("Aktuell → B")
+        self.btn_current_b.clicked.connect(self._load_current_as_b)
+        toolbar.addWidget(self.btn_current_b)
 
         self.btn_compare = QPushButton("Vergleichen")
         self.btn_compare.setStyleSheet(f"""
@@ -101,24 +101,65 @@ class ComparisonTab(QWidget):
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(sep)
 
-        # --- Scroll area for comparison results ---
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-        self.scroll_layout.setSpacing(LAYOUT["spacing"])
-        self.scroll_layout.setContentsMargins(4, 4, 4, 4)
-        self.scroll_layout.addStretch()
-        self.scroll_area.setWidget(self.scroll_content)
-        layout.addWidget(self.scroll_area, 1)
+        # --- Summary widget (always visible above tabs) ---
+        self.summary_widget = QWidget()
+        summary_layout = QVBoxLayout(self.summary_widget)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.setSpacing(4)
 
-        # Placeholder
+        # Two cards side-by-side
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(LAYOUT["spacing"])
+        self.card_a = QTextEdit()
+        self.card_a.setReadOnly(True)
+        self.card_a.setMaximumHeight(90)
+        self.card_b = QTextEdit()
+        self.card_b.setReadOnly(True)
+        self.card_b.setMaximumHeight(90)
+        cards_row.addWidget(self.card_a, 1)
+        cards_row.addWidget(self.card_b, 1)
+        summary_layout.addLayout(cards_row)
+
+        # Overlap bar
+        self.overlap_display = QTextEdit()
+        self.overlap_display.setReadOnly(True)
+        self.overlap_display.setMaximumHeight(50)
+        self.overlap_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        summary_layout.addWidget(self.overlap_display)
+
+        self.summary_widget.setVisible(False)
+        layout.addWidget(self.summary_widget)
+
+        # --- Content tabs ---
+        self._init_content_tabs()
+        self.content_tabs.setVisible(False)
+        layout.addWidget(self.content_tabs, 1)
+
+        # --- Placeholder ---
         self.placeholder = QLabel(
             "Laden Sie zwei Analysis-States und klicken Sie auf \"Vergleichen\"."
         )
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder.setStyleSheet(f"color: {get_colors()['text_muted']}; font-size: 12pt; padding: 40px;")
-        self.scroll_layout.insertWidget(0, self.placeholder)
+        layout.addWidget(self.placeholder)
+
+    def _init_content_tabs(self):
+        """Create QTabWidget with 6 sub-tabs - Claude Generated"""
+        self.content_tabs = QTabWidget()
+
+        self.keywords_display = self._make_text_display("")
+        self.init_display = self._make_text_display("")
+        self.search_display = self._make_text_display("")
+        self.input_display = self._make_text_display("")
+        self.classification_display = self._make_text_display("")
+        self.meta_display = self._make_text_display("")
+
+        self.content_tabs.addTab(self.keywords_display, "Keywords")          # 0
+        self.content_tabs.addTab(self.init_display, "Initialisierung")       # 1
+        self.content_tabs.addTab(self.search_display, "Suche")               # 2
+        self.content_tabs.addTab(self.input_display, "Input")                # 3
+        self.content_tabs.addTab(self.classification_display, "Klassifikation")  # 4
+        self.content_tabs.addTab(self.meta_display, "Meta")                  # 5
 
     # ------------------------------------------------------------------
     # Loading
@@ -150,22 +191,36 @@ class ComparisonTab(QWidget):
             logger.error(f"Failed to load state from {path}: {e}")
             QMessageBox.critical(self, "Ladefehler", f"Datei konnte nicht geladen werden:\n{e}")
 
-    def load_from_current(self, state: KeywordAnalysisState):
-        """Receive current pipeline result as State A - Claude Generated"""
-        self.state_a = state
+    def load_from_current(self, state: KeywordAnalysisState, slot: str = "a"):
+        """Receive current pipeline result as State A or B - Claude Generated"""
         title = state.working_title or "Aktuelles Ergebnis"
-        self.file_a = title
-        self.label_a.setText(title)
-        self.label_a.setToolTip("Aus aktuellem Pipeline-Ergebnis")
+        if slot == "b":
+            self.state_b = state
+            self.file_b = title
+            self.label_b.setText(title)
+            self.label_b.setToolTip("Aus aktuellem Pipeline-Ergebnis")
+        else:
+            self.state_a = state
+            self.file_a = title
+            self.label_a.setText(title)
+            self.label_a.setToolTip("Aus aktuellem Pipeline-Ergebnis")
         self.btn_compare.setEnabled(self.state_a is not None and self.state_b is not None)
 
     def _load_current_as_a(self):
         """Load current analysis from AnalysisReviewTab as State A - Claude Generated"""
+        self._load_current_into_slot("a")
+
+    def _load_current_as_b(self):
+        """Load current analysis from AnalysisReviewTab as State B - Claude Generated"""
+        self._load_current_into_slot("b")
+
+    def _load_current_into_slot(self, slot: str):
+        """Load current analysis into given slot - Claude Generated"""
         if not self.main_window:
             return
         review_tab = getattr(self.main_window, 'analysis_review_tab', None)
         if review_tab and hasattr(review_tab, 'current_analysis') and review_tab.current_analysis:
-            self.load_from_current(review_tab.current_analysis)
+            self.load_from_current(review_tab.current_analysis, slot)
         else:
             QMessageBox.information(
                 self, "Kein Ergebnis",
@@ -174,7 +229,7 @@ class ComparisonTab(QWidget):
             )
 
     # ------------------------------------------------------------------
-    # Comparison logic
+    # Comparison logic (unchanged)
     # ------------------------------------------------------------------
 
     def _compare_sets(self, set_a: Set[str], set_b: Set[str]) -> Dict[str, Any]:
@@ -227,107 +282,12 @@ class ComparisonTab(QWidget):
             f'{pct:.1f}%</div></div>'
         )
 
-    def _build_step_section(self, title: str, content_widget: QWidget) -> QGroupBox:
-        """Wrap a content widget in a uniform QGroupBox section - Claude Generated"""
-        box = QGroupBox(title)
-        box_layout = QVBoxLayout()
-        box_layout.setContentsMargins(8, 8, 8, 8)
-        box_layout.addWidget(content_widget)
-        box.setLayout(box_layout)
-        return box
-
     def _make_text_display(self, html: str) -> QTextEdit:
         """Create a read-only QTextEdit for HTML content - Claude Generated"""
         te = QTextEdit()
         te.setReadOnly(True)
         te.setHtml(html)
-        te.setMinimumHeight(60)
         return te
-
-    # ------------------------------------------------------------------
-    # Build comparison sections
-    # ------------------------------------------------------------------
-
-    def run_comparison(self):
-        """Build all comparison sections and display them - Claude Generated"""
-        if not self.state_a or not self.state_b:
-            return
-
-        # Clear previous content
-        while self.scroll_layout.count():
-            item = self.scroll_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-
-        c = get_colors()
-        a, b = self.state_a, self.state_b
-
-        # --- Summary cards ---
-        self.scroll_layout.addWidget(self._build_summary_section(a, b, c))
-
-        # --- Step 1: Input ---
-        self.scroll_layout.addWidget(self._build_input_section(a, b, c))
-
-        # --- Step 2: Initialisation (free keywords) ---
-        self.scroll_layout.addWidget(self._build_init_section(a, b, c))
-
-        # --- Step 3: Search ---
-        self.scroll_layout.addWidget(self._build_search_section(a, b, c))
-
-        # --- Step 4: Keywords (main section) ---
-        self.scroll_layout.addWidget(self._build_keywords_section(a, b, c))
-
-        # --- Step 5: Classification ---
-        self.scroll_layout.addWidget(self._build_classification_section(a, b, c))
-
-        # --- Meta section ---
-        self.scroll_layout.addWidget(self._build_meta_section(a, b, c))
-
-        self.scroll_layout.addStretch()
-        self.comparison_loaded.emit()
-
-    # ---------- Summary ----------
-
-    def _build_summary_section(self, a, b, c) -> QGroupBox:
-        """Two cards side-by-side with meta info + overall overlap - Claude Generated"""
-        html_parts = [f"<html><body style='font-family:Arial,sans-serif;color:{c['text']};'>"]
-
-        # Two columns
-        html_parts.append("<table width='100%' cellpadding='8'><tr>")
-        for label, state, fname in [("A", a, self.file_a), ("B", b, self.file_b)]:
-            bg = c["comparison_only_a_bg"] if label == "A" else c["comparison_only_b_bg"]
-            fg = c["comparison_only_a_text"] if label == "A" else c["comparison_only_b_text"]
-            title = state.working_title or "—"
-            ts = state.timestamp or "—"
-            provider = model = "—"
-            if state.final_llm_analysis:
-                provider = state.final_llm_analysis.provider_used or "—"
-                model = state.final_llm_analysis.model_used or "—"
-            html_parts.append(
-                f"<td width='50%' style='background:{bg};border-radius:8px;vertical-align:top;'>"
-                f"<b style='color:{fg};font-size:12pt;'>State {label}</b><br>"
-                f"<span style='color:{fg};'>{self._esc(fname or '—')}</span><br>"
-                f"<span style='color:{fg};font-size:9pt;'>Titel: {self._esc(title)}</span><br>"
-                f"<span style='color:{fg};font-size:9pt;'>Zeitstempel: {self._esc(ts)}</span><br>"
-                f"<span style='color:{fg};font-size:9pt;'>Provider: {self._esc(provider)}</span><br>"
-                f"<span style='color:{fg};font-size:9pt;'>Modell: {self._esc(model)}</span>"
-                f"</td>"
-            )
-        html_parts.append("</tr></table>")
-
-        # Overall overlap
-        all_a = self._collect_all_keywords(a)
-        all_b = self._collect_all_keywords(b)
-        cmp = self._compare_sets(all_a, all_b)
-        html_parts.append(f"<p style='margin-top:10px;'><b>Gesamt-Überlappung (alle Keywords):</b></p>")
-        html_parts.append(self._overlap_bar_html(cmp["overlap_pct"]))
-        html_parts.append(
-            f"<p style='font-size:9pt;color:{c['text_light']};'>"
-            f"Gemeinsam: {cmp['count_shared']} | Nur A: {len(cmp['only_a'])} | Nur B: {len(cmp['only_b'])}</p>"
-        )
-        html_parts.append("</body></html>")
-        return self._build_step_section("Zusammenfassung", self._make_text_display("".join(html_parts)))
 
     def _collect_all_keywords(self, state: KeywordAnalysisState) -> Set[str]:
         """Collect all keyword strings from a state for overall overlap - Claude Generated"""
@@ -338,93 +298,93 @@ class ComparisonTab(QWidget):
             kw.update(state.final_llm_analysis.extracted_gnd_keywords)
         return kw
 
-    # ---------- Step 1: Input ----------
+    # ------------------------------------------------------------------
+    # Run comparison — populate summary + tabs
+    # ------------------------------------------------------------------
 
-    def _build_input_section(self, a, b, c) -> QGroupBox:
-        """Compare original abstracts - Claude Generated"""
-        abs_a = a.original_abstract or ""
-        abs_b = b.original_abstract or ""
-        html = [f"<html><body style='font-family:Arial,sans-serif;color:{c['text']};'>"]
+    def run_comparison(self):
+        """Build all comparison sections and display them - Claude Generated"""
+        if not self.state_a or not self.state_b:
+            return
 
-        if abs_a == abs_b:
-            html.append(
-                f"<div style='background:{c['comparison_shared_bg']};color:{c['comparison_shared_text']};"
-                f"padding:10px;border-radius:6px;'>"
-                f"<b>Identisch</b> ({len(abs_a)} Zeichen)</div>"
+        c = get_colors()
+        a, b = self.state_a, self.state_b
+
+        # Show content, hide placeholder
+        self.placeholder.setVisible(False)
+        self.summary_widget.setVisible(True)
+        self.content_tabs.setVisible(True)
+
+        # --- Summary cards ---
+        self._populate_summary_cards(a, b, c)
+
+        # --- Populate each tab ---
+        self.keywords_display.setHtml(self._build_keywords_html(a, b, c))
+        self.init_display.setHtml(self._build_init_html(a, b, c))
+        self.search_display.setHtml(self._build_search_html(a, b, c))
+        self.input_display.setHtml(self._build_input_html(a, b, c))
+        self.classification_display.setHtml(self._build_classification_html(a, b, c))
+        self.meta_display.setHtml(self._build_meta_html(a, b, c))
+
+        # --- Hide empty tabs ---
+        terms_a = self._get_search_terms(a)
+        terms_b = self._get_search_terms(b)
+        has_search = bool(terms_a or terms_b)
+        self.content_tabs.setTabVisible(2, has_search)
+
+        dk_a = set(a.dk_classifications or [])
+        dk_b = set(b.dk_classifications or [])
+        has_dk = bool(dk_a or dk_b)
+        self.content_tabs.setTabVisible(4, has_dk)
+
+        # Keywords tab auto-selected
+        self.content_tabs.setCurrentIndex(0)
+        self.comparison_loaded.emit()
+
+    # ------------------------------------------------------------------
+    # Summary cards (above tabs)
+    # ------------------------------------------------------------------
+
+    def _populate_summary_cards(self, a, b, c):
+        """Set HTML on summary cards and overlap bar - Claude Generated"""
+        for card, label, state, fname in [
+            (self.card_a, "A", a, self.file_a),
+            (self.card_b, "B", b, self.file_b),
+        ]:
+            bg = c["comparison_only_a_bg"] if label == "A" else c["comparison_only_b_bg"]
+            fg = c["comparison_only_a_text"] if label == "A" else c["comparison_only_b_text"]
+            title = state.working_title or "—"
+            ts = state.timestamp or "—"
+            provider = model = "—"
+            if state.final_llm_analysis:
+                provider = state.final_llm_analysis.provider_used or "—"
+                model = state.final_llm_analysis.model_used or "—"
+            card.setHtml(
+                f"<div style='background:{bg};color:{fg};padding:6px;border-radius:6px;'>"
+                f"<b style='font-size:11pt;'>State {label}</b><br>"
+                f"{self._esc(fname or '—')}<br>"
+                f"<span style='font-size:9pt;'>Titel: {self._esc(title)}</span><br>"
+                f"<span style='font-size:9pt;'>{self._esc(provider)} / {self._esc(model)}</span>"
+                f"</div>"
             )
-        else:
-            ratio = difflib.SequenceMatcher(None, abs_a, abs_b).ratio() * 100
-            html.append(
-                f"<p>Ähnlichkeit: <b>{ratio:.1f}%</b></p>"
-            )
-            html.append(self._overlap_bar_html(ratio))
-            html.append(
-                f"<p style='font-size:9pt;color:{c['text_light']};'>"
-                f"A: {len(abs_a)} Zeichen | B: {len(abs_b)} Zeichen</p>"
-            )
-        html.append("</body></html>")
-        return self._build_step_section("Schritt 1 — Input", self._make_text_display("".join(html)))
 
-    # ---------- Step 2: Initialisation ----------
+        # Overall overlap bar
+        all_a = self._collect_all_keywords(a)
+        all_b = self._collect_all_keywords(b)
+        cmp = self._compare_sets(all_a, all_b)
+        self.overlap_display.setHtml(
+            f"<p style='margin:0;font-size:9pt;color:{c['text']};'>"
+            f"<b>Gesamt-Überlappung:</b> "
+            f"Gemeinsam: {cmp['count_shared']} | Nur A: {len(cmp['only_a'])} | Nur B: {len(cmp['only_b'])}"
+            f"</p>"
+            + self._overlap_bar_html(cmp["overlap_pct"])
+        )
 
-    def _build_init_section(self, a, b, c) -> QGroupBox:
-        """Compare initial (free) keywords - Claude Generated"""
-        set_a = set(a.initial_keywords or [])
-        set_b = set(b.initial_keywords or [])
-        cmp = self._compare_sets(set_a, set_b)
-        html = self._keyword_chips_section_html(cmp, c, "Freie Schlagworte")
-        return self._build_step_section("Schritt 2 — Initialisierung", self._make_text_display(html))
+    # ------------------------------------------------------------------
+    # HTML builders for each tab
+    # ------------------------------------------------------------------
 
-    # ---------- Step 3: Search ----------
-
-    def _build_search_section(self, a, b, c) -> QGroupBox:
-        """Compare search terms and result counts - Claude Generated"""
-        terms_a = {r.keyword for r in (a.search_results or [])} if a.search_results else set()
-        terms_b = {r.keyword for r in (b.search_results or [])} if b.search_results else set()
-
-        # Handle dict format
-        if a.search_results and isinstance(a.search_results, dict):
-            terms_a = set(a.search_results.keys())
-        if b.search_results and isinstance(b.search_results, dict):
-            terms_b = set(b.search_results.keys())
-
-        if not terms_a and not terms_b:
-            html = (f"<html><body style='color:{c['text']};'>"
-                    f"<p style='color:{c['text_muted']};'>Keine Suchergebnisse in beiden States.</p>"
-                    f"</body></html>")
-            return self._build_step_section("Schritt 3 — Suche", self._make_text_display(html))
-
-        cmp = self._compare_sets(terms_a, terms_b)
-
-        html = [f"<html><body style='font-family:Arial,sans-serif;color:{c['text']};'>"]
-        html.append(f"<p><b>Suchbegriffe:</b> A={cmp['count_a']} | B={cmp['count_b']} | "
-                    f"Gemeinsam={cmp['count_shared']}</p>")
-        html.append(self._overlap_bar_html(cmp["overlap_pct"]))
-
-        if cmp["shared"]:
-            html.append(f"<p style='margin-top:8px;'><b>Gemeinsam:</b></p>")
-            html.append(self._build_keyword_chips_html(cmp["shared"], "shared"))
-        if cmp["only_a"]:
-            html.append(f"<p style='margin-top:8px;'><b>Nur in A:</b></p>")
-            html.append(self._build_keyword_chips_html(cmp["only_a"], "only_a"))
-        if cmp["only_b"]:
-            html.append(f"<p style='margin-top:8px;'><b>Nur in B:</b></p>")
-            html.append(self._build_keyword_chips_html(cmp["only_b"], "only_b"))
-
-        # Suggester comparison
-        sugg_a = set(a.search_suggesters_used or [])
-        sugg_b = set(b.search_suggesters_used or [])
-        if sugg_a or sugg_b:
-            html.append(f"<p style='margin-top:10px;font-size:9pt;color:{c['text_light']};'>"
-                        f"Suggester A: {', '.join(sorted(sugg_a)) or '—'} | "
-                        f"B: {', '.join(sorted(sugg_b)) or '—'}</p>")
-
-        html.append("</body></html>")
-        return self._build_step_section("Schritt 3 — Suche", self._make_text_display("".join(html)))
-
-    # ---------- Step 4: Keywords (MAIN) ----------
-
-    def _build_keywords_section(self, a, b, c) -> QGroupBox:
+    def _build_keywords_html(self, a, b, c) -> str:
         """Compare final GND keywords — the most important section - Claude Generated"""
         final_a = set()
         final_b = set()
@@ -489,31 +449,100 @@ class ComparisonTab(QWidget):
             html.append("</table>")
 
         html.append("</body></html>")
+        return "".join(html)
 
-        te = self._make_text_display("".join(html))
-        te.setMinimumHeight(200)
-        return self._build_step_section("Schritt 4 — Keywords", te)
+    def _build_init_html(self, a, b, c) -> str:
+        """Compare initial (free) keywords - Claude Generated"""
+        set_a = set(a.initial_keywords or [])
+        set_b = set(b.initial_keywords or [])
+        cmp = self._compare_sets(set_a, set_b)
+        return self._keyword_chips_section_html(cmp, c, "Freie Schlagworte")
 
-    # ---------- Step 5: Classification ----------
+    def _get_search_terms(self, state) -> set:
+        """Extract search terms from a state - Claude Generated"""
+        if not state.search_results:
+            return set()
+        if isinstance(state.search_results, dict):
+            return set(state.search_results.keys())
+        return {r.keyword for r in state.search_results}
 
-    def _build_classification_section(self, a, b, c) -> QGroupBox:
+    def _build_search_html(self, a, b, c) -> str:
+        """Compare search terms and result counts - Claude Generated"""
+        terms_a = self._get_search_terms(a)
+        terms_b = self._get_search_terms(b)
+
+        if not terms_a and not terms_b:
+            return (f"<html><body style='color:{c['text']};'>"
+                    f"<p style='color:{c['text_muted']};'>Keine Suchergebnisse in beiden States.</p>"
+                    f"</body></html>")
+
+        cmp = self._compare_sets(terms_a, terms_b)
+
+        html = [f"<html><body style='font-family:Arial,sans-serif;color:{c['text']};'>"]
+        html.append(f"<p><b>Suchbegriffe:</b> A={cmp['count_a']} | B={cmp['count_b']} | "
+                    f"Gemeinsam={cmp['count_shared']}</p>")
+        html.append(self._overlap_bar_html(cmp["overlap_pct"]))
+
+        if cmp["shared"]:
+            html.append(f"<p style='margin-top:8px;'><b>Gemeinsam:</b></p>")
+            html.append(self._build_keyword_chips_html(cmp["shared"], "shared"))
+        if cmp["only_a"]:
+            html.append(f"<p style='margin-top:8px;'><b>Nur in A:</b></p>")
+            html.append(self._build_keyword_chips_html(cmp["only_a"], "only_a"))
+        if cmp["only_b"]:
+            html.append(f"<p style='margin-top:8px;'><b>Nur in B:</b></p>")
+            html.append(self._build_keyword_chips_html(cmp["only_b"], "only_b"))
+
+        # Suggester comparison
+        sugg_a = set(a.search_suggesters_used or [])
+        sugg_b = set(b.search_suggesters_used or [])
+        if sugg_a or sugg_b:
+            html.append(f"<p style='margin-top:10px;font-size:9pt;color:{c['text_light']};'>"
+                        f"Suggester A: {', '.join(sorted(sugg_a)) or '—'} | "
+                        f"B: {', '.join(sorted(sugg_b)) or '—'}</p>")
+
+        html.append("</body></html>")
+        return "".join(html)
+
+    def _build_input_html(self, a, b, c) -> str:
+        """Compare original abstracts - Claude Generated"""
+        abs_a = a.original_abstract or ""
+        abs_b = b.original_abstract or ""
+        html = [f"<html><body style='font-family:Arial,sans-serif;color:{c['text']};'>"]
+
+        if abs_a == abs_b:
+            html.append(
+                f"<div style='background:{c['comparison_shared_bg']};color:{c['comparison_shared_text']};"
+                f"padding:10px;border-radius:6px;'>"
+                f"<b>Identisch</b> ({len(abs_a)} Zeichen)</div>"
+            )
+        else:
+            ratio = difflib.SequenceMatcher(None, abs_a, abs_b).ratio() * 100
+            html.append(
+                f"<p>Ähnlichkeit: <b>{ratio:.1f}%</b></p>"
+            )
+            html.append(self._overlap_bar_html(ratio))
+            html.append(
+                f"<p style='font-size:9pt;color:{c['text_light']};'>"
+                f"A: {len(abs_a)} Zeichen | B: {len(abs_b)} Zeichen</p>"
+            )
+        html.append("</body></html>")
+        return "".join(html)
+
+    def _build_classification_html(self, a, b, c) -> str:
         """Compare DK classifications - Claude Generated"""
         dk_a = set(a.dk_classifications or [])
         dk_b = set(b.dk_classifications or [])
 
         if not dk_a and not dk_b:
-            html = (f"<html><body style='color:{c['text']};'>"
+            return (f"<html><body style='color:{c['text']};'>"
                     f"<p style='color:{c['text_muted']};'>Keine DK-Klassifikationen in beiden States.</p>"
                     f"</body></html>")
-            return self._build_step_section("Schritt 5 — Klassifikation", self._make_text_display(html))
 
         cmp = self._compare_sets(dk_a, dk_b)
-        html = self._keyword_chips_section_html(cmp, c, "DK-Klassifikationen")
-        return self._build_step_section("Schritt 5 — Klassifikation", self._make_text_display(html))
+        return self._keyword_chips_section_html(cmp, c, "DK-Klassifikationen")
 
-    # ---------- Meta ----------
-
-    def _build_meta_section(self, a, b, c) -> QGroupBox:
+    def _build_meta_html(self, a, b, c) -> str:
         """Tabular meta comparison - Claude Generated"""
         html = [f"<html><body style='font-family:Arial,sans-serif;color:{c['text']};'>"]
         html.append("<table style='width:100%;font-size:10pt;' cellpadding='6' cellspacing='0'>")
@@ -571,9 +600,7 @@ class ComparisonTab(QWidget):
             )
 
         html.append("</table></body></html>")
-        te = self._make_text_display("".join(html))
-        te.setMinimumHeight(300)
-        return self._build_step_section("Meta-Informationen", te)
+        return "".join(html)
 
     # ------------------------------------------------------------------
     # Shared HTML builders

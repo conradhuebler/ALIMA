@@ -272,8 +272,8 @@ class PipelineTab(QWidget):
         self.duration_update_timer = QTimer()
         self.duration_update_timer.timeout.connect(self.update_current_step_duration)
         self.duration_update_timer.setInterval(
-            100
-        )  # Update every 100ms for smooth display
+            500
+        )  # Update every 500ms (elapsed time doesn't need sub-second precision) - Claude Generated
 
         # UI components
         self.step_widgets: Dict[str, PipelineStepWidget] = {}
@@ -411,13 +411,9 @@ class PipelineTab(QWidget):
 
     def setup_pipeline_area(self, main_layout):
         """Setup main pipeline area with streaming feedback - Claude Generated"""
-        # Splitter user-resize tracking - Claude Generated
-        self._user_has_resized_splitter = False
-
         # Create a main splitter for pipeline steps and streaming - Claude Generated
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setChildrenCollapsible(True)
-        self.main_splitter.splitterMoved.connect(self._on_user_resized_splitter)  # Claude Generated
 
         # Left side: Pipeline steps as vertical tabs (directly in main_splitter, no steps_splitter) - Claude Generated
         self.pipeline_tabs = QTabWidget()
@@ -784,21 +780,6 @@ class PipelineTab(QWidget):
         visible = not self.advanced_frame.isVisible()
         self.advanced_frame.setVisible(visible)
         self.advanced_toggle_button.setText("▲ Erweitert" if visible else "▼ Erweitert")
-
-    def adjust_for_pipeline_state(self, state: str):
-        """Adjust main splitter ratio based on pipeline state - Claude Generated
-        Respects user-adjusted splitter positions.
-        """
-        if self._user_has_resized_splitter:
-            return
-        if state == "running":
-            self.main_splitter.setSizes([450, 550])
-        else:  # idle / completed
-            self.main_splitter.setSizes([650, 350])
-
-    def _on_user_resized_splitter(self):
-        """Called when user drags the main splitter - Claude Generated"""
-        self._user_has_resized_splitter = True
 
     def _update_mode_indicator(self):
         """Update mode indicator to show current pipeline mode - Claude Generated"""
@@ -1187,7 +1168,6 @@ class PipelineTab(QWidget):
         state = settings.value("pipeline/main_splitter")
         if state and hasattr(self, 'main_splitter'):
             self.main_splitter.restoreState(state)
-            self._user_has_resized_splitter = True  # Treat restored state as user preference
 
     def _filter_dk_search_results(self):
         """Filter displayed DK search results based on search input - Claude Generated"""
@@ -1371,7 +1351,6 @@ class PipelineTab(QWidget):
         self.pipeline_status_label.setText("Pipeline läuft...")
         self.auto_pipeline_button.setEnabled(False)
         self.stop_pipeline_button.setVisible(True)
-        self.adjust_for_pipeline_state("running")
 
         # Get force_update flag from checkbox - Claude Generated
         force_update = getattr(self, 'force_update_checkbox', None)
@@ -1640,7 +1619,6 @@ class PipelineTab(QWidget):
         self.pipeline_status_label.setText("Bereit für Pipeline-Start")
         self.auto_pipeline_button.setEnabled(True)
         self.stop_pipeline_button.setVisible(False)
-        self.adjust_for_pipeline_state("idle")
 
         # Reset stream widget completely - Claude Generated
         if hasattr(self, "stream_widget"):
@@ -1926,7 +1904,6 @@ class PipelineTab(QWidget):
         self.pipeline_status_label.setText("Pipeline abgeschlossen ✓")
         self.auto_pipeline_button.setEnabled(True)
         self.stop_pipeline_button.setVisible(False)
-        self.adjust_for_pipeline_state("idle")
         self.pipeline_completed.emit()
 
         # Stop status bar timer and progress
@@ -1997,7 +1974,6 @@ class PipelineTab(QWidget):
         self.stop_pipeline_button.setText("⏹️ Stop")
         self.stop_pipeline_button.setEnabled(True)
         self.stop_pipeline_button.setVisible(False)
-        self.adjust_for_pipeline_state("idle")
 
         # Update status
         self.pipeline_status_label.setText("Pipeline abgebrochen")
