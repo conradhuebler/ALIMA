@@ -464,7 +464,7 @@ class ComparisonTab(QWidget):
             return set()
         if isinstance(state.search_results, dict):
             return set(state.search_results.keys())
-        return {r.keyword for r in state.search_results}
+        return {r.search_term for r in state.search_results}
 
     def _build_search_html(self, a, b, c) -> str:
         """Compare search terms and result counts - Claude Generated"""

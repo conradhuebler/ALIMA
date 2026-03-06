@@ -3151,6 +3151,9 @@ class PipelineJsonManager:
             if data.get("final_llm_analysis"):
                 data["final_llm_analysis"] = LlmKeywordAnalysis(**data["final_llm_analysis"])
 
+            if data.get("dk_llm_analysis"):
+                data["dk_llm_analysis"] = LlmKeywordAnalysis(**data["dk_llm_analysis"])
+
             # Ensure list fields are actually lists - Claude Generated (Fix for string parsing bug)
             # This prevents "B, a, t, t, e, r, i, e" issue when JSON contains strings instead of lists
             if "initial_keywords" in data and isinstance(data["initial_keywords"], str):

@@ -111,6 +111,16 @@ class AnalysisReviewTab(QWidget):
 
         self.logger.info("Analysis data received from AbstractTab")
 
+    def receive_full_state(self, state: KeywordAnalysisState):
+        """Receive complete analysis state without data loss - Claude Generated"""
+        self.current_analysis = state
+        self.populate_analysis_data()
+        self.populate_detail_tabs()
+        self.export_button.setEnabled(True)
+        self.use_keywords_button.setEnabled(True)
+        self.use_abstract_button.setEnabled(True)
+        self.logger.info("Full analysis state received (lossless)")
+
     def setup_ui(self):
         """Setup the user interface"""
         # Apply main stylesheet
@@ -830,28 +840,28 @@ class AnalysisReviewTab(QWidget):
         abstract_len = len(self.current_analysis.original_abstract or "")
         stats_text += f"Original Abstract: {abstract_len} Zeichen\n"
 
-        initial_keywords_count = len(self.current_analysis.initial_keywords)
+        initial_keywords_count = len(self.current_analysis.initial_keywords or [])
         stats_text += f"Initial Keywords: {initial_keywords_count} Keywords\n"
 
-        search_results = self.current_analysis.search_results
+        search_results = self.current_analysis.search_results or []
         total_search_results = sum(len(r.results) for r in search_results)
         stats_text += f"Such-Ergebnisse: {total_search_results} Ergebnisse für {len(search_results)} Begriffe\n"
 
         gnd_keywords_count = 0
         if self.current_analysis.final_llm_analysis:
-            gnd_keywords_count = len(self.current_analysis.final_llm_analysis.extracted_gnd_keywords)
+            gnd_keywords_count = len(self.current_analysis.final_llm_analysis.extracted_gnd_keywords or [])
         stats_text += f"GND-konforme Keywords: {gnd_keywords_count} Keywords\n"
 
         # Search suggesters used
-        suggesters = self.current_analysis.search_suggesters_used
+        suggesters = self.current_analysis.search_suggesters_used or []
         stats_text += f"Verwendete Suggester: {', '.join(suggesters)}\n"
 
         # GND classes
-        initial_gnd_classes = self.current_analysis.initial_gnd_classes
+        initial_gnd_classes = self.current_analysis.initial_gnd_classes or []
         stats_text += f"Initial GND-Klassen: {len(initial_gnd_classes)} Klassen\n"
 
         # DK/RVK Classifications - Claude Generated (Extended with title count)
-        dk_classifications = self.current_analysis.dk_classifications
+        dk_classifications = self.current_analysis.dk_classifications or []
         total_titles = 0
         for dk_code in dk_classifications:
             _, count = self._get_titles_for_classification(dk_code, max_titles=999999)

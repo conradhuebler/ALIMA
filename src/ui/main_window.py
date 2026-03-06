@@ -759,28 +759,10 @@ class MainWindow(QMainWindow):
             self.dk_classification_tab.update_data(analysis_state)
             self.logger.info("✅ DK statistics and analysis tabs populated with pipeline results.")
 
-        # 6. 📊 Analyse-Review Tab - Sende finale Ergebnisse
-        # Pass data if we have EITHER keywords analysis OR DK classifications - Claude Generated
+        # 6. 📊 Analyse-Review Tab - Sende finale Ergebnisse (lossless) - Claude Generated
         if analysis_state.final_llm_analysis or analysis_state.dk_classifications:
-            # Extract keywords if available
-            keywords_text = ""
-            analysis_result = ""
-            if analysis_state.final_llm_analysis:
-                # Type-safe join - Claude Generated (Fix for string parsing bug)
-                final_kw = analysis_state.final_llm_analysis.extracted_gnd_keywords
-                keywords_text = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
-                analysis_result = analysis_state.final_llm_analysis.response_full_text
-
-            self.analysis_review_tab.receive_analysis_data(
-                abstract_text=analysis_state.original_abstract or "",
-                keywords=keywords_text,
-                analysis_result=analysis_result,
-                dk_classifications=analysis_state.dk_classifications,
-                dk_search_results=analysis_state.dk_search_results,
-                dk_statistics=analysis_state.dk_statistics,
-                working_title=getattr(analysis_state, 'working_title', None)
-            )
-            self.logger.info("✅ Analysis review tab populated with pipeline results (keywords and/or DK).")
+            self.analysis_review_tab.receive_full_state(analysis_state)
+            self.logger.info("✅ Analysis review tab populated with full pipeline state (lossless).")
 
         # 6. 📚 DK-Klassifikation (Optional) - Claude Generated
         # Note: DK search results and classifications are handled by show_loaded_state_indicator()
@@ -1537,23 +1519,7 @@ class MainWindow(QMainWindow):
                     self.pipeline_tab.show_loaded_state_indicator(state)
                 self.logger.info("✅ Pipeline tab: loaded state indicators shown")
 
-            # 5. 📊 Analyse-Review Tab - Complete results and export
-            if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
-                # Type-safe join - Claude Generated (Fix for string parsing bug)
-                final_kw = state.final_llm_analysis.extracted_gnd_keywords
-                final_keywords = ", ".join(final_kw) if isinstance(final_kw, list) else str(final_kw)
-                full_response = state.final_llm_analysis.response_full_text
-
-                self.analysis_review_tab.receive_analysis_data(
-                    state.original_abstract or "",
-                    final_keywords,
-                    full_response,
-                    state.dk_classifications,
-                    state.dk_search_results,
-                    state.dk_statistics,
-                    getattr(state, 'working_title', None)
-                )
-                self.logger.info("✅ Analysis review tab populated with final results")
+            # 5. 📊 Analyse-Review Tab - already populated by on_pipeline_results_ready() above
 
             # 6. 📚 UB-Katalog Tab - Keywords for library catalog search
             if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
