@@ -19,8 +19,10 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QFrame,
     QGridLayout,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
+from typing import List
 from .workers import StoppableWorker
 from PyQt6.QtGui import QPixmap, QFont
 import PIL.Image
@@ -138,6 +140,8 @@ class ImageAnalysisTab(QWidget):
         self.image_path = None
         self.current_worker = None
         self._analysis_was_aborted = False  # Claude Generated - Track if analysis was aborted by user
+        self._append_mode: bool = False  # Claude Generated - Track if text should be appended instead of replaced
+        self._pending_image_paths: List[str] = []  # Claude Generated - Queue for multi-image processing
 
         self.setup_ui()
         self.load_providers_and_models()
@@ -193,6 +197,12 @@ class ImageAnalysisTab(QWidget):
         self.file_button.setStyleSheet(btn_styles["secondary"])
         self.file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_button)
+
+        # Append mode checkbox - Claude Generated (Multi-Image OCR feature)
+        self.append_mode_checkbox = QCheckBox("Text anhängen statt ersetzen")
+        self.append_mode_checkbox.setChecked(False)
+        self.append_mode_checkbox.stateChanged.connect(self._on_append_mode_changed)
+        file_layout.addWidget(self.append_mode_checkbox)
 
         # Image preview
         self.image_preview = QLabel()
@@ -384,19 +394,41 @@ class ImageAnalysisTab(QWidget):
         self.temperature_label.setText(f"Temperatur: {value/100:.2f}")
 
     def select_file(self):
-        """File selection dialog"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Bild auswählen", "", "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
-        )
-
-        if file_path:
-            self.image_path = file_path
-            self.file_button.setText(f"📁 {Path(file_path).name}")
-            self.update_image_preview()
-            self.status_label.setText(
-                f"Status: Bild ausgewählt - {Path(file_path).name}"
+        """File selection dialog - Claude Generated (Multi-Image OCR feature)"""
+        # Check if append mode is active - if so, allow multiple file selection
+        if self._append_mode:
+            file_paths, _ = QFileDialog.getOpenFileNames(
+                self, "Bilder auswählen", "", "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
             )
-            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
+            if file_paths:
+                self._pending_image_paths = list(file_paths)
+                # Select first image for preview
+                self.image_path = file_paths[0]
+                self.file_button.setText(f"📁 {len(file_paths)} Bilder ausgewählt")
+                self.update_image_preview()
+                self.status_label.setText(
+                    f"Status: {len(file_paths)} Bilder ausgewählt - {Path(file_paths[0]).name}"
+                )
+                self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        else:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Bild auswählen", "", "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
+            )
+
+            if file_path:
+                self.image_path = file_path
+                self.file_button.setText(f"📁 {Path(file_path).name}")
+                self.update_image_preview()
+                self.status_label.setText(
+                    f"Status: Bild ausgewählt - {Path(file_path).name}"
+                )
+                self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
+    def _on_append_mode_changed(self, state):
+        """Handle append mode checkbox state change - Claude Generated (Multi-Image OCR feature)"""
+        self._append_mode = bool(state)
+        self.logger.debug(f"Append mode: {self._append_mode}")
 
     def update_image_preview(self):
         """Update image preview"""
@@ -423,7 +455,7 @@ class ImageAnalysisTab(QWidget):
             self.update_image_preview()
 
     def analyze_image(self):
-        """Analyze the selected image"""
+        """Analyze the selected image(s) - Claude Generated (Multi-Image OCR feature)"""
         # Reset abort flag for new analysis - Claude Generated
         self._analysis_was_aborted = False
 
@@ -447,16 +479,54 @@ class ImageAnalysisTab(QWidget):
             QMessageBox.warning(self, "Warnung", "Bitte geben Sie einen Prompt ein!")
             return
 
+        # Setup image queue for multi-image processing - Claude Generated (Multi-Image OCR feature)
+        if self._append_mode and self._pending_image_paths:
+            # Multiple images to process
+            self._current_image_index = 0
+            self._total_images = len(self._pending_image_paths)
+            self._analyzed_texts: List[str] = []  # Collect all results
+        else:
+            # Single image mode
+            self._current_image_index = 0
+            self._total_images = 1
+            self._pending_image_paths = [self.image_path] if self.image_path else []
+            self._analyzed_texts = []
+
         # Disable UI during analysis
         self.analyze_button.setEnabled(False)
         self.stop_analysis_button.setVisible(True)  # Show stop button - Claude Generated
         self.stop_analysis_button.setEnabled(True)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
-        self.status_label.setText(
-            f"Status: Analysiere Bild mit {provider} ({model})..."
-        )
+
+        current_image_name = Path(self._pending_image_paths[0]).name if self._pending_image_paths else "unbekannt"
+        if self._total_images > 1:
+            self.status_label.setText(
+                f"Status: Analysiere Bild 1/{self._total_images} mit {provider} ({model})..."
+            )
+        else:
+            self.status_label.setText(
+                f"Status: Analysiere Bild mit {provider} ({model})..."
+            )
         self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
+        # Start analysis for first image
+        self._analyze_current_image(provider, model, prompt)
+
+    def _analyze_current_image(self, provider: str, model: str, prompt: str):
+        """Start analysis for current image in queue - Claude Generated (Multi-Image OCR feature)"""
+        if self._current_image_index >= len(self._pending_image_paths):
+            # All images processed
+            self._on_all_images_analyzed()
+            return
+
+        current_image_path = self._pending_image_paths[self._current_image_index]
+
+        # Update status with current image info
+        if self._total_images > 1:
+            self.status_label.setText(
+                f"Status: Analysiere Bild {self._current_image_index + 1}/{self._total_images} mit {provider} ({model})..."
+            )
 
         # Start analysis in worker thread
         self.current_worker = ImageAnalysisWorker(
@@ -464,7 +534,7 @@ class ImageAnalysisTab(QWidget):
             provider,
             model,
             prompt,
-            self.image_path,
+            current_image_path,
             self.temperature_slider.value() / 100,
             self.seed_input.value() if self.seed_input.value() > 0 else None,
         )
@@ -476,8 +546,31 @@ class ImageAnalysisTab(QWidget):
 
     @pyqtSlot(str)
     def on_analysis_finished(self, result):
-        """Handle successful analysis completion"""
-        self.output_field.setText(result)
+        """Handle successful analysis completion - Claude Generated (Multi-Image OCR feature)"""
+        # Store result - Claude Generated (Multi-Image OCR feature)
+        self._analyzed_texts.append(result)
+
+        # Check if more images to process - Claude Generated (Multi-Image OCR feature)
+        self._current_image_index += 1
+        if self._current_image_index < self._total_images:
+            # Process next image
+            provider = self.provider_combo.currentText()
+            model = self.model_combo.currentText().strip()
+            prompt = self.prompt_input.toPlainText().strip()
+            self._analyze_current_image(provider, model, prompt)
+            return
+
+        # All images processed - display combined results
+        if self._append_mode and len(self._analyzed_texts) > 1:
+            # Combine all results with separators
+            combined_text = "\n\n".join(self._analyzed_texts)
+            self.output_field.setPlainText(combined_text)
+            source_info = f"{len(self._analyzed_texts)} Bilder analysiert"
+        else:
+            # Single image or replace mode
+            self.output_field.setPlainText(self._analyzed_texts[0])
+            source_info = f"Bild: {Path(self.image_path).name}" if self.image_path else "Bild analysiert"
+
         self.send_to_abstract_button.setEnabled(True)
 
         # Re-enable UI
@@ -487,11 +580,25 @@ class ImageAnalysisTab(QWidget):
         self.status_label.setText("Status: Analyse erfolgreich abgeschlossen")
         self.status_label.setStyleSheet(get_status_label_styles()["success"])
 
-        self.logger.info(f"Image analysis completed successfully")
+        self.logger.info(f"Image analysis completed successfully ({self._total_images} images)")
+
+    def _on_all_images_analyzed(self):
+        """Handle completion of all images in queue - Claude Generated (Multi-Image OCR feature)"""
+        # This method is called when all images have been processed
+        self.logger.info(f"All {self._total_images} images analyzed")
 
     @pyqtSlot(str)
     def on_analysis_error(self, error):
-        """Handle analysis error"""
+        """Handle analysis error - Claude Generated (Multi-Image OCR feature)"""
+        # Don't show error dialog if analysis was aborted - Claude Generated
+        if self._analysis_was_aborted:
+            self._analysis_was_aborted = False  # Reset flag
+            self.logger.info("Suppressing error dialog - analysis was aborted by user")
+            self._on_analysis_aborted()
+            return
+
+        # Check if more images to process - Claude Generated (Multi-Image OCR feature)
+        # For error handling, we stop the batch on error
         self.output_field.setText(f"❌ Fehler bei der Analyse:\n\n{error}")
 
         # Re-enable UI
@@ -500,12 +607,6 @@ class ImageAnalysisTab(QWidget):
         self.progress_bar.setVisible(False)
         self.status_label.setText("Status: Fehler bei der Analyse")
         self.status_label.setStyleSheet(get_status_label_styles()["error"])
-
-        # Don't show error dialog if analysis was aborted - Claude Generated
-        if self._analysis_was_aborted:
-            self._analysis_was_aborted = False  # Reset flag
-            self.logger.info("Suppressing error dialog - analysis was aborted by user")
-            return
 
         self.logger.error(f"Image analysis error: {error}")
         QMessageBox.critical(self, "Fehler", f"Fehler bei der Bildanalyse:\n{error}")
@@ -521,11 +622,17 @@ class ImageAnalysisTab(QWidget):
 
     @pyqtSlot()
     def on_analysis_aborted(self):
-        """Handle analysis abort signal - Claude Generated"""
+        """Handle analysis abort signal - Claude Generated (Multi-Image OCR feature)"""
         self.logger.info("Image analysis aborted by user")
 
         # Set abort flag to suppress error dialog - Claude Generated
         self._analysis_was_aborted = True
+
+        # Reset image queue - Claude Generated (Multi-Image OCR feature)
+        self._pending_image_paths = []
+        self._current_image_index = 0
+        self._total_images = 0
+        self._analyzed_texts = []
 
         # Reset UI
         self.analyze_button.setEnabled(True)

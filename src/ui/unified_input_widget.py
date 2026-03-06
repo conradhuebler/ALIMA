@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QLineEdit,
     QSizePolicy,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QMimeData, QUrl, pyqtSlot
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage
@@ -633,6 +634,7 @@ class UnifiedInputWidget(QWidget):
         self.current_extraction_worker: Optional[TextExtractionWorker] = None
         self.webcam_temp_file: Optional[str] = None  # Claude Generated - Track webcam temp files for cleanup
         self._extraction_was_aborted = False  # Claude Generated - Track if extraction was aborted by user
+        self._append_mode: bool = False  # Claude Generated - Track if text should be appended instead of replaced
 
         # Enable drag and drop
         self.setAcceptDrops(True)
@@ -838,6 +840,15 @@ class UnifiedInputWidget(QWidget):
         )
         layout.addWidget(header_label)
 
+        # Append mode checkbox - Claude Generated (Multi-Image OCR feature)
+        append_layout = QHBoxLayout()
+        self.append_mode_checkbox = QCheckBox("Text anhängen statt ersetzen")
+        self.append_mode_checkbox.setChecked(False)
+        self.append_mode_checkbox.stateChanged.connect(self._on_append_mode_changed)
+        append_layout.addWidget(self.append_mode_checkbox)
+        append_layout.addStretch()
+        layout.addLayout(append_layout)
+
         # Source info
         self.source_info_label = QLabel("Keine Quelle ausgewählt")
         self.source_info_label.setStyleSheet(
@@ -998,24 +1009,43 @@ class UnifiedInputWidget(QWidget):
         self.select_file()
 
     def select_file(self):
-        """Open file dialog - Claude Generated"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Datei auswählen",
-            "",
-            "Alle unterstützten Dateien (*.pdf *.png *.jpg *.jpeg *.txt);;PDF-Dateien (*.pdf);;Bilder (*.png *.jpg *.jpeg);;Textdateien (*.txt)",
-        )
+        """Open file dialog - Claude Generated (Multi-Image OCR feature)"""
+        # Check if append mode is active - if so, allow multiple file selection
+        if self._append_mode:
+            file_paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                "Dateien auswählen",
+                "",
+                "Alle unterstützten Dateien (*.pdf *.png *.jpg *.jpeg *.txt);;PDF-Dateien (*.pdf);;Bilder (*.png *.jpg *.jpeg);;Textdateien (*.txt)",
+            )
 
-        if file_path:
-            self.process_file(file_path)
+            if file_paths:
+                for file_path in file_paths:
+                    self.process_file(file_path)
+        else:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Datei auswählen",
+                "",
+                "Alle unterstützten Dateien (*.pdf *.png *.jpg *.jpeg *.txt);;PDF-Dateien (*.pdf);;Bilder (*.png *.jpg *.jpeg);;Textdateien (*.txt)",
+            )
+
+            if file_path:
+                self.process_file(file_path)
+
+    def _on_append_mode_changed(self, state):
+        """Handle append mode checkbox state change - Claude Generated (Multi-Image OCR feature)"""
+        self._append_mode = bool(state)
+        self.logger.debug(f"Append mode: {self._append_mode}")
 
     def process_file(self, file_path: str):
-        """Process selected file - Claude Generated"""
+        """Process selected file - Claude Generated (Multi-Image OCR feature)"""
         if not os.path.exists(file_path):
             QMessageBox.warning(self, "Fehler", "Datei nicht gefunden!")
             return
 
         file_ext = os.path.splitext(file_path)[1].lower()
+        filename = os.path.basename(file_path)
 
         if file_ext == ".pdf":
             self.extract_text("pdf", file_path)
@@ -1025,8 +1055,8 @@ class UnifiedInputWidget(QWidget):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     text = f.read()
-                    filename = os.path.basename(file_path)
-                    self.set_text_directly(text, f"Textdatei: {filename}")
+                    # Use append mode if enabled - Claude Generated (Multi-Image OCR feature)
+                    self.set_text_directly(text, f"Textdatei: {filename}", append=self._append_mode)
             except Exception as e:
                 QMessageBox.critical(
                     self, "Fehler", f"Fehler beim Lesen der Datei: {e}"
@@ -1117,12 +1147,13 @@ class UnifiedInputWidget(QWidget):
 
     @pyqtSlot(str, str)
     def on_text_extracted(self, text: str, source_info: str):
-        """Handle extracted text - Claude Generated"""
+        """Handle extracted text - Claude Generated (Multi-Image OCR feature)"""
         self.progress_bar.setVisible(False)
         self.progress_label.setVisible(False)
         self.stop_extraction_button.setVisible(False)  # Hide stop button - Claude Generated
 
-        self.set_text_directly(text, source_info)
+        # Use append mode if enabled - Claude Generated (Multi-Image OCR feature)
+        self.set_text_directly(text, source_info, append=self._append_mode)
 
         # Cleanup webcam temp file if present - Claude Generated (Webcam Feature)
         if self.webcam_temp_file:
@@ -1218,10 +1249,38 @@ class UnifiedInputWidget(QWidget):
         self.text_display.setPlainText("⏹️ Textextraktion wurde vom Benutzer abgebrochen")
         self.source_info_label.setText("Status: Abgebrochen")
 
-    def set_text_directly(self, text: str, source_info: str):
-        """Set text directly in display - Claude Generated"""
-        self.text_display.setPlainText(text)
-        self.source_info_label.setText(f"📄 {source_info} | {len(text)} Zeichen")
+    def set_text_directly(self, text: str, source_info: str, append: bool = False):
+        """Set text directly in display - Claude Generated (Multi-Image OCR feature)
+
+        Args:
+            text: Text to display or append
+            source_info: Source information string
+            append: If True, append text instead of replacing
+        """
+        if append:
+            # Append mode: Add text to existing content
+            current_text = self.text_display.toPlainText()
+            if current_text:
+                # Add separator between texts
+                self.text_display.setPlainText(current_text + "\n\n" + text)
+                # Update source info to show appending
+                current_source = self.source_info_label.text()
+                # Remove existing "Keine Quelle" or status messages
+                if "Keine Quelle" in current_source or "Status:" in current_source:
+                    current_source = ""
+                if source_info not in current_source:
+                    if current_source:
+                        self.source_info_label.setText(f"{current_source} + {source_info}")
+                    else:
+                        self.source_info_label.setText(f"📄 {source_info}")
+            else:
+                # First text in append mode - treat like replace
+                self.text_display.setPlainText(text)
+                self.source_info_label.setText(f"📄 {source_info} | {len(text)} Zeichen")
+        else:
+            # Replace mode: Set text directly
+            self.text_display.setPlainText(text)
+            self.source_info_label.setText(f"📄 {source_info} | {len(text)} Zeichen")
 
         # Enable editing
         self.text_display.setReadOnly(False)
