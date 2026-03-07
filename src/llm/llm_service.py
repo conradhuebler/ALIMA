@@ -1460,9 +1460,12 @@ class LlmService(QObject):
             if self.current_repetition_penalty is not None:
                 params.setdefault("extra_body", {})["repetition_penalty"] = self.current_repetition_penalty
 
-            # Add think flag via extra_body for OpenAI-compat providers that support it
+            # think is Ollama-native and not part of the OpenAI protocol – ignore it here
             if self.current_think is not None:
-                params.setdefault("extra_body", {})["think"] = self.current_think
+                self.logger.debug(
+                    f"think={self.current_think} ignored for OpenAI-compat provider '{provider}' "
+                    f"(think is Ollama-native; use an ollama provider for think control)"
+                )
 
             # Handle streaming option
             if stream:
@@ -1691,19 +1694,20 @@ class LlmService(QObject):
             if self.current_repetition_penalty is not None:
                 options['repeat_penalty'] = self.current_repetition_penalty
 
-            # Add think flag if set (Ollama thinking mode)
-            if self.current_think is not None:
-                options['think'] = self.current_think
-
             self.logger.info(f"Sending native Ollama request with model: {model}")
-            
+
+            # Build chat kwargs - think must be top-level, NOT inside options - Claude Generated
+            # Ollama API: options={temperature, top_p, ...}, think=bool (separate field)
+            chat_kwargs: dict = {"model": model, "messages": messages, "options": options}
+            if self.current_think is not None:
+                chat_kwargs["think"] = self.current_think
+                self.logger.debug(f"Native Ollama: think={self.current_think} (top-level)")
+
             # Make API call with streaming support
             if stream:
                 # Use provider-specific native client streaming
                 stream_response = self.clients[provider].chat(
-                    model=model,
-                    messages=messages,
-                    options=options,
+                    **chat_kwargs,
                     stream=True
                 )
                 
@@ -1729,9 +1733,7 @@ class LlmService(QObject):
             else:
                 # Non-streaming call
                 response = self.clients[provider].chat(
-                    model=model,
-                    messages=messages,
-                    options=options,
+                    **chat_kwargs,
                     stream=False
                 )
                 
