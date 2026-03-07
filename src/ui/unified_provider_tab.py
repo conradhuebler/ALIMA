@@ -663,26 +663,27 @@ class UnifiedProviderTab(QWidget):
         """Create provider management tab - Claude Generated"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
-        # Provider table (full width)
+
+        # Unified provider table - Cols: Name | Type | Status | Preferred Model | API Key
         self.provider_table = QTableWidget()
         self.provider_table.setColumnCount(5)
         self.provider_table.setHorizontalHeaderLabels([
-            "Name", "Type", "Status", "Models", "API Key"
+            "Name", "Type", "Status", "Preferred Model", "API Key"
         ])
+        self.provider_table.verticalHeader().setVisible(False)
+        self.provider_table.verticalHeader().setDefaultSectionSize(40)
 
-        # Make table responsive
         header = self.provider_table.horizontalHeader()
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Name
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Models
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Preferred Model
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # API Key
 
         layout.addWidget(self.provider_table)
 
-        # Provider control buttons (horizontal under table)
+        # Provider control buttons
         provider_button_layout = QHBoxLayout()
 
         self.add_provider_button = QPushButton("➕ Add Provider")
@@ -702,50 +703,24 @@ class UnifiedProviderTab(QWidget):
         provider_button_layout.addWidget(self.remove_provider_button)
         provider_button_layout.addWidget(self.refresh_models_button)
         provider_button_layout.addStretch()
-
-        # Preferred provider selection (moved from Task Preferences) - Claude Generated
-        preferred_label = QLabel("Preferred Provider:")
-        provider_button_layout.addWidget(preferred_label)
-        self.preferred_provider_combo = QComboBox()
-        self.preferred_provider_combo.setMinimumWidth(150)
-        provider_button_layout.addWidget(self.preferred_provider_combo)
-
         layout.addLayout(provider_button_layout)
-        
+
+        # Global default provider – separate row, clearly labelled
+        default_provider_layout = QHBoxLayout()
+        default_provider_layout.addWidget(QLabel("Default Provider:"))
+        self.preferred_provider_combo = QComboBox(widget)
+        self.preferred_provider_combo.setMinimumWidth(180)
+        default_provider_layout.addWidget(self.preferred_provider_combo)
+        default_provider_layout.addStretch()
+        layout.addLayout(default_provider_layout)
+
         return widget
-    
+
     def _create_preferences_tab(self) -> QWidget:
         """Create task preferences tab - Claude Generated"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Model preferences section - Claude Generated
-        model_group = QGroupBox("🎯 Model Preferences per Provider")
-        model_layout = QVBoxLayout(model_group)
-
-        self.model_preferences_table = QTableWidget()
-        self.model_preferences_table.setColumnCount(4)  # Added Chunking column - Claude Generated
-        self.model_preferences_table.setHorizontalHeaderLabels([
-            "Provider", "Preferred Model", "Chunking", "Available Models"
-        ])
-
-        # Make model preferences table responsive - Claude Generated
-        model_header = self.model_preferences_table.horizontalHeader()
-        model_header.setStretchLastSection(False)
-        model_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Provider
-        model_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)       # Preferred Model
-        model_header.resizeSection(1, 200)
-        model_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)             # Chunking - Claude Generated
-        model_header.resizeSection(2, 90)
-        model_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Available Models
-
-        self.model_preferences_table.verticalHeader().setVisible(False)
-        self.model_preferences_table.verticalHeader().setDefaultSectionSize(40)
-        self.model_preferences_table.setMaximumHeight(200)
-
-        model_layout.addWidget(self.model_preferences_table)
-        layout.addWidget(model_group)
-        
         # Task-specific preferences - Enhanced with advanced task management - Claude Generated
         task_group = QGroupBox("🎯 Task-Specific Model Preferences")
         task_main_layout = QVBoxLayout(task_group)
@@ -780,13 +755,6 @@ class UnifiedProviderTab(QWidget):
         self.selected_task_info_label.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
         right_task_layout.addWidget(self.selected_task_info_label)
         
-        # Chunked checkbox for applicable tasks
-        self.chunked_tasks_checkbox = QCheckBox("Enable specialized models for large texts (Chunked Processing)")
-        self.chunked_tasks_checkbox.setVisible(False)
-        self.chunked_tasks_checkbox.stateChanged.connect(self._on_chunked_tasks_toggled)
-        right_task_layout.addWidget(self.chunked_tasks_checkbox)
-
-
         # Standard model priority
         priority_label = QLabel("Model Priority:")
         priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
@@ -821,20 +789,23 @@ class UnifiedProviderTab(QWidget):
         self.selected_model_chunking_spinbox.setVisible(False)
         right_task_layout.addLayout(self.selected_model_chunking_row)
 
-        # Chunked model priority (conditional)
-        self.chunked_tasks_priority_label = QLabel("Chunked Processing Model Priority:")
-        self.chunked_tasks_priority_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        self.chunked_tasks_priority_label.setVisible(False)
-        right_task_layout.addWidget(self.chunked_tasks_priority_label)
-        
-        self.chunked_task_model_priority_list = QListWidget()
-        self.chunked_task_model_priority_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.chunked_task_model_priority_list.setMinimumHeight(120)
-        self.chunked_task_model_priority_list.setVisible(False)
-        # CRITICAL FIX: Add event handler to save priority changes after drag & drop - Claude Generated
-        self.chunked_task_model_priority_list.model().rowsMoved.connect(self._on_priority_list_reordered)
-        right_task_layout.addWidget(self.chunked_task_model_priority_list)
-        
+        # Thinking toggle per model+task - Claude Generated
+        self.selected_model_think_row = QHBoxLayout()
+        self.selected_model_think_label = QLabel("Thinking:")
+        self.selected_model_think_combo = QComboBox()
+        self.selected_model_think_combo.addItems(["Default (Anbieter)", "Aktiviert", "Deaktiviert"])
+        self.selected_model_think_combo.setToolTip(
+            "Thinking/CoT-Modus für dieses Modell in dieser Task.\n"
+            "Default = Anbieter-Einstellung wird verwendet\n"
+            "Aktiviert = think=true\nDeaktiviert = think=false"
+        )
+        self.selected_model_think_combo.currentIndexChanged.connect(self._on_selected_model_think_changed)
+        self.selected_model_think_row.addWidget(self.selected_model_think_label)
+        self.selected_model_think_row.addWidget(self.selected_model_think_combo)
+        self.selected_model_think_label.setVisible(False)
+        self.selected_model_think_combo.setVisible(False)
+        right_task_layout.addLayout(self.selected_model_think_row)
+
         # Task management buttons
         task_button_layout = QHBoxLayout()
         
@@ -988,7 +959,7 @@ class UnifiedProviderTab(QWidget):
         return all_providers
 
     def _populate_provider_table(self):
-        """Populate the provider table using cached ProviderStatusService data - Claude Generated"""
+        """Populate the unified provider table (status + preferred model) - Claude Generated"""
         providers = self._get_all_providers()
         self.provider_table.setRowCount(len(providers))
 
@@ -1003,84 +974,67 @@ class UnifiedProviderTab(QWidget):
             self.logger.warning("ProviderStatusService not available, using fallback display")
 
         for row, provider in enumerate(providers):
-            # Name
+            # Col 0: Name
             name_item = QTableWidgetItem(provider.name)
             if not provider.enabled:
                 name_item.setForeground(QPalette().color(QPalette.ColorRole.PlaceholderText))
             self.provider_table.setItem(row, 0, name_item)
 
-            # Type
-            type_item = QTableWidgetItem(provider.provider_type.title())
-            self.provider_table.setItem(row, 1, type_item)
+            # Col 1: Type
+            self.provider_table.setItem(row, 1, QTableWidgetItem(provider.provider_type.title()))
 
-            # Status and model info from cache (fast, non-blocking)
+            # Col 2: Status – derive from cache
             status_text = "Unknown"
-            models_text = "Not tested"
+            available_models: list = self._cached_models.get(provider.name, list(provider.available_models))
 
-            # Get cached status for this provider
             cached_status = provider_status_cache.get(provider.name)
             if cached_status:
-                # Use cached data from ProviderStatusService
                 is_reachable = cached_status.get('reachable', False)
                 cached_models = cached_status.get('models', [])
                 error_message = cached_status.get('error_message')
-
                 if is_reachable:
                     status_text = "✅ Available"
                     if cached_models:
-                        models_text = f"{len(cached_models)} models"
-                        # Update provider's available models from cache
+                        available_models = cached_models
                         provider.available_models = cached_models
-                    else:
-                        models_text = "No models detected"
                 else:
                     status_text = "❌ Offline"
                     if error_message:
-                        models_text = f"Error: {error_message[:30]}"
-                    else:
-                        models_text = "Provider not reachable"
+                        status_text = f"❌ {error_message[:25]}"
+            elif provider_status_cache:
+                status_text = "⏳ Testing..."
             else:
-                # No cached data available (tests haven't completed yet)
-                if provider_status_cache:
-                    # Service is running but provider not tested yet
-                    status_text = "⏳ Testing..."
-                    models_text = "Test in progress"
-                else:
-                    # Service not available, fallback to config data
-                    model_count = len(provider.available_models)
-                    if model_count > 0:
-                        models_text = f"{model_count} models (config)"
-                        status_text = "📝 Configured"
-                    else:
-                        status_text = "⚠️ Unknown"
-                        models_text = "Status unknown"
+                status_text = "📝 Configured" if available_models else "⚠️ Unknown"
 
-            # Status
-            status_item = QTableWidgetItem(status_text)
-            self.provider_table.setItem(row, 2, status_item)
+            self.provider_table.setItem(row, 2, QTableWidgetItem(status_text))
 
-            # Models
-            models_item = QTableWidgetItem(models_text)
-            if provider.available_models:
-                # Set tooltip with model list
-                models_tooltip = "Available models:\n" + "\n".join(provider.available_models[:10])
-                if len(provider.available_models) > 10:
-                    models_tooltip += f"\n... and {len(provider.available_models) - 10} more"
-                models_item.setToolTip(models_tooltip)
-            self.provider_table.setItem(row, 3, models_item)
+            # Col 3: Preferred Model – interactive ComboBox
+            preferred_model = self._get_preferred_model_from_config(provider.name, self.config)
+            model_combo = QComboBox()
+            model_combo.blockSignals(True)
+            if available_models:
+                model_combo.addItems(available_models)
+            model_combo.addItem("(Auto-select)")
+            if preferred_model and preferred_model in available_models:
+                model_combo.setCurrentText(preferred_model)
+            else:
+                model_combo.setCurrentIndex(model_combo.findText("(Auto-select)"))
+            model_combo.blockSignals(False)
 
-            # API Key Status
+            def make_handler(provider_name):
+                return lambda text: self._on_model_preference_changed(provider_name, text)
+            model_combo.currentTextChanged.connect(make_handler(provider.name))
+            self.provider_table.setCellWidget(row, 3, model_combo)
+
+            # Col 4: API Key Status
             api_key_status = self._get_api_key_status(provider)
             api_key_item = QTableWidgetItem(api_key_status)
-
-            # Color coding for API key status
             if "✅" in api_key_status:
                 api_key_item.setForeground(QPalette().color(QPalette.ColorRole.Text))
             elif "❌" in api_key_status:
                 api_key_item.setForeground(QPalette().color(QPalette.ColorRole.PlaceholderText))
-            else:  # N/A cases
+            else:
                 api_key_item.setForeground(QPalette().color(QPalette.ColorRole.Mid))
-
             self.provider_table.setItem(row, 4, api_key_item)
 
     def _get_api_key_status(self, provider) -> str:
@@ -1137,110 +1091,8 @@ class UnifiedProviderTab(QWidget):
             self.preferred_provider_combo.setCurrentText(self.unified_config.preferred_provider)
 
     def _populate_model_preferences(self):
-        """Populate model preferences table using direct provider config - Claude Generated"""
-        try:
-            # Use already loaded configuration
-            config = self.config
-
-            # Use cached provider/model data (fetched once in _load_configuration)
-            available_providers = self._cached_providers
-            self.model_preferences_table.setRowCount(len(available_providers))
-
-            for row, provider in enumerate(available_providers):
-                # Provider name
-                provider_item = QTableWidgetItem(provider)
-                self.model_preferences_table.setItem(row, 0, provider_item)
-
-                # Get available models for this provider (from cache)
-                available_models = self._cached_models.get(provider, [])
-                available_models_text = ", ".join(available_models[:3])
-                if len(available_models) > 3:
-                    available_models_text += f" (+{len(available_models) - 3} more)"
-                
-                # Get current preferred model from direct provider config
-                preferred_model = self._get_preferred_model_from_config(provider, config)
-                
-                # Create dropdown for preferred model selection
-                model_combo = QComboBox()
-                model_combo.blockSignals(True)  # Block signals during setup
-
-                # First list real models, then add the auto‑select placeholder.
-                # This ensures concrete models appear at the top of the list.
-                if available_models:
-                    model_combo.addItems(available_models)
-                # Append placeholder after real models
-                model_combo.addItem("(Auto-select)")
-                model_combo.blockSignals(False)  # Re‑enable signals
-
-                # Set current selection. If a concrete preferred model exists and is present,
-                # select it; otherwise fall back to the placeholder.
-                model_combo.blockSignals(True)
-                if preferred_model and preferred_model in available_models:
-                    model_combo.setCurrentText(preferred_model)
-                else:
-                    # Ensure the placeholder is selected when no explicit model is set.
-                    placeholder_index = model_combo.findText("(Auto-select)")
-                    if placeholder_index != -1:
-                        model_combo.setCurrentIndex(placeholder_index)
-                model_combo.blockSignals(False)
-                
-                # Connect change handler with proper closure
-                def make_handler(provider_name):
-                    return lambda text: self._on_model_preference_changed(provider_name, text)
-                
-                model_combo.currentTextChanged.connect(make_handler(provider))
-
-                self.model_preferences_table.setCellWidget(row, 1, model_combo)
-
-                # Per-model chunking spinbox - Claude Generated
-                chunking_spinbox = QSpinBox()
-                chunking_spinbox.setRange(0, 2000)
-                chunking_spinbox.setSuffix(" Kw")
-                chunking_spinbox.setSpecialValueText("Auto")
-                chunking_spinbox.setMinimumWidth(80)
-                chunking_spinbox.setToolTip(
-                    "Keyword-Chunking-Schwellwert für dieses Modell.\n"
-                    "Auto (0) = Erkennung basierend auf Modellgröße.\n"
-                    "Große Modelle (>30B): ~1000, Mittel (13B): ~500, Klein (<7B): ~200-300"
-                )
-
-                # Get configured threshold or default to 0 (auto)
-                configured_threshold = 0
-                try:
-                    cfg_threshold = self.unified_config.get_chunking_threshold(provider, preferred_model or "")
-                    if cfg_threshold:
-                        configured_threshold = cfg_threshold
-                except Exception:
-                    pass
-                chunking_spinbox.setValue(configured_threshold)
-
-                # Calculate and show auto-detect value in tooltip
-                auto_value = get_chunking_threshold(provider, preferred_model or "", config_manager=self.config_manager)
-                if configured_threshold == 0:
-                    chunking_spinbox.setToolTip(
-                        f"Keyword-Chunking-Schwellwert für dieses Modell.\n"
-                        f"Auto = {auto_value} (basierend auf Modellgröße)"
-                    )
-
-                # Connect change handler with proper closure - Claude Generated
-                def make_chunking_handler(prov, model_combo_ref):
-                    def handler(value):
-                        model = model_combo_ref.currentText()
-                        if model == "(Auto-select)":
-                            model = ""
-                        self._on_model_chunking_changed(prov, model, value)
-                    return handler
-
-                chunking_spinbox.valueChanged.connect(make_chunking_handler(provider, model_combo))
-                self.model_preferences_table.setCellWidget(row, 2, chunking_spinbox)
-
-                # Available models display
-                models_item = QTableWidgetItem(available_models_text or "No models detected")
-                models_item.setToolTip("\n".join(available_models) if available_models else "No models available")
-                self.model_preferences_table.setItem(row, 3, models_item)
-                
-        except Exception as e:
-            self.logger.error(f"Error populating model preferences: {e}")
+        """Delegates to _populate_provider_table (tables are now merged) - Claude Generated"""
+        self._populate_provider_table()
     
     def _on_model_preference_changed(self, provider: str, model: str):
         """Handle model preference change - Store directly in provider config - Claude Generated"""
@@ -1410,13 +1262,11 @@ class UnifiedProviderTab(QWidget):
 
         if not current or not current.data(Qt.ItemDataRole.UserRole):
             self.selected_task_info_label.setText("Select a task from the categories")
-            self.chunked_tasks_checkbox.setVisible(False)
-            self.chunked_tasks_priority_label.setVisible(False)
-            self.chunked_task_model_priority_list.setVisible(False)
             self.selected_model_chunking_label.setVisible(False)
             self.selected_model_chunking_spinbox.setVisible(False)
+            self.selected_model_think_label.setVisible(False)
+            self.selected_model_think_combo.setVisible(False)
             self.task_model_priority_list.clear()
-            self.chunked_task_model_priority_list.clear()
             return
         
         task_data = current.data(Qt.ItemDataRole.UserRole)
@@ -1429,13 +1279,11 @@ class UnifiedProviderTab(QWidget):
         self.selected_task_info_label.setText(f"Task: {task_name} ({category})")
         self.logger.info(f"Now editing task: {task_name}")
 
-        # Show chunked options for applicable tasks
-        chunked_applicable = task_name in ["keywords", "initialisation"] or category == "pipeline"
-        self.chunked_tasks_checkbox.setVisible(chunked_applicable)
-
-        # Hide per-entry chunking until an item is selected
+        # Hide per-entry chunking and thinking until an item is selected
         self.selected_model_chunking_label.setVisible(False)
         self.selected_model_chunking_spinbox.setVisible(False)
+        self.selected_model_think_label.setVisible(False)
+        self.selected_model_think_combo.setVisible(False)
 
         # Load current model priorities for this task
         self._load_task_specific_model_priorities(task_name)
@@ -1444,7 +1292,6 @@ class UnifiedProviderTab(QWidget):
         """Load model priorities for the selected task using detection service - Claude Generated"""
         # CRITICAL FIX: Clear UI state and reset dirty flag when loading new task - Claude Generated
         self.task_model_priority_list.clear()
-        self.chunked_task_model_priority_list.clear()
         self.task_ui_dirty = False  # Loading fresh data, UI is now clean
 
         try:
@@ -1477,76 +1324,58 @@ class UnifiedProviderTab(QWidget):
                     # Include chunking info in display text - Claude Generated
                     chunking_val = self.unified_config.get_chunking_threshold(provider_name, model_name)
                     chunking_suffix = f" [{chunking_val} Kw]" if chunking_val else " [Auto]"
-                    item_text = f"{provider_name}: {display_model}{chunking_suffix}"
+                    # Include think indicator if set - Claude Generated
+                    think_val = model_config.get("think")
+                    think_suffix = " [think=on]" if think_val is True else (" [think=off]" if think_val is False else "")
+                    item_text = f"{provider_name}: {display_model}{chunking_suffix}{think_suffix}"
                     item = QListWidgetItem(item_text)
                     item.setData(Qt.ItemDataRole.UserRole, model_config)
                     self.task_model_priority_list.addItem(item)
-
-            # Check if task has chunked support - use working copy (unified_config) - Claude Generated
-            if task_name in self.unified_config.task_preferences:
-                task_pref_data = self.unified_config.task_preferences[task_name]
-                if task_pref_data and task_pref_data.chunked_model_priority:
-                    self.chunked_tasks_checkbox.setChecked(True)
-                    self._on_chunked_tasks_toggled(True)
-
-                    # Populate chunked priority list
-                    for model_config in task_pref_data.chunked_model_priority:
-                        provider_name = model_config["provider_name"]
-                        model_name = model_config["model_name"]
-
-                        # Validate provider is available
-                        if provider_name in available_providers:
-                            available_models = self._cached_models.get(provider_name, [])
-
-                            # Use "Auto-select" if model is "default" or not available
-                            display_model = model_name
-                            if model_name == "default" or (available_models and model_name not in available_models):
-                                display_model = "(Auto-select)"
-
-                            item_text = f"{provider_name}: {display_model}"
-                            item = QListWidgetItem(item_text)
-                            item.setData(Qt.ItemDataRole.UserRole, model_config)
-                            self.chunked_task_model_priority_list.addItem(item)
-                else:
-                    self.chunked_tasks_checkbox.setChecked(False)
-                    self._on_chunked_tasks_toggled(False)
 
 
         except Exception as e:
             self.logger.error(f"Error loading task-specific model priorities: {e}")
             QMessageBox.warning(self, "Load Error", f"Could not load model priorities for task '{task_name}':\n{str(e)}")
     
-    def _on_chunked_tasks_toggled(self, checked: bool):
-        """Handle chunked tasks checkbox toggle - Claude Generated"""
-        self.chunked_tasks_priority_label.setVisible(checked)
-        self.chunked_task_model_priority_list.setVisible(checked)
-
-        # CRITICAL FIX: Mark UI as dirty when chunked setting changes - Claude Generated
-        if self.current_editing_task:
-            self.task_ui_dirty = True
-            # Auto-save the chunked setting change immediately
-            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
-    
     def _on_priority_item_selected(self, current, previous):
-        """Handle selection change in task_model_priority_list - show per-entry chunking - Claude Generated"""
+        """Handle selection change in task_model_priority_list - show per-entry chunking/think - Claude Generated"""
         if not current or not current.data(Qt.ItemDataRole.UserRole):
             self.selected_model_chunking_label.setVisible(False)
             self.selected_model_chunking_spinbox.setVisible(False)
+            self.selected_model_think_label.setVisible(False)
+            self.selected_model_think_combo.setVisible(False)
             return
 
         model_config = current.data(Qt.ItemDataRole.UserRole)
         provider_name = model_config.get("provider_name", "")
         model_name = model_config.get("model_name", "")
 
-        # Show chunking controls
-        self.selected_model_chunking_label.setVisible(True)
-        self.selected_model_chunking_spinbox.setVisible(True)
+        # Show chunking controls only for keywords task - Claude Generated
+        is_keywords_task = self.current_editing_task == "keywords"
+        self.selected_model_chunking_label.setVisible(is_keywords_task)
+        self.selected_model_chunking_spinbox.setVisible(is_keywords_task)
 
-        # Load current chunking value (block signals to avoid triggering save)
-        self.selected_model_chunking_spinbox.blockSignals(True)
-        threshold = self.unified_config.get_chunking_threshold(provider_name, model_name)
-        self.selected_model_chunking_spinbox.setValue(threshold if threshold else 0)
-        self.selected_model_chunking_spinbox.blockSignals(False)
+        if is_keywords_task:
+            # Load current chunking value (block signals to avoid triggering save)
+            self.selected_model_chunking_spinbox.blockSignals(True)
+            threshold = self.unified_config.get_chunking_threshold(provider_name, model_name)
+            self.selected_model_chunking_spinbox.setValue(threshold if threshold else 0)
+            self.selected_model_chunking_spinbox.blockSignals(False)
+
+        # Show think controls for all tasks - Claude Generated
+        self.selected_model_think_label.setVisible(True)
+        self.selected_model_think_combo.setVisible(True)
+
+        # Load current think value (block signals to avoid triggering save)
+        self.selected_model_think_combo.blockSignals(True)
+        think_val = model_config.get("think")
+        if think_val is None:
+            self.selected_model_think_combo.setCurrentIndex(0)
+        elif think_val:
+            self.selected_model_think_combo.setCurrentIndex(1)
+        else:
+            self.selected_model_think_combo.setCurrentIndex(2)
+        self.selected_model_think_combo.blockSignals(False)
 
     def _on_selected_model_chunking_changed(self, value: int):
         """Handle per-entry chunking spinbox change - save to unified config - Claude Generated"""
@@ -1564,16 +1393,44 @@ class UnifiedProviderTab(QWidget):
             self.unified_config.set_chunking_threshold(provider_name, model_name, value)
 
         # Update display text of selected item
-        display_model = model_name
-        available_models = self._cached_models.get(provider_name, [])
-        if model_name == "default" or (available_models and model_name not in available_models):
-            display_model = "(Auto-select)"
-        chunking_suffix = f" [{value} Kw]" if value else " [Auto]"
-        current_item.setText(f"{provider_name}: {display_model}{chunking_suffix}")
+        self._refresh_priority_item_text(current_item)
 
         # Emit config changed to trigger save
         self.config_changed.emit()
         self._show_save_toast(f"✅ Chunking for {provider_name}:{model_name} saved")
+
+    def _refresh_priority_item_text(self, item: QListWidgetItem):
+        """Refresh the display text of a priority list item from its stored model_config - Claude Generated"""
+        model_config = item.data(Qt.ItemDataRole.UserRole)
+        if not model_config:
+            return
+        provider_name = model_config.get("provider_name", "")
+        model_name = model_config.get("model_name", "")
+        available_models = self._cached_models.get(provider_name, [])
+        display_model = model_name
+        if model_name == "default" or (available_models and model_name not in available_models):
+            display_model = "(Auto-select)"
+        chunking_val = self.unified_config.get_chunking_threshold(provider_name, model_name)
+        chunking_suffix = f" [{chunking_val} Kw]" if chunking_val else " [Auto]"
+        think_val = model_config.get("think")
+        think_suffix = " [think=on]" if think_val is True else (" [think=off]" if think_val is False else "")
+        item.setText(f"{provider_name}: {display_model}{chunking_suffix}{think_suffix}")
+
+    def _on_selected_model_think_changed(self, index: int):
+        """Handle think combo change - save to item data and config - Claude Generated"""
+        current_item = self.task_model_priority_list.currentItem()
+        if not current_item or not current_item.data(Qt.ItemDataRole.UserRole):
+            return
+
+        model_config = current_item.data(Qt.ItemDataRole.UserRole)
+        think_map = {0: None, 1: True, 2: False}
+        model_config["think"] = think_map[index]
+        current_item.setData(Qt.ItemDataRole.UserRole, model_config)
+        self._refresh_priority_item_text(current_item)
+
+        if self.current_editing_task:
+            self.task_ui_dirty = True
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
 
     def _add_model_to_task_priority(self):
         """Add model to task priority list using real provider/model detection - Claude Generated"""
@@ -1654,21 +1511,7 @@ class UnifiedProviderTab(QWidget):
                 # Log which task is being modified for debugging - Claude Generated
                 self.logger.info(f"Adding model preference to task '{selected_task_name}': {provider_name}/{model_name}")
                 
-                # Add to appropriate list based on chunked checkbox
-                if self.chunked_tasks_checkbox.isChecked() and self.chunked_tasks_checkbox.isVisible():
-                    # Ask which list to add to
-                    reply = QMessageBox.question(
-                        self, "Add to Which List?", 
-                        "Add to standard priority list or chunked priority list?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.Yes
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        self.task_model_priority_list.addItem(item)
-                    else:
-                        self.chunked_task_model_priority_list.addItem(item)
-                else:
-                    self.task_model_priority_list.addItem(item)
+                self.task_model_priority_list.addItem(item)
                 
                 # CRITICAL FIX: Mark UI as dirty and save immediately using explicit task name - Claude Generated
                 self.task_ui_dirty = True
@@ -1779,34 +1622,19 @@ class UnifiedProviderTab(QWidget):
 
     def _remove_model_from_task_priority(self):
         """Remove selected model from task priority list - Claude Generated"""
-        # Try main list first
         current_item = self.task_model_priority_list.currentItem()
-        if current_item:
-            row = self.task_model_priority_list.row(current_item)
-            self.task_model_priority_list.takeItem(row)
-            # CRITICAL FIX: Mark UI as dirty and save with explicit task name - Claude Generated
-            if self.current_editing_task:
-                self.task_ui_dirty = True
-                self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
-            else:
-                self.logger.warning("No current editing task for remove operation")
+        if not current_item:
+            QMessageBox.information(self, "No Selection", "Please select a model to remove.")
             return
-        
-        # Try chunked list
-        current_item = self.chunked_task_model_priority_list.currentItem()
-        if current_item:
-            row = self.chunked_task_model_priority_list.row(current_item)
-            self.chunked_task_model_priority_list.takeItem(row)
-            # CRITICAL FIX: Mark UI as dirty and save with explicit task name - Claude Generated
-            if self.current_editing_task:
-                self.task_ui_dirty = True
-                self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
-            else:
-                self.logger.warning("No current editing task for remove operation")
-            return
-        
-        QMessageBox.information(self, "No Selection", "Please select a model to remove.")
-    
+        row = self.task_model_priority_list.row(current_item)
+        self.task_model_priority_list.takeItem(row)
+        # CRITICAL FIX: Mark UI as dirty and save with explicit task name - Claude Generated
+        if self.current_editing_task:
+            self.task_ui_dirty = True
+            self._save_current_task_preferences(explicit_task_name=self.current_editing_task)
+        else:
+            self.logger.warning("No current editing task for remove operation")
+
     def _reset_selected_task_to_defaults(self):
         """Reset selected task to default model priorities - Claude Generated"""
         current_item = self.task_categories_list.currentItem()
@@ -2066,16 +1894,9 @@ class UnifiedProviderTab(QWidget):
                 if model_config:
                     model_priority.append(model_config)
             
-            # Extract chunked model priorities if chunked mode is enabled
+            # Chunked model priority removed from UI - kept as None for backward compat
             chunked_model_priority = None
-            if self.chunked_tasks_checkbox.isChecked():
-                chunked_model_priority = []
-                for i in range(self.chunked_task_model_priority_list.count()):
-                    item = self.chunked_task_model_priority_list.item(i)
-                    model_config = item.data(Qt.ItemDataRole.UserRole)
-                    if model_config:
-                        chunked_model_priority.append(model_config)
-            
+
             # CRITICAL FIX: Add validation before saving to prevent cross-contamination - Claude Generated
             if explicit_task_name and explicit_task_name != task_name:
                 self.logger.error(f"Task name mismatch: explicit='{explicit_task_name}' vs resolved='{task_name}' - aborting save")
@@ -2139,11 +1960,9 @@ class UnifiedProviderTab(QWidget):
             self.current_editing_task = None
             self.task_ui_dirty = False
 
-            # Ensure task lists are clear initially
+            # Ensure task list is clear initially
             if hasattr(self, 'task_model_priority_list'):
                 self.task_model_priority_list.clear()
-            if hasattr(self, 'chunked_task_model_priority_list'):
-                self.chunked_task_model_priority_list.clear()
 
             self.logger.info("Task editing state initialized successfully")
 
@@ -2161,8 +1980,6 @@ class UnifiedProviderTab(QWidget):
             # Clear UI state
             if hasattr(self, 'task_model_priority_list'):
                 self.task_model_priority_list.clear()
-            if hasattr(self, 'chunked_task_model_priority_list'):
-                self.chunked_task_model_priority_list.clear()
 
             # Update tracking variables
             self.current_editing_task = new_task_name

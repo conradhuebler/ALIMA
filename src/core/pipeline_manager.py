@@ -243,6 +243,11 @@ class PipelineConfig:
                         step_configs[step_id].provider = override_provider
                         step_configs[step_id].model = override_model or default_model
                         logger.debug(f"Step override for {step_id}: {override_provider}/{override_model}")
+                    # Apply think setting if explicitly set (None = default, not inherited) - Claude Generated
+                    think_val = first_pref.get("think")
+                    if think_val is not None:
+                        step_configs[step_id].think = think_val
+                        logger.debug(f"Think override for {step_id}: think={think_val}")
 
             return cls(
                 auto_advance=True,
