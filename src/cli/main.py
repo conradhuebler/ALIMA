@@ -130,6 +130,15 @@ def create_argument_parser():
     batch_input_group = batch_parser.add_mutually_exclusive_group(required=True)
     batch_input_group.add_argument("--batch-file", help="Path to batch file")
     batch_input_group.add_argument("--resume", help="Path to .batch_state.json to resume")
+    batch_input_group.add_argument(
+        "--siegel", metavar="SIEGEL_NAME",
+        help="K10Plus Paketsigel (z.B. ZDB-2-CMS) – wird zu DOI-Liste expandiert"
+    )
+
+    batch_parser.add_argument(
+        "--siegel-cache-dir", metavar="DIR",
+        help="Cache-Verzeichnis fuer K10Plus XML-Dateien (default: kein Cache)"
+    )
 
     batch_parser.add_argument("--output-dir", help="Directory for output JSON files")
     batch_parser.add_argument("--stop-on-error", action="store_true", help="Stop on first error")

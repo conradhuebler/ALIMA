@@ -24,6 +24,38 @@ from ..core.pipeline_manager import PipelineConfig
 from .workers import StoppableWorker
 
 
+class SiegelFetchWorker(StoppableWorker):
+    """Background worker that fetches DOIs for a K10Plus Paketsigel - Claude Generated"""
+
+    progress = pyqtSignal(int, int, str)   # current, total, message
+    finished = pyqtSignal(list)            # list of DOI strings
+    error = pyqtSignal(str)
+
+    def __init__(self, siegel: str, cache_dir: Optional[str] = None):
+        super().__init__()
+        self.siegel = siegel
+        self.cache_dir = cache_dir
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        try:
+            from ..utils.k10plus_resolver import fetch_dois_for_siegel
+
+            def _progress(current, total, msg):
+                self.progress.emit(current, total, msg)
+
+            dois = fetch_dois_for_siegel(
+                self.siegel,
+                cache_dir=self.cache_dir or None,
+                progress_callback=_progress,
+                logger=self.logger,
+            )
+            self.finished.emit(dois)
+        except Exception as exc:
+            self.logger.error(f"SiegelFetchWorker error: {exc}")
+            self.error.emit(str(exc))
+
+
 class BatchProcessingWorker(StoppableWorker):
     """Background worker for batch processing - Claude Generated
 
@@ -148,11 +180,15 @@ class BatchProcessingDialog(QDialog):
         self.batch_file_tab = self._create_batch_file_tab()
         self.tabs.addTab(self.batch_file_tab, "📄 Batch File")
 
-        # Tab 1: Direct File Selection - Claude Generated
+        # Tab 1: Paketsigel - Claude Generated
+        self.siegel_tab = self._create_siegel_tab()
+        self.tabs.addTab(self.siegel_tab, "🏛️ Paketsiegel")
+
+        # Tab 2: Direct File Selection - Claude Generated
         self.files_tab = self._create_files_tab()
         self.tabs.addTab(self.files_tab, "📎 Dateien")
 
-        # Tab 2: Directory Scan
+        # Tab 3: Directory Scan
         self.directory_tab = self._create_directory_scan_tab()
         self.tabs.addTab(self.directory_tab, "📁 Directory Scan")
 
@@ -245,18 +281,158 @@ class BatchProcessingDialog(QDialog):
 
         layout.addLayout(file_layout)
 
-        # Preview button
+        # Preview button + toggle
+        preview_row = QHBoxLayout()
         preview_button = QPushButton("Preview Sources")
         preview_button.clicked.connect(self._preview_batch_file)
-        layout.addWidget(preview_button)
+        preview_row.addWidget(preview_button)
+        preview_row.addStretch()
+        batch_toggle_btn = QPushButton("Alle auswählen / Keine")
+        batch_toggle_btn.clicked.connect(lambda: self._toggle_list_selection(self.batch_preview_list))
+        preview_row.addWidget(batch_toggle_btn)
+        layout.addLayout(preview_row)
 
-        # Source preview list
+        # Source preview list with checkboxes
         self.batch_preview_list = QListWidget()
         layout.addWidget(self.batch_preview_list)
 
         layout.addStretch()
         widget.setLayout(layout)
         return widget
+
+    def _create_siegel_tab(self) -> QWidget:
+        """Create the K10Plus Paketsigel input tab - Claude Generated"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        instructions = QLabel(
+            "K10Plus Paketsigel eingeben (z.B. ZDB-2-CMS).\n"
+            "Alle zugehörigen DOIs werden per SRU-API abgerufen und als Batch verarbeitet."
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        # Sigel input row
+        siegel_layout = QHBoxLayout()
+        self.siegel_input = QLineEdit()
+        self.siegel_input.setPlaceholderText("z.B. ZDB-2-CMS")
+        siegel_layout.addWidget(self.siegel_input)
+
+        self.siegel_fetch_btn = QPushButton("Abrufen")
+        self.siegel_fetch_btn.clicked.connect(self._fetch_siegel_dois)
+        siegel_layout.addWidget(self.siegel_fetch_btn)
+        layout.addLayout(siegel_layout)
+
+        # Cache dir row
+        cache_layout = QHBoxLayout()
+        cache_layout.addWidget(QLabel("Cache-Verzeichnis (optional):"))
+        self.siegel_cache_input = QLineEdit()
+        self.siegel_cache_input.setPlaceholderText("Leer lassen für kein Caching")
+        cache_layout.addWidget(self.siegel_cache_input)
+        cache_browse_btn = QPushButton("...")
+        cache_browse_btn.setFixedWidth(30)
+        cache_browse_btn.clicked.connect(self._browse_siegel_cache_dir)
+        cache_layout.addWidget(cache_browse_btn)
+        layout.addLayout(cache_layout)
+
+        # Progress bar + status label
+        self.siegel_progress_bar = QProgressBar()
+        self.siegel_progress_bar.setVisible(False)
+        layout.addWidget(self.siegel_progress_bar)
+
+        self.siegel_status_label = QLabel("")
+        layout.addWidget(self.siegel_status_label)
+
+        # DOI list with checkboxes
+        select_layout = QHBoxLayout()
+        self.siegel_toggle_btn = QPushButton("Alle auswählen / Keine")
+        self.siegel_toggle_btn.clicked.connect(self._toggle_siegel_selection)
+        select_layout.addWidget(self.siegel_toggle_btn)
+        select_layout.addStretch()
+        layout.addLayout(select_layout)
+
+        self.siegel_preview_list = QListWidget()
+        self.siegel_preview_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        layout.addWidget(self.siegel_preview_list)
+
+        widget.setLayout(layout)
+        return widget
+
+    def _browse_siegel_cache_dir(self):
+        """Browse for Siegel XML cache directory - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(self, "Cache-Verzeichnis wählen")
+        if directory:
+            self.siegel_cache_input.setText(directory)
+
+    def _fetch_siegel_dois(self):
+        """Start SiegelFetchWorker to retrieve DOIs - Claude Generated"""
+        siegel = self.siegel_input.text().strip()
+        if not siegel:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Kein Sigel", "Bitte ein Paketsigel eingeben.")
+            return
+
+        cache_dir = self.siegel_cache_input.text().strip() or None
+
+        self.siegel_fetch_btn.setEnabled(False)
+        self.siegel_preview_list.clear()
+        self.siegel_progress_bar.setValue(0)
+        self.siegel_progress_bar.setVisible(True)
+        self.siegel_status_label.setText(f"Rufe DOIs für '{siegel}' ab ...")
+
+        self._siegel_worker = SiegelFetchWorker(siegel, cache_dir)
+        self._siegel_worker.progress.connect(self._on_siegel_progress)
+        self._siegel_worker.finished.connect(self._on_siegel_finished)
+        self._siegel_worker.error.connect(self._on_siegel_error)
+        self._siegel_worker.start()
+
+    @pyqtSlot(int, int, str)
+    def _on_siegel_progress(self, current: int, total: int, msg: str):
+        """Update progress bar and status label during siegel fetch - Claude Generated"""
+        if total > 0:
+            self.siegel_progress_bar.setMaximum(total)
+            self.siegel_progress_bar.setValue(current)
+        self.siegel_status_label.setText(msg)
+
+    @pyqtSlot(list)
+    def _on_siegel_finished(self, dois: list):
+        """Populate DOI checklist after successful fetch - Claude Generated"""
+        self.siegel_fetch_btn.setEnabled(True)
+        self.siegel_progress_bar.setVisible(False)
+        self.siegel_status_label.setText(f"{len(dois)} DOIs gefunden.")
+
+        self.siegel_preview_list.clear()
+        for doi in dois:
+            item = QListWidgetItem(doi)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, doi)
+            self.siegel_preview_list.addItem(item)
+
+    @pyqtSlot(str)
+    def _on_siegel_error(self, error_msg: str):
+        """Show error when siegel fetch fails - Claude Generated"""
+        self.siegel_fetch_btn.setEnabled(True)
+        self.siegel_progress_bar.setVisible(False)
+        self.siegel_status_label.setText(f"Fehler: {error_msg}")
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.critical(self, "Abruf fehlgeschlagen", error_msg)
+
+    def _toggle_list_selection(self, list_widget: QListWidget):
+        """Toggle all/none for any checkable QListWidget - Claude Generated"""
+        any_unchecked = any(
+            list_widget.item(i).checkState() != Qt.CheckState.Checked
+            for i in range(list_widget.count())
+            if list_widget.item(i).flags() & Qt.ItemFlag.ItemIsUserCheckable
+        )
+        state = Qt.CheckState.Checked if any_unchecked else Qt.CheckState.Unchecked
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                item.setCheckState(state)
+
+    def _toggle_siegel_selection(self):
+        self._toggle_list_selection(self.siegel_preview_list)
 
     def _create_files_tab(self) -> QWidget:
         """Create the direct file selection tab - Claude Generated"""
@@ -288,7 +464,14 @@ class BatchProcessingDialog(QDialog):
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
-        # File list with checkboxes
+        # Toggle button + file list with checkboxes
+        toggle_layout = QHBoxLayout()
+        files_toggle_btn = QPushButton("Alle auswählen / Keine")
+        files_toggle_btn.clicked.connect(lambda: self._toggle_list_selection(self.files_list))
+        toggle_layout.addWidget(files_toggle_btn)
+        toggle_layout.addStretch()
+        layout.addLayout(toggle_layout)
+
         self.files_list = QListWidget()
         self.files_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         layout.addWidget(self.files_list)
@@ -375,9 +558,14 @@ class BatchProcessingDialog(QDialog):
         scan_button.clicked.connect(self._scan_directory)
         layout.addWidget(scan_button)
 
-        # Preview list
-        preview_label = QLabel("Found Files (uncheck to exclude):")
-        layout.addWidget(preview_label)
+        # Preview list with toggle button
+        scan_toggle_layout = QHBoxLayout()
+        scan_toggle_layout.addWidget(QLabel("Gefundene Dateien (Haken entfernen zum Ausschließen):"))
+        scan_toggle_layout.addStretch()
+        scan_toggle_btn = QPushButton("Alle auswählen / Keine")
+        scan_toggle_btn.clicked.connect(lambda: self._toggle_list_selection(self.scan_preview_list))
+        scan_toggle_layout.addWidget(scan_toggle_btn)
+        layout.addLayout(scan_toggle_layout)
 
         self.scan_preview_list = QListWidget()
         self.scan_preview_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
@@ -451,7 +639,11 @@ class BatchProcessingDialog(QDialog):
                     item_text = f"{source.source_type.value}: {source.source_value}"
                     if source.custom_name:
                         item_text += f" ({source.custom_name})"
-                    self.batch_preview_list.addItem(item_text)
+                    item = QListWidgetItem(item_text)
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(Qt.CheckState.Checked)
+                    item.setData(Qt.ItemDataRole.UserRole, source)
+                    self.batch_preview_list.addItem(item)
 
             self.batch_sources = sources
             self.logger.info(f"Previewed {len(sources)} sources from batch file")
@@ -521,8 +713,47 @@ class BatchProcessingDialog(QDialog):
             if not batch_file:
                 QMessageBox.warning(self, "No Batch File", "Please select a batch file.")
                 return
-            sources_input = ("file", batch_file)
-        elif tab_index == 1:  # Dateien tab (direct file selection)
+
+            # If preview was done, only process checked items - Claude Generated
+            if self.batch_preview_list.count() > 0 and self.batch_sources:
+                checked_sources = []
+                for i in range(self.batch_preview_list.count()):
+                    item = self.batch_preview_list.item(i)
+                    if (item.flags() & Qt.ItemFlag.ItemIsUserCheckable and
+                            item.checkState() == Qt.CheckState.Checked):
+                        src = item.data(Qt.ItemDataRole.UserRole)
+                        if src is not None:
+                            checked_sources.append(src)
+                if not checked_sources:
+                    QMessageBox.warning(self, "Keine Quellen", "Bitte mindestens eine Quelle auswählen.")
+                    return
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+                for src in checked_sources:
+                    tmp.write(f"{src.source_type.value}:{src.source_value}\n")
+                tmp.close()
+                sources_input = ("file", tmp.name)
+            else:
+                sources_input = ("file", batch_file)
+        elif tab_index == 1:  # Paketsiegel tab - Claude Generated
+            checked_dois = []
+            for i in range(self.siegel_preview_list.count()):
+                item = self.siegel_preview_list.item(i)
+                if item.checkState() == Qt.CheckState.Checked:
+                    checked_dois.append(item.data(Qt.ItemDataRole.UserRole))
+
+            if not checked_dois:
+                QMessageBox.warning(self, "Keine DOIs", "Bitte zuerst Sigel abrufen und mindestens eine DOI auswählen.")
+                return
+
+            # Write temporary batch file with DOI entries
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+            for doi in checked_dois:
+                tmp.write(f"DOI:{doi}\n")
+            tmp.close()
+            sources_input = ("file", tmp.name)
+        elif tab_index == 2:  # Dateien tab (direct file selection)
             checked_files = []
             for i in range(self.files_list.count()):
                 item = self.files_list.item(i)
@@ -535,7 +766,7 @@ class BatchProcessingDialog(QDialog):
                 return
 
             sources_input = ("files", checked_files)
-        else:  # Directory Scan tab (index 2)
+        else:  # Directory Scan tab (index 3)
             # Collect checked files
             checked_files = []
             for i in range(self.scan_preview_list.count()):

@@ -339,6 +339,43 @@ def handle_batch(args, config_manager: ConfigManager, llm_service: LlmService,
         logger.error("--output-dir is required when using --batch-file")
         return
 
+    # Siegel expansion: fetch DOIs and write temporary batch file
+    if getattr(args, "siegel", None):
+        if not args.output_dir:
+            logger.error("--output-dir is required when using --siegel")
+            return
+        from src.utils.k10plus_resolver import fetch_dois_for_siegel
+        import tempfile
+
+        def _siegel_progress(current, total, msg):
+            logger.info(f"  [{current}/{total}] {msg}")
+
+        logger.info(f"Fetching DOIs for Paketsigel '{args.siegel}' ...")
+        try:
+            dois = fetch_dois_for_siegel(
+                args.siegel,
+                cache_dir=getattr(args, "siegel_cache_dir", None),
+                progress_callback=_siegel_progress,
+                logger=logger,
+            )
+        except Exception as exc:
+            logger.error(f"Failed to fetch DOIs for siegel '{args.siegel}': {exc}")
+            return
+
+        logger.info(f"Fetched {len(dois)} DOIs from '{args.siegel}'")
+        if not dois:
+            logger.warning("No DOIs found for the given Paketsigel – nothing to process.")
+            return
+
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        )
+        for doi in dois:
+            tmp.write(f"DOI:{doi}\n")
+        tmp.close()
+        args.batch_file = tmp.name
+        logger.info(f"Temporary batch file written: {tmp.name} ({len(dois)} entries)")
+
     # Setup managers
     alima_manager = AlimaManager(llm_service, prompt_service, config_manager, logger)
     cache_manager = UnifiedKnowledgeManager()
