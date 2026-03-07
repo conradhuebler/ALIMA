@@ -28,7 +28,7 @@ class SiegelFetchWorker(StoppableWorker):
     """Background worker that fetches DOIs for a K10Plus Paketsigel - Claude Generated"""
 
     progress = pyqtSignal(int, int, str)   # current, total, message
-    finished = pyqtSignal(list)            # list of DOI strings
+    finished = pyqtSignal(list)            # list of K10PlusRecord objects
     error = pyqtSignal(str)
 
     def __init__(self, siegel: str, cache_dir: Optional[str] = None):
@@ -39,20 +39,50 @@ class SiegelFetchWorker(StoppableWorker):
 
     def run(self):
         try:
-            from ..utils.k10plus_resolver import fetch_dois_for_siegel
+            from ..utils.k10plus_resolver import fetch_records_for_siegel
 
             def _progress(current, total, msg):
                 self.progress.emit(current, total, msg)
 
-            dois = fetch_dois_for_siegel(
+            records = fetch_records_for_siegel(
                 self.siegel,
                 cache_dir=self.cache_dir or None,
                 progress_callback=_progress,
                 logger=self.logger,
             )
-            self.finished.emit(dois)
+            self.finished.emit(records)
         except Exception as exc:
             self.logger.error(f"SiegelFetchWorker error: {exc}")
+            self.error.emit(str(exc))
+
+
+class SiegelCacheLoadWorker(StoppableWorker):
+    """Background worker that loads cached K10Plus records without API call - Claude Generated"""
+
+    finished = pyqtSignal(list)            # list of K10PlusRecord objects
+    error = pyqtSignal(str)
+    status_message = pyqtSignal(str)       # Status message for UI
+
+    def __init__(self, siegel: str, cache_dir: str):
+        super().__init__()
+        self.siegel = siegel
+        self.cache_dir = cache_dir
+        self.logger = logging.getLogger(__name__)
+
+    def run(self):
+        try:
+            from ..utils.k10plus_resolver import load_cached_records
+
+            self.status_message.emit(f"Suche gecachte Dateien für '{self.siegel}'...")
+            records = load_cached_records(self.cache_dir, self.siegel, self.logger)
+
+            if not records:
+                self.error.emit(f"Keine gecachten Daten für '{self.siegel}' gefunden.")
+            else:
+                self.status_message.emit(f"{len(records)} Titel aus Cache geladen.")
+                self.finished.emit(records)
+        except Exception as exc:
+            self.logger.error(f"SiegelCacheLoadWorker error: {exc}")
             self.error.emit(str(exc))
 
 
@@ -264,7 +294,7 @@ class BatchProcessingDialog(QDialog):
         instructions = QLabel(
             "Select a text file containing sources to process.\n"
             "Format: TYPE:VALUE (one per line)\n"
-            "Supported types: DOI, PDF, TXT, IMG, URL"
+            "Supported types: DOI, ISBN, PPN, PDF, TXT, IMG, URL"
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
@@ -306,8 +336,9 @@ class BatchProcessingDialog(QDialog):
         layout = QVBoxLayout()
 
         instructions = QLabel(
-            "K10Plus Paketsigel eingeben (z.B. ZDB-2-CMS).\n"
-            "Alle zugehörigen DOIs werden per SRU-API abgerufen und als Batch verarbeitet."
+            "K10Plus Paketsiegel eingeben (z.B. ZDB-2-CMS).\n"
+            "Abrufen: Ruft Metadaten per SRU-API ab und cached XML lokal.\n"
+            "Aus Cache: Lädt gecachte Daten ohne API-Aufruf (schnell, offline)."
         )
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
@@ -320,7 +351,13 @@ class BatchProcessingDialog(QDialog):
 
         self.siegel_fetch_btn = QPushButton("Abrufen")
         self.siegel_fetch_btn.clicked.connect(self._fetch_siegel_dois)
+        self.siegel_fetch_btn.setToolTip("Metadaten von K10Plus per SRU-API abrufen und lokal cachen")
         siegel_layout.addWidget(self.siegel_fetch_btn)
+
+        self.siegel_cache_load_btn = QPushButton("Aus Cache")
+        self.siegel_cache_load_btn.clicked.connect(self._load_cached_siegel)
+        self.siegel_cache_load_btn.setToolTip("Gecachte K10Plus-Daten ohne API-Aufruf laden")
+        siegel_layout.addWidget(self.siegel_cache_load_btn)
         layout.addLayout(siegel_layout)
 
         # Cache dir row
@@ -364,6 +401,72 @@ class BatchProcessingDialog(QDialog):
         if directory:
             self.siegel_cache_input.setText(directory)
 
+    def _load_cached_siegel(self):
+        """Load cached K10Plus records without API call using background worker - Claude Generated"""
+        siegel = self.siegel_input.text().strip()
+        if not siegel:
+            QMessageBox.warning(self, "Kein Sigel", "Bitte ein Paketsiegel eingeben.")
+            return
+
+        cache_dir = self.siegel_cache_input.text().strip()
+        if not cache_dir:
+            QMessageBox.warning(self, "Kein Cache-Verzeichnis",
+                "Bitte zuerst ein Cache-Verzeichnis auswählen.")
+            return
+
+        if not os.path.exists(cache_dir):
+            QMessageBox.warning(self, "Verzeichnis nicht gefunden",
+                f"Cache-Verzeichnis existiert nicht:\n{cache_dir}")
+            return
+
+        # Set busy cursor and disable button
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        self.siegel_cache_load_btn.setEnabled(False)
+        self.siegel_preview_list.clear()
+        self.siegel_status_label.setText(f"Suche gecachte Dateien für '{siegel}'...")
+
+        # Start background worker
+        self._siegel_cache_worker = SiegelCacheLoadWorker(siegel, cache_dir)
+        self._siegel_cache_worker.finished.connect(self._on_cache_load_finished)
+        self._siegel_cache_worker.error.connect(self._on_cache_load_error)
+        self._siegel_cache_worker.status_message.connect(self._on_cache_load_status)
+        self._siegel_cache_worker.start()
+
+    @pyqtSlot(list)
+    def _on_cache_load_finished(self, records: list):
+        """Handle completed cache load - Claude Generated"""
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.siegel_cache_load_btn.setEnabled(True)
+
+        # Count records with DOIs
+        doi_count = sum(1 for r in records if r.doi)
+        self.siegel_status_label.setText(f"{len(records)} Titel aus Cache geladen ({doi_count} mit DOI).")
+
+        self.siegel_preview_list.clear()
+        for record in records:
+            display_text = record.to_display_string()
+            item = QListWidgetItem(display_text)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, record)
+            item.setToolTip(f"{display_text}\n\nVerlag: {record.publisher}\nJahr: {record.year}\nISBN: {record.isbn or 'N/A'}\nDDC: {record.ddc or 'N/A'}")
+            self.siegel_preview_list.addItem(item)
+
+        self.logger.info(f"Loaded {len(records)} cached records")
+
+    @pyqtSlot(str)
+    def _on_cache_load_error(self, error_msg: str):
+        """Handle cache load error - Claude Generated"""
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.siegel_cache_load_btn.setEnabled(True)
+        self.siegel_status_label.setText(f"Fehler: {error_msg}")
+        QMessageBox.information(self, "Keine Cache-Daten", error_msg)
+
+    @pyqtSlot(str)
+    def _on_cache_load_status(self, msg: str):
+        """Update status message during cache load - Claude Generated"""
+        self.siegel_status_label.setText(msg)
+
     def _fetch_siegel_dois(self):
         """Start SiegelFetchWorker to retrieve DOIs - Claude Generated"""
         siegel = self.siegel_input.text().strip()
@@ -374,6 +477,8 @@ class BatchProcessingDialog(QDialog):
 
         cache_dir = self.siegel_cache_input.text().strip() or None
 
+        # Set busy cursor
+        self.setCursor(Qt.CursorShape.WaitCursor)
         self.siegel_fetch_btn.setEnabled(False)
         self.siegel_preview_list.clear()
         self.siegel_progress_bar.setValue(0)
@@ -395,18 +500,27 @@ class BatchProcessingDialog(QDialog):
         self.siegel_status_label.setText(msg)
 
     @pyqtSlot(list)
-    def _on_siegel_finished(self, dois: list):
-        """Populate DOI checklist after successful fetch - Claude Generated"""
+    def _on_siegel_finished(self, records: list):
+        """Populate checklist with full metadata records - Claude Generated"""
+        from ..utils.k10plus_resolver import K10PlusRecord
+
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self.siegel_fetch_btn.setEnabled(True)
         self.siegel_progress_bar.setVisible(False)
-        self.siegel_status_label.setText(f"{len(dois)} DOIs gefunden.")
+
+        # Count records with DOIs
+        doi_count = sum(1 for r in records if r.doi)
+        self.siegel_status_label.setText(f"{len(records)} Titel gefunden ({doi_count} mit DOI).")
 
         self.siegel_preview_list.clear()
-        for doi in dois:
-            item = QListWidgetItem(doi)
+        for record in records:
+            # Display string with full metadata
+            display_text = record.to_display_string()
+            item = QListWidgetItem(display_text)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
-            item.setData(Qt.ItemDataRole.UserRole, doi)
+            item.setData(Qt.ItemDataRole.UserRole, record)
+            item.setToolTip(f"{display_text}\n\nVerlag: {record.publisher}\nJahr: {record.year}\nISBN: {record.isbn or 'N/A'}\nDDC: {record.ddc or 'N/A'}")
             self.siegel_preview_list.addItem(item)
 
     @pyqtSlot(str)
@@ -628,6 +742,8 @@ class BatchProcessingDialog(QDialog):
                     "  TXT:/pfad/abstract.txt\n"
                     "  PDF:/pfad/paper.pdf\n"
                     "  DOI:10.1234/example\n"
+                    "  ISBN:9783662123456\n"
+                    "  PPN:1234567890\n"
                     "  IMG:/pfad/bild.png\n"
                     "  URL:https://example.com\n"
                     "\nHinweis: Bare DOIs (10.XXXX/...) und doi.org-URLs werden automatisch erkannt."
@@ -736,21 +852,29 @@ class BatchProcessingDialog(QDialog):
             else:
                 sources_input = ("file", batch_file)
         elif tab_index == 1:  # Paketsiegel tab - Claude Generated
-            checked_dois = []
+            checked_records = []
             for i in range(self.siegel_preview_list.count()):
                 item = self.siegel_preview_list.item(i)
                 if item.checkState() == Qt.CheckState.Checked:
-                    checked_dois.append(item.data(Qt.ItemDataRole.UserRole))
+                    checked_records.append(item.data(Qt.ItemDataRole.UserRole))
 
-            if not checked_dois:
-                QMessageBox.warning(self, "Keine DOIs", "Bitte zuerst Sigel abrufen und mindestens eine DOI auswählen.")
+            if not checked_records:
+                QMessageBox.warning(self, "Keine Titel", "Bitte zuerst Sigel abrufen und mindestens einen Titel auswählen.")
                 return
 
-            # Write temporary batch file with DOI entries
+            # Write temporary batch file with DOI entries (prefer DOI, fallback to ISBN/PPN)
             import tempfile
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
-            for doi in checked_dois:
-                tmp.write(f"DOI:{doi}\n")
+            for record in checked_records:
+                # Priority: DOI > ISBN > PPN
+                identifier = record.doi or record.isbn or record.ppn
+                if identifier:
+                    if record.doi:
+                        tmp.write(f"DOI:{record.doi}\n")
+                    elif record.isbn:
+                        tmp.write(f"ISBN:{record.isbn}\n")
+                    elif record.ppn:
+                        tmp.write(f"PPN:{record.ppn}\n")
             tmp.close()
             sources_input = ("file", tmp.name)
         elif tab_index == 2:  # Dateien tab (direct file selection)

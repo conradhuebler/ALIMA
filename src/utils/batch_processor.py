@@ -29,6 +29,8 @@ class SourceType(Enum):
     TXT = "TXT"
     IMG = "IMG"
     URL = "URL"
+    ISBN = "ISBN"
+    PPN = "PPN"
 
 
 @dataclass
@@ -565,6 +567,82 @@ class BatchProcessor:
             except Exception as e:
                 self.logger.error(f"Image analysis failed: {e}")
                 raise RuntimeError(f"Failed to analyze image: {e}")
+
+        elif source.source_type == SourceType.ISBN:
+            # ISBN lookup via K10Plus/MARC - Claude Generated
+            try:
+                from ..utils.clients.marcxml_client import MarcXmlClient
+
+                self.logger.info(f"Looking up ISBN {source.source_value} via K10Plus...")
+                client = MarcXmlClient(preset="k10plus", max_records=1)
+                results = client.search(source.source_value, search_type="isbn")
+
+                if not results:
+                    raise ValueError(f"Keine Treffer für ISBN {source.source_value}")
+
+                record = results[0]
+                text_parts = []
+
+                # Build text from metadata
+                if record.get("title"):
+                    text_parts.append(f"Titel: {record['title']}")
+                if record.get("author"):
+                    text_parts.append(f"Autor: {'; '.join(record['author'])}")
+                if record.get("publication"):
+                    text_parts.append(f"Erschienen: {record['publication']}")
+                if record.get("abstract"):
+                    text_parts.append(f"Abstract:\n{record['abstract']}")
+                if record.get("subjects"):
+                    text_parts.append(f"Schlagwörter: {'; '.join(record['subjects'][:10])}")
+
+                text = "\n\n".join(text_parts)
+                if not text.strip():
+                    raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
+
+                self.logger.info(f"ISBN lookup successful: {len(text)} characters")
+                return text
+
+            except Exception as e:
+                self.logger.error(f"ISBN lookup failed: {e}")
+                raise RuntimeError(f"Failed to lookup ISBN {source.source_value}: {e}")
+
+        elif source.source_type == SourceType.PPN:
+            # PPN (K10Plus record ID) lookup - Claude Generated
+            try:
+                from ..utils.clients.marcxml_client import MarcXmlClient
+
+                self.logger.info(f"Looking up PPN {source.source_value} via K10Plus...")
+                client = MarcXmlClient(preset="k10plus", max_records=1)
+                results = client.search(source.source_value)
+
+                if not results:
+                    raise ValueError(f"Keine Treffer für PPN {source.source_value}")
+
+                record = results[0]
+                text_parts = []
+
+                # Build text from metadata
+                if record.get("title"):
+                    text_parts.append(f"Titel: {record['title']}")
+                if record.get("author"):
+                    text_parts.append(f"Autor: {'; '.join(record['author'])}")
+                if record.get("publication"):
+                    text_parts.append(f"Erschienen: {record['publication']}")
+                if record.get("abstract"):
+                    text_parts.append(f"Abstract:\n{record['abstract']}")
+                if record.get("subjects"):
+                    text_parts.append(f"Schlagwörter: {'; '.join(record['subjects'][:10])}")
+
+                text = "\n\n".join(text_parts)
+                if not text.strip():
+                    raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
+
+                self.logger.info(f"PPN lookup successful: {len(text)} characters")
+                return text
+
+            except Exception as e:
+                self.logger.error(f"PPN lookup failed: {e}")
+                raise RuntimeError(f"Failed to lookup PPN {source.source_value}: {e}")
 
         elif source.source_type == SourceType.URL:
             # URL web scraping - Claude Generated
