@@ -1113,7 +1113,17 @@ class ComprehensiveSettingsDialog(QDialog):
         
         self.temp_dir = QLineEdit()
         system_layout.addRow("Temp Directory:", self.temp_dir)
-        
+
+        # Autosave / batch output directory - Claude Generated
+        autosave_layout = QHBoxLayout()
+        self.autosave_dir = QLineEdit()
+        self.autosave_dir.setToolTip("Verzeichnis für automatisch gespeicherte Pipeline-Ergebnisse und Batch-Output")
+        autosave_layout.addWidget(self.autosave_dir)
+        autosave_browse = QPushButton("Browse...")
+        autosave_browse.clicked.connect(self._browse_autosave_dir)
+        autosave_layout.addWidget(autosave_browse)
+        system_layout.addRow("Autosave-Verzeichnis:", autosave_layout)
+
         system_group.setLayout(system_layout)
         layout.addWidget(system_group)
 
@@ -2018,6 +2028,7 @@ class ComprehensiveSettingsDialog(QDialog):
         self.cache_dir.setText(config.system.cache_dir)
         self.data_dir.setText(config.system.data_dir)
         self.temp_dir.setText(config.system.temp_dir)
+        self.autosave_dir.setText(config.system.autosave_dir)
 
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
@@ -2289,6 +2300,14 @@ class ComprehensiveSettingsDialog(QDialog):
             self.sqlite_group.setVisible(False)
             self.mysql_group.setVisible(True)
 
+    def _browse_autosave_dir(self):
+        """Browse for autosave directory - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Autosave-Verzeichnis wählen", self.autosave_dir.text()
+        )
+        if directory:
+            self.autosave_dir.setText(directory)
+
     def _browse_sqlite_path(self):
         """Browse for SQLite database path - Claude Generated"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -2493,6 +2512,7 @@ class ComprehensiveSettingsDialog(QDialog):
             cache_dir=self.cache_dir.text(),
             data_dir=self.data_dir.text(),
             temp_dir=self.temp_dir.text(),
+            autosave_dir=self.autosave_dir.text(),
             # Preserve wizard/system flags that have no UI controls - Claude Generated
             prompts_path=config.system_config.prompts_path,
             first_run_completed=config.system_config.first_run_completed,

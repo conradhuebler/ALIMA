@@ -4,6 +4,7 @@ Claude Generated - Implements batch processing with resume functionality
 """
 
 import os
+import re
 import json
 import logging
 from pathlib import Path
@@ -11,6 +12,9 @@ from typing import List, Dict, Any, Optional, Callable
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
+
+# Pattern for bare DOIs: 10.XXXX/... - Claude Generated
+_DOI_PATTERN = re.compile(r'^10\.\d{4,}/')
 
 from ..core.data_models import KeywordAnalysisState
 from .pipeline_utils import PipelineStepExecutor, PipelineJsonManager
@@ -138,19 +142,30 @@ class BatchSourceParser:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"Batch file not found: {filepath}")
 
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line_num, line in enumerate(f, 1):
-                # Skip empty lines and comments
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
+        # Try multiple encodings for the batch list file itself - Claude Generated
+        file_content = None
+        for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
+            try:
+                with open(filepath, 'r', encoding=encoding) as f:
+                    file_content = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+        if file_content is None:
+            raise ValueError(f"Konnte Batch-Datei nicht lesen (kein passendes Encoding): {filepath}")
 
-                try:
-                    source = self._parse_line(line, line_num)
-                    if source:
-                        sources.append(source)
-                except Exception as e:
-                    self.logger.warning(f"Line {line_num}: Failed to parse: {e}")
+        for line_num, line in enumerate(file_content.splitlines(), 1):
+            # Skip empty lines and comments
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            try:
+                source = self._parse_line(line, line_num)
+                if source:
+                    sources.append(source)
+            except Exception as e:
+                self.logger.warning(f"Line {line_num}: Failed to parse: {e}")
 
         self.logger.info(f"Parsed {len(sources)} sources from {filepath}")
         return sources
@@ -169,7 +184,28 @@ class BatchSourceParser:
             except json.JSONDecodeError:
                 self.logger.warning(f"Line {line_num}: Invalid JSON in step overrides")
 
-        # Parse main part: TYPE:VALUE
+        # Parse main part: TYPE:VALUE (with auto-detection for bare DOIs) - Claude Generated
+        # Auto-detect bare DOI: starts with "10.XXXX/"
+        if _DOI_PATTERN.match(main_part):
+            return BatchSource(
+                source_type=SourceType.DOI,
+                source_value=main_part,
+                custom_name=custom_name,
+                step_overrides=step_overrides,
+                line_number=line_num
+            )
+
+        # Auto-detect doi.org URL: extract the DOI part
+        doi_org_match = re.search(r'doi\.org/(10\.\d{4,}/.+)', main_part)
+        if doi_org_match:
+            return BatchSource(
+                source_type=SourceType.DOI,
+                source_value=doi_org_match.group(1),
+                custom_name=custom_name,
+                step_overrides=step_overrides,
+                line_number=line_num
+            )
+
         if ':' not in main_part:
             raise ValueError(f"Missing ':' separator. Expected format: TYPE:VALUE")
 
@@ -210,6 +246,7 @@ class BatchProcessor:
         output_dir: str,
         logger: Optional[logging.Logger] = None,
         continue_on_error: bool = True,
+        stream_callback: Optional[Callable] = None,
     ):
         """
         Initialize BatchProcessor
@@ -226,6 +263,7 @@ class BatchProcessor:
         self.output_dir = Path(output_dir)
         self.logger = logger or logging.getLogger(__name__)
         self.continue_on_error = continue_on_error
+        self.stream_callback = stream_callback  # Claude Generated: for pipeline token streaming
 
         # Create output directory if needed
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -353,68 +391,23 @@ class BatchProcessor:
             if not input_text:
                 raise ValueError(f"Failed to resolve {source.source_type.value} to text")
 
-            # Step 2: Execute complete pipeline - Claude Generated
+            # Step 2: Execute complete pipeline via PipelineStepExecutor (no Qt required) - Claude Generated
             self.logger.info(f"[{current_idx}/{total}] Starting pipeline execution for {source.source_type.value}")
 
-            # Create PipelineManager for this source
-            from ..core.pipeline_manager import PipelineManager, PipelineConfig
+            # Build PipelineConfig with any batch overrides
+            from ..core.pipeline_manager import PipelineConfig
+            pipeline_config = PipelineConfig.create_from_provider_preferences(
+                self.pipeline_executor.config_manager
+            ) if self.pipeline_executor.config_manager else PipelineConfig()
 
-            pipeline_manager = PipelineManager(
-                alima_manager=self.pipeline_executor.alima_manager,
-                cache_manager=self.cache_manager,
-                logger=self.logger,
-                config_manager=self.pipeline_executor.config_manager
-            )
+            if self.pipeline_config_dict:
+                pipeline_config = self._apply_batch_config(pipeline_config, self.pipeline_config_dict)
 
-            # Apply pipeline configuration if provided
-            if hasattr(self, 'pipeline_config_dict') and self.pipeline_config_dict:
-                # Merge batch pipeline config
-                pipeline_manager.config = self._apply_batch_config(
-                    pipeline_manager.config,
-                    self.pipeline_config_dict
-                )
-
-            # Set up completion tracking
-            pipeline_completed = False
-            pipeline_error = None
-
-            def on_pipeline_complete(analysis_state):
-                nonlocal pipeline_completed
-                pipeline_completed = True
-
-            def on_step_error(step, error_msg):
-                nonlocal pipeline_error
-                pipeline_error = error_msg
-
-            pipeline_manager.pipeline_completed_callback = on_pipeline_complete
-            pipeline_manager.step_error_callback = on_step_error
-
-            # Start pipeline (synchronous with auto_advance=True)
-            pipeline_id = pipeline_manager.start_pipeline(
+            state = self.pipeline_executor.execute_complete_pipeline(
                 input_text=input_text,
-                input_type="text"
+                pipeline_config=pipeline_config,
+                stream_callback=self.stream_callback,
             )
-
-            # Pipeline runs synchronously through all steps with auto_advance
-            # Wait a moment to ensure completion
-            import time
-            max_wait = 300  # 5 minutes timeout
-            wait_time = 0
-            while not pipeline_completed and not pipeline_error and wait_time < max_wait:
-                time.sleep(0.1)
-                wait_time += 0.1
-
-            if pipeline_error:
-                raise RuntimeError(f"Pipeline failed: {pipeline_error}")
-
-            if not pipeline_completed:
-                raise RuntimeError(f"Pipeline timeout after {max_wait} seconds")
-
-            # Get completed state
-            state = pipeline_manager.current_analysis_state
-
-            if not state:
-                raise RuntimeError("Pipeline completed but no analysis state available")
 
             result.state = state
 
@@ -448,13 +441,21 @@ class BatchProcessor:
         Claude Generated
         """
         if source.source_type == SourceType.DOI:
-            # Use doi_resolver
-            return resolve_input_to_text(source.source_value, self.logger)
+            # Use doi_resolver - returns (success, text, error) tuple
+            success, text, error = resolve_input_to_text(source.source_value, self.logger)
+            if not success:
+                raise ValueError(error or f"DOI resolution failed: {source.source_value}")
+            return text
 
         elif source.source_type == SourceType.TXT:
-            # Read text file
-            with open(source.source_value, 'r', encoding='utf-8') as f:
-                return f.read()
+            # Read text file with encoding fallback - Claude Generated
+            for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
+                try:
+                    with open(source.source_value, 'r', encoding=encoding) as f:
+                        return f.read()
+                except UnicodeDecodeError:
+                    continue
+            raise ValueError(f"Konnte Datei nicht lesen (kein passendes Encoding): {source.source_value}")
 
         elif source.source_type == SourceType.PDF:
             # PDF extraction with LLM fallback for poor quality - Claude Generated

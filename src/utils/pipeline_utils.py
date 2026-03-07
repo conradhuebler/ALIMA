@@ -2558,6 +2558,108 @@ class PipelineStepExecutor:
             }
 
 
+    def execute_complete_pipeline(
+        self,
+        input_text: str,
+        pipeline_config=None,
+        stream_callback: Optional[callable] = None,
+    ) -> "KeywordAnalysisState":
+        """
+        Execute a complete ALIMA pipeline synchronously without Qt dependencies.
+
+        Chains: initialisation → search → keywords → (dk_classification if enabled)
+
+        This is the preferred method for batch processing since it runs purely
+        synchronously in any thread context (no QThread/event loop required).
+
+        Claude Generated
+        """
+        from ..core.pipeline_manager import PipelineConfig
+
+        config = pipeline_config or PipelineConfig()
+
+        # Helpers to read per-step config
+        def _step(step_id):
+            return config.get_step_config(step_id) if hasattr(config, "get_step_config") else None
+
+        def _cb(step_id):
+            """Wrap stream_callback with step_id prefix for identification."""
+            if not stream_callback:
+                return None
+            def _inner(token, sid=step_id):
+                stream_callback(token, sid)
+            return _inner
+
+        # ── Step 1: initialisation ───────────────────────────────────────────
+        init_cfg = _step("initialisation")
+        if stream_callback:
+            stream_callback(f"\n▶ [initialisation]\n", "initialisation")
+        keywords, gnd_classes, init_analysis, llm_title = self.execute_initial_keyword_extraction(
+            abstract_text=input_text,
+            provider=init_cfg.provider if init_cfg else None,
+            model=init_cfg.model if init_cfg else None,
+            task=init_cfg.task or "initialisation" if init_cfg else "initialisation",
+            stream_callback=_cb("initialisation"),
+        )
+
+        # ── Step 2: GND search ───────────────────────────────────────────────
+        if stream_callback:
+            stream_callback(f"\n▶ [search] {len(keywords)} keywords\n", "search")
+        search_results = self.execute_gnd_search(
+            keywords=keywords,
+            suggesters=config.search_suggesters,
+            stream_callback=_cb("search"),
+        )
+
+        # ── Step 3: keywords (final analysis) ────────────────────────────────
+        kw_cfg = _step("keywords")
+        if stream_callback:
+            stream_callback(f"\n▶ [keywords]\n", "keywords")
+        final_keywords, gnd_compliant, kw_analysis = self.execute_final_keyword_analysis(
+            original_abstract=input_text,
+            search_results=search_results,
+            provider=kw_cfg.provider if kw_cfg else None,
+            model=kw_cfg.model if kw_cfg else None,
+            task=kw_cfg.task or "keywords" if kw_cfg else "keywords",
+            stream_callback=_cb("keywords"),
+        )
+
+        # ── Build state ───────────────────────────────────────────────────────
+        state = KeywordAnalysisState(
+            original_abstract=input_text,
+            initial_keywords=keywords,
+            search_suggesters_used=config.search_suggesters,
+            initial_gnd_classes=gnd_classes,
+            search_results=[],
+            final_llm_analysis=kw_analysis,
+            working_title=llm_title,
+        )
+
+        # ── Step 4: DK classification (optional) ─────────────────────────────
+        dk_cfg = _step("dk_classification")
+        if dk_cfg and getattr(dk_cfg, "enabled", False):
+            if stream_callback:
+                stream_callback(f"\n▶ [dk_classification]\n", "dk_classification")
+            try:
+                dk_search = self.execute_dk_search(
+                    keywords=final_keywords,
+                    stream_callback=_cb("dk_classification"),
+                )
+                dk_classes, dk_analysis = self.execute_dk_classification(
+                    original_abstract=input_text,
+                    dk_search_results=dk_search.get("classifications", []),
+                    provider=dk_cfg.provider if dk_cfg else None,
+                    model=dk_cfg.model if dk_cfg else None,
+                    stream_callback=_cb("dk_classification"),
+                )
+                state.dk_classifications = dk_classes
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"DK classification failed (non-fatal): {e}")
+
+        return state
+
+
 def verify_keywords_against_gnd_pool(
     extracted_keywords: List[str],
     gnd_pool_keywords: List[str],

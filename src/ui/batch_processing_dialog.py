@@ -36,6 +36,7 @@ class BatchProcessingWorker(StoppableWorker):
     batch_completed = pyqtSignal(dict)  # summary dict
     progress_updated = pyqtSignal(int)  # progress percentage
     error_occurred = pyqtSignal(str)  # error message
+    pipeline_token = pyqtSignal(str, str)  # token, step_id - Claude Generated
 
     def __init__(
         self,
@@ -77,9 +78,14 @@ class BatchProcessingWorker(StoppableWorker):
                 self.batch_completed.emit(summary)
                 self.progress_updated.emit(100)
 
+            def on_pipeline_stream(token: str, step_id: str = ""):
+                # Emit token to GUI via signal (thread-safe) - Claude Generated
+                self.pipeline_token.emit(token, step_id or "")
+
             self.batch_processor.on_source_start = on_source_start
             self.batch_processor.on_source_complete = on_source_complete
             self.batch_processor.on_batch_complete = on_batch_complete
+            self.batch_processor.stream_callback = on_pipeline_stream
 
             # Execute batch
             self.batch_processor.process_batch_file(
@@ -106,6 +112,7 @@ class BatchProcessingDialog(QDialog):
         cache_manager: UnifiedKnowledgeManager,
         config_manager,
         logger: Optional[logging.Logger] = None,
+        pipeline_tab=None,
         parent=None
     ):
         super().__init__(parent)
@@ -113,6 +120,7 @@ class BatchProcessingDialog(QDialog):
         self.cache_manager = cache_manager
         self.config_manager = config_manager
         self.logger = logger or logging.getLogger(__name__)
+        self.pipeline_tab = pipeline_tab  # Optional PipelineTab for live display - Claude Generated
 
         self.worker: Optional[BatchProcessingWorker] = None
         self.batch_sources: List[BatchSource] = []
@@ -136,9 +144,13 @@ class BatchProcessingDialog(QDialog):
         # Tab widget for input methods
         self.tabs = QTabWidget()
 
-        # Tab 1: Batch File
+        # Tab 0: Batch File
         self.batch_file_tab = self._create_batch_file_tab()
         self.tabs.addTab(self.batch_file_tab, "📄 Batch File")
+
+        # Tab 1: Direct File Selection - Claude Generated
+        self.files_tab = self._create_files_tab()
+        self.tabs.addTab(self.files_tab, "📎 Dateien")
 
         # Tab 2: Directory Scan
         self.directory_tab = self._create_directory_scan_tab()
@@ -150,7 +162,10 @@ class BatchProcessingDialog(QDialog):
         output_group = QGroupBox("Output Configuration")
         output_layout = QFormLayout()
 
-        self.output_dir_input = QLineEdit()
+        # Default to the central autosave dir from config - Claude Generated
+        from ..utils.pipeline_defaults import get_autosave_dir
+        _default_output = str(get_autosave_dir(self.config_manager))
+        self.output_dir_input = QLineEdit(_default_output)
         output_dir_button = QPushButton("Browse...")
         output_dir_button.clicked.connect(self._browse_output_dir)
         output_dir_layout = QHBoxLayout()
@@ -242,6 +257,74 @@ class BatchProcessingDialog(QDialog):
         layout.addStretch()
         widget.setLayout(layout)
         return widget
+
+    def _create_files_tab(self) -> QWidget:
+        """Create the direct file selection tab - Claude Generated"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # Instructions
+        instructions = QLabel(
+            "Einzelne Dateien direkt auswählen und verarbeiten.\n"
+            "Unterstützte Formate: TXT, PDF, PNG, JPG/JPEG"
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        # Button row
+        btn_layout = QHBoxLayout()
+        add_files_btn = QPushButton("📂 Dateien auswählen...")
+        add_files_btn.clicked.connect(self._add_files)
+        btn_layout.addWidget(add_files_btn)
+
+        remove_btn = QPushButton("Entfernen")
+        remove_btn.clicked.connect(self._remove_selected_files)
+        btn_layout.addWidget(remove_btn)
+
+        clear_btn = QPushButton("Liste leeren")
+        clear_btn.clicked.connect(self._clear_files_list)
+        btn_layout.addWidget(clear_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        # File list with checkboxes
+        self.files_list = QListWidget()
+        self.files_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        layout.addWidget(self.files_list)
+
+        widget.setLayout(layout)
+        return widget
+
+    def _add_files(self):
+        """Open file dialog and add selected files to the list - Claude Generated"""
+        filepaths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Dateien auswählen",
+            "",
+            "Unterstützte Dateien (*.txt *.pdf *.png *.jpg *.jpeg);;Alle Dateien (*)"
+        )
+        for filepath in filepaths:
+            # Avoid duplicates
+            existing = [self.files_list.item(i).data(Qt.ItemDataRole.UserRole)
+                        for i in range(self.files_list.count())]
+            if filepath in existing:
+                continue
+            item = QListWidgetItem(os.path.basename(filepath))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, filepath)
+            item.setToolTip(filepath)
+            self.files_list.addItem(item)
+
+    def _remove_selected_files(self):
+        """Remove selected items from the files list - Claude Generated"""
+        for item in self.files_list.selectedItems():
+            self.files_list.takeItem(self.files_list.row(item))
+
+    def _clear_files_list(self):
+        """Clear all items from the files list - Claude Generated"""
+        self.files_list.clear()
 
     def _create_directory_scan_tab(self) -> QWidget:
         """Create the directory scan tab - Claude Generated"""
@@ -349,11 +432,26 @@ class BatchProcessingDialog(QDialog):
             sources = parser.parse_batch_file(filepath)
 
             self.batch_preview_list.clear()
-            for source in sources:
-                item_text = f"{source.source_type.value}: {source.source_value}"
-                if source.custom_name:
-                    item_text += f" ({source.custom_name})"
-                self.batch_preview_list.addItem(item_text)
+            if not sources:
+                # Informative hint when no valid entries found - Claude Generated
+                hint = QListWidgetItem(
+                    "Keine Quellen gefunden. Erwartet: Einträge im Format TYP:WERT\n"
+                    "Beispiele:\n"
+                    "  TXT:/pfad/abstract.txt\n"
+                    "  PDF:/pfad/paper.pdf\n"
+                    "  DOI:10.1234/example\n"
+                    "  IMG:/pfad/bild.png\n"
+                    "  URL:https://example.com\n"
+                    "\nHinweis: Bare DOIs (10.XXXX/...) und doi.org-URLs werden automatisch erkannt."
+                )
+                hint.setForeground(Qt.GlobalColor.darkRed)
+                self.batch_preview_list.addItem(hint)
+            else:
+                for source in sources:
+                    item_text = f"{source.source_type.value}: {source.source_value}"
+                    if source.custom_name:
+                        item_text += f" ({source.custom_name})"
+                    self.batch_preview_list.addItem(item_text)
 
             self.batch_sources = sources
             self.logger.info(f"Previewed {len(sources)} sources from batch file")
@@ -416,14 +514,28 @@ class BatchProcessingDialog(QDialog):
             QMessageBox.warning(self, "No Output Directory", "Please specify an output directory.")
             return
 
-        # Get sources based on active tab
-        if self.tabs.currentIndex() == 0:  # Batch file tab
+        # Get sources based on active tab - Claude Generated
+        tab_index = self.tabs.currentIndex()
+        if tab_index == 0:  # Batch File tab
             batch_file = self.batch_file_input.text().strip()
             if not batch_file:
                 QMessageBox.warning(self, "No Batch File", "Please select a batch file.")
                 return
             sources_input = ("file", batch_file)
-        else:  # Directory scan tab
+        elif tab_index == 1:  # Dateien tab (direct file selection)
+            checked_files = []
+            for i in range(self.files_list.count()):
+                item = self.files_list.item(i)
+                if item.checkState() == Qt.CheckState.Checked:
+                    filepath = item.data(Qt.ItemDataRole.UserRole)
+                    checked_files.append(filepath)
+
+            if not checked_files:
+                QMessageBox.warning(self, "Keine Dateien", "Bitte mindestens eine Datei auswählen.")
+                return
+
+            sources_input = ("files", checked_files)
+        else:  # Directory Scan tab (index 2)
             # Collect checked files
             checked_files = []
             for i in range(self.scan_preview_list.count()):
@@ -514,6 +626,14 @@ class BatchProcessingDialog(QDialog):
         self.worker.batch_completed.connect(self._on_batch_completed)
         self.worker.progress_updated.connect(self._on_progress_updated)
         self.worker.error_occurred.connect(self._on_error_occurred)
+        self.worker.pipeline_token.connect(self._on_pipeline_token)
+
+        # Route tokens to PipelineStreamWidget if available - Claude Generated
+        if self.pipeline_tab and hasattr(self.pipeline_tab, 'on_llm_stream_token'):
+            self.worker.pipeline_token.connect(self.pipeline_tab.on_llm_stream_token)
+            self.worker.source_started.connect(self._notify_pipeline_tab_source_started)
+            self.worker.source_completed.connect(self._notify_pipeline_tab_source_completed)
+            self.worker.batch_completed.connect(self._notify_pipeline_tab_batch_completed)
 
         # Update UI
         self.progress_group.setVisible(True)
@@ -525,6 +645,12 @@ class BatchProcessingDialog(QDialog):
         # Start worker
         self.worker.start()
         self.logger.info("Batch processing started")
+
+        # Switch main window to pipeline tab so output is visible - Claude Generated
+        if self.pipeline_tab:
+            main_win = self.parent()
+            if main_win and hasattr(main_win, 'tabs'):
+                main_win.tabs.setCurrentWidget(self.pipeline_tab)
 
     def _cancel_batch_processing(self):
         """Cancel batch processing - Claude Generated"""
@@ -584,6 +710,54 @@ class BatchProcessingDialog(QDialog):
     def _on_progress_updated(self, progress: int):
         """Handle progress update signal - Claude Generated"""
         self.progress_bar.setValue(progress)
+
+    @pyqtSlot(str, str)
+    def _on_pipeline_token(self, token: str, step_id: str):
+        """Append LLM streaming tokens to progress log - Claude Generated"""
+        cursor = self.progress_log.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(token)
+        self.progress_log.setTextCursor(cursor)
+        self.progress_log.ensureCursorVisible()
+
+    @pyqtSlot(str, int, int)
+    def _notify_pipeline_tab_source_started(self, source_name: str, current: int, total: int):
+        """Forward source-start event to PipelineStreamWidget - Claude Generated"""
+        if not self.pipeline_tab:
+            return
+        sw = getattr(self.pipeline_tab, 'stream_widget', None)
+        if sw is None:
+            return
+        sw.reset_for_new_pipeline()
+        sw.on_pipeline_started(f"batch_{current}")
+        sw.add_pipeline_message(f"[{current}/{total}] Batch: {source_name}", "info")
+        sw.start_llm_streaming("initialisation")
+
+    @pyqtSlot(str, bool, str)
+    def _notify_pipeline_tab_source_completed(self, source_name: str, success: bool, message: str):
+        """Forward source-complete event to PipelineStreamWidget - Claude Generated"""
+        if not self.pipeline_tab:
+            return
+        sw = getattr(self.pipeline_tab, 'stream_widget', None)
+        if sw is None:
+            return
+        if sw.is_streaming:
+            sw.end_llm_streaming()
+        status = "✅ Abgeschlossen" if success else f"❌ Fehler: {message}"
+        sw.add_pipeline_message(status, "success" if success else "error")
+
+    @pyqtSlot(dict)
+    def _notify_pipeline_tab_batch_completed(self, summary: dict):
+        """Forward batch-complete event to PipelineStreamWidget - Claude Generated"""
+        if not self.pipeline_tab:
+            return
+        sw = getattr(self.pipeline_tab, 'stream_widget', None)
+        if sw is None:
+            return
+        sw.add_pipeline_message(
+            f"Batch abgeschlossen — {summary.get('successful', 0)}/{summary.get('total_sources', 0)} erfolgreich",
+            "success"
+        )
 
     @pyqtSlot(str)
     def _on_error_occurred(self, error_message: str):

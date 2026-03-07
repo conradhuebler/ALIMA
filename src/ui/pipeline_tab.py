@@ -1926,10 +1926,9 @@ class PipelineTab(QWidget):
         # Optional: Auto-save after completion - Claude Generated
         if hasattr(analysis_state, 'working_title') and analysis_state.working_title:
             from ..utils.pipeline_utils import PipelineJsonManager
-            from pathlib import Path
+            from ..utils.pipeline_defaults import get_autosave_dir
 
-            # Use ~/Documents/ALIMA_Results as default auto-save directory
-            auto_save_dir = Path.home() / "Documents" / "ALIMA_Results"
+            auto_save_dir = get_autosave_dir(getattr(self, 'config_manager', None))
             auto_save_dir.mkdir(parents=True, exist_ok=True)
 
             auto_save_file = auto_save_dir / f"{analysis_state.working_title}.json"

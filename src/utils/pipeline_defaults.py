@@ -3,6 +3,23 @@ Pipeline Default Configuration Values
 Claude Generated - Central definition of pipeline configuration defaults
 """
 
+from pathlib import Path
+
+# Output / Autosave fallback (used when config_manager is unavailable)
+DEFAULT_AUTOSAVE_DIR = Path.home() / "Documents" / "ALIMA_Results"
+"""Fallback autosave directory. Canonical value lives in SystemConfig.autosave_dir."""
+
+
+def get_autosave_dir(config_manager=None) -> Path:
+    """Return autosave dir from config if available, else DEFAULT_AUTOSAVE_DIR - Claude Generated"""
+    if config_manager is not None:
+        try:
+            cfg = config_manager.load_config()
+            return Path(cfg.system.autosave_dir)
+        except Exception:
+            pass
+    return DEFAULT_AUTOSAVE_DIR
+
 # DK Pipeline Search Configuration
 DEFAULT_DK_MAX_RESULTS = 40
 """Maximum number of search results to retrieve per keyword from catalog (default: 20)"""

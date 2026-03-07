@@ -1255,6 +1255,7 @@ class MainWindow(QMainWindow):
                 cache_manager=self.cache_manager,
                 config_manager=self.config_manager,
                 logger=self.logger,
+                pipeline_tab=self.pipeline_tab,
                 parent=self
             )
             dialog.exec()
