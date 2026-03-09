@@ -7,10 +7,10 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton,
     QTabWidget, QLineEdit, QFileDialog, QListWidget, QListWidgetItem,
     QCheckBox, QGroupBox, QFormLayout, QTextEdit, QProgressBar,
-    QMessageBox, QComboBox, QSpinBox
+    QMessageBox, QComboBox, QSpinBox, QTreeView, QHeaderView
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
@@ -191,6 +191,7 @@ class BatchProcessingDialog(QDialog):
         self.setMinimumSize(800, 600)
         self.init_ui()
 
+
     def init_ui(self):
         """Initialize the user interface - Claude Generated"""
         layout = QVBoxLayout()
@@ -343,6 +344,7 @@ class BatchProcessingDialog(QDialog):
         instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
+
         # Sigel input row
         siegel_layout = QHBoxLayout()
         self.siegel_input = QLineEdit()
@@ -360,18 +362,6 @@ class BatchProcessingDialog(QDialog):
         siegel_layout.addWidget(self.siegel_cache_load_btn)
         layout.addLayout(siegel_layout)
 
-        # Cache dir row
-        cache_layout = QHBoxLayout()
-        cache_layout.addWidget(QLabel("Cache-Verzeichnis (optional):"))
-        self.siegel_cache_input = QLineEdit()
-        self.siegel_cache_input.setPlaceholderText("Leer lassen für kein Caching")
-        cache_layout.addWidget(self.siegel_cache_input)
-        cache_browse_btn = QPushButton("...")
-        cache_browse_btn.setFixedWidth(30)
-        cache_browse_btn.clicked.connect(self._browse_siegel_cache_dir)
-        cache_layout.addWidget(cache_browse_btn)
-        layout.addLayout(cache_layout)
-
         # Progress bar + status label
         self.siegel_progress_bar = QProgressBar()
         self.siegel_progress_bar.setVisible(False)
@@ -380,26 +370,51 @@ class BatchProcessingDialog(QDialog):
         self.siegel_status_label = QLabel("")
         layout.addWidget(self.siegel_status_label)
 
-        # DOI list with checkboxes
+        # DOI list with checkboxes - using QTreeView for better performance with large datasets
         select_layout = QHBoxLayout()
         self.siegel_toggle_btn = QPushButton("Alle auswählen / Keine")
         self.siegel_toggle_btn.clicked.connect(self._toggle_siegel_selection)
         select_layout.addWidget(self.siegel_toggle_btn)
+
+        self.siegel_expand_btn = QPushButton("Alle ausklappen")
+        self.siegel_expand_btn.clicked.connect(self._toggle_siegel_expand)
+        select_layout.addWidget(self.siegel_expand_btn)
+
         select_layout.addStretch()
         layout.addLayout(select_layout)
 
-        self.siegel_preview_list = QListWidget()
-        self.siegel_preview_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        layout.addWidget(self.siegel_preview_list)
+        # QTreeView with QStandardItemModel for hierarchical year grouping
+        self.siegel_tree_view = QTreeView()
+        self.siegel_tree_view.setAnimated(True)
+        self.siegel_tree_view.setIndentation(25)
+        self.siegel_tree_view.setSortingEnabled(False)
+        self.siegel_tree_view.setHeaderHidden(True)
+        self.siegel_tree_view.setExpandsOnDoubleClick(False)
+
+        # Model for storing records grouped by year
+        self.siegel_tree_model = QStandardItemModel()
+        self.siegel_tree_model.setHorizontalHeaderLabels(["Titel"])
+        self.siegel_tree_view.setModel(self.siegel_tree_model)
+
+        # Configure header
+        header = self.siegel_tree_view.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+
+        layout.addWidget(self.siegel_tree_view)
+
+        # Store records flat for easy access
+        self.siegel_records: List = []  # List of K10PlusRecord objects
 
         widget.setLayout(layout)
         return widget
 
-    def _browse_siegel_cache_dir(self):
-        """Browse for Siegel XML cache directory - Claude Generated"""
-        directory = QFileDialog.getExistingDirectory(self, "Cache-Verzeichnis wählen")
-        if directory:
-            self.siegel_cache_input.setText(directory)
+    def _get_cache_dir(self) -> Optional[str]:
+        """Get cache directory from system config - Claude Generated"""
+        try:
+            cfg = self.config_manager.load_config()
+            return cfg.system_config.cache_dir or None
+        except Exception:
+            return None
 
     def _load_cached_siegel(self):
         """Load cached K10Plus records without API call using background worker - Claude Generated"""
@@ -408,10 +423,10 @@ class BatchProcessingDialog(QDialog):
             QMessageBox.warning(self, "Kein Sigel", "Bitte ein Paketsiegel eingeben.")
             return
 
-        cache_dir = self.siegel_cache_input.text().strip()
+        cache_dir = self._get_cache_dir()
         if not cache_dir:
             QMessageBox.warning(self, "Kein Cache-Verzeichnis",
-                "Bitte zuerst ein Cache-Verzeichnis auswählen.")
+                "Bitte in den Einstellungen ein Cache-Verzeichnis konfigurieren.")
             return
 
         if not os.path.exists(cache_dir):
@@ -422,7 +437,8 @@ class BatchProcessingDialog(QDialog):
         # Set busy cursor and disable button
         self.setCursor(Qt.CursorShape.WaitCursor)
         self.siegel_cache_load_btn.setEnabled(False)
-        self.siegel_preview_list.clear()
+        self.siegel_tree_model.clear()
+        self.siegel_tree_model.setHorizontalHeaderLabels(["Titel"])
         self.siegel_status_label.setText(f"Suche gecachte Dateien für '{siegel}'...")
 
         # Start background worker
@@ -434,7 +450,9 @@ class BatchProcessingDialog(QDialog):
 
     @pyqtSlot(list)
     def _on_cache_load_finished(self, records: list):
-        """Handle completed cache load - Claude Generated"""
+        """Handle completed cache load - populate tree view grouped by year - Claude Generated"""
+        from ..utils.k10plus_resolver import K10PlusRecord
+
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.siegel_cache_load_btn.setEnabled(True)
 
@@ -442,17 +460,50 @@ class BatchProcessingDialog(QDialog):
         doi_count = sum(1 for r in records if r.doi)
         self.siegel_status_label.setText(f"{len(records)} Titel aus Cache geladen ({doi_count} mit DOI).")
 
-        self.siegel_preview_list.clear()
-        for record in records:
-            display_text = record.to_display_string()
-            item = QListWidgetItem(display_text)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            item.setData(Qt.ItemDataRole.UserRole, record)
-            item.setToolTip(f"{display_text}\n\nVerlag: {record.publisher}\nJahr: {record.year}\nISBN: {record.isbn or 'N/A'}\nDDC: {record.ddc or 'N/A'}")
-            self.siegel_preview_list.addItem(item)
+        # Store records flat for easy access
+        self.siegel_records = records
 
-        self.logger.info(f"Loaded {len(records)} cached records")
+        # Clear model
+        self.siegel_tree_model.clear()
+        self.siegel_tree_model.setHorizontalHeaderLabels(["Titel"])
+
+        # Group records by year
+        year_groups: Dict[str, List] = {}
+        for record in records:
+            # Extract year (clean up "2026." -> "2026")
+            year = record.year.strip().rstrip('.') if record.year else "Ohne Jahr"
+            if not year:
+                year = "Ohne Jahr"
+            if year not in year_groups:
+                year_groups[year] = []
+            year_groups[year].append(record)
+
+        # Create tree items sorted by year (descending)
+        sorted_years = sorted(year_groups.keys(), key=lambda y: y if y.isdigit() else "9999", reverse=True)
+
+        for year in sorted_years:
+            year_records = year_groups[year]
+            year_item = QStandardItem(f"{year} ({len(year_records)})")
+            year_item.setEditable(False)
+            year_item.setCheckable(False)
+
+            for record in year_records:
+                display_text = record.to_display_string()
+                record_item = QStandardItem(display_text)
+                record_item.setEditable(False)
+                record_item.setCheckable(True)
+                record_item.setCheckState(Qt.CheckState.Checked)
+                record_item.setData(record, Qt.ItemDataRole.UserRole)
+                record_item.setToolTip(f"{display_text}\n\nVerlag: {record.publisher}\nJahr: {record.year}\nISBN: {record.isbn or 'N/A'}\nDDC: {record.ddc or 'N/A'}")
+                year_item.appendRow(record_item)
+
+            self.siegel_tree_model.appendRow(year_item)
+
+        # Expand first few years by default
+        for i in range(min(3, len(sorted_years))):
+            self.siegel_tree_view.expand(self.siegel_tree_model.index(i, 0))
+
+        self.logger.info(f"Loaded {len(records)} cached records into tree view")
 
     @pyqtSlot(str)
     def _on_cache_load_error(self, error_msg: str):
@@ -475,12 +526,14 @@ class BatchProcessingDialog(QDialog):
             QMessageBox.warning(self, "Kein Sigel", "Bitte ein Paketsigel eingeben.")
             return
 
-        cache_dir = self.siegel_cache_input.text().strip() or None
+        cache_dir = self._get_cache_dir()
 
         # Set busy cursor
         self.setCursor(Qt.CursorShape.WaitCursor)
         self.siegel_fetch_btn.setEnabled(False)
-        self.siegel_preview_list.clear()
+        self.siegel_tree_model.clear()
+        self.siegel_tree_model.setHorizontalHeaderLabels(["Titel"])
+        self.siegel_records.clear()
         self.siegel_progress_bar.setValue(0)
         self.siegel_progress_bar.setVisible(True)
         self.siegel_status_label.setText(f"Rufe DOIs für '{siegel}' ab ...")
@@ -501,7 +554,7 @@ class BatchProcessingDialog(QDialog):
 
     @pyqtSlot(list)
     def _on_siegel_finished(self, records: list):
-        """Populate checklist with full metadata records - Claude Generated"""
+        """Populate tree view with full metadata records grouped by year - Claude Generated"""
         from ..utils.k10plus_resolver import K10PlusRecord
 
         self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -512,16 +565,48 @@ class BatchProcessingDialog(QDialog):
         doi_count = sum(1 for r in records if r.doi)
         self.siegel_status_label.setText(f"{len(records)} Titel gefunden ({doi_count} mit DOI).")
 
-        self.siegel_preview_list.clear()
+        # Store records flat for easy access
+        self.siegel_records = records
+
+        # Clear model
+        self.siegel_tree_model.clear()
+        self.siegel_tree_model.setHorizontalHeaderLabels(["Titel"])
+
+        # Group records by year
+        year_groups: Dict[str, List] = {}
         for record in records:
-            # Display string with full metadata
-            display_text = record.to_display_string()
-            item = QListWidgetItem(display_text)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            item.setData(Qt.ItemDataRole.UserRole, record)
-            item.setToolTip(f"{display_text}\n\nVerlag: {record.publisher}\nJahr: {record.year}\nISBN: {record.isbn or 'N/A'}\nDDC: {record.ddc or 'N/A'}")
-            self.siegel_preview_list.addItem(item)
+            # Extract year (clean up "2026." -> "2026")
+            year = record.year.strip().rstrip('.') if record.year else "Ohne Jahr"
+            if not year:
+                year = "Ohne Jahr"
+            if year not in year_groups:
+                year_groups[year] = []
+            year_groups[year].append(record)
+
+        # Create tree items sorted by year (descending)
+        sorted_years = sorted(year_groups.keys(), key=lambda y: y if y.isdigit() else "9999", reverse=True)
+
+        for year in sorted_years:
+            year_records = year_groups[year]
+            year_item = QStandardItem(f"{year} ({len(year_records)})")
+            year_item.setEditable(False)
+            year_item.setCheckable(False)
+
+            for record in year_records:
+                display_text = record.to_display_string()
+                record_item = QStandardItem(display_text)
+                record_item.setEditable(False)
+                record_item.setCheckable(True)
+                record_item.setCheckState(Qt.CheckState.Checked)
+                record_item.setData(record, Qt.ItemDataRole.UserRole)
+                record_item.setToolTip(f"{display_text}\n\nVerlag: {record.publisher}\nJahr: {record.year}\nISBN: {record.isbn or 'N/A'}\nDDC: {record.ddc or 'N/A'}")
+                year_item.appendRow(record_item)
+
+            self.siegel_tree_model.appendRow(year_item)
+
+        # Expand first few years by default
+        for i in range(min(3, len(sorted_years))):
+            self.siegel_tree_view.expand(self.siegel_tree_model.index(i, 0))
 
     @pyqtSlot(str)
     def _on_siegel_error(self, error_msg: str):
@@ -546,7 +631,39 @@ class BatchProcessingDialog(QDialog):
                 item.setCheckState(state)
 
     def _toggle_siegel_selection(self):
-        self._toggle_list_selection(self.siegel_preview_list)
+        """Toggle all/none for siegel tree view - Claude Generated"""
+        # Iterate through all year items
+        for year_row in range(self.siegel_tree_model.rowCount()):
+            year_item = self.siegel_tree_model.item(year_row)
+            if year_item:
+                # Toggle all record items under this year
+                for record_row in range(year_item.rowCount()):
+                    record_item = year_item.child(record_row)
+                    if record_item and record_item.isCheckable():
+                        # Check if any are unchecked
+                        any_unchecked = any(
+                            year_item.child(r).checkState() != Qt.CheckState.Checked
+                            for r in range(year_item.rowCount())
+                            if year_item.child(r).isCheckable()
+                        )
+                        state = Qt.CheckState.Checked if any_unchecked else Qt.CheckState.Unchecked
+                        record_item.setCheckState(state)
+
+    def _toggle_siegel_expand(self):
+        """Expand/collapse all year groups - Claude Generated"""
+        # Check if any year is collapsed
+        any_collapsed = any(
+            not self.siegel_tree_view.isExpanded(self.siegel_tree_model.index(row, 0))
+            for row in range(self.siegel_tree_model.rowCount())
+        )
+
+        # Expand or collapse all
+        for row in range(self.siegel_tree_model.rowCount()):
+            index = self.siegel_tree_model.index(row, 0)
+            self.siegel_tree_view.setExpanded(index, any_collapsed)
+
+        # Update button text
+        self.siegel_expand_btn.setText("Alle einklappen" if any_collapsed else "Alle ausklappen")
 
     def _create_files_tab(self) -> QWidget:
         """Create the direct file selection tab - Claude Generated"""
@@ -852,11 +969,18 @@ class BatchProcessingDialog(QDialog):
             else:
                 sources_input = ("file", batch_file)
         elif tab_index == 1:  # Paketsiegel tab - Claude Generated
+            # Collect checked records from tree view (iterate through year groups)
             checked_records = []
-            for i in range(self.siegel_preview_list.count()):
-                item = self.siegel_preview_list.item(i)
-                if item.checkState() == Qt.CheckState.Checked:
-                    checked_records.append(item.data(Qt.ItemDataRole.UserRole))
+            for year_row in range(self.siegel_tree_model.rowCount()):
+                year_item = self.siegel_tree_model.item(year_row)
+                if year_item:
+                    for record_row in range(year_item.rowCount()):
+                        record_item = year_item.child(record_row)
+                        if record_item and record_item.isCheckable() and \
+                                record_item.checkState() == Qt.CheckState.Checked:
+                            record = record_item.data(Qt.ItemDataRole.UserRole)
+                            if record:
+                                checked_records.append(record)
 
             if not checked_records:
                 QMessageBox.warning(self, "Keine Titel", "Bitte zuerst Sigel abrufen und mindestens einen Titel auswählen.")

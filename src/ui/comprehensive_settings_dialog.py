@@ -1105,14 +1105,32 @@ class ComprehensiveSettingsDialog(QDialog):
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         system_layout.addRow("Log Level:", self.log_level)
         
+        # Cache Directory - Claude Generated
+        cache_layout = QHBoxLayout()
         self.cache_dir = QLineEdit()
-        system_layout.addRow("Cache Directory:", self.cache_dir)
-        
+        cache_layout.addWidget(self.cache_dir)
+        cache_browse = QPushButton("Browse...")
+        cache_browse.clicked.connect(self._browse_cache_dir)
+        cache_layout.addWidget(cache_browse)
+        system_layout.addRow("Cache Directory:", cache_layout)
+
+        # Data Directory - Claude Generated
+        data_layout = QHBoxLayout()
         self.data_dir = QLineEdit()
-        system_layout.addRow("Data Directory:", self.data_dir)
-        
+        data_layout.addWidget(self.data_dir)
+        data_browse = QPushButton("Browse...")
+        data_browse.clicked.connect(self._browse_data_dir)
+        data_layout.addWidget(data_browse)
+        system_layout.addRow("Data Directory:", data_layout)
+
+        # Temp Directory - Claude Generated
+        temp_layout = QHBoxLayout()
         self.temp_dir = QLineEdit()
-        system_layout.addRow("Temp Directory:", self.temp_dir)
+        temp_layout.addWidget(self.temp_dir)
+        temp_browse = QPushButton("Browse...")
+        temp_browse.clicked.connect(self._browse_temp_dir)
+        temp_layout.addWidget(temp_browse)
+        system_layout.addRow("Temp Directory:", temp_layout)
 
         # Autosave / batch output directory - Claude Generated
         autosave_layout = QHBoxLayout()
@@ -2023,12 +2041,12 @@ class ComprehensiveSettingsDialog(QDialog):
         self._on_sru_preset_changed(config.catalog.sru_preset)
         
         # System settings
-        self.debug_mode.setChecked(config.system.debug)
-        self.log_level.setCurrentText(config.system.log_level)
-        self.cache_dir.setText(config.system.cache_dir)
-        self.data_dir.setText(config.system.data_dir)
-        self.temp_dir.setText(config.system.temp_dir)
-        self.autosave_dir.setText(config.system.autosave_dir)
+        self.debug_mode.setChecked(config.system_config.debug)
+        self.log_level.setCurrentText(config.system_config.log_level)
+        self.cache_dir.setText(config.system_config.cache_dir)
+        self.data_dir.setText(config.system_config.data_dir)
+        self.temp_dir.setText(config.system_config.temp_dir)
+        self.autosave_dir.setText(config.system_config.autosave_dir)
 
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
@@ -2307,6 +2325,30 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         if directory:
             self.autosave_dir.setText(directory)
+
+    def _browse_cache_dir(self):
+        """Browse for cache directory - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Cache-Verzeichnis wählen", self.cache_dir.text()
+        )
+        if directory:
+            self.cache_dir.setText(directory)
+
+    def _browse_data_dir(self):
+        """Browse for data directory - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Daten-Verzeichnis wählen", self.data_dir.text()
+        )
+        if directory:
+            self.data_dir.setText(directory)
+
+    def _browse_temp_dir(self):
+        """Browse for temp directory - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Temp-Verzeichnis wählen", self.temp_dir.text()
+        )
+        if directory:
+            self.temp_dir.setText(directory)
 
     def _browse_sqlite_path(self):
         """Browse for SQLite database path - Claude Generated"""

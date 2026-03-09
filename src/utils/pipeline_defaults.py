@@ -15,7 +15,7 @@ def get_autosave_dir(config_manager=None) -> Path:
     if config_manager is not None:
         try:
             cfg = config_manager.load_config()
-            return Path(cfg.system.autosave_dir)
+            return Path(cfg.system_config.autosave_dir)
         except Exception:
             pass
     return DEFAULT_AUTOSAVE_DIR

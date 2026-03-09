@@ -44,6 +44,9 @@ class FirstStartWizard(QWizard):
         self.welcome_page = WelcomePage(presets=self._presets)
         self.addPage(self.welcome_page)
 
+        self.directory_page = DirectorySetupPage()
+        self.addPage(self.directory_page)
+
         self.llm_page = LLMSetupPage(presets=self._presets)
         self.addPage(self.llm_page)
 
@@ -98,6 +101,15 @@ class FirstStartWizard(QWizard):
                 models=models,
                 task_model_selections=task_model_selections
             )
+
+            # Apply directory settings from wizard - Claude Generated
+            root_dir = self.directory_page.root_dir_input.text().strip()
+            if root_dir:
+                root = Path(root_dir)
+                self.config.system_config.cache_dir = str(root / "cache")
+                self.config.system_config.data_dir = str(root / "data")
+                self.config.system_config.temp_dir = str(root / "tmp")
+                self.config.system_config.autosave_dir = str(root / "results")
 
             # Mark first run as completed
             self.config.system_config.first_run_completed = True
@@ -190,6 +202,77 @@ class FirstStartWizard(QWizard):
                 "Import fehlgeschlagen",
                 f"Die Datenbankdatei konnte nicht importiert werden:\n{str(e)}"
             )
+
+
+class DirectorySetupPage(QWizardPage):
+    """Directory setup page for choosing root data directory - Claude Generated"""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Datenverzeichnisse")
+        self.setSubTitle("Wählen Sie ein Wurzelverzeichnis für ALIMA-Daten")
+
+        layout = QVBoxLayout()
+
+        # Root directory selection
+        root_group = QGroupBox("Wurzelverzeichnis")
+        root_layout = QFormLayout()
+
+        root_dir_layout = QHBoxLayout()
+        self.root_dir_input = QLineEdit()
+        self.root_dir_input.setText(str(Path.home() / "Documents" / "Alima"))
+        root_dir_layout.addWidget(self.root_dir_input)
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._browse_root_dir)
+        root_dir_layout.addWidget(browse_btn)
+        root_layout.addRow("Wurzelverzeichnis:", root_dir_layout)
+
+        root_group.setLayout(root_layout)
+        layout.addWidget(root_group)
+
+        # Subdirectory preview
+        preview_group = QGroupBox("Unterverzeichnisse (werden automatisch angelegt)")
+        preview_layout = QFormLayout()
+
+        self.cache_label = QLabel()
+        self.data_label = QLabel()
+        self.temp_label = QLabel()
+        self.results_label = QLabel()
+
+        preview_layout.addRow("Cache:", self.cache_label)
+        preview_layout.addRow("Daten:", self.data_label)
+        preview_layout.addRow("Temp:", self.temp_label)
+        preview_layout.addRow("Ergebnisse:", self.results_label)
+
+        preview_group.setLayout(preview_layout)
+        layout.addWidget(preview_group)
+
+        hint = QLabel("ℹ️ Verzeichnisse werden beim ersten Bedarf automatisch angelegt.")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+        # Connect update
+        self.root_dir_input.textChanged.connect(self._update_preview)
+        self._update_preview(self.root_dir_input.text())
+
+    def _browse_root_dir(self):
+        """Browse for root directory - Claude Generated"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Wurzelverzeichnis wählen", self.root_dir_input.text()
+        )
+        if directory:
+            self.root_dir_input.setText(directory)
+
+    def _update_preview(self, root_text: str):
+        """Update subdirectory preview labels - Claude Generated"""
+        root = Path(root_text) if root_text.strip() else Path.home() / "Documents" / "Alima"
+        self.cache_label.setText(str(root / "cache"))
+        self.data_label.setText(str(root / "data"))
+        self.temp_label.setText(str(root / "tmp"))
+        self.results_label.setText(str(root / "results"))
 
 
 class WelcomePage(QWizardPage):
