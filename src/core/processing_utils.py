@@ -75,8 +75,21 @@ def parse_keywords_from_list(keywords_string: str) -> Dict[str, str]:
     return keywords_dict
 
 
-def extract_keywords_from_response(text: str) -> str:
-    logger.info(f"extract_keywords_from_response called with text length {len(text)}")
+def extract_keywords_from_response(text: str, output_format: Optional[str] = None) -> str:
+    logger.info(f"extract_keywords_from_response called with text length {len(text)}, format={output_format}")
+
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from .json_response_parser import parse_json_response, extract_keywords_from_json
+        data = parse_json_response(text)
+        if data:
+            result = extract_keywords_from_json(data)
+            if result:
+                logger.info(f"✅ JSON-Extraktion erfolgreich: {len(result)} Zeichen")
+                return result
+        logger.warning("JSON-Parsing fehlgeschlagen, Fallback auf XML-Extraktion")
+
+    # Legacy XML extraction
     cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     match = re.search(r"<final_list>(.*?)</final_list>", cleaned_text, re.DOTALL)
     if match:
@@ -88,30 +101,31 @@ def extract_keywords_from_response(text: str) -> str:
     return ""
 
 
-def extract_title_from_response(text: str) -> Optional[str]:
+def extract_title_from_response(text: str, output_format: Optional[str] = None) -> Optional[str]:
     """
-    Extract work title from LLM response <final_title> tags - Claude Generated
+    Extract work title from LLM response - Claude Generated
 
-    Args:
-        text: LLM response text
-
-    Returns:
-        Extracted title string or None if not found
+    Supports JSON-first extraction with XML fallback.
     """
-    logger.info(f"extract_title_from_response called with text length {len(text)}")
+    logger.info(f"extract_title_from_response called with text length {len(text)}, format={output_format}")
 
-    # Remove <think> tags first (same pattern as extract_keywords_from_response)
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from .json_response_parser import parse_json_response, extract_title_from_json
+        data = parse_json_response(text)
+        if data:
+            title = extract_title_from_json(data)
+            if title:
+                logger.info(f"✅ JSON Titel-Extraktion: '{title}'")
+                return title
+        logger.warning("JSON Titel-Parsing fehlgeschlagen, Fallback auf XML")
+
+    # Legacy XML extraction
     cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-
-    # Extract <final_title> content
     match = re.search(r"<final_title>(.*?)</final_title>", cleaned_text, re.DOTALL)
     if match:
-        # Extract and clean the title
         title = match.group(1).strip()
-
-        # Remove newlines and excessive whitespace
         title = ' '.join(title.split())
-
         logger.debug(f"Extracted title: '{title}'")
         return title
 
@@ -119,44 +133,56 @@ def extract_title_from_response(text: str) -> Optional[str]:
     return None
 
 
-def extract_missing_concepts_from_response(text: str) -> List[str]:
+def extract_missing_concepts_from_response(text: str, output_format: Optional[str] = None) -> List[str]:
     """
-    Extract missing concepts from LLM response <missing_list> tag.
-    Claude Generated
+    Extract missing concepts from LLM response - Claude Generated
 
-    Args:
-        text: Full LLM response text
-
-    Returns:
-        List of missing concept strings (empty if no missing concepts found)
-
-    Example:
-        Input: "<missing_list>Probenvorbereitung\\nInstrumentenspezifikationen</missing_list>"
-        Output: ["Probenvorbereitung", "Instrumentenspezifikationen"]
+    Supports JSON-first extraction with XML fallback.
     """
-    logger.info(f"extract_missing_concepts_from_response called with text length {len(text)}")
+    logger.info(f"extract_missing_concepts_from_response called with text length {len(text)}, format={output_format}")
 
-    # 1. Remove <think> and reasoning blocks first (like extract_keywords_from_response does)
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from .json_response_parser import parse_json_response, extract_missing_concepts_from_json
+        data = parse_json_response(text)
+        if data:
+            concepts = extract_missing_concepts_from_json(data)
+            if concepts:
+                logger.info(f"✅ JSON Missing-Concepts-Extraktion: {len(concepts)} Konzepte")
+                return concepts
+        logger.warning("JSON Missing-Concepts-Parsing fehlgeschlagen, Fallback auf XML")
+
+    # Legacy XML extraction
     cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     cleaned_text = re.sub(r"<\|begin_of_thought\|>.*?<\|end_of_thought\|>", "", cleaned_text, flags=re.DOTALL)
 
-    # 2. Extract <missing_list> content
     match = re.search(r'<missing_list>\s*([^<]+)\s*</missing_list>', cleaned_text, re.DOTALL | re.IGNORECASE)
     if not match:
         logger.debug("No <missing_list> tag found.")
         return []
 
     content = match.group(1).strip()
-
-    # 3. Split by newline, comma, AND semicolon (LLMs are inconsistent in formatting) - Claude Generated
     concepts = [c.strip() for c in re.split(r'[,\n;]+', content) if c.strip()]
 
     logger.debug(f"Extracted {len(concepts)} missing concepts: {concepts}")
     return concepts
 
 
-def extract_gnd_system_from_response(text: str) -> Optional[str]:
-    logger.info(f"extract_gnd_system_from_response called with text length {len(text)}")
+def extract_gnd_system_from_response(text: str, output_format: Optional[str] = None) -> Optional[str]:
+    logger.info(f"extract_gnd_system_from_response called with text length {len(text)}, format={output_format}")
+
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from .json_response_parser import parse_json_response, extract_gnd_classes_from_json
+        data = parse_json_response(text)
+        if data:
+            classes = extract_gnd_classes_from_json(data)
+            if classes:
+                result = "\n".join(classes)
+                logger.info(f"✅ JSON GND-Systematik-Extraktion: {len(classes)} Klassen")
+                return result
+        logger.warning("JSON GND-Systematik-Parsing fehlgeschlagen, Fallback auf XML")
+
     try:
         # Remove <think> tags first
         cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)

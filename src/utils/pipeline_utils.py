@@ -400,13 +400,15 @@ class PipelineStepExecutor:
             raise ValueError(error_msg)
 
         # Extract keywords and GND classes from response
-        keywords = extract_keywords_from_response(task_state.analysis_result.full_text)
+        # Pass output_format for JSON extraction - Claude Generated
+        _output_format = getattr(task_state.prompt_config, 'output_format', None) if task_state.prompt_config else None
+        keywords = extract_keywords_from_response(task_state.analysis_result.full_text, output_format=_output_format)
         gnd_classes = extract_gnd_system_from_response(
-            task_state.analysis_result.full_text
+            task_state.analysis_result.full_text, output_format=_output_format
         )
 
         # Extract title from response - Claude Generated
-        llm_title = extract_title_from_response(task_state.analysis_result.full_text)
+        llm_title = extract_title_from_response(task_state.analysis_result.full_text, output_format=_output_format)
 
         if self.logger:
             if llm_title:
@@ -799,8 +801,13 @@ class PipelineStepExecutor:
             final_llm_analysis = llm_analysis
 
             # 2. Extract missing concepts from LLM response
+            # Get output_format from prompt config for the task - Claude Generated
+            _iter_output_format = None
+            if self.alima_manager and hasattr(self.alima_manager, 'prompt_service'):
+                _iter_pc = self.alima_manager.prompt_service.get_prompt_config("keywords", model)
+                _iter_output_format = getattr(_iter_pc, 'output_format', None) if _iter_pc else None
             missing_concepts = extract_missing_concepts_from_response(
-                llm_analysis.response_full_text
+                llm_analysis.response_full_text, output_format=_iter_output_format
             )
             llm_analysis.missing_concepts = missing_concepts
 
@@ -1336,9 +1343,11 @@ class PipelineStepExecutor:
 
         # Extract final keywords and classes
         # FIXED: Use all keywords (including plain text) for DK search - Claude Generated
+        _output_format = getattr(task_state.prompt_config, 'output_format', None) if task_state.prompt_config else None
         all_keywords_including_plain, gnd_validated_only = (
             extract_keywords_from_descriptive_text(
-                task_state.analysis_result.full_text, gnd_compliant_keywords
+                task_state.analysis_result.full_text, gnd_compliant_keywords,
+                output_format=_output_format
             )
         )
 
@@ -1360,7 +1369,7 @@ class PipelineStepExecutor:
         final_keywords = verification_result["verified"]
 
         extracted_gnd_classes = extract_classes_from_descriptive_text(
-            task_state.analysis_result.full_text
+            task_state.analysis_result.full_text, output_format=_output_format
         )
 
         # Create final analysis details
@@ -1913,7 +1922,9 @@ class PipelineStepExecutor:
 
             # Extract DK classifications from LLM response
             response_text = task_state.analysis_result.full_text
-            dk_classifications = self._extract_dk_from_response(response_text)
+            # Pass output_format from prompt_config for JSON extraction - Claude Generated
+            _output_format = getattr(task_state.prompt_config, 'output_format', None) if task_state.prompt_config else None
+            dk_classifications = self._extract_dk_from_response(response_text, output_format=_output_format)
 
             # Construct LlmKeywordAnalysis object for history/display - Claude Generated
             from ..core.data_models import LlmKeywordAnalysis
@@ -1941,13 +1952,27 @@ class PipelineStepExecutor:
                 stream_callback(f"LLM-Klassifikation-Fehler: {str(e)}\n", "dk_classification")
             return [], None
 
-    def _extract_dk_from_response(self, response_text: str) -> List[str]:
+    def _extract_dk_from_response(self, response_text: str, output_format: Optional[str] = None) -> List[str]:
         """Extract DK and RVK classifications from LLM response - Claude Generated
 
+        JSON-first extraction if output_format == "json", then XML fallback.
         PRIMARY: Extract from <final_list> tag (like keywords extraction)
         FALLBACK: Use regex patterns only if <final_list> not found
         """
         import re
+
+        # JSON-first extraction - Claude Generated
+        if output_format != "xml":
+            from ..core.json_response_parser import parse_json_response, extract_dk_from_json
+            data = parse_json_response(response_text)
+            if data:
+                codes = extract_dk_from_json(data)
+                if codes:
+                    if self.logger:
+                        self.logger.info(f"✅ JSON DK-Extraktion: {len(codes)} Klassifikationen")
+                    return codes
+            if self.logger:
+                self.logger.warning("JSON DK-Parsing fehlgeschlagen, Fallback auf XML")
 
         classification_codes = []
 
@@ -2821,12 +2846,13 @@ def verify_keywords_against_gnd_pool(
 
 
 def extract_keywords_from_descriptive_text(
-    text: str, gnd_compliant_keywords: List[str]
+    text: str, gnd_compliant_keywords: List[str], output_format: Optional[str] = None
 ) -> Tuple[List[str], List[str]]:
     """
     Extract keywords from LLM descriptive text with robust fallback - Claude Generated
 
-    Supports two formats (in priority order):
+    Supports three formats (in priority order):
+    0. JSON: Parse structured JSON response (if output_format == "json")
     1. Primary: "<final_list>…</final_list>" scoped – GND regex applied only inside tags
     2. Fallback: Full-text GND regex if no <final_list> tags are present
 
@@ -2841,7 +2867,36 @@ def extract_keywords_from_descriptive_text(
     logger = logging.getLogger(__name__)
 
     # Debug: Log input for diagnosis - Claude Generated
-    logger.info(f"🔍 extract_keywords: input={len(text)} chars, available_gnd={len(gnd_compliant_keywords)}")
+    logger.info(f"🔍 extract_keywords: input={len(text)} chars, available_gnd={len(gnd_compliant_keywords)}, format={output_format}")
+
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from ..core.json_response_parser import parse_json_response, extract_keywords_from_json
+        data = parse_json_response(text)
+        if data:
+            keywords_str = extract_keywords_from_json(data)
+            if keywords_str:
+                # Parse the comma-separated string into keyword entries
+                all_keywords = []
+                exact_matches = []
+                gnd_compliant_set = set(gnd_compliant_keywords)
+
+                for kw_entry in keywords_str.split(", "):
+                    kw_entry = kw_entry.strip()
+                    if not kw_entry:
+                        continue
+                    all_keywords.append(kw_entry)
+                    # Check if this keyword matches any GND-compliant keyword
+                    for gnd_kw in gnd_compliant_keywords:
+                        kw_text = kw_entry.split("(")[0].strip().lower()
+                        gnd_text = gnd_kw.split("(")[0].strip().lower()
+                        if kw_text == gnd_text:
+                            exact_matches.append(gnd_kw)
+                            break
+
+                logger.info(f"✅ JSON keyword extraction: {len(all_keywords)} total, {len(exact_matches)} GND-matched")
+                return all_keywords, exact_matches
+        logger.warning("JSON keyword extraction fehlgeschlagen, Fallback auf XML")
 
     # Remove <think> blocks (reasoning steps) before any parsing - Claude Generated
     clean_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
@@ -3028,8 +3083,19 @@ def extract_keywords_from_descriptive_text_simple(
     return matched_keywords
 
 
-def extract_classes_from_descriptive_text(text: str) -> List[str]:
-    """Extract classification classes from LLM text - Claude Generated"""
+def extract_classes_from_descriptive_text(text: str, output_format: Optional[str] = None) -> List[str]:
+    """Extract classification classes from LLM text - Claude Generated
+
+    JSON-first extraction if output_format == "json", then XML fallback.
+    """
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from ..core.json_response_parser import parse_json_response, extract_gnd_classes_from_json
+        data = parse_json_response(text)
+        if data:
+            classes = extract_gnd_classes_from_json(data)
+            if classes:
+                return classes
 
     match = re.search(r"<class>(.*?)</class>", text)
     if match:

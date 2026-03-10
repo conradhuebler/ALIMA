@@ -151,7 +151,8 @@ class AlimaManager:
         request_id = str(uuid.uuid4())
 
         if prompt_template:
-            # If a prompt template is provided directly, use it.
+            # If a prompt template is provided directly, use XML (legacy) since custom prompts
+            # are not designed for JSON output - Claude Generated
             prompt_config = PromptConfigData(
                 prompt=prompt_template,
                 models=[model],
@@ -159,6 +160,7 @@ class AlimaManager:
                 p_value=p_value,
                 seed=seed,
                 system=system,
+                output_format="xml",
             )
         else:
             # Otherwise, get the prompt from the prompt service.
@@ -267,6 +269,14 @@ class AlimaManager:
         on_repetition_detected: Optional[Callable[[Optional[RepetitionResult], List[Dict], bool, bool, float], None]] = None,
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
+
+        # Inject JSON-Instruktionen unless output_format == "xml" - Claude Generated
+        if prompt_config.output_format != "xml":
+            from .json_schemas import get_json_instruction_text
+            json_instruction = get_json_instruction_text(task)
+            formatted_prompt += "\n\n" + json_instruction
+            self.logger.info(f"🔧 JSON-Instruktionen für Task '{task}' in Prompt injiziert")
+
         self.logger.debug(
             f"Formatted prompt for request {request_id}: {formatted_prompt[:200]}..."
         )
@@ -295,6 +305,7 @@ class AlimaManager:
             abstract_chunk_size,
             use_chunking_keywords,
             keyword_chunk_size,
+            output_format=prompt_config.output_format,
         )
 
     def _perform_chunked_analysis(
@@ -342,6 +353,13 @@ class AlimaManager:
                     ),
                 }
                 formatted_prompt = prompt_config.prompt.format(**variables)
+
+                # Inject JSON-Instruktionen for chunked analysis - Claude Generated
+                if prompt_config.output_format != "xml":
+                    from .json_schemas import get_json_instruction_text
+                    json_instruction = get_json_instruction_text(task)
+                    formatted_prompt += "\n\n" + json_instruction
+
                 response_text = self._generate_response(
                     request_id,
                     prompt_config,
@@ -387,6 +405,7 @@ class AlimaManager:
             abstract_chunk_size,
             use_chunking_keywords,
             keyword_chunk_size,
+            output_format=prompt_config.output_format,
         )
 
     def _combine_chunk_results(
@@ -485,6 +504,7 @@ class AlimaManager:
                 stream=True,  # Enable streaming
                 repetition_penalty=repetition_penalty,
                 think=think,
+                output_format=prompt_config.output_format,  # JSON-Mode - Claude Generated
             )
 
             self.logger.debug(f"LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
@@ -495,6 +515,10 @@ class AlimaManager:
                     f"💥 LLM service returned None for request_id: {request_id}, provider: {actual_provider}, model: {llm_model}"
                 )
                 return None
+
+            # Initialize JSON stream filter for display - Claude Generated
+            from ..utils.json_stream_filter import JsonStreamFilter
+            json_filter = JsonStreamFilter(enabled=(prompt_config.output_format != "xml"))
 
             # Reset repetition detector for new generation - Claude Generated
             self.repetition_detector.reset()
@@ -587,7 +611,10 @@ class AlimaManager:
 
                     if stream_callback:
                         self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")
-                        stream_callback(text_chunk)
+                        # Apply JSON filter for display (full_response_text remains unfiltered) - Claude Generated
+                        filtered_chunk = json_filter.feed(text_chunk)
+                        if filtered_chunk:
+                            stream_callback(filtered_chunk)
                     else:
                         self.logger.debug(f"📡 Chunk #{chunk_count} (no callback): '{text_chunk[:50]}...'")
 
@@ -652,6 +679,7 @@ class AlimaManager:
         abstract_chunk_size: Optional[int],
         use_chunking_keywords: bool,
         keyword_chunk_size: Optional[int],
+        output_format: Optional[str] = None,
     ) -> AnalysisResult:
         if response_text is None:
             return AnalysisResult(full_text="Error: No response from LLM.")
@@ -661,12 +689,12 @@ class AlimaManager:
 
         if keywords_input:
             matched_keywords = self._extract_and_match_keywords(
-                response_text_str, keywords_input
+                response_text_str, keywords_input, output_format=output_format
             )
         else:
-            extracted_keywords_str = extract_keywords_from_response(response_text_str)
+            extracted_keywords_str = extract_keywords_from_response(response_text_str, output_format=output_format)
             matched_keywords = parse_keywords_from_list(extracted_keywords_str)
-        gnd_systematic = extract_gnd_system_from_response(response_text_str)
+        gnd_systematic = extract_gnd_system_from_response(response_text_str, output_format=output_format)
 
         # Handle cases where extraction functions might return None or empty string
         if not matched_keywords:
@@ -681,7 +709,7 @@ class AlimaManager:
         )
 
     def _extract_and_match_keywords(
-        self, response_text: str, keywords_input: str
+        self, response_text: str, keywords_input: str, output_format: Optional[str] = None
     ) -> Dict[str, str]:
         if keywords_input is None:
             self.logger.warning(
@@ -692,7 +720,7 @@ class AlimaManager:
 
         keywords_dict = parse_keywords_from_list(keywords_input)
 
-        final_list_extracted = extract_keywords_from_response(response_text)
+        final_list_extracted = extract_keywords_from_response(response_text, output_format=output_format)
         if final_list_extracted:
             final_list_keywords_dict = parse_keywords_from_list(final_list_extracted)
             matched_keywords.update(final_list_keywords_dict)

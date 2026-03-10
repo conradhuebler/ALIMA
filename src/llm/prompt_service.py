@@ -99,6 +99,9 @@ class PromptService:
                     f"Could not parse seed value '{prompt_config_list[5]}'. Using None."
                 )
 
+        # Read task-level output_format - default is "json", opt-in "xml" for legacy - Claude Generated
+        task_output_format = self.config[task].get("output_format", "json")
+
         # Return PromptConfigData with ACTUAL requested model
         # This ensures LlmService uses the model the user selected
         return PromptConfigData(
@@ -108,6 +111,7 @@ class PromptService:
             p_value=float(prompt_config_list[3]),
             models=[model],  # Use actual requested model
             seed=seed_value,
+            output_format=task_output_format,
         )
 
     def _strip_version_tag(self, model: str) -> str:

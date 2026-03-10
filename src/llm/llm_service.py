@@ -799,6 +799,7 @@ class LlmService(QObject):
         stream: bool = True,
         repetition_penalty: Optional[float] = None,
         think: Optional[bool] = None,
+        output_format: Optional[str] = None,
     ) -> Union[str, Any]:  # Return type can be str or a generator
         """
         Generate a response from the specified provider using the given parameters.
@@ -849,6 +850,8 @@ class LlmService(QObject):
         self.current_repetition_penalty = repetition_penalty if (repetition_penalty is not None and repetition_penalty != 1.0) else None
         # Store think flag for provider generators
         self.current_think = think
+        # Store output_format for provider generators (JSON-Mode) - Claude Generated
+        self.current_output_format = output_format
 
         try:
             # Log the request
@@ -1161,6 +1164,11 @@ class LlmService(QObject):
                 "top_p": p_value,
             }
 
+            # Add JSON-mode response mime type - Claude Generated
+            if self.current_output_format != "xml":
+                generation_config["response_mime_type"] = "application/json"
+                self.logger.info("🔧 Gemini JSON-Mode enabled")
+
             # Fix für model_version Problem
             if not model.startswith("models/"):
                 model_name = model
@@ -1456,6 +1464,11 @@ class LlmService(QObject):
             if seed is not None:
                 params["seed"] = seed
 
+            # Add JSON-mode response format - Claude Generated
+            if self.current_output_format != "xml":
+                params["response_format"] = {"type": "json_object"}
+                self.logger.info(f"🔧 OpenAI-compat JSON-Mode enabled for {provider}")
+
             # Add repetition_penalty via extra_body (not a standard OpenAI param) - Claude Generated
             if self.current_repetition_penalty is not None:
                 params.setdefault("extra_body", {})["repetition_penalty"] = self.current_repetition_penalty
@@ -1566,6 +1579,11 @@ class LlmService(QObject):
                 "stream": stream,
                 "think": self.current_think if self.current_think is not None else False
             }
+
+            # Add JSON-mode format - Claude Generated
+            if self.current_output_format != "xml":
+                data["format"] = "json"
+                self.logger.info("🔧 Ollama HTTP JSON-Mode enabled")
 
             # Add seed if provided
             if seed is not None:
@@ -1699,6 +1717,12 @@ class LlmService(QObject):
             # Build chat kwargs - think must be top-level, NOT inside options - Claude Generated
             # Ollama API: options={temperature, top_p, ...}, think=bool (separate field)
             chat_kwargs: dict = {"model": model, "messages": messages, "options": options}
+
+            # Add JSON-mode format - Claude Generated
+            if self.current_output_format != "xml":
+                chat_kwargs["format"] = "json"
+                self.logger.info("🔧 Ollama Native JSON-Mode enabled")
+
             if self.current_think is not None:
                 chat_kwargs["think"] = self.current_think
                 self.logger.debug(f"Native Ollama: think={self.current_think} (top-level)")
@@ -1762,6 +1786,10 @@ class LlmService(QObject):
     ) -> str:
         """Generate response using Anthropic."""
         try:
+            # Anthropic has no native JSON-mode - relies on prompt instructions only - Claude Generated
+            if self.current_output_format != "xml":
+                self.logger.info("🔧 Anthropic: JSON-Mode via Prompt-Instruktionen (kein nativer JSON-Mode)")
+
             # Set up parameters
             params = {
                 "model": model,

@@ -30,6 +30,7 @@ class PromptConfigData:
     p_value: float
     models: List[str]
     seed: Optional[int]
+    output_format: Optional[str] = None  # None/"json" = JSON-Modus (default), "xml" = legacy - Claude Generated
 
 
 @dataclass
