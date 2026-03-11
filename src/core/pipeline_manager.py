@@ -537,7 +537,10 @@ class PipelineManager:
             final_llm_analysis=None,
         )
 
-        # Store source info for title generation - Claude Generated
+        # Store source info in official dataclass fields - Claude Generated
+        self.current_analysis_state.input_type = input_type
+        self.current_analysis_state.source_value = input_source or None
+        # Keep extraction_info for backward compatibility with title generation
         self.current_analysis_state.extraction_info = {
             "source": input_source or input_text[:50],  # Use source if provided, otherwise text preview
             "input_type": input_type,
@@ -995,34 +998,33 @@ class PipelineManager:
             self.current_analysis_state.initial_llm_call_details = llm_analysis
 
             # Build and set working title - Claude Generated
-            if hasattr(self.current_analysis_state, 'extraction_info') and self.current_analysis_state.extraction_info:
-                source_value = self.current_analysis_state.extraction_info.get('source', 'text')
-                input_type = self.current_analysis_state.extraction_info.get('input_type', 'text')
-
-                # Extract clean source identifier
-                source_id = extract_source_identifier(input_type, source_value)
-
-                # Build complete working title
-                working_title = build_working_title(
-                    llm_title=llm_title,
-                    source_identifier=source_id,
-                    timestamp=self.current_analysis_state.timestamp
-                )
-
-                # Set in analysis state
-                self.current_analysis_state.working_title = working_title
-
-                if self.logger:
-                    self.logger.info(f"📝 Generated working title: '{working_title}'")
+            # Prefer official dataclass fields, fall back to extraction_info dict
+            state = self.current_analysis_state
+            if state.input_type is not None:
+                source_value = state.source_value or state.original_abstract[:50]
+                input_type_for_id = state.input_type
+            elif hasattr(state, 'extraction_info') and state.extraction_info:
+                source_value = state.extraction_info.get('source', 'text')
+                input_type_for_id = state.extraction_info.get('input_type', 'text')
             else:
-                # Fallback if no extraction info
-                if self.logger:
-                    self.logger.warning("⚠️ No extraction_info available, using minimal title")
-                self.current_analysis_state.working_title = build_working_title(
-                    llm_title=llm_title,
-                    source_identifier='text',
-                    timestamp=self.current_analysis_state.timestamp
-                )
+                source_value = 'text'
+                input_type_for_id = 'text'
+
+            # Extract clean source identifier
+            source_id = extract_source_identifier(input_type_for_id, source_value)
+
+            # Build complete working title
+            working_title = build_working_title(
+                llm_title=llm_title,
+                source_identifier=source_id,
+                timestamp=state.timestamp
+            )
+
+            # Set in analysis state
+            state.working_title = working_title
+
+            if self.logger:
+                self.logger.info(f"📝 Generated working title: '{working_title}' (type={input_type_for_id})")
 
             step.output_data = {"keywords": keywords, "gnd_classes": gnd_classes}
             return True

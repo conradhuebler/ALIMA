@@ -125,12 +125,14 @@ class PipelineWorker(StoppableWorker):
         pipeline_manager: PipelineManager,
         input_text: str,
         input_type: str = "text",
+        input_source: str = "",  # Claude Generated - DOI, file path, URL, etc.
         force_update: bool = False,  # Claude Generated
     ):
         super().__init__()
         self.pipeline_manager = pipeline_manager
         self.input_text = input_text
         self.input_type = input_type
+        self.input_source = input_source  # Claude Generated
         self.force_update = force_update  # Claude Generated
         self.logger = logging.getLogger(__name__)
 
@@ -158,9 +160,11 @@ class PipelineWorker(StoppableWorker):
             if hasattr(self.pipeline_manager, 'set_interrupt_flag'):
                 self.pipeline_manager.set_interrupt_flag(self._interrupt_lock, self.is_interrupted)
 
-            # Start pipeline - Claude Generated (added force_update parameter)
+            # Start pipeline - Claude Generated (added force_update and input_source parameters)
             pipeline_id = self.pipeline_manager.start_pipeline(
-                self.input_text, self.input_type, force_update=self.force_update
+                self.input_text, self.input_type,
+                input_source=self.input_source or None,
+                force_update=self.force_update
             )
             self.logger.info(f"Pipeline {pipeline_id} completed in worker thread")
 

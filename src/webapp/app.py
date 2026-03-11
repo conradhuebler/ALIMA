@@ -426,6 +426,8 @@ async def start_analysis(
     content: Optional[str] = Form(None),  # For text/doi
     file: Optional[UploadFile] = File(None),  # For pdf/img
     global_override: Optional[str] = Form(None),  # "provider|model" override - Claude Generated
+    source_type: Optional[str] = Form(None),   # Original source type for filename metadata - Claude Generated
+    source_value: Optional[str] = Form(None),  # DOI/URL/filename for working title - Claude Generated
 ) -> dict:
     """Start pipeline analysis - Direct execution with LLM queueing - Claude Generated (2026-01-13)"""
     # Auto-create session if not exists (for /webapp route with injected sessionId) - Claude Generated (2026-01-13)
@@ -457,7 +459,7 @@ async def start_analysis(
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -991,6 +993,8 @@ async def run_analysis(
     file_contents: Optional[bytes],
     filename: Optional[str],
     global_override: Optional[str] = None,
+    source_type: Optional[str] = None,   # Original source type for working title - Claude Generated
+    source_value: Optional[str] = None,  # DOI/URL/filename for working title - Claude Generated
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -1219,12 +1223,24 @@ async def run_analysis(
                         lambda: session.abort_requested
                     )
 
-                # Start pipeline with correct input_type - Claude Generated (FIX: Use actual input_type, not always "text")
-                # This ensures PDFs use LLM-OCR and images use vision models
-                logger.info(f"Starting pipeline execution with input_type={input_type}")
+                # Determine effective source type/value for working title BEFORE start_pipeline runs.
+                # start_pipeline executes the pipeline synchronously, so overriding state afterwards is too late.
+                # source_type/source_value come from JS when the text was pre-extracted (DOI resolved in browser). - Claude Generated
+                if source_type and source_type != 'text' and source_value:
+                    effective_input_type = source_type      # e.g. 'doi'
+                    effective_input_source = source_value   # e.g. '10.1007/...'
+                elif input_type in ("doi", "url"):
+                    effective_input_type = input_type
+                    effective_input_source = content
+                else:
+                    effective_input_type = input_type
+                    effective_input_source = filename or None
+
+                logger.info(f"Starting pipeline: input_type={input_type}, effective_type={effective_input_type}, source={effective_input_source}")
                 pipeline_id = pipeline_manager.start_pipeline(
                     input_text,
-                    input_type=input_type,  # FIXED: Use actual input_type (pdf, img, text, doi) not hardcoded "text"
+                    input_type=effective_input_type,
+                    input_source=effective_input_source,
                 )
 
                 # Store analysis state reference for auto-save - Claude Generated

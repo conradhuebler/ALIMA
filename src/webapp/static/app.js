@@ -56,6 +56,8 @@ class AlimaWebapp {
         this.cameraStream = null;
         this.capturedCameraImage = null;
         this.cameraBlob = null;
+        this.pendingSourceType = 'text';   // Source type for working title / filename - Claude Generated
+        this.pendingInputSource = '';       // DOI, URL, or filename for working title - Claude Generated
 
         this.setupPipelineSteps();
         this.setupEventListeners();
@@ -254,6 +256,8 @@ class AlimaWebapp {
         // Clear text button - Claude Generated
         document.getElementById('clear-text-btn').addEventListener('click', () => {
             document.getElementById('text-input').value = '';
+            this.pendingSourceType = 'text';  // Reset source tracking - Claude Generated
+            this.pendingInputSource = '';
         });
 
         // DOI/URL Resolve button - Claude Generated
@@ -266,6 +270,11 @@ class AlimaWebapp {
             if (e.key === 'Enter') {
                 this.processDoiUrl();
             }
+        });
+
+        // DOI/URL Open in browser button - Claude Generated
+        document.getElementById('doi-open-btn').addEventListener('click', () => {
+            this.openDoiUrl();
         });
 
         // Export button
@@ -577,14 +586,23 @@ class AlimaWebapp {
         // Request notification permission on first run (user gesture required) - Claude Generated
         await this.requestNotificationPermission();
 
-        // Always use text input type for analysis - Claude Generated
-        // The text field is the primary source for analysis
-        // Input methods (DOI, File, Webcam) just populate this field
-        await this.submitAnalysis('text', textContent, null);
+        // If no source tracked yet, read doi-input directly — handles manual paste without "Laden" - Claude Generated
+        let sourceType = this.pendingSourceType;
+        let sourceValue = this.pendingInputSource;
+        if (sourceType === 'text') {
+            const doiVal = document.getElementById('doi-input').value.trim();
+            if (doiVal) {
+                sourceType = doiVal.startsWith('http://') || doiVal.startsWith('https://') ? 'url' : 'doi';
+                sourceValue = doiVal;
+            }
+        }
+
+        // Always submit text content; pass source metadata separately for filename/working title - Claude Generated
+        await this.submitAnalysis('text', textContent, null, sourceType, sourceValue);
     }
 
     // Submit analysis request
-    async submitAnalysis(inputType, content, file) {
+    async submitAnalysis(inputType, content, file, sourceType = null, sourceValue = null) {
         try {
             this.isAnalyzing = true;
             this.updateButtonState();
@@ -602,6 +620,14 @@ class AlimaWebapp {
             } else if (this.cameraBlob) {
                 formData.append('file', this.cameraBlob, 'camera_photo.jpg');
                 this.cameraBlob = null;
+            }
+
+            // Pass source origin metadata for working title / JSON filename - Claude Generated
+            if (sourceType && sourceType !== 'text') {
+                formData.append('source_type', sourceType);
+            }
+            if (sourceValue) {
+                formData.append('source_value', sourceValue);
             }
 
             // Add global model override if selected - Claude Generated
@@ -1370,6 +1396,27 @@ class AlimaWebapp {
         }
     }
 
+    // Open DOI or URL in browser tab - Claude Generated
+    openDoiUrl() {
+        const input = document.getElementById('doi-input').value.trim();
+        if (!input) {
+            this.appendStreamText('⚠️ Bitte geben Sie eine DOI oder URL ein');
+            return;
+        }
+        let url;
+        if (input.startsWith('http://') || input.startsWith('https://')) {
+            url = input;
+        } else if (input.includes('doi.org/')) {
+            const doi = input.split('doi.org/').pop();
+            url = `https://doi.org/${doi}`;
+        } else {
+            // Bare DOI or doi:10.x/y
+            const doi = input.replace(/^doi:/, '').trim();
+            url = `https://doi.org/${doi}`;
+        }
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
     // Process DOI/URL input and run initialization - Claude Generated
     async processDoiUrl() {
         const doiUrl = document.getElementById('doi-input').value.trim();
@@ -1441,6 +1488,9 @@ class AlimaWebapp {
                 // Fill the main text field with extracted text - Claude Generated
                 document.getElementById('text-input').value = sessionData.results.original_abstract;
                 this.appendStreamText(`✅ Text erfolgreich extrahiert (${sessionData.results.extraction_method})`);
+                // Track source origin for working title / JSON filename - Claude Generated
+                this.pendingSourceType = inputType;
+                this.pendingInputSource = content || (file ? file.name : '');
             } else {
                 throw new Error('Keine Textextraktion möglich');
             }

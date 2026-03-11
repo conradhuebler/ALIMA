@@ -876,11 +876,16 @@ class PipelineTab(QWidget):
         # Store text for pipeline
         self.current_input_text = text
         self.current_source_info = source_info
+        # Capture source type/data from input widget - Claude Generated
+        self.current_input_type = getattr(self.unified_input, 'current_source_type', 'text')
+        self.current_input_source = getattr(self.unified_input, 'current_source_data', '')
 
     def on_input_cleared(self):
         """Handle input clearing - Claude Generated"""
         self.current_input_text = ""
         self.current_source_info = ""
+        self.current_input_type = "text"  # Reset source tracking - Claude Generated
+        self.current_input_source = ""
 
         # Reset input step
         input_step = self._get_step_by_id("input")
@@ -1321,8 +1326,11 @@ class PipelineTab(QWidget):
 
     def start_auto_pipeline(self):
         """Start the automatic pipeline in background thread - Claude Generated"""
-        # Get input text from unified input widget
+        # Get input text — prefer confirmed value, fall back to whatever is in text_display.
+        # This handles the case where the user pastes text directly without clicking "Text verwenden". - Claude Generated
         input_text = getattr(self, "current_input_text", "")
+        if not input_text and hasattr(self, 'unified_input'):
+            input_text = self.unified_input.text_display.toPlainText().strip()
 
         if not input_text:
             QMessageBox.warning(
@@ -1356,9 +1364,30 @@ class PipelineTab(QWidget):
         force_update = getattr(self, 'force_update_checkbox', None)
         force_update_enabled = force_update.isChecked() if force_update else False
 
-        # Create and start worker thread - Claude Generated (added force_update parameter)
+        # Determine source metadata for working title - Claude Generated
+        # Priority: cached value from last text_ready > widget's current_source_type > doi_url_input field
+        input_type = getattr(self, 'current_input_type', 'text')
+        input_source = getattr(self, 'current_input_source', '')
+        if input_type == 'text' and hasattr(self, 'unified_input'):
+            # Read fresh from widget — set by extract_text() on last DOI/PDF/image resolution
+            widget_type = getattr(self.unified_input, 'current_source_type', 'text')
+            widget_data = getattr(self.unified_input, 'current_source_data', '')
+            if widget_type != 'text' and widget_data:
+                input_type = widget_type
+                input_source = widget_data
+            else:
+                # Last fallback: read the DOI input field directly
+                doi_val = self.unified_input.doi_url_input.text().strip()
+                if doi_val:
+                    input_type = 'url' if doi_val.startswith(('http://', 'https://')) else 'doi'
+                    input_source = doi_val
+
+        # Create and start worker thread - Claude Generated
         self.pipeline_worker = PipelineWorker(
-            self.pipeline_manager, input_text, "text", force_update=force_update_enabled
+            self.pipeline_manager, input_text,
+            input_type=input_type,
+            input_source=input_source,
+            force_update=force_update_enabled
         )
 
         # Connect worker signals
@@ -1755,9 +1784,9 @@ class PipelineTab(QWidget):
                 # Update title label text
                 self.title_label.setText(f"📋 {working_title}")
 
-                # Pre-fill override field if not already set
-                if not self.title_override_field.text().strip():
-                    self.title_override_field.setPlaceholderText(f"Current: {working_title}")
+                # Always update override field with current title - Claude Generated
+                self.title_override_field.clear()
+                self.title_override_field.setPlaceholderText(f"Current: {working_title}")
 
                 # Set working title in stream widget for log filename - Claude Generated
                 if hasattr(self, 'stream_widget') and self.stream_widget:

@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QMimeData, QUrl, pyqtSlot
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage, QDesktopServices
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 import os
@@ -635,6 +635,8 @@ class UnifiedInputWidget(QWidget):
         self.webcam_temp_file: Optional[str] = None  # Claude Generated - Track webcam temp files for cleanup
         self._extraction_was_aborted = False  # Claude Generated - Track if extraction was aborted by user
         self._append_mode: bool = False  # Claude Generated - Track if text should be appended instead of replaced
+        self.current_source_type: str = "text"  # Track source type for pipeline - Claude Generated
+        self.current_source_data: str = ""       # Track source data (DOI, path, URL) - Claude Generated
 
         # Enable drag and drop
         self.setAcceptDrops(True)
@@ -822,6 +824,12 @@ class UnifiedInputWidget(QWidget):
         resolve_button.clicked.connect(self.process_doi_url_input)
         resolve_button.setMaximumWidth(100)
         methods_layout.addWidget(resolve_button)
+
+        open_button = QPushButton("🌐 Öffnen")
+        open_button.clicked.connect(self.open_doi_url_in_browser)
+        open_button.setMaximumWidth(90)
+        open_button.setToolTip("DOI oder URL im Browser öffnen")
+        methods_layout.addWidget(open_button)
 
         # Paste button
         paste_button = QPushButton("📋 Paste")
@@ -1092,8 +1100,24 @@ class UnifiedInputWidget(QWidget):
             # Assume it's a DOI if it doesn't look like a URL
             self.extract_text("doi", input_text)
 
-        # Clear the input after processing
-        self.doi_url_input.clear()
+    def open_doi_url_in_browser(self):
+        """Open DOI or URL in the system browser - Claude Generated"""
+        input_text = self.doi_url_input.text().strip()
+        if not input_text:
+            QMessageBox.warning(self, "Keine Eingabe", "Bitte geben Sie eine DOI oder URL ein.")
+            return
+
+        if input_text.startswith(("http://", "https://")):
+            url = input_text
+        elif "doi.org/" in input_text:
+            doi_part = input_text.split("doi.org/")[-1]
+            url = f"https://doi.org/{doi_part}"
+        else:
+            # Treat anything else as a DOI (strip leading "doi:" if present)
+            doi = input_text.removeprefix("doi:").strip()
+            url = f"https://doi.org/{doi}"
+
+        QDesktopServices.openUrl(QUrl(url))
 
     def paste_from_clipboard(self):
         """Paste text from clipboard - Claude Generated"""
@@ -1111,6 +1135,9 @@ class UnifiedInputWidget(QWidget):
         """Start text extraction worker - Claude Generated"""
         # Reset abort flag for new extraction - Claude Generated
         self._extraction_was_aborted = False
+        # Store source info for pipeline - Claude Generated
+        self.current_source_type = source_type
+        self.current_source_data = str(source_data) if source_data else ""
 
         if (
             self.current_extraction_worker
@@ -1307,6 +1334,8 @@ class UnifiedInputWidget(QWidget):
         """Clear all input - Claude Generated"""
         self.text_display.clear()
         self.source_info_label.setText("Keine Quelle ausgewählt")
+        self.current_source_type = "text"  # Reset source tracking - Claude Generated
+        self.current_source_data = ""
         self.input_cleared.emit()
 
     def get_current_text(self) -> str:

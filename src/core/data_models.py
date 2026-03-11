@@ -83,6 +83,8 @@ class KeywordAnalysisState:
     initial_keywords: List[str]
     search_suggesters_used: List[str]
     working_title: Optional[str] = None  # LLM-generated work title for identification - Claude Generated
+    input_type: Optional[str] = None    # 'text', 'doi', 'pdf', 'img', 'url' - Claude Generated
+    source_value: Optional[str] = None  # Original DOI, file path, URL, or None for plain text - Claude Generated
     initial_gnd_classes: List[str] = field(default_factory=list)
     search_results: List[SearchResult] = field(default_factory=list)
     initial_llm_call_details: Optional[LlmKeywordAnalysis] = None
