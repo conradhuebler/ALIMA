@@ -280,8 +280,9 @@ class DetailView(QGroupBox):
         """Exportiert die Details"""
         from PyQt6.QtWidgets import QFileDialog
 
+        from pathlib import Path
         filename, _ = QFileDialog.getSaveFileName(
-            self, "Details exportieren", "", "Textdateien (*.txt);;Alle Dateien (*.*)"
+            self, "Details exportieren", str(Path.home() / "Documents"), "Textdateien (*.txt);;Alle Dateien (*.*)"
         )
 
         if filename:

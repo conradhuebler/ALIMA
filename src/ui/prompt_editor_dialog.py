@@ -1,6 +1,7 @@
 import sys
 import json
 import os
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -195,12 +196,21 @@ class PromptEditorDialog(QDialog):
         self.setWindowTitle("Prompt Configuration Editor - New Config")
         self._dirty = False
 
+    def _get_dialog_dir(self):
+        """Return a sensible starting directory for file dialogs - Claude Generated"""
+        from ..utils.path_utils import get_project_root
+        if self.current_file:
+            p = Path(self.current_file)
+            if p.is_absolute() and p.parent.exists():
+                return str(p.parent)
+        return str(get_project_root())
+
     def open_config(self):
         """Open a configuration file"""
         if not self._prompt_to_save_on_action():
             return
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Configuration File", "", "JSON Files (*.json);;All Files (*)"
+            self, "Open Configuration File", self._get_dialog_dir(), "JSON Files (*.json);;All Files (*)"
         )
 
         if file_path:
@@ -237,7 +247,7 @@ class PromptEditorDialog(QDialog):
         """Save the configuration to a new file"""
         # No need to prompt for saving here, as save_to_file will handle it
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Configuration File", "", "JSON Files (*.json);;All Files (*)"
+            self, "Save Configuration File", self._get_dialog_dir(), "JSON Files (*.json);;All Files (*)"
         )
 
         if file_path:

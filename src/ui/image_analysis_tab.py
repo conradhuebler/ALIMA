@@ -398,7 +398,7 @@ class ImageAnalysisTab(QWidget):
         # Check if append mode is active - if so, allow multiple file selection
         if self._append_mode:
             file_paths, _ = QFileDialog.getOpenFileNames(
-                self, "Bilder auswählen", "", "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
+                self, "Bilder auswählen", str(Path.home() / "Pictures"), "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
             )
 
             if file_paths:
@@ -413,7 +413,7 @@ class ImageAnalysisTab(QWidget):
                 self.status_label.setStyleSheet(get_status_label_styles()["info"])
         else:
             file_path, _ = QFileDialog.getOpenFileName(
-                self, "Bild auswählen", "", "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
+                self, "Bild auswählen", str(Path.home() / "Pictures"), "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
             )
 
             if file_path:

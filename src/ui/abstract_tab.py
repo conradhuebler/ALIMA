@@ -1090,7 +1090,7 @@ class AbstractTab(QWidget):
             return
 
         file_name, _ = QFileDialog.getOpenFileName(
-            self, "PDF importieren", "", "PDF Files (*.pdf)"
+            self, "PDF importieren", str(Path.home() / "Documents"), "PDF Files (*.pdf)"
         )
         if file_name:
             try:

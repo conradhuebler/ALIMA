@@ -4069,12 +4069,9 @@ class AnalysisPersistence:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             default_filename = f"analysis_state_{timestamp}.json"
 
-        # Resolve full path: prefer ~/Documents, fall back to home
-        from pathlib import Path
-        docs_dir = Path.home() / "Documents"
-        if not docs_dir.exists():
-            docs_dir = Path.home()
-        default_path = str(docs_dir / default_filename)
+        # Resolve full path using configured autosave directory
+        from .pipeline_defaults import get_autosave_dir
+        default_path = str(get_autosave_dir() / default_filename)
 
         # Open save dialog
         file_path, _ = QFileDialog.getSaveFileName(
@@ -4129,17 +4126,14 @@ class AnalysisPersistence:
         except ImportError:
             raise ImportError("PyQt6 required for GUI dialogs. Use PipelineJsonManager directly for CLI.")
 
-        # Resolve start directory: prefer ~/Documents, fall back to home
-        from pathlib import Path
-        docs_dir = Path.home() / "Documents"
-        if not docs_dir.exists():
-            docs_dir = Path.home()
+        # Resolve start directory using configured autosave directory
+        from .pipeline_defaults import get_autosave_dir
 
         # Open load dialog
         file_path, _ = QFileDialog.getOpenFileName(
             parent_widget,
             "Analyse-Zustand laden",
-            str(docs_dir),
+            str(get_autosave_dir()),
             "JSON Files (*.json);;All Files (*)"
         )
 

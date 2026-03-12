@@ -28,6 +28,7 @@ from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QFont, QPalette, QImage, QD
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 import os
+from pathlib import Path
 try:
     import PyPDF2
 except ImportError:
@@ -1026,7 +1027,7 @@ class UnifiedInputWidget(QWidget):
             file_paths, _ = QFileDialog.getOpenFileNames(
                 self,
                 "Dateien auswählen",
-                "",
+                str(Path.home() / "Documents"),
                 "Alle unterstützten Dateien (*.pdf *.png *.jpg *.jpeg *.txt);;PDF-Dateien (*.pdf);;Bilder (*.png *.jpg *.jpeg);;Textdateien (*.txt)",
             )
 
@@ -1037,7 +1038,7 @@ class UnifiedInputWidget(QWidget):
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Datei auswählen",
-                "",
+                str(Path.home() / "Documents"),
                 "Alle unterstützten Dateien (*.pdf *.png *.jpg *.jpeg *.txt);;PDF-Dateien (*.pdf);;Bilder (*.png *.jpg *.jpeg);;Textdateien (*.txt)",
             )
 

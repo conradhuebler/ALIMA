@@ -50,6 +50,7 @@ from ..core.alima_manager import AlimaManager
 from ..core.pipeline_manager import PipelineManager
 from ..utils.config_manager import ConfigManager
 from ..utils.pipeline_utils import PipelineResultFormatter
+from ..utils.pipeline_defaults import get_autosave_dir
 
 
 # Legacy config import removed - using unified config system now
@@ -1275,7 +1276,7 @@ class MainWindow(QMainWindow):
             directory = QFileDialog.getExistingDirectory(
                 self,
                 "Batch-Ergebnisse laden",
-                "",
+                str(get_autosave_dir(self.config_manager)),
                 QFileDialog.Option.ShowDirsOnly
             )
 
@@ -1367,7 +1368,7 @@ class MainWindow(QMainWindow):
                 filename, _ = QFileDialog.getOpenFileName(
                     self,
                     "GND-Datenbank auswählen",
-                    "",
+                    str(Path.home() / "Downloads"),
                     "XML/GZ-Dateien (*.xml *.xml.gz *.gz)",
                 )
 
@@ -1457,7 +1458,7 @@ class MainWindow(QMainWindow):
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "Analyse-Zustand laden",
-            "",
+            str(get_autosave_dir(self.config_manager)),
             "JSON Files (*.json);;All Files (*)"
         )
 
@@ -1968,7 +1969,7 @@ class MainWindow(QMainWindow):
             directory = QFileDialog.getExistingDirectory(
                 self,
                 "Konfiguration exportieren",
-                "",
+                str(Path.home()),
                 QFileDialog.Option.ShowDirsOnly
             )
 

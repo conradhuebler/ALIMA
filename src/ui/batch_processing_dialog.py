@@ -715,7 +715,7 @@ class BatchProcessingDialog(QDialog):
         filepaths, _ = QFileDialog.getOpenFileNames(
             self,
             "Dateien auswählen",
-            "",
+            str(Path.home() / "Documents"),
             "Unterstützte Dateien (*.txt *.pdf *.png *.jpg *.jpeg);;Alle Dateien (*)"
         )
         for filepath in filepaths:
@@ -810,7 +810,7 @@ class BatchProcessingDialog(QDialog):
         filepath, _ = QFileDialog.getOpenFileName(
             self,
             "Select Batch File",
-            "",
+            str(Path.home() / "Documents"),
             "Text Files (*.txt);;All Files (*)"
         )
         if filepath:
@@ -820,7 +820,8 @@ class BatchProcessingDialog(QDialog):
         """Browse for directory to scan - Claude Generated"""
         directory = QFileDialog.getExistingDirectory(
             self,
-            "Select Directory to Scan"
+            "Select Directory to Scan",
+            str(Path.home() / "Documents")
         )
         if directory:
             self.scan_dir_input.setText(directory)
@@ -829,7 +830,8 @@ class BatchProcessingDialog(QDialog):
         """Browse for output directory - Claude Generated"""
         directory = QFileDialog.getExistingDirectory(
             self,
-            "Select Output Directory"
+            "Select Output Directory",
+            self.output_dir_input.text() or str(Path.home() / "Documents")
         )
         if directory:
             self.output_dir_input.setText(directory)

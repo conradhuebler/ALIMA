@@ -25,6 +25,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 
 from ..core.data_models import KeywordAnalysisState
 from ..utils.pipeline_utils import PipelineJsonManager
+from ..utils.pipeline_defaults import get_autosave_dir
 from .styles import get_colors, get_main_stylesheet, LAYOUT
 
 
@@ -169,7 +170,7 @@ class ComparisonTab(QWidget):
         """Open file dialog and load a state into slot 'a' or 'b' - Claude Generated"""
         path, _ = QFileDialog.getOpenFileName(
             self, f"Analyse-Datei {'A' if slot == 'a' else 'B'} laden",
-            "", "JSON Files (*.json);;All Files (*)"
+            str(get_autosave_dir()), "JSON Files (*.json);;All Files (*)"
         )
         if not path:
             return
