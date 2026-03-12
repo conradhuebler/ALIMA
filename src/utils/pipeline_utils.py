@@ -394,9 +394,13 @@ class PipelineStepExecutor:
                 self.logger.info(f"✅ Analysis success: '{response_preview}...'")
 
         if task_state.status == "failed":
-            error_msg = f"Initial keyword extraction failed: {task_state.analysis_result.full_text}"
+            raw_error = task_state.analysis_result.full_text
+            error_msg = f"Initial keyword extraction failed: {raw_error}"
             if self.logger:
                 self.logger.error(f"💥 PIPELINE_FAILURE: {error_msg}")
+            # Stream a connection hint if it looks like a network error - Claude Generated
+            if stream_callback and raw_error and any(kw in raw_error.lower() for kw in ("connect", "timeout", "network", "unreachable", "refused", "name or service")):
+                stream_callback(f"\n🔌 Server nicht erreichbar – Verbindung prüfen ({provider})\n", kwargs.get("step_id", "initialisation"))
             raise ValueError(error_msg)
 
         # Extract keywords and GND classes from response
@@ -1337,9 +1341,11 @@ class PipelineStepExecutor:
         )
 
         if task_state.status == "failed":
-            raise ValueError(
-                f"Final keyword analysis failed: {task_state.analysis_result.full_text}"
-            )
+            raw_error = task_state.analysis_result.full_text
+            # Stream a connection hint if it looks like a network error - Claude Generated
+            if stream_callback and raw_error and any(kw in raw_error.lower() for kw in ("connect", "timeout", "network", "unreachable", "refused", "name or service")):
+                stream_callback(f"\n🔌 Server nicht erreichbar – Verbindung prüfen ({provider})\n", kwargs.get("step_id", "keywords"))
+            raise ValueError(f"Final keyword analysis failed: {raw_error}")
 
         # Extract final keywords and classes
         # FIXED: Use all keywords (including plain text) for DK search - Claude Generated

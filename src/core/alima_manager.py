@@ -641,12 +641,12 @@ class AlimaManager:
                 self.logger.error(
                     f"💥 Error during streaming LLM response for request_id {request_id}: {e}"
                 )
-                return None
+                return f"Error: {e}"
 
             return full_response_text
         except Exception as e:
             self.logger.error(f"Error during LLM call: {e}")
-            return None
+            return f"Error: {e}"
         finally:
             # Release LLM semaphore and update stats - Claude Generated (2026-01-13)
             try:
