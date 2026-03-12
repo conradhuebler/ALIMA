@@ -312,8 +312,20 @@ class CLISetupWizard:
         default_model = self.available_models[0]
 
         for task_type, task_label, task_desc in llm_tasks:
-            print(f"\n{task_label} ({task_desc})")
-            print(f"  Standard: {default_model}")
+            # Determine preset model for this task - Claude Generated
+            preset_model = (
+                self._presets.llm_task_models.get(task_type.value)
+                or self._presets.llm_default_model
+            )
+            if preset_model and preset_model in self.available_models:
+                task_default = preset_model
+                preset_hint = f" [Preset: {preset_model}]"
+            else:
+                task_default = default_model
+                preset_hint = ""
+
+            print(f"\n{task_label} ({task_desc}){preset_hint}")
+            print(f"  Standard: {task_default}")
 
             choice = input(f"Modell für {task_label} (1-{len(self.available_models)}/Enter für Standard): ").strip()
 
@@ -326,13 +338,13 @@ class CLISetupWizard:
                         print(f"  ✓ {task_label}: {selected_model}")
                     else:
                         print(f"  ⚠️  Ungültige Auswahl, verwende Standard")
-                        self.task_model_selections[task_type.name] = default_model
+                        self.task_model_selections[task_type.name] = task_default
                 except ValueError:
                     print(f"  ⚠️  Ungültige Eingabe, verwende Standard")
-                    self.task_model_selections[task_type.name] = default_model
+                    self.task_model_selections[task_type.name] = task_default
             else:
-                self.task_model_selections[task_type.name] = default_model
-                print(f"  ✓ {task_label}: {default_model}")
+                self.task_model_selections[task_type.name] = task_default
+                print(f"  ✓ {task_label}: {task_default}")
 
         print("\n✅ Task-Modell-Auswahl gespeichert\n")
 

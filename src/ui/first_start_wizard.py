@@ -50,7 +50,7 @@ class FirstStartWizard(QWizard):
         self.llm_page = LLMSetupPage(presets=self._presets)
         self.addPage(self.llm_page)
 
-        self.model_page = ModelSelectionPage()
+        self.model_page = ModelSelectionPage(presets=self._presets)
         self.addPage(self.model_page)
 
         self.gnd_page = GNDDatabasePage()
@@ -567,13 +567,14 @@ class LLMSetupPage(QWizardPage):
 class ModelSelectionPage(QWizardPage):
     """Model selection for different pipeline tasks - Claude Generated"""
 
-    def __init__(self):
+    def __init__(self, presets=None):
         super().__init__()
         self.setTitle("Modell-Auswahl für Pipeline-Schritte")
         self.setSubTitle("Wählen Sie für jeden Schritt das optimale Modell")
 
         # Store selections {task_type: model_name}
         self.task_model_selections = {}
+        self._presets = presets
 
         layout = QVBoxLayout()
 
@@ -648,6 +649,20 @@ class ModelSelectionPage(QWizardPage):
             else:
                 # Use first available model as default
                 combo.setCurrentIndex(0)
+
+        # Apply preset models after populating combos - Claude Generated
+        if self._presets and self._presets.has_models():
+            self._apply_presets(self._presets)
+
+    def _apply_presets(self, presets) -> None:
+        """Pre-select model combos from institution preset values - Claude Generated"""
+        for task_key, combo in self.task_combos.items():
+            model = presets.llm_task_models.get(task_key) or presets.llm_default_model
+            if not model:
+                continue
+            idx = combo.findText(model)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
 
     def _use_same_for_all(self):
         """Set all tasks to use the same model - Claude Generated"""

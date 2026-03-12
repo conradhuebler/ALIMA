@@ -408,10 +408,14 @@ class ProviderEditDialog(QDialog):
         self.description_edit = QLineEdit()
         self.enabled_checkbox = QCheckBox()
         self.enabled_checkbox.setChecked(True)
-        
+        self.preferred_model_edit = QLineEdit()
+        self.preferred_model_edit.setPlaceholderText("(leer = automatisch)")
+        self.preferred_model_edit.setToolTip("Standard-Modell für diesen Provider (leer lassen für automatische Auswahl)")
+
         basic_layout.addRow("Name:", self.name_edit)
         basic_layout.addRow("Description:", self.description_edit)
         basic_layout.addRow("Enabled:", self.enabled_checkbox)
+        basic_layout.addRow("Preferred Model:", self.preferred_model_edit)
         
         layout.addWidget(basic_group)
         
@@ -484,6 +488,7 @@ class ProviderEditDialog(QDialog):
         self.name_edit.setText(self.provider.name)
         self.description_edit.setText(self.provider.description)
         self.enabled_checkbox.setChecked(self.provider.enabled)
+        self.preferred_model_edit.setText(self.provider.preferred_model or "")
         self.type_combo.setCurrentText(self.provider.provider_type)
         
         # Load capabilities (UnifiedProvider doesn't have capabilities field yet, so leave empty)
@@ -545,7 +550,7 @@ class ProviderEditDialog(QDialog):
             enabled=self.enabled_checkbox.isChecked(),
             api_key=connection_config.get("api_key", ""),
             base_url=connection_config.get("base_url", ""),
-            preferred_model="",  # Can be set later via model selection
+            preferred_model=self.preferred_model_edit.text().strip(),
             description=self.description_edit.text(),
             # Ollama specific fields
             host=connection_config.get("host", ""),
@@ -710,6 +715,7 @@ class UnifiedProviderTab(QWidget):
         default_provider_layout.addWidget(QLabel("Default Provider:"))
         self.preferred_provider_combo = QComboBox(widget)
         self.preferred_provider_combo.setMinimumWidth(180)
+        self.preferred_provider_combo.currentTextChanged.connect(self._update_config_from_ui)
         default_provider_layout.addWidget(self.preferred_provider_combo)
         default_provider_layout.addStretch()
         layout.addLayout(default_provider_layout)
@@ -1008,23 +1014,9 @@ class UnifiedProviderTab(QWidget):
 
             self.provider_table.setItem(row, 2, QTableWidgetItem(status_text))
 
-            # Col 3: Preferred Model – interactive ComboBox
+            # Col 3: Preferred Model – plain text (edit via provider dialog)
             preferred_model = self._get_preferred_model_from_config(provider.name, self.config)
-            model_combo = QComboBox()
-            model_combo.blockSignals(True)
-            if available_models:
-                model_combo.addItems(available_models)
-            model_combo.addItem("(Auto-select)")
-            if preferred_model and preferred_model in available_models:
-                model_combo.setCurrentText(preferred_model)
-            else:
-                model_combo.setCurrentIndex(model_combo.findText("(Auto-select)"))
-            model_combo.blockSignals(False)
-
-            def make_handler(provider_name):
-                return lambda text: self._on_model_preference_changed(provider_name, text)
-            model_combo.currentTextChanged.connect(make_handler(provider.name))
-            self.provider_table.setCellWidget(row, 3, model_combo)
+            self.provider_table.setItem(row, 3, QTableWidgetItem(preferred_model or "(Auto)"))
 
             # Col 4: API Key Status
             api_key_status = self._get_api_key_status(provider)
@@ -1094,44 +1086,6 @@ class UnifiedProviderTab(QWidget):
         """Delegates to _populate_provider_table (tables are now merged) - Claude Generated"""
         self._populate_provider_table()
     
-    def _on_model_preference_changed(self, provider: str, model: str):
-        """Handle model preference change - Store directly in provider config - Claude Generated"""
-        try:
-            if model == "(Auto-select)":
-                model = ""  # Remove preference, use auto-select
-
-            updated = False
-
-            # Update static providers
-            if provider == "gemini":
-                self.config.unified_config.gemini_preferred_model = model
-                updated = True
-            elif provider == "anthropic":
-                self.config.unified_config.anthropic_preferred_model = model
-                updated = True
-
-            # Update providers in unified provider list
-            for unified_provider in self.config.unified_config.providers:
-                if unified_provider.name == provider:
-                    unified_provider.preferred_model = model
-                    updated = True
-                    break
-
-            if updated:
-                # Configuration changed in memory - parent dialog will handle save
-                self.config_changed.emit()
-
-                # Show toast notification for model preference save - Claude Generated
-                model_text = model or "auto-select"
-                self._show_save_toast(f"⚙️ {provider}: {model_text}")
-
-                self.logger.info(f"Updated preferred model for {provider}: {model or 'auto-select'} (config_changed emitted)")
-            else:
-                self.logger.warning(f"Provider {provider} not found in configuration")
-
-        except Exception as e:
-            self.logger.error(f"Error updating model preference: {e}")
-
     def _on_model_chunking_changed(self, provider: str, model: str, value: int):
         """Handle per-model chunking threshold change - Claude Generated"""
         try:

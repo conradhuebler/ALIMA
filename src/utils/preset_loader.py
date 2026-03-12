@@ -9,7 +9,7 @@ wizard fields without hardcoding values in source code.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,9 @@ class InstitutionPresets:
     llm_provider_name: str = ""
     llm_base_url: str = ""
     llm_api_key: str = ""
+    # LLM model defaults - Claude Generated
+    llm_default_model: str = ""
+    llm_task_models: dict = field(default_factory=dict)  # {task_type_value: model_name}
     # Catalog SOAP
     catalog_soap_search_url: str = ""
     catalog_soap_details_url: str = ""
@@ -36,6 +39,10 @@ class InstitutionPresets:
 
     def has_catalog(self) -> bool:
         return bool(self.catalog_soap_search_url or self.catalog_soap_details_url)
+
+    def has_models(self) -> bool:
+        """True if preset contains model configuration - Claude Generated"""
+        return bool(self.llm_default_model or self.llm_task_models)
 
 
 class PresetLoader:
@@ -77,6 +84,8 @@ class PresetLoader:
             llm_provider_name=llm.get('provider_name', ''),
             llm_base_url=llm.get('base_url', ''),
             llm_api_key=llm.get('api_key', ''),
+            llm_default_model=llm.get('default_model', ''),
+            llm_task_models=llm.get('task_models', {}),
             catalog_soap_search_url=catalog.get('soap_search_url', ''),
             catalog_soap_details_url=catalog.get('soap_details_url', ''),
             catalog_token=catalog.get('token', ''),
