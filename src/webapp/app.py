@@ -38,7 +38,7 @@ from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from src.llm.llm_service import LlmService
 from src.llm.prompt_service import PromptService
 from src.utils.config_manager import ConfigManager
-from src.utils.doi_resolver import resolve_input_to_text
+from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
 from src.utils.pipeline_utils import PipelineJsonManager
 
 # Setup logging - Claude Generated: configurable via LOG_LEVEL env var
@@ -1009,7 +1009,17 @@ async def run_analysis(
             input_text = content
         elif input_type == "doi" and content:
             logger.info(f"Resolving DOI: {content}")
-            input_text = await asyncio.to_thread(resolve_input_to_text, content)
+            def _resolve_doi():
+                cfg = _get_doi_config()
+                resolver = UnifiedResolver(logger,
+                    contact_email=cfg['contact_email'],
+                    use_crossref=cfg['use_crossref'],
+                    use_openalex=cfg['use_openalex'],
+                    use_datacite=cfg['use_datacite'],
+                )
+                success, metadata, text_result = resolver.resolve(content)
+                return format_doi_metadata(metadata, text_result or "") if success else None
+            input_text = await asyncio.to_thread(_resolve_doi)
         elif input_type == "pdf" and file_contents:
             # Save and extract from PDF - Claude Generated (File contents already read)
             try:
@@ -1309,10 +1319,19 @@ async def run_input_extraction(
             elif input_type == "doi" and content:
                 # Resolve DOI/URL to text first - Claude Generated
                 logger.info(f"Resolving DOI/URL: {content}")
-                success, text_content, error = resolve_input_to_text(content, logger)
-                if not success or not text_content:
-                    error_msg = error or "Could not resolve DOI/URL"
-                    raise ValueError(f"DOI resolution failed: {error_msg}")
+                cfg = _get_doi_config()
+                resolver = UnifiedResolver(logger,
+                    contact_email=cfg['contact_email'],
+                    use_crossref=cfg['use_crossref'],
+                    use_openalex=cfg['use_openalex'],
+                    use_datacite=cfg['use_datacite'],
+                )
+                success, metadata, text_result = resolver.resolve(content)
+                if not success:
+                    raise ValueError(f"DOI resolution failed: {text_result}")
+                text_content = format_doi_metadata(metadata, text_result or "")
+                if not text_content:
+                    raise ValueError("DOI resolution returned no content")
                 input_source = text_content
                 normalized_input_type = "text"  # Now treat as text
                 logger.info(f"✅ DOI resolved to {len(text_content)} characters")

@@ -656,6 +656,14 @@ class SystemConfig:
     # Output paths - Claude Generated
     autosave_dir: str = str(Path.home() / "Documents" / "ALIMA_Results")
 
+    # Contact email for API polite pools (Crossref, OpenAlex) - Claude Generated
+    contact_email: str = ''
+
+    # DOI resolver: which sources to query - Claude Generated
+    doi_use_crossref: bool = True
+    doi_use_openalex: bool = True
+    doi_use_datacite: bool = True
+
     # First-run wizard tracking - Claude Generated
     first_run_completed: bool = False  # Set to true after wizard completion
     skip_first_run_check: bool = False  # Set to true to disable first-run dialog on empty config

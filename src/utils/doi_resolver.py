@@ -15,8 +15,16 @@ import logging
 class UnifiedResolver:
     """Unified URL/DOI resolution with enhanced Springer crawling and generic web support - Claude Generated"""
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[logging.Logger] = None, contact_email: str = '',
+                 use_crossref: bool = True, use_openalex: bool = True, use_datacite: bool = True):
         self.logger = logger or logging.getLogger(__name__)
+        self.contact_email = contact_email
+        self.use_crossref = use_crossref
+        self.use_openalex = use_openalex
+        self.use_datacite = use_datacite
+        self.headers = {}
+        if contact_email:
+            self.headers = {"User-Agent": f"ALIMA/2.0 (mailto:{contact_email})"}
 
     def resolve(self, input_string: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
@@ -44,8 +52,8 @@ class UnifiedResolver:
                 self.logger.info("Detected generic URL, using web crawling")
                 return self._resolve_generic_url(resolved_value)
             elif input_type == "crossref_doi":
-                self.logger.info("Using CrossRef API for DOI resolution")
-                return self._resolve_crossref_doi(resolved_value)
+                self.logger.info("Using DOI resolution with fallback (Crossref → OpenAlex → DataCite)")
+                return self._resolve_doi_with_fallback(resolved_value)
             else:
                 error_msg = f"Unable to determine input type for: {input_string}"
                 self.logger.error(error_msg)
@@ -210,14 +218,159 @@ class UnifiedResolver:
             self.logger.error(error_msg)
             return False, None, error_msg
 
+    @staticmethod
+    def _reconstruct_abstract(inverted_index: Dict) -> str:
+        """Reconstruct plaintext abstract from OpenAlex abstract_inverted_index - Claude Generated"""
+        if not inverted_index:
+            return ""
+        positions = []
+        for word, pos_list in inverted_index.items():
+            for pos in pos_list:
+                positions.append((pos, word))
+        positions.sort()
+        return " ".join(word for _, word in positions)
+
+    def _resolve_openalex_doi(
+        self, doi: str
+    ) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """Resolve DOI using OpenAlex API - Claude Generated"""
+        url = f"https://api.openalex.org/works/doi:{doi}"
+        if self.contact_email:
+            url += f"?mailto={self.contact_email}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=15)
+            if response.status_code != 200:
+                error_msg = f"OpenAlex API request failed: Status code {response.status_code}"
+                self.logger.debug(error_msg)
+                return False, None, error_msg
+
+            data = response.json()
+            abstract = self._reconstruct_abstract(data.get("abstract_inverted_index"))
+            title = data.get("title", "Not available")
+
+            if not abstract:
+                error_msg = "OpenAlex: No abstract available"
+                self.logger.debug(error_msg)
+                return False, None, error_msg
+
+            result = {
+                "Title": title or "Not available",
+                "DOI": doi,
+                "Abstract": abstract,
+                "Source": "OpenAlex",
+            }
+
+            self.logger.info(f"Successfully resolved OpenAlex DOI, abstract length: {len(abstract)}")
+            return True, result, abstract
+
+        except Exception as e:
+            error_msg = f"Error with OpenAlex API: {str(e)}"
+            self.logger.debug(error_msg)
+            return False, None, error_msg
+
+    def _resolve_datacite_doi(
+        self, doi: str
+    ) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """Resolve DOI using DataCite API - Claude Generated"""
+        url = f"https://api.datacite.org/dois/{doi}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=15)
+            if response.status_code != 200:
+                error_msg = f"DataCite API request failed: Status code {response.status_code}"
+                self.logger.debug(error_msg)
+                return False, None, error_msg
+
+            data = response.json().get("data", {}).get("attributes", {})
+
+            # Title - list of dicts
+            titles = data.get("titles", [])
+            title = titles[0].get("title", "") if titles else "Not available"
+
+            # Abstract - list of dicts with "description" and "descriptionType"
+            descriptions = data.get("descriptions", [])
+            abstract = ""
+            for desc in descriptions:
+                if desc.get("descriptionType", "").lower() == "abstract":
+                    abstract = desc.get("description", "")
+                    break
+            if not abstract and descriptions:
+                abstract = descriptions[0].get("description", "")
+
+            if not abstract:
+                error_msg = "DataCite: No abstract/description available"
+                self.logger.debug(error_msg)
+                return False, None, error_msg
+
+            result = {
+                "Title": title,
+                "DOI": doi,
+                "Abstract": abstract,
+                "Source": "DataCite",
+            }
+
+            self.logger.info(f"Successfully resolved DataCite DOI, abstract length: {len(abstract)}")
+            return True, result, abstract
+
+        except Exception as e:
+            error_msg = f"Error with DataCite API: {str(e)}"
+            self.logger.debug(error_msg)
+            return False, None, error_msg
+
+    def _resolve_doi_with_fallback(
+        self, doi: str
+    ) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """Resolve DOI with fallback: Crossref → OpenAlex → DataCite - Claude Generated
+
+        Only queries sources enabled via use_crossref / use_openalex / use_datacite flags.
+        Returns result from first source that provides a non-empty abstract.
+        """
+        last_result = (False, None, f"No DOI sources enabled for: {doi}")
+
+        # 1. Crossref (broadest journal coverage, richest metadata)
+        if self.use_crossref:
+            success, metadata, result = self._resolve_crossref_doi(doi)
+            last_result = (success, metadata, result)
+            if success and result and result not in ("No abstract available", ""):
+                abstract = metadata.get("Abstract", "") if metadata else ""
+                if abstract and abstract not in ("No abstract available", ""):
+                    self.logger.info("DOI resolved via Crossref")
+                    return success, metadata, result
+            if self.use_openalex or self.use_datacite:
+                self.logger.info("Crossref had no abstract, trying next source...")
+
+        # 2. OpenAlex (good abstract coverage, especially older papers)
+        if self.use_openalex:
+            success, metadata, result = self._resolve_openalex_doi(doi)
+            if success and result:
+                self.logger.info("DOI resolved via OpenAlex")
+                return success, metadata, result
+            last_result = (success, metadata, result)
+            if self.use_datacite:
+                self.logger.info("OpenAlex had no abstract, trying DataCite...")
+
+        # 3. DataCite (datasets, reports, non-journal DOIs)
+        if self.use_datacite:
+            success, metadata, result = self._resolve_datacite_doi(doi)
+            if success and result:
+                self.logger.info("DOI resolved via DataCite")
+                return success, metadata, result
+            last_result = (success, metadata, result)
+
+        self.logger.warning(f"No abstract found from any enabled source for DOI: {doi}")
+        return last_result
+
     def _resolve_crossref_doi(
         self, doi: str
     ) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """Resolve DOI using CrossRef API - Claude Generated"""
         url = f"https://api.crossref.org/works/{doi}"
+        if self.contact_email:
+            url += f"?mailto={self.contact_email}"
 
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=self.headers, timeout=10)
             if response.status_code != 200:
                 error_msg = f"API request failed: Status code {response.status_code}"
                 self.logger.error(error_msg)
@@ -611,9 +764,54 @@ class DOIResolver(UnifiedResolver):
         return self.resolve(doi)
 
 
+def format_doi_metadata(metadata: Optional[Dict], fallback_text: str = '') -> str:
+    """Format DOI metadata dict as Titel + Autoren + Abstract for pipeline input - Claude Generated"""
+    if not metadata:
+        return fallback_text
+
+    _skip = {"Not available", "Nicht verfügbar", "No abstract available", ""}
+    parts = []
+
+    title   = (metadata.get("Title") or "").strip()
+    authors = (metadata.get("Authors") or "").strip()
+    abstract = (metadata.get("Abstract") or metadata.get("About") or "").strip()
+    toc     = (metadata.get("Table of Contents") or "").strip()
+
+    if title and title not in _skip:
+        parts.append(f"Titel: {title}")
+    if authors and authors not in _skip:
+        parts.append(f"Autoren: {authors}")
+    if abstract and abstract not in _skip:
+        parts.append(f"Abstract:\n{abstract}")
+    if toc and toc not in _skip:
+        parts.append(f"Inhaltsverzeichnis:\n{toc}")
+
+    return "\n\n".join(parts) if parts else fallback_text
+
+
+def _get_doi_config() -> dict:
+    """Load DOI resolver settings from ConfigManager if available - Claude Generated"""
+    defaults = {'contact_email': '', 'use_crossref': True, 'use_openalex': True, 'use_datacite': True}
+    try:
+        from src.utils.config_manager import ConfigManager
+        sc = ConfigManager().config.system_config
+        defaults['contact_email'] = getattr(sc, 'contact_email', '') or ''
+        defaults['use_crossref'] = getattr(sc, 'doi_use_crossref', True)
+        defaults['use_openalex'] = getattr(sc, 'doi_use_openalex', True)
+        defaults['use_datacite'] = getattr(sc, 'doi_use_datacite', True)
+    except Exception:
+        pass
+    return defaults
+
+
+def _get_contact_email() -> str:
+    """Load contact_email from ConfigManager if available - Claude Generated"""
+    return _get_doi_config()['contact_email']
+
+
 # Convenience functions for simple usage
 def resolve_doi_to_text(
-    doi: str, logger: Optional[logging.Logger] = None
+    doi: str, logger: Optional[logging.Logger] = None, contact_email: str = ''
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Simple function to resolve DOI to abstract text (backward compatibility)
@@ -621,11 +819,18 @@ def resolve_doi_to_text(
     Args:
         doi: DOI string
         logger: Optional logger
+        contact_email: Optional email for API polite pools
 
     Returns:
         Tuple[success: bool, abstract_text: str, error_message: str]
     """
-    resolver = UnifiedResolver(logger)
+    cfg = _get_doi_config()
+    resolver = UnifiedResolver(logger,
+        contact_email=contact_email or cfg['contact_email'],
+        use_crossref=cfg['use_crossref'],
+        use_openalex=cfg['use_openalex'],
+        use_datacite=cfg['use_datacite'],
+    )
     success, metadata, result = resolver.resolve(doi)
 
     if success:
@@ -635,7 +840,7 @@ def resolve_doi_to_text(
 
 
 def resolve_url_to_text(
-    url: str, logger: Optional[logging.Logger] = None
+    url: str, logger: Optional[logging.Logger] = None, contact_email: str = ''
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Simple function to resolve URL to text content
@@ -643,11 +848,18 @@ def resolve_url_to_text(
     Args:
         url: URL string
         logger: Optional logger
+        contact_email: Optional email for API polite pools
 
     Returns:
         Tuple[success: bool, text_content: str, error_message: str]
     """
-    resolver = UnifiedResolver(logger)
+    cfg = _get_doi_config()
+    resolver = UnifiedResolver(logger,
+        contact_email=contact_email or cfg['contact_email'],
+        use_crossref=cfg['use_crossref'],
+        use_openalex=cfg['use_openalex'],
+        use_datacite=cfg['use_datacite'],
+    )
     success, metadata, result = resolver.resolve(url)
 
     if success:
@@ -657,7 +869,7 @@ def resolve_url_to_text(
 
 
 def resolve_input_to_text(
-    input_string: str, logger: Optional[logging.Logger] = None
+    input_string: str, logger: Optional[logging.Logger] = None, contact_email: str = ''
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Universal function to resolve DOI, URL, or DOI URL to text content
@@ -665,11 +877,18 @@ def resolve_input_to_text(
     Args:
         input_string: DOI, URL, or DOI URL
         logger: Optional logger
+        contact_email: Optional email for API polite pools
 
     Returns:
         Tuple[success: bool, text_content: str, error_message: str]
     """
-    resolver = UnifiedResolver(logger)
+    cfg = _get_doi_config()
+    resolver = UnifiedResolver(logger,
+        contact_email=contact_email or cfg['contact_email'],
+        use_crossref=cfg['use_crossref'],
+        use_openalex=cfg['use_openalex'],
+        use_datacite=cfg['use_datacite'],
+    )
     success, metadata, result = resolver.resolve(input_string)
 
     if success:

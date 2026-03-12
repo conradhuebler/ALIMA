@@ -24,7 +24,7 @@ from .styles import (
     COLORS,
 )
 
-from ..utils.doi_resolver import resolve_input_to_text, UnifiedResolver
+from ..utils.doi_resolver import resolve_input_to_text, UnifiedResolver, _get_doi_config
 
 
 class CrossrefWorker(QThread):
@@ -40,7 +40,13 @@ class CrossrefWorker(QThread):
 
     def run(self):
         try:
-            resolver = UnifiedResolver(self.logger)
+            cfg = _get_doi_config()
+            resolver = UnifiedResolver(self.logger,
+                contact_email=cfg['contact_email'],
+                use_crossref=cfg['use_crossref'],
+                use_openalex=cfg['use_openalex'],
+                use_datacite=cfg['use_datacite'],
+            )
             success, metadata, text_result = resolver.resolve(self.doi)
             self.result_ready.emit(success, metadata, text_result or "")
         except Exception as e:
@@ -283,5 +289,5 @@ class CrossrefTab(QWidget):
         
         # Use existing display_results logic
         self.display_results(metadata)
-        
+
         self.logger.info("Pipeline DOI metadata displayed successfully")

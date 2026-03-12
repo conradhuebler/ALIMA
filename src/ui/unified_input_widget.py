@@ -40,7 +40,7 @@ from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
 from .workers import StoppableWorker
 from ..core.alima_manager import AlimaManager
-from ..utils.doi_resolver import resolve_input_to_text
+from ..utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
 
 
 class TextExtractionWorker(StoppableWorker):
@@ -573,27 +573,30 @@ class TextExtractionWorker(StoppableWorker):
         return '\n'.join(cleaned_lines).strip()
 
     def _extract_from_doi(self):
-        """Extract metadata from DOI using unified resolver - Claude Generated"""
+        """Extract metadata from DOI and format as Titel + Autoren + Abstract - Claude Generated"""
         self.progress_updated.emit("DOI wird aufgelöst...")
 
         try:
-            success, text_content, error_msg = resolve_input_to_text(
-                self.source_data, self.logger
+            cfg = _get_doi_config()
+            resolver = UnifiedResolver(self.logger,
+                contact_email=cfg['contact_email'],
+                use_crossref=cfg['use_crossref'],
+                use_openalex=cfg['use_openalex'],
+                use_datacite=cfg['use_datacite'],
             )
+            success, metadata, text_result = resolver.resolve(self.source_data)
 
             if success:
-                source_info = (
-                    f"DOI: {self.source_data} (Länge: {len(text_content)} Zeichen)"
-                )
+                text_content = format_doi_metadata(metadata, text_result or "")
+                source_info = f"DOI: {self.source_data} ({len(text_content)} Zeichen)"
                 self.text_extracted.emit(text_content, source_info)
-                self.logger.info(
-                    f"DOI {self.source_data} successfully resolved to {len(text_content)} chars"
-                )
+                self.logger.info(f"DOI {self.source_data} resolved, {len(text_content)} chars")
             else:
-                self.error_occurred.emit(f"DOI-Auflösung fehlgeschlagen: {error_msg}")
+                self.error_occurred.emit(f"DOI-Auflösung fehlgeschlagen: {text_result}")
 
         except Exception as e:
             self.error_occurred.emit(f"DOI-Fehler: {str(e)}")
+
 
     def _extract_from_url(self):
         """Extract text from URL using unified resolver - Claude Generated"""

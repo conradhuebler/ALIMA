@@ -1145,6 +1145,32 @@ class ComprehensiveSettingsDialog(QDialog):
         system_group.setLayout(system_layout)
         layout.addWidget(system_group)
 
+        # DOI resolver settings - Claude Generated
+        doi_group = QGroupBox("🔗 DOI-Auflösung")
+        doi_layout = QFormLayout()
+
+        self.contact_email = QLineEdit()
+        self.contact_email.setPlaceholderText("z.B. name@institution.de")
+        self.contact_email.setToolTip(
+            "E-Mail für API-Polite-Pools (Crossref, OpenAlex). Ermöglicht höhere Rate Limits."
+        )
+        doi_layout.addRow("Kontakt-E-Mail:", self.contact_email)
+
+        self.doi_use_crossref = QCheckBox("Crossref (empfohlen – breite Zeitschriften-Abdeckung)")
+        self.doi_use_crossref.setChecked(True)
+        doi_layout.addRow("", self.doi_use_crossref)
+
+        self.doi_use_openalex = QCheckBox("OpenAlex (Fallback – gute Abstract-Abdeckung)")
+        self.doi_use_openalex.setChecked(True)
+        doi_layout.addRow("", self.doi_use_openalex)
+
+        self.doi_use_datacite = QCheckBox("DataCite (Fallback – Datensätze, Berichte, nicht-Zeitschriften)")
+        self.doi_use_datacite.setChecked(True)
+        doi_layout.addRow("", self.doi_use_datacite)
+
+        doi_group.setLayout(doi_layout)
+        layout.addWidget(doi_group)
+
         # Repetition Detection settings - Claude Generated
         repetition_group = QGroupBox("🔄 Repetition Detection")
         repetition_layout = QFormLayout()
@@ -2048,6 +2074,12 @@ class ComprehensiveSettingsDialog(QDialog):
         self.temp_dir.setText(config.system_config.temp_dir)
         self.autosave_dir.setText(config.system_config.autosave_dir)
 
+        # DOI resolver settings - Claude Generated
+        self.contact_email.setText(getattr(config.system_config, 'contact_email', ''))
+        self.doi_use_crossref.setChecked(getattr(config.system_config, 'doi_use_crossref', True))
+        self.doi_use_openalex.setChecked(getattr(config.system_config, 'doi_use_openalex', True))
+        self.doi_use_datacite.setChecked(getattr(config.system_config, 'doi_use_datacite', True))
+
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
 
@@ -2555,6 +2587,10 @@ class ComprehensiveSettingsDialog(QDialog):
             data_dir=self.data_dir.text(),
             temp_dir=self.temp_dir.text(),
             autosave_dir=self.autosave_dir.text(),
+            contact_email=self.contact_email.text().strip(),
+            doi_use_crossref=self.doi_use_crossref.isChecked(),
+            doi_use_openalex=self.doi_use_openalex.isChecked(),
+            doi_use_datacite=self.doi_use_datacite.isChecked(),
             # Preserve wizard/system flags that have no UI controls - Claude Generated
             prompts_path=config.system_config.prompts_path,
             first_run_completed=config.system_config.first_run_completed,
