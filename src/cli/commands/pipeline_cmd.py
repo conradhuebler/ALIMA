@@ -202,6 +202,13 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                 logger.error(f"Failed to apply CLI overrides: {e}")
                 return
 
+            # Apply agentic mode if requested - Claude Generated
+            if getattr(args, 'agentic', False):
+                updated_pipeline_config.enable_agentic_mode = True
+                updated_pipeline_config.agentic_max_iterations = getattr(args, 'agentic_max_iterations', 20)
+                updated_pipeline_config.agentic_quality_threshold = getattr(args, 'agentic_quality_threshold', 0.6)
+                logger.info("🤖 Agentic mode enabled")
+
             # Set pipeline configuration
             pipeline_manager.set_config(updated_pipeline_config)
 

@@ -63,13 +63,13 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - **Implementation**: `extract_missing_concepts_from_response()` in processing_utils.py, `execute_fallback_gnd_search()` + `execute_iterative_keyword_refinement()` in pipeline_utils.py
 - **Documentation**: See `docs/iterative_gnd_search.md` for complete architecture and implementation plan
 
-### WIP: Agentic Workflow Architecture
-- **Base Agent System**: Self-reflection, quality validation, automatic retry with iteration control
-- **Specialized Agents**: SearchAgent (GND search strategy), KeywordAgent (keyword selection), ClassificationAgent (DK/RVK selection), ValidationAgent (cross-validation)
-- **Meta-Agent Orchestrator**: Text type detection (scientific/fiction/report), adaptive strategy selection, agent coordination
-- **Integration**: Optional agentic mode in PipelineManager via `execute_pipeline_with_agents()`
-- **New Directory**: `src/core/agents/` with base_agent.py, search_agent.py, keyword_agent.py, classification_agent.py, validation_agent.py, meta_agent.py
-- **Documentation**: See `docs/agentic_workflow.md` for complete agent specifications and architecture
+### ✅ ADDED: Agentic Workflow with MCP Tools
+- **Agent System**: `src/core/agents/` - BaseAgent with self-reflection, SearchAgent, KeywordAgent, ClassificationAgent, ValidationAgent, MetaAgent
+- **MCP Tool Layer**: `src/mcp/` - 16 tools wrapping DB (UnifiedKnowledgeManager), web services (suggesters), and pipeline results
+- **Agent Loop**: `src/core/agent_loop.py` - Provider-agnostic tool-calling loop with safety features (max iterations, diminishing-returns detection)
+- **Tool-Calling in LlmService**: `generate_with_tools()` supporting Ollama, OpenAI, Anthropic, Gemini native tool-calling + text fallback
+- **Pipeline Integration**: `PipelineConfig.enable_agentic_mode`, CLI `--agentic`, GUI checkbox
+- **Pipeline Results as Tools**: `list_pipeline_results`, `get_pipeline_result` etc. allow agents to access/discuss saved results
 - **WARNING**: Experimental feature with 3x token usage increase - opt-in only
 
 ## [Instructions Block - Operator-Defined Tasks]

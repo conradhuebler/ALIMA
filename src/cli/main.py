@@ -112,6 +112,11 @@ def create_argument_parser():
     pipeline_parser.add_argument("--dk-frequency-threshold", type=int, default=DEFAULT_DK_FREQUENCY_THRESHOLD, help=f"Min DK frequency (default: {DEFAULT_DK_FREQUENCY_THRESHOLD})")
     pipeline_parser.add_argument("--force-update", action="store_true", help="Force catalog cache update")
 
+    # Agentic mode - Claude Generated
+    pipeline_parser.add_argument("--agentic", action="store_true", help="Use agentic mode with MCP tools instead of sequential pipeline")
+    pipeline_parser.add_argument("--agentic-max-iterations", type=int, default=20, help="Max tool-calling iterations per agent (default: 20)")
+    pipeline_parser.add_argument("--agentic-quality-threshold", type=float, default=0.6, help="Min quality score per agent (default: 0.6)")
+
     # Global provider/model override - Claude Generated
     pipeline_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",
                                  help="Force ALL LLM steps: PROVIDER/MODEL or PROVIDER|MODEL (e.g. gemini/gemini-2.0-flash, openai_compatible/glm-4.6:cloud)")

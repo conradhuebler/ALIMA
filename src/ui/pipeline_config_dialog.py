@@ -2211,6 +2211,16 @@ class PipelineConfigDialog(QDialog):
         self.stop_on_error_checkbox.setToolTip("Pipeline stoppt bei ersten Fehler")
         global_layout.addWidget(self.stop_on_error_checkbox)
 
+        # Agentic mode option - Claude Generated
+        self.agentic_mode_checkbox = QCheckBox("🤖 Agentic Modus (experimentell)")
+        self.agentic_mode_checkbox.setChecked(False)
+        self.agentic_mode_checkbox.setToolTip(
+            "Verwendet LLM-gesteuerte Agenten mit Tool-Calling statt sequenzieller Pipeline.\n"
+            "Die Agenten entscheiden autonom, welche Such-Tools sie verwenden.\n\n"
+            "⚠️ Experimentell: Erhöht Token-Nutzung um ca. 3x"
+        )
+        global_layout.addWidget(self.agentic_mode_checkbox)
+
         layout.addWidget(global_group)
 
         # Buttons
@@ -2319,6 +2329,8 @@ class PipelineConfigDialog(QDialog):
             # Load global settings
             self.auto_advance_checkbox.setChecked(config.auto_advance)
             self.stop_on_error_checkbox.setChecked(config.stop_on_error)
+            if hasattr(config, 'enable_agentic_mode'):
+                self.agentic_mode_checkbox.setChecked(config.enable_agentic_mode)
 
         except Exception as e:
             self.logger.error(f"Error loading config: {e}")
@@ -2425,6 +2437,7 @@ class PipelineConfigDialog(QDialog):
                 stop_on_error=self.stop_on_error_checkbox.isChecked(),
                 step_configs=step_configs_converted,
                 search_suggesters=search_suggesters,
+                enable_agentic_mode=self.agentic_mode_checkbox.isChecked(),
             )
 
             self.logger.info("Configuration saved using baseline + override pattern")

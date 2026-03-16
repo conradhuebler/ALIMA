@@ -75,6 +75,10 @@ class PipelineConfig:
     # Step configurations
     step_configs: Dict[str, PipelineStepConfig] = field(default_factory=dict)  # Unified step configs
 
+    # Agentic mode: LLM-driven agents with MCP tools instead of sequential steps - Claude Generated
+    enable_agentic_mode: bool = False
+    agentic_max_iterations: int = 20
+    agentic_quality_threshold: float = 0.6
 
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
@@ -526,6 +530,10 @@ class PipelineManager:
         if force_update:
             self.logger.info("⚠️ Force update enabled: catalog cache will be ignored")
 
+        # Agentic mode: use AgenticPipelineExecutor instead of sequential steps - Claude Generated
+        if self.config.enable_agentic_mode:
+            return self._start_agentic_pipeline(pipeline_id, input_text, input_type, input_source)
+
         # Initialize pipeline state
         self.current_analysis_state = KeywordAnalysisState(
             original_abstract=input_text,  # Always store the text regardless of input type
@@ -558,6 +566,64 @@ class PipelineManager:
         # Start first step
         if self.config.auto_advance:
             self._execute_next_step()
+
+        return pipeline_id
+
+    def _start_agentic_pipeline(self, pipeline_id: str, input_text: str,
+                                 input_type: str, input_source: Optional[str]) -> str:
+        """Execute pipeline in agentic mode using MCP tools - Claude Generated"""
+        from src.core.agentic_executor import AgenticPipelineExecutor
+
+        self.logger.info(f"🤖 Starting AGENTIC pipeline {pipeline_id}")
+
+        # Determine provider/model from config
+        provider = self.config.global_provider_override or ""
+        model = self.config.global_model_override or ""
+
+        # If not set, try to get from first LLM step config
+        if not provider or not model:
+            for step_id in ["initialisation", "keywords", "dk_classification"]:
+                step_cfg = self.config.step_configs.get(step_id)
+                if step_cfg:
+                    provider = provider or step_cfg.provider or ""
+                    model = model or step_cfg.model or ""
+                    break
+
+        temperature = 0.3
+        for step_id in ["initialisation", "keywords"]:
+            step_cfg = self.config.step_configs.get(step_id)
+            if step_cfg and step_cfg.temperature is not None:
+                temperature = step_cfg.temperature
+                break
+
+        try:
+            executor = AgenticPipelineExecutor(
+                llm_service=self.llm_service,
+                config_manager=self.config_manager,
+                stream_callback=self.stream_callback,
+            )
+
+            self.current_analysis_state = executor.execute(
+                abstract=input_text,
+                provider=provider,
+                model=model,
+                temperature=temperature,
+                enable_classification="dk_classification" in self.config.step_configs
+                    and self.config.step_configs["dk_classification"].enabled,
+                max_iterations=self.config.agentic_max_iterations,
+                quality_threshold=self.config.agentic_quality_threshold,
+                input_type=input_type,
+                source_value=input_source,
+            )
+
+            # Emit completion
+            self.pipeline_completed.emit(True)
+
+        except Exception as e:
+            self.logger.error(f"Agentic pipeline failed: {e}")
+            if self.stream_callback:
+                self.stream_callback(f"\n❌ Agentic Pipeline Fehler: {e}", "error")
+            self.pipeline_completed.emit(False)
 
         return pipeline_id
 

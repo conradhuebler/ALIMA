@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+from enum import Enum
 from datetime import datetime
 
 
@@ -101,3 +102,53 @@ class KeywordAnalysisState:
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata
     convergence_achieved: bool = False  # True if converged before max iterations
     max_iterations_reached: bool = False  # True if stopped due to max iterations
+
+
+# ============================================================
+# Agent / Tool-Calling Data Models - Claude Generated
+# ============================================================
+
+@dataclass
+class ToolCall:
+    """Represents a single tool call requested by an LLM."""
+    id: str
+    name: str
+    arguments: Dict[str, Any]
+
+
+@dataclass
+class ToolResult:
+    """Result of executing a tool call."""
+    tool_call_id: str
+    content: str
+    is_error: bool = False
+
+
+class StopReason(Enum):
+    """Why the LLM stopped generating."""
+    END_TURN = "end_turn"        # Normal completion
+    TOOL_USE = "tool_use"        # Wants to call tools
+    MAX_TOKENS = "max_tokens"    # Hit token limit
+    CANCELLED = "cancelled"      # User cancelled
+
+
+@dataclass
+class AgentResponse:
+    """Response from an LLM that may contain tool calls."""
+    content: str = ""
+    tool_calls: List[ToolCall] = field(default_factory=list)
+    stop_reason: StopReason = StopReason.END_TURN
+
+    @property
+    def has_tool_calls(self) -> bool:
+        return len(self.tool_calls) > 0
+
+
+@dataclass
+class AgentResult:
+    """Final result from a complete agent run (potentially multi-turn)."""
+    content: str
+    tool_log: List[Dict[str, Any]] = field(default_factory=list)
+    iterations: int = 0
+    tokens_used: int = 0
+    agent_name: str = ""

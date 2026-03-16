@@ -2410,3 +2410,571 @@ class LlmService(QObject):
         Timer callback to refresh provider status periodically - Claude Generated
         """
         self.refresh_all_provider_status()
+
+    # ================================================================
+    # Tool-Calling / Agent Support - Claude Generated
+    # ================================================================
+
+    def generate_with_tools(
+        self,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+        max_tokens: int = 4096,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> "AgentResponse":
+        """
+        Generate a response with tool-calling support - Claude Generated
+
+        Unlike generate_response() which is text-in/text-out, this method:
+        - Takes messages (conversation format) instead of a single prompt
+        - Takes tool definitions (JSON Schema)
+        - Returns AgentResponse with optional tool_calls
+
+        Args:
+            provider: Provider name
+            model: Model name
+            messages: Conversation messages [{"role": "system"|"user"|"assistant"|"tool", "content": ...}]
+            tools: Tool definitions in JSON Schema format
+            temperature: Sampling temperature
+            top_p: Top-p sampling
+            max_tokens: Max tokens to generate
+            stream_callback: Optional callback for streaming tokens
+
+        Returns:
+            AgentResponse with content and/or tool_calls
+        """
+        from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        # Map legacy provider names
+        provider = self._map_provider_name(provider)
+
+        if not self._ensure_provider_initialized(provider):
+            raise ValueError(f"Provider '{provider}' not available for tool-calling")
+
+        # Determine provider type and dispatch
+        provider_info = self.supported_providers.get(provider)
+        if not provider_info:
+            raise ValueError(f"Unknown provider: {provider}")
+
+        generator_func = provider_info.get('generator')
+
+        if generator_func == self._generate_ollama_native:
+            return self._generate_ollama_native_with_tools(
+                provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback
+            )
+        elif generator_func == self._generate_openai_compatible:
+            return self._generate_openai_with_tools(
+                provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback
+            )
+        elif generator_func == self._generate_anthropic:
+            return self._generate_anthropic_with_tools(
+                model, messages, tools, temperature, top_p, max_tokens, stream_callback
+            )
+        elif generator_func == self._generate_gemini:
+            return self._generate_gemini_with_tools(
+                model, messages, tools, temperature, top_p, max_tokens, stream_callback
+            )
+        else:
+            # Fallback: simulate tool-calling via text for unsupported providers
+            return self._generate_text_fallback_with_tools(
+                provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback
+            )
+
+    def _generate_ollama_native_with_tools(
+        self,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> "AgentResponse":
+        """Tool-calling via Ollama native client - Claude Generated"""
+        from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        # Convert tool definitions to Ollama format
+        ollama_tools = []
+        for tool in tools:
+            ollama_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
+                },
+            })
+
+        # Build Ollama messages (filter out tool role → convert to expected format)
+        ollama_messages = self._convert_messages_for_ollama(messages)
+
+        options = {"temperature": temperature, "top_p": top_p}
+
+        try:
+            response = self.clients[provider].chat(
+                model=model,
+                messages=ollama_messages,
+                tools=ollama_tools if ollama_tools else None,
+                options=options,
+                stream=False,
+            )
+
+            # Parse response
+            content = ""
+            tool_calls = []
+
+            if "message" in response:
+                msg = response["message"]
+                content = msg.get("content", "") or ""
+
+                if "tool_calls" in msg and msg["tool_calls"]:
+                    for i, tc in enumerate(msg["tool_calls"]):
+                        func = tc.get("function", {})
+                        tool_calls.append(ToolCall(
+                            id=f"ollama_{i}_{func.get('name', 'unknown')}",
+                            name=func.get("name", ""),
+                            arguments=func.get("arguments", {}),
+                        ))
+
+            if stream_callback and content:
+                stream_callback(content)
+
+            stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
+            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+
+        except Exception as e:
+            self.logger.error(f"Ollama native tool-calling error: {e}")
+            raise
+
+    def _generate_openai_with_tools(
+        self,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> "AgentResponse":
+        """Tool-calling via OpenAI-compatible API - Claude Generated"""
+        from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        # Convert tools to OpenAI format
+        openai_tools = []
+        for tool in tools:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
+                },
+            })
+
+        # Convert messages to OpenAI format
+        openai_messages = self._convert_messages_for_openai(messages)
+
+        try:
+            params = {
+                "model": model,
+                "messages": openai_messages,
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+            if openai_tools:
+                params["tools"] = openai_tools
+
+            response = self.clients[provider].chat.completions.create(**params)
+
+            content = response.choices[0].message.content or ""
+            tool_calls = []
+
+            if response.choices[0].message.tool_calls:
+                for tc in response.choices[0].message.tool_calls:
+                    args = tc.function.arguments
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {"raw": args}
+                    tool_calls.append(ToolCall(
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=args,
+                    ))
+
+            if stream_callback and content:
+                stream_callback(content)
+
+            stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
+            if response.choices[0].finish_reason == "length":
+                stop_reason = StopReason.MAX_TOKENS
+
+            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+
+        except Exception as e:
+            self.logger.error(f"OpenAI tool-calling error: {e}")
+            raise
+
+    def _generate_anthropic_with_tools(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> "AgentResponse":
+        """Tool-calling via Anthropic API - Claude Generated"""
+        from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        if "anthropic" not in self.clients:
+            raise ValueError("Anthropic client not initialized")
+
+        # Convert tools to Anthropic format
+        anthropic_tools = []
+        for tool in tools:
+            anthropic_tools.append({
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "input_schema": tool.get("parameters", {"type": "object", "properties": {}}),
+            })
+
+        # Separate system message from conversation messages
+        system_text = ""
+        anthropic_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_text = msg["content"]
+            elif msg["role"] == "tool":
+                # Anthropic expects tool_result blocks
+                anthropic_messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": msg.get("tool_call_id", ""),
+                        "content": msg.get("content", ""),
+                        "is_error": msg.get("is_error", False),
+                    }],
+                })
+            elif msg["role"] == "assistant" and isinstance(msg.get("content"), list):
+                # Pass through assistant messages with tool_use blocks
+                anthropic_messages.append(msg)
+            else:
+                anthropic_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"],
+                })
+
+        try:
+            params = {
+                "model": model,
+                "messages": anthropic_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+                "stream": False,
+            }
+            if system_text:
+                params["system"] = system_text
+            if anthropic_tools:
+                params["tools"] = anthropic_tools
+
+            response = self.clients["anthropic"].messages.create(**params)
+
+            content = ""
+            tool_calls = []
+
+            for block in response.content:
+                if block.type == "text":
+                    content += block.text
+                elif block.type == "tool_use":
+                    tool_calls.append(ToolCall(
+                        id=block.id,
+                        name=block.name,
+                        arguments=block.input if isinstance(block.input, dict) else {},
+                    ))
+
+            if stream_callback and content:
+                stream_callback(content)
+
+            if response.stop_reason == "tool_use":
+                stop_reason = StopReason.TOOL_USE
+            elif response.stop_reason == "max_tokens":
+                stop_reason = StopReason.MAX_TOKENS
+            else:
+                stop_reason = StopReason.END_TURN
+
+            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+
+        except Exception as e:
+            self.logger.error(f"Anthropic tool-calling error: {e}")
+            raise
+
+    def _generate_gemini_with_tools(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> "AgentResponse":
+        """Tool-calling via Google Gemini API - Claude Generated"""
+        from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        if "gemini" not in self.clients:
+            raise ValueError("Gemini client not initialized")
+
+        # Convert tools to Gemini function declaration format
+        function_declarations = []
+        for tool in tools:
+            params = tool.get("parameters", {"type": "object", "properties": {}})
+            function_declarations.append({
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": params,
+            })
+
+        # Extract system message and build Gemini content
+        system_text = ""
+        gemini_contents = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_text = msg["content"]
+            elif msg["role"] == "user":
+                gemini_contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
+            elif msg["role"] == "assistant":
+                gemini_contents.append({"role": "model", "parts": [{"text": msg.get("content", "")}]})
+            elif msg["role"] == "tool":
+                # Gemini expects function response format
+                gemini_contents.append({
+                    "role": "function",
+                    "parts": [{"functionResponse": {
+                        "name": msg.get("name", ""),
+                        "response": {"result": msg.get("content", "")},
+                    }}],
+                })
+
+        # Build model name
+        model_name = model
+        if not model_name.startswith("models/"):
+            if not model_name.startswith("gemini-"):
+                model_name = "gemini-1.5-flash"
+            model_name = f"models/{model_name}"
+
+        try:
+            model_instance = self.clients["gemini"].GenerativeModel(
+                model_name,
+                system_instruction=system_text if system_text else None,
+                tools=[{"function_declarations": function_declarations}] if function_declarations else None,
+            )
+
+            generation_config = {
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_output_tokens": max_tokens,
+            }
+
+            response = model_instance.generate_content(
+                gemini_contents,
+                generation_config=generation_config,
+                stream=False,
+            )
+
+            content = ""
+            tool_calls = []
+
+            if hasattr(response, "candidates") and response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "text") and part.text:
+                        content += part.text
+                    elif hasattr(part, "function_call"):
+                        fc = part.function_call
+                        args = dict(fc.args) if hasattr(fc, "args") else {}
+                        tool_calls.append(ToolCall(
+                            id=f"gemini_{fc.name}",
+                            name=fc.name,
+                            arguments=args,
+                        ))
+
+            if stream_callback and content:
+                stream_callback(content)
+
+            stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
+            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+
+        except Exception as e:
+            self.logger.error(f"Gemini tool-calling error: {e}")
+            raise
+
+    def _generate_text_fallback_with_tools(
+        self,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
+        stream_callback: Optional[Callable[[str], None]] = None,
+    ) -> "AgentResponse":
+        """
+        Fallback for providers without native tool-calling - Claude Generated
+
+        Embeds tool descriptions in the system prompt and parses JSON tool calls from text output.
+        """
+        from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        # Build tool description for system prompt
+        tool_descriptions = []
+        for tool in tools:
+            params = tool.get("parameters", {}).get("properties", {})
+            param_desc = ", ".join(f'{k}: {v.get("type", "any")}' for k, v in params.items())
+            tool_descriptions.append(
+                f'- {tool["name"]}({param_desc}): {tool.get("description", "")}'
+            )
+
+        tools_prompt = (
+            "\n\nYou have access to the following tools:\n"
+            + "\n".join(tool_descriptions)
+            + "\n\nTo call a tool, respond with a JSON block:\n"
+            '```json\n{"tool_calls": [{"name": "tool_name", "arguments": {...}}]}\n```\n'
+            "If you don't need a tool, respond normally."
+        )
+
+        # Inject tools into system message
+        system_msg = ""
+        user_msgs = []
+        for msg in messages:
+            if msg["role"] == "system":
+                system_msg = msg["content"]
+            else:
+                user_msgs.append(msg)
+
+        # Build prompt from last user message
+        last_user = ""
+        for msg in reversed(user_msgs):
+            if msg["role"] == "user":
+                last_user = msg["content"]
+                break
+
+        full_prompt = last_user
+        full_system = system_msg + tools_prompt
+
+        try:
+            # Use the existing generate_response (non-streaming for simplicity)
+            request_id = f"agent_fallback_{time.time()}"
+            result = self.generate_response(
+                provider=provider,
+                model=model,
+                prompt=full_prompt,
+                request_id=request_id,
+                temperature=temperature,
+                p_value=top_p,
+                system=full_system,
+                stream=False,
+                output_format="xml",  # Avoid JSON mode to get free-form text
+            )
+
+            if stream_callback and result:
+                stream_callback(result)
+
+            # Try to parse tool calls from response
+            tool_calls = []
+            content = result
+            try:
+                # Look for JSON block in response
+                import re
+                json_match = re.search(r'```json\s*(\{.*?\})\s*```', result, re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group(1))
+                    if "tool_calls" in parsed:
+                        for i, tc in enumerate(parsed["tool_calls"]):
+                            tool_calls.append(ToolCall(
+                                id=f"fallback_{i}",
+                                name=tc["name"],
+                                arguments=tc.get("arguments", {}),
+                            ))
+                        # Remove JSON block from content
+                        content = result[:json_match.start()] + result[json_match.end():]
+                        content = content.strip()
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+            stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
+            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+
+        except Exception as e:
+            self.logger.error(f"Text fallback tool-calling error: {e}")
+            raise
+
+    # ---- Message format conversion helpers - Claude Generated ----
+
+    def _convert_messages_for_ollama(self, messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+        """Convert generic messages to Ollama chat format - Claude Generated"""
+        ollama_msgs = []
+        for msg in messages:
+            role = msg["role"]
+            if role == "tool":
+                # Ollama expects tool results as role "tool"
+                ollama_msgs.append({
+                    "role": "tool",
+                    "content": msg.get("content", ""),
+                })
+            elif role == "assistant" and isinstance(msg.get("tool_calls"), list):
+                # Assistant message with tool calls
+                ollama_msgs.append({
+                    "role": "assistant",
+                    "content": msg.get("content", ""),
+                    "tool_calls": msg["tool_calls"],
+                })
+            else:
+                ollama_msgs.append({
+                    "role": role,
+                    "content": msg.get("content", "") if isinstance(msg.get("content"), str) else str(msg.get("content", "")),
+                })
+        return ollama_msgs
+
+    def _convert_messages_for_openai(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert generic messages to OpenAI chat format - Claude Generated"""
+        openai_msgs = []
+        for msg in messages:
+            role = msg["role"]
+            if role == "tool":
+                openai_msgs.append({
+                    "role": "tool",
+                    "tool_call_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content", ""),
+                })
+            elif role == "assistant" and msg.get("tool_calls"):
+                # Reconstruct assistant message with tool_calls for OpenAI
+                assistant_msg = {"role": "assistant", "content": msg.get("content", "") or None}
+                tc_list = []
+                for tc in msg["tool_calls"]:
+                    tc_list.append({
+                        "id": tc.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": tc.get("name", ""),
+                            "arguments": json.dumps(tc.get("arguments", {})) if isinstance(tc.get("arguments"), dict) else tc.get("arguments", "{}"),
+                        },
+                    })
+                assistant_msg["tool_calls"] = tc_list
+                openai_msgs.append(assistant_msg)
+            else:
+                openai_msgs.append({
+                    "role": role,
+                    "content": msg.get("content", ""),
+                })
+        return openai_msgs

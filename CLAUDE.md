@@ -163,6 +163,8 @@
 
 ## Module Documentation
 - **[src/core/CLAUDE.md](src/core/CLAUDE.md)** - Core business logic, pipeline orchestration, data management
+- **[src/core/agents/](src/core/agents/)** - Agentic system: BaseAgent, SearchAgent, KeywordAgent, ClassificationAgent, ValidationAgent, MetaAgent
+- **[src/mcp/CLAUDE.md](src/mcp/CLAUDE.md)** - MCP tool layer: tool schemas, registry, handlers for DB/web/pipeline access
 - **[src/ui/CLAUDE.md](src/ui/CLAUDE.md)** - PyQt6 GUI components, dialogs, widgets
 - **[src/utils/CLAUDE.md](src/utils/CLAUDE.md)** - Configuration management, batch processing, logging
 - **[AIChangelog.md](AIChangelog.md)** - Complete history of implemented features (2025)
