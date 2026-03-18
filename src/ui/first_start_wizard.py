@@ -132,7 +132,6 @@ class FirstStartWizard(QWizard):
             if hasattr(self.gnd_page, 'downloaded_xml_path') and self.gnd_page.downloaded_xml_path:
                 import json
                 import tempfile
-                from pathlib import Path
 
                 marker_file = Path(tempfile.gettempdir()) / "alima_gnd_pending.json"
                 marker_data = {

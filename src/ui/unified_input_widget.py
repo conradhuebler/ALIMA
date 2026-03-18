@@ -41,7 +41,7 @@ from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
 from .workers import StoppableWorker
 from ..core.alima_manager import AlimaManager
-from ..utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
+from ..utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata, resolve_input_to_text
 
 
 class TextExtractionWorker(StoppableWorker):
