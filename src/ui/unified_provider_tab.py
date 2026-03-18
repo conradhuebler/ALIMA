@@ -423,18 +423,14 @@ class ProviderEditDialog(QDialog):
         self.connection_group = QGroupBox("Connection Configuration")
         self.connection_layout = QFormLayout(self.connection_group)
         layout.addWidget(self.connection_group)
-        
-        # Capabilities
-        capabilities_group = QGroupBox("Capabilities")
-        capabilities_layout = QVBoxLayout(capabilities_group)
-        
-        self.capabilities_text = QTextEdit()
-        self.capabilities_text.setPlaceholderText("Enter capabilities (one per line): vision, fast, large_context, local, privacy, etc.")
-        self.capabilities_text.setMaximumHeight(100)
-        capabilities_layout.addWidget(self.capabilities_text)
-        
-        layout.addWidget(capabilities_group)
-        
+
+        # Warning label for untested providers
+        self.warning_label = QLabel()
+        self.warning_label.setStyleSheet("color: orange; padding: 5px;")
+        self.warning_label.setWordWrap(True)
+        self.warning_label.hide()
+        layout.addWidget(self.warning_label)
+
         # Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
@@ -477,8 +473,25 @@ class ProviderEditDialog(QDialog):
         elif provider_type in ["gemini", "anthropic"]:
             self.api_key_edit = QLineEdit()
             self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            
+
             self.connection_layout.addRow("API Key:", self.api_key_edit)
+
+        # Show warning for untested providers
+        if hasattr(self, 'warning_label'):
+            if provider_type == "gemini":
+                self.warning_label.setText(
+                    "⚠️ Google Gemini-Provider ist nicht getestet und benötigt Nachbearbeitung. "
+                    "API-Integration funktioniert möglicherweise nicht vollständig."
+                )
+                self.warning_label.show()
+            elif provider_type == "anthropic":
+                self.warning_label.setText(
+                    "⚠️ Anthropic/Claude-Provider ist nicht getestet und benötigt Nachbearbeitung. "
+                    "API-Integration funktioniert möglicherweise nicht vollständig."
+                )
+                self.warning_label.show()
+            else:
+                self.warning_label.hide()
     
     def _load_provider_data(self):
         """Load provider data into form fields - Claude Generated"""
@@ -490,11 +503,7 @@ class ProviderEditDialog(QDialog):
         self.enabled_checkbox.setChecked(self.provider.enabled)
         self.preferred_model_edit.setText(self.provider.preferred_model or "")
         self.type_combo.setCurrentText(self.provider.provider_type)
-        
-        # Load capabilities (UnifiedProvider doesn't have capabilities field yet, so leave empty)
-        capabilities_text = ""  # TODO: Add capabilities field to UnifiedProvider if needed
-        self.capabilities_text.setPlainText(capabilities_text)
-        
+
         # Load connection configuration from provider attributes
         if self.provider.provider_type == "ollama":
             if hasattr(self, 'host_edit'):
@@ -539,11 +548,7 @@ class ProviderEditDialog(QDialog):
             connection_config = {
                 "api_key": getattr(self, 'api_key_edit', QLineEdit()).text()
             }
-        
-        # Parse capabilities
-        capabilities_text = self.capabilities_text.toPlainText().strip()
-        capabilities = [cap.strip() for cap in capabilities_text.split('\n') if cap.strip()] if capabilities_text else []
-        
+
         return UnifiedProvider(
             name=self.name_edit.text() or f"New {provider_type.title()} Provider",
             provider_type=provider_type,
