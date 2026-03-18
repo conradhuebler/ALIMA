@@ -172,6 +172,31 @@ class BatchSourceParser:
         self.logger.info(f"Parsed {len(sources)} sources from {filepath}")
         return sources
 
+    def parse_batch_text(self, text: str) -> List[BatchSource]:
+        """
+        Parse text content directly into BatchSource objects.
+
+        Same format as parse_batch_file but accepts text string instead of file.
+
+        Claude Generated
+        """
+        sources = []
+        for line_num, line in enumerate(text.splitlines(), 1):
+            # Skip empty lines and comments
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            try:
+                source = self._parse_line(line, line_num)
+                if source:
+                    sources.append(source)
+            except Exception as e:
+                self.logger.warning(f"Line {line_num}: Failed to parse: {e}")
+
+        self.logger.info(f"Parsed {len(sources)} sources from text input")
+        return sources
+
     def _parse_line(self, line: str, line_num: int) -> Optional[BatchSource]:
         """Parse a single line into a BatchSource - Claude Generated"""
         # Check for extended format with semicolons
@@ -233,6 +258,38 @@ class BatchSourceParser:
             step_overrides=step_overrides,
             line_number=line_num
         )
+
+    def parse_batch_text(self, text: str) -> List[BatchSource]:
+        """
+        Parse batch input from text string instead of file - Claude Generated
+
+        Same format as batch files:
+        DOI:10.1234/example
+        PDF:/path/to/file.pdf
+        ISBN:9783662123456
+
+        Args:
+            text: Raw text content with one source per line
+
+        Returns:
+            List of BatchSource objects
+        """
+        sources = []
+        for line_num, line in enumerate(text.splitlines(), 1):
+            # Skip empty lines and comments
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            try:
+                source = self._parse_line(line, line_num)
+                if source:
+                    sources.append(source)
+            except Exception as e:
+                self.logger.warning(f"Line {line_num}: Failed to parse: {e}")
+
+        self.logger.info(f"Parsed {len(sources)} sources from text input")
+        return sources
 
 
 class BatchProcessor:

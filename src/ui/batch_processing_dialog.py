@@ -186,6 +186,7 @@ class BatchProcessingDialog(QDialog):
 
         self.worker: Optional[BatchProcessingWorker] = None
         self.batch_sources: List[BatchSource] = []
+        self.manual_sources: List[BatchSource] = []  # Claude Generated
 
         self.setWindowTitle("Batch Processing - ALIMA")
         self.setMinimumSize(800, 600)
@@ -210,6 +211,10 @@ class BatchProcessingDialog(QDialog):
         # Tab 0: Batch File
         self.batch_file_tab = self._create_batch_file_tab()
         self.tabs.addTab(self.batch_file_tab, "📄 Batch File")
+
+        # Tab 0.5: Manual Input - Claude Generated
+        self.manual_input_tab = self._create_manual_input_tab()
+        self.tabs.addTab(self.manual_input_tab, "✏️ Manuelles Eingeben")
 
         # Tab 1: Paketsigel - Claude Generated
         self.siegel_tab = self._create_siegel_tab()
@@ -326,6 +331,60 @@ class BatchProcessingDialog(QDialog):
         # Source preview list with checkboxes
         self.batch_preview_list = QListWidget()
         layout.addWidget(self.batch_preview_list)
+
+        layout.addStretch()
+        widget.setLayout(layout)
+        return widget
+
+    def _create_manual_input_tab(self) -> QWidget:
+        """Create the manual text input tab for pasting DOIs etc. - Claude Generated"""
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # Instructions
+        instructions = QLabel(
+            "DOIs, ISBNs oder andere Quellen direkt eingeben oder einfügen.\n"
+            "Format: TYPE:VALUE (ein Eintrag pro Zeile)\n"
+            "Unterstützte Typen: DOI, ISBN, PPN, PDF, TXT, IMG, URL\n"
+            "Bare DOIs (10.XXXX/...) werden automatisch erkannt."
+        )
+        instructions.setWordWrap(True)
+        layout.addWidget(instructions)
+
+        # Text input area
+        self.manual_text_input = QTextEdit()
+        self.manual_text_input.setPlaceholderText(
+            "Beispiel:\n"
+            "DOI:10.1234/example\n"
+            "ISBN:9783662123456\n"
+            "10.5678/another-doi\n"  # Auto-detected bare DOI
+            "PPN:1234567890\n"
+            "TXT:/pfad/abstract.txt"
+        )
+        self.manual_text_input.setMinimumHeight(200)
+        layout.addWidget(self.manual_text_input)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        preview_button = QPushButton("Vorschau")
+        preview_button.clicked.connect(self._preview_manual_input)
+        button_layout.addWidget(preview_button)
+
+        button_layout.addStretch()
+
+        toggle_btn = QPushButton("Alle auswählen / Keine")
+        toggle_btn.clicked.connect(lambda: self._toggle_list_selection(self.manual_preview_list))
+        button_layout.addWidget(toggle_btn)
+
+        clear_btn = QPushButton("Eingabe löschen")
+        clear_btn.clicked.connect(self._clear_manual_input)
+        button_layout.addWidget(clear_btn)
+
+        layout.addLayout(button_layout)
+
+        # Source preview list with checkboxes
+        self.manual_preview_list = QListWidget()
+        layout.addWidget(self.manual_preview_list)
 
         layout.addStretch()
         widget.setLayout(layout)
@@ -886,6 +945,57 @@ class BatchProcessingDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Parse Error", f"Failed to parse batch file:\n{str(e)}")
 
+    def _preview_manual_input(self):
+        """Preview sources from manual text input - Claude Generated"""
+        text_content = self.manual_text_input.toPlainText().strip()
+        if not text_content:
+            QMessageBox.warning(self, "Keine Eingabe", "Bitte geben Sie Quellen ein.")
+            return
+
+        try:
+            from ..utils.batch_processor import BatchSourceParser
+            parser = BatchSourceParser(self.logger)
+            sources = parser.parse_batch_text(text_content)
+
+            self.manual_preview_list.clear()
+            if not sources:
+                hint = QListWidgetItem(
+                    "Keine gültigen Quellen gefunden.\n\n"
+                    "Erlaubte Formate:\n"
+                    "  DOI:10.1234/example\n"
+                    "  ISBN:9783662123456\n"
+                    "  PPN:1234567890\n"
+                    "  PDF:/pfad/datei.pdf\n"
+                    "  TXT:/pfad/text.txt\n"
+                    "  IMG:/pfad/bild.png\n"
+                    "  URL:https://example.com\n\n"
+                    "Bare DOIs (10.XXXX/...) werden automatisch erkannt."
+                )
+                hint.setForeground(Qt.GlobalColor.darkRed)
+                self.manual_preview_list.addItem(hint)
+            else:
+                for source in sources:
+                    item_text = f"{source.source_type.value}: {source.source_value}"
+                    if source.custom_name:
+                        item_text += f" ({source.custom_name})"
+                    item = QListWidgetItem(item_text)
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(Qt.CheckState.Checked)
+                    item.setData(Qt.ItemDataRole.UserRole, source)
+                    self.manual_preview_list.addItem(item)
+
+            self.manual_sources = sources
+            self.logger.info(f"Previewed {len(sources)} sources from manual input")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Parse Error", f"Fehler beim Parsen:\n{str(e)}")
+
+    def _clear_manual_input(self):
+        """Clear manual input text area and preview list - Claude Generated"""
+        self.manual_text_input.clear()
+        self.manual_preview_list.clear()
+        self.manual_sources = []
+
     def _scan_directory(self):
         """Scan directory for files - Claude Generated"""
         directory = self.scan_dir_input.text().strip()
@@ -970,7 +1080,29 @@ class BatchProcessingDialog(QDialog):
                 sources_input = ("file", tmp.name)
             else:
                 sources_input = ("file", batch_file)
-        elif tab_index == 1:  # Paketsiegel tab - Claude Generated
+        elif tab_index == 1:  # Manual Input tab - Claude Generated
+            # Get checked sources from manual input preview list
+            checked_sources = []
+            for i in range(self.manual_preview_list.count()):
+                item = self.manual_preview_list.item(i)
+                if (item.flags() & Qt.ItemFlag.ItemIsUserCheckable and
+                        item.checkState() == Qt.CheckState.Checked):
+                    src = item.data(Qt.ItemDataRole.UserRole)
+                    if src is not None:
+                        checked_sources.append(src)
+
+            if not checked_sources:
+                QMessageBox.warning(self, "Keine Quellen", "Bitte zuerst 'Vorschau' klicken und mindestens eine Quelle auswählen.")
+                return
+
+            # Write temporary batch file
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+            for src in checked_sources:
+                tmp.write(f"{src.source_type.value}:{src.source_value}\n")
+            tmp.close()
+            sources_input = ("file", tmp.name)
+        elif tab_index == 2:  # Paketsiegel tab - Claude Generated
             # Collect checked records from tree view (iterate through year groups)
             checked_records = []
             for year_row in range(self.siegel_tree_model.rowCount()):
@@ -1003,7 +1135,7 @@ class BatchProcessingDialog(QDialog):
                         tmp.write(f"PPN:{record.ppn}\n")
             tmp.close()
             sources_input = ("file", tmp.name)
-        elif tab_index == 2:  # Dateien tab (direct file selection)
+        elif tab_index == 3:  # Dateien tab (direct file selection)
             checked_files = []
             for i in range(self.files_list.count()):
                 item = self.files_list.item(i)
@@ -1016,7 +1148,7 @@ class BatchProcessingDialog(QDialog):
                 return
 
             sources_input = ("files", checked_files)
-        else:  # Directory Scan tab (index 3)
+        else:  # Directory Scan tab (index 4)
             # Collect checked files
             checked_files = []
             for i in range(self.scan_preview_list.count()):
