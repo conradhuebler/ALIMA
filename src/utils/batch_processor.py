@@ -8,7 +8,7 @@ import re
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple, Tuple
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
@@ -444,8 +444,8 @@ class BatchProcessor:
         )
 
         try:
-            # Step 1: Resolve input to text
-            input_text = self._resolve_source_to_text(source)
+            # Step 1: Resolve input to text (returns text and optional metadata) - Claude Generated
+            input_text, source_metadata = self._resolve_source_to_text(source)
 
             if not input_text:
                 raise ValueError(f"Failed to resolve {source.source_type.value} to text")
@@ -470,14 +470,8 @@ class BatchProcessor:
 
             result.state = state
 
-            # Step 3: Save result to JSON using working_title if available - Claude Generated
-            if hasattr(state, 'working_title') and state.working_title:
-                # Use working title for filename
-                output_filename = f"{state.working_title}.json"
-            else:
-                # Fallback to safe source filename
-                output_filename = source.get_safe_filename()
-
+            # Step 3: Generate filename from metadata or working_title - Claude Generated
+            output_filename = self._generate_output_filename(source, state, source_metadata)
             output_file = self.output_dir / output_filename
             self._save_result(state, str(output_file))
 
@@ -493,25 +487,122 @@ class BatchProcessor:
         result.end_time = datetime.now().isoformat()
         return result
 
-    def _resolve_source_to_text(self, source: BatchSource) -> Optional[str]:
+    def _generate_output_filename(
+        self,
+        source: BatchSource,
+        state: KeywordAnalysisState,
+        metadata: Optional[Dict] = None
+    ) -> str:
         """
-        Resolve a batch source to input text
+        Generate output filename from metadata or state.
+
+        Priority: metadata title/author > state.working_title > source filename
+
+        Returns:
+            Sanitized filename with .json extension
 
         Claude Generated
         """
+        # Try to use metadata for filename (DOI/ISBN/PPN sources) - Claude Generated
+        if metadata:
+            title = metadata.get("Title", "")
+            authors = metadata.get("Authors", "")
+
+            # Skip placeholder values
+            _skip = {"Not available", "Nicht verfügbar", "No abstract available", ""}
+
+            if title and title not in _skip:
+                # Clean title for filename
+                safe_title = self._sanitize_filename(title, max_length=40)
+                filename = safe_title
+
+                # Add first author if available
+                if authors and authors not in _skip:
+                    first_author = authors.split(";")[0].split(",")[0].strip()
+                    if first_author:
+                        safe_author = self._sanitize_filename(first_author, max_length=20)
+                        filename = f"{safe_title}_{safe_author}"
+
+                return f"{filename}.json"
+
+        # Use working_title from pipeline state if available
+        if hasattr(state, 'working_title') and state.working_title:
+            return f"{state.working_title}.json"
+
+        # Fallback to safe source filename
+        return source.get_safe_filename()
+
+    def _sanitize_filename(self, text: str, max_length: int = 50) -> str:
+        """
+        Sanitize text for use in filename.
+
+        Args:
+            text: Text to sanitize
+            max_length: Maximum filename length
+
+        Returns:
+            Sanitized filename string
+
+        Claude Generated
+        """
+        if not text:
+            return ""
+
+        # Remove or replace problematic characters
+        import re
+        # Keep alphanumeric, spaces, hyphens, underscores, and common European characters
+        sanitized = re.sub(r'[^\w\s\-_äöüÄÖÜßéèêëàâùûôîïç]', '', text)
+        # Replace multiple spaces with single underscore
+        sanitized = re.sub(r'\s+', '_', sanitized)
+        # Truncate to max length
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length]
+        # Remove trailing underscores
+        sanitized = sanitized.rstrip('_')
+
+        return sanitized
+
+    def _resolve_source_to_text(self, source: BatchSource) -> Tuple[Optional[str], Optional[Dict]]:
+        """
+        Resolve a batch source to input text, returning (text, metadata) tuple.
+
+        For DOI sources, metadata includes title, authors, etc. for filename generation.
+
+        Returns:
+            Tuple of (text_content, metadata_dict or None)
+
+        Claude Generated
+        """
+        metadata = None
+
         if source.source_type == SourceType.DOI:
-            # Use doi_resolver - returns (success, text, error) tuple
-            success, text, error = resolve_input_to_text(source.source_value, self.logger)
+            # Use UnifiedResolver directly to get metadata - Claude Generated
+            from ..utils.doi_resolver import UnifiedResolver, format_doi_metadata, _get_doi_config
+
+            cfg = _get_doi_config()
+            resolver = UnifiedResolver(
+                self.logger,
+                contact_email=cfg.get('contact_email', ''),
+                use_crossref=cfg.get('use_crossref', True),
+                use_openalex=cfg.get('use_openalex', True),
+                use_datacite=cfg.get('use_datacite', True),
+            )
+            success, metadata, text_result = resolver.resolve(source.source_value)
+
             if not success:
-                raise ValueError(error or f"DOI resolution failed: {source.source_value}")
-            return text
+                error_msg = text_result or f"DOI resolution failed: {source.source_value}"
+                raise ValueError(error_msg)
+
+            # Format with metadata like GUI does - Claude Generated
+            formatted_text = format_doi_metadata(metadata, text_result or "")
+            return formatted_text, metadata
 
         elif source.source_type == SourceType.TXT:
             # Read text file with encoding fallback - Claude Generated
             for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']:
                 try:
                     with open(source.source_value, 'r', encoding=encoding) as f:
-                        return f.read()
+                        return f.read(), None
                 except UnicodeDecodeError:
                     continue
             raise ValueError(f"Konnte Datei nicht lesen (kein passendes Encoding): {source.source_value}")
@@ -569,7 +660,7 @@ class BatchProcessor:
                         raise ValueError("PDF text extraction resulted in empty text")
 
                     self.logger.info(f"Extracted {len(extracted_text)} characters from PDF")
-                    return extracted_text
+                    return extracted_text, None
 
             except ImportError:
                 # PyPDF2 not available, try LLM OCR as fallback
@@ -587,7 +678,7 @@ class BatchProcessor:
                     )
 
                     self.logger.info(f"LLM OCR completed: {method}, {len(extracted_text)} characters")
-                    return extracted_text
+                    return extracted_text, None
 
                 except Exception as e:
                     raise NotImplementedError(
@@ -619,7 +710,7 @@ class BatchProcessor:
                     raise ValueError("Image analysis resulted in empty text")
 
                 self.logger.info(f"Image analysis completed: {extraction_method}, {len(extracted_text)} characters")
-                return extracted_text
+                return extracted_text, None
 
             except Exception as e:
                 self.logger.error(f"Image analysis failed: {e}")
@@ -657,7 +748,13 @@ class BatchProcessor:
                     raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
 
                 self.logger.info(f"ISBN lookup successful: {len(text)} characters")
-                return text
+                # Extract metadata for filename - Claude Generated
+                metadata = {
+                    "Title": record.get("title", ""),
+                    "Authors": "; ".join(record.get("author", [])) if record.get("author") else "",
+                    "Source": "ISBN"
+                }
+                return text, metadata
 
             except Exception as e:
                 self.logger.error(f"ISBN lookup failed: {e}")
@@ -695,7 +792,13 @@ class BatchProcessor:
                     raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
 
                 self.logger.info(f"PPN lookup successful: {len(text)} characters")
-                return text
+                # Extract metadata for filename - Claude Generated
+                metadata = {
+                    "Title": record.get("title", ""),
+                    "Authors": "; ".join(record.get("author", [])) if record.get("author") else "",
+                    "Source": "PPN"
+                }
+                return text, metadata
 
             except Exception as e:
                 self.logger.error(f"PPN lookup failed: {e}")
@@ -742,7 +845,7 @@ class BatchProcessor:
                     raise ValueError(f"URL scraping resulted in too little text ({len(text)} chars)")
 
                 self.logger.info(f"URL scraping completed: {len(text)} characters extracted")
-                return text
+                return text, None
 
             except ImportError as e:
                 self.logger.error("Required libraries not installed. Install with: pip install requests beautifulsoup4")
@@ -754,7 +857,7 @@ class BatchProcessor:
                 self.logger.error(f"URL scraping failed: {e}")
                 raise RuntimeError(f"Failed to scrape URL: {e}")
 
-        return None
+        return None, None
 
     def _save_result(self, state: KeywordAnalysisState, filepath: str):
         """Save KeywordAnalysisState to JSON file - Claude Generated"""

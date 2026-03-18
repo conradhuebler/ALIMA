@@ -368,6 +368,7 @@ class MainWindow(QMainWindow):
         self.available_providers = []
         self.gnd_import_worker = None  # Track GND import worker - Claude Generated
         self._dark_mode = False  # Current theme state — Claude Generated
+        self._batch_dialog = None  # Singleton batch processing dialog - Claude Generated
 
         self.init_ui()
         self.load_settings()
@@ -1247,19 +1248,24 @@ class MainWindow(QMainWindow):
             self.logger.error(f"Unexpected error in cleanup_malformed_entries: {e}", exc_info=True)
 
     def show_batch_processing_dialog(self):
-        """Open batch processing dialog - Claude Generated"""
+        """Open batch processing dialog (non-modal singleton) - Claude Generated"""
         try:
-            from .batch_processing_dialog import BatchProcessingDialog
+            # Reuse existing dialog or create new one - Claude Generated
+            if self._batch_dialog is None:
+                from .batch_processing_dialog import BatchProcessingDialog
+                self._batch_dialog = BatchProcessingDialog(
+                    alima_manager=self.alima_manager,
+                    cache_manager=self.cache_manager,
+                    config_manager=self.config_manager,
+                    logger=self.logger,
+                    pipeline_tab=self.pipeline_tab,
+                    parent=self
+                )
 
-            dialog = BatchProcessingDialog(
-                alima_manager=self.alima_manager,
-                cache_manager=self.cache_manager,
-                config_manager=self.config_manager,
-                logger=self.logger,
-                pipeline_tab=self.pipeline_tab,
-                parent=self
-            )
-            dialog.exec()
+            # Show non-modal (user can continue working while batch runs)
+            self._batch_dialog.show()
+            self._batch_dialog.raise_()
+            self._batch_dialog.activateWindow()
 
         except Exception as e:
             QMessageBox.critical(

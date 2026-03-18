@@ -192,6 +192,26 @@ class BatchProcessingDialog(QDialog):
         self.setMinimumSize(800, 600)
         self.init_ui()
 
+        # Restore previous state and check for interrupted batch - Claude Generated
+        saved_state = self._load_batch_state()
+        if saved_state:
+            self._restore_batch_state(saved_state)
+
+            # Check for interrupted batch and prompt user
+            if saved_state.get('worker_running'):
+                reply = QMessageBox.question(
+                    self,
+                    "Batch fortsetzen",
+                    "Es wurde ein unterbrochener Batch gefunden. Fortsetzen?\n\n"
+                    "Hinweis: Der vorherige Batch wurde beim Schließen des Dialogs unterbrochen.",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.progress_group.setVisible(True)
+                    self.progress_log.append("⚠️ Unterbrochener Batch erkannt. Bitte 'Start' klicken um fortzusetzen.")
+                else:
+                    self._clear_batch_state()
 
     def init_ui(self):
         """Initialize the user interface - Claude Generated"""
@@ -1310,6 +1330,9 @@ class BatchProcessingDialog(QDialog):
         self.tabs.setEnabled(True)
         self.output_dir_input.setEnabled(True)
 
+        # Clear saved state since batch completed successfully - Claude Generated
+        self._clear_batch_state()
+
         QMessageBox.information(
             self,
             "Batch Complete",
@@ -1384,3 +1407,105 @@ class BatchProcessingDialog(QDialog):
         self.output_dir_input.setEnabled(True)
 
         QMessageBox.critical(self, "Batch Error", error_message)
+
+    def closeEvent(self, event):
+        """Handle dialog close - save state if batch running - Claude Generated"""
+        # Check if worker is still running
+        if self.worker and self.worker.isRunning():
+            # Save current state before closing
+            self._save_batch_state()
+            # Worker will continue in background
+            self.logger.info("Batch running in background - state saved")
+        event.accept()
+
+    def _get_state_file(self) -> Path:
+        """Get path to batch state file - Claude Generated"""
+        from pathlib import Path
+        config_dir = Path.home() / '.config' / 'alima'
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return config_dir / 'batch_state.json'
+
+    def _save_batch_state(self):
+        """Save current batch state for resume functionality - Claude Generated"""
+        import json
+        from datetime import datetime
+
+        state_file = self._get_state_file()
+
+        state = {
+            'output_dir': self.output_dir_input.text(),
+            'tab_index': self.tabs.currentIndex(),
+            'continue_on_error': self.continue_on_error_checkbox.isChecked(),
+            'batch_file': self.batch_file_input.text() if hasattr(self, 'batch_file_input') else '',
+            'manual_text': self.manual_text_input.toPlainText() if hasattr(self, 'manual_text_input') else '',
+            'timestamp': datetime.now().isoformat(),
+            'worker_running': self.worker.isRunning() if self.worker else False,
+        }
+
+        try:
+            with open(state_file, 'w', encoding='utf-8') as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"Batch state saved to {state_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to save batch state: {e}")
+
+    def _load_batch_state(self) -> dict:
+        """Load previous batch state if exists - Claude Generated"""
+        import json
+
+        state_file = self._get_state_file()
+
+        if not state_file.exists():
+            return {}
+
+        try:
+            with open(state_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            self.logger.error(f"Failed to load batch state: {e}")
+            return {}
+
+    def _restore_batch_state(self, state: dict):
+        """Restore UI from saved batch state - Claude Generated"""
+        if not state:
+            return
+
+        try:
+            # Restore output directory
+            if state.get('output_dir'):
+                self.output_dir_input.setText(state['output_dir'])
+
+            # Restore tab index
+            if state.get('tab_index') is not None:
+                self.tabs.setCurrentIndex(state['tab_index'])
+
+            # Restore continue_on_error checkbox
+            if state.get('continue_on_error') is not None:
+                self.continue_on_error_checkbox.setChecked(state['continue_on_error'])
+
+            # Restore batch file path
+            if state.get('batch_file') and hasattr(self, 'batch_file_input'):
+                self.batch_file_input.setText(state['batch_file'])
+
+            # Restore manual text
+            if state.get('manual_text') and hasattr(self, 'manual_text_input'):
+                self.manual_text_input.setPlainText(state['manual_text'])
+
+            self.logger.info("Batch state restored")
+        except Exception as e:
+            self.logger.error(f"Failed to restore batch state: {e}")
+
+    def _has_interrupted_batch(self) -> bool:
+        """Check if there's a running/interrupted batch - Claude Generated"""
+        state = self._load_batch_state()
+        return state.get('worker_running', False)
+
+    def _clear_batch_state(self):
+        """Clear saved batch state file - Claude Generated"""
+        state_file = self._get_state_file()
+        if state_file.exists():
+            try:
+                state_file.unlink()
+                self.logger.info(f"Batch state file cleared: {state_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to clear batch state: {e}")
