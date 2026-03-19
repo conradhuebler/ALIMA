@@ -2,6 +2,7 @@
 
 import sys
 import os
+import argparse
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -52,6 +53,12 @@ def _apply_light_app_palette(app: QApplication):
 
 
 def main():
+    # Parse command-line arguments - Claude Generated
+    parser = argparse.ArgumentParser(description="ALIMA GUI - Automatic Library Indexing and Metadata Analysis")
+    parser.add_argument("--wizard", action="store_true", help="Force first-start wizard even if config exists")
+    parser.add_argument("--reset-setup", action="store_true", help="Reset setup flag and run wizard (same as --wizard)")
+    args = parser.parse_args()
+
     # Setup centralized logging - Claude Generated
     # Default to level 1 (Normal) for GUI
     # TODO: Read from ~/.config/alima/config.json in future
@@ -62,11 +69,15 @@ def main():
     app.setApplicationVersion("0.2")
     app.setStyle("Fusion")
 
-    # Check for first-run setup - Claude Generated
+    # Check for first-run setup or forced wizard - Claude Generated
     config_manager = ConfigManager()
     config = config_manager.load_config()
 
-    if not config.system_config.first_run_completed and not config.system_config.skip_first_run_check:
+    # Show wizard if: first run OR forced via --wizard/--reset-setup flag
+    force_wizard = args.wizard or args.reset_setup
+    first_run_needed = not config.system_config.first_run_completed and not config.system_config.skip_first_run_check
+
+    if first_run_needed or force_wizard:
         # Show first-start wizard
         wizard = FirstStartWizard()
         if wizard.exec() != QDialog.DialogCode.Accepted:

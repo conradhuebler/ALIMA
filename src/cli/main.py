@@ -302,14 +302,10 @@ def create_argument_parser():
     migrate_import_parser.add_argument("--clear", action="store_true", help="Clear destination before import")
     migrate_import_parser.add_argument("--dry-run", action="store_true", help="Validate without importing")
 
-    # Import config command
-    import_config_parser = subparsers.add_parser("import-config", help="Import ALIMA configuration from directory")
-    import_config_parser.add_argument("--source", required=True, help="Source directory with config files")
-    import_config_parser.add_argument("--no-backup", action="store_true", help="Do not create backup")
-
     # Setup wizard command
     setup_parser = subparsers.add_parser("setup", help="Run ALIMA first-start setup wizard")
     setup_parser.add_argument("--skip-gnd", action="store_true", help="Skip GND database download option")
+    setup_parser.add_argument("--force", action="store_true", help="Force setup wizard even if config exists")
 
     return parser
 
@@ -327,7 +323,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # Check for first-run setup requirement (except for specific commands)
-    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "import-config"]:
+    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
         config_manager = ConfigManager()
         config = config_manager.load_config()
 
@@ -339,7 +335,7 @@ def main():
             return
 
     # Check if prompts file exists (except for specific commands)
-    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "import-config"]:
+    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
         config_manager = ConfigManager()
         config = config_manager.load_config()
         prompts_file_path = config.system_config.prompts_path
@@ -402,8 +398,6 @@ def main():
         database_cmd.handle_clear_cache(args, logger)
     elif args.command == "dnb-import":
         database_cmd.handle_dnb_import(args, logger)
-    elif args.command == "import-config":
-        setup_cmd.handle_import_config(args, logger)
     else:
         parser.print_help()
 

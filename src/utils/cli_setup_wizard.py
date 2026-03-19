@@ -538,11 +538,24 @@ class CLISetupWizard:
         print("=" * 60 + "\n")
 
 
-def run_cli_setup_wizard() -> bool:
+def run_cli_setup_wizard(force: bool = False) -> bool:
     """Run the CLI setup wizard - Claude Generated
+
+    Args:
+        force: If True, run wizard even if config already exists
 
     Returns:
         bool: True if setup completed successfully
     """
+    if not force:
+        # Check if already configured
+        config_manager = ConfigManager()
+        config = config_manager.load_config()
+        if config.system_config.first_run_completed:
+            print("\n⚠️  ALIMA ist bereits konfiguriert.")
+            print("   Verwenden Sie --force, um den Wizard erneut zu starten.")
+            print("   Beispiel: python alima_cli.py setup --force\n")
+            return True  # Already configured is considered success
+
     wizard = CLISetupWizard()
     return wizard.run()

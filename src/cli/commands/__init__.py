@@ -10,5 +10,5 @@ Each module handles a group of related CLI commands:
     - search_cmd: search, test-catalog
     - state_cmd: load-state, save-state
     - protocol_cmd: show-protocol
-    - setup_cmd: setup, import-config
+    - setup_cmd: setup
 """
