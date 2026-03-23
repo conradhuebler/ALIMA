@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Comprehensive Settings Dialog for ALIMA
-Combines prompt configuration, database settings, LLM configuration, and all other settings.
+Combines database settings, LLM configuration, and system settings.
 Claude Generated
 """
 
@@ -24,7 +24,6 @@ from copy import deepcopy
 
 from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig
 from ..utils.config_models import UnifiedProvider
-from ..llm.prompt_service import PromptService
 from .unified_provider_tab import UnifiedProviderTab
 from ..utils.config_models import TaskPreference, TaskType
 
@@ -57,38 +56,13 @@ class ComprehensiveSettingsDialog(QDialog):
         # Implement Unit of Work pattern - Claude Generated (Refactoring)
         self.original_config = self.config_manager.load_config()
         self.config_to_edit = deepcopy(self.original_config)
-        
-        # Load prompts for prompt editing
-        self.prompts_file = Path("prompts.json")
-        self.prompt_data = self._load_prompts()
-        
+
         self.setWindowTitle("ALIMA Settings")
         self.setModal(True)
         self.resize(900, 700)
-        
+
         self._setup_ui()
         self._load_current_settings()
-        
-    def _load_prompts(self) -> Dict[str, Any]:
-        """Load prompts.json file - Claude Generated"""
-        try:
-            if self.prompts_file.exists():
-                with open(self.prompts_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            return {}
-        except Exception as e:
-            self.logger.error(f"Failed to load prompts: {e}")
-            return {}
-    
-    def _save_prompts(self, prompt_data: Dict[str, Any]) -> bool:
-        """Save prompts.json file - Claude Generated"""
-        try:
-            with open(self.prompts_file, 'w', encoding='utf-8') as f:
-                json.dump(prompt_data, f, indent=2, ensure_ascii=False)
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to save prompts: {e}")
-            return False
     
     def _setup_ui(self):
         """Setup the user interface - Claude Generated"""
@@ -107,7 +81,6 @@ class ComprehensiveSettingsDialog(QDialog):
             self
         )
         self.catalog_tab = self._create_catalog_tab()
-        self.prompts_tab = self._create_prompts_tab()
         self.system_tab = self._create_system_tab()
         self.about_tab = self._create_about_tab()
         
@@ -122,7 +95,6 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Task Preferences are now integrated into the unified provider tab
         
-        self.tab_widget.addTab(self.prompts_tab, "📝 Prompts")
         self.tab_widget.addTab(self.system_tab, "⚙️ System")
         self.tab_widget.addTab(self.about_tab, "ℹ️ About")
         
@@ -405,51 +377,6 @@ class ComprehensiveSettingsDialog(QDialog):
         else:
             self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
             self.sru_database.setPlaceholderText("e.g., dnb")
-    
-    def _create_prompts_tab(self) -> QWidget:
-        """Create prompts configuration tab - Claude Generated"""
-        widget = QWidget()
-        layout = QHBoxLayout()
-        
-        # Left side: Prompt task list
-        left_layout = QVBoxLayout()
-        left_layout.addWidget(QLabel("Prompt Tasks:"))
-        
-        self.prompts_list = QListWidget()
-        self.prompts_list.currentItemChanged.connect(self._on_prompt_selected)
-        left_layout.addWidget(self.prompts_list)
-        
-        # Buttons for prompt management
-        prompt_buttons = QHBoxLayout()
-        
-        add_prompt_btn = QPushButton("Add Task")
-        add_prompt_btn.clicked.connect(self._add_prompt_task)
-        prompt_buttons.addWidget(add_prompt_btn)
-        
-        del_prompt_btn = QPushButton("Delete Task") 
-        del_prompt_btn.clicked.connect(self._delete_prompt_task)
-        prompt_buttons.addWidget(del_prompt_btn)
-        
-        left_layout.addLayout(prompt_buttons)
-        
-        left_widget = QWidget()
-        left_widget.setLayout(left_layout)
-        left_widget.setMaximumWidth(250)
-        
-        # Right side: Prompt editor
-        self.prompt_editor = QTextEdit()
-        self.prompt_editor.setFont(QFont("Monaco", 10))
-        self.prompt_editor.textChanged.connect(self._on_prompt_edited)
-        
-        # Splitter
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(left_widget)
-        splitter.addWidget(self.prompt_editor)
-        splitter.setSizes([250, 650])
-        
-        layout.addWidget(splitter)
-        widget.setLayout(layout)
-        return widget
     
     def _create_system_tab(self) -> QWidget:
         """Create system configuration tab - Claude Generated"""
@@ -757,9 +684,6 @@ class ComprehensiveSettingsDialog(QDialog):
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
 
-        # Load prompts
-        self._load_prompts_list()
-
     def _refresh_all_providers_status(self):
         """Refresh reachability status for all providers - Claude Generated"""
         try:
@@ -807,15 +731,7 @@ class ComprehensiveSettingsDialog(QDialog):
                 "❌ Status Refresh Failed",
                 f"Failed to refresh provider status:\\n\\n{str(e)}"
             )
-    
-    def _load_prompts_list(self):
-        """Load prompts into the list widget - Claude Generated"""
-        self.prompts_list.clear()
-        for task_name in self.prompt_data.keys():
-            if not task_name.startswith('_'):  # Skip metadata fields
-                item = QListWidgetItem(task_name)
-                self.prompts_list.addItem(item)
-    
+
     def _on_db_type_changed(self, db_type: str):
         """Handle database type change - Claude Generated"""
         if db_type == "sqlite":
@@ -867,79 +783,7 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         if file_path:
             self.sqlite_path.setText(file_path)
-    
-    def _on_prompt_selected(self, current: QListWidgetItem, previous: QListWidgetItem):
-        """Handle prompt selection change - Claude Generated"""
-        if not current:
-            self.prompt_editor.clear()
-            return
-            
-        task_name = current.text()
-        task_data = self.prompt_data.get(task_name, {})
-        
-        # Format the prompt data for editing
-        formatted_data = json.dumps(task_data, indent=2, ensure_ascii=False)
-        self.prompt_editor.setPlainText(formatted_data)
-    
-    def _on_prompt_edited(self):
-        """Handle prompt editor text changes - Claude Generated"""
-        current_item = self.prompts_list.currentItem()
-        if not current_item:
-            return
-            
-        task_name = current_item.text()
-        try:
-            # Parse the edited JSON
-            edited_data = json.loads(self.prompt_editor.toPlainText())
-            self.prompt_data[task_name] = edited_data
-        except json.JSONDecodeError:
-            # Invalid JSON, don't update the data
-            pass
-    
-    def _add_prompt_task(self):
-        """Add new prompt task - Claude Generated"""
-        # Simple dialog for task name
-        from PyQt6.QtWidgets import QInputDialog
-        task_name, ok = QInputDialog.getText(self, "New Prompt Task", "Enter task name:")
-        
-        if ok and task_name and task_name not in self.prompt_data:
-            # Create default prompt structure
-            self.prompt_data[task_name] = {
-                "fields": ["prompt", "system", "temp", "p-value", "model", "seed"],
-                "required": ["abstract"],
-                "prompts": [
-                    [
-                        "Enter your prompt here...",
-                        "You are a helpful assistant.",
-                        "0.7",
-                        "0.1",
-                        ["default"],
-                        "0"
-                    ]
-                ]
-            }
-            self._load_prompts_list()
-    
-    def _delete_prompt_task(self):
-        """Delete selected prompt task - Claude Generated"""
-        current_item = self.prompts_list.currentItem()
-        if not current_item:
-            return
-            
-        task_name = current_item.text()
-        reply = QMessageBox.question(
-            self,
-            "Delete Prompt Task",
-            f"Are you sure you want to delete the '{task_name}' prompt task?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            del self.prompt_data[task_name]
-            self._load_prompts_list()
-            self.prompt_editor.clear()
-    
+
     def _test_database_connection(self):
         """Test database connection - Claude Generated"""
         # Update config with current settings
@@ -1210,11 +1054,7 @@ class ComprehensiveSettingsDialog(QDialog):
             if not success:
                 QMessageBox.critical(self, "Save Error", "Failed to save configuration!")
                 return
-            
-            # Save prompts
-            if not self._save_prompts(self.prompt_data):
-                QMessageBox.warning(self, "Save Warning", "Configuration saved but failed to save prompts!")
-            
+
             # Emit signal and close
             self.config_changed.emit()
             self.accept()
