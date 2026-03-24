@@ -69,6 +69,11 @@ def main():
     app.setApplicationVersion("0.2")
     app.setStyle("Fusion")
 
+    # Setup Qt plugin paths for SQL drivers (MariaDB/MySQL, ODBC, etc.) - Claude Generated
+    # On many distros Qt plugins are in the system Qt install, not the venv PyQt6
+    from src.utils.qt_plugin_setup import setup_qt_plugin_paths
+    setup_qt_plugin_paths()
+
     # Check for first-run setup or forced wizard - Claude Generated
     config_manager = ConfigManager()
     config = config_manager.load_config()

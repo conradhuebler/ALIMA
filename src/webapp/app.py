@@ -40,6 +40,7 @@ from src.llm.prompt_service import PromptService
 from src.utils.config_manager import ConfigManager
 from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
 from src.utils.pipeline_utils import PipelineJsonManager
+from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
 
 # Setup logging - Claude Generated: configurable via LOG_LEVEL env var
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
@@ -70,6 +71,15 @@ async def lifespan(app):
     # Suppress session-polling spam AFTER uvicorn has configured its loggers
     logging.getLogger("uvicorn.access").addFilter(_SuppressSessionPolling())
     logger.info("Starting ALIMA Webapp...")
+
+    # Setup Qt plugin paths for SQL drivers - Claude Generated
+    setup_qt_plugin_paths()
+    drivers = get_available_sql_drivers()
+    if drivers:
+        logger.info(f"Available SQL drivers: {', '.join(drivers)}")
+    else:
+        logger.warning("No SQL drivers found - database operations may fail")
+
     logger.info(f"Auto-Save: {'Enabled' if AUTOSAVE_ENABLED else 'Disabled'} | Timeout: {WEBSOCKET_TIMEOUT_SECONDS}s | Cleanup: {AUTOSAVE_MAX_AGE_HOURS}h")
     cleanup_old_autosaves()
     logger.info("Webapp initialization complete")
