@@ -426,6 +426,7 @@ class SQLDialect:
         MySQL/MariaDB: INSERT INTO ... VALUES ... ON DUPLICATE KEY UPDATE ...
 
         Diese Methode erkennt INSERT OR REPLACE und konvertiert es entsprechend.
+        Unterstützt mehrzeilige SQL mit verschachtelten Klammern (z.B. Subqueries).
 
         Args:
             db_type: Datenbanktyp
@@ -439,28 +440,33 @@ class SQLDialect:
             return sql
 
         # MySQL/MariaDB: Konvertiere zu INSERT ... ON DUPLICATE KEY UPDATE
-        # Parse: INSERT OR REPLACE INTO table (col1, col2, ...) VALUES (...)
         import re
 
+        # Normalize whitespace for matching
+        normalized_sql = ' '.join(sql.split())
+
         # Match INSERT OR REPLACE pattern
+        # Use a more robust pattern that handles nested parentheses in VALUES
         match = re.match(
-            r'INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)',
-            sql.strip(),
-            re.IGNORECASE | re.DOTALL
+            r'INSERT\s+OR\s+REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*$',
+            normalized_sql,
+            re.IGNORECASE
         )
 
         if not match:
             # Fallback: Try REPLACE INTO syntax
             match = re.match(
-                r'REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)',
-                sql.strip(),
-                re.IGNORECASE | re.DOTALL
+                r'REPLACE\s+INTO\s+(\w+)\s*\(([^)]+)\)\s*VALUES\s*\((.+)\)\s*$',
+                normalized_sql,
+                re.IGNORECASE
             )
             if match:
                 # REPLACE INTO works in MySQL/MariaDB
                 return sql
 
-            # If we can't parse, return as-is (may fail)
+            # If we can't parse, log warning and return as-is
+            import logging
+            logging.getLogger(__name__).warning(f"Could not parse INSERT OR REPLACE SQL for conversion: {sql[:100]}...")
             return sql
 
         table_name = match.group(1)
@@ -470,8 +476,10 @@ class SQLDialect:
         # Extract column names
         columns = [col.strip() for col in columns_str.split(',')]
 
-        # Build ON DUPLICATE KEY UPDATE clause for all columns
-        # Use VALUES(col) for MySQL to reference the value being inserted
+        # Build ON DUPLICATE KEY UPDATE clause
+        # Use VALUES(col) which works in MySQL 5.7+ and MariaDB 10.2+
+        # Note: VALUES() is deprecated in MySQL 8.0.20+ but still works
+        # For future compatibility, consider using aliases instead
         update_clauses = [f"{col} = VALUES({col})" for col in columns]
         update_str = ', '.join(update_clauses)
 
