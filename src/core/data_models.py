@@ -20,6 +20,7 @@ class AnalysisResult:
     full_text: str
     matched_keywords: Dict[str, str] = field(default_factory=dict)
     gnd_systematic: Optional[str] = None
+    keyword_chains: List[Dict] = field(default_factory=list)  # Schlagwortketten - Claude Generated
 
 
 @dataclass
@@ -70,6 +71,7 @@ class LlmKeywordAnalysis:
     response_full_text: str
     extracted_gnd_keywords: List[str] = field(default_factory=list)
     extracted_gnd_classes: List[str] = field(default_factory=list)
+    analyse_text: Optional[str] = None  # Analysis/thought section from LLM response - Claude Generated
     chunk_responses: List[str] = field(default_factory=list)  # Intermediate responses from chunked analysis - Claude Generated
     missing_concepts: List[str] = field(default_factory=list)  # Missing concepts identified for iterative refinement - Claude Generated
     verification: Optional[Dict[str, Any]] = None  # GND pool verification results - Claude Generated
