@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QRadioButton, QButtonGroup, QComboBox, QPushButton, QProgressDialog,
     QMessageBox, QGroupBox, QSpinBox, QCheckBox, QFileDialog, QTextEdit, QDialog
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 from pathlib import Path
 import logging
@@ -492,6 +492,21 @@ class LLMSetupPage(QWizardPage):
         self._preset_hint.setVisible(True)
         logger.debug(f"LLM preset applied: provider={presets.llm_provider_type}")
 
+    def initializePage(self):
+        """Auto-test LLM connection if presets have valid config - Claude Generated"""
+        super().initializePage()
+        # Auto-test if we have presets with URL
+        if self._presets and self._presets.has_llm() and self._presets.llm_base_url:
+            # Delay test slightly to let UI settle
+            QTimer.singleShot(500, self._auto_test_connection)
+
+    def _auto_test_connection(self):
+        """Silent connection test without blocking UI - Claude Generated"""
+        # Only test if not already tested
+        if self.available_models:
+            return
+        self._test_connection()
+
     def _on_provider_changed(self):
         """Update UI when provider selection changes - Claude Generated (fixed visibility)"""
         selected = self.provider_group.checkedId()
@@ -566,15 +581,17 @@ class LLMSetupPage(QWizardPage):
         """Validate LLM configuration before proceeding - Claude Generated"""
         # Allow proceeding even without testing - user can test later
         if not self.available_models:
-            # Warn but don't block
-            result = QMessageBox.question(
-                self,
-                "Keine Verbindung getestet",
-                "Sie haben die LLM-Verbindung noch nicht getestet.\n\n"
-                "Trotzdem fortfahren? (Sie können die Verbindung nach dem Setup testen)",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            return result == QMessageBox.StandardButton.Yes
+            # Warn but don't block - "Yes" as default for easier progression
+            msgBox = QMessageBox(self)
+            msgBox.setIcon(QMessageBox.Icon.Warning)
+            msgBox.setWindowTitle("Keine Verbindung getestet")
+            msgBox.setText("Sie haben die LLM-Verbindung noch nicht getestet.\n\n"
+                          "Trotzdem fortfahren? (Sie können die Verbindung nach dem Setup testen)")
+            msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            msgBox.setDefaultButton(QMessageBox.StandardButton.Yes)
+            msgBox.button(QMessageBox.StandardButton.Yes).setText("Ja, fortfahren")
+            msgBox.button(QMessageBox.StandardButton.No).setText("Zurück")
+            return msgBox.exec() == QMessageBox.StandardButton.Yes
         return True
 
 
@@ -643,7 +660,12 @@ class ModelSelectionPage(QWizardPage):
         available_models = getattr(wizard.llm_page, 'available_models', [])
 
         if not available_models:
-            # Show placeholder if no models
+            # Use provider-specific default models when no test was done
+            provider_type = getattr(wizard.llm_page, 'provider_type', 'ollama')
+            available_models = self._get_default_models(provider_type)
+
+        if not available_models:
+            # Still no models - show placeholder
             for combo in self.task_combos.values():
                 combo.addItem("(Keine Modelle verfügbar)")
             return
@@ -667,6 +689,16 @@ class ModelSelectionPage(QWizardPage):
         # Apply preset models after populating combos - Claude Generated
         if self._presets and self._presets.has_models():
             self._apply_presets(self._presets)
+
+    def _get_default_models(self, provider_type: str) -> list:
+        """Get default models for provider type - Claude Generated"""
+        defaults = {
+            'ollama': ['mistral', 'llama3', 'llama2'],
+            'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'],
+            'anthropic': ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'],
+            'openai_compatible': ['gpt-4', 'gpt-3.5-turbo'],
+        }
+        return defaults.get(provider_type, [])
 
     def _apply_presets(self, presets) -> None:
         """Pre-select model combos from institution preset values - Claude Generated"""
@@ -912,6 +944,21 @@ class DatabaseSetupPage(QWizardPage):
         is_sqlite = self.sqlite_radio.isChecked()
         self.sqlite_group.setVisible(is_sqlite)
         self.mariadb_group.setVisible(not is_sqlite)
+
+    def initializePage(self):
+        """Auto-test database connection if presets have config - Claude Generated"""
+        super().initializePage()
+        # Auto-test if we have preset database config
+        if self._presets and self._presets.has_database_config():
+            # Delay test slightly to let UI settle
+            QTimer.singleShot(500, self._auto_test_database)
+
+    def _auto_test_database(self):
+        """Silent database test - Claude Generated"""
+        # Only test if not already tested
+        if hasattr(self, '_connection_test_result') and self._connection_test_result:
+            return
+        self._test_database_connection()
 
     def _update_gnd_file_visibility(self):
         """Show/hide GND file selector based on selection"""
