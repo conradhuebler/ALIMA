@@ -353,6 +353,7 @@ class LLMSetupPage(QWizardPage):
 
     def __init__(self, presets: 'InstitutionPresets | None' = None):
         super().__init__()
+        self._presets = presets  # Store for initializePage - Claude Generated
         self.setTitle("LLM-Anbieter einrichten")
         self.setSubTitle("Wählen Sie aus, wo Ihre KI-Modelle laufen sollen")
 
