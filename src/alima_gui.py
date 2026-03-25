@@ -90,6 +90,14 @@ def main():
             logging.info("First-start wizard cancelled")
             sys.exit(0)
 
+        # Reload config after wizard saves changes - Claude Generated
+        config = config_manager.load_config(force_reload=True)
+
+        # Reset singleton instances that might have cached old config
+        from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+        UnifiedKnowledgeManager._instance = None
+        logging.info("Config reloaded and singletons reset after wizard")
+
     # Use direct file path instead of resource path
     current_dir = os.path.dirname(os.path.abspath(__file__))
     pixmap = QPixmap(os.path.join(current_dir, "alima.png"))

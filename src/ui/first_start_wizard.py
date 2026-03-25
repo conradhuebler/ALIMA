@@ -124,10 +124,6 @@ class FirstStartWizard(QWizard):
                 catalog_web_record_url=self.catalog_page.web_record_url.text().strip(),
             )
 
-            # Save configuration
-            config_manager = ConfigManager()
-            config_manager.save_config(self.config)
-
             # Apply database configuration from database_page - Claude Generated
             if hasattr(self, 'database_page'):
                 db_config = self.database_page.get_database_config()
@@ -141,6 +137,10 @@ class FirstStartWizard(QWizard):
                     self.config.database_config.database = db_config.get('database', 'alima_knowledge')
                     self.config.database_config.username = db_config.get('username', 'alima')
                     self.config.database_config.password = db_config.get('password', '')
+
+            # Save configuration (after database config is applied!)
+            config_manager = ConfigManager()
+            config_manager.save_config(self.config)
 
             # Handle GND actions - Claude Generated
             gnd_action = self.database_page.get_gnd_action() if hasattr(self, 'database_page') else 'skip'
