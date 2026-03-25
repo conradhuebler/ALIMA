@@ -432,6 +432,17 @@ class LLMSetupPage(QWizardPage):
         self.config_layout.addWidget(self.base_url_label)
         self.config_layout.addWidget(self.base_url_input)
 
+        # Auto-test timer for input changes - Claude Generated
+        self._auto_test_timer = QTimer()
+        self._auto_test_timer.setSingleShot(True)
+        self._auto_test_timer.timeout.connect(self._auto_test_connection)
+
+        # Connect input changes to trigger auto-test (with debounce)
+        self.ollama_host_input.textChanged.connect(self._schedule_auto_test)
+        self.ollama_port_input.valueChanged.connect(self._schedule_auto_test)
+        self.api_key_input.textChanged.connect(self._schedule_auto_test)
+        self.base_url_input.textChanged.connect(self._schedule_auto_test)
+
         config_box.setLayout(self.config_layout)
         layout.addWidget(config_box)
 
@@ -506,7 +517,30 @@ class LLMSetupPage(QWizardPage):
         # Only test if not already tested
         if self.available_models:
             return
-        self._test_connection()
+
+        # Check if we have enough input to test
+        selected = self.provider_group.checkedId()
+        can_test = False
+
+        if selected == 0:  # Ollama
+            host = self.ollama_host_input.text().strip()
+            can_test = bool(host)  # At least a host
+        elif selected == 1:  # OpenAI-compatible
+            url = self.base_url_input.text().strip()
+            can_test = bool(url)
+        elif selected in [2, 3]:  # Gemini or Anthropic
+            api_key = self.api_key_input.text().strip()
+            can_test = len(api_key) >= 10  # Reasonable API key length
+
+        if can_test:
+            self._test_connection()
+
+    def _schedule_auto_test(self):
+        """Schedule auto-test after user stops typing (1.5s debounce) - Claude Generated"""
+        # Cancel any pending test
+        self._auto_test_timer.stop()
+        # Schedule new test in 1.5 seconds
+        self._auto_test_timer.start(1500)
 
     def _on_provider_changed(self):
         """Update UI when provider selection changes - Claude Generated (fixed visibility)"""
