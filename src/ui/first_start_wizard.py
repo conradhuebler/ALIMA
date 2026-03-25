@@ -53,8 +53,8 @@ class FirstStartWizard(QWizard):
         self.model_page = ModelSelectionPage(presets=self._presets)
         self.addPage(self.model_page)
 
-        self.gnd_page = GNDDatabasePage()
-        self.addPage(self.gnd_page)
+        self.database_page = DatabaseSetupPage(presets=self._presets)
+        self.addPage(self.database_page)
 
         self.catalog_page = CatalogSetupPage(presets=self._presets)
         self.addPage(self.catalog_page)
@@ -128,14 +128,31 @@ class FirstStartWizard(QWizard):
             config_manager = ConfigManager()
             config_manager.save_config(self.config)
 
-            # Handle GND download for post-wizard background import - Claude Generated
-            if hasattr(self.gnd_page, 'downloaded_xml_path') and self.gnd_page.downloaded_xml_path:
+            # Apply database configuration from database_page - Claude Generated
+            if hasattr(self, 'database_page'):
+                db_config = self.database_page.get_database_config()
+                if db_config.get('db_type') == 'sqlite':
+                    if db_config.get('sqlite_path'):
+                        self.config.database_config.sqlite_path = db_config['sqlite_path']
+                elif db_config.get('db_type') in ('mariadb', 'mysql'):
+                    self.config.database_config.db_type = 'mariadb'
+                    self.config.database_config.host = db_config.get('host', 'localhost')
+                    self.config.database_config.port = db_config.get('port', 3306)
+                    self.config.database_config.database = db_config.get('database', 'alima_knowledge')
+                    self.config.database_config.username = db_config.get('username', 'alima')
+                    self.config.database_config.password = db_config.get('password', '')
+
+            # Handle GND actions - Claude Generated
+            gnd_action = self.database_page.get_gnd_action() if hasattr(self, 'database_page') else 'skip'
+
+            # Handle GND download for post-wizard background import
+            if gnd_action == 'download' and hasattr(self.database_page, 'downloaded_xml_path') and self.database_page.downloaded_xml_path:
                 import json
                 import tempfile
 
                 marker_file = Path(tempfile.gettempdir()) / "alima_gnd_pending.json"
                 marker_data = {
-                    'xml_path': self.gnd_page.downloaded_xml_path,
+                    'xml_path': self.database_page.downloaded_xml_path,
                     'timestamp': __import__('datetime').datetime.now().isoformat()
                 }
                 marker_file.write_text(json.dumps(marker_data))
@@ -150,11 +167,9 @@ class FirstStartWizard(QWizard):
                     "verwendet, bis der Import fertig ist."
                 )
 
-            # Handle direct DB file import - Claude Generated
-            elif (hasattr(self.gnd_page, 'import_db_radio') and
-                  self.gnd_page.import_db_radio.isChecked() and
-                  self.gnd_page.db_file_input.text()):
-                self._import_database_file(self.gnd_page.db_file_input.text(), self.config)
+            # Handle direct DB file import
+            elif gnd_action == 'import' and self.database_page.gnd_file_input.text():
+                self._import_database_file(self.database_page.gnd_file_input.text(), self.config)
 
             logger.info(f"First-start wizard completed: provider={provider_type}, models={len(models)}")
             super().accept()
@@ -730,135 +745,288 @@ class ModelSelectionPage(QWizardPage):
         return True
 
 
-class GNDDatabasePage(QWizardPage):
-    """GND Database download page - Claude Generated"""
+class DatabaseSetupPage(QWizardPage):
+    """Unified database and GND configuration page - Claude Generated
 
-    def __init__(self):
+    Merges SQLite/MariaDB database configuration with GND download options.
+    Presets can pre-configure database connection and skip GND download if data exists.
+    """
+
+    def __init__(self, presets: Optional[InstitutionPresets] = None):
         super().__init__()
-        self.setTitle("GND-Normdatenbank")
-        self.setSubTitle("Optional: Download der Schlagwort-Daten der Deutschen Nationalbibliothek")
+        self._presets = presets
+        self.setTitle("Datenbank-Konfiguration")
+        self.setSubTitle("Wählen Sie die Datenbank für ALIMA und GND-Normdaten")
 
-        # Track downloaded file for post-wizard import - Claude Generated
+        # Track downloaded file for post-wizard import
         self.downloaded_xml_path = None
+        self._connection_test_result = None
 
         layout = QVBoxLayout()
 
-        # Explanation - Claude Generated (updated)
+        # ===== DATABASE TYPE SECTION =====
+        db_type_group = QGroupBox("Datenbank-Typ")
+        db_type_layout = QVBoxLayout()
+
+        # Radio buttons for database type
+        self.sqlite_radio = QRadioButton("SQLite (Lokal)")
+        self.sqlite_radio.setChecked(True)
+        self.mariadb_radio = QRadioButton("MariaDB/MySQL (Server)")
+        db_type_layout.addWidget(self.sqlite_radio)
+        db_type_layout.addWidget(self.mariadb_radio)
+
+        db_type_group.setLayout(db_type_layout)
+        layout.addWidget(db_type_group)
+
+        # ===== SQLITE CONFIGURATION =====
+        self.sqlite_group = QGroupBox("SQLite-Konfiguration")
+        sqlite_layout = QFormLayout()
+
+        sqlite_path_layout = QHBoxLayout()
+        self.sqlite_path_input = QLineEdit()
+        self.sqlite_path_input.setPlaceholderText("Pfad zur alima_knowledge.db")
+        sqlite_path_layout.addWidget(self.sqlite_path_input)
+        sqlite_browse_btn = QPushButton("Durchsuchen...")
+        sqlite_browse_btn.clicked.connect(self._browse_sqlite_path)
+        sqlite_path_layout.addWidget(sqlite_browse_btn)
+        sqlite_layout.addRow("Datenbank-Pfad:", sqlite_path_layout)
+
+        self.sqlite_group.setLayout(sqlite_layout)
+        layout.addWidget(self.sqlite_group)
+
+        # ===== MARIADB CONFIGURATION =====
+        self.mariadb_group = QGroupBox("MariaDB/MySQL-Konfiguration")
+        mariadb_layout = QFormLayout()
+
+        # Host and Port
+        host_layout = QHBoxLayout()
+        self.host_input = QLineEdit()
+        self.host_input.setPlaceholderText("localhost")
+        self.host_input.setText("localhost")
+        host_layout.addWidget(self.host_input)
+        host_layout.addWidget(QLabel("Port:"))
+        self.port_input = QSpinBox()
+        self.port_input.setRange(1, 65535)
+        self.port_input.setValue(3306)
+        host_layout.addWidget(self.port_input)
+        mariadb_layout.addRow("Host:", host_layout)
+
+        # Database name
+        self.database_input = QLineEdit()
+        self.database_input.setText("alima_knowledge")
+        mariadb_layout.addRow("Datenbank:", self.database_input)
+
+        # Username and Password
+        self.username_input = QLineEdit()
+        self.username_input.setText("alima")
+        mariadb_layout.addRow("Benutzer:", self.username_input)
+
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        mariadb_layout.addRow("Passwort:", self.password_input)
+
+        self.mariadb_group.setLayout(mariadb_layout)
+        self.mariadb_group.setVisible(False)  # Hidden by default
+        layout.addWidget(self.mariadb_group)
+
+        # ===== SHARED DATABASE TEST BUTTON =====
+        # Placed after both SQLite and MariaDB groups, visible for both
+        test_layout = QHBoxLayout()
+        self.test_db_btn = QPushButton("🔍 Datenbank testen & GND prüfen")
+        self.test_db_btn.clicked.connect(self._test_database_connection)
+        test_layout.addWidget(self.test_db_btn)
+        test_layout.addStretch()
+        layout.addLayout(test_layout)
+
+        # Connection status (shared for both SQLite and MariaDB)
+        self.connection_status = QLabel("")
+        layout.addWidget(self.connection_status)
+
+        # Radio button connections
+        self.sqlite_radio.toggled.connect(self._update_db_type_visibility)
+
+        # ===== GND DATA SECTION =====
+        gnd_group = QGroupBox("GND-Normdaten (Schlagwörter)")
+        gnd_layout = QVBoxLayout()
+
         explanation = QLabel(
-            "Die GND (Gemeinsame Normdatei) ist eine lokale Datenbank für deutsche Schlagwörter.\n"
-            "Die Datenbank wird sowohl bei GND-Download als auch bei Lobid-API für interne\n"
-            "Verifikation und Abgleich verwendet.\n\n"
+            "Die GND (Gemeinsame Normdatei) enthält deutsche Schlagwörter.\n"
             "Optionen:\n"
-            "• Download: Vollständige lokale Datenbank (~300 MB, ~5-10 Min. Import)\n"
-            "• Datenbankdatei importieren: Bestehende .db-Datei kopieren (schnellste Option)\n"
-            "• Überspringen: Lobid-API lädt Daten bei Bedarf nach (langsamer beim Start)\n\n"
-            "Der Import läuft nach Setup im Hintergrund, Sie können ALIMA sofort nutzen."
+            "• Download: ~300 MB, Import läuft im Hintergrund\n"
+            "• Import: Bestehende .db-Datei kopieren\n"
+            "• Überspringen: Daten werden bei Bedarf nachgeladen"
         )
         explanation.setWordWrap(True)
-        layout.addWidget(explanation)
+        gnd_layout.addWidget(explanation)
 
-        # Download options
-        options_box = QGroupBox("Download-Optionen")
-        options_layout = QVBoxLayout()
+        # GND options
+        self.gnd_download_radio = QRadioButton("📥 GND-Datenbank herunterladen")
+        self.gnd_import_radio = QRadioButton("🗄️ Bestehende Datenbankdatei importieren")
+        self.gnd_skip_radio = QRadioButton("⏭️ Überspringen")
+        self.gnd_preset_radio = QRadioButton("✅ Preset-Datenbank verwenden (bereits konfiguriert)")
+        self.gnd_preset_radio.setVisible(False)  # Only visible when preset has DB
 
-        self.download_radio = QRadioButton("📥 GND-Datenbank von der DNB herunterladen (empfohlen)")
-        self.download_radio.setChecked(True)
-        options_layout.addWidget(self.download_radio)
+        gnd_layout.addWidget(self.gnd_download_radio)
+        gnd_layout.addWidget(self.gnd_import_radio)
+        gnd_layout.addWidget(self.gnd_skip_radio)
+        gnd_layout.addWidget(self.gnd_preset_radio)
 
-        self.local_radio = QRadioButton("📂 Aus lokaler XML/GZ-Datei laden")
-        options_layout.addWidget(self.local_radio)
+        self.gnd_download_radio.setChecked(True)
 
-        self.import_db_radio = QRadioButton("🗄️  Bestehende Datenbankdatei importieren (schnellste Option)")
-        options_layout.addWidget(self.import_db_radio)
+        # GND file selector
+        self.gnd_file_layout = QHBoxLayout()
+        self.gnd_file_layout.addWidget(QLabel("Datei:"))
+        self.gnd_file_input = QLineEdit()
+        self.gnd_file_input.setPlaceholderText("Pfad zur .db oder .xml.gz Datei")
+        self.gnd_file_layout.addWidget(self.gnd_file_input)
+        gnd_file_btn = QPushButton("Durchsuchen...")
+        gnd_file_btn.clicked.connect(self._browse_gnd_file)
+        self.gnd_file_layout.addWidget(gnd_file_btn)
+        gnd_layout.addLayout(self.gnd_file_layout)
 
-        self.skip_radio = QRadioButton("⏭️  Überspringen (Lobid-API verwenden)")
-        options_layout.addWidget(self.skip_radio)
+        # GND status
+        self.gnd_status_label = QLabel("")
+        gnd_layout.addWidget(self.gnd_status_label)
 
-        options_box.setLayout(options_layout)
-        layout.addWidget(options_box)
+        # GND download button
+        self.gnd_download_btn = QPushButton("⬇️ Download starten")
+        self.gnd_download_btn.clicked.connect(self._download_gnd)
+        gnd_layout.addWidget(self.gnd_download_btn)
 
-        # File selector (visible only for local XML/GZ file option)
-        self.file_layout = QHBoxLayout()
-        file_label = QLabel("GND-Datei:")
-        self.file_input = QLineEdit()
-        file_button = QPushButton("Durchsuchen...")
-        file_button.clicked.connect(self._select_file)
-        self.file_layout.addWidget(file_label)
-        self.file_layout.addWidget(self.file_input)
-        self.file_layout.addWidget(file_button)
-
-        layout.addLayout(self.file_layout)
-
-        # DB file selector (visible only for import_db_radio option) - Claude Generated
-        self.db_file_layout = QHBoxLayout()
-        db_file_label = QLabel("Datenbankdatei:")
-        self.db_file_input = QLineEdit()
-        self.db_file_input.setPlaceholderText("Pfad zur alima_knowledge.db ...")
-        db_file_button = QPushButton("Durchsuchen...")
-        db_file_button.clicked.connect(self._select_db_file)
-        self.db_file_layout.addWidget(db_file_label)
-        self.db_file_layout.addWidget(self.db_file_input)
-        self.db_file_layout.addWidget(db_file_button)
-
-        layout.addLayout(self.db_file_layout)
-
-        self._update_file_visibility()
-
-        self.download_radio.toggled.connect(self._update_file_visibility)
-        self.local_radio.toggled.connect(self._update_file_visibility)
-        self.import_db_radio.toggled.connect(self._update_file_visibility)
-
-        # Download status
-        self.status_label = QLabel("")
-        self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
-
-        # Download button
-        self.download_button = QPushButton("⬇️  GND-Datenbank herunterladen")
-        self.download_button.clicked.connect(self._download_gnd)
-        layout.addWidget(self.download_button)
+        gnd_group.setLayout(gnd_layout)
+        layout.addWidget(gnd_group)
 
         layout.addStretch()
         self.setLayout(layout)
 
-    def _update_file_visibility(self):
-        """Show/hide file selectors based on selection - Claude Generated"""
-        show_xml = self.local_radio.isChecked()
-        show_db = self.import_db_radio.isChecked()
-        for i in range(self.file_layout.count()):
-            widget = self.file_layout.itemAt(i).widget()
-            if widget:
-                widget.setVisible(show_xml)
-        for i in range(self.db_file_layout.count()):
-            widget = self.db_file_layout.itemAt(i).widget()
-            if widget:
-                widget.setVisible(show_db)
+        # Apply presets if available
+        if presets:
+            self._apply_presets(presets)
 
-    def _select_file(self):
-        """Select GND XML/GZ file - Claude Generated"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "GND-Datenbankdatei auswählen",
-            "",
-            "XML-Dateien (*.xml);;Gzip-Dateien (*.gz);;Alle Dateien (*)"
-        )
-        if file_path:
-            self.file_input.setText(file_path)
+        self._update_gnd_file_visibility()
+        self.gnd_download_radio.toggled.connect(self._update_gnd_file_visibility)
+        self.gnd_import_radio.toggled.connect(self._update_gnd_file_visibility)
 
-    def _select_db_file(self):
-        """Select existing SQLite database file - Claude Generated"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "ALIMA-Datenbankdatei auswählen",
-            "",
+    def _update_db_type_visibility(self):
+        """Show/hide database type specific fields"""
+        is_sqlite = self.sqlite_radio.isChecked()
+        self.sqlite_group.setVisible(is_sqlite)
+        self.mariadb_group.setVisible(not is_sqlite)
+
+    def _update_gnd_file_visibility(self):
+        """Show/hide GND file selector based on selection"""
+        show_file = self.gnd_import_radio.isChecked()
+        for i in range(self.gnd_file_layout.count()):
+            widget = self.gnd_file_layout.itemAt(i).widget()
+            if widget:
+                widget.setVisible(show_file)
+
+    def _browse_sqlite_path(self):
+        """Browse for SQLite database path"""
+        from ..utils.config_models import get_default_db_path
+        default_path = get_default_db_path()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "SQLite-Datenbank speichern",
+            str(default_path),
             "SQLite-Datenbank (*.db);;Alle Dateien (*)"
         )
         if file_path:
-            self.db_file_input.setText(file_path)
+            self.sqlite_path_input.setText(file_path)
+
+    def _browse_gnd_file(self):
+        """Browse for GND file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "GND-Datei auswählen",
+            "",
+            "SQLite-Datenbank (*.db);;XML-Dateien (*.xml);;Gzip-Dateien (*.gz);;Alle Dateien (*)"
+        )
+        if file_path:
+            self.gnd_file_input.setText(file_path)
+
+    def _test_database_connection(self):
+        """Test database connection and check for GND data - Claude Generated (unified for SQLite/MariaDB)"""
+        from PyQt6.QtCore import QCoreApplication
+        from ..utils.qt_plugin_setup import setup_qt_plugin_paths
+        from ..core.database_manager import DatabaseManager
+        from ..utils.config_models import DatabaseConfig, get_default_db_path
+
+        # Ensure QCoreApplication exists
+        if not QCoreApplication.instance():
+            QCoreApplication([])
+
+        setup_qt_plugin_paths()
+
+        # Build config based on selected database type
+        if self.sqlite_radio.isChecked():
+            db_path = self.sqlite_path_input.text().strip()
+            if not db_path:
+                db_path = str(get_default_db_path())
+            config = DatabaseConfig(
+                db_type='sqlite',
+                sqlite_path=db_path
+            )
+        else:
+            config = DatabaseConfig(
+                db_type='mariadb',
+                host=self.host_input.text().strip() or 'localhost',
+                port=self.port_input.value(),
+                database=self.database_input.text().strip() or 'alima_knowledge',
+                username=self.username_input.text().strip() or 'alima',
+                password=self.password_input.text()
+            )
+
+        try:
+            db = DatabaseManager(config, "wizard_test")
+            success, message = db.test_connection()
+
+            if not success:
+                self.connection_status.setText(f"❌ {message}")
+                self.connection_status.setStyleSheet("color: red;")
+                self._connection_test_result = False
+                db.close_connection()
+                return
+
+            # Connection successful - check for GND data
+            gnd_count = 0
+            try:
+                # Check if gnd_entries table exists and has data
+                result = db.fetch_scalar("SELECT COUNT(*) FROM gnd_entries")
+                if result:
+                    gnd_count = int(result)
+            except Exception:
+                pass  # Table doesn't exist yet - that's fine
+
+            db.close_connection()
+
+            # Build status message
+            if gnd_count > 0:
+                status_msg = f"✅ Verbunden - {gnd_count:,} GND-Einträge gefunden"
+                self.connection_status.setStyleSheet("color: green;")
+
+                # Auto-select "Skip" since GND data already exists
+                self.gnd_skip_radio.setChecked(True)
+                self.gnd_status_label.setText(f"✅ GND-Daten bereits vorhanden ({gnd_count:,} Einträge)")
+                self.gnd_status_label.setStyleSheet("color: green;")
+            else:
+                status_msg = "✅ Verbunden - Keine GND-Daten"
+                self.connection_status.setStyleSheet("color: #FF8C00;")  # Orange for warning
+
+                # Suggest download if no GND data
+                self.gnd_status_label.setText("ℹ️ GND-Daten nicht vorhanden - Download empfohlen")
+                self.gnd_status_label.setStyleSheet("color: #FF8C00;")
+
+            self.connection_status.setText(status_msg)
+            self._connection_test_result = True
+
+        except Exception as e:
+            self.connection_status.setText(f"❌ Fehler: {str(e)}")
+            self.connection_status.setStyleSheet("color: red;")
+            self._connection_test_result = False
 
     def _download_gnd(self):
-        """Download GND database - Claude Generated"""
-        if not self.download_radio.isChecked():
+        """Download GND database"""
+        if not self.gnd_download_radio.isChecked():
             return
 
         from PyQt6.QtWidgets import QApplication
@@ -872,34 +1040,97 @@ class GNDDatabasePage(QWizardPage):
         try:
             def progress_callback(percent):
                 progress.setValue(percent)
-                QApplication.processEvents()  # Keep UI responsive
+                QApplication.processEvents()
 
             result = GNDDatabaseDownloader.download(progress_callback)
-
             progress.close()
 
             if result.success:
-                # Save downloaded path for post-wizard import - Claude Generated
                 self.downloaded_xml_path = result.data
-                self.status_label.setText(
-                    f"✅ GND-Datenbank heruntergeladen\n"
-                    f"Import läuft nach Setup im Hintergrund"
-                )
-                self.status_label.setStyleSheet("color: green;")
-                self.download_button.setEnabled(False)
+                self.gnd_status_label.setText("✅ GND-Datenbank heruntergeladen")
+                self.gnd_status_label.setStyleSheet("color: green;")
+                self.gnd_download_btn.setEnabled(False)
             else:
-                self.status_label.setText(f"❌ Download fehlgeschlagen: {result.message}")
-                self.status_label.setStyleSheet("color: red;")
-
+                self.gnd_status_label.setText(f"❌ Download fehlgeschlagen: {result.message}")
+                self.gnd_status_label.setStyleSheet("color: red;")
         except Exception as e:
             progress.close()
-            self.status_label.setText(f"❌ Fehler: {str(e)}")
-            self.status_label.setStyleSheet("color: red;")
+            self.gnd_status_label.setText(f"❌ Fehler: {str(e)}")
+            self.gnd_status_label.setStyleSheet("color: red;")
+
+    def _apply_presets(self, presets: InstitutionPresets):
+        """Apply database presets if available"""
+        if not presets or not presets.has_database_config():
+            return
+
+        if presets.db_type == 'sqlite':
+            self.sqlite_radio.setChecked(True)
+            if presets.db_sqlite_path:
+                self.sqlite_path_input.setText(presets.db_sqlite_path)
+        elif presets.db_type in ('mariadb', 'mysql'):
+            self.mariadb_radio.setChecked(True)
+            if presets.db_host:
+                self.host_input.setText(presets.db_host)
+            if presets.db_port:
+                self.port_input.setValue(presets.db_port)
+            if presets.db_database:
+                self.database_input.setText(presets.db_database)
+            if presets.db_username:
+                self.username_input.setText(presets.db_username)
+            if presets.db_password:
+                self.password_input.setText(presets.db_password)
+
+        # If preset has preloaded GND data, show preset option
+        if presets.gnd_data_preloaded:
+            self.gnd_preset_radio.setVisible(True)
+            self.gnd_preset_radio.setChecked(True)
+            self.gnd_status_label.setText("✅ Preset-Datenbank enthält bereits GND-Daten")
+            self.gnd_status_label.setStyleSheet("color: green;")
+
+    def get_database_config(self) -> dict:
+        """Get database configuration from the form"""
+        if self.sqlite_radio.isChecked():
+            return {
+                'db_type': 'sqlite',
+                'sqlite_path': self.sqlite_path_input.text().strip() or None
+            }
+        else:
+            return {
+                'db_type': 'mariadb',
+                'host': self.host_input.text().strip() or 'localhost',
+                'port': self.port_input.value(),
+                'database': self.database_input.text().strip() or 'alima_knowledge',
+                'username': self.username_input.text().strip() or 'alima',
+                'password': self.password_input.text()
+            }
+
+    def get_gnd_action(self) -> str:
+        """Get GND action: 'download', 'import', 'skip', or 'preset'"""
+        if self.gnd_download_radio.isChecked():
+            return 'download'
+        elif self.gnd_import_radio.isChecked():
+            return 'import'
+        elif self.gnd_preset_radio.isChecked():
+            return 'preset'
+        else:
+            return 'skip'
 
     def validatePage(self) -> bool:
-        """Validate before proceeding - Claude Generated (fixed download UX)"""
-        if self.download_radio.isChecked():
-            if "✅" not in self.status_label.text():
+        """Validate before proceeding - Claude Generated (updated for DatabaseSetupPage)"""
+        # Check database path for SQLite
+        if self.sqlite_radio.isChecked():
+            path = self.sqlite_path_input.text().strip()
+            if path:
+                # Ensure parent directory exists
+                try:
+                    Path(path).parent.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    QMessageBox.warning(self, "Pfadfehler", f"Kann Verzeichnis nicht erstellen:\n{str(e)}")
+                    return False
+
+        # Check GND action validation
+        if self.gnd_download_radio.isChecked():
+            if "✅" not in self.gnd_status_label.text():
                 # User selected download but hasn't done it yet - offer clear choices
                 msgBox = QMessageBox(self)
                 msgBox.setIcon(QMessageBox.Icon.Question)
@@ -936,21 +1167,26 @@ class GNDDatabasePage(QWizardPage):
                 else:  # Cancel
                     # User wants to go back and reconsider
                     return False  # Stay on page
-        elif self.local_radio.isChecked():
-            if not self.file_input.text():
-                QMessageBox.warning(self, "Datei erforderlich", "Bitte wählen Sie eine GND-Datei aus.")
-                return False
-        elif self.import_db_radio.isChecked():
-            if not self.db_file_input.text():
+
+        elif self.gnd_import_radio.isChecked():
+            if not self.gnd_file_input.text():
                 QMessageBox.warning(self, "Datei erforderlich",
-                                    "Bitte wählen Sie eine Datenbankdatei (.db) aus.")
+                                    "Bitte wählen Sie eine GND-Datei aus.")
                 return False
-            if not Path(self.db_file_input.text()).exists():
+            if not Path(self.gnd_file_input.text()).exists():
                 QMessageBox.warning(self, "Datei nicht gefunden",
-                                    "Die ausgewählte Datenbankdatei wurde nicht gefunden.")
+                                    "Die ausgewählte Datei wurde nicht gefunden.")
                 return False
-        elif self.skip_radio.isChecked():
-            # Confirm skip action with option to go back - Claude Generated (improved UX, updated text)
+
+        elif self.gnd_skip_radio.isChecked():
+            # Skip confirmation - only ask if GND data wasn't detected
+            # If status shows GND data found, no need to confirm
+            gnd_status = self.gnd_status_label.text()
+            if "✅" in gnd_status and "GND" in gnd_status:
+                # GND data was detected - proceed without confirmation
+                return True
+
+            # No GND data detected - confirm skip
             msgBox = QMessageBox(self)
             msgBox.setWindowTitle("GND-Download überspringen?")
             msgBox.setText("GND-Download überspringen?")
@@ -972,7 +1208,7 @@ class GNDDatabasePage(QWizardPage):
             msgBox.button(QMessageBox.StandardButton.Cancel).setText("Zurück")
 
             result = msgBox.exec()
-            # Yes = skip, Cancel = stay on page (return False to prevent proceeding)
+            # Yes = skip, Cancel = stay on page
             return result == QMessageBox.StandardButton.Yes
 
         return True
@@ -1153,18 +1389,29 @@ class SummaryPage(QWizardPage):
         self.setLayout(layout)
 
     def initializePage(self):
-        """Initialize with configuration summary - Claude Generated (enhanced with model selections)"""
+        """Initialize with configuration summary - Claude Generated (enhanced with database config)"""
         # Get wizard to access configuration pages
         wizard = self.wizard()
 
-        # Build summary from wizard pages (not from config, which isn't set yet)
+        # Build database summary from database_page - Claude Generated
+        db_type = "SQLite (Lokal)" if wizard.database_page.sqlite_radio.isChecked() else "MariaDB/MySQL (Server)"
+        if wizard.database_page.sqlite_radio.isChecked():
+            db_path = wizard.database_page.sqlite_path_input.text().strip()
+            db_summary = f"Typ: {db_type}\n   Pfad: {db_path or '(Standard)'}"
+        else:
+            db_host = wizard.database_page.host_input.text().strip()
+            db_name = wizard.database_page.database_input.text().strip()
+            db_summary = f"Typ: {db_type}\n   Server: {db_host}\n   Datenbank: {db_name}"
+
+        # Build GND summary from database_page
+        gnd_action = wizard.database_page.get_gnd_action()
         gnd_option = "Download von DNB"
-        if wizard.gnd_page.skip_radio.isChecked():
+        if gnd_action == 'skip':
             gnd_option = "Überspringen (Lobid-API verwenden)"
-        elif wizard.gnd_page.local_radio.isChecked():
-            gnd_option = f"Aus Datei laden: {wizard.gnd_page.file_input.text()}"
-        elif wizard.gnd_page.import_db_radio.isChecked():
-            gnd_option = f"Datenbankdatei importieren: {wizard.gnd_page.db_file_input.text()}"
+        elif gnd_action == 'import':
+            gnd_option = f"Datei importieren: {wizard.database_page.gnd_file_input.text()}"
+        elif gnd_action == 'preset':
+            gnd_option = "Preset-Datenbank (bereits konfiguriert)"
 
         # Build model selections summary - Claude Generated
         model_summary = ""
@@ -1196,6 +1443,9 @@ ALIMA Konfiguration - Zusammenfassung
    URL: {wizard.llm_page.base_url or "(keine URL)"}
    Verfügbare Modelle: {len(wizard.llm_page.available_models)}
 {model_summary}
+
+💾 Datenbank:
+   {db_summary}
 
 📚 GND-Datenbank:
    Option: {gnd_option}

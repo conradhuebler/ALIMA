@@ -1003,6 +1003,32 @@ class ComprehensiveSettingsDialog(QDialog):
                 catalog_block["soap_details_url"] = cat_cfg.catalog_details_url
             if getattr(cat_cfg, 'catalog_token', ''):
                 catalog_block["token"] = cat_cfg.catalog_token
+            # Web fallback URLs - Claude Generated
+            if getattr(cat_cfg, 'catalog_web_search_url', ''):
+                catalog_block["web_search_url"] = cat_cfg.catalog_web_search_url
+            if getattr(cat_cfg, 'catalog_web_record_url', ''):
+                catalog_block["web_record_url"] = cat_cfg.catalog_web_record_url
+
+        # Build database block - Claude Generated
+        db_cfg = getattr(self.config_to_edit, 'database_config', None)
+        database_block: dict = {}
+        if db_cfg:
+            db_type = getattr(db_cfg, 'db_type', 'sqlite')
+            database_block["type"] = db_type
+            if db_type == 'sqlite':
+                if getattr(db_cfg, 'sqlite_path', ''):
+                    database_block["sqlite_path"] = db_cfg.sqlite_path
+            else:  # mariadb/mysql
+                if getattr(db_cfg, 'host', ''):
+                    database_block["host"] = db_cfg.host
+                if getattr(db_cfg, 'port', 3306) != 3306:
+                    database_block["port"] = db_cfg.port
+                if getattr(db_cfg, 'database', ''):
+                    database_block["database"] = db_cfg.database
+                if getattr(db_cfg, 'username', ''):
+                    database_block["username"] = db_cfg.username
+                if getattr(db_cfg, 'password', ''):
+                    database_block["password"] = db_cfg.password
 
         preset_data: dict = {}
         if institution_name:
@@ -1011,6 +1037,8 @@ class ComprehensiveSettingsDialog(QDialog):
             preset_data["llm"] = llm_block
         if catalog_block:
             preset_data["catalog"] = catalog_block
+        if database_block:
+            preset_data["database"] = database_block
 
         # File save dialog – default to project root
         from ..utils.path_utils import get_project_root
