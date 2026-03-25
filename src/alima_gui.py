@@ -95,8 +95,8 @@ def main():
 
         # Reset singleton instances that might have cached old config
         from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
-        UnifiedKnowledgeManager._instance = None
-        logging.info("Config reloaded and singletons reset after wizard")
+        UnifiedKnowledgeManager.reset()  # Properly closes DB and resets singleton
+        logging.info(f"Config reloaded and singletons reset after wizard (db_type={config.database_config.db_type})")
 
     # Use direct file path instead of resource path
     current_dir = os.path.dirname(os.path.abspath(__file__))
