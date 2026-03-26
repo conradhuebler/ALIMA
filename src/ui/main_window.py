@@ -333,6 +333,23 @@ class MainWindow(QMainWindow):
         self.search_engine = SearchEngine(self.cache_manager)
         self.logger = logging.getLogger(__name__)
 
+        # === DIAGNOSTIC: DB-Status nach Wizard-Start ===
+        # Problem: Nach Wizard findet Schlagwortsuche keine Treffer
+        try:
+            db_info = self.cache_manager.db_manager.get_database_info()
+            self.logger.info(f"✅ DB verbunden: {db_info['type']} - is_open={db_info.get('is_open', False)}")
+            # Prüfe Tabellen-Inhalte
+            try:
+                gnd_count = self.cache_manager.db_manager.fetch_scalar("SELECT COUNT(*) FROM gnd_entries")
+                self.logger.info(f"📊 gnd_entries: {gnd_count} Einträge")
+                mappings_count = self.cache_manager.db_manager.fetch_scalar("SELECT COUNT(*) FROM search_mappings")
+                self.logger.info(f"📊 search_mappings: {mappings_count} Einträge")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Konnte Tabellen nicht prüfen: {e}")
+        except Exception as e:
+            self.logger.error(f"❌ DB-Initialisierung fehlgeschlagen: {e}")
+        # === ENDE DIAGNOSTIC ===
+
         self.config_manager = ConfigManager(logger=self.logger)
 
         # Load prompts path from config - Claude Generated

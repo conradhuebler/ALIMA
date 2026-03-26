@@ -473,6 +473,9 @@ class PipelineStepExecutor:
             keywords_list = keywords
 
         # Stream search progress if callback provided - Claude Generated
+        # === DIAGNOSTIC: Log suggester configuration ===
+        if self.logger:
+            self.logger.info(f"🔍 execute_gnd_search: {len(keywords_list)} Keywords, Suggester: {[st.value for st in suggester_types]}")
         if stream_callback:
             stream_callback(
                 f"Suche mit {len(keywords_list)} Keywords: {', '.join(keywords_list)}\n",

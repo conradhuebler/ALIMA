@@ -942,7 +942,11 @@ class UnifiedKnowledgeManager:
             if row['search_status'] != 'success' and row['retry_after']:
                 from datetime import datetime
                 try:
-                    retry_after = datetime.fromisoformat(row['retry_after'])
+                    retry_val = row['retry_after']
+                    if isinstance(retry_val, datetime):
+                        retry_after = retry_val
+                    else:
+                        retry_after = datetime.fromisoformat(str(retry_val).replace('Z', '+00:00'))
                     if datetime.now() < retry_after:
                         # TTL not expired - return cached failure
                         titles = json.loads(row['found_titles'] or '[]')
@@ -1509,9 +1513,14 @@ class UnifiedKnowledgeManager:
         if mapping:
             # Check if mapping is fresh enough
             try:
-                last_updated = datetime.fromisoformat(mapping.last_updated)
+                # Handle both string and datetime objects (MariaDB returns datetime, not string)
+                last_updated_val = mapping.last_updated
+                if isinstance(last_updated_val, datetime):
+                    last_updated = last_updated_val
+                else:
+                    last_updated = datetime.fromisoformat(str(last_updated_val).replace('Z', '+00:00'))
                 max_age = timedelta(hours=max_age_hours)
-                
+
                 if datetime.now() - last_updated < max_age:
                     if hasattr(self, 'debug_mapping') and self.debug_mapping:
                         self.logger.info(f"✅ Mapping hit for '{search_term}' ({suggester_type}): {len(mapping.found_gnd_ids)} results from cache")
