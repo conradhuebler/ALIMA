@@ -33,6 +33,17 @@ class InstitutionPresets:
     # Catalog web fallback (BiblioClient scraping)
     catalog_web_search_url: str = ""
     catalog_web_record_url: str = ""
+    # Database configuration - Claude Generated
+    db_type: str = ""              # 'sqlite', 'mysql', 'mariadb'
+    db_sqlite_path: str = ""       # Path for SQLite
+    db_host: str = ""              # Host for MySQL/MariaDB
+    db_port: int = 3306            # Port for MySQL/MariaDB
+    db_database: str = ""           # Database name
+    db_username: str = ""           # Username
+    db_password: str = ""           # Password
+    db_charset: str = "utf8mb4"    # Character set
+    # GND data status - Claude Generated
+    gnd_data_preloaded: bool = False  # True if DB already contains GND data
 
     def has_llm(self) -> bool:
         return bool(self.llm_provider_type or self.llm_base_url)
@@ -43,6 +54,10 @@ class InstitutionPresets:
     def has_models(self) -> bool:
         """True if preset contains model configuration - Claude Generated"""
         return bool(self.llm_default_model or self.llm_task_models)
+
+    def has_database_config(self) -> bool:
+        """True if preset contains database configuration - Claude Generated"""
+        return bool(self.db_type)
 
 
 class PresetLoader:
@@ -78,6 +93,7 @@ class PresetLoader:
     def _parse(cls, data: dict) -> InstitutionPresets:
         llm = data.get('llm') or {}
         catalog = data.get('catalog') or {}
+        database = data.get('database') or {}  # Claude Generated
         return InstitutionPresets(
             institution_name=data.get('institution_name', ''),
             llm_provider_type=llm.get('provider_type', ''),
@@ -91,4 +107,14 @@ class PresetLoader:
             catalog_token=catalog.get('token', ''),
             catalog_web_search_url=catalog.get('web_search_url', ''),
             catalog_web_record_url=catalog.get('web_record_url', ''),
+            # Database configuration - Claude Generated
+            db_type=database.get('type', ''),
+            db_sqlite_path=database.get('sqlite_path', ''),
+            db_host=database.get('host', ''),
+            db_port=database.get('port', 3306),
+            db_database=database.get('database', ''),
+            db_username=database.get('username', ''),
+            db_password=database.get('password', ''),
+            db_charset=database.get('charset', 'utf8mb4'),
+            gnd_data_preloaded=database.get('gnd_preloaded', False),
         )

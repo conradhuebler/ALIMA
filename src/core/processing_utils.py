@@ -168,6 +168,90 @@ def extract_missing_concepts_from_response(text: str, output_format: Optional[st
     return concepts
 
 
+def extract_keyword_chains_from_response(text: str, output_format: Optional[str] = None) -> List[Dict]:
+    """
+    Extract keyword chains from LLM response - Claude Generated
+
+    Supports JSON-first extraction with XML fallback.
+    Returns list of {"chain": [...], "reason": "..."} dicts.
+    """
+    logger.info(f"extract_keyword_chains_from_response called with text length {len(text)}, format={output_format}")
+
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from .json_response_parser import parse_json_response, extract_keyword_chains_from_json
+        data = parse_json_response(text)
+        if data:
+            chains = extract_keyword_chains_from_json(data)
+            if chains:
+                logger.info(f"✅ JSON Keyword-Chains-Extraktion: {len(chains)} Ketten")
+                return chains
+        logger.warning("JSON Keyword-Chains-Parsing fehlgeschlagen, Fallback auf XML")
+
+    # Legacy XML extraction for keyword chains
+    cleaned_text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL)
+    cleaned_text = re.sub(r"<\\|begin_of_thought\\|>.*?<\\|end_of_thought\\|>", "", cleaned_text, flags=re.DOTALL)
+
+    # Try to find <keyword_chains> or <schlagwortketten> tag
+    match = re.search(r'<(?:keyword_chains|schlagwortketten)>(.*?)</(?:keyword_chains|schlagwortketten)>', cleaned_text, re.DOTALL | re.IGNORECASE)
+    if match:
+        content = match.group(1).strip()
+        # Parse chain entries
+        chains = []
+        for line in content.split('\n'):
+            line = line.strip()
+            if line and '→' in line:
+                parts = line.split('→')
+                chain_part = parts[0].strip()
+                reason = parts[1].strip() if len(parts) > 1 else ""
+                # Extract keywords from chain
+                keywords = [kw.strip() for kw in re.split(r'[,;]', chain_part) if kw.strip()]
+                if keywords:
+                    chains.append({"chain": keywords, "reason": reason})
+        if chains:
+            logger.debug(f"Extracted {len(chains)} keyword chains from XML")
+            return chains
+
+    logger.debug("No keyword chains found.")
+    return []
+
+
+def extract_analyse_text_from_response(text: str, output_format: Optional[str] = None) -> Optional[str]:
+    """
+    Extract analysis text from LLM response - Claude Generated
+
+    Supports JSON-first extraction (from 'analyse' field) with thought-block fallback.
+    Returns the analysis text or None.
+    """
+    logger.info(f"extract_analyse_text_from_response called with text length {len(text)}, format={output_format}")
+
+    # JSON-first extraction - Claude Generated
+    if output_format != "xml":
+        from .json_response_parser import parse_json_response, extract_analyse_from_json
+        data = parse_json_response(text)
+        if data:
+            analyse = extract_analyse_from_json(data)
+            if analyse:
+                logger.info(f"✅ JSON Analyse-Extraktion: {len(analyse)} Zeichen")
+                return analyse
+        logger.debug("JSON Analyse-Parsing fehlgeschlagen, Fallback auf Thought-Block")
+
+    # Fallback: Extract from <|begin_of_thought|>...<|end_of_thought|> block
+    thought_match = re.search(r'<\|begin_of_thought\|>(.*?)<\|end_of_thought\|>', text, re.DOTALL)
+    if thought_match:
+        thought_content = thought_match.group(1).strip()
+        # Clean up the thought block
+        thought_content = re.sub(r'\*\*[^*]+\*\*:\s*', '', thought_content)  # Remove **Header:** markers
+        thought_content = thought_content.replace('[', '').replace(']', '')  # Remove bracket markers
+        thought_content = ' '.join(thought_content.split())  # Normalize whitespace
+        if thought_content:
+            logger.debug(f"Extracted analysis from thought block: {len(thought_content)} chars")
+            return thought_content
+
+    logger.debug("No analysis text found.")
+    return None
+
+
 def extract_gnd_system_from_response(text: str, output_format: Optional[str] = None) -> Optional[str]:
     logger.info(f"extract_gnd_system_from_response called with text length {len(text)}, format={output_format}")
 

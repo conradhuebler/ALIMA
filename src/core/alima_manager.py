@@ -13,6 +13,7 @@ from .processing_utils import (
     parse_keywords_from_list,
     extract_keywords_from_response,
     extract_gnd_system_from_response,
+    extract_keyword_chains_from_response,
     match_keywords_against_text,
 )
 from .provider_status_service import ProviderStatusService
@@ -270,13 +271,6 @@ class AlimaManager:
     ) -> AnalysisResult:
         formatted_prompt = prompt_config.prompt.format(**variables)
 
-        # Inject JSON-Instruktionen unless output_format == "xml" - Claude Generated
-        if prompt_config.output_format != "xml":
-            from .json_schemas import get_json_instruction_text
-            json_instruction = get_json_instruction_text(task)
-            formatted_prompt += "\n\n" + json_instruction
-            self.logger.info(f"🔧 JSON-Instruktionen für Task '{task}' in Prompt injiziert")
-
         self.logger.debug(
             f"Formatted prompt for request {request_id}: {formatted_prompt[:200]}..."
         )
@@ -353,12 +347,6 @@ class AlimaManager:
                     ),
                 }
                 formatted_prompt = prompt_config.prompt.format(**variables)
-
-                # Inject JSON-Instruktionen for chunked analysis - Claude Generated
-                if prompt_config.output_format != "xml":
-                    from .json_schemas import get_json_instruction_text
-                    json_instruction = get_json_instruction_text(task)
-                    formatted_prompt += "\n\n" + json_instruction
 
                 response_text = self._generate_response(
                     request_id,
@@ -695,17 +683,21 @@ class AlimaManager:
             extracted_keywords_str = extract_keywords_from_response(response_text_str, output_format=output_format)
             matched_keywords = parse_keywords_from_list(extracted_keywords_str)
         gnd_systematic = extract_gnd_system_from_response(response_text_str, output_format=output_format)
+        keyword_chains = extract_keyword_chains_from_response(response_text_str, output_format=output_format)
 
         # Handle cases where extraction functions might return None or empty string
         if not matched_keywords:
             matched_keywords = {}
         if gnd_systematic is None:
             gnd_systematic = ""
+        if not keyword_chains:
+            keyword_chains = []
 
         return AnalysisResult(
             full_text=response_text,
             matched_keywords=matched_keywords,
             gnd_systematic=gnd_systematic,
+            keyword_chains=keyword_chains,
         )
 
     def _extract_and_match_keywords(

@@ -99,9 +99,12 @@ class LiberoLoginDialog(QDialog):
 
     def _update_url_preview(self):
         """Rebuild auth URL preview when credentials change - Claude Generated"""
+        # Show masked password in preview for security
+        password = self._password_input.text()
+        masked_password = "****" if password else ""
         url = self._build_auth_url(
             self._username_input.text().strip(),
-            self._password_input.text()
+            masked_password
         )
         self._url_preview.setText(url)
         # Reset token/OK when credentials change
@@ -110,10 +113,14 @@ class LiberoLoginDialog(QDialog):
         self._status_label.setText("")
 
     def _fetch(self):
-        """Call LiberoTokenFetcher using the (possibly manually edited) URL field - Claude Generated"""
+        """Call LiberoTokenFetcher using real credentials - Claude Generated"""
         from ..utils.setup_utils import LiberoTokenFetcher
 
-        auth_url = self._url_preview.text().strip()
+        # Build URL with actual password (not masked preview)
+        auth_url = self._build_auth_url(
+            self._username_input.text().strip(),
+            self._password_input.text()
+        )
         if not auth_url:
             self._status_label.setText("❌ Keine Auth-URL — bitte SOAP Search URL in der Konfiguration eintragen.")
             self._status_label.setStyleSheet("color: red;")

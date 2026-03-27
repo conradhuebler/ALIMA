@@ -473,6 +473,9 @@ class PipelineStepExecutor:
             keywords_list = keywords
 
         # Stream search progress if callback provided - Claude Generated
+        # === DIAGNOSTIC: Log suggester configuration ===
+        if self.logger:
+            self.logger.info(f"🔍 execute_gnd_search: {len(keywords_list)} Keywords, Suggester: {[st.value for st in suggester_types]}")
         if stream_callback:
             stream_callback(
                 f"Suche mit {len(keywords_list)} Keywords: {', '.join(keywords_list)}\n",
@@ -1932,6 +1935,10 @@ class PipelineStepExecutor:
             _output_format = getattr(task_state.prompt_config, 'output_format', None) if task_state.prompt_config else None
             dk_classifications = self._extract_dk_from_response(response_text, output_format=_output_format)
 
+            # Extract analysis text from LLM response - Claude Generated
+            from ..core.processing_utils import extract_analyse_text_from_response
+            analyse_text = extract_analyse_text_from_response(response_text, output_format=_output_format)
+
             # Construct LlmKeywordAnalysis object for history/display - Claude Generated
             from ..core.data_models import LlmKeywordAnalysis
             llm_analysis = LlmKeywordAnalysis(
@@ -1943,7 +1950,8 @@ class PipelineStepExecutor:
                 temperature=task_state.prompt_config.temp if task_state.prompt_config else 0.7,
                 seed=task_state.prompt_config.seed if task_state.prompt_config else 0,
                 response_full_text=response_text,
-                extracted_gnd_classes=dk_classifications
+                extracted_gnd_classes=dk_classifications,
+                analyse_text=analyse_text  # Analysis text from thought block or JSON - Claude Generated
             )
 
             if stream_callback:

@@ -17,8 +17,8 @@ import gzip
 import requests
 import json
 from pathlib import Path
-from PyQt6.QtCore import QCoreApplication
 
+from src.utils.qt_plugin_setup import setup_qt_plugin_paths
 from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from src.utils.config_manager import ConfigManager
 
@@ -30,7 +30,11 @@ def handle_db_config(args, logger: logging.Logger):
         args: Parsed command-line arguments with db_action subcommand
         logger: Logger instance
     """
+    # Setup Qt plugin paths for SQL drivers - Claude Generated
+    setup_qt_plugin_paths()
+
     # Ensure QCoreApplication exists for QtSql operations
+    from PyQt6.QtCore import QCoreApplication
     if not QCoreApplication.instance():
         app = QCoreApplication(sys.argv)
 
@@ -184,6 +188,10 @@ def handle_migrate_db(args, logger: logging.Logger):
     """
     from src.utils.database_migrator import DatabaseMigrator
     from src.core.database_manager import DatabaseManager
+    from PyQt6.QtCore import QCoreApplication
+
+    # Setup Qt plugin paths for SQL drivers - Claude Generated
+    setup_qt_plugin_paths()
 
     # Ensure QCoreApplication exists
     if not QCoreApplication.instance():

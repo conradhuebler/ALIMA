@@ -21,6 +21,11 @@ ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Index
 *   **🤖 Multi-Provider LLM-Support:** Funktioniert mit Ollama, Claude, Gemini, OpenAI und kompatiblen APIs
 *   **⚡ Intelligente Provider-Auswahl:** Automatische Wahl des besten Modells basierend auf Aufgabe und Nutzerpräferenzen
 *   **📦 Batch-Verarbeitung:** 100+ Dokumente automatisch analysieren und Ergebnisse exportieren
+    *   Batch-Datei: Textdatei mit Quellen (DOI:..., ISBN:..., etc.)
+    *   **Manuelle Eingabe:** DOIs/ISBNs direkt per Copy-Paste eingeben
+    *   Paketsiegel: K10Plus-Sigel für Batch-DOI-Abfrage
+    *   Datei-Auswahl: Einzelne PDFs/Bilder direkt auswählen
+    *   Verzeichnis-Scan: Alle Dateien eines Ordners automatisch erfassen
 *   **🖥️ GUI (PyQt6):** Desktop-Anwendung mit visuellem Pipeline-Workflow und detallierter Ergebnisanalyse
 *   **🌐 WebAPP:** Server-basierte Schnittstelle für webbasierte Nutzung — gleiche Konfiguration wie GUI und CLI
 *   **📤 Katalog-Integration:** K10+/WinIBW-Export für direktes Einfügen in Bibliothekskataloge
@@ -29,8 +34,9 @@ ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Index
 
 ### Voraussetzungen
 
-*   Python 3.8 oder höher
+*   Python 3.8 bis 3.12 **wichtig** Python 3.13 funktioniert nicht, wenn Webseiten via crawl4ai ausgelesen werden sollen
 *   PyQt6
+*   diverse Pakete (openai, ollama, crawl4ai, playwright) siehe requirements.txt
 
 ### Installationsschritte
 
@@ -196,7 +202,7 @@ Der `batch`-Befehl verarbeitet eine Liste von Datenquellen nacheinander.
 *   `--output-dir <ordner>`: Ordner, in dem die JSON-Ergebnisdateien gespeichert werden.
 
 **Format der Batch-Datei:**
-Jede Zeile muss das Format `TYP:WERT` haben. Unterstützte Typen sind `DOI`, `URL`, `PDF`, `IMG`, `TXT`.
+Jede Zeile muss das Format `TYP:WERT` haben. Unterstützte Typen sind `DOI`, `ISBN`, `PPN`, `URL`, `PDF`, `IMG`, `TXT`. Bare DOIs (z.B. `10.1234/example`) werden automatisch erkannt.
 
 ```
 # Beispiel batch_sources.txt
@@ -205,6 +211,40 @@ URL:https://www.tagesschau.de/wirtschaft/verbraucher/recycling-lithium-ionen-akk
 PDF:/home/user/docs/studie.pdf
 IMG:/home/user/images/infografik.png
 TXT:/home/user/docs/abstract.txt
+```
+
+**Manuelle Eingabe (GUI-Batch):**
+Im Batch-Verarbeitungsdialog kann man DOIs und andere Quellen auch direkt per Copy-Paste eingeben:
+
+1. Tab "✏️ Manuelles Eingeben" auswählen
+2. DOIs/ISBNs/PPNs in das Textfeld einfügen (eine pro Zeile oder Format `TYP:WERT`)
+3. "Vorschau" klicken → Quellen werden geparst
+4. Gewünschte Quellen per Checkbox auswählen
+5. "Start" klicken
+
+```
+# Beispiele für manuelle Eingabe
+10.1234/example-paper        # Wird automatisch als DOI erkannt
+DOI:10.5678/another-paper    # Explizites DOI-Format
+ISBN:9783662123456          # ISBN
+PPN:1234567890              # PPN (K10Plus)
+```
+
+**Manuelle Eingabe (GUI-Batch):**
+Im Batch-Verarbeitungsdialog kann man DOIs und andere Quellen auch direkt per Copy-Paste eingeben:
+
+1. Tab "✏️ Manuelles Eingeben" auswählen
+2. DOIs/ISBNs/PPNs in das Textfeld einfügen (eine pro Zeile oder Format `TYP:WERT`)
+3. "Vorschau" klicken → Quellen werden geparst
+4. Gewünschte Quellen per Checkbox auswählen
+5. "Start" klicken
+
+```
+# Beispiele für manuelle Eingabe
+10.1234/example-paper        # Wird automatisch als DOI erkannt
+DOI:10.5678/another-paper   # Explizites DOI-Format
+ISBN:9783662123456          # ISBN
+PPN:1234567890              # PPN (K10Plus)
 ```
 
 **Beispiel-Aufruf:**

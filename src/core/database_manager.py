@@ -14,6 +14,7 @@ from PyQt6.QtCore import QCoreApplication
 import json
 
 from ..utils.config_models import DatabaseConfig
+from .sql_dialect import SQLDialect
 
 
 class DatabaseManager:
@@ -45,8 +46,15 @@ class DatabaseManager:
             # Create minimal QCoreApplication for CLI mode
             import sys
             self._app = QCoreApplication(sys.argv)
+
+            # Setup Qt plugin paths for SQL drivers - Claude Generated
+            from ..utils.qt_plugin_setup import setup_qt_plugin_paths
+            setup_qt_plugin_paths()
         else:
             self._app = None
+            # Setup Qt plugin paths (app already exists) - Claude Generated
+            from ..utils.qt_plugin_setup import setup_qt_plugin_paths
+            setup_qt_plugin_paths()
 
     def get_connection(self) -> QSqlDatabase:
         """
@@ -142,6 +150,16 @@ class DatabaseManager:
         """
         connection = self.get_connection()
         query = QSqlQuery(connection)
+
+        # Convert INSERT OR REPLACE / INSERT OR IGNORE for MySQL/MariaDB compatibility - Claude Generated
+        if SQLDialect.is_mysql_family(self.config.db_type):
+            # Convert INSERT OR REPLACE to INSERT ... ON DUPLICATE KEY UPDATE
+            if 'INSERT OR REPLACE' in sql.upper() or 'INSERT  OR  REPLACE' in sql.upper():
+                sql = SQLDialect.convert_insert_or_replace_sql(self.config.db_type, sql)
+            # Convert INSERT OR IGNORE to INSERT IGNORE
+            elif 'INSERT OR IGNORE' in sql.upper():
+                import re
+                sql = re.sub(r'INSERT\s+OR\s+IGNORE', 'INSERT IGNORE', sql, flags=re.IGNORECASE)
 
         # Prepare query
         if not query.prepare(sql):
@@ -374,6 +392,26 @@ class DatabaseManager:
 
         except Exception as e:
             return {"error": str(e)}
+
+    def get_db_type(self) -> str:
+        """
+        Get the configured database type.
+        Claude Generated
+
+        Returns:
+            str: Database type ('sqlite', 'sqlite3', 'mysql', 'mariadb')
+        """
+        return self.config.db_type
+
+    def get_dialect(self) -> type:
+        """
+        Get the SQL dialect class for database-specific operations.
+        Claude Generated
+
+        Returns:
+            type: SQLDialect class with static methods for dialect-specific SQL
+        """
+        return SQLDialect
 
     def close_connection(self):
         """

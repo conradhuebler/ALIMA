@@ -148,8 +148,9 @@ class MetaSuggester(BaseSuggester):
             if self.enable_mapping_search:
                 mapping_hits = 0
                 live_searches = 0
-                
+
                 for term in terms:
+                    self.logger.info(f"🔍 Suche '{term}' mit {suggester_type.value} (mapping_search={self.enable_mapping_search})")
                     # Check for cached mapping first
                     cached_gnd_ids, was_cached = self.ukm.search_with_mappings_first(
                         search_term=term,
@@ -157,9 +158,10 @@ class MetaSuggester(BaseSuggester):
                         max_age_hours=self.mapping_max_age_hours,
                         live_search_fallback=lambda t: suggester.search([t])
                     )
-                    
+
                     if was_cached:
                         mapping_hits += 1
+                        self.logger.info(f"✅ Cache-Hit für '{term}': {len(cached_gnd_ids)} GND-IDs")
                         # Convert cached GND IDs to results format
                         if cached_gnd_ids:
                             self._add_cached_results_to_combined(
@@ -167,6 +169,7 @@ class MetaSuggester(BaseSuggester):
                             )
                     else:
                         live_searches += 1
+                        self.logger.info(f"📡 Live-Suche für '{term}' (Cache-Miss)")
                         # Fallback already executed by search_with_mappings_first
                         # Results should have been updated in mapping, now get fresh live results
                         try:
