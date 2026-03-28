@@ -1344,8 +1344,13 @@ class PipelineManager:
                 catalog_web_record_url = ""
                 strict_gnd_validation = True
 
+            rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
+                final_keywords,
+                self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
+            )
             dk_search_result = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
+                rvk_anchor_keywords=rvk_anchor_keywords,
                 stream_callback=self._stream_callback_adapter,
                 max_results=getattr(step_config, 'max_results', DEFAULT_DK_MAX_RESULTS),
                 catalog_token=catalog_token,
@@ -1432,6 +1437,10 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK classification
             step_config = self.config.get_step_config("dk_classification")
+            rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
+                self.current_analysis_state.final_llm_analysis.extracted_gnd_keywords if self.current_analysis_state and self.current_analysis_state.final_llm_analysis else [],
+                self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
+            )
 
             # Prepare kwargs for DK classification - Claude Generated (2026-02-17)
             dk_kwargs = {
@@ -1443,6 +1452,7 @@ class PipelineManager:
                 "temperature": step_config.temperature or 0.7,
                 "top_p": step_config.top_p or 0.1,
                 "dk_frequency_threshold": getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),
+                "rvk_anchor_keywords": rvk_anchor_keywords,
                 "repetition_penalty": step_config.repetition_penalty,
                 "think": step_config.think,
             }

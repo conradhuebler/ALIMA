@@ -167,6 +167,33 @@
     ],
     "output_format": "json"
   },
+  "rvk_scoring": {
+    "fields": [
+      "prompt",
+      "system",
+      "temp",
+      "p-value",
+      "model",
+      "seed"
+    ],
+    "required": [
+      "abstract",
+      "keywords"
+    ],
+    "prompts": [
+      [
+        "**Aufgabe**:\nBewerte die unten gelisteten RVK-Kandidaten fuer den gegebenen Abstract. Du darfst keine neuen RVK-Notationen erfinden und keine Kandidaten hinzufuegen. Bewerte jeden Kandidaten in drei Dimensionen von 0 bis 5:\n- thematic_fit: Passt die Notation zum Kernthema des Abstracts?\n- branch_fit: Passt der Fachpfad / Oberbereich der RVK?\n- specificity: Ist die Notation hinreichend spezifisch und nicht zu allgemein?\n\nWichtige Regeln:\n1. Bevorzuge Kandidaten, die mehrere Kernkonzepte des Abstracts abdecken.\n2. Bestrafe Kandidaten mit unpassendem Oberbereich, auch wenn einzelne Schlagwoerter lexikalisch passen.\n3. Nutze nur die gegebenen RVK-Kandidaten.\n4. Gib fuer jeden Kandidaten einen total_score an. Dieser soll deine Gesamtbewertung widerspiegeln.\n\nAbstract:\n{abstract}\n\nRVK-Kandidaten:\n{keywords}\n",
+        "Du bist ein praeziser bibliothekarischer RVK-Gutachter. Bewerte nur die gegebenen Kandidaten streng und konsistent.",
+        "0.0",
+        "0.01",
+        [
+          "default"
+        ],
+        "0"
+      ]
+    ],
+    "output_format": "json"
+  },
   "image_text_extraction": {
     "fields": [
       "prompt",

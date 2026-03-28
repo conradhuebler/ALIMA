@@ -69,6 +69,28 @@ DK_CLASS_SCHEMA = {
     "required": ["classifications"],
 }
 
+RVK_SCORING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "scores": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "thematic_fit": {"type": "integer"},
+                    "branch_fit": {"type": "integer"},
+                    "specificity": {"type": "integer"},
+                    "total_score": {"type": "integer"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    "required": ["scores"],
+}
+
 _TASK_SCHEMAS = {
     "initialisation": INITIALISATION_SCHEMA,
     "keywords": KEYWORDS_SCHEMA,
@@ -76,6 +98,7 @@ _TASK_SCHEMAS = {
     "rephrase": KEYWORDS_SCHEMA,
     "dk_class": DK_CLASS_SCHEMA,
     "dk_classification": DK_CLASS_SCHEMA,
+    "rvk_scoring": RVK_SCORING_SCHEMA,
 }
 
 # JSON-Instruktions-Texte (deutsch, da Prompts deutsch sind)
@@ -135,6 +158,23 @@ _JSON_INSTRUCTIONS = {
         '    {"code": "RVK QC 130", "type": "RVK"}\n'
         '  ]\n'
         '}\n'
+        'Gib NUR das JSON-Objekt aus, keinen weiteren Text.'
+    ),
+    "rvk_scoring": (
+        '\n\nGib deine gesamte Antwort als ein einziges valides JSON-Objekt aus:\n'
+        '{\n'
+        '  "scores": [\n'
+        '    {\n'
+        '      "code": "RVK XX 1234",\n'
+        '      "thematic_fit": 0,\n'
+        '      "branch_fit": 0,\n'
+        '      "specificity": 0,\n'
+        '      "total_score": 0,\n'
+        '      "reason": "Kurze Begründung"\n'
+        '    }\n'
+        '  ]\n'
+        '}\n'
+        'Nutze nur die angegebenen RVK-Kandidaten. Werte alle Kandidaten auf einer Skala von 0 bis 5 je Kriterium. '
         'Gib NUR das JSON-Objekt aus, keinen weiteren Text.'
     ),
 }

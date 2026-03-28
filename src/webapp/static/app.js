@@ -612,6 +612,11 @@ class AlimaWebapp {
             this.updateButtonState();
             this.clearStreamText();
             this.resetSteps();
+            this.resetResultsPanelContent();
+            this.hideRecoveryOption();
+            this.setResultsPanelState('running');
+            this.showResultsPanel();
+            this.enableExportButton(true);
 
             // Create FormData for multipart request
             const formData = new FormData();
@@ -654,13 +659,6 @@ class AlimaWebapp {
 
             // Persist session ID so page reload can reconnect - Claude Generated
             localStorage.setItem('alima_running_session', this.sessionId);
-
-            // Show results panel immediately - Claude Generated (2026-01-06)
-            this.setResultsPanelState('running');
-            this.showResultsPanel();
-
-            // Enable export button immediately - Claude Generated (2026-01-06)
-            this.enableExportButton(true); // true = running state
 
             // Connect WebSocket for live updates
             this.connectWebSocket();
@@ -1522,6 +1520,13 @@ class AlimaWebapp {
     clearStreamText() {
         document.getElementById('stream-text').textContent = '';
         this.lastDisplayedStep = null;  // Reset step tracking - Claude Generated
+    }
+
+    resetResultsPanelContent() {
+        const summaryDiv = document.getElementById('results-summary');
+        if (summaryDiv) {
+            summaryDiv.innerHTML = '';
+        }
     }
 
     // Results panel

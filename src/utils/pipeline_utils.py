@@ -1787,6 +1787,7 @@ class PipelineStepExecutor:
         provider: str = None,
         stream_callback: Optional[callable] = None,
         dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,  # Claude Generated - Only pass classifications with >= N occurrences
+        rvk_anchor_keywords: Optional[List[str]] = None,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
         **kwargs,
     ) -> Tuple[List[str], Optional["LlmKeywordAnalysis"]]:
@@ -1998,10 +1999,10 @@ class PipelineStepExecutor:
                 allowed_nonstandard_rvk_map,
                 stream_callback=stream_callback,
             )
-            deterministic_rvk = self._select_final_rvk_candidates(
-                results_with_titles,
-                original_abstract,
-            )
+            # Extract analysis text from LLM response - Claude Generated
+            from ..core.processing_utils import extract_analyse_text_from_response
+            analyse_text = extract_analyse_text_from_response(response_text, output_format=_output_format)
+
             llm_dk_only = [
                 code for code in llm_classifications
                 if not str(code or "").strip().upper().startswith("RVK ")
@@ -2012,29 +2013,10 @@ class PipelineStepExecutor:
             ]
 
             max_total_classifications = 10
-            max_dk_count = max(0, max_total_classifications - len(deterministic_rvk))
+            max_dk_count = max(0, max_total_classifications - len(llm_rvk_only))
             dk_classifications = list(
-                dict.fromkeys(llm_dk_only[:max_dk_count] + deterministic_rvk)
+                dict.fromkeys(llm_dk_only[:max_dk_count] + llm_rvk_only)
             )
-
-            if stream_callback:
-                if deterministic_rvk:
-                    stream_callback(
-                        (
-                            "ℹ️ Finale RVK-Auswahl erfolgt deterministisch aus validierten Kandidaten: "
-                            f"{', '.join(deterministic_rvk)}\n"
-                        ),
-                        "dk_classification",
-                    )
-                elif llm_rvk_only:
-                    stream_callback(
-                        "ℹ️ LLM-RVK-Auswahl wurde verworfen; es blieb kein deterministisch validierter RVK-Kandidat uebrig\n",
-                        "dk_classification",
-                    )
-
-            # Extract analysis text from LLM response - Claude Generated
-            from ..core.processing_utils import extract_analyse_text_from_response
-            analyse_text = extract_analyse_text_from_response(response_text, output_format=_output_format)
 
             # Construct LlmKeywordAnalysis object for history/display - Claude Generated
             from ..core.data_models import LlmKeywordAnalysis
@@ -2569,7 +2551,227 @@ class PipelineStepExecutor:
         if parts:
             stream_callback(f"ℹ️ RVK-Quellen: {', '.join(parts)}\n", step_id)
 
-    def _score_rvk_candidate(self, candidate: Dict[str, Any], original_abstract: str) -> int:
+    @staticmethod
+    def _rvk_significant_tokens(text: str) -> List[str]:
+        """Extract simple content-bearing tokens for deterministic RVK ranking."""
+        stopwords = {
+            "und", "oder", "der", "die", "das", "des", "dem", "den", "ein", "eine", "einer",
+            "eines", "im", "in", "am", "an", "auf", "mit", "ohne", "von", "vom", "zum", "zur",
+            "fur", "fuer", "uber", "ueber", "unter", "zwischen", "nach", "vor", "bei", "aus",
+            "zu", "ist", "sind", "war", "werden", "wird", "als", "auch", "nicht", "kein",
+            "keine", "sehr", "mehr", "weniger", "durch", "gegen", "seit", "bis", "eines",
+            "einem", "einen", "dieser", "diese", "dieses", "jene", "jener", "jenes",
+            "text", "analyse", "geschichte",  # generic high-frequency tokens contribute little
+        }
+        normalized = canonicalize_keyword(str(text or "")).casefold()
+        raw_tokens = re.findall(r"[a-zA-ZäöüÄÖÜß]{4,}", normalized)
+        return [token for token in raw_tokens if token not in stopwords]
+
+    def _derive_rvk_anchor_keywords(
+        self,
+        verified_keywords: List[str],
+        llm_analysis: Optional["LlmKeywordAnalysis"] = None,
+        max_anchors: int = 8,
+    ) -> List[str]:
+        """Derive a small thematic GND subset to drive RVK lookup and ranking."""
+        if not verified_keywords:
+            return []
+
+        analysis_text = ""
+        missing_concepts: List[str] = []
+        keyword_chains: List[Dict[str, Any]] = []
+
+        if llm_analysis:
+            analysis_text = str(getattr(llm_analysis, "analyse_text", "") or "")
+            response_text = str(getattr(llm_analysis, "response_full_text", "") or "")
+            if not analysis_text and response_text:
+                from ..core.processing_utils import extract_analyse_text_from_response
+                analysis_text = extract_analyse_text_from_response(response_text) or ""
+            missing_concepts = list(getattr(llm_analysis, "missing_concepts", []) or [])
+            if not missing_concepts and response_text:
+                from ..core.processing_utils import extract_missing_concepts_from_response
+                missing_concepts = extract_missing_concepts_from_response(response_text)
+            if response_text:
+                from ..core.processing_utils import extract_keyword_chains_from_response
+                keyword_chains = extract_keyword_chains_from_response(response_text)
+
+        thematic_fragments = [analysis_text] + list(missing_concepts)
+        for chain in keyword_chains:
+            thematic_fragments.extend(chain.get("chain", []) or [])
+            thematic_fragments.append(str(chain.get("reason", "") or ""))
+        thematic_text = " ".join(fragment for fragment in thematic_fragments if fragment)
+        thematic_tokens = set(self._rvk_significant_tokens(thematic_text))
+
+        institutional_terms = {
+            "bibliothek", "bibliotheken", "zeitung", "fernsehen", "massenmedien",
+            "kommentar", "alltag", "rezeption", "stadt", "bild", "sohn",
+        }
+
+        scored_keywords = []
+        for keyword in verified_keywords:
+            clean_keyword = keyword.split("(GND-ID:")[0].strip()
+            keyword_lower = canonicalize_keyword(clean_keyword).casefold()
+            keyword_tokens = set(self._rvk_significant_tokens(clean_keyword))
+            score = 0
+
+            if analysis_text and keyword_lower and keyword_lower in canonicalize_keyword(analysis_text).casefold():
+                score += 45
+
+            for concept in missing_concepts:
+                concept_lower = canonicalize_keyword(concept).casefold()
+                if not concept_lower:
+                    continue
+                if keyword_lower == concept_lower:
+                    score += 30
+                elif keyword_lower and (keyword_lower in concept_lower or concept_lower in keyword_lower):
+                    score += 18
+
+            for chain in keyword_chains:
+                chain_terms = [canonicalize_keyword(item).casefold() for item in (chain.get("chain", []) or [])]
+                if keyword_lower and keyword_lower in chain_terms:
+                    score += 26
+                reason_text = canonicalize_keyword(str(chain.get("reason", "") or "")).casefold()
+                if keyword_lower and keyword_lower in reason_text:
+                    score += 10
+
+            token_overlap = len(keyword_tokens.intersection(thematic_tokens))
+            score += token_overlap * 9
+
+            if keyword_tokens and keyword_tokens.issubset(institutional_terms) and score < 45:
+                score -= 12
+
+            scored_keywords.append((score, clean_keyword.casefold(), keyword))
+
+        scored_keywords.sort(key=lambda item: (-item[0], item[1]))
+        selected = [keyword for score, _, keyword in scored_keywords if score > 0][:max_anchors]
+
+        if not selected:
+            selected = verified_keywords[: min(max_anchors, len(verified_keywords))]
+
+        return selected
+
+    def _rvk_domain_profile(self, abstract_text: str, matched_keywords: List[str]) -> Dict[str, int]:
+        """Estimate thematic domain strength from the abstract and matched keywords."""
+        combined_tokens = self._rvk_significant_tokens(
+            " ".join([str(abstract_text or "")] + [str(item) for item in matched_keywords])
+        )
+        counts: Dict[str, int] = {}
+        domain_terms = {
+            "politics": {
+                "politik", "politisch", "demokratie", "demokratisierung", "dissident",
+                "kommunismus", "sozialismus", "totalitarismus", "verfolgung",
+                "menschenrecht", "menschenrechte", "menschenrechtspolitik", "staat",
+                "ost", "west", "konflikt", "krieg", "nato", "osze", "helsinki",
+                "sicherheitspolitik", "weltpolitik", "international", "völkerrecht", "voelkerrecht",
+            },
+            "history": {
+                "geschichte", "historisch", "osteuropa", "sowjetunion", "prager",
+                "fruhling", "fruehling", "tschechoslowakei", "slowakei", "russisch",
+                "ukrainisch", "kalter", "krieg", "biografie", "autobiografie",
+            },
+            "law": {
+                "recht", "rechte", "grundrecht", "freiheitsrecht", "vertrag",
+                "völkerrecht", "voelkerrecht", "konvention", "menschenrecht",
+            },
+            "media": {
+                "zeitung", "fernsehen", "massenmedien", "propaganda", "offentliche", "oeffentliche",
+            },
+            "literature": {
+                "literatur", "schriftsteller", "roman", "erzahlung", "erzaehlung",
+                "autobiografie", "biografie",
+            },
+            "religion": {
+                "christlich", "kirche", "theologie", "religion", "ethik",
+            },
+            "philosophy": {
+                "philosophie", "ethik", "denken", "theorie",
+            },
+        }
+
+        for domain, terms in domain_terms.items():
+            counts[domain] = sum(1 for token in combined_tokens if token in terms)
+        return counts
+
+    def _rvk_branch_fit_score(
+        self,
+        candidate: Dict[str, Any],
+        abstract_text: str,
+        matched_keywords: List[str],
+    ) -> int:
+        """Score how well the candidate branch fits the text domain."""
+        branch_text = " ".join(
+            [
+                str(candidate.get("label", "") or ""),
+                str(candidate.get("ancestor_path", "") or ""),
+                " ".join(str(item) for item in (candidate.get("register") or [])),
+            ]
+        )
+        branch_tokens = set(self._rvk_significant_tokens(branch_text))
+        domain_profile = self._rvk_domain_profile(abstract_text, matched_keywords)
+
+        fit_score = 0
+        domain_branch_terms = {
+            "politics": {"politik", "politische", "internationale", "demokratie", "staat", "regierung", "konflikt"},
+            "history": {"geschichte", "historische", "osteuropa", "sowjetunion", "zeitgeschichte"},
+            "law": {"recht", "rechte", "vertrag", "völkerrecht", "voelkerrecht", "menschenrechte"},
+            "media": {"medien", "presse", "kommunikation", "propaganda", "fernsehen"},
+            "literature": {"literatur", "schriftsteller", "autobiograph", "biograph"},
+            "religion": {"christliche", "theologie", "religion", "kirche"},
+            "philosophy": {"philosophie", "ethik", "theorie"},
+        }
+
+        for domain, strength in domain_profile.items():
+            if strength <= 0:
+                continue
+            hits = len(branch_tokens.intersection(domain_branch_terms.get(domain, set())))
+            if hits:
+                fit_score += min(strength, 4) * hits * 10
+
+        # Penalize clearly mismatched major domains when the text strongly points elsewhere.
+        if domain_profile.get("politics", 0) + domain_profile.get("history", 0) >= 3:
+            if branch_tokens.intersection(domain_branch_terms["religion"]):
+                fit_score -= 45
+            if branch_tokens.intersection(domain_branch_terms["literature"]) and domain_profile.get("literature", 0) == 0:
+                fit_score -= 20
+
+        if domain_profile.get("law", 0) >= 2 and branch_tokens.intersection(domain_branch_terms["law"]):
+            fit_score += 15
+
+        return fit_score
+
+    @staticmethod
+    def _rvk_broadness_penalty(candidate: Dict[str, Any]) -> int:
+        """Penalize overly broad or shallow RVK nodes."""
+        ancestor_path = str(candidate.get("ancestor_path", "") or "")
+        label = str(candidate.get("label", "") or "")
+        register_entries = [str(item) for item in (candidate.get("register") or []) if str(item).strip()]
+        notation = str(candidate.get("dk", "") or "")
+
+        depth = len([part for part in ancestor_path.split(">") if part.strip()])
+        label_tokens = re.findall(r"[A-Za-zÄÖÜäöüß]{4,}", label)
+        notation_core = re.sub(r"[^A-Z0-9]", "", notation)
+
+        penalty = 0
+        if depth <= 1:
+            penalty += 60
+        elif depth == 2:
+            penalty += 35
+        elif depth == 3:
+            penalty += 15
+
+        if len(label_tokens) <= 1 and len(register_entries) <= 1:
+            penalty += 18
+        if len(notation_core) <= 4:
+            penalty += 12
+
+        return penalty
+
+    def _score_rvk_candidate(
+        self,
+        candidate: Dict[str, Any],
+        original_abstract: str,
+        rvk_anchor_keywords: Optional[List[str]] = None,
+    ) -> int:
         """Deterministically score validated RVK candidates."""
         source = candidate.get("source", "catalog")
         status = candidate.get("rvk_validation_status", "standard")
@@ -2578,6 +2780,11 @@ class PipelineStepExecutor:
             for keyword in (candidate.get("matched_keywords") or [])
             if canonicalize_keyword(keyword)
         ]
+        anchor_keywords = {
+            canonicalize_keyword(keyword.split("(GND-ID:")[0].strip()).lower()
+            for keyword in (rvk_anchor_keywords or [])
+            if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+        }
         label = str(candidate.get("label", "") or "")
         ancestor_path = str(candidate.get("ancestor_path", "") or "")
         register_entries = [str(item) for item in (candidate.get("register") or []) if str(item).strip()]
@@ -2603,12 +2810,110 @@ class PipelineStepExecutor:
                 overlap_score += 3
 
         specificity = len(re.sub(r"[^A-Z0-9]", "", str(candidate.get("dk", "")))) * 2
-        count_score = min(int(candidate.get("count", 0) or 0), 30) * 3
-        keyword_support = len(set(matched_keywords)) * 8
-        title_support = min(len(titles), 10)
+        count_score = min(int(candidate.get("count", 0) or 0), 24) * 2
+        keyword_support = len(set(matched_keywords)) * 12
+        title_support = min(len(titles), 6)
         register_support = min(len(register_entries), 8)
+        branch_fit = self._rvk_branch_fit_score(candidate, abstract_text, matched_keywords)
+        broadness_penalty = self._rvk_broadness_penalty(candidate)
+        anchor_match_bonus = 0
+        if anchor_keywords:
+            anchor_hits = len(anchor_keywords.intersection(set(matched_keywords)))
+            if anchor_hits:
+                anchor_match_bonus += anchor_hits * 24
+            else:
+                anchor_match_bonus -= 30
 
-        return source_weight + overlap_score + specificity + count_score + keyword_support + title_support + register_support
+        return (
+            source_weight
+            + overlap_score
+            + specificity
+            + count_score
+            + keyword_support
+            + title_support
+            + register_support
+            + branch_fit
+            + anchor_match_bonus
+            - broadness_penalty
+        )
+
+    def _score_rvk_shortlist_with_llm(
+        self,
+        shortlist: List[Dict[str, Any]],
+        original_abstract: str,
+        model: Optional[str],
+        provider: Optional[str],
+        stream_callback: Optional[callable] = None,
+        mode=None,
+        llm_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Best-effort LLM scoring for a fixed RVK shortlist."""
+        if not shortlist or not self.alima_manager:
+            return {}
+
+        from ..core.data_models import AbstractData
+        from ..core.json_response_parser import parse_json_response
+
+        shortlist_text = PipelineResultFormatter.format_dk_results_for_prompt(
+            shortlist,
+            max_results=len(shortlist),
+        )
+        abstract_data = AbstractData(
+            abstract=original_abstract,
+            keywords=shortlist_text,
+        )
+
+        try:
+            task_state = self.alima_manager.analyze_abstract(
+                abstract_data=abstract_data,
+                task="rvk_scoring",
+                model=model,
+                provider=provider,
+                stream_callback=None,
+                mode=mode,
+                **(llm_kwargs or {}),
+            )
+            if task_state.status == "failed":
+                return {}
+
+            parsed = parse_json_response(task_state.analysis_result.full_text) or {}
+            scores = parsed.get("scores", [])
+            results: Dict[str, Dict[str, Any]] = {}
+            for item in scores:
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get("code", "")).strip()
+                normalized = canonicalize_rvk_notation(code[4:].strip() if code.upper().startswith("RVK ") else code)
+                if not normalized:
+                    continue
+                thematic_fit = int(item.get("thematic_fit", 0) or 0)
+                branch_fit = int(item.get("branch_fit", 0) or 0)
+                specificity = int(item.get("specificity", 0) or 0)
+                total = int(item.get("total_score", 0) or 0)
+                if not total:
+                    total = thematic_fit * 4 + branch_fit * 4 + specificity * 2
+                results[normalized] = {
+                    "thematic_fit": thematic_fit,
+                    "branch_fit": branch_fit,
+                    "specificity": specificity,
+                    "total_score": total,
+                    "reason": str(item.get("reason", "") or ""),
+                }
+            if stream_callback and results:
+                stream_callback(
+                    f"ℹ️ RVK-Shortlist per LLM bewertet: {len(results)} Kandidaten\n",
+                    "dk_classification",
+                )
+            return results
+        except Exception as exc:
+            if self.logger:
+                self.logger.warning(f"RVK shortlist scoring failed: {exc}")
+            if stream_callback:
+                stream_callback(
+                    f"⚠️ RVK-Shortlist-Scoring fehlgeschlagen, nutze Heuristik: {str(exc)}\n",
+                    "dk_classification",
+                )
+            return {}
 
     def _select_final_rvk_candidates(
         self,
@@ -2616,6 +2921,12 @@ class PipelineStepExecutor:
         original_abstract: str,
         max_standard: int = 2,
         max_nonstandard: int = 1,
+        rvk_anchor_keywords: Optional[List[str]] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        stream_callback: Optional[callable] = None,
+        mode=None,
+        llm_kwargs: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
         """Select final RVK deterministically from validated candidates."""
         standard_candidates = []
@@ -2635,6 +2946,12 @@ class PipelineStepExecutor:
                 "non_standard": 2,
                 "validation_error": 1,
             }.get(status, 0)
+
+        anchor_keywords = {
+            canonicalize_keyword(keyword.split("(GND-ID:")[0].strip()).lower()
+            for keyword in (rvk_anchor_keywords or [])
+            if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+        }
 
         for candidate in candidate_results:
             cls_type = str(candidate.get("classification_type", candidate.get("type", "DK"))).upper()
@@ -2684,8 +3001,21 @@ class PipelineStepExecutor:
                     current["validation_message"] = candidate.get("validation_message", current.get("validation_message", ""))
 
         for enriched in aggregated_candidates.values():
-            enriched["_score"] = self._score_rvk_candidate(enriched, original_abstract)
+            enriched["_score"] = self._score_rvk_candidate(
+                enriched,
+                original_abstract,
+                rvk_anchor_keywords=rvk_anchor_keywords,
+            )
             enriched["_branch"] = str(enriched.get("branch_family", "") or "")
+            matched_keyword_set = {
+                canonicalize_keyword(keyword).lower()
+                for keyword in (enriched.get("matched_keywords") or [])
+                if canonicalize_keyword(keyword)
+            }
+            enriched["_anchor_hits"] = sorted(anchor_keywords.intersection(matched_keyword_set))
+            enriched["_anchor_hit_count"] = len(enriched["_anchor_hits"])
+            enriched["_source_rank"] = _source_rank(str(enriched.get("source", "catalog") or "catalog"))
+            enriched["_status_rank"] = _status_rank(str(enriched.get("rvk_validation_status", "standard") or "standard"))
 
             status = enriched.get("rvk_validation_status", "standard")
             if status == "standard":
@@ -2694,41 +3024,107 @@ class PipelineStepExecutor:
                 nonstandard_candidates.append(enriched)
 
         def _sort_key(item: Dict[str, Any]):
-            return (-int(item.get("_score", 0)), item.get("dk", ""))
+            return (
+                -int(item.get("_anchor_hit_count", 0)),
+                -int(item.get("_source_rank", 0)),
+                -int(item.get("_status_rank", 0)),
+                -int(item.get("_score", 0)),
+                item.get("dk", ""),
+            )
 
         standard_candidates.sort(key=_sort_key)
         nonstandard_candidates.sort(key=_sort_key)
 
+        def _prefilter_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            if not candidates:
+                return []
+            if anchor_keywords:
+                anchored = [candidate for candidate in candidates if candidate.get("_anchor_hit_count", 0) > 0]
+                if anchored:
+                    candidates = anchored
+            shortlist = candidates[:8]
+            llm_scores = self._score_rvk_shortlist_with_llm(
+                shortlist,
+                original_abstract,
+                model=model,
+                provider=provider,
+                stream_callback=stream_callback,
+                mode=mode,
+                llm_kwargs=llm_kwargs,
+            )
+            for candidate in shortlist:
+                llm_score = llm_scores.get(candidate["dk"], {})
+                candidate["_llm_total_score"] = int(llm_score.get("total_score", 0) or 0)
+                candidate["_llm_reason"] = str(llm_score.get("reason", "") or "")
+                candidate["_combined_score"] = (
+                    int(candidate.get("_score", 0))
+                    + int(candidate.get("_llm_total_score", 0)) * 12
+                    + int(candidate.get("_anchor_hit_count", 0)) * 18
+                )
+            shortlist.sort(
+                key=lambda item: (
+                    -int(item.get("_combined_score", 0)),
+                    -int(item.get("_anchor_hit_count", 0)),
+                    item.get("dk", ""),
+                )
+            )
+            return shortlist
+
         def _pick_diverse(candidates: List[Dict[str, Any]], limit: int) -> List[str]:
             selected = []
-            used_branches = set()
-            seen_values = set()
-            for candidate in candidates:
-                value = f"RVK {candidate['dk']}"
-                if value in seen_values:
-                    continue
-                branch = candidate.get("_branch", "")
-                if branch and branch in used_branches:
-                    continue
-                selected.append(value)
-                seen_values.add(value)
-                if branch:
-                    used_branches.add(branch)
-                if len(selected) >= limit:
-                    return selected
-            for candidate in candidates:
-                value = f"RVK {candidate['dk']}"
-                if value in seen_values:
-                    continue
-                selected.append(value)
-                seen_values.add(value)
-                if len(selected) >= limit:
+            selected_candidates: List[Dict[str, Any]] = []
+            covered_anchors = set()
+            remaining = list(candidates)
+
+            while remaining and len(selected) < limit:
+                best_idx = None
+                best_value = None
+                for idx, candidate in enumerate(remaining):
+                    anchor_hits = set(candidate.get("_anchor_hits", []))
+                    new_coverage = len(anchor_hits - covered_anchors)
+                    overlap = len(anchor_hits.intersection(covered_anchors))
+                    dynamic_score = (
+                        int(candidate.get("_combined_score", candidate.get("_score", 0)))
+                        + new_coverage * 45
+                        - overlap * 15
+                    )
+                    branch = candidate.get("_branch", "")
+                    if branch and any(selected_candidate.get("_branch", "") == branch for selected_candidate in selected_candidates):
+                        dynamic_score -= 8
+                    candidate_value = (dynamic_score, int(candidate.get("_anchor_hit_count", 0)), -idx)
+                    if best_value is None or candidate_value > best_value:
+                        best_value = candidate_value
+                        best_idx = idx
+
+                if best_idx is None:
                     break
+
+                chosen = remaining.pop(best_idx)
+                selected_candidates.append(chosen)
+                selected.append(f"RVK {chosen['dk']}")
+                covered_anchors.update(chosen.get("_anchor_hits", []))
             return selected
 
-        if standard_candidates:
-            return _pick_diverse(standard_candidates, max_standard)
-        return _pick_diverse(nonstandard_candidates, max_nonstandard)
+        shortlisted_standard = _prefilter_candidates(standard_candidates)
+        shortlisted_nonstandard = _prefilter_candidates(nonstandard_candidates)
+
+        if stream_callback:
+            if shortlisted_standard:
+                preview = ", ".join(f"RVK {item['dk']}" for item in shortlisted_standard[:5])
+                stream_callback(
+                    f"ℹ️ RVK-Shortlist (standard): {preview}\n",
+                    "dk_classification",
+                )
+            elif shortlisted_nonstandard:
+                preview = ", ".join(f"RVK {item['dk']}" for item in shortlisted_nonstandard[:5])
+                stream_callback(
+                    f"ℹ️ RVK-Shortlist (lokal): {preview}\n",
+                    "dk_classification",
+                )
+
+        if shortlisted_standard:
+            return _pick_diverse(shortlisted_standard, max_standard)
+        return _pick_diverse(shortlisted_nonstandard, max_nonstandard)
 
     def _extract_dk_from_response(self, response_text: str, output_format: Optional[str] = None) -> List[str]:
         """Extract DK and RVK classifications from LLM response - Claude Generated
@@ -2998,6 +3394,7 @@ class PipelineStepExecutor:
         catalog_web_record_url: str = None,
         force_update: bool = False,  # Claude Generated
         strict_gnd_validation: bool = True,  # EXPERT OPTION: Allow disabling strict GND validation
+        rvk_anchor_keywords: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Execute catalog search for DK classification data - Claude Generated
@@ -3139,6 +3536,34 @@ class PipelineStepExecutor:
             seen_gnd_ids.add(gnd_id)
             deduplicated_gnd_entries.append(entry)
         gnd_keyword_entries = deduplicated_gnd_entries
+        rvk_anchor_entries = gnd_keyword_entries
+        rvk_anchor_search_keywords = list(gnd_validated_keywords)
+        if rvk_anchor_keywords:
+            normalized_anchor_ids = {
+                extract_gnd_id(keyword)
+                for keyword in rvk_anchor_keywords
+                if extract_gnd_id(keyword)
+            }
+            normalized_anchor_terms = {
+                canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+                for keyword in rvk_anchor_keywords
+                if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+            }
+            filtered_anchor_entries = [
+                entry for entry in gnd_keyword_entries
+                if (
+                    entry.get("gnd_id") in normalized_anchor_ids
+                    or canonicalize_keyword(entry.get("keyword", "")) in normalized_anchor_terms
+                )
+            ]
+            filtered_anchor_keywords = [
+                keyword for keyword in gnd_validated_keywords
+                if canonicalize_keyword(keyword) in normalized_anchor_terms
+            ]
+            if filtered_anchor_entries:
+                rvk_anchor_entries = filtered_anchor_entries
+            if filtered_anchor_keywords:
+                rvk_anchor_search_keywords = filtered_anchor_keywords
 
         if gnd_validated_keywords_before != gnd_validated_keywords_after:
             duplicates_removed = gnd_validated_keywords_before - gnd_validated_keywords_after
@@ -3224,6 +3649,17 @@ class PipelineStepExecutor:
                 f"Suche Katalog-Einträge für {len(final_search_keywords)} Keywords {mode_info} (max {max_results})\n",
                 "dk_search"
             )
+            if rvk_anchor_entries:
+                rvk_anchor_preview = ", ".join(
+                    [entry.get("keyword", "") for entry in rvk_anchor_entries[:6] if entry.get("keyword")]
+                )
+                if len(rvk_anchor_entries) > 6:
+                    rvk_anchor_preview += f", +{len(rvk_anchor_entries) - 6} weitere"
+                if rvk_anchor_preview:
+                    stream_callback(
+                        f"ℹ️ RVK-Ankerbegriffe: {rvk_anchor_preview}\n",
+                        "dk_search"
+                    )
 
         # Execute catalog search with Per-Keyword Feedback - Claude Generated QUICK-FIX
         # IMPORTANT: Loop over keywords individually to provide per-keyword status feedback
@@ -3338,9 +3774,9 @@ class PipelineStepExecutor:
                 stream_callback=stream_callback,
             )
             dk_search_results = self._inject_rvk_api_fallback(
-                final_search_keywords,
+                rvk_anchor_search_keywords or final_search_keywords,
                 dk_search_results,
-                gnd_keyword_entries=gnd_keyword_entries,
+                gnd_keyword_entries=rvk_anchor_entries,
                 stream_callback=stream_callback,
             )
             self._emit_rvk_source_diagnostics(
@@ -3507,8 +3943,10 @@ class PipelineStepExecutor:
             if stream_callback:
                 stream_callback(f"\n▶ [dk_classification]\n", "dk_classification")
             try:
+                rvk_anchor_keywords = self._derive_rvk_anchor_keywords(final_keywords, kw_analysis)
                 dk_search = self.execute_dk_search(
                     keywords=final_keywords,
+                    rvk_anchor_keywords=rvk_anchor_keywords,
                     stream_callback=_cb("dk_classification"),
                 )
                 state.dk_search_results = dk_search.get("keyword_results", [])
@@ -3519,6 +3957,7 @@ class PipelineStepExecutor:
                     dk_search_results=dk_search.get("classifications", []),
                     provider=dk_cfg.provider if dk_cfg else None,
                     model=dk_cfg.model if dk_cfg else None,
+                    rvk_anchor_keywords=rvk_anchor_keywords,
                     stream_callback=_cb("dk_classification"),
                 )
                 state.dk_classifications = dk_classes

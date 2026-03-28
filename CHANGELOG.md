@@ -1,33 +1,82 @@
 # Changelog
 
-This file records notable repository changes.
+This file summarizes notable changes in this branch relative to [`conradhuebler/ALIMA`](https://github.com/conradhuebler/ALIMA), using `upstream/main` as the baseline.
 
 ## [Unreleased]
 
-### Added
+### Pipeline And LLM Processing
 
-- Added structured web export classifications under `results.classifications` with entries shaped like `{ "system": "DK|RVK", "code": "...", "display": "..." }`.
-- Added a deprecated compatibility alias note for `results.dk_classifications`, which remains available as the legacy string list.
-- Added export-time RVK validation metadata in structured `results.classifications` entries by checking RVK codes against the official RVK API and marking non-standard notations explicitly.
-- Added RVK validation surfacing in the web UI results panel and stream log, including per-code badges and a compact summary of standard versus non-standard RVK notations.
-- Added a branch-aware RVK API fallback for classification: when catalog search returns no RVK candidates, ALIMA now looks up authority-backed RVK notations via the official RVK API, includes hierarchy paths for ranking, and rejects free-form RVK output that is not among the supplied authority-backed candidates.
-- Added a local RVK MarcXML GND indexer and changed RVK fallback order to use direct `GND-ID -> RVK` candidates from the official RVK dump before falling back to label-based RVK API search.
-- Added periodic RVK dump update checks so the local MarcXML GND index is revalidated against the official RVK release page and rebuilt when a newer dump is published.
+- Reworked the pipeline around structured JSON-mode LLM output, with updated parsing, schemas, prompt handling, and fallback behavior.
+- Added GND-pool verification for model-extracted keywords and expanded iterative keyword refinement.
+- Added generated working titles and richer per-step pipeline state across CLI, PyQt, and web runs.
+- Added repetition detection and repetition-penalty controls for long or noisy model outputs.
+- Improved OCR and image handling, including multi-image OCR, better OpenAI-compatible vision handling, and safer OCR error reporting.
 
-### Fixed
+### DK And RVK Classification
 
-- Added the missing `pdf2image` Python dependency to `requirements.txt` and documented the Poppler runtime prerequisite for PDF OCR.
-- Fixed the web GUI so completed analyses render the final results panel reliably after pipeline completion.
-- Fixed the polling/results rendering path so string-valued keyword fields no longer trigger `forEach is not a function` errors in the web UI.
-- Fixed stale recovery UI behavior in the web GUI so `Verbindung unterbrochen` and `Wiederherstellen` are only shown for an actually interrupted live analysis, not after a successful completion.
-- Fixed MarcXML SRU DK/RVK extraction so keyword-based catalog results use the same keyword-centric shape as the rest of the pipeline and are no longer discarded before DK/RVK classification.
-- Fixed HTML-escaped values in parsed LLM output and SRU search terms by decoding entities such as `&lt;` before downstream processing.
-- Fixed image OCR with OpenAI-compatible vision models so ALIMA uses the selected model-specific OCR prompt, disables JSON mode for raw OCR text, omits unsupported sampling parameters for multimodal OpenAI chat requests, and no longer reports provider error strings as successful OCR output.
-- Fixed RVK candidate handling so catalog-derived RVK is validated before final selection, obvious artifacts are dropped, plausible non-standard/local RVK is preserved, and the official RVK API fallback now triggers whenever no standard RVK candidate survives catalog validation.
-- Fixed excessive RVK API validation fan-out by ranking catalog RVK candidates on catalog evidence first and validating only the strongest unique candidates instead of every plausible RVK-like code.
-- Fixed final RVK instability by replacing the LLM's last-step RVK choice with deterministic selection from validated RVK candidates while keeping DK selection on the LLM path.
+- Expanded DK/RVK transparency throughout the app, including full candidate display, deduplication statistics, and export of flattened DK search data.
+- Added structured classification export under `results.classifications` while keeping `results.dk_classifications` as a backward-compatible alias.
+- Added RVK validation metadata and UI surfacing for standard, non-standard, and validation-error RVK notations.
+- Added RVK authority fallback infrastructure:
+  - official RVK API lookup and validation
+  - local RVK MarcXML GND index for `GND-ID -> RVK` lookup
+  - periodic RVK dump release checks and index refresh
+- Improved RVK candidate filtering to reject obvious artifacts, preserve plausible local variants, and record RVK provenance.
+- Added thematic RVK anchor handling so RVK lookup can prefer a smaller, thematically central GND subset.
+- Experimental deterministic RVK ranking was introduced and later disabled again as the active output path; final RVK output currently comes from the constrained LLM selection.
+- Updated PyQt labels and data handling so DK/RVK classifications are treated more neutrally instead of implying DK-only output.
 
-### Changed
+### Web Application
 
-- Clarified the semantics of legacy `dk_classifications`: the field now remains as a backward-compatible alias for final DK/RVK classification strings rather than implying DK-only output.
-- Updated PyQt classification labels and selectors to use neutral DK/RVK wording, added a `classifications` alias on `KeywordAnalysisState`, and fixed PyQt title lookup/K10+ export helpers to preserve RVK systems correctly.
+- Added a redesigned web UI with dedicated templates, stronger styling, and session isolation.
+- Added auto-save, recovery, immediate export, reconnect handling, and step-level abort support.
+- Improved live pipeline progress display, including more accurate step mapping and progress text.
+- Fixed multiple web reliability issues:
+  - final results rendering after completion
+  - stale recovery banners and interrupted-connection UI
+  - incorrect reuse of previous-run results while a new run is active
+  - polling/rendering errors caused by unexpected result shapes
+  - incorrect DK search summary rendering
+- Added browser notifications and improved result presentation for classifications and RVK validation.
+
+### PyQt GUI
+
+- Reworked major parts of the desktop UI, especially the pipeline tab, stream widget, comparison/review views, and main window layout.
+- Split and reorganized older DK/UB catalog functionality into clearer tabs and workers.
+- Added an Erschließungsvergleich tab and improved result transfer between views.
+- Improved the comprehensive settings dialog, provider settings, and first-start wizard.
+- Added batch-processing improvements such as manual text input, DOI-aware filenames, and better non-modal behavior.
+- Fixed settings-dialog sizing and scrolling issues on smaller screens.
+
+### Configuration, Setup, And CLI
+
+- Replaced the monolithic CLI with modular commands under `src/cli/commands`.
+- Consolidated pipeline configuration handling with dedicated builders, parsers, defaults, and tests.
+- Added richer setup flows, including `setup --force`, first-start wizard improvements, preset export, preset examples, and catalog/DB setup support.
+- Added `config.example.lobid-gbv.json` as a sample configuration for Lobid plus GBV/GVK SRU usage.
+- Removed older legacy config/editor code paths and redundant provider dialogs.
+
+### Providers, Database, And Infrastructure
+
+- Added SQL dialect abstraction for SQLite and MariaDB compatibility and fixed related datetime/query issues.
+- Improved database reset and shutdown behavior in the unified knowledge manager.
+- Added provider preset handling, fuzzy model matching, think-flag handling improvements, and better provider-status checks.
+- Added Qt plugin setup helpers and broader dependency/runtime cleanup.
+
+### Metadata, Search, And Catalog Integrations
+
+- Added OpenAlex/DataCite fallback and improved DOI resolution, metadata formatting, and filename/source provenance.
+- Added K10plus helpers including PICA/MARC fixes, PaketSigel support, and resolver utilities.
+- Improved catalog configuration so hardcoded URLs are replaced by presets and configuration-driven endpoints.
+- Added Libero token auto-creation/login dialog support and improved SOAP/SRU setup handling.
+
+### Documentation And Examples
+
+- Expanded documentation with new guides for configuration, the agentic workflow, iterative GND search, DK classification splitting, and webapp session behavior.
+- Updated the README and examples to reflect the newer setup and pipeline behavior.
+- Added `AIChangelog.md` and supporting internal documentation files.
+
+### Dependencies
+
+- Refreshed `requirements.txt` for the current environment.
+- Added `pdf2image` to the Python dependencies and documented the Poppler requirement for PDF OCR.
