@@ -1538,6 +1538,15 @@ class PipelineStepExecutor:
         # Execute final keyword analysis with deduplicated results - Claude Generated
         # IMPORTANT: Uses 'task' (normal keywords prompt) NOT 'chunking_task' for proper Sacherschließung
         final_keywords_text = "\n".join(deduplicated_keywords)
+        if stream_callback:
+            stream_callback(
+                (
+                    "\n--- Konsolidierung der deduplizierten Keywords ---\n"
+                    f"Starte finalen Konsolidierungslauf mit {len(deduplicated_keywords)} Keywords "
+                    "(ohne Live-Token-Stream, um Wiederholungsschleifen in der Anzeige zu vermeiden)\n"
+                ),
+                kwargs.get("step_id", "keywords"),
+            )
         final_single_result = self._execute_single_keyword_analysis(
             original_abstract=original_abstract,
             gnd_keywords_text=final_keywords_text,
@@ -1545,11 +1554,19 @@ class PipelineStepExecutor:
             model=model,
             provider=provider,
             task=task,  # Use normal keywords task, NOT chunking_task!
-            stream_callback=stream_callback,
+            stream_callback=None,
             mode=mode,
             full_gnd_pool_for_verification=full_gnd_pool,  # Claude Generated - pass full pool
             **kwargs,
         )
+        if stream_callback:
+            stream_callback(
+                (
+                    f"Konsolidierung abgeschlossen: {len(final_single_result[0])} "
+                    "verifizierte Keywords im Endergebnis\n"
+                ),
+                kwargs.get("step_id", "keywords"),
+            )
 
         # Use already verified keywords from _execute_single_keyword_analysis() - Claude Generated
         # No need to re-extract or re-verify since _execute_single_keyword_analysis() already does both
