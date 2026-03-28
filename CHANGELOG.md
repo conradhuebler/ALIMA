@@ -8,6 +8,8 @@ This file records notable repository changes.
 
 - Added structured web export classifications under `results.classifications` with entries shaped like `{ "system": "DK|RVK", "code": "...", "display": "..." }`.
 - Added a deprecated compatibility alias note for `results.dk_classifications`, which remains available as the legacy string list.
+- Added export-time RVK validation metadata in structured `results.classifications` entries by checking RVK codes against the official RVK API and marking non-standard notations explicitly.
+- Added RVK validation surfacing in the web UI results panel and stream log, including per-code badges and a compact summary of standard versus non-standard RVK notations.
 
 ### Fixed
 
@@ -16,6 +18,7 @@ This file records notable repository changes.
 - Fixed stale recovery UI behavior in the web GUI so `Verbindung unterbrochen` and `Wiederherstellen` are only shown for an actually interrupted live analysis, not after a successful completion.
 - Fixed MarcXML SRU DK/RVK extraction so keyword-based catalog results use the same keyword-centric shape as the rest of the pipeline and are no longer discarded before DK/RVK classification.
 - Fixed HTML-escaped values in parsed LLM output and SRU search terms by decoding entities such as `&lt;` before downstream processing.
+- Fixed image OCR with OpenAI-compatible vision models so ALIMA uses the selected model-specific OCR prompt, disables JSON mode for raw OCR text, omits unsupported sampling parameters for multimodal OpenAI chat requests, and no longer reports provider error strings as successful OCR output.
 
 ### Changed
 

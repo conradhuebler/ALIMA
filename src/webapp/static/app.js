@@ -86,6 +86,7 @@ class AlimaWebapp {
             if (data.status === 'running') {
                 this.isAnalyzing = true;
                 this.updateButtonState();
+                this.setResultsPanelState('running');
                 this.showResultsPanel();
                 this.enableExportButton(true);
                 localStorage.setItem('alima_running_session', this.sessionId);
@@ -172,6 +173,7 @@ class AlimaWebapp {
         if (status === 'running') {
             this.isAnalyzing = true;
             this.updateButtonState();
+            this.setResultsPanelState('running');
             this.enableExportButton(true);
             this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)\n`);
             this.connectWebSocket();
@@ -653,6 +655,7 @@ class AlimaWebapp {
             localStorage.setItem('alima_running_session', this.sessionId);
 
             // Show results panel immediately - Claude Generated (2026-01-06)
+            this.setResultsPanelState('running');
             this.showResultsPanel();
 
             // Enable export button immediately - Claude Generated (2026-01-06)
@@ -913,6 +916,8 @@ class AlimaWebapp {
         console.log('Analysis complete:', msg);
 
         if (msg.status === 'completed') {
+            this.setResultsPanelState('completed');
+
             // Display working title if available - Claude Generated
             if (msg.results && msg.results.working_title) {
                 this.displayWorkingTitle(msg.results.working_title);
@@ -1089,46 +1094,87 @@ class AlimaWebapp {
         }
     }
 
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    normalizeList(value) {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            return value.split(',').map(item => item.trim()).filter(Boolean);
+        }
+        return [];
+    }
+
+    normalizeClassifications(value, legacyValue) {
+        if (Array.isArray(value)) {
+            return value.map(item => {
+                if (typeof item === 'string') {
+                    return { display: item, system: '', code: item };
+                }
+                if (item && typeof item === 'object') {
+                    const display = item.display || [item.system, item.code].filter(Boolean).join(' ').trim() || item.code || '';
+                    return {
+                        display,
+                        system: item.system || '',
+                        code: item.code || display,
+                        validation_status: item.validation_status || null,
+                        is_standard: Object.prototype.hasOwnProperty.call(item, 'is_standard') ? item.is_standard : null,
+                        canonical_code: item.canonical_code || item.code || display,
+                        label: item.label || null,
+                        validation_message: item.validation_message || null,
+                        validation_source: item.validation_source || null,
+                    };
+                }
+                return null;
+            }).filter(Boolean);
+        }
+
+        return this.normalizeList(legacyValue).map(item => ({
+            display: item,
+            system: '',
+            code: item,
+            validation_status: null,
+            is_standard: null,
+            canonical_code: item,
+            label: null,
+            validation_message: null,
+            validation_source: null,
+        }));
+    }
+
+    getRvkValidationSummary(classifications, backendSummary = null) {
+        const rvkEntries = classifications.filter(cls => cls.system === 'RVK');
+        if (backendSummary && typeof backendSummary === 'object') {
+            return {
+                total: backendSummary.rvk_total || rvkEntries.length,
+                standard: backendSummary.rvk_standard || 0,
+                nonStandard: backendSummary.rvk_non_standard || 0,
+                errors: backendSummary.rvk_validation_errors || 0,
+            };
+        }
+
+        return {
+            total: rvkEntries.length,
+            standard: rvkEntries.filter(cls => cls.validation_status === 'standard').length,
+            nonStandard: rvkEntries.filter(cls => cls.validation_status === 'non_standard').length,
+            errors: rvkEntries.filter(cls => cls.validation_status === 'validation_error').length,
+        };
+    }
+
     // Display results in stream (Claude Generated - Updated for full results)
     displayResults(results) {
         if (!results) return;
 
-        const asList = (value) => {
-            if (Array.isArray(value)) return value;
-            if (typeof value === 'string') {
-                return value.split(',').map(item => item.trim()).filter(Boolean);
-            }
-            return [];
-        };
-
-        const normalizeClassifications = (value, legacyValue) => {
-            if (Array.isArray(value)) {
-                return value.map(item => {
-                    if (typeof item === 'string') {
-                        return { display: item, system: '', code: item };
-                    }
-                    if (item && typeof item === 'object') {
-                        const display = item.display || [item.system, item.code].filter(Boolean).join(' ').trim() || item.code || '';
-                        return {
-                            display,
-                            system: item.system || '',
-                            code: item.code || display,
-                        };
-                    }
-                    return null;
-                }).filter(Boolean);
-            }
-
-            return asList(legacyValue).map(item => ({
-                display: item,
-                system: '',
-                code: item,
-            }));
-        };
-
-        const initialKeywords = asList(results.initial_keywords);
-        const finalKeywords = asList(results.final_keywords);
-        const classifications = normalizeClassifications(results.classifications, results.dk_classifications);
+        const initialKeywords = this.normalizeList(results.initial_keywords);
+        const finalKeywords = this.normalizeList(results.final_keywords);
+        const classifications = this.normalizeClassifications(results.classifications, results.dk_classifications);
+        const rvkSummary = this.getRvkValidationSummary(classifications, results.classification_validation);
 
         // Display original abstract
         if (results.original_abstract) {
@@ -1171,6 +1217,16 @@ class AlimaWebapp {
             classifications.forEach(cls => {
                 this.appendStreamText(`  ${cls.display}`);
             });
+
+            if (rvkSummary.nonStandard > 0) {
+                this.appendStreamText(`  ⚠️ ${rvkSummary.nonStandard} RVK-Notation(en) sind nicht standardisiert`);
+            } else if (rvkSummary.total > 0 && rvkSummary.errors === 0) {
+                this.appendStreamText(`  ✓ RVK-Pruefung: ${rvkSummary.standard}/${rvkSummary.total} standardisiert`);
+            }
+
+            if (rvkSummary.errors > 0) {
+                this.appendStreamText(`  ⚠️ RVK-Pruefung unvollstaendig: ${rvkSummary.errors} API-Fehler`);
+            }
         }
 
         // Display DK search results summary
@@ -1193,42 +1249,10 @@ class AlimaWebapp {
 
         summaryDiv.innerHTML = '';
 
-        const asList = (value) => {
-            if (Array.isArray(value)) return value;
-            if (typeof value === 'string') {
-                return value.split(',').map(item => item.trim()).filter(Boolean);
-            }
-            return [];
-        };
-
-        const normalizeClassifications = (value, legacyValue) => {
-            if (Array.isArray(value)) {
-                return value.map(item => {
-                    if (typeof item === 'string') {
-                        return { display: item, system: '', code: item };
-                    }
-                    if (item && typeof item === 'object') {
-                        const display = item.display || [item.system, item.code].filter(Boolean).join(' ').trim() || item.code || '';
-                        return {
-                            display,
-                            system: item.system || '',
-                            code: item.code || display,
-                        };
-                    }
-                    return null;
-                }).filter(Boolean);
-            }
-
-            return asList(legacyValue).map(item => ({
-                display: item,
-                system: '',
-                code: item,
-            }));
-        };
-
-        const finalKeywords = asList(results.final_keywords);
-        const classifications = normalizeClassifications(results.classifications, results.dk_classifications);
-        const initialKeywords = asList(results.initial_keywords);
+        const finalKeywords = this.normalizeList(results.final_keywords);
+        const classifications = this.normalizeClassifications(results.classifications, results.dk_classifications);
+        const initialKeywords = this.normalizeList(results.initial_keywords);
+        const rvkSummary = this.getRvkValidationSummary(classifications, results.classification_validation);
 
         if (finalKeywords.length > 0) {
             const item = document.createElement('div');
@@ -1248,11 +1272,53 @@ class AlimaWebapp {
         if (classifications.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item classification';
-            item.style.maxHeight = '120px';
+            item.style.maxHeight = '220px';
             item.style.overflowY = 'auto';
             item.style.wordWrap = 'break-word';
             item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>Klassifikationen:</strong> ${classifications.map(cls => cls.display).join(', ')}`;
+            const validationSummary = rvkSummary.total > 0
+                ? `<div class="classification-validation-summary">
+                    <span class="classification-badge classification-badge--standard">RVK standard: ${rvkSummary.standard}</span>
+                    <span class="classification-badge classification-badge--non-standard">RVK nicht standard: ${rvkSummary.nonStandard}</span>
+                    ${rvkSummary.errors > 0 ? `<span class="classification-badge classification-badge--unknown">API-Fehler: ${rvkSummary.errors}</span>` : ''}
+                </div>`
+                : '';
+
+            const itemsHtml = classifications.map(cls => {
+                const systemClass = cls.system === 'RVK'
+                    ? 'classification-badge classification-badge--rvk'
+                    : 'classification-badge classification-badge--dk';
+
+                let validationHtml = '';
+                if (cls.system === 'RVK') {
+                    if (cls.validation_status === 'standard') {
+                        validationHtml = '<span class="classification-badge classification-badge--standard">standard</span>';
+                    } else if (cls.validation_status === 'non_standard') {
+                        validationHtml = '<span class="classification-badge classification-badge--non-standard">nicht standard</span>';
+                    } else if (cls.validation_status === 'validation_error') {
+                        validationHtml = '<span class="classification-badge classification-badge--unknown">API-Fehler</span>';
+                    }
+                }
+
+                const metaParts = [];
+                if (cls.system === 'RVK' && cls.label) {
+                    metaParts.push(this.escapeHtml(cls.label));
+                }
+                if (cls.system === 'RVK' && cls.validation_message && cls.validation_status !== 'standard') {
+                    metaParts.push(this.escapeHtml(cls.validation_message));
+                }
+
+                return `<div class="classification-entry">
+                    <div class="classification-entry__head">
+                        <span class="${systemClass}">${this.escapeHtml(cls.system || 'Code')}</span>
+                        <span class="classification-entry__code">${this.escapeHtml(cls.display)}</span>
+                        ${validationHtml}
+                    </div>
+                    ${metaParts.length > 0 ? `<div class="classification-entry__meta">${metaParts.join(' · ')}</div>` : ''}
+                </div>`;
+            }).join('');
+
+            item.innerHTML = `<strong>Klassifikationen:</strong>${validationSummary}<div class="classification-entry-list">${itemsHtml}</div>`;
             summaryDiv.appendChild(item);
         }
 
@@ -1420,6 +1486,32 @@ class AlimaWebapp {
 
     hideResultsPanel() {
         document.getElementById('results-panel').style.display = 'none';
+        this.setResultsPanelState('idle');
+    }
+
+    setResultsPanelState(state = 'idle') {
+        const panel = document.getElementById('results-panel');
+        const title = document.getElementById('results-panel-title');
+        if (!panel || !title) return;
+
+        panel.classList.remove('card--success', 'card--warning');
+        title.classList.remove('card-label--success', 'card-label--warning');
+
+        if (state === 'running') {
+            panel.classList.add('card--warning');
+            title.classList.add('card-label--warning');
+            title.textContent = '▶ Analyse läuft';
+            return;
+        }
+
+        if (state === 'completed') {
+            panel.classList.add('card--success');
+            title.classList.add('card-label--success');
+            title.textContent = '✓ Analyse abgeschlossen';
+            return;
+        }
+
+        title.textContent = 'Analyse';
     }
 
     // Update button state

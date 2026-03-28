@@ -308,11 +308,17 @@ body {
 }
 
 .card-label--success { color: var(--clr-success); }
+.card-label--warning { color: var(--clr-warning); }
 
 /* Success variant */
 .card--success {
     border-color: var(--clr-card-success-border);
     background: linear-gradient(160deg, var(--clr-card-success-bg-from) 0%, var(--clr-surface) 60%);
+}
+
+.card--warning {
+    border-color: color-mix(in srgb, var(--clr-warning) 28%, white);
+    background: linear-gradient(160deg, var(--clr-warning-bg) 0%, var(--clr-surface) 60%);
 }
 
 /* Dark variant (stream) */
@@ -716,6 +722,82 @@ body {
 
 .results-summary-item.keyword       { border-left-color: var(--clr-success); }
 .results-summary-item.classification { border-left-color: var(--clr-warning); }
+
+.classification-validation-summary {
+    display: flex;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    margin-top: var(--sp-2);
+    margin-bottom: var(--sp-2);
+}
+
+.classification-entry-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    margin-top: var(--sp-2);
+}
+
+.classification-entry {
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    background: rgba(255, 255, 255, 0.45);
+    border: 1px solid var(--clr-border);
+}
+
+.classification-entry__head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+}
+
+.classification-entry__code {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--clr-text);
+}
+
+.classification-entry__meta {
+    margin-top: 4px;
+    font-size: 0.77rem;
+    color: var(--clr-muted);
+}
+
+.classification-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--r-pill);
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.classification-badge--dk {
+    background: var(--clr-info-bg);
+    color: var(--clr-info);
+}
+
+.classification-badge--rvk {
+    background: var(--clr-primary-light);
+    color: var(--clr-primary);
+}
+
+.classification-badge--standard {
+    background: var(--clr-success-bg);
+    color: var(--clr-success);
+}
+
+.classification-badge--non-standard {
+    background: var(--clr-warning-bg);
+    color: var(--clr-warning);
+}
+
+.classification-badge--unknown {
+    background: var(--clr-error-bg);
+    color: var(--clr-error);
+}
 
 .results-actions {
     display: flex;

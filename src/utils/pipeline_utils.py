@@ -3816,17 +3816,51 @@ def _extract_from_image_pipeline(
         stream_callback(f"🖼️ Analysiere Bild mit LLM: {filename}")
     
     try:
-        # Lade OCR-Prompt from config - Claude Generated
+        # Lade Konfiguration und bestimme zuerst das tatsächliche Vision-Modell.
+        # So können modellspezifische OCR-Prompts und Parameter geladen werden.
         from ..utils.config_manager import ConfigManager
         config_manager = ConfigManager()
         config = config_manager.load_config()
+
+        # Check if a vision-capable model is configured for OCR.
+        # The PyQt settings UI stores this under "vision", while some older/manual configs
+        # may use the prompt-specific key "image_text_extraction".
+        has_providers = False
+        configured_task = None
+        for task_name in ["image_text_extraction", "vision", "initialisation", "keywords"]:
+            task_prefs = config.unified_config.task_preferences.get(task_name)
+            if task_prefs and bool(task_prefs.model_priority):
+                has_providers = True
+                configured_task = task_name
+                break
+
+        if not has_providers:
+            error_msg = (
+                "❌ Kein Vision-Modell für Bilderkennung konfiguriert!\n"
+                "Bitte in der Config file unter 'unified_config.task_preferences.vision' "
+                "oder 'unified_config.task_preferences.image_text_extraction' "
+                "einen 'model_priority'-Eintrag hinzufügen.\n"
+                "Beispiel: 'model_priority': [{'provider_name': 'openai_compatible', 'model_name': 'gpt-4o'}]"
+            )
+            if logger:
+                logger.error(error_msg)
+            raise Exception(error_msg)
+        elif logger:
+            logger.info(f"Vision/OCR task configuration found via '{configured_task}'")
+
+        # Bestimme besten Provider für Bilderkennung
+        provider, model = _get_best_vision_provider_pipeline(llm_service, logger)
+
+        if not provider:
+            raise Exception("Kein Provider mit Bilderkennung verfügbar")
+
         prompts_path = config.system_config.prompts_path
         prompt_service = PromptService(prompts_path, logger)
 
-        # Verwende image_text_extraction Task
+        # Load OCR prompt for the actual selected model, not the generic default.
         prompt_config_data = prompt_service.get_prompt_config(
             task="image_text_extraction",
-            model="default"
+            model=model or "default"
         )
 
         if not prompt_config_data:
@@ -3840,32 +3874,6 @@ def _extract_from_image_pipeline(
             'top_p': prompt_config_data.p_value,
             'seed': prompt_config_data.seed
         }
-
-        # Check if vision model is configured for image_text_extraction - Claude Generated
-        task_prefs = config.unified_config.task_preferences.get('image_text_extraction')
-
-        # Validate that vision model is explicitly configured
-        has_providers = False
-        if task_prefs:
-            # Check for model_priority (legacy preferred_providers removed for simplification)
-            has_providers = bool(task_prefs.model_priority)
-
-        if not has_providers:
-            error_msg = (
-                "❌ Kein Vision-Modell für Bilderkennung konfiguriert!\n"
-                "Bitte in der Config file unter 'task_preferences.image_text_extraction' "
-                "einen 'model_priority' eintrag hinzufügen.\n"
-                "Beispiel: 'model_priority': [{'provider_name': 'openai', 'model_name': 'gpt-4o'}]"
-            )
-            if logger:
-                logger.error(error_msg)
-            raise Exception(error_msg)
-
-        # Bestimme besten Provider für Bilderkennung
-        provider, model = _get_best_vision_provider_pipeline(llm_service, logger)
-
-        if not provider:
-            raise Exception("Kein Provider mit Bilderkennung verfügbar")
 
         if stream_callback:
             stream_callback(f"🖼️ Verwende {provider} ({model}) für Bilderkennung...")
@@ -3883,7 +3891,8 @@ def _extract_from_image_pipeline(
             p_value=float(prompt_config.get('top_p', 0.1)),
             seed=prompt_config.get('seed'),
             image=image_path,
-            stream=True  # Enable streaming for live feedback - Claude Generated
+            stream=True,  # Enable streaming for live feedback - Claude Generated
+            output_format="xml",  # OCR expects raw text, not JSON-mode structured output.
         )
 
         # Handle streaming response with live callback - Claude Generated
@@ -3910,6 +3919,17 @@ def _extract_from_image_pipeline(
             extracted_text = "".join(text_parts)
         else:
             extracted_text = str(response)
+
+        error_markers = (
+            "error with ",
+            "error code:",
+            "invalid_request_error",
+            "unsupported_value",
+            "unsupported value:",
+        )
+        lowered_response = extracted_text.strip().lower()
+        if lowered_response and any(marker in lowered_response for marker in error_markers):
+            raise Exception(extracted_text.strip())
         
         # Bereinige LLM-Output
         extracted_text = _clean_ocr_output_pipeline(extracted_text)

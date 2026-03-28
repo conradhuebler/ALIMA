@@ -12,11 +12,15 @@ import tempfile
 import threading
 import unicodedata
 import uuid
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 from datetime import datetime
 import subprocess
 import sys
+from urllib.parse import quote
+
+import requests
 
 # Add project root to sys.path BEFORE importing src modules
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -340,7 +344,7 @@ async def get_session(session_id: str) -> dict:
         "status": session.status,
         "current_step": session.current_step,
         "created_at": session.created_at,
-        "results": session.results,
+        "results": _prepare_results_for_export(session.results),
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
     }
@@ -588,29 +592,204 @@ def _autosave_session_state(session: Session):
         # Don't raise - auto-save is best-effort, shouldn't block pipeline
 
 
+def _ensure_list(value):
+    """Normalize legacy comma-separated strings to arrays for the web API."""
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return []
+
+
+def _ensure_json_serializable(value):
+    """Recursively convert non-JSON-serializable types."""
+    if isinstance(value, set):
+        return list(value)
+    if isinstance(value, dict):
+        return {k: _ensure_json_serializable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_ensure_json_serializable(v) for v in value]
+    return value
+
+
+def _parse_classification_entry(item: Any) -> Dict[str, Any]:
+    """Normalize a legacy string or structured classification object."""
+    extras: Dict[str, Any] = {}
+
+    if isinstance(item, dict):
+        extras = {k: v for k, v in item.items()
+                  if k not in {"system", "code", "display"}}
+        display = str(item.get("display") or "").strip()
+        system = str(item.get("system") or "").strip().upper()
+        code = str(item.get("code") or "").strip()
+    else:
+        display = str(item or "").strip()
+        system = ""
+        code = ""
+
+    if not display and system and code:
+        display = f"{system} {code}".strip()
+
+    if display and not system:
+        upper_display = display.upper()
+        if upper_display.startswith("DK "):
+            system = "DK"
+            code = code or display[3:].strip()
+        elif upper_display.startswith("RVK "):
+            system = "RVK"
+            code = code or display[4:].strip()
+
+    if not code:
+        code = display
+
+    if not display:
+        display = f"{system} {code}".strip() if system else str(code).strip()
+
+    return {
+        "system": system or "UNKNOWN",
+        "code": code,
+        "display": display,
+        **extras,
+    }
+
+
+@lru_cache(maxsize=256)
+def _validate_rvk_notation(code: str) -> Dict[str, Any]:
+    """Validate an RVK notation against the official RVK API.
+
+    The API returns a `node` object for valid notations and `error-code: 2`
+    / `error-message: Notation Not Found` for unknown ones.
+    """
+    normalized_code = re.sub(r"\s+", " ", str(code or "").strip()).upper()
+    if not normalized_code:
+        return {
+            "status": "non_standard",
+            "is_standard": False,
+            "canonical_code": "",
+            "label": None,
+            "message": "Empty RVK notation",
+        }
+
+    url = f"https://rvk.uni-regensburg.de/api/json/node/{quote(normalized_code, safe='')}"
+
+    try:
+        response = requests.get(url, timeout=6)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        logger.warning(f"RVK API validation failed for '{normalized_code}': {exc}")
+        return {
+            "status": "validation_error",
+            "is_standard": None,
+            "canonical_code": normalized_code,
+            "label": None,
+            "message": str(exc),
+        }
+
+    node = payload.get("node") if isinstance(payload, dict) else None
+    if isinstance(node, dict) and node.get("notation"):
+        return {
+            "status": "standard",
+            "is_standard": True,
+            "canonical_code": str(node.get("notation", "")).strip(),
+            "label": node.get("benennung"),
+            "message": None,
+        }
+
+    return {
+        "status": "non_standard",
+        "is_standard": False,
+        "canonical_code": normalized_code,
+        "label": None,
+        "message": payload.get("error-message", "Notation Not Found") if isinstance(payload, dict) else "Notation Not Found",
+    }
+
+
+def _build_structured_classifications(raw_classifications, validate_rvk: bool = False):
+    """Normalize classifications into structured entries.
+
+    When `validate_rvk` is enabled, RVK entries are checked against the
+    official RVK API and annotated with validation metadata.
+    """
+    structured = []
+
+    for item in _ensure_list(raw_classifications):
+        if not item:
+            continue
+
+        entry = _parse_classification_entry(item)
+
+        if entry["system"] == "RVK":
+            if validate_rvk:
+                validation = _validate_rvk_notation(entry["code"])
+                entry.update({
+                    "validation_status": validation["status"],
+                    "is_standard": validation["is_standard"],
+                    "canonical_code": validation["canonical_code"],
+                    "label": validation["label"],
+                    "validation_message": validation["message"],
+                    "validation_source": "rvk_api",
+                })
+            else:
+                entry.update({
+                    "validation_status": "not_checked",
+                    "is_standard": None,
+                    "canonical_code": entry["code"],
+                    "label": None,
+                    "validation_message": None,
+                    "validation_source": None,
+                })
+
+        structured.append(entry)
+
+    return structured
+
+
+def _prepare_results_for_export(results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Ensure export payload contains the structured classification schema.
+
+    This enriches older session payloads too, because the export endpoint may
+    be called for sessions created before the schema update.
+    """
+    prepared = dict(results or {})
+
+    legacy_classifications = _ensure_list(prepared.get("dk_classifications", []))
+    raw_structured = prepared.get("classifications") or legacy_classifications
+    structured_classifications = _build_structured_classifications(raw_structured, validate_rvk=True)
+
+    if not legacy_classifications:
+        legacy_classifications = [entry["display"] for entry in structured_classifications]
+
+    rvk_entries = [entry for entry in structured_classifications if entry.get("system") == "RVK"]
+    prepared["classifications"] = _ensure_json_serializable(structured_classifications)
+    prepared["classifications_deprecated_alias"] = "dk_classifications"
+    prepared["dk_classifications"] = _ensure_json_serializable(legacy_classifications)
+    prepared["classification_validation"] = {
+        "rvk_checked_via": "https://rvk.uni-regensburg.de/regensburger-verbundklassifikation-online/rvk-api",
+        "rvk_total": len(rvk_entries),
+        "rvk_standard": sum(1 for entry in rvk_entries if entry.get("validation_status") == "standard"),
+        "rvk_non_standard": sum(1 for entry in rvk_entries if entry.get("validation_status") == "non_standard"),
+        "rvk_validation_errors": sum(1 for entry in rvk_entries if entry.get("validation_status") == "validation_error"),
+    }
+
+    return _ensure_json_serializable(prepared)
+
+
 def _extract_results_from_analysis_state(analysis_state) -> dict:
     """Extract results dict from KeywordAnalysisState - shared logic for callback and recovery - Claude Generated"""
-
-    def ensure_list(value):
-        """Normalize legacy comma-separated strings to arrays for the web API."""
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        if isinstance(value, (list, tuple, set)):
-            return list(value)
-        return []
 
     # Extract final GND keywords from LLM analysis
     final_keywords = []
     if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-        final_keywords = ensure_list(
+        final_keywords = _ensure_list(
             getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
         )
 
     # Extract DK classifications
-    dk_classifications = ensure_list(getattr(analysis_state, 'dk_classifications', []))
+    dk_classifications = _ensure_list(getattr(analysis_state, 'dk_classifications', []))
 
     # Extract initial keywords
-    initial_keywords = ensure_list(getattr(analysis_state, 'initial_keywords', []))
+    initial_keywords = _ensure_list(getattr(analysis_state, 'initial_keywords', []))
 
     # Extract original abstract
     original_abstract = getattr(analysis_state, 'original_abstract', '')
@@ -674,72 +853,34 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
         logger.warning(f"Error serializing final_llm_analysis: {e}")
         final_llm_details = None
 
-    # Convert sets to lists for JSON serialization
-    def ensure_json_serializable(value):
-        """Recursively convert non-JSON-serializable types"""
-        if isinstance(value, set):
-            return list(value)
-        elif isinstance(value, dict):
-            return {k: ensure_json_serializable(v) for k, v in value.items()}
-        elif isinstance(value, (list, tuple)):
-            return [ensure_json_serializable(v) for v in value]
-        return value
-
-    def build_structured_classifications(raw_classifications):
-        """Normalize legacy classification strings into structured export entries."""
-        structured = []
-
-        for item in ensure_list(raw_classifications):
-            if not item:
-                continue
-
-            display = str(item).strip()
-            system = "UNKNOWN"
-            code = display
-
-            if display.upper().startswith("DK "):
-                system = "DK"
-                code = display[3:].strip()
-            elif display.upper().startswith("RVK "):
-                system = "RVK"
-                code = display[4:].strip()
-
-            structured.append({
-                "system": system,
-                "code": code,
-                "display": display,
-            })
-
-        return structured
-
-    structured_classifications = build_structured_classifications(dk_classifications)
+    structured_classifications = _build_structured_classifications(dk_classifications, validate_rvk=False)
 
     return {
         # Input & Keywords & Title
         "original_abstract": original_abstract,
         "working_title": working_title,  # Claude Generated
-        "initial_keywords": ensure_json_serializable(initial_keywords),
-        "final_keywords": ensure_json_serializable(final_keywords),
+        "initial_keywords": _ensure_json_serializable(initial_keywords),
+        "final_keywords": _ensure_json_serializable(final_keywords),
 
         # GND/SWB Search Results
-        "search_results": ensure_json_serializable(serialized_search_results),
+        "search_results": _ensure_json_serializable(serialized_search_results),
 
         # DK Classification Results
-        "classifications": ensure_json_serializable(structured_classifications),
+        "classifications": _ensure_json_serializable(structured_classifications),
         "classifications_deprecated_alias": "dk_classifications",
-        "dk_classifications": ensure_json_serializable(dk_classifications),
-        "dk_search_results": ensure_json_serializable(dk_search_results),
-        "dk_search_results_flattened": ensure_json_serializable(
+        "dk_classifications": _ensure_json_serializable(dk_classifications),
+        "dk_search_results": _ensure_json_serializable(dk_search_results),
+        "dk_search_results_flattened": _ensure_json_serializable(
             getattr(analysis_state, 'dk_search_results_flattened', [])),
-        "dk_statistics": ensure_json_serializable(
+        "dk_statistics": _ensure_json_serializable(
             getattr(analysis_state, 'dk_statistics', None)),
 
         # LLM Analysis Details
-        "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
-        "final_llm_call_details": ensure_json_serializable(final_llm_details),
+        "initial_llm_call_details": _ensure_json_serializable(initial_llm_details),
+        "final_llm_call_details": _ensure_json_serializable(final_llm_details),
 
         # GND Verification Results - Claude Generated
-        "verification": ensure_json_serializable(
+        "verification": _ensure_json_serializable(
             getattr(analysis_state.final_llm_analysis, 'verification', None)
             if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis
             else None
@@ -747,8 +888,8 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
 
         # Pipeline Metadata
         "pipeline_metadata": {
-            "search_suggesters_used": ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
-            "initial_gnd_classes": ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
+            "search_suggesters_used": _ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
+            "initial_gnd_classes": _ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
             "has_final_llm_analysis": bool(final_llm_details),
             "has_initial_llm_analysis": bool(initial_llm_details),
         }
@@ -852,7 +993,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await websocket.send_json({
                     "type": "complete",
                     "status": session.status,
-                    "results": make_json_serializable(session.results),
+                    "results": make_json_serializable(_prepare_results_for_export(session.results)),
                     "error": session.error_message,
                     "current_step": session.current_step,
                 })
@@ -882,7 +1023,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "status": session.status,
                 "current_step": session.current_step,
                 "current_step_status": session.current_step_status,  # 'running' or 'completed' - Claude Generated
-                "results": make_json_serializable(session.results),
+                "results": make_json_serializable(_prepare_results_for_export(session.results)),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
                 "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
                 "dk_search_progress": session.dk_search_progress,  # DK search progress info - Claude Generated
@@ -948,7 +1089,7 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
             "current_step": session.current_step,
             "is_complete": is_complete,
             "input": session.input_data,
-            "results": session.results,
+            "results": _prepare_results_for_export(session.results),
             "autosave_timestamp": session.autosave_timestamp,
         }
 
@@ -1013,7 +1154,7 @@ async def recover_session(session_id: str) -> dict:
         return {
             "session_id": session_id,
             "status": "recovered",
-            "results": make_json_serializable(session.results),
+            "results": make_json_serializable(_prepare_results_for_export(session.results)),
             "metadata": metadata,
             "message": "Results recovered successfully"
         }
