@@ -772,6 +772,14 @@ def _prepare_results_for_export(results: Optional[Dict[str, Any]]) -> Dict[str, 
         "rvk_validation_errors": sum(1 for entry in rvk_entries if entry.get("validation_status") == "validation_error"),
     }
 
+    rvk_provenance = prepared.get("rvk_provenance") or {}
+    prepared["rvk_provenance"] = {
+        "catalog_standard": int(rvk_provenance.get("catalog_standard", 0) or 0),
+        "catalog_nonstandard": int(rvk_provenance.get("catalog_nonstandard", 0) or 0),
+        "rvk_gnd_index": int(rvk_provenance.get("rvk_gnd_index", 0) or 0),
+        "rvk_api": int(rvk_provenance.get("rvk_api", 0) or 0),
+    }
+
     return _ensure_json_serializable(prepared)
 
 
@@ -787,6 +795,7 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
 
     # Extract DK classifications
     dk_classifications = _ensure_list(getattr(analysis_state, 'dk_classifications', []))
+    rvk_provenance = getattr(analysis_state, 'rvk_provenance', None)
 
     # Extract initial keywords
     initial_keywords = _ensure_list(getattr(analysis_state, 'initial_keywords', []))
@@ -869,6 +878,7 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
         "classifications": _ensure_json_serializable(structured_classifications),
         "classifications_deprecated_alias": "dk_classifications",
         "dk_classifications": _ensure_json_serializable(dk_classifications),
+        "rvk_provenance": _ensure_json_serializable(rvk_provenance),
         "dk_search_results": _ensure_json_serializable(dk_search_results),
         "dk_search_results_flattened": _ensure_json_serializable(
             getattr(analysis_state, 'dk_search_results_flattened', [])),

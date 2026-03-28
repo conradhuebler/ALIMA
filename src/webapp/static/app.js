@@ -231,11 +231,12 @@ class AlimaWebapp {
             const stepEl = document.createElement('div');
             stepEl.className = 'step pending';
             stepEl.id = `step-${step.id}`;
+            stepEl.dataset.step = step.id;
             stepEl.innerHTML = `
                 <div class="step-status">▷</div>
                 <div class="step-content">
                     <div class="step-name">${step.name}</div>
-                    <div class="step-info">${step.description}</div>
+                    <div class="step-info" data-default-info="${step.description}">${step.description}</div>
                 </div>
             `;
             container.appendChild(stepEl);
@@ -851,15 +852,24 @@ class AlimaWebapp {
             const stepMap = {
                 'initialisation': 'initialisation',
                 'search': 'search',
-                'dk_search': 'search',          // dk_search maps to search visually
+                'dk_search': 'classification',
                 'keywords': 'keywords',
                 'classification': 'classification',
-                'dk_classification': 'classification',  // Claude Generated
+                'dk_classification': 'classification',
+            };
+            const stepInfoMap = {
+                'initialisation': 'Schlagworte',
+                'search': 'GND/SWB',
+                'dk_search': 'Katalogabgleich',
+                'keywords': 'Finale Worte',
+                'classification': 'Codeauswahl',
+                'dk_classification': 'Codeauswahl',
             };
 
             const displayStep = stepMap[msg.current_step] || msg.current_step;
             const stepStatus = msg.current_step_status || 'running';  // Claude Generated
             this.updateStepStatus(displayStep, stepStatus);
+            this.updateStepInfo(displayStep, stepInfoMap[msg.current_step]);
 
             // Mark previous steps as completed
             const stepIndex = this.steps.findIndex(s => s.id === displayStep);
@@ -879,7 +889,8 @@ class AlimaWebapp {
                 if (stepElement) {
                     const infoElement = stepElement.querySelector('.step-info');
                     if (infoElement) {
-                        infoElement.textContent = `${infoElement.textContent.split('(')[0].trim()} ${progressText}`;
+                        const baseText = stepInfoMap[msg.current_step] || infoElement.dataset.defaultInfo || infoElement.textContent.split('(')[0].trim();
+                        infoElement.textContent = `${baseText} ${progressText}`;
                     }
                 }
             }
@@ -1053,10 +1064,21 @@ class AlimaWebapp {
         statusEl.textContent = icons[status] || '◆';
     }
 
+    updateStepInfo(stepId, text) {
+        const stepEl = document.getElementById(`step-${stepId}`);
+        if (!stepEl) return;
+
+        const infoEl = stepEl.querySelector('.step-info');
+        if (!infoEl) return;
+
+        infoEl.textContent = text || infoEl.dataset.defaultInfo || '';
+    }
+
     // Reset all steps
     resetSteps() {
         this.steps.forEach(step => {
             this.updateStepStatus(step.id, 'pending');
+            this.updateStepInfo(step.id, step.description);
         });
     }
 
@@ -1221,11 +1243,21 @@ class AlimaWebapp {
             if (rvkSummary.nonStandard > 0) {
                 this.appendStreamText(`  ⚠️ ${rvkSummary.nonStandard} RVK-Notation(en) sind nicht standardisiert`);
             } else if (rvkSummary.total > 0 && rvkSummary.errors === 0) {
-                this.appendStreamText(`  ✓ RVK-Pruefung: ${rvkSummary.standard}/${rvkSummary.total} standardisiert`);
+                this.appendStreamText(`  ✓ RVK-Prüfung: ${rvkSummary.standard}/${rvkSummary.total} standardisiert`);
             }
 
             if (rvkSummary.errors > 0) {
-                this.appendStreamText(`  ⚠️ RVK-Pruefung unvollstaendig: ${rvkSummary.errors} API-Fehler`);
+                this.appendStreamText(`  ⚠️ RVK-Prüfung unvollständig: ${rvkSummary.errors} API-Fehler`);
+            }
+
+            const provenance = results.rvk_provenance || {};
+            const provenanceParts = [];
+            if (provenance.catalog_standard > 0) provenanceParts.push(`Katalog standard ${provenance.catalog_standard}`);
+            if (provenance.catalog_nonstandard > 0) provenanceParts.push(`Katalog lokal ${provenance.catalog_nonstandard}`);
+            if (provenance.rvk_gnd_index > 0) provenanceParts.push(`RVK-GND-Index ${provenance.rvk_gnd_index}`);
+            if (provenance.rvk_api > 0) provenanceParts.push(`RVK-API-Label ${provenance.rvk_api}`);
+            if (provenanceParts.length > 0) {
+                this.appendStreamText(`  ℹ️ RVK-Quellen: ${provenanceParts.join(', ')}`);
             }
         }
 
@@ -1234,8 +1266,21 @@ class AlimaWebapp {
             this.appendStreamText(`\n[${this.getTime()}] DK-Suche:`);
             results.dk_search_results.forEach(result => {
                 const keyword = result.keyword || 'unbekannt';
-                const count = result.count || 0;
-                this.appendStreamText(`  ${keyword}: ${count} Titel`);
+                const classifications = Array.isArray(result.classifications) ? result.classifications : [];
+                const titleSet = new Set();
+                classifications.forEach(cls => {
+                    const titles = Array.isArray(cls.titles) ? cls.titles : [];
+                    titles.forEach(title => {
+                        const clean = String(title || '').trim();
+                        if (clean) titleSet.add(clean);
+                    });
+                });
+
+                if (titleSet.size > 0) {
+                    this.appendStreamText(`  ${keyword}: ${titleSet.size} Titel`);
+                } else {
+                    this.appendStreamText(`  ${keyword}: ${classifications.length} Klassifikationen`);
+                }
             });
         }
 

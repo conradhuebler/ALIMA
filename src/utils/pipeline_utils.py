@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import asdict
 from datetime import datetime
@@ -1837,6 +1838,11 @@ class PipelineStepExecutor:
         low_frequency_count = 0
         
         for result in dk_search_results:
+            classification_type = str(result.get("classification_type", result.get("type", "DK"))).upper()
+            if classification_type == "RVK":
+                filtered_results.append(result)
+                continue
+
             # Check if result has frequency information and meets threshold
             if "count" in result:
                 count = result.get("count", 0)
@@ -1859,6 +1865,13 @@ class PipelineStepExecutor:
         titleless_count = 0
 
         for result in filtered_results:
+            if result.get("source") in {"rvk_api", "rvk_gnd_index"}:
+                if result.get("label") or result.get("ancestor_path"):
+                    results_with_titles.append(result)
+                else:
+                    titleless_count += 1
+                continue
+
             # Check if result has titles (aggregated format)
             if "titles" in result:
                 if result.get("titles") and any(t.strip() for t in result.get("titles", [])):
@@ -1890,8 +1903,52 @@ class PipelineStepExecutor:
         if self.logger:
             self.logger.info(f"DK title filter: {len(results_with_titles)} with titles, {titleless_count} without titles excluded")
 
+        allowed_standard_rvk_map = {}
+        allowed_nonstandard_rvk_map = {}
+        rvk_source_map = {}
+        for result in results_with_titles:
+            if str(result.get("classification_type", result.get("type", "DK"))).upper() != "RVK":
+                continue
+
+            raw_code = result.get("dk", "")
+            if not raw_code:
+                continue
+
+            normalized = canonicalize_rvk_notation(raw_code)
+            if not normalized:
+                continue
+            rvk_status = result.get("rvk_validation_status")
+            rvk_source_map[normalized] = {
+                "source": result.get("source", "catalog"),
+                "status": rvk_status or "standard",
+            }
+            if rvk_status in {"non_standard", "validation_error"}:
+                allowed_nonstandard_rvk_map[normalized] = f"RVK {normalized}"
+            else:
+                allowed_standard_rvk_map[normalized] = f"RVK {normalized}"
+
         # Format catalog results for LLM prompt with aggregated data - Claude Generated
         catalog_text = PipelineResultFormatter.format_dk_results_for_prompt(results_with_titles)
+
+        if allowed_standard_rvk_map or allowed_nonstandard_rvk_map:
+            rvk_guardrail = (
+                "WICHTIG FUER RVK:\n"
+                "- Erfinde niemals neue RVK-Notationen.\n"
+            )
+            if allowed_standard_rvk_map:
+                rvk_guardrail += (
+                    "- Verwende RVK nur aus den unten gelisteten standardisierten Kandidaten.\n"
+                    "- Wenn keine standardisierte RVK thematisch passt, gib keine RVK aus.\n"
+                )
+            else:
+                rvk_guardrail += (
+                    "- Es liegen keine standardisierten RVK aus dem Katalog vor.\n"
+                    "- Bevorzuge standardisierte RVK aus dem RVK-API-Fallback; nur wenn keine solche passt, darf eine explizit als nicht-standardisiert/lokal markierte RVK verwendet werden.\n"
+                )
+            rvk_guardrail += (
+                "- Achte auf den Fachpfad und verwerfe Kandidaten mit unpassendem Oberbereich.\n\n"
+            )
+            catalog_text = rvk_guardrail + catalog_text
 
         # Create AbstractData for LLM call
         from ..core.data_models import AbstractData
@@ -1933,7 +1990,46 @@ class PipelineStepExecutor:
             response_text = task_state.analysis_result.full_text
             # Pass output_format from prompt_config for JSON extraction - Claude Generated
             _output_format = getattr(task_state.prompt_config, 'output_format', None) if task_state.prompt_config else None
-            dk_classifications = self._extract_dk_from_response(response_text, output_format=_output_format)
+            llm_classifications = self._extract_dk_from_response(response_text, output_format=_output_format)
+            llm_classifications = self._filter_final_rvk_classifications(
+                llm_classifications,
+                allowed_standard_rvk_map,
+                allowed_nonstandard_rvk_map,
+                stream_callback=stream_callback,
+            )
+            deterministic_rvk = self._select_final_rvk_candidates(
+                results_with_titles,
+                original_abstract,
+            )
+            llm_dk_only = [
+                code for code in llm_classifications
+                if not str(code or "").strip().upper().startswith("RVK ")
+            ]
+            llm_rvk_only = [
+                code for code in llm_classifications
+                if str(code or "").strip().upper().startswith("RVK ")
+            ]
+
+            max_total_classifications = 10
+            max_dk_count = max(0, max_total_classifications - len(deterministic_rvk))
+            dk_classifications = list(
+                dict.fromkeys(llm_dk_only[:max_dk_count] + deterministic_rvk)
+            )
+
+            if stream_callback:
+                if deterministic_rvk:
+                    stream_callback(
+                        (
+                            "ℹ️ Finale RVK-Auswahl erfolgt deterministisch aus validierten Kandidaten: "
+                            f"{', '.join(deterministic_rvk)}\n"
+                        ),
+                        "dk_classification",
+                    )
+                elif llm_rvk_only:
+                    stream_callback(
+                        "ℹ️ LLM-RVK-Auswahl wurde verworfen; es blieb kein deterministisch validierter RVK-Kandidat uebrig\n",
+                        "dk_classification",
+                    )
 
             # Extract analysis text from LLM response - Claude Generated
             from ..core.processing_utils import extract_analyse_text_from_response
@@ -1954,8 +2050,69 @@ class PipelineStepExecutor:
                 analyse_text=analyse_text  # Analysis text from thought block or JSON - Claude Generated
             )
 
+            final_rvk_sources = {
+                "catalog_standard": 0,
+                "catalog_nonstandard": 0,
+                "rvk_gnd_index": 0,
+                "rvk_api": 0,
+            }
             if stream_callback:
-                stream_callback(f"DK-Klassifikation abgeschlossen: {len(dk_classifications)} DK-Codes extrahiert\n", "dk_classification")
+                stream_callback(
+                    f"DK-Klassifikation abgeschlossen: {len(dk_classifications)} Klassifikationscodes extrahiert\n",
+                    "dk_classification",
+                )
+                for code in dk_classifications:
+                    clean = str(code or "").strip()
+                    if not clean.upper().startswith("RVK "):
+                        continue
+                    normalized = canonicalize_rvk_notation(clean[4:].strip())
+                    source_info = rvk_source_map.get(normalized, {})
+                    source = source_info.get("source", "catalog")
+                    status = source_info.get("status", "standard")
+                    if source == "rvk_gnd_index":
+                        final_rvk_sources["rvk_gnd_index"] += 1
+                    elif source == "rvk_api":
+                        final_rvk_sources["rvk_api"] += 1
+                    elif status in {"non_standard", "validation_error"}:
+                        final_rvk_sources["catalog_nonstandard"] += 1
+                    else:
+                        final_rvk_sources["catalog_standard"] += 1
+
+                source_parts = []
+                if final_rvk_sources["catalog_standard"]:
+                    source_parts.append(f"Katalog standard {final_rvk_sources['catalog_standard']}")
+                if final_rvk_sources["catalog_nonstandard"]:
+                    source_parts.append(f"Katalog lokal {final_rvk_sources['catalog_nonstandard']}")
+                if final_rvk_sources["rvk_gnd_index"]:
+                    source_parts.append(f"RVK-GND-Index {final_rvk_sources['rvk_gnd_index']}")
+                if final_rvk_sources["rvk_api"]:
+                    source_parts.append(f"RVK-API-Label {final_rvk_sources['rvk_api']}")
+                if source_parts:
+                    stream_callback(
+                        f"ℹ️ Finale RVK-Quellen: {', '.join(source_parts)}\n",
+                        "dk_classification",
+                    )
+            else:
+                for code in dk_classifications:
+                    clean = str(code or "").strip()
+                    if not clean.upper().startswith("RVK "):
+                        continue
+                    normalized = canonicalize_rvk_notation(clean[4:].strip())
+                    source_info = rvk_source_map.get(normalized, {})
+                    source = source_info.get("source", "catalog")
+                    status = source_info.get("status", "standard")
+                    if source == "rvk_gnd_index":
+                        final_rvk_sources["rvk_gnd_index"] += 1
+                    elif source == "rvk_api":
+                        final_rvk_sources["rvk_api"] += 1
+                    elif status in {"non_standard", "validation_error"}:
+                        final_rvk_sources["catalog_nonstandard"] += 1
+                    else:
+                        final_rvk_sources["catalog_standard"] += 1
+
+            if llm_analysis is not None:
+                setattr(llm_analysis, "rvk_provenance", final_rvk_sources)
+            setattr(task_state, "rvk_provenance", final_rvk_sources)
 
             return dk_classifications, llm_analysis
 
@@ -1965,6 +2122,612 @@ class PipelineStepExecutor:
             if stream_callback:
                 stream_callback(f"LLM-Klassifikation-Fehler: {str(e)}\n", "dk_classification")
             return [], None
+
+    def _build_rvk_api_fallback_results(
+        self,
+        keywords: List[str],
+        stream_callback: Optional[callable] = None,
+        max_results_per_keyword: int = 6,
+    ) -> List[Dict[str, Any]]:
+        """Build keyword-centric RVK candidates from the official RVK API."""
+        from .clients.rvk_api_client import RvkApiClient
+
+        rvk_client = RvkApiClient()
+        keyword_results = []
+
+        for keyword in keywords:
+            clean_keyword = canonicalize_keyword(keyword)
+            try:
+                candidates = rvk_client.search_keyword(clean_keyword, max_results=max_results_per_keyword)
+            except Exception as exc:
+                if self.logger:
+                    self.logger.warning(f"RVK API fallback failed for '{clean_keyword}': {exc}")
+                if stream_callback:
+                    stream_callback(f"  ⚠️ RVK API '{clean_keyword}': Fehler - {str(exc)}\n", "dk_search")
+                continue
+
+            if not candidates:
+                continue
+
+            classifications = []
+            for candidate in candidates:
+                classifications.append({
+                    "dk": candidate["notation"],
+                    "type": "RVK",
+                    "classification_type": "RVK",
+                    "count": 1,
+                    "titles": [],
+                    "matched_keywords": [clean_keyword],
+                    "source": "rvk_api",
+                    "label": candidate["label"],
+                    "ancestor_path": candidate["ancestor_path"],
+                    "register": candidate["register"],
+                    "score": candidate["score"],
+                    "branch_family": candidate["branch_family"],
+                    "rvk_validation_status": "standard",
+                    "validation_message": "",
+                })
+
+            keyword_results.append({
+                "keyword": clean_keyword,
+                "source": "rvk_api",
+                "search_time_ms": 0.0,
+                "classifications": classifications,
+            })
+
+            if stream_callback:
+                stream_callback(
+                    f"  ✅ RVK API {clean_keyword}: {len(classifications)} authority-backed Kandidaten\n",
+                    "dk_search"
+                )
+
+        return keyword_results
+
+    def _build_rvk_gnd_index_results(
+        self,
+        keyword_entries: List[Dict[str, str]],
+        stream_callback: Optional[callable] = None,
+        max_results_per_keyword: int = 6,
+    ) -> List[Dict[str, Any]]:
+        """Build RVK candidates from the official RVK MarcXML dump via GND links."""
+        from .clients.rvk_marc_index import RvkMarcIndex
+
+        index = RvkMarcIndex()
+        if stream_callback:
+            stream_callback("🔎 Nutze RVK MarcXML-GND-Index fuer standardisierte RVK-Kandidaten...\n", "dk_search")
+
+        results = index.lookup_by_gnd_keywords(
+            keyword_entries,
+            max_results_per_keyword=max_results_per_keyword,
+            progress_callback=(lambda msg: stream_callback(msg, "dk_search")) if stream_callback else None,
+        )
+
+        if stream_callback and results:
+            total = sum(len(item.get("classifications", [])) for item in results)
+            stream_callback(
+                f"  ✅ RVK-GND-Index: {total} standardisierte Kandidaten fuer {len(results)} Keywords\n",
+                "dk_search",
+            )
+
+        return results
+
+    def _validate_catalog_rvk_candidates(
+        self,
+        keyword_results: List[Dict[str, Any]],
+        stream_callback: Optional[callable] = None,
+    ) -> List[Dict[str, Any]]:
+        """Validate catalog-derived RVK candidates and drop only obvious artifacts."""
+        from .clients.rvk_api_client import RvkApiClient
+
+        validation_cache: Dict[str, Dict[str, Any]] = {}
+        cleaned_results: List[Dict[str, Any]] = []
+        standard_count = 0
+        nonstandard_count = 0
+        artifact_count = 0
+        validation_error_count = 0
+        max_validation_candidates = 120
+        unique_plausible_codes = []
+        seen_plausible_codes = set()
+        evidence_by_code: Dict[str, Dict[str, Any]] = {}
+
+        for kw_result in keyword_results:
+            keyword = kw_result.get("keyword", "")
+            for classification in kw_result.get("classifications", []):
+                cls_type = str(classification.get("classification_type", classification.get("type", "DK"))).upper()
+                if cls_type != "RVK":
+                    continue
+
+                normalized = canonicalize_rvk_notation(classification.get("dk", ""))
+                if not normalized:
+                    continue
+                if not is_plausible_nonstandard_rvk(normalized):
+                    validation_cache[normalized] = {
+                        "status": "artifact",
+                        "notation": normalized,
+                        "message": "Implausible RVK notation pattern",
+                    }
+                    continue
+                evidence = evidence_by_code.setdefault(
+                    normalized,
+                    {
+                        "count": 0,
+                        "keyword_hits": set(),
+                        "title_hits": 0,
+                    },
+                )
+                evidence["count"] += int(classification.get("count", 0) or 0)
+                if keyword:
+                    evidence["keyword_hits"].add(keyword)
+                evidence["title_hits"] += len(classification.get("titles", []) or [])
+                if normalized not in seen_plausible_codes:
+                    seen_plausible_codes.add(normalized)
+                    unique_plausible_codes.append(normalized)
+
+        def _evidence_score(code: str) -> int:
+            evidence = evidence_by_code.get(code, {})
+            return (
+                int(evidence.get("count", 0)) * 4
+                + len(evidence.get("keyword_hits", set())) * 3
+                + min(int(evidence.get("title_hits", 0)), 10)
+            )
+
+        unique_plausible_codes.sort(key=lambda code: (-_evidence_score(code), code))
+        selected_codes = unique_plausible_codes[:max_validation_candidates]
+
+        if selected_codes and stream_callback:
+            stream_callback(
+                (
+                    f"🔎 Prüfe die {len(selected_codes)} stärksten von "
+                    f"{len(unique_plausible_codes)} eindeutigen RVK-Kandidaten gegen die RVK-API...\n"
+                    if len(selected_codes) < len(unique_plausible_codes)
+                    else f"🔎 Prüfe {len(selected_codes)} eindeutige RVK-Kandidaten gegen die RVK-API...\n"
+                ),
+                "dk_search",
+            )
+
+        def _validate_code(code: str) -> Tuple[str, Dict[str, Any]]:
+            client = RvkApiClient(timeout=4)
+            return code, client.validate_notation(code)
+
+        if selected_codes:
+            max_workers = min(8, len(selected_codes))
+            progress_step = max(10, len(selected_codes) // 5)
+            completed = 0
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_map = {
+                    executor.submit(_validate_code, code): code
+                    for code in selected_codes
+                }
+                for future in as_completed(future_map):
+                    code = future_map[future]
+                    try:
+                        normalized_code, validation = future.result()
+                    except Exception as exc:
+                        normalized_code = code
+                        validation = {
+                            "status": "validation_error",
+                            "notation": code,
+                            "label": "",
+                            "register": [],
+                            "ancestor_path": "",
+                            "branch_family": "",
+                            "message": str(exc),
+                        }
+
+                    validation_cache[normalized_code] = validation
+                    completed += 1
+                    if stream_callback and (completed == len(selected_codes) or completed % progress_step == 0):
+                        stream_callback(
+                            f"  ↳ RVK-API-Validierung: {completed}/{len(selected_codes)}\n",
+                            "dk_search",
+                        )
+
+        for kw_result in keyword_results:
+            cleaned_classifications = []
+
+            for classification in kw_result.get("classifications", []):
+                cls_type = str(classification.get("classification_type", classification.get("type", "DK"))).upper()
+                if cls_type != "RVK":
+                    cleaned_classifications.append(classification)
+                    continue
+
+                normalized = canonicalize_rvk_notation(classification.get("dk", ""))
+                if not normalized:
+                    artifact_count += 1
+                    continue
+
+                validation = validation_cache.get(normalized)
+                if validation is None:
+                    validation = {
+                        "status": "artifact",
+                        "notation": normalized,
+                        "message": "Niedrige Prioritaet - nicht gegen die RVK-API geprüft",
+                    }
+                    validation_cache[normalized] = validation
+
+                status = validation.get("status", "")
+                if status == "standard":
+                    normalized = validation.get("notation") or normalized
+                    updated = dict(classification)
+                    updated["dk"] = normalized
+                    updated["rvk_validation_status"] = "standard"
+                    updated["validation_message"] = ""
+                    if validation.get("label"):
+                        updated["label"] = validation["label"]
+                    if validation.get("ancestor_path"):
+                        updated["ancestor_path"] = validation["ancestor_path"]
+                    if validation.get("register"):
+                        updated["register"] = validation["register"]
+                    if validation.get("branch_family"):
+                        updated["branch_family"] = validation["branch_family"]
+                    cleaned_classifications.append(updated)
+                    standard_count += 1
+                    continue
+
+                if status == "validation_error":
+                    updated = dict(classification)
+                    updated["dk"] = normalized
+                    updated["rvk_validation_status"] = "validation_error"
+                    updated["validation_message"] = validation.get("message", "")
+                    cleaned_classifications.append(updated)
+                    validation_error_count += 1
+                    continue
+
+                if is_plausible_nonstandard_rvk(normalized):
+                    updated = dict(classification)
+                    updated["dk"] = normalized
+                    updated["rvk_validation_status"] = "non_standard"
+                    updated["validation_message"] = validation.get("message", "Notation Not Found")
+                    cleaned_classifications.append(updated)
+                    nonstandard_count += 1
+                    continue
+
+                artifact_count += 1
+
+            if cleaned_classifications:
+                updated_result = dict(kw_result)
+                updated_result["classifications"] = cleaned_classifications
+                cleaned_results.append(updated_result)
+
+        if stream_callback and (standard_count or nonstandard_count or artifact_count or validation_error_count):
+            parts = []
+            if standard_count:
+                parts.append(f"{standard_count} standard")
+            if nonstandard_count:
+                parts.append(f"{nonstandard_count} nicht-standardisiert/lokal")
+            if validation_error_count:
+                parts.append(f"{validation_error_count} ungeprüft (API-Fehler)")
+            if artifact_count:
+                parts.append(f"{artifact_count} Artefakte verworfen")
+            stream_callback(
+                f"🔎 RVK-Prüfung Katalog: {', '.join(parts)}\n",
+                "dk_search",
+            )
+
+        return cleaned_results
+
+    def _inject_rvk_api_fallback(
+        self,
+        final_search_keywords: List[str],
+        dk_search_results: List[Dict[str, Any]],
+        gnd_keyword_entries: Optional[List[Dict[str, str]]] = None,
+        stream_callback: Optional[callable] = None,
+    ) -> List[Dict[str, Any]]:
+        """Add authority-backed RVK candidates if no standard RVK survived validation."""
+        existing_standard_rvk = False
+        for kw_result in dk_search_results:
+            for classification in kw_result.get("classifications", []):
+                cls_type = str(classification.get("classification_type", classification.get("type", ""))).upper()
+                rvk_status = classification.get("rvk_validation_status")
+                if cls_type == "RVK" and rvk_status == "standard":
+                    existing_standard_rvk = True
+                    break
+            if existing_standard_rvk:
+                break
+
+        if existing_standard_rvk:
+            return dk_search_results
+
+        if gnd_keyword_entries:
+            if stream_callback:
+                stream_callback(
+                    "⚠️ Katalog lieferte keine standardisierten RVK-Kandidaten - versuche RVK-GND-Index\n",
+                    "dk_search"
+                )
+
+            rvk_index_results = self._build_rvk_gnd_index_results(
+                gnd_keyword_entries,
+                stream_callback=stream_callback,
+            )
+            if rvk_index_results:
+                if self.logger:
+                    self.logger.info(
+                        f"RVK GND index added {sum(len(item.get('classifications', [])) for item in rvk_index_results)} "
+                        f"candidates across {len(rvk_index_results)} keywords"
+                    )
+                dk_search_results = dk_search_results + rvk_index_results
+                return dk_search_results
+
+        if stream_callback:
+            stream_callback(
+                "⚠️ RVK-GND-Index lieferte nichts - nutze offiziellen RVK-API-Label-Fallback\n",
+                "dk_search"
+            )
+
+        rvk_api_results = self._build_rvk_api_fallback_results(
+            final_search_keywords,
+            stream_callback=stream_callback,
+        )
+        if not rvk_api_results:
+            if stream_callback:
+                stream_callback("  ⚠️ RVK-API-Fallback lieferte keine geeigneten Kandidaten\n", "dk_search")
+            return dk_search_results
+
+        if self.logger:
+            self.logger.info(
+                f"RVK API fallback added {sum(len(item.get('classifications', [])) for item in rvk_api_results)} "
+                f"candidates across {len(rvk_api_results)} keywords"
+            )
+        return dk_search_results + rvk_api_results
+
+    def _filter_final_rvk_classifications(
+        self,
+        classifications: List[str],
+        allowed_standard_rvk_map: Dict[str, str],
+        allowed_nonstandard_rvk_map: Dict[str, str],
+        stream_callback: Optional[callable] = None,
+    ) -> List[str]:
+        """Prevent free-form RVK inference while allowing local RVK only as a fallback."""
+        filtered = []
+        dropped = []
+        allowed_map = allowed_standard_rvk_map or allowed_nonstandard_rvk_map
+
+        for code in classifications:
+            clean = str(code or "").strip()
+            if not clean:
+                continue
+
+            if clean.upper().startswith("RVK "):
+                normalized = canonicalize_rvk_notation(clean[4:].strip())
+                canonical = allowed_map.get(normalized)
+                if canonical:
+                    filtered.append(canonical)
+                else:
+                    dropped.append(clean)
+                continue
+
+            filtered.append(clean)
+
+        deduplicated = list(dict.fromkeys(filtered))
+
+        if dropped:
+            if self.logger:
+                self.logger.warning(f"Dropped {len(dropped)} non-authoritative RVK classifications: {dropped}")
+            if stream_callback:
+                preview = ", ".join(dropped[:4])
+                if len(dropped) > 4:
+                    preview += f", +{len(dropped) - 4} weitere"
+                stream_callback(
+                    f"⚠️ Verwerfe nicht-autorisierte RVK-Ausgaben des LLM: {preview}\n",
+                    "dk_classification"
+                )
+
+        return deduplicated
+
+    def _emit_rvk_source_diagnostics(
+        self,
+        keyword_results: List[Dict[str, Any]],
+        stream_callback: Optional[callable] = None,
+        step_id: str = "dk_search",
+    ) -> None:
+        """Emit a compact per-run summary of RVK candidate provenance."""
+        if not stream_callback:
+            return
+
+        buckets: Dict[str, set] = {
+            "catalog_standard": set(),
+            "catalog_nonstandard": set(),
+            "catalog_validation_error": set(),
+            "gnd_index": set(),
+            "rvk_api": set(),
+        }
+
+        for kw_result in keyword_results:
+            for classification in kw_result.get("classifications", []):
+                cls_type = str(classification.get("classification_type", classification.get("type", ""))).upper()
+                if cls_type != "RVK":
+                    continue
+                normalized = canonicalize_rvk_notation(classification.get("dk", ""))
+                if not normalized:
+                    continue
+                source = classification.get("source", "")
+                status = classification.get("rvk_validation_status")
+                if source == "rvk_gnd_index":
+                    buckets["gnd_index"].add(normalized)
+                elif source == "rvk_api":
+                    buckets["rvk_api"].add(normalized)
+                elif status == "standard":
+                    buckets["catalog_standard"].add(normalized)
+                elif status == "validation_error":
+                    buckets["catalog_validation_error"].add(normalized)
+                elif status == "non_standard":
+                    buckets["catalog_nonstandard"].add(normalized)
+
+        parts = []
+        if buckets["catalog_standard"]:
+            parts.append(f"Katalog standard {len(buckets['catalog_standard'])}")
+        if buckets["catalog_nonstandard"]:
+            parts.append(f"Katalog lokal {len(buckets['catalog_nonstandard'])}")
+        if buckets["catalog_validation_error"]:
+            parts.append(f"Katalog ungeprüft {len(buckets['catalog_validation_error'])}")
+        if buckets["gnd_index"]:
+            parts.append(f"RVK-GND-Index {len(buckets['gnd_index'])}")
+        if buckets["rvk_api"]:
+            parts.append(f"RVK-API-Label {len(buckets['rvk_api'])}")
+
+        if parts:
+            stream_callback(f"ℹ️ RVK-Quellen: {', '.join(parts)}\n", step_id)
+
+    def _score_rvk_candidate(self, candidate: Dict[str, Any], original_abstract: str) -> int:
+        """Deterministically score validated RVK candidates."""
+        source = candidate.get("source", "catalog")
+        status = candidate.get("rvk_validation_status", "standard")
+        matched_keywords = [
+            canonicalize_keyword(keyword).lower()
+            for keyword in (candidate.get("matched_keywords") or [])
+            if canonicalize_keyword(keyword)
+        ]
+        label = str(candidate.get("label", "") or "")
+        ancestor_path = str(candidate.get("ancestor_path", "") or "")
+        register_entries = [str(item) for item in (candidate.get("register") or []) if str(item).strip()]
+        titles = [str(item) for item in (candidate.get("titles") or []) if str(item).strip()]
+        haystack = " ".join([label, ancestor_path, " ".join(register_entries)]).lower()
+        abstract_text = str(original_abstract or "").lower()
+
+        source_weight = {
+            "rvk_gnd_index": 120,
+            "rvk_api": 100,
+            "catalog": 80,
+        }.get(source, 60)
+        if status == "non_standard":
+            source_weight -= 40
+        elif status == "validation_error":
+            source_weight -= 60
+
+        overlap_score = 0
+        for keyword in matched_keywords:
+            if keyword and keyword in haystack:
+                overlap_score += 12
+            elif keyword and keyword in abstract_text:
+                overlap_score += 3
+
+        specificity = len(re.sub(r"[^A-Z0-9]", "", str(candidate.get("dk", "")))) * 2
+        count_score = min(int(candidate.get("count", 0) or 0), 30) * 3
+        keyword_support = len(set(matched_keywords)) * 8
+        title_support = min(len(titles), 10)
+        register_support = min(len(register_entries), 8)
+
+        return source_weight + overlap_score + specificity + count_score + keyword_support + title_support + register_support
+
+    def _select_final_rvk_candidates(
+        self,
+        candidate_results: List[Dict[str, Any]],
+        original_abstract: str,
+        max_standard: int = 2,
+        max_nonstandard: int = 1,
+    ) -> List[str]:
+        """Select final RVK deterministically from validated candidates."""
+        standard_candidates = []
+        nonstandard_candidates = []
+        aggregated_candidates: Dict[str, Dict[str, Any]] = {}
+
+        def _source_rank(source: str) -> int:
+            return {
+                "rvk_gnd_index": 3,
+                "rvk_api": 2,
+                "catalog": 1,
+            }.get(source, 0)
+
+        def _status_rank(status: str) -> int:
+            return {
+                "standard": 3,
+                "non_standard": 2,
+                "validation_error": 1,
+            }.get(status, 0)
+
+        for candidate in candidate_results:
+            cls_type = str(candidate.get("classification_type", candidate.get("type", "DK"))).upper()
+            if cls_type != "RVK":
+                continue
+
+            normalized = canonicalize_rvk_notation(candidate.get("dk", ""))
+            if not normalized:
+                continue
+
+            current = aggregated_candidates.get(normalized)
+            if current is None:
+                current = dict(candidate)
+                current["dk"] = normalized
+                current["matched_keywords"] = list(candidate.get("matched_keywords", []) or [])
+                current["titles"] = list(candidate.get("titles", []) or [])
+                current["register"] = list(candidate.get("register", []) or [])
+                current["count"] = int(candidate.get("count", 0) or 0)
+                aggregated_candidates[normalized] = current
+            else:
+                current["count"] = int(current.get("count", 0) or 0) + int(candidate.get("count", 0) or 0)
+                for field in ("matched_keywords", "titles", "register"):
+                    existing_values = list(current.get(field, []) or [])
+                    seen_values = set(existing_values)
+                    for value in candidate.get(field, []) or []:
+                        if value not in seen_values:
+                            existing_values.append(value)
+                            seen_values.add(value)
+                    current[field] = existing_values
+
+                if candidate.get("label") and not current.get("label"):
+                    current["label"] = candidate.get("label")
+                if candidate.get("ancestor_path") and not current.get("ancestor_path"):
+                    current["ancestor_path"] = candidate.get("ancestor_path")
+                if candidate.get("branch_family") and not current.get("branch_family"):
+                    current["branch_family"] = candidate.get("branch_family")
+
+                current_source = str(current.get("source", "catalog") or "catalog")
+                incoming_source = str(candidate.get("source", "catalog") or "catalog")
+                current_status = str(current.get("rvk_validation_status", "standard") or "standard")
+                incoming_status = str(candidate.get("rvk_validation_status", "standard") or "standard")
+                replace_source = _source_rank(incoming_source) > _source_rank(current_source)
+                replace_status = _status_rank(incoming_status) > _status_rank(current_status)
+                if replace_status or (incoming_status == current_status and replace_source):
+                    current["source"] = incoming_source
+                    current["rvk_validation_status"] = incoming_status
+                    current["validation_message"] = candidate.get("validation_message", current.get("validation_message", ""))
+
+        for enriched in aggregated_candidates.values():
+            enriched["_score"] = self._score_rvk_candidate(enriched, original_abstract)
+            enriched["_branch"] = str(enriched.get("branch_family", "") or "")
+
+            status = enriched.get("rvk_validation_status", "standard")
+            if status == "standard":
+                standard_candidates.append(enriched)
+            elif status in {"non_standard", "validation_error"}:
+                nonstandard_candidates.append(enriched)
+
+        def _sort_key(item: Dict[str, Any]):
+            return (-int(item.get("_score", 0)), item.get("dk", ""))
+
+        standard_candidates.sort(key=_sort_key)
+        nonstandard_candidates.sort(key=_sort_key)
+
+        def _pick_diverse(candidates: List[Dict[str, Any]], limit: int) -> List[str]:
+            selected = []
+            used_branches = set()
+            seen_values = set()
+            for candidate in candidates:
+                value = f"RVK {candidate['dk']}"
+                if value in seen_values:
+                    continue
+                branch = candidate.get("_branch", "")
+                if branch and branch in used_branches:
+                    continue
+                selected.append(value)
+                seen_values.add(value)
+                if branch:
+                    used_branches.add(branch)
+                if len(selected) >= limit:
+                    return selected
+            for candidate in candidates:
+                value = f"RVK {candidate['dk']}"
+                if value in seen_values:
+                    continue
+                selected.append(value)
+                seen_values.add(value)
+                if len(selected) >= limit:
+                    break
+            return selected
+
+        if standard_candidates:
+            return _pick_diverse(standard_candidates, max_standard)
+        return _pick_diverse(nonstandard_candidates, max_nonstandard)
 
     def _extract_dk_from_response(self, response_text: str, output_format: Optional[str] = None) -> List[str]:
         """Extract DK and RVK classifications from LLM response - Claude Generated
@@ -2093,7 +2856,7 @@ class PipelineStepExecutor:
             classifications = kw_result.get("classifications", [])
 
             for cls in classifications:
-                cls_type = cls.get("type", "DK")
+                cls_type = cls.get("type") or cls.get("classification_type", "DK")
                 cls_code = cls.get("dk", "")
                 key = f"{cls_type}:{cls_code}"
 
@@ -2106,7 +2869,15 @@ class PipelineStepExecutor:
                         "titles": [],
                         "count": 0,
                         "matched_keywords": [],
-                        "keyword_counts": {}
+                        "keyword_counts": {},
+                        "source": cls.get("source"),
+                        "label": cls.get("label"),
+                        "ancestor_path": cls.get("ancestor_path"),
+                        "register": list(cls.get("register", [])) if cls.get("register") else [],
+                        "score": cls.get("score", 0),
+                        "branch_family": cls.get("branch_family"),
+                        "rvk_validation_status": cls.get("rvk_validation_status"),
+                        "validation_message": cls.get("validation_message"),
                     }
 
                 # Merge titles (deduplicate using set) - Claude Generated
@@ -2124,11 +2895,19 @@ class PipelineStepExecutor:
 
                 # Sum counts from this keyword
                 grouped[key]["count"] += cls.get("count", 0)
+                grouped[key]["score"] = max(grouped[key].get("score", 0), cls.get("score", 0))
 
                 # Track which keywords contributed to this classification
                 if keyword not in grouped[key]["matched_keywords"]:
                     grouped[key]["matched_keywords"].append(keyword)
                 grouped[key]["keyword_counts"][keyword] = cls.get("count", 0)
+                for register_entry in cls.get("register", []) or []:
+                    if register_entry not in grouped[key]["register"]:
+                        grouped[key]["register"].append(register_entry)
+                if cls.get("rvk_validation_status") and not grouped[key].get("rvk_validation_status"):
+                    grouped[key]["rvk_validation_status"] = cls.get("rvk_validation_status")
+                if cls.get("validation_message") and not grouped[key].get("validation_message"):
+                    grouped[key]["validation_message"] = cls.get("validation_message")
 
         # Convert to list and sort by count (most frequent first)
         flattened = sorted(grouped.values(), key=lambda x: x["count"], reverse=True)
@@ -2189,7 +2968,7 @@ class PipelineStepExecutor:
             "most_frequent": [
                 {
                     "dk": r["dk"],
-                    "type": r.get("type", "DK"),
+                    "type": r.get("type", r.get("classification_type", "DK")),
                     "count": r["count"],
                     "keywords": r.get("matched_keywords", []),
                     "unique_titles": len(r.get("titles", []))
@@ -2326,6 +3105,7 @@ class PipelineStepExecutor:
         #   This prevents irrelevant catalog titles from plain text keywords (e.g., "Molekül")
         # Expert mode (strict_gnd_validation=False): Include plain text keywords too
         gnd_validated_keywords = []
+        gnd_keyword_entries = []
         plain_keywords = []
 
         for keyword in keywords:
@@ -2333,6 +3113,12 @@ class PipelineStepExecutor:
                 # Extract just the keyword part before (GND-ID:...)
                 clean_keyword = keyword.split("(GND-ID:")[0].strip()
                 gnd_validated_keywords.append(clean_keyword)
+                gnd_id = extract_gnd_id(keyword)
+                if gnd_id:
+                    gnd_keyword_entries.append({
+                        "keyword": clean_keyword,
+                        "gnd_id": gnd_id,
+                    })
             else:
                 # Plain text keyword without GND-ID validation
                 plain_keywords.append(keyword)
@@ -2343,6 +3129,15 @@ class PipelineStepExecutor:
         gnd_validated_keywords_before = len(gnd_validated_keywords)
         gnd_validated_keywords = deduplicate_canonical_keywords(gnd_validated_keywords)
         gnd_validated_keywords_after = len(gnd_validated_keywords)
+        seen_gnd_ids = set()
+        deduplicated_gnd_entries = []
+        for entry in gnd_keyword_entries:
+            gnd_id = entry.get("gnd_id")
+            if not gnd_id or gnd_id in seen_gnd_ids:
+                continue
+            seen_gnd_ids.add(gnd_id)
+            deduplicated_gnd_entries.append(entry)
+        gnd_keyword_entries = deduplicated_gnd_entries
 
         if gnd_validated_keywords_before != gnd_validated_keywords_after:
             duplicates_removed = gnd_validated_keywords_before - gnd_validated_keywords_after
@@ -2537,6 +3332,22 @@ class PipelineStepExecutor:
                         "dk_search"
                     )
 
+            dk_search_results = self._validate_catalog_rvk_candidates(
+                dk_search_results,
+                stream_callback=stream_callback,
+            )
+            dk_search_results = self._inject_rvk_api_fallback(
+                final_search_keywords,
+                dk_search_results,
+                gnd_keyword_entries=gnd_keyword_entries,
+                stream_callback=stream_callback,
+            )
+            self._emit_rvk_source_diagnostics(
+                dk_search_results,
+                stream_callback=stream_callback,
+                step_id="dk_search",
+            )
+
             # Deduplicate and flatten classifications - Claude Generated Step 3
             dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
 
@@ -2565,6 +3376,21 @@ class PipelineStepExecutor:
                         f"⚠️ Teilergebnisse: {len(dk_search_results)} Keywords erfolgreich vor Fehler\n",
                         "dk_search"
                     )
+                dk_search_results = self._validate_catalog_rvk_candidates(
+                    dk_search_results,
+                    stream_callback=stream_callback,
+                )
+                dk_search_results = self._inject_rvk_api_fallback(
+                    final_search_keywords,
+                    dk_search_results,
+                    gnd_keyword_entries=gnd_keyword_entries,
+                    stream_callback=stream_callback,
+                )
+                self._emit_rvk_source_diagnostics(
+                    dk_search_results,
+                    stream_callback=stream_callback,
+                    step_id="dk_search",
+                )
                 # Process partial results
                 dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
                 dk_statistics = self._calculate_dk_statistics(dk_search_results_flattened, dk_search_results)
@@ -2684,6 +3510,9 @@ class PipelineStepExecutor:
                     keywords=final_keywords,
                     stream_callback=_cb("dk_classification"),
                 )
+                state.dk_search_results = dk_search.get("keyword_results", [])
+                state.dk_search_results_flattened = dk_search.get("classifications", [])
+                state.dk_statistics = dk_search.get("statistics")
                 dk_classes, dk_analysis = self.execute_dk_classification(
                     original_abstract=input_text,
                     dk_search_results=dk_search.get("classifications", []),
@@ -2692,6 +3521,8 @@ class PipelineStepExecutor:
                     stream_callback=_cb("dk_classification"),
                 )
                 state.dk_classifications = dk_classes
+                state.dk_llm_analysis = dk_analysis
+                state.rvk_provenance = getattr(dk_analysis, "rvk_provenance", {})
             except Exception as e:
                 if self.logger:
                     self.logger.warning(f"DK classification failed (non-fatal): {e}")
@@ -3140,6 +3971,34 @@ def canonicalize_keyword(keyword: str) -> str:
     return keyword.strip()
 
 
+def extract_gnd_id(keyword: str) -> Optional[str]:
+    """Extract GND-ID from a verified keyword string."""
+    match = re.search(r"GND-ID:\s*([0-9X-]+)", str(keyword or ""))
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def canonicalize_rvk_notation(code: str) -> str:
+    """Normalize RVK notation spacing for comparisons and canonical output."""
+    clean = str(code or "").strip().upper()
+    clean = re.sub(r"\s+", " ", clean)
+    match = re.match(r"^([A-Z]{1,4})\s*([0-9].*)$", clean)
+    if match:
+        clean = f"{match.group(1)} {match.group(2).strip()}"
+    return clean
+
+
+def is_plausible_nonstandard_rvk(code: str) -> bool:
+    """Allow local RVK variants, but reject obvious artifacts."""
+    clean = canonicalize_rvk_notation(code)
+    if not clean:
+        return False
+    if " - " in clean:
+        return False
+    return bool(re.match(r"^[A-Z]{1,4}\s[0-9][0-9A-Z./-]*$", clean))
+
+
 def deduplicate_canonical_keywords(keywords: List[str]) -> List[str]:
     """Deduplicate keywords by canonical form (case-insensitive) - Claude Generated
 
@@ -3456,10 +4315,47 @@ class PipelineResultFormatter:
                 titles = result.get("titles", [])
                 matched_keywords = result.get("matched_keywords", [])
                 classification_type = result.get("classification_type", "DK")
+                source = result.get("source", "")
+                label = result.get("label", "")
+                ancestor_path = result.get("ancestor_path", "")
+                register = result.get("register", [])
+                rvk_validation_status = result.get("rvk_validation_status", "")
+                validation_message = result.get("validation_message", "")
 
                 if dk_code:
                     keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
-                    entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}"
+                    if classification_type == "RVK" and rvk_validation_status == "standard":
+                        if source == "rvk_api":
+                            source_text = "RVK API (autoritaetsbasiert)"
+                        elif source == "rvk_gnd_index":
+                            source_text = "RVK MarcXML-GND-Index (autoritaetsbasiert)"
+                        else:
+                            source_text = "Katalog (RVK-API-validiert)"
+                        entry = f"{classification_type}: {dk_code}\nKeywords: {keyword_text}\nQuelle: {source_text}"
+                        if label:
+                            entry += f"\nBenennung: {label}"
+                        if ancestor_path:
+                            entry += f"\nFachpfad: {ancestor_path}"
+                        if register:
+                            entry += f"\nRegister: {', '.join(map(str, register[:6]))}"
+                    elif source == "rvk_api":
+                        entry = f"{classification_type}: {dk_code}\nKeywords: {keyword_text}\nQuelle: RVK API (autoritaetsbasiert)"
+                        if label:
+                            entry += f"\nBenennung: {label}"
+                        if ancestor_path:
+                            entry += f"\nFachpfad: {ancestor_path}"
+                        if register:
+                            entry += f"\nRegister: {', '.join(map(str, register[:6]))}"
+                    elif classification_type == "RVK" and rvk_validation_status == "non_standard":
+                        entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}\nQuelle: Katalog (nicht-standardisiert/lokal)"
+                        if validation_message:
+                            entry += f"\nHinweis: {validation_message}"
+                    elif classification_type == "RVK" and rvk_validation_status == "validation_error":
+                        entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}\nQuelle: Katalog (RVK-Validierung fehlgeschlagen)"
+                        if validation_message:
+                            entry += f"\nHinweis: {validation_message}"
+                    else:
+                        entry = f"{classification_type}: {dk_code} (Häufigkeit: {count})\nKeywords: {keyword_text}"
                     # Filter placeholder titles, cap at 5 to control prompt length - Claude Generated
                     filtered_titles = PipelineResultFormatter._filter_placeholder_titles(titles)
                     if filtered_titles:
