@@ -103,3 +103,12 @@ class KeywordAnalysisState:
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata
     convergence_achieved: bool = False  # True if converged before max iterations
     max_iterations_reached: bool = False  # True if stopped due to max iterations
+
+    @property
+    def classifications(self) -> List[str]:
+        """Preferred neutral alias for final DK/RVK classification strings."""
+        return self.dk_classifications
+
+    @classifications.setter
+    def classifications(self, value: List[str]) -> None:
+        self.dk_classifications = list(value or [])

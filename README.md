@@ -64,6 +64,8 @@ Die Konfiguration von ALIMA erfolgt über die Datei `config.json` im `~/.config/
 
 Die Konfiguration der LLM-Provider ist im `unified_config`-Abschnitt zentralisiert und ermöglicht eine detaillierte Steuerung von Providern, Modellen und Aufgaben-Präferenzen.
 
+Für eine Konfiguration ohne lokalen SRU-Katalog, aber mit **Lobid** für die Schlagwortsuche und **GVK/GBV-SRU** für DK/RVK-Klassifikationen, gibt es ein Beispiel in `config.example.lobid-gbv.json`. Wichtig: Der SRU-Preset heißt in ALIMA `gbv` und verweist auf den GVK-Endpunkt.
+
 ### Struktur der `config.json`
 
 Die `config.json` ist in mehrere Hauptbereiche unterteilt. Der wichtigste Abschnitt für die Steuerung der KI-Analyse ist `unified_config`.

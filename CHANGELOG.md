@@ -20,3 +20,4 @@ This file records notable repository changes.
 ### Changed
 
 - Clarified the semantics of legacy `dk_classifications`: the field now remains as a backward-compatible alias for final DK/RVK classification strings rather than implying DK-only output.
+- Updated PyQt classification labels and selectors to use neutral DK/RVK wording, added a `classifications` alias on `KeywordAnalysisState`, and fixed PyQt title lookup/K10+ export helpers to preserve RVK systems correctly.

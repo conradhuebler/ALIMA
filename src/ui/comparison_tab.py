@@ -333,8 +333,8 @@ class ComparisonTab(QWidget):
         has_search = bool(terms_a or terms_b)
         self.content_tabs.setTabVisible(2, has_search)
 
-        dk_a = set(a.dk_classifications or [])
-        dk_b = set(b.dk_classifications or [])
+        dk_a = set(a.classifications or [])
+        dk_b = set(b.classifications or [])
         has_dk = bool(dk_a or dk_b)
         self.content_tabs.setTabVisible(4, has_dk)
 
@@ -531,17 +531,17 @@ class ComparisonTab(QWidget):
         return "".join(html)
 
     def _build_classification_html(self, a, b, c) -> str:
-        """Compare DK classifications - Claude Generated"""
-        dk_a = set(a.dk_classifications or [])
-        dk_b = set(b.dk_classifications or [])
+        """Compare final classifications - Claude Generated"""
+        dk_a = set(a.classifications or [])
+        dk_b = set(b.classifications or [])
 
         if not dk_a and not dk_b:
             return (f"<html><body style='color:{c['text']};'>"
-                    f"<p style='color:{c['text_muted']};'>Keine DK-Klassifikationen in beiden States.</p>"
+                    f"<p style='color:{c['text_muted']};'>Keine Klassifikationen (DK/RVK) in beiden States.</p>"
                     f"</body></html>")
 
         cmp = self._compare_sets(dk_a, dk_b)
-        return self._keyword_chips_section_html(cmp, c, "DK-Klassifikationen")
+        return self._keyword_chips_section_html(cmp, c, "Klassifikationen (DK/RVK)")
 
     def _build_meta_html(self, a, b, c) -> str:
         """Tabular meta comparison - Claude Generated"""
@@ -570,8 +570,8 @@ class ComparisonTab(QWidget):
              ", ".join(b.search_suggesters_used or []) or "—"),
             ("Finale Keywords", str(len(llm_a.extracted_gnd_keywords)) if llm_a else "—",
              str(len(llm_b.extracted_gnd_keywords)) if llm_b else "—"),
-            ("DK-Klassifikationen", str(len(a.dk_classifications or [])),
-             str(len(b.dk_classifications or []))),
+            ("Klassifikationen (DK/RVK)", str(len(a.classifications or [])),
+             str(len(b.classifications or []))),
             ("Provider (Init)", getattr(init_a, 'provider_used', '—') if init_a else '—',
              getattr(init_b, 'provider_used', '—') if init_b else '—'),
             ("Modell (Init)", getattr(init_a, 'model_used', '—') if init_a else '—',
