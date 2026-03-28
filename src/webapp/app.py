@@ -4,6 +4,7 @@ Claude Generated - Pipeline widget as web interface
 """
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -692,7 +693,7 @@ def _validate_rvk_notation(code: str) -> Dict[str, Any]:
             "status": "standard",
             "is_standard": True,
             "canonical_code": str(node.get("notation", "")).strip(),
-            "label": node.get("benennung"),
+            "label": html.unescape(str(node.get("benennung", "")).strip()) or None,
             "message": None,
         }
 
