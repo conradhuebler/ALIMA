@@ -591,16 +591,26 @@ def _autosave_session_state(session: Session):
 def _extract_results_from_analysis_state(analysis_state) -> dict:
     """Extract results dict from KeywordAnalysisState - shared logic for callback and recovery - Claude Generated"""
 
+    def ensure_list(value):
+        """Normalize legacy comma-separated strings to arrays for the web API."""
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        return []
+
     # Extract final GND keywords from LLM analysis
     final_keywords = []
     if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-        final_keywords = getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
+        final_keywords = ensure_list(
+            getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
+        )
 
     # Extract DK classifications
-    dk_classifications = getattr(analysis_state, 'dk_classifications', [])
+    dk_classifications = ensure_list(getattr(analysis_state, 'dk_classifications', []))
 
     # Extract initial keywords
-    initial_keywords = getattr(analysis_state, 'initial_keywords', [])
+    initial_keywords = ensure_list(getattr(analysis_state, 'initial_keywords', []))
 
     # Extract original abstract
     original_abstract = getattr(analysis_state, 'original_abstract', '')
@@ -675,6 +685,35 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
             return [ensure_json_serializable(v) for v in value]
         return value
 
+    def build_structured_classifications(raw_classifications):
+        """Normalize legacy classification strings into structured export entries."""
+        structured = []
+
+        for item in ensure_list(raw_classifications):
+            if not item:
+                continue
+
+            display = str(item).strip()
+            system = "UNKNOWN"
+            code = display
+
+            if display.upper().startswith("DK "):
+                system = "DK"
+                code = display[3:].strip()
+            elif display.upper().startswith("RVK "):
+                system = "RVK"
+                code = display[4:].strip()
+
+            structured.append({
+                "system": system,
+                "code": code,
+                "display": display,
+            })
+
+        return structured
+
+    structured_classifications = build_structured_classifications(dk_classifications)
+
     return {
         # Input & Keywords & Title
         "original_abstract": original_abstract,
@@ -686,6 +725,8 @@ def _extract_results_from_analysis_state(analysis_state) -> dict:
         "search_results": ensure_json_serializable(serialized_search_results),
 
         # DK Classification Results
+        "classifications": ensure_json_serializable(structured_classifications),
+        "classifications_deprecated_alias": "dk_classifications",
         "dk_classifications": ensure_json_serializable(dk_classifications),
         "dk_search_results": ensure_json_serializable(dk_search_results),
         "dk_search_results_flattened": ensure_json_serializable(

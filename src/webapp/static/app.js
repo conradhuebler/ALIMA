@@ -53,6 +53,7 @@ class AlimaWebapp {
         this.isAnalyzing = false;
         this.currentStep = 0;
         this.ws = null;
+        this.pollInterval = null;
         this.cameraStream = null;
         this.capturedCameraImage = null;
         this.cameraBlob = null;
@@ -672,11 +673,16 @@ class AlimaWebapp {
     connectViaPolling() {
         console.log('Using polling instead of WebSocket');
 
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
+        }
+
         let lastStep = null;
         let pollCount = 0;
         const maxPolls = 2400; // 20 minutes max (2400 * 0.5s)
 
-        const pollInterval = setInterval(async () => {
+        this.pollInterval = setInterval(async () => {
             pollCount++;
 
             try {
@@ -719,7 +725,8 @@ class AlimaWebapp {
                         error: data.error_message,
                         current_step: data.current_step
                     });
-                    clearInterval(pollInterval);
+                    clearInterval(this.pollInterval);
+                    this.pollInterval = null;
                 }
             } catch (error) {
                 console.error('Poll error:', error);
@@ -728,7 +735,8 @@ class AlimaWebapp {
 
             // Timeout after max polls
             if (pollCount > maxPolls) {
-                clearInterval(pollInterval);
+                clearInterval(this.pollInterval);
+                this.pollInterval = null;
                 console.warn('Polling timeout after', maxPolls, 'attempts');
                 this.isAnalyzing = false;
                 this.updateButtonState();
@@ -762,6 +770,7 @@ class AlimaWebapp {
         this.ws.onopen = () => {
             wsConnected = true;
             clearTimeout(wsTimeout);
+            this.hideRecoveryOption();
             console.log('WebSocket connected');
         };
 
@@ -783,8 +792,8 @@ class AlimaWebapp {
             } else if (msg.type === 'error') {
                 // Server-side timeout or error - fall back to polling - Claude Generated
                 console.warn('Server WS error:', msg.error);
-                this.showRecoveryOption();
                 if (this.isAnalyzing) {
+                    this.showRecoveryOption();
                     this.connectViaPolling();
                 }
             }
@@ -795,8 +804,8 @@ class AlimaWebapp {
             console.error('WebSocket error (wasConnected=' + wsConnected + '):', error);
             if (wsConnected) {
                 // Error on an established connection - show recovery and fall back
-                this.showRecoveryOption();
                 if (this.isAnalyzing) {
+                    this.showRecoveryOption();
                     this.appendStreamText(`\n⚠️ WebSocket-Fehler, wechsle zu Polling…\n`);
                     this.connectViaPolling();
                 }
@@ -811,12 +820,10 @@ class AlimaWebapp {
 
             // Only react to abnormal closure if WS was actually established - Claude Generated
             // Code 1006 can also fire when the 2s timeout calls this.ws.close() before connection
-            if ((event.code === 1006 || event.code === 1011) && wsConnected) {
+            if ((event.code === 1006 || event.code === 1011) && wsConnected && this.isAnalyzing) {
                 this.showRecoveryOption();
-                if (this.isAnalyzing) {
-                    this.appendStreamText(`\n⚠️ Verbindung unterbrochen, wechsle zu Polling…\n`);
-                    this.connectViaPolling();
-                }
+                this.appendStreamText(`\n⚠️ Verbindung unterbrochen, wechsle zu Polling…\n`);
+                this.connectViaPolling();
             }
         };
     }
@@ -834,6 +841,7 @@ class AlimaWebapp {
         }
 
         if (msg.current_step) {
+            this.hideRecoveryOption();
             console.log(`📊 Step update: ${msg.current_step}`);
 
             // Map backend step names to frontend
@@ -950,6 +958,9 @@ class AlimaWebapp {
                     `;
                     resultsSummary.innerHTML = summaryHTML;
                 }
+            } else if (msg.results) {
+                // Render the completed pipeline payload into the stream and summary panel.
+                this.displayResults(msg.results);
             }
         } else if (msg.status === 'error') {
             this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
@@ -958,6 +969,7 @@ class AlimaWebapp {
 
         this.isAnalyzing = false;
         this.updateButtonState();
+        this.hideRecoveryOption();
 
         // Clear persisted session - pipeline is done - Claude Generated
         localStorage.removeItem('alima_running_session');
@@ -969,6 +981,10 @@ class AlimaWebapp {
 
         if (this.ws) {
             this.ws.close();
+        }
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
         }
 
         // Browser notification on completion - Claude Generated
@@ -1077,6 +1093,43 @@ class AlimaWebapp {
     displayResults(results) {
         if (!results) return;
 
+        const asList = (value) => {
+            if (Array.isArray(value)) return value;
+            if (typeof value === 'string') {
+                return value.split(',').map(item => item.trim()).filter(Boolean);
+            }
+            return [];
+        };
+
+        const normalizeClassifications = (value, legacyValue) => {
+            if (Array.isArray(value)) {
+                return value.map(item => {
+                    if (typeof item === 'string') {
+                        return { display: item, system: '', code: item };
+                    }
+                    if (item && typeof item === 'object') {
+                        const display = item.display || [item.system, item.code].filter(Boolean).join(' ').trim() || item.code || '';
+                        return {
+                            display,
+                            system: item.system || '',
+                            code: item.code || display,
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+            }
+
+            return asList(legacyValue).map(item => ({
+                display: item,
+                system: '',
+                code: item,
+            }));
+        };
+
+        const initialKeywords = asList(results.initial_keywords);
+        const finalKeywords = asList(results.final_keywords);
+        const classifications = normalizeClassifications(results.classifications, results.dk_classifications);
+
         // Display original abstract
         if (results.original_abstract) {
             // Update input text field with extracted text - Claude Generated
@@ -1087,17 +1140,17 @@ class AlimaWebapp {
         }
 
         // Display initial keywords
-        if (results.initial_keywords && results.initial_keywords.length > 0) {
+        if (initialKeywords.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] Initiale Schlagworte (frei):`);
-            results.initial_keywords.forEach(kw => {
+            initialKeywords.forEach(kw => {
                 this.appendStreamText(`  • ${kw}`);
             });
         }
 
         // Display final GND-compliant keywords with verification status - Claude Generated
-        if (results.final_keywords && results.final_keywords.length > 0) {
+        if (finalKeywords.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] GND-Schlagworte:`);
-            results.final_keywords.forEach(kw => {
+            finalKeywords.forEach(kw => {
                 this.appendStreamText(`  ✓ ${kw}`);
             });
 
@@ -1113,10 +1166,10 @@ class AlimaWebapp {
         }
 
         // Display DK/RVK classifications
-        if (results.dk_classifications && results.dk_classifications.length > 0) {
+        if (classifications.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] DK/RVK Klassifikationen:`);
-            results.dk_classifications.forEach(cls => {
-                this.appendStreamText(`  ${cls}`);
+            classifications.forEach(cls => {
+                this.appendStreamText(`  ${cls.display}`);
             });
         }
 
@@ -1140,7 +1193,44 @@ class AlimaWebapp {
 
         summaryDiv.innerHTML = '';
 
-        if (results.final_keywords && results.final_keywords.length > 0) {
+        const asList = (value) => {
+            if (Array.isArray(value)) return value;
+            if (typeof value === 'string') {
+                return value.split(',').map(item => item.trim()).filter(Boolean);
+            }
+            return [];
+        };
+
+        const normalizeClassifications = (value, legacyValue) => {
+            if (Array.isArray(value)) {
+                return value.map(item => {
+                    if (typeof item === 'string') {
+                        return { display: item, system: '', code: item };
+                    }
+                    if (item && typeof item === 'object') {
+                        const display = item.display || [item.system, item.code].filter(Boolean).join(' ').trim() || item.code || '';
+                        return {
+                            display,
+                            system: item.system || '',
+                            code: item.code || display,
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+            }
+
+            return asList(legacyValue).map(item => ({
+                display: item,
+                system: '',
+                code: item,
+            }));
+        };
+
+        const finalKeywords = asList(results.final_keywords);
+        const classifications = normalizeClassifications(results.classifications, results.dk_classifications);
+        const initialKeywords = asList(results.initial_keywords);
+
+        if (finalKeywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item keyword';
             item.style.maxHeight = '100px';
@@ -1151,29 +1241,29 @@ class AlimaWebapp {
             const verificationBadge = (results.verification && results.verification.stats)
                 ? ` <span style="color: #4caf50; font-size: 0.85em;">(${results.verification.stats.verified_count}/${results.verification.stats.total_extracted} GND-verifiziert)</span>`
                 : '';
-            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${results.final_keywords.join(', ')}`;
+            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${finalKeywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
 
-        if (results.dk_classifications && results.dk_classifications.length > 0) {
+        if (classifications.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item classification';
             item.style.maxHeight = '120px';
             item.style.overflowY = 'auto';
             item.style.wordWrap = 'break-word';
             item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>Klassifikationen:</strong> ${results.dk_classifications.join(', ')}`;
+            item.innerHTML = `<strong>Klassifikationen:</strong> ${classifications.map(cls => cls.display).join(', ')}`;
             summaryDiv.appendChild(item);
         }
 
-        if (results.initial_keywords && results.initial_keywords.length > 0) {
+        if (initialKeywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item';
             item.style.maxHeight = '100px';
             item.style.overflowY = 'auto';
             item.style.wordWrap = 'break-word';
             item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${results.initial_keywords.join(', ')}`;
+            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${initialKeywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
     }
@@ -1586,6 +1676,22 @@ class AlimaWebapp {
         if (recoveryMsg) {
             recoveryMsg.style.display = 'inline';
             recoveryMsg.textContent = 'Verbindung unterbrochen. Ergebnisse können wiederhergestellt werden.';
+        }
+    }
+
+    hideRecoveryOption() {
+        const recoveryBtn = document.getElementById('recovery-btn');
+        const recoveryMsg = document.getElementById('recovery-message');
+
+        if (recoveryBtn) {
+            recoveryBtn.style.display = 'none';
+            recoveryBtn.disabled = false;
+        }
+
+        if (recoveryMsg) {
+            recoveryMsg.style.display = 'none';
+            recoveryMsg.textContent = '';
+            recoveryMsg.style.color = '';
         }
     }
 

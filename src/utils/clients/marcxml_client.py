@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Optional
 import time
 import re
 import logging
+import html
 from urllib.parse import urlencode, quote
 
 # Configure logging
@@ -623,6 +624,7 @@ class MarcXmlClient:
         for keyword in keywords:
             # Strip GND-ID suffix if present, e.g., "Wissenschaft (GND-ID: 4066562-8)" -> "Wissenschaft"
             search_term = re.sub(r'\s*\(GND-ID:\s*[^)]+\)\s*$', '', keyword).strip()
+            search_term = html.unescape(search_term)
             
             logger.info(f"Extracting DK classifications for: {keyword} -> search term: '{search_term}'")
             
@@ -665,10 +667,21 @@ class MarcXmlClient:
                     if title and title not in classification_counts[rvk]["titles"]:
                         classification_counts[rvk]["titles"].append(title)
             
-            all_results.extend(classification_counts.values())
-        
-        # Sort by count descending
-        all_results.sort(key=lambda x: x["count"], reverse=True)
+            keyword_classifications = list(classification_counts.values())
+
+            # Match BiblioClient's keyword-centric interface:
+            # one entry per searched keyword with nested classifications.
+            if keyword_classifications:
+                all_results.append({
+                    "keyword": keyword,
+                    "source": "sru",
+                    "search_time_ms": 0.0,
+                    "classifications": keyword_classifications,
+                })
+
+        # Sort each keyword's classifications by frequency descending for stable downstream display.
+        for result in all_results:
+            result["classifications"].sort(key=lambda x: x["count"], reverse=True)
         
         return all_results
     
