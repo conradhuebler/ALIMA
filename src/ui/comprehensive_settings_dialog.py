@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # Claude Generated
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
-from PyQt6.QtGui import QFont, QIcon, QPalette
+from PyQt6.QtGui import QFont, QIcon, QPalette, QGuiApplication
 import json
 import logging
 import getpass
@@ -59,10 +59,24 @@ class ComprehensiveSettingsDialog(QDialog):
 
         self.setWindowTitle("ALIMA Settings")
         self.setModal(True)
-        self.resize(900, 700)
+        self.setSizeGripEnabled(True)
+        self.setMinimumSize(520, 420)
+        self._apply_initial_window_size()
 
         self._setup_ui()
         self._load_current_settings()
+
+    def _apply_initial_window_size(self):
+        """Size the dialog conservatively so buttons remain reachable on smaller screens."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(900, 700)
+            return
+
+        available = screen.availableGeometry()
+        target_width = min(900, max(520, available.width() - 80))
+        target_height = min(700, max(420, available.height() - 120))
+        self.resize(target_width, target_height)
     
     def _setup_ui(self):
         """Setup the user interface - Claude Generated"""
