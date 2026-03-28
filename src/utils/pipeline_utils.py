@@ -5,6 +5,7 @@ Claude Generated - Abstracts common pipeline operations and utilities
 
 import json
 import logging
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -4647,7 +4648,7 @@ def _extract_pdf_with_llm_pipeline(
     try:
         # Versuche pdf2image Import
         try:
-            import pdf2image
+            import pdf2image  # pyright: ignore[reportMissingImports]
         except ImportError:
             raise Exception("pdf2image-Bibliothek nicht verfügbar. Installieren Sie: pip install pdf2image")
         
@@ -4984,7 +4985,7 @@ class AnalysisPersistence:
         Claude Generated
         """
         try:
-            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox  # pyright: ignore[reportMissingImports]
         except ImportError:
             raise ImportError("PyQt6 required for GUI dialogs. Use PipelineJsonManager directly for CLI.")
 
@@ -5046,7 +5047,7 @@ class AnalysisPersistence:
         Claude Generated
         """
         try:
-            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox  # pyright: ignore[reportMissingImports]
         except ImportError:
             raise ImportError("PyQt6 required for GUI dialogs. Use PipelineJsonManager directly for CLI.")
 

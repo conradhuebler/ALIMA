@@ -16,6 +16,7 @@ This file records notable repository changes.
 
 ### Fixed
 
+- Added the missing `pdf2image` Python dependency to `requirements.txt` and documented the Poppler runtime prerequisite for PDF OCR.
 - Fixed the web GUI so completed analyses render the final results panel reliably after pipeline completion.
 - Fixed the polling/results rendering path so string-valued keyword fields no longer trigger `forEach is not a function` errors in the web UI.
 - Fixed stale recovery UI behavior in the web GUI so `Verbindung unterbrochen` and `Wiederherstellen` are only shown for an actually interrupted live analysis, not after a successful completion.

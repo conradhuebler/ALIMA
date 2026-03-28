@@ -153,8 +153,10 @@ Der erste Schritt bietet ein flexibles Eingabefeld mit mehreren Optionen:
 *   **DOI/URL:** Geben Sie eine DOI (z.B. `10.1007/...`) oder eine URL zu einem wissenschaftlichen Artikel ein. ALIMA versucht automatisch, den Inhalt aufzulösen und den Volltext zu extrahieren.
 *   **Datei laden (PDF & Bilder):**
     *   Klicken Sie auf den "Datei auswählen"-Button, um eine lokale Datei zu laden.
-    *   **PDF-Dateien:** Das System extrahiert automatisch den Text aus der PDF. Bei gescannten Dokumenten oder PDFs ohne Textebene wird eine KI-basierte OCR (Texterkennung) versucht.
+    *   **PDF-Dateien:** Das System extrahiert automatisch den Text aus der PDF. Bei gescannten Dokumenten oder PDFs ohne Textebene wird eine KI-basierte OCR (Texterkennung) versucht. Dafür werden `pdf2image` und eine installierte Poppler-Umgebung benötigt.
     *   **Bild-Dateien:** Bei Bildformaten (PNG, JPG etc.) wird automatisch eine KI-basierte OCR gestartet, um den im Bild enthaltenen Text zu extrahieren.
+
+Hinweis: Unter macOS kann Poppler z.B. mit `brew install poppler` installiert werden.
 
 Nach der erfolgreichen Extraktion der Daten aus einer dieser Quellen können Sie die Analyse mit dem "🚀 Auto-Pipeline"-Button starten.
 
