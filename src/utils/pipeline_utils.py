@@ -2493,7 +2493,7 @@ class PipelineStepExecutor:
         if selected_codes and stream_callback:
             shortlist_parts = []
             if anchor_terms:
-                shortlist_parts.append(f"{anchored_total} ankergestuetzt")
+                shortlist_parts.append(f"{anchored_total} ankergestützt")
                 if exploratory_total:
                     shortlist_parts.append(f"{exploratory_total} explorativ")
                 shortlist_parts.append(f"{len(branch_counts)} Zweige")
