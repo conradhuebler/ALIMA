@@ -1,0 +1,81 @@
+{
+  "database_config": {
+    "db_type": "sqlite",
+    "sqlite_path": "./data/alima_unified.db"
+  },
+  "catalog_config": {
+    "catalog_type": "marcxml_sru",
+    "catalog_token": "",
+    "catalog_search_url": "",
+    "catalog_details_url": "",
+    "catalog_web_search_url": "",
+    "catalog_web_record_url": "",
+    "sru_base_url": "",
+    "sru_database": "",
+    "sru_schema": "marcxml",
+    "sru_preset": "gbv",
+    "sru_max_records": 50,
+    "strict_gnd_validation_for_dk_search": true
+  },
+  "prompt_config": {
+    "prompts_file": "prompts.json",
+    "custom_prompts_dir": "custom_prompts",
+    "prompt_cache_enabled": true
+  },
+  "system_config": {
+    "prompts_path": "./prompts.json",
+    "first_run_completed": true
+  },
+  "unified_config": {
+    "provider_priority": [
+      "example-openai-compatible"
+    ],
+    "disabled_providers": [],
+    "pipeline_default_provider": "example-openai-compatible",
+    "pipeline_default_model": "gpt-5-mini",
+    "providers": [
+      {
+        "name": "example-openai-compatible",
+        "provider_type": "openai_compatible",
+        "enabled": true,
+        "api_key": "REPLACE_WITH_YOUR_API_KEY",
+        "base_url": "https://api.openai.com/v1",
+        "preferred_model": "gpt-5-mini",
+        "description": "Example provider placeholder"
+      }
+    ],
+    "task_preferences": {
+      "initialisation": {
+        "task_type": "initialisation",
+        "model_priority": [
+          {
+            "provider_name": "example-openai-compatible",
+            "model_name": "gpt-5-mini"
+          }
+        ],
+        "allow_fallback": true
+      },
+      "keywords": {
+        "task_type": "keywords",
+        "model_priority": [
+          {
+            "provider_name": "example-openai-compatible",
+            "model_name": "gpt-5-mini"
+          }
+        ],
+        "allow_fallback": true
+      },
+      "dk_classification": {
+        "task_type": "dk_classification",
+        "model_priority": [
+          {
+            "provider_name": "example-openai-compatible",
+            "model_name": "gpt-5-mini"
+          }
+        ],
+        "allow_fallback": true
+      }
+    }
+  },
+  "config_version": "2.0"
+}

@@ -91,6 +91,7 @@ class DatabaseManager:
         if self.config.db_type.lower() in ['sqlite', 'sqlite3']:
             driver_name = "QSQLITE"
             connection = QSqlDatabase.addDatabase(driver_name, thread_conn_name)
+            connection.setConnectOptions("QSQLITE_BUSY_TIMEOUT=30000")
             connection.setDatabaseName(self.config.sqlite_path)
 
         elif self.config.db_type.lower() == 'mysql':
@@ -122,6 +123,21 @@ class DatabaseManager:
             error_msg = f"Failed to open database connection: {error.text()}"
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
+
+        # Apply SQLite concurrency/safety pragmas per connection - Claude Generated
+        if self.config.db_type.lower() in ['sqlite', 'sqlite3']:
+            pragma_query = QSqlQuery(connection)
+            for pragma in [
+                "PRAGMA journal_mode=WAL",
+                "PRAGMA synchronous=FULL",
+                "PRAGMA foreign_keys=ON",
+            ]:
+                if not pragma_query.exec(pragma):
+                    self.logger.warning(
+                        f"SQLite pragma failed ({pragma}): {pragma_query.lastError().text()}"
+                    )
+            pragma_query.finish()
+            pragma_query.clear()
 
         # Store in thread-local storage
         self._thread_local.connection = connection
@@ -418,6 +434,10 @@ class DatabaseManager:
         Close database connection and clean up all thread-specific connections.
         Claude Generated
         """
+        if not QCoreApplication.instance():
+            self.logger.debug("Skipping QtSql cleanup because no QCoreApplication exists anymore.")
+            return
+
         # Close current thread's connection
         thread_id = threading.current_thread().ident
         thread_conn_name = f"{self.connection_name}_{thread_id}"
@@ -426,6 +446,7 @@ class DatabaseManager:
             conn = QSqlDatabase.database(thread_conn_name)
             if conn.isOpen():
                 conn.close()
+            conn = None
             QSqlDatabase.removeDatabase(thread_conn_name)
             self.logger.info(f"Database connection closed: {thread_conn_name}")
 
@@ -434,6 +455,7 @@ class DatabaseManager:
             conn = QSqlDatabase.database(self.connection_name)
             if conn.isOpen():
                 conn.close()
+            conn = None
             QSqlDatabase.removeDatabase(self.connection_name)
 
         if hasattr(self._thread_local, 'connection'):
@@ -522,6 +544,7 @@ class DatabaseManager:
     def __del__(self):
         """Clean up connection on destruction - Claude Generated"""
         try:
-            self.close_connection()
+            if QCoreApplication.instance():
+                self.close_connection()
         except Exception:
             pass  # Ignore errors during cleanup

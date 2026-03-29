@@ -13,7 +13,7 @@ import threading
 import unicodedata
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 from datetime import datetime
 import subprocess
 import sys
@@ -41,6 +41,12 @@ from src.utils.config_manager import ConfigManager
 from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
 from src.utils.pipeline_utils import PipelineJsonManager
 from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
+from src.webapp.result_serialization import (
+    build_export_payload as _build_export_payload,
+    ensure_json_serializable as _ensure_json_serializable,
+    extract_results_from_analysis_state as _extract_results_from_analysis_state,
+    prepare_results_for_export as _prepare_results_for_export,
+)
 
 # Setup logging - Claude Generated: configurable via LOG_LEVEL env var
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
@@ -71,6 +77,20 @@ async def lifespan(app):
     # Suppress session-polling spam AFTER uvicorn has configured its loggers
     logging.getLogger("uvicorn.access").addFilter(_SuppressSessionPolling())
     logger.info("Starting ALIMA Webapp...")
+
+    try:
+        startup_config = ConfigManager(logger=logger).load_config()
+        db_cfg = startup_config.database_config
+        if db_cfg.db_type.lower() in {"sqlite", "sqlite3"}:
+            logger.warning(
+                "ALIMA webapp is configured to use SQLite (%s). "
+                "This is acceptable for development or light single-process use, "
+                "but MariaDB/MySQL is recommended for concurrent multi-user webapp "
+                "access and simultaneous CLI usage.",
+                db_cfg.sqlite_path,
+            )
+    except Exception as e:
+        logger.warning(f"Could not validate database configuration during startup: {e}")
 
     # Setup Qt plugin paths for SQL drivers - Claude Generated
     setup_qt_plugin_paths()
@@ -340,7 +360,7 @@ async def get_session(session_id: str) -> dict:
         "status": session.status,
         "current_step": session.current_step,
         "created_at": session.created_at,
-        "results": session.results,
+        "results": _prepare_results_for_export(session.results, validate_rvk=False),
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
     }
@@ -450,7 +470,6 @@ async def start_analysis(
     if session.status == "running":
         raise HTTPException(status_code=400, detail="Analysis already running")
 
-    session.status = "running"
     session.input_data = {"type": input_type, "content": content}
 
     # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
@@ -467,6 +486,8 @@ async def start_analysis(
         except Exception as e:
             logger.error(f"Failed to read file: {e}")
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    session.status = "running"
 
     # Start analysis in background with file contents, not the UploadFile object
     asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value))
@@ -493,7 +514,6 @@ async def process_input_only(
     if session.status == "running":
         raise HTTPException(status_code=400, detail="Analysis already running")
 
-    session.status = "running"
     session.input_data = {"type": input_type, "content": content}
 
     # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
@@ -507,6 +527,8 @@ async def process_input_only(
         except Exception as e:
             logger.error(f"Failed to read file: {e}")
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    session.status = "running"
 
     # Start input-only processing in background - Claude Generated
     asyncio.create_task(run_input_extraction(session_id, input_type, content, file_contents, file.filename if file else None))
@@ -586,132 +608,6 @@ def _autosave_session_state(session: Session):
         logger.error(f"Auto-save failed for session {session.session_id}: {e}")
         session.autosave_failed = True
         # Don't raise - auto-save is best-effort, shouldn't block pipeline
-
-
-def _extract_results_from_analysis_state(analysis_state) -> dict:
-    """Extract results dict from KeywordAnalysisState - shared logic for callback and recovery - Claude Generated"""
-
-    # Extract final GND keywords from LLM analysis
-    final_keywords = []
-    if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-        final_keywords = getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
-
-    # Extract DK classifications
-    dk_classifications = getattr(analysis_state, 'dk_classifications', [])
-
-    # Extract initial keywords
-    initial_keywords = getattr(analysis_state, 'initial_keywords', [])
-
-    # Extract original abstract
-    original_abstract = getattr(analysis_state, 'original_abstract', '')
-
-    # Extract working title - Claude Generated
-    working_title = getattr(analysis_state, 'working_title', '')
-
-    # Extract search results
-    search_results = getattr(analysis_state, 'search_results', [])
-
-    # Extract DK search results
-    dk_search_results = getattr(analysis_state, 'dk_search_results', [])
-
-    # Serialize search_results properly
-    serialized_search_results = []
-    if search_results:
-        for result in search_results:
-            try:
-                search_term = getattr(result, 'search_term', '') if hasattr(result, 'search_term') else ''
-                result_data = getattr(result, 'results', {}) if hasattr(result, 'results') else {}
-
-                serialized_search_results.append({
-                    "search_term": search_term,
-                    "results": result_data if isinstance(result_data, dict) else {}
-                })
-            except Exception as e:
-                logger.warning(f"Error serializing search result: {e}")
-                continue
-
-    # Serialize initial_llm_call_details
-    initial_llm_details = None
-    try:
-        if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
-            llm_call = analysis_state.initial_llm_call_details
-            initial_llm_details = {
-                "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
-                "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
-                "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
-                "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
-                "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
-                "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
-            }
-    except Exception as e:
-        logger.warning(f"Error serializing initial_llm_call_details: {e}")
-        initial_llm_details = None
-
-    # Serialize final_llm_analysis
-    final_llm_details = None
-    try:
-        if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-            llm_call = analysis_state.final_llm_analysis
-            final_llm_details = {
-                "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
-                "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
-                "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
-                "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
-                "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
-                "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
-            }
-    except Exception as e:
-        logger.warning(f"Error serializing final_llm_analysis: {e}")
-        final_llm_details = None
-
-    # Convert sets to lists for JSON serialization
-    def ensure_json_serializable(value):
-        """Recursively convert non-JSON-serializable types"""
-        if isinstance(value, set):
-            return list(value)
-        elif isinstance(value, dict):
-            return {k: ensure_json_serializable(v) for k, v in value.items()}
-        elif isinstance(value, (list, tuple)):
-            return [ensure_json_serializable(v) for v in value]
-        return value
-
-    return {
-        # Input & Keywords & Title
-        "original_abstract": original_abstract,
-        "working_title": working_title,  # Claude Generated
-        "initial_keywords": ensure_json_serializable(initial_keywords),
-        "final_keywords": ensure_json_serializable(final_keywords),
-
-        # GND/SWB Search Results
-        "search_results": ensure_json_serializable(serialized_search_results),
-
-        # DK Classification Results
-        "dk_classifications": ensure_json_serializable(dk_classifications),
-        "dk_search_results": ensure_json_serializable(dk_search_results),
-        "dk_search_results_flattened": ensure_json_serializable(
-            getattr(analysis_state, 'dk_search_results_flattened', [])),
-        "dk_statistics": ensure_json_serializable(
-            getattr(analysis_state, 'dk_statistics', None)),
-
-        # LLM Analysis Details
-        "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
-        "final_llm_call_details": ensure_json_serializable(final_llm_details),
-
-        # GND Verification Results - Claude Generated
-        "verification": ensure_json_serializable(
-            getattr(analysis_state.final_llm_analysis, 'verification', None)
-            if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis
-            else None
-        ),
-
-        # Pipeline Metadata
-        "pipeline_metadata": {
-            "search_suggesters_used": ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
-            "initial_gnd_classes": ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
-            "has_final_llm_analysis": bool(final_llm_details),
-            "has_initial_llm_analysis": bool(initial_llm_details),
-        }
-    }
 
 
 def cleanup_old_autosaves(max_age_hours: int = None):
@@ -811,7 +707,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await websocket.send_json({
                     "type": "complete",
                     "status": session.status,
-                    "results": make_json_serializable(session.results),
+                    "results": make_json_serializable(
+                        _prepare_results_for_export(session.results, validate_rvk=False)
+                    ),
                     "error": session.error_message,
                     "current_step": session.current_step,
                 })
@@ -841,7 +739,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "status": session.status,
                 "current_step": session.current_step,
                 "current_step_status": session.current_step_status,  # 'running' or 'completed' - Claude Generated
-                "results": make_json_serializable(session.results),
+                "results": make_json_serializable(
+                    _prepare_results_for_export(session.results, validate_rvk=False)
+                ),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
                 "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
                 "dk_search_progress": session.dk_search_progress,  # DK search progress info - Claude Generated
@@ -886,9 +786,7 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
     # User can download current progress at any time
 
     if format == "json":
-        # Determine if this is a partial or complete export
-        is_complete = (session.status == "completed")
-        status_suffix = "complete" if is_complete else "partial"
+        status_suffix = "complete" if session.status == "completed" else "partial"
 
         # Create temporary JSON file
         temp_file = tempfile.NamedTemporaryFile(
@@ -898,18 +796,16 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
             dir=tempfile.gettempdir()
         )
 
-        # Enhanced export data with status and metadata - Claude Generated
-        export_data = {
-            "session_id": session.session_id,
-            "created_at": session.created_at,
-            "exported_at": datetime.now().isoformat(),
-            "status": session.status,
-            "current_step": session.current_step,
-            "is_complete": is_complete,
-            "input": session.input_data,
-            "results": session.results,
-            "autosave_timestamp": session.autosave_timestamp,
-        }
+        export_data = _build_export_payload(
+            session_id=session.session_id,
+            created_at=session.created_at,
+            status=session.status,
+            current_step=session.current_step,
+            input_data=session.input_data,
+            results=session.results,
+            autosave_timestamp=session.autosave_timestamp,
+            validate_rvk=True,
+        )
 
         json.dump(export_data, temp_file, indent=2, ensure_ascii=False)
         temp_file.close()
@@ -972,7 +868,9 @@ async def recover_session(session_id: str) -> dict:
         return {
             "session_id": session_id,
             "status": "recovered",
-            "results": make_json_serializable(session.results),
+            "results": make_json_serializable(
+                _prepare_results_for_export(session.results, validate_rvk=False)
+            ),
             "metadata": metadata,
             "message": "Results recovered successfully"
         }
@@ -1160,7 +1058,10 @@ async def run_analysis(
             session.current_analysis_state = analysis_state
 
             # Use shared extraction helper (DRY principle) - Claude Generated
-            session.results = _extract_results_from_analysis_state(analysis_state)
+            session.results = _prepare_results_for_export(
+                _extract_results_from_analysis_state(analysis_state),
+                validate_rvk=True,
+            )
 
             # Synchronize session.working_title with session.results['working_title'] - Claude Generated
             if session.results.get('working_title'):

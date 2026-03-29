@@ -97,9 +97,18 @@ class KeywordAnalysisState:
     dk_search_results_flattened: List[Dict[str, Any]] = field(default_factory=list)  # Deduplicated classifications for LLM prompt - Claude Generated Step 6
     dk_statistics: Optional[Dict[str, Any]] = None  # Deduplication metrics and frequency statistics - Claude Generated Step 6
     dk_llm_analysis: Optional[LlmKeywordAnalysis] = None  # For LLM classification details (AbstractTab view) - Claude Generated
-    dk_classifications: List[str] = field(default_factory=list)  # For final DK classification codes - Claude Generated
+    dk_classifications: List[str] = field(default_factory=list)  # Legacy alias for final DK/RVK classification strings - Claude Generated
 
     # Iterative refinement support - Claude Generated
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata
     convergence_achieved: bool = False  # True if converged before max iterations
     max_iterations_reached: bool = False  # True if stopped due to max iterations
+
+    @property
+    def classifications(self) -> List[str]:
+        """Preferred neutral alias for final DK/RVK classification strings."""
+        return self.dk_classifications
+
+    @classifications.setter
+    def classifications(self, value: List[str]) -> None:
+        self.dk_classifications = list(value or [])

@@ -574,7 +574,7 @@ class PipelineStreamWidget(QWidget):
             step_id: Pipeline step ID for message formatting
         """
         if not dk_results:
-            self.add_pipeline_message("Keine DK-Klassifikationen gefunden", "info", step_id)
+            self.add_pipeline_message("Keine Klassifikationen (DK/RVK) gefunden", "info", step_id)
             return
 
         # Calculate total statistics
@@ -586,7 +586,7 @@ class PipelineStreamWidget(QWidget):
 
         # Display summary header with status overview - Claude Generated (Enhanced feedback)
         self.add_pipeline_message(
-            f"🔍 DK-Suche: {total_keywords} Keywords → {success_count} erfolgreich → {total_classifications} Klassifikationen",
+            f"🔍 Klassifikationssuche: {total_keywords} Keywords → {success_count} erfolgreich → {total_classifications} Klassifikationen",
             "info",
             step_id,
         )
@@ -630,7 +630,7 @@ class PipelineStreamWidget(QWidget):
             if classifications:
                 total_dk = len(classifications)
                 self.add_pipeline_message(
-                    f"   ✓ {total_dk} DK-Klassifikationen gefunden",
+                    f"   ✓ {total_dk} Klassifikationen (DK/RVK) gefunden",
                     "debug",
                     step_id,
                 )

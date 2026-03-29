@@ -1,7 +1,11 @@
 from pydantic import BaseModel
 from openai import OpenAI
+import os
 
-client = OpenAI(base_url="http://ollama.com/v1", api_key="3906daf19dbc42bab768c2c2ae5df634.zksO6Spr0fDqAcLM0eYr8Jaz")
+client = OpenAI(
+    base_url="http://ollama.com/v1",
+    api_key=os.environ.get("OLLAMA_API_KEY", "no-key-configured"),
+)
 
 # Define the schema for the response
 class FriendInfo(BaseModel):

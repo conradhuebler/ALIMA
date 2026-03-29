@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 
 from src.core.data_models import KeywordAnalysisState
+from src.utils.pipeline_utils import PipelineJsonManager
 
 
 # K10+/WinIBW export format tags
@@ -36,33 +37,7 @@ def display_protocol(json_file: str, steps: List[str]):
         return
 
     try:
-        # Load JSON file
-        with open(json_file, 'r', encoding='utf-8') as f:
-            state_dict = json.load(f)
-
-        # Convert to KeywordAnalysisState object
-        state = KeywordAnalysisState(
-            original_abstract=state_dict.get('original_abstract'),
-            initial_keywords=state_dict.get('initial_keywords', []),
-            search_suggesters_used=state_dict.get('search_suggesters_used', []),
-            initial_gnd_classes=state_dict.get('initial_gnd_classes', []),
-            initial_llm_call_details=state_dict.get('initial_llm_call_details'),
-            final_llm_analysis=state_dict.get('final_llm_analysis'),
-            dk_search_results=state_dict.get('dk_search_results', []),
-            dk_search_results_flattened=state_dict.get('dk_search_results_flattened', []),
-            dk_statistics=state_dict.get('dk_statistics'),
-            dk_classifications=state_dict.get('dk_classifications', []),
-            timestamp=state_dict.get('timestamp'),
-        )
-
-        # Handle search_results - reconstruct SearchResult objects if needed
-        search_results = []
-        for sr in state_dict.get('search_results', []):
-            if isinstance(sr, dict):
-                search_results.append(sr)
-            else:
-                search_results.append(sr)
-        state.search_results = search_results
+        state = PipelineJsonManager.load_analysis_state(json_file)
 
         # Determine which steps to display
         display_steps = steps if steps != ["all"] else [
@@ -158,25 +133,28 @@ def format_step_search(state: KeywordAnalysisState):
         if isinstance(result, dict):
             search_term = result.get('search_term', 'unknown')
             results = result.get('results', {})
+        else:
+            search_term = getattr(result, 'search_term', 'unknown')
+            results = getattr(result, 'results', {}) or {}
 
-            print(f"\n  Search Term: {search_term}")
-            print(f"  -" * 20)
+        print(f"\n  Search Term: {search_term}")
+        print(f"  -" * 20)
 
-            if results:
-                for keyword, data in results.items():
-                    gndids = data.get('gndid', [])
-                    count = data.get('count', 0)
+        if results:
+            for keyword, data in results.items():
+                gndids = data.get('gndid', [])
+                count = data.get('count', 0)
 
-                    if isinstance(gndids, list):
-                        gndid_str = ", ".join(gndids)
-                    else:
-                        gndid_str = str(gndids)
+                if isinstance(gndids, (list, tuple, set)):
+                    gndid_str = ", ".join(str(gndid) for gndid in gndids)
+                else:
+                    gndid_str = str(gndids)
 
-                    print(f"    -> {keyword}")
-                    print(f"      GND ID: {gndid_str}")
-                    print(f"      Hits: {count}")
-            else:
-                print("    (No results for this term)")
+                print(f"    -> {keyword}")
+                print(f"      GND ID: {gndid_str}")
+                print(f"      Hits: {count}")
+        else:
+            print("    (No results for this term)")
 
 
 def format_step_keywords(state: KeywordAnalysisState):
@@ -351,31 +329,7 @@ def display_protocol_compact(json_file: str, steps: List[str]):
         return
 
     try:
-        # Load JSON file
-        with open(json_file, 'r', encoding='utf-8') as f:
-            state_dict = json.load(f)
-
-        # Convert to KeywordAnalysisState object
-        state = KeywordAnalysisState(
-            original_abstract=state_dict.get('original_abstract'),
-            initial_keywords=state_dict.get('initial_keywords', []),
-            search_suggesters_used=state_dict.get('search_suggesters_used', []),
-            initial_gnd_classes=state_dict.get('initial_gnd_classes', []),
-            initial_llm_call_details=state_dict.get('initial_llm_call_details'),
-            final_llm_analysis=state_dict.get('final_llm_analysis'),
-            dk_search_results=state_dict.get('dk_search_results', []),
-            dk_search_results_flattened=state_dict.get('dk_search_results_flattened', []),
-            dk_statistics=state_dict.get('dk_statistics'),
-            dk_classifications=state_dict.get('dk_classifications', []),
-            timestamp=state_dict.get('timestamp'),
-        )
-
-        # Handle search_results
-        search_results = []
-        for sr in state_dict.get('search_results', []):
-            if isinstance(sr, dict):
-                search_results.append(sr)
-        state.search_results = search_results
+        state = PipelineJsonManager.load_analysis_state(json_file)
 
         # Get filename for output
         filename = Path(json_file).name
@@ -410,24 +364,7 @@ def display_protocol_k10plus(json_file: str):
         return
 
     try:
-        # Load JSON file
-        with open(json_file, 'r', encoding='utf-8') as f:
-            state_dict = json.load(f)
-
-        # Convert to KeywordAnalysisState object
-        state = KeywordAnalysisState(
-            original_abstract=state_dict.get('original_abstract'),
-            initial_keywords=state_dict.get('initial_keywords', []),
-            search_suggesters_used=state_dict.get('search_suggesters_used', []),
-            initial_gnd_classes=state_dict.get('initial_gnd_classes', []),
-            initial_llm_call_details=state_dict.get('initial_llm_call_details'),
-            final_llm_analysis=state_dict.get('final_llm_analysis'),
-            dk_search_results=state_dict.get('dk_search_results', []),
-            dk_search_results_flattened=state_dict.get('dk_search_results_flattened', []),
-            dk_statistics=state_dict.get('dk_statistics'),
-            dk_classifications=state_dict.get('dk_classifications', []),
-            timestamp=state_dict.get('timestamp'),
-        )
+        state = PipelineJsonManager.load_analysis_state(json_file)
 
         # Generate K10+ export lines
         lines = []
@@ -486,9 +423,13 @@ def format_step_compact_csv(step: str, state: KeywordAnalysisState, filename: st
         result_parts = []
         for result in state.search_results:
             if isinstance(result, dict):
-                for keyword, info in result.get('results', {}).items():
-                    count = info.get('count', 0)
-                    result_parts.append(f"{keyword}:{count}")
+                results = result.get('results', {})
+            else:
+                results = getattr(result, 'results', {}) or {}
+
+            for keyword, info in results.items():
+                count = info.get('count', 0)
+                result_parts.append(f"{keyword}:{count}")
         data = "|".join(result_parts) if result_parts else ""
 
     elif step == "keywords":

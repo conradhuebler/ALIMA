@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Optional
 import time
 import re
 import logging
+import html
 from urllib.parse import urlencode, quote
 
 # Configure logging
@@ -239,9 +240,10 @@ class MarcXmlClient:
             
             if self.debug:
                 logger.debug(f"SRU response status: {response.status_code}")
-                logger.debug(f"SRU response (first 1000 chars): {response.text[:1000]}")
+                preview = response.content[:1000].decode("utf-8", errors="replace")
+                logger.debug(f"SRU response (first 1000 chars): {preview}")
             
-            return self._parse_sru_response(response.text)
+            return self._parse_sru_response(response.content)
             
         except requests.exceptions.RequestException as e:
             logger.error(f"SRU request failed: {e}")
@@ -289,12 +291,35 @@ class MarcXmlClient:
         
         return f'{index}="{escaped_term}"'
     
-    def _parse_sru_response(self, xml_text: str) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _clean_marc_text(text: Optional[str]) -> str:
+        """Normalize MARC text and repair common UTF-8/Latin-1 mojibake."""
+        if text is None:
+            return ""
+
+        cleaned = html.unescape(str(text))
+
+        # Some SRU endpoints expose UTF-8 bytes with a Latin-1-style decode upstream,
+        # which yields sequences like "fÃ¼r" or "â". Repair those defensively.
+        if any(marker in cleaned for marker in ("Ã", "Â", "â€", "â€“", "â€”", "â€¦", "â", "Ê")):
+            try:
+                repaired = cleaned.encode("latin-1").decode("utf-8")
+                if repaired and repaired.count("�") <= cleaned.count("�"):
+                    cleaned = repaired
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+
+        return re.sub(r"\s+", " ", cleaned).strip()
+
+    def _parse_sru_response(self, xml_input: Any) -> List[Dict[str, Any]]:
         """Parse SRU response XML and extract MARC records."""
         records = []
         
         try:
-            root = ET.fromstring(xml_text.encode('utf-8'))
+            if isinstance(xml_input, bytes):
+                root = ET.fromstring(xml_input)
+            else:
+                root = ET.fromstring(str(xml_input).encode("utf-8"))
             
             # Check for SRU diagnostics (errors)
             for diag in root.findall(".//srw:diagnostic", MARC_NS):
@@ -366,14 +391,14 @@ class MarcXmlClient:
             """Find subfield with given code."""
             for sf in datafield:
                 if sf.get("code") == code:
-                    return sf.text
+                    return self._clean_marc_text(sf.text)
             return None
         
         # Parse control fields
         for cf in find_all("controlfield"):
             tag = cf.get("tag")
             if tag == "001":
-                result["rsn"] = cf.text or ""
+                result["rsn"] = (cf.text or "").strip()
         
         # Parse data fields
         for df in find_all("datafield"):
@@ -404,13 +429,11 @@ class MarcXmlClient:
                         result["classifications"].append(f"DDC {class_num}")
                         result["decimal_classifications"].append(class_num)
                     else:
-                        # Check if it looks like DK (numeric) or RVK (letter+number)
+                        # Keep numeric classifications heuristically, but require explicit
+                        # source metadata for RVK to avoid catalog-local/library artifacts.
                         if re.match(r"^\d+(\.\d+)?$", class_num):
                             result["classifications"].append(f"DK {class_num}")
                             result["decimal_classifications"].append(class_num)
-                        elif re.match(r"^[A-Z]{1,2}\s*\d+", class_num):
-                            result["classifications"].append(f"RVK {class_num}")
-                            result["rvk_classifications"].append(class_num)
                         else:
                             result["classifications"].append(class_num)
             
@@ -623,6 +646,7 @@ class MarcXmlClient:
         for keyword in keywords:
             # Strip GND-ID suffix if present, e.g., "Wissenschaft (GND-ID: 4066562-8)" -> "Wissenschaft"
             search_term = re.sub(r'\s*\(GND-ID:\s*[^)]+\)\s*$', '', keyword).strip()
+            search_term = html.unescape(search_term)
             
             logger.info(f"Extracting DK classifications for: {keyword} -> search term: '{search_term}'")
             
@@ -665,10 +689,21 @@ class MarcXmlClient:
                     if title and title not in classification_counts[rvk]["titles"]:
                         classification_counts[rvk]["titles"].append(title)
             
-            all_results.extend(classification_counts.values())
-        
-        # Sort by count descending
-        all_results.sort(key=lambda x: x["count"], reverse=True)
+            keyword_classifications = list(classification_counts.values())
+
+            # Match BiblioClient's keyword-centric interface:
+            # one entry per searched keyword with nested classifications.
+            if keyword_classifications:
+                all_results.append({
+                    "keyword": keyword,
+                    "source": "sru",
+                    "search_time_ms": 0.0,
+                    "classifications": keyword_classifications,
+                })
+
+        # Sort each keyword's classifications by frequency descending for stable downstream display.
+        for result in all_results:
+            result["classifications"].sort(key=lambda x: x["count"], reverse=True)
         
         return all_results
     
