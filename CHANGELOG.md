@@ -17,13 +17,14 @@ This file summarizes notable changes in this branch since the last upstream rele
 - Added RVK validation metadata so results distinguish standard, non-standard, and validation-error notations.
 - Added RVK lookup support through the official API and a local MarcXML-backed GND index.
 - Improved RVK selection by using thematic anchor terms, shortlist balancing, and DK-informed rescoring before final output is chosen.
+- Tightened catalog-derived RVK handling by requiring explicit RVK source metadata in MARC `084` parsing, adding stronger rejection of single-library institutional branches without document context, and allowing promoted anchor terms to trigger supplemental RVK API fallback even when catalog RVK already exists.
 - Standardized classification handling under `results.classifications` while keeping `results.dk_classifications` as a compatibility alias.
 
 ### Web Application
 
 - Added a substantially expanded web interface with dedicated templates, custom styling, session isolation, and improved live progress reporting.
 - Added autosave, recovery, reconnect handling, immediate export, browser notifications, and abort support for long-running sessions.
-- Added a tabbed preview/log view so streaming output and finalized structured results are both available in the same session.
+- Added markdown-aware in-place log rendering for streamed LLM output, including tables and structured DK/RVK profile blocks.
 - Improved result serialization and rendering so classifications, RVK validation details, and flattened DK search data are shown more reliably.
 
 ### Desktop UI

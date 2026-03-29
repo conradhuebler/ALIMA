@@ -1899,8 +1899,23 @@ class PipelineStepExecutor:
         # Filter out results without titles - Claude Generated
         results_with_titles = []
         titleless_count = 0
+        institution_library_rvk_count = 0
 
         for result in filtered_results:
+            classification_type = str(result.get("classification_type", result.get("type", "DK"))).upper()
+            if (
+                classification_type == "RVK"
+                and str(result.get("source", "catalog") or "catalog") == "catalog"
+                and self._is_institution_library_rvk(result)
+                and not self._matches_specific_library_context(
+                    result,
+                    original_abstract,
+                    result.get("matched_keywords", []) or result.get("keywords", []) or [],
+                )
+            ):
+                institution_library_rvk_count += 1
+                continue
+
             if result.get("source") in {"rvk_api", "rvk_gnd_index"}:
                 if result.get("label") or result.get("ancestor_path"):
                     results_with_titles.append(result)
@@ -1935,6 +1950,11 @@ class PipelineStepExecutor:
                 stream_callback(f"⚠️ Filtere titel-lose Einträge: {len(results_with_titles)} mit Titeln, {titleless_count} ohne Titel ausgeschlossen\n", "dk_classification")
             else:
                 stream_callback(f"✅ Alle {len(results_with_titles)} Einträge haben Titel\n", "dk_classification")
+            if institution_library_rvk_count > 0:
+                stream_callback(
+                    f"⚠️ Verwerfe {institution_library_rvk_count} katalogseitige RVK fuer einzelne Bibliotheken ohne Dokumentbezug\n",
+                    "dk_classification",
+                )
 
         if self.logger:
             self.logger.info(f"DK title filter: {len(results_with_titles)} with titles, {titleless_count} without titles excluded")
@@ -2664,47 +2684,69 @@ class PipelineStepExecutor:
     ) -> List[Dict[str, Any]]:
         """Add authority-backed RVK candidates if no standard RVK survived validation."""
         existing_standard_rvk = False
+        covered_standard_keywords = set()
         for kw_result in dk_search_results:
             for classification in kw_result.get("classifications", []):
                 cls_type = str(classification.get("classification_type", classification.get("type", ""))).upper()
                 rvk_status = classification.get("rvk_validation_status")
                 if cls_type == "RVK" and rvk_status == "standard":
                     existing_standard_rvk = True
+                    matched_keywords = classification.get("matched_keywords", []) or classification.get("keywords", []) or []
+                    if not matched_keywords and kw_result.get("keyword"):
+                        matched_keywords = [kw_result.get("keyword")]
+                    for keyword in matched_keywords:
+                        normalized = canonicalize_keyword(keyword)
+                        if normalized:
+                            covered_standard_keywords.add(normalized)
                     break
-            if existing_standard_rvk:
-                break
 
-        if existing_standard_rvk:
+        fallback_keywords = deduplicate_canonical_keywords(final_search_keywords or [])
+        uncovered_fallback_keywords = [
+            keyword for keyword in fallback_keywords
+            if canonicalize_keyword(keyword) not in covered_standard_keywords
+        ]
+
+        if existing_standard_rvk and not uncovered_fallback_keywords:
             return dk_search_results
 
         if gnd_keyword_entries:
-            if stream_callback:
+            use_gnd_index = not existing_standard_rvk
+            gnd_entries_for_fallback = list(gnd_keyword_entries or [])
+            if use_gnd_index and stream_callback:
                 stream_callback(
                     "⚠️ Katalog lieferte keine standardisierten RVK-Kandidaten - versuche RVK-GND-Index\n",
                     "dk_search"
                 )
+            if use_gnd_index:
+                rvk_index_results = self._build_rvk_gnd_index_results(
+                    gnd_entries_for_fallback,
+                    stream_callback=stream_callback,
+                )
+                if rvk_index_results:
+                    if self.logger:
+                        self.logger.info(
+                            f"RVK GND index added {sum(len(item.get('classifications', [])) for item in rvk_index_results)} "
+                            f"candidates across {len(rvk_index_results)} keywords"
+                        )
+                    dk_search_results = dk_search_results + rvk_index_results
+                    return dk_search_results
 
-            rvk_index_results = self._build_rvk_gnd_index_results(
-                gnd_keyword_entries,
-                stream_callback=stream_callback,
+        if existing_standard_rvk and uncovered_fallback_keywords and stream_callback:
+            preview = ", ".join(uncovered_fallback_keywords[:6])
+            if len(uncovered_fallback_keywords) > 6:
+                preview += f", +{len(uncovered_fallback_keywords) - 6} weitere"
+            stream_callback(
+                f"ℹ️ Ergaenze RVK-API-Fallback fuer nicht abgedeckte Anker/Promotionen: {preview}\n",
+                "dk_search"
             )
-            if rvk_index_results:
-                if self.logger:
-                    self.logger.info(
-                        f"RVK GND index added {sum(len(item.get('classifications', [])) for item in rvk_index_results)} "
-                        f"candidates across {len(rvk_index_results)} keywords"
-                    )
-                dk_search_results = dk_search_results + rvk_index_results
-                return dk_search_results
-
-        if stream_callback:
+        elif stream_callback:
             stream_callback(
                 "⚠️ RVK-GND-Index lieferte nichts - nutze offiziellen RVK-API-Label-Fallback\n",
                 "dk_search"
             )
 
         rvk_api_results = self._build_rvk_api_fallback_results(
-            final_search_keywords,
+            uncovered_fallback_keywords or fallback_keywords,
             stream_callback=stream_callback,
         )
         if not rvk_api_results:
@@ -3265,7 +3307,58 @@ class PipelineStepExecutor:
         if domain_profile.get("law", 0) >= 2 and branch_tokens.intersection(domain_branch_terms["law"]):
             fit_score += 15
 
+        if self._is_institution_library_rvk(candidate):
+            if self._matches_specific_library_context(candidate, abstract_text, matched_keywords):
+                fit_score += 10
+            else:
+                fit_score -= 120
+
         return fit_score
+
+    @staticmethod
+    def _is_institution_library_rvk(candidate: Dict[str, Any]) -> bool:
+        """Detect RVK notations for single named libraries that are often catalog artifacts."""
+        label = str(candidate.get("label", "") or "").lower()
+        ancestor_path = str(candidate.get("ancestor_path", "") or "").lower()
+        branch_text = f"{label} {ancestor_path}"
+        return (
+            "bibliothekswesen" in branch_text
+            and (
+                "einzelne bibliotheken" in branch_text
+                or "einzelne deutsche bibliotheken" in branch_text
+                or "bibliotheken d" in branch_text
+            )
+        )
+
+    @staticmethod
+    def _matches_specific_library_context(
+        candidate: Dict[str, Any],
+        abstract_text: str,
+        matched_keywords: List[str],
+    ) -> bool:
+        """Keep single-library RVK only when the specific institution/location is really in the text."""
+        context_text = " ".join(
+            [
+                str(abstract_text or "").lower(),
+                " ".join(str(item or "").lower() for item in (matched_keywords or [])),
+            ]
+        )
+        label = str(candidate.get("label", "") or "")
+        distinctive_tokens = [
+            token.lower()
+            for token in re.findall(r"[A-Za-zÄÖÜäöüß]{4,}", label)
+            if token.lower() not in {
+                "bibliothek",
+                "bibliotheken",
+                "landesbibliothek",
+                "staats",
+                "universitätsbibliothek",
+                "universitaetsbibliothek",
+                "sowie",
+                "deutsche",
+            }
+        ]
+        return any(token in context_text for token in distinctive_tokens)
 
     @staticmethod
     def _rvk_broadness_penalty(candidate: Dict[str, Any]) -> int:

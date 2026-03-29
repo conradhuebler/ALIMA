@@ -429,13 +429,11 @@ class MarcXmlClient:
                         result["classifications"].append(f"DDC {class_num}")
                         result["decimal_classifications"].append(class_num)
                     else:
-                        # Check if it looks like DK (numeric) or RVK (letter+number)
+                        # Keep numeric classifications heuristically, but require explicit
+                        # source metadata for RVK to avoid catalog-local/library artifacts.
                         if re.match(r"^\d+(\.\d+)?$", class_num):
                             result["classifications"].append(f"DK {class_num}")
                             result["decimal_classifications"].append(class_num)
-                        elif re.match(r"^[A-Z]{1,2}\s*\d+", class_num):
-                            result["classifications"].append(f"RVK {class_num}")
-                            result["rvk_classifications"].append(class_num)
                         else:
                             result["classifications"].append(class_num)
             
