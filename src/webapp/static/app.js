@@ -59,6 +59,8 @@ class AlimaWebapp {
         this.cameraBlob = null;
         this.pendingSourceType = 'text';   // Source type for working title / filename - Claude Generated
         this.pendingInputSource = '';       // DOI, URL, or filename for working title - Claude Generated
+        this.streamRawBuffer = '';
+        this.streamRenderPending = false;
 
         this.setupPipelineSteps();
         this.setupEventListeners();
@@ -313,7 +315,7 @@ class AlimaWebapp {
 
         // Clear logs button
         document.getElementById('clear-logs-btn').addEventListener('click', () => {
-            document.getElementById('stream-text').textContent = '';
+            this.clearStreamText();
         });
 
         // File input
@@ -1477,20 +1479,16 @@ class AlimaWebapp {
 
     // Stream text manipulation
     appendStreamText(text) {
-        const streamEl = document.getElementById('stream-text');
-        streamEl.textContent += text + '\n';
-
-        // Ensure scrolling to bottom - Claude Generated (2026-01-13)
-        this.scrollToBottom(streamEl);
+        if (this.streamRawBuffer && !this.streamRawBuffer.endsWith('\n')) {
+            this.streamRawBuffer += '\n';
+        }
+        this.streamRawBuffer += `${text}\n`;
+        this.scheduleStreamRender();
     }
 
     appendStreamToken(text) {
-        // Append token without adding newline (for streaming output)
-        const streamEl = document.getElementById('stream-text');
-        streamEl.textContent += text;
-
-        // Ensure scrolling to bottom - Claude Generated (2026-01-13)
-        this.scrollToBottom(streamEl);
+        this.streamRawBuffer += text;
+        this.scheduleStreamRender();
     }
 
     // Reliable scroll to bottom - Claude Generated (2026-01-13)
@@ -1518,8 +1516,273 @@ class AlimaWebapp {
     }
 
     clearStreamText() {
-        document.getElementById('stream-text').textContent = '';
+        this.streamRawBuffer = '';
+        this.streamRenderPending = false;
+        const streamEl = document.getElementById('stream-text');
+        if (streamEl) {
+            streamEl.innerHTML = '';
+        }
         this.lastDisplayedStep = null;  // Reset step tracking - Claude Generated
+    }
+
+    scheduleStreamRender() {
+        if (this.streamRenderPending) return;
+        this.streamRenderPending = true;
+        requestAnimationFrame(() => {
+            this.streamRenderPending = false;
+            this.renderStreamBuffer();
+        });
+    }
+
+    renderStreamBuffer() {
+        const streamEl = document.getElementById('stream-text');
+        if (!streamEl) return;
+        streamEl.innerHTML = this.streamBufferToHtml(this.streamRawBuffer);
+        this.scrollToBottom(streamEl);
+    }
+
+    streamBufferToHtml(text) {
+        const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+        const html = [];
+        let index = 0;
+
+        while (index < lines.length) {
+            const line = this.normalizeSpecialLogLine(lines[index]);
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                html.push('<div class="stream-log-blank"></div>');
+                index += 1;
+                continue;
+            }
+
+            if (trimmed === '## Analyse') {
+                html.push('<h2 class="stream-md-heading stream-md-heading--2">Analyse</h2>');
+                index += 1;
+                continue;
+            }
+
+            if (this.isStructuredSectionLabel(trimmed)) {
+                html.push(`<h3 class="stream-md-heading stream-md-heading--3">${this.renderInlineMarkdown(trimmed.replace(/:$/, ''))}</h3>`);
+                index += 1;
+                continue;
+            }
+
+            if (trimmed.startsWith('ℹ️ RVK-Zweitranking')) {
+                html.push(`<div class="stream-log-line stream-log-line--info">${this.renderInlineMarkdown(trimmed)}</div>`);
+                index += 1;
+                continue;
+            }
+
+            if (this.isMarkdownTableStart(lines, index)) {
+                const tableResult = this.renderMarkdownTable(lines, index);
+                html.push(tableResult.html);
+                index = tableResult.nextIndex;
+                continue;
+            }
+
+            if (this.isPipeRecordBlockStart(lines, index)) {
+                const tableResult = this.renderPipeRecordTable(lines, index);
+                html.push(tableResult.html);
+                index = tableResult.nextIndex;
+                continue;
+            }
+
+            if (/^#{1,3}\s+/.test(trimmed)) {
+                const level = Math.min(3, trimmed.match(/^#+/)[0].length);
+                const content = trimmed.replace(/^#{1,3}\s+/, '');
+                html.push(`<h${level} class="stream-md-heading stream-md-heading--${level}">${this.renderInlineMarkdown(content)}</h${level}>`);
+                index += 1;
+                continue;
+            }
+
+            if (/^\s*[-*]\s+/.test(line)) {
+                const items = [];
+                while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+                    items.push(lines[index].replace(/^\s*[-*]\s+/, ''));
+                    index += 1;
+                }
+                const itemsHtml = items
+                    .map(item => `<li>${this.renderInlineMarkdown(item)}</li>`)
+                    .join('');
+                html.push(`<ul class="stream-md-list">${itemsHtml}</ul>`);
+                continue;
+            }
+
+            html.push(`<div class="stream-log-line">${this.renderInlineMarkdown(line)}</div>`);
+            index += 1;
+        }
+
+        return html.join('');
+    }
+
+    normalizeSpecialLogLine(line) {
+        let normalized = String(line || '');
+        normalized = normalized.replace(/<\|begin_of_thought\|>/g, '## Analyse');
+        normalized = normalized.replace(/<\|end_of_thought\|>/g, '').trimEnd();
+        return normalized;
+    }
+
+    isStructuredSectionLabel(line) {
+        const trimmed = String(line || '').trim();
+        return [
+            'DK-Profil fuer RVK-Zweitranking:',
+            'RVK-Kandidaten fuer DK-basiertes Zweitranking:',
+            'RVK-Bewertung aus DK-basiertem Zweitranking:',
+            'RVK-Auswahl nach DK-basiertem Zweitranking:',
+        ].includes(trimmed);
+    }
+
+    isMarkdownTableStart(lines, index) {
+        if (index + 1 >= lines.length) return false;
+        return this.isPotentialMarkdownTableRow(lines[index]) && this.isMarkdownTableSeparator(lines[index + 1]);
+    }
+
+    isPotentialMarkdownTableRow(line) {
+        const trimmed = String(line || '').trim();
+        if (!trimmed || !trimmed.includes('|')) return false;
+        const pipeCount = (trimmed.match(/\|/g) || []).length;
+        if (pipeCount < 2) return false;
+        if (trimmed.startsWith('🔍 ') || trimmed.startsWith('✅ ') || trimmed.startsWith('⚠️ ') || trimmed.startsWith('❌ ')) {
+            return false;
+        }
+        return true;
+    }
+
+    isMarkdownTableSeparator(line) {
+        const trimmed = String(line || '').trim();
+        if (!trimmed.includes('-')) return false;
+        const normalized = trimmed.replace(/^\|/, '').replace(/\|$/, '').trim();
+        const cells = normalized.split('|').map(cell => cell.trim()).filter(Boolean);
+        return cells.length >= 2 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+    }
+
+    parseMarkdownTableRow(line) {
+        const trimmed = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '');
+        return trimmed.split('|').map(cell => cell.trim());
+    }
+
+    isPipeRecordBlockStart(lines, index) {
+        if (index + 1 >= lines.length) return false;
+        const current = String(lines[index] || '').trim();
+        const next = String(lines[index + 1] || '').trim();
+        return this.isPipeRecordLine(current) && this.isPipeRecordLine(next);
+    }
+
+    isPipeRecordLine(line) {
+        const trimmed = String(line || '').trim();
+        if (!trimmed || this.isMarkdownTableSeparator(trimmed)) {
+            return false;
+        }
+        if (trimmed.startsWith('═══') || trimmed.startsWith('[') || trimmed.startsWith('ℹ️ ') || trimmed.startsWith('✅ ') || trimmed.startsWith('⚠️ ') || trimmed.startsWith('❌ ') || trimmed.startsWith('🔎 ')) {
+            return false;
+        }
+        const pipeCount = (trimmed.match(/\|/g) || []).length;
+        return pipeCount >= 2;
+    }
+
+    splitPipeRecordLine(line) {
+        return String(line || '').split('|').map(cell => cell.trim()).filter(Boolean);
+    }
+
+    renderPipeRecordTable(lines, startIndex) {
+        const rows = [];
+        let index = startIndex;
+        const keyValueRows = [];
+        let renderAsKeyValue = true;
+
+        while (index < lines.length && this.isPipeRecordLine(lines[index])) {
+            const row = this.splitPipeRecordLine(lines[index]);
+            if (row.length >= 2) {
+                rows.push(row);
+                const head = row[0] || '';
+                const detailCells = row.slice(1);
+                const details = [];
+                for (const cell of detailCells) {
+                    const match = cell.match(/^([^:]+):\s*(.+)$/);
+                    if (match) {
+                        details.push({
+                            label: match[1].trim(),
+                            value: match[2].trim(),
+                        });
+                    } else {
+                        renderAsKeyValue = false;
+                    }
+                }
+                if (details.length > 0) {
+                    keyValueRows.push({ head, details });
+                } else {
+                    renderAsKeyValue = false;
+                }
+            }
+            index += 1;
+        }
+
+        if (renderAsKeyValue && keyValueRows.length > 0) {
+            const bodyHtml = keyValueRows
+                .map(row => {
+                    const detailHtml = row.details
+                        .map(detail => `<div class="stream-record-detail"><span class="stream-record-detail__label">${this.renderInlineMarkdown(detail.label)}</span><span class="stream-record-detail__value">${this.renderInlineMarkdown(detail.value)}</span></div>`)
+                        .join('');
+                    return `<tr><th class="stream-record-head">${this.renderInlineMarkdown(row.head)}</th><td>${detailHtml}</td></tr>`;
+                })
+                .join('');
+
+            return {
+                html: `<table class="stream-md-table stream-md-table--records stream-md-table--keyvalue"><tbody>${bodyHtml}</tbody></table>`,
+                nextIndex: index,
+            };
+        }
+
+        let maxColumns = 0;
+        for (const row of rows) {
+            maxColumns = Math.max(maxColumns, row.length);
+        }
+        const bodyHtml = rows
+            .map(row => {
+                const padded = Array.from({ length: maxColumns }, (_, cellIndex) => row[cellIndex] || '');
+                return `<tr>${padded.map(cell => `<td>${this.renderInlineMarkdown(cell)}</td>`).join('')}</tr>`;
+            })
+            .join('');
+
+        return {
+            html: `<table class="stream-md-table stream-md-table--records"><tbody>${bodyHtml}</tbody></table>`,
+            nextIndex: index,
+        };
+    }
+
+    renderMarkdownTable(lines, startIndex) {
+        const headers = this.parseMarkdownTableRow(lines[startIndex]);
+        const rows = [];
+        let index = startIndex + 2;
+
+        while (index < lines.length && this.isPotentialMarkdownTableRow(lines[index])) {
+            rows.push(this.parseMarkdownTableRow(lines[index]));
+            index += 1;
+        }
+
+        const headerHtml = headers
+            .map(cell => `<th>${this.renderInlineMarkdown(cell)}</th>`)
+            .join('');
+        const bodyHtml = rows
+            .map(row => {
+                const cells = headers.map((_, cellIndex) => row[cellIndex] || '');
+                return `<tr>${cells.map(cell => `<td>${this.renderInlineMarkdown(cell)}</td>`).join('')}</tr>`;
+            })
+            .join('');
+
+        return {
+            html: `<table class="stream-md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`,
+            nextIndex: index,
+        };
+    }
+
+    renderInlineMarkdown(text) {
+        let html = this.escapeHtml(text);
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        return html;
     }
 
     resetResultsPanelContent() {

@@ -240,9 +240,10 @@ class MarcXmlClient:
             
             if self.debug:
                 logger.debug(f"SRU response status: {response.status_code}")
-                logger.debug(f"SRU response (first 1000 chars): {response.text[:1000]}")
+                preview = response.content[:1000].decode("utf-8", errors="replace")
+                logger.debug(f"SRU response (first 1000 chars): {preview}")
             
-            return self._parse_sru_response(response.text)
+            return self._parse_sru_response(response.content)
             
         except requests.exceptions.RequestException as e:
             logger.error(f"SRU request failed: {e}")
@@ -290,12 +291,35 @@ class MarcXmlClient:
         
         return f'{index}="{escaped_term}"'
     
-    def _parse_sru_response(self, xml_text: str) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _clean_marc_text(text: Optional[str]) -> str:
+        """Normalize MARC text and repair common UTF-8/Latin-1 mojibake."""
+        if text is None:
+            return ""
+
+        cleaned = html.unescape(str(text))
+
+        # Some SRU endpoints expose UTF-8 bytes with a Latin-1-style decode upstream,
+        # which yields sequences like "fÃ¼r" or "â". Repair those defensively.
+        if any(marker in cleaned for marker in ("Ã", "Â", "â€", "â€“", "â€”", "â€¦", "â", "Ê")):
+            try:
+                repaired = cleaned.encode("latin-1").decode("utf-8")
+                if repaired and repaired.count("�") <= cleaned.count("�"):
+                    cleaned = repaired
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+
+        return re.sub(r"\s+", " ", cleaned).strip()
+
+    def _parse_sru_response(self, xml_input: Any) -> List[Dict[str, Any]]:
         """Parse SRU response XML and extract MARC records."""
         records = []
         
         try:
-            root = ET.fromstring(xml_text.encode('utf-8'))
+            if isinstance(xml_input, bytes):
+                root = ET.fromstring(xml_input)
+            else:
+                root = ET.fromstring(str(xml_input).encode("utf-8"))
             
             # Check for SRU diagnostics (errors)
             for diag in root.findall(".//srw:diagnostic", MARC_NS):
@@ -367,14 +391,14 @@ class MarcXmlClient:
             """Find subfield with given code."""
             for sf in datafield:
                 if sf.get("code") == code:
-                    return sf.text
+                    return self._clean_marc_text(sf.text)
             return None
         
         # Parse control fields
         for cf in find_all("controlfield"):
             tag = cf.get("tag")
             if tag == "001":
-                result["rsn"] = cf.text or ""
+                result["rsn"] = (cf.text or "").strip()
         
         # Parse data fields
         for df in find_all("datafield"):

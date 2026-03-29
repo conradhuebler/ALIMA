@@ -35,6 +35,24 @@ def ensure_json_serializable(value):
     return value
 
 
+def serialize_llm_details(llm_call: Any) -> Optional[Dict[str, Any]]:
+    """Serialize the subset of LLM call details the web UI can preview safely."""
+    if not llm_call:
+        return None
+
+    return {
+        "response_full_text": getattr(llm_call, "response_full_text", ""),
+        "analyse_text": getattr(llm_call, "analyse_text", "") or "",
+        "provider": getattr(llm_call, "provider_used", ""),
+        "model": getattr(llm_call, "model_used", ""),
+        "extracted_keywords": getattr(llm_call, "extracted_keywords", []),
+        "extracted_gnd_keywords": getattr(llm_call, "extracted_gnd_keywords", []),
+        "extracted_gnd_classes": getattr(llm_call, "extracted_gnd_classes", []),
+        "missing_concepts": ensure_list(getattr(llm_call, "missing_concepts", [])),
+        "token_count": getattr(llm_call, "token_count", 0),
+    }
+
+
 def parse_classification_entry(item: Any) -> Dict[str, Any]:
     """Normalize a legacy string or structured classification object."""
     extras: Dict[str, Any] = {}
@@ -230,32 +248,23 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
     initial_llm_details = None
     try:
         if hasattr(analysis_state, "initial_llm_call_details") and analysis_state.initial_llm_call_details:
-            llm_call = analysis_state.initial_llm_call_details
-            initial_llm_details = {
-                "response_full_text": getattr(llm_call, "response_full_text", ""),
-                "provider": getattr(llm_call, "provider_used", ""),
-                "model": getattr(llm_call, "model_used", ""),
-                "extracted_keywords": getattr(llm_call, "extracted_keywords", []),
-                "extracted_gnd_keywords": getattr(llm_call, "extracted_gnd_keywords", []),
-                "token_count": getattr(llm_call, "token_count", 0),
-            }
+            initial_llm_details = serialize_llm_details(analysis_state.initial_llm_call_details)
     except Exception as exc:
         logger.warning(f"Error serializing initial_llm_call_details: {exc}")
 
     final_llm_details = None
     try:
         if hasattr(analysis_state, "final_llm_analysis") and analysis_state.final_llm_analysis:
-            llm_call = analysis_state.final_llm_analysis
-            final_llm_details = {
-                "response_full_text": getattr(llm_call, "response_full_text", ""),
-                "provider": getattr(llm_call, "provider_used", ""),
-                "model": getattr(llm_call, "model_used", ""),
-                "extracted_keywords": getattr(llm_call, "extracted_keywords", []),
-                "extracted_gnd_keywords": getattr(llm_call, "extracted_gnd_keywords", []),
-                "token_count": getattr(llm_call, "token_count", 0),
-            }
+            final_llm_details = serialize_llm_details(analysis_state.final_llm_analysis)
     except Exception as exc:
         logger.warning(f"Error serializing final_llm_analysis: {exc}")
+
+    dk_llm_details = None
+    try:
+        if hasattr(analysis_state, "dk_llm_analysis") and analysis_state.dk_llm_analysis:
+            dk_llm_details = serialize_llm_details(analysis_state.dk_llm_analysis)
+    except Exception as exc:
+        logger.warning(f"Error serializing dk_llm_analysis: {exc}")
 
     structured_classifications = build_structured_classifications(
         dk_classifications,
@@ -279,6 +288,7 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
         "dk_statistics": ensure_json_serializable(getattr(analysis_state, "dk_statistics", None)),
         "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
         "final_llm_call_details": ensure_json_serializable(final_llm_details),
+        "dk_llm_analysis_details": ensure_json_serializable(dk_llm_details),
         "verification": ensure_json_serializable(
             getattr(analysis_state.final_llm_analysis, "verification", None)
             if hasattr(analysis_state, "final_llm_analysis") and analysis_state.final_llm_analysis
@@ -293,5 +303,6 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
             ),
             "has_final_llm_analysis": bool(final_llm_details),
             "has_initial_llm_analysis": bool(initial_llm_details),
+            "has_dk_llm_analysis": bool(dk_llm_details),
         },
     }

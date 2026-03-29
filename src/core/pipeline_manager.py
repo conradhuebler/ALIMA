@@ -1349,6 +1349,8 @@ class PipelineManager:
                 final_keywords,
                 self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
                 original_abstract=self.current_analysis_state.original_abstract if self.current_analysis_state else "",
+                initial_keywords=self.current_analysis_state.initial_keywords if self.current_analysis_state else None,
+                search_results=self.current_analysis_state.search_results if self.current_analysis_state else None,
                 stream_callback=self._stream_callback_adapter,
             )
             dk_search_result = self.pipeline_executor.execute_dk_search(
@@ -1444,6 +1446,8 @@ class PipelineManager:
                 self.current_analysis_state.final_llm_analysis.extracted_gnd_keywords if self.current_analysis_state and self.current_analysis_state.final_llm_analysis else [],
                 self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
                 original_abstract=original_abstract,
+                initial_keywords=self.current_analysis_state.initial_keywords if self.current_analysis_state else None,
+                search_results=self.current_analysis_state.search_results if self.current_analysis_state else None,
                 stream_callback=self._stream_callback_adapter,
             )
 

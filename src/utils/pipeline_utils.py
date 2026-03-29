@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import time
+import html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import asdict
@@ -36,6 +37,22 @@ from ..core.processing_utils import (
 from .smart_provider_selector import SmartProviderSelector
 from .config_models import TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
+
+
+def repair_display_text(text: Any) -> str:
+    """Normalize display text and repair common UTF-8/Latin-1 mojibake."""
+    if text is None:
+        return ""
+
+    cleaned = html.unescape(str(text))
+    if any(marker in cleaned for marker in ("Ã", "Â", "â€", "â€“", "â€”", "â€¦", "â", "Ê")):
+        try:
+            repaired = cleaned.encode("latin-1").decode("utf-8")
+            if repaired and repaired.count("�") <= cleaned.count("�"):
+                cleaned = repaired
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 # Title Building Utilities - Claude Generated
@@ -2899,17 +2916,147 @@ class PipelineStepExecutor:
 
         return selected
 
+    def _derive_promoted_rvk_terms(
+        self,
+        initial_keywords: Optional[List[str]] = None,
+        search_results: Optional[Any] = None,
+        llm_analysis: Optional["LlmKeywordAnalysis"] = None,
+        max_terms: int = 3,
+    ) -> Tuple[List[str], List[str]]:
+        """Promote search-backed initial concepts that reappear as missing core concepts."""
+        if not initial_keywords or not llm_analysis:
+            return [], []
+
+        if isinstance(initial_keywords, str):
+            initial_keywords = [
+                item.strip()
+                for item in re.split(r"[\n,]+", initial_keywords)
+                if item.strip()
+            ]
+        else:
+            initial_keywords = [
+                str(item).strip()
+                for item in list(initial_keywords)
+                if str(item).strip()
+            ]
+
+        if not initial_keywords:
+            return [], []
+
+        response_text = str(getattr(llm_analysis, "response_full_text", "") or "")
+        missing_concepts = list(getattr(llm_analysis, "missing_concepts", []) or [])
+        if not missing_concepts and response_text:
+            from ..core.processing_utils import extract_missing_concepts_from_response
+            missing_concepts = extract_missing_concepts_from_response(response_text)
+        if not missing_concepts:
+            return [], []
+
+        search_support: Dict[str, bool] = {}
+        observed_search_terms = set()
+        if isinstance(search_results, dict):
+            for term, results in search_results.items():
+                normalized = canonicalize_keyword(term)
+                if not normalized:
+                    continue
+                observed_search_terms.add(normalized)
+                search_support[normalized] = bool(results)
+        elif isinstance(search_results, list):
+            for item in search_results:
+                term = getattr(item, "search_term", None) or (item.get("search_term") if isinstance(item, dict) else "")
+                results = getattr(item, "results", None) or (item.get("results") if isinstance(item, dict) else None)
+                normalized = canonicalize_keyword(term)
+                if normalized:
+                    observed_search_terms.add(normalized)
+                    search_support[normalized] = bool(results)
+
+        promoted: List[str] = []
+        seen = set()
+        diagnostics: List[str] = []
+        missing_canonical = [canonicalize_keyword(item) for item in missing_concepts if canonicalize_keyword(item)]
+
+        for keyword in initial_keywords:
+            clean_keyword = str(keyword or "").strip()
+            normalized_keyword = canonicalize_keyword(clean_keyword)
+            if not normalized_keyword:
+                diagnostics.append(f"{clean_keyword or '(leer)'} -> ignoriert (nicht normalisierbar)")
+                continue
+
+            has_search_support = search_support.get(normalized_keyword)
+            if not has_search_support and normalized_keyword not in observed_search_terms:
+                diagnostics.append(f"{clean_keyword} -> verworfen (keine Suchunterstützung)")
+                continue
+
+            matched_concept = None
+            for concept in missing_canonical:
+                if (
+                    normalized_keyword == concept
+                    or normalized_keyword in concept
+                    or concept in normalized_keyword
+                ):
+                    matched_concept = concept
+                    if clean_keyword not in seen:
+                        promoted.append(clean_keyword)
+                        seen.add(clean_keyword)
+                    break
+            if matched_concept:
+                diagnostics.append(f"{clean_keyword} -> gefördert (passt zu '{matched_concept}')")
+            else:
+                diagnostics.append(f"{clean_keyword} -> verworfen (kein Missing-Concept-Match)")
+            if len(promoted) >= max_terms:
+                break
+
+        return promoted, diagnostics
+
     def _derive_rvk_anchor_keywords(
         self,
         verified_keywords: List[str],
         llm_analysis: Optional["LlmKeywordAnalysis"] = None,
         original_abstract: str = "",
+        initial_keywords: Optional[List[str]] = None,
+        search_results: Optional[Any] = None,
         max_anchors: int = 8,
         stream_callback: Optional[callable] = None,
-    ) -> List[str]:
+        ) -> List[str]:
         """Derive RVK anchors with an LLM-first selection and heuristic fallback."""
+        promoted_terms, promotion_diagnostics = self._derive_promoted_rvk_terms(
+            initial_keywords=initial_keywords,
+            search_results=search_results,
+            llm_analysis=llm_analysis,
+        )
+
+        def _merge_promoted(selected_terms: List[str]) -> List[str]:
+            merged = list(selected_terms or [])
+            for term in promoted_terms:
+                if term not in merged:
+                    merged.append(term)
+            return merged
+
+        def _emit_promotion_log() -> None:
+            if not stream_callback:
+                return
+            if promoted_terms:
+                preview = ", ".join(promoted_terms[:6])
+                stream_callback(
+                    f"ℹ️ RVK-Promotion aus Initialbegriffen: {preview}\n",
+                    "dk_search",
+                )
+                return
+            stream_callback(
+                "ℹ️ RVK-Promotion aus Initialbegriffen: keine passenden Kandidaten\n",
+                "dk_search",
+            )
+            if promotion_diagnostics:
+                preview = "; ".join(promotion_diagnostics[:4])
+                if len(promotion_diagnostics) > 4:
+                    preview += f"; +{len(promotion_diagnostics) - 4} weitere"
+                stream_callback(
+                    f"  ↳ {preview}\n",
+                    "dk_search",
+                )
+
         if not verified_keywords:
-            return []
+            _emit_promotion_log()
+            return promoted_terms
 
         heuristic_selected = self._derive_rvk_anchor_keywords_heuristic(
             verified_keywords,
@@ -2918,7 +3065,9 @@ class PipelineStepExecutor:
         )
 
         if not self.alima_manager:
-            return heuristic_selected
+            selected = _merge_promoted(heuristic_selected)
+            _emit_promotion_log()
+            return selected
 
         analysis_fragments = []
         if original_abstract:
@@ -2936,7 +3085,9 @@ class PipelineStepExecutor:
 
         abstract_for_selection = "\n".join(fragment for fragment in analysis_fragments if fragment).strip()
         if not abstract_for_selection:
-            return heuristic_selected
+            selected = _merge_promoted(heuristic_selected)
+            _emit_promotion_log()
+            return selected
 
         from ..core.data_models import AbstractData
         from ..core.json_response_parser import parse_json_response
@@ -2959,12 +3110,16 @@ class PipelineStepExecutor:
                 stream_callback=None,
             )
             if task_state.status == "failed":
-                return heuristic_selected
+                selected = _merge_promoted(heuristic_selected)
+                _emit_promotion_log()
+                return selected
 
             parsed = parse_json_response(task_state.analysis_result.full_text) or {}
             anchors = parsed.get("anchors", [])
             if not isinstance(anchors, list):
-                return heuristic_selected
+                selected = _merge_promoted(heuristic_selected)
+                _emit_promotion_log()
+                return selected
 
             keyword_by_gnd: Dict[str, str] = {}
             keyword_by_text: Dict[str, str] = {}
@@ -2996,6 +3151,7 @@ class PipelineStepExecutor:
                     break
 
             if selected:
+                selected = _merge_promoted(selected)
                 if stream_callback:
                     preview = ", ".join(keyword.split("(GND-ID:")[0].strip() for keyword in selected[:6])
                     if len(selected) > 6:
@@ -3004,20 +3160,23 @@ class PipelineStepExecutor:
                         f"ℹ️ RVK-Anker (LLM): {preview}\n",
                         "dk_search",
                     )
+                    _emit_promotion_log()
                 return selected
         except Exception as exc:
             if self.logger:
                 self.logger.warning(f"LLM RVK anchor selection failed, falling back to heuristic: {exc}")
 
-        if stream_callback and heuristic_selected:
-            preview = ", ".join(keyword.split("(GND-ID:")[0].strip() for keyword in heuristic_selected[:6])
-            if len(heuristic_selected) > 6:
-                preview += f", +{len(heuristic_selected) - 6} weitere"
+        selected = _merge_promoted(heuristic_selected)
+        if stream_callback and selected:
+            preview = ", ".join(keyword.split("(GND-ID:")[0].strip() for keyword in selected[:6])
+            if len(selected) > 6:
+                preview += f", +{len(selected) - 6} weitere"
             stream_callback(
                 f"ℹ️ RVK-Anker (heuristisch): {preview}\n",
                 "dk_search",
             )
-        return heuristic_selected
+            _emit_promotion_log()
+        return selected
 
     def _rvk_domain_profile(self, abstract_text: str, matched_keywords: List[str]) -> Dict[str, int]:
         """Estimate thematic domain strength from the abstract and matched keywords."""
@@ -3342,8 +3501,16 @@ class PipelineStepExecutor:
             if not data:
                 continue
 
-            keywords = ", ".join(data.get("matched_keywords", [])[:max_keywords])
-            titles = " | ".join(data.get("titles", [])[:max_titles])
+            keywords = ", ".join(
+                cleaned
+                for cleaned in (repair_display_text(item) for item in data.get("matched_keywords", [])[:max_keywords])
+                if cleaned
+            )
+            titles = " | ".join(
+                cleaned
+                for cleaned in (repair_display_text(item) for item in data.get("titles", [])[:max_titles])
+                if cleaned
+            )
             parts = [normalized]
             if keywords:
                 parts.append(f"Schlagworte: {keywords}")
@@ -4268,6 +4435,12 @@ class PipelineStepExecutor:
         rvk_anchor_entries = gnd_keyword_entries
         rvk_anchor_search_keywords = list(gnd_validated_keywords)
         if rvk_anchor_keywords:
+            anchor_term_lookup: Dict[str, str] = {}
+            for keyword in rvk_anchor_keywords:
+                clean_keyword = keyword.split("(GND-ID:")[0].strip()
+                normalized_keyword = canonicalize_keyword(clean_keyword)
+                if normalized_keyword and clean_keyword:
+                    anchor_term_lookup[normalized_keyword] = clean_keyword
             normalized_anchor_ids = {
                 extract_gnd_id(keyword)
                 for keyword in rvk_anchor_keywords
@@ -4289,10 +4462,19 @@ class PipelineStepExecutor:
                 keyword for keyword in gnd_validated_keywords
                 if canonicalize_keyword(keyword) in normalized_anchor_terms
             ]
+            supplemental_anchor_terms = [
+                anchor_term_lookup[normalized_term]
+                for normalized_term in normalized_anchor_terms
+                if normalized_term not in {
+                    canonicalize_keyword(keyword) for keyword in filtered_anchor_keywords
+                }
+            ]
             if filtered_anchor_entries:
                 rvk_anchor_entries = filtered_anchor_entries
-            if filtered_anchor_keywords:
-                rvk_anchor_search_keywords = filtered_anchor_keywords
+            if filtered_anchor_keywords or supplemental_anchor_terms:
+                rvk_anchor_search_keywords = deduplicate_canonical_keywords(
+                    filtered_anchor_keywords + supplemental_anchor_terms
+                )
 
         if gnd_validated_keywords_before != gnd_validated_keywords_after:
             duplicates_removed = gnd_validated_keywords_before - gnd_validated_keywords_after
@@ -4378,12 +4560,21 @@ class PipelineStepExecutor:
                 f"Suche Katalog-Einträge für {len(final_search_keywords)} Keywords {mode_info} (max {max_results})\n",
                 "dk_search"
             )
-            if rvk_anchor_entries:
-                rvk_anchor_preview = ", ".join(
-                    [entry.get("keyword", "") for entry in rvk_anchor_entries[:6] if entry.get("keyword")]
-                )
-                if len(rvk_anchor_entries) > 6:
-                    rvk_anchor_preview += f", +{len(rvk_anchor_entries) - 6} weitere"
+            if rvk_anchor_keywords or rvk_anchor_entries:
+                rvk_anchor_preview_terms = []
+                if rvk_anchor_keywords:
+                    rvk_anchor_preview_terms = [
+                        keyword.split("(GND-ID:")[0].strip()
+                        for keyword in rvk_anchor_keywords
+                        if keyword.split("(GND-ID:")[0].strip()
+                    ]
+                if not rvk_anchor_preview_terms:
+                    rvk_anchor_preview_terms = [
+                        entry.get("keyword", "") for entry in rvk_anchor_entries if entry.get("keyword")
+                    ]
+                rvk_anchor_preview = ", ".join(rvk_anchor_preview_terms[:6])
+                if len(rvk_anchor_preview_terms) > 6:
+                    rvk_anchor_preview += f", +{len(rvk_anchor_preview_terms) - 6} weitere"
                 if rvk_anchor_preview:
                     stream_callback(
                         f"ℹ️ RVK-Ankerbegriffe: {rvk_anchor_preview}\n",
@@ -4663,7 +4854,7 @@ class PipelineStepExecutor:
             initial_keywords=keywords,
             search_suggesters_used=config.search_suggesters,
             initial_gnd_classes=gnd_classes,
-            search_results=[],
+            search_results=search_results,
             final_llm_analysis=kw_analysis,
             working_title=llm_title,
         )
@@ -4678,6 +4869,8 @@ class PipelineStepExecutor:
                     final_keywords,
                     kw_analysis,
                     original_abstract=input_text,
+                    initial_keywords=keywords,
+                    search_results=search_results,
                     stream_callback=_cb("dk_classification"),
                 )
                 dk_search = self.execute_dk_search(
@@ -5448,6 +5641,7 @@ class PipelineResultFormatter:
         """Filter out placeholder titles from classification cache - Claude Generated"""
         filtered = []
         for title in titles:
+            title = repair_display_text(title)
             # Skip placeholder titles that should not be shown to users or LLM
             if title.startswith("Cached Catalog Entry for RSN"):
                 continue
@@ -5499,7 +5693,15 @@ class PipelineResultFormatter:
                 validation_message = result.get("validation_message", "")
 
                 if dk_code:
-                    keyword_text = ", ".join(matched_keywords) if matched_keywords else "keine"
+                    keyword_text = ", ".join(
+                        cleaned
+                        for cleaned in (repair_display_text(item) for item in matched_keywords)
+                        if cleaned
+                    ) if matched_keywords else "keine"
+                    label = repair_display_text(label)
+                    ancestor_path = repair_display_text(ancestor_path)
+                    register = [cleaned for cleaned in (repair_display_text(item) for item in register) if cleaned]
+                    validation_message = repair_display_text(validation_message)
                     if classification_type == "RVK" and rvk_validation_status == "standard":
                         if source == "rvk_api":
                             source_text = "RVK API (autoritaetsbasiert)"
@@ -5541,7 +5743,7 @@ class PipelineResultFormatter:
             elif "source_title" in result and "dk" in result:
                 # Individual result format
                 dk_code = result.get("dk", "")
-                title = result.get("source_title", "")
+                title = repair_display_text(result.get("source_title", ""))
                 classification_type = result.get("classification_type", "DK")
 
                 if dk_code and title:
@@ -5549,8 +5751,8 @@ class PipelineResultFormatter:
                     catalog_results.append(entry)
             else:
                 # Legacy format support
-                title = result.get("title", "")
-                subjects = result.get("subjects", [])
+                title = repair_display_text(result.get("title", ""))
+                subjects = [cleaned for cleaned in (repair_display_text(item) for item in result.get("subjects", [])) if cleaned]
                 dk_class = result.get("dk", [])
                 rvk_class = result.get("rvk", [])
 
