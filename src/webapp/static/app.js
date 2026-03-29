@@ -1626,8 +1626,8 @@ class AlimaWebapp {
     isStructuredSectionLabel(line) {
         const trimmed = String(line || '').trim();
         return [
-            'DK-Profil fuer RVK-Zweitranking:',
-            'RVK-Kandidaten fuer DK-basiertes Zweitranking:',
+            'DK-Profil für RVK-Zweitranking:',
+            'RVK-Kandidaten für DK-basiertes Zweitranking:',
             'RVK-Bewertung aus DK-basiertem Zweitranking:',
             'RVK-Auswahl nach DK-basiertem Zweitranking:',
         ].includes(trimmed);

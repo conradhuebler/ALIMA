@@ -1952,7 +1952,7 @@ class PipelineStepExecutor:
                 stream_callback(f"✅ Alle {len(results_with_titles)} Einträge haben Titel\n", "dk_classification")
             if institution_library_rvk_count > 0:
                 stream_callback(
-                    f"⚠️ Verwerfe {institution_library_rvk_count} katalogseitige RVK fuer einzelne Bibliotheken ohne Dokumentbezug\n",
+                    f"⚠️ Verwerfe {institution_library_rvk_count} katalogseitige RVK für einzelne Bibliotheken ohne Dokumentbezug\n",
                     "dk_classification",
                 )
 
@@ -2005,7 +2005,7 @@ class PipelineStepExecutor:
 
         if allowed_standard_rvk_map or allowed_nonstandard_rvk_map:
             rvk_guardrail = (
-                "WICHTIG FUER RVK:\n"
+                "WICHTIG FÜR RVK:\n"
                 "- Erfinde niemals neue RVK-Notationen.\n"
             )
             if allowed_standard_rvk_map:
@@ -2291,7 +2291,7 @@ class PipelineStepExecutor:
 
         index = RvkMarcIndex()
         if stream_callback:
-            stream_callback("🔎 Nutze RVK MarcXML-GND-Index fuer standardisierte RVK-Kandidaten...\n", "dk_search")
+            stream_callback("🔎 Nutze RVK MarcXML-GND-Index für standardisierte RVK-Kandidaten...\n", "dk_search")
 
         results = index.lookup_by_gnd_keywords(
             keyword_entries,
@@ -2302,7 +2302,7 @@ class PipelineStepExecutor:
         if stream_callback and results:
             total = sum(len(item.get("classifications", [])) for item in results)
             stream_callback(
-                f"  ✅ RVK-GND-Index: {total} standardisierte Kandidaten fuer {len(results)} Keywords\n",
+                f"  ✅ RVK-GND-Index: {total} standardisierte Kandidaten für {len(results)} Keywords\n",
                 "dk_search",
             )
 
@@ -2736,7 +2736,7 @@ class PipelineStepExecutor:
             if len(uncovered_fallback_keywords) > 6:
                 preview += f", +{len(uncovered_fallback_keywords) - 6} weitere"
             stream_callback(
-                f"ℹ️ Ergaenze RVK-API-Fallback fuer nicht abgedeckte Anker/Promotionen: {preview}\n",
+                f"ℹ️ Ergänze RVK-API-Fallback für nicht abgedeckte Anker/Promotionen: {preview}\n",
                 "dk_search"
             )
         elif stream_callback:
@@ -3771,7 +3771,7 @@ class PipelineStepExecutor:
             abstract_for_scoring += (
                 "\n\nDK-Profil aus der bereits gewaehlten DK-Seite:\n"
                 f"{dk_profile}\n"
-                "Nutze dieses DK-Profil als zusaetzlichen thematischen Hinweis fuer die RVK-Auswahl."
+                "Nutze dieses DK-Profil als zusaetzlichen thematischen Hinweis für die RVK-Auswahl."
             )
 
         if stream_callback:
@@ -3781,7 +3781,7 @@ class PipelineStepExecutor:
             )
             if dk_profile:
                 stream_callback(
-                    "DK-Profil fuer RVK-Zweitranking:\n"
+                    "DK-Profil für RVK-Zweitranking:\n"
                     + "\n".join(f"  {line}" for line in dk_profile.splitlines() if line.strip())
                     + "\n",
                     "dk_classification",
@@ -3801,7 +3801,7 @@ class PipelineStepExecutor:
                 shortlist_lines.append(line)
             if shortlist_lines:
                 stream_callback(
-                    "RVK-Kandidaten fuer DK-basiertes Zweitranking:\n"
+                    "RVK-Kandidaten für DK-basiertes Zweitranking:\n"
                     + "\n".join(shortlist_lines)
                     + "\n",
                     "dk_classification",
