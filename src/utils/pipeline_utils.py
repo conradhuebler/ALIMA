@@ -3776,7 +3776,7 @@ class PipelineStepExecutor:
 
         if stream_callback:
             stream_callback(
-                f"ℹ️ RVK-Zweitranking mit DK-Profil: {len(shortlist)} Kandidaten\n",
+                f"\n\nℹ️ RVK-Zweitranking mit DK-Profil: {len(shortlist)} Kandidaten\n",
                 "dk_classification",
             )
             if dk_profile:
