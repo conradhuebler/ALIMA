@@ -31,6 +31,7 @@ from ..utils.pipeline_utils import (
     PipelineStepExecutor,
     PipelineResultFormatter,
     PipelineJsonManager,
+    export_analysis_state_to_file,
     execute_input_extraction,
     build_working_title,  # For title generation - Claude Generated
     extract_source_identifier,  # For title generation - Claude Generated
@@ -1681,8 +1682,9 @@ class PipelineManager:
             raise ValueError("No analysis state available to save")
 
         try:
-            PipelineJsonManager.save_analysis_state(
-                self.current_analysis_state, file_path
+            export_analysis_state_to_file(
+                self.current_analysis_state,
+                file_path,
             )
             self.logger.info(f"Analysis state saved to {file_path}")
         except Exception as e:

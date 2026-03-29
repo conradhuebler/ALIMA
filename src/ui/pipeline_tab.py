@@ -1967,7 +1967,7 @@ class PipelineTab(QWidget):
 
         # Optional: Auto-save after completion - Claude Generated
         if hasattr(analysis_state, 'working_title') and analysis_state.working_title:
-            from ..utils.pipeline_utils import PipelineJsonManager
+            from ..utils.pipeline_utils import export_analysis_state_to_file
             from ..utils.pipeline_defaults import get_autosave_dir
 
             auto_save_dir = get_autosave_dir(getattr(self, 'config_manager', None))
@@ -1975,7 +1975,7 @@ class PipelineTab(QWidget):
 
             auto_save_file = auto_save_dir / f"{analysis_state.working_title}.json"
             try:
-                PipelineJsonManager.save_analysis_state(analysis_state, str(auto_save_file))
+                export_analysis_state_to_file(analysis_state, str(auto_save_file))
                 self.logger.info(f"✅ Auto-saved pipeline result to: {auto_save_file}")
             except Exception as e:
                 self.logger.warning(f"Auto-save failed: {e}")

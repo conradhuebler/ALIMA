@@ -42,6 +42,7 @@ from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_
 from src.utils.pipeline_utils import PipelineJsonManager
 from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
 from src.webapp.result_serialization import (
+    build_export_payload as _build_export_payload,
     ensure_json_serializable as _ensure_json_serializable,
     extract_results_from_analysis_state as _extract_results_from_analysis_state,
     prepare_results_for_export as _prepare_results_for_export,
@@ -771,9 +772,7 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
     # User can download current progress at any time
 
     if format == "json":
-        # Determine if this is a partial or complete export
-        is_complete = (session.status == "completed")
-        status_suffix = "complete" if is_complete else "partial"
+        status_suffix = "complete" if session.status == "completed" else "partial"
 
         # Create temporary JSON file
         temp_file = tempfile.NamedTemporaryFile(
@@ -783,18 +782,16 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
             dir=tempfile.gettempdir()
         )
 
-        # Enhanced export data with status and metadata - Claude Generated
-        export_data = {
-            "session_id": session.session_id,
-            "created_at": session.created_at,
-            "exported_at": datetime.now().isoformat(),
-            "status": session.status,
-            "current_step": session.current_step,
-            "is_complete": is_complete,
-            "input": session.input_data,
-            "results": _prepare_results_for_export(session.results, validate_rvk=True),
-            "autosave_timestamp": session.autosave_timestamp,
-        }
+        export_data = _build_export_payload(
+            session_id=session.session_id,
+            created_at=session.created_at,
+            status=session.status,
+            current_step=session.current_step,
+            input_data=session.input_data,
+            results=session.results,
+            autosave_timestamp=session.autosave_timestamp,
+            validate_rvk=True,
+        )
 
         json.dump(export_data, temp_file, indent=2, ensure_ascii=False)
         temp_file.close()

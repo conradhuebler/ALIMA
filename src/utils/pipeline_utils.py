@@ -172,6 +172,47 @@ def extract_source_identifier(
         return 'text'
 
 
+def export_analysis_state_to_file(
+    analysis_state: "KeywordAnalysisState",
+    file_path: str,
+    input_data: Optional[Dict[str, Any]] = None,
+    status: str = "completed",
+    current_step: str = "classification",
+    session_id: Optional[str] = None,
+    created_at: Optional[str] = None,
+    exported_at: Optional[str] = None,
+    autosave_timestamp: Optional[str] = None,
+    validate_rvk: bool = True,
+) -> None:
+    """Write a KeywordAnalysisState using the canonical web/API export schema."""
+    from ..webapp.result_serialization import (
+        build_export_payload,
+        extract_results_from_analysis_state,
+    )
+
+    if input_data is None:
+        input_data = {
+            "type": "text",
+            "text_preview": getattr(analysis_state, "original_abstract", "")[:100],
+        }
+
+    results = extract_results_from_analysis_state(analysis_state)
+    payload = build_export_payload(
+        session_id=session_id,
+        created_at=created_at or getattr(analysis_state, "timestamp", None),
+        status=status,
+        current_step=current_step,
+        input_data=input_data,
+        results=results,
+        autosave_timestamp=autosave_timestamp,
+        exported_at=exported_at,
+        validate_rvk=validate_rvk,
+    )
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
 class PipelineStepExecutor:
     """Shared pipeline step execution logic - Claude Generated"""
 
@@ -6480,8 +6521,8 @@ class AnalysisPersistence:
             return None  # User cancelled
 
         try:
-            # Use PipelineJsonManager for actual save
-            PipelineJsonManager.save_analysis_state(state, file_path)
+            # Use canonical web/API export schema for GUI saves
+            export_analysis_state_to_file(state, file_path)
 
             # Success notification
             if parent_widget:

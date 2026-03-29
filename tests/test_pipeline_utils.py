@@ -2,6 +2,8 @@ import logging
 import os
 import sys
 import unittest
+import json
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -16,10 +18,11 @@ from src.core.data_models import (
 )
 
 try:
-    from src.utils.pipeline_utils import PipelineStepExecutor
+    from src.utils.pipeline_utils import PipelineStepExecutor, export_analysis_state_to_file
     PIPELINE_UTILS_IMPORT_ERROR = None
 except ModuleNotFoundError as exc:
     PipelineStepExecutor = None
+    export_analysis_state_to_file = None
     PIPELINE_UTILS_IMPORT_ERROR = exc
 
 
@@ -136,6 +139,48 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertEqual(gnd_classes, ["21.4"])
         self.assertIsInstance(llm_analysis, LlmKeywordAnalysis)
         self.assertTrue(any("4061694-5" in kw for kw in final_keywords))
+
+    def test_export_analysis_state_to_file_uses_wrapped_schema(self):
+        analysis_state = SimpleNamespace(
+            original_abstract="Abstract",
+            working_title="Title",
+            initial_keywords=["one"],
+            dk_classifications=["RVK QZ 123"],
+            rvk_provenance={"rvk_api": 1},
+            search_results=[],
+            dk_search_results=[],
+            dk_search_results_flattened=[],
+            dk_statistics=None,
+            search_suggesters_used=["lobid"],
+            initial_gnd_classes=["001"],
+            initial_llm_call_details=None,
+            final_llm_analysis=SimpleNamespace(
+                response_full_text="final response",
+                provider_used="provider-b",
+                model_used="model-b",
+                extracted_keywords=[],
+                extracted_gnd_keywords=["two"],
+                extracted_gnd_classes=["123"],
+                token_count=34,
+                verification={"stats": {"verified_count": 1}},
+            ),
+            timestamp="2026-03-29T14:30:00",
+        )
+
+        fd, path = tempfile.mkstemp(suffix=".json")
+        os.close(fd)
+        try:
+            export_analysis_state_to_file(analysis_state, path)
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+
+            self.assertIn("results", payload)
+            self.assertEqual(payload["status"], "completed")
+            self.assertEqual(payload["results"]["original_abstract"], "Abstract")
+            self.assertEqual(payload["results"]["final_keywords"], ["two"])
+            self.assertEqual(payload["results"]["classifications"][0]["system"], "RVK")
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

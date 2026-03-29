@@ -1,10 +1,11 @@
-"""Helpers for serializing webapp pipeline results without the full app stack."""
+"""Helpers for serializing ALIMA pipeline results into the web/API export schema."""
 
 from __future__ import annotations
 
 import html
 import logging
 import re
+from datetime import datetime
 from functools import lru_cache
 from typing import Any, Dict, Optional
 from urllib.parse import quote
@@ -213,6 +214,34 @@ def prepare_results_for_export(
     }
 
     return ensure_json_serializable(prepared)
+
+
+def build_export_payload(
+    *,
+    session_id: Optional[str],
+    created_at: Optional[str],
+    status: str,
+    current_step: Optional[str],
+    input_data: Optional[Dict[str, Any]],
+    results: Optional[Dict[str, Any]],
+    autosave_timestamp: Optional[str] = None,
+    exported_at: Optional[str] = None,
+    validate_rvk: bool = False,
+) -> Dict[str, Any]:
+    """Build the canonical web/API export wrapper used by ALIMA clients."""
+    is_complete = status == "completed"
+
+    return {
+        "session_id": session_id,
+        "created_at": created_at or datetime.now().isoformat(),
+        "exported_at": exported_at or datetime.now().isoformat(),
+        "status": status,
+        "current_step": current_step,
+        "is_complete": is_complete,
+        "input": ensure_json_serializable(input_data or {}),
+        "results": prepare_results_for_export(results, validate_rvk=validate_rvk),
+        "autosave_timestamp": autosave_timestamp,
+    }
 
 
 def extract_results_from_analysis_state(analysis_state) -> dict:

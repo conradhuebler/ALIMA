@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from src.webapp.result_serialization import (
+    build_export_payload,
     extract_results_from_analysis_state,
     prepare_results_for_export,
 )
@@ -89,6 +90,26 @@ class TestWebappResultSerialization(unittest.TestCase):
         self.assertEqual(extracted["final_llm_call_details"]["provider"], "provider-b")
         self.assertEqual(extracted["final_llm_call_details"]["model"], "model-b")
         self.assertEqual(extracted["verification"]["stats"]["verified_count"], 1)
+
+    def test_build_export_payload_wraps_results_in_web_schema(self):
+        payload = build_export_payload(
+            session_id="cli",
+            created_at="2026-03-29T10:00:00",
+            status="completed",
+            current_step="classification",
+            input_data={"type": "text", "text_preview": "Abstract"},
+            results={"dk_classifications": ["RVK QZ 123"]},
+            autosave_timestamp=None,
+            exported_at="2026-03-29T10:01:00",
+            validate_rvk=False,
+        )
+
+        self.assertEqual(payload["session_id"], "cli")
+        self.assertTrue(payload["is_complete"])
+        self.assertEqual(payload["input"]["type"], "text")
+        self.assertIn("results", payload)
+        self.assertEqual(payload["results"]["dk_classifications"], ["RVK QZ 123"])
+        self.assertEqual(payload["results"]["classifications"][0]["system"], "RVK")
 
 
 if __name__ == "__main__":

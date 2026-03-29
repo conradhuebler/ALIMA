@@ -9,6 +9,7 @@ Handlers for pipeline-related commands:
 import os
 import logging
 from typing import Any
+from datetime import datetime
 
 from src.core.alima_manager import AlimaManager
 from src.llm.llm_service import LlmService
@@ -21,6 +22,10 @@ from src.utils.config_manager import ConfigManager
 from src.utils.pipeline_config_builder import PipelineConfigBuilder
 from src.utils.logging_utils import print_result
 from src.utils.batch_processor import BatchProcessor
+from src.webapp.result_serialization import (
+    build_export_payload,
+    extract_results_from_analysis_state,
+)
 
 
 def apply_cli_overrides(pipeline_config, args):
@@ -129,6 +134,9 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
     catalog_details_url = args.catalog_details_url or getattr(catalog_config, "catalog_details_url", "")
 
     try:
+        input_type = "text"
+        input_source = None
+
         if args.resume_from:
             # Resume from existing state
             logger.info(f"Resuming pipeline from {args.resume_from}")
@@ -144,6 +152,8 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
         else:
             # Resolve input text (from --input-text, --doi, or --input-image)
             if args.doi:
+                input_type = "doi"
+                input_source = args.doi
                 logger.info(f"Resolving input: {args.doi}")
                 success, input_text, error_msg = resolve_input_to_text(args.doi, logger)
                 if not success:
@@ -153,6 +163,8 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                 print(f"Resolved '{args.doi}' to text content ({len(input_text)} chars)")
 
             elif args.input_image:
+                input_type = "img"
+                input_source = args.input_image
                 # Image OCR analysis
                 logger.info(f"Analyzing image: {args.input_image}")
 
@@ -188,6 +200,8 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                     print(f"❌ Error analyzing image: {e}")
                     return
             else:
+                input_type = "text"
+                input_source = args.input_text
                 input_text = args.input_text
 
             # Execute complete pipeline
@@ -313,7 +327,26 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
 
         if output_file:
             try:
-                PipelineJsonManager.save_analysis_state(analysis_state, output_file)
+                results = extract_results_from_analysis_state(analysis_state)
+                export_payload = build_export_payload(
+                    session_id="cli",
+                    created_at=getattr(analysis_state, "timestamp", None),
+                    status="completed",
+                    current_step="classification",
+                    input_data={
+                        "type": input_type,
+                        "source": input_source,
+                        "text_preview": (analysis_state.original_abstract or "")[:100],
+                    },
+                    results=results,
+                    autosave_timestamp=None,
+                    exported_at=datetime.now().isoformat(),
+                    validate_rvk=True,
+                )
+
+                with open(output_file, "w", encoding="utf-8") as f:
+                    import json
+                    json.dump(export_payload, f, ensure_ascii=False, indent=2)
                 logger.info(f"Pipeline results saved to {output_file}")
                 print(f"\n💾 Results saved to: {output_file}")
             except Exception as e:
