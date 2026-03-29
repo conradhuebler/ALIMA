@@ -91,6 +91,26 @@ RVK_SCORING_SCHEMA = {
     "required": ["scores"],
 }
 
+RVK_ANCHOR_SELECTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "anchors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string"},
+                    "gnd_id": {"type": "string"},
+                    "role": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
+    "required": ["anchors"],
+}
+
 _TASK_SCHEMAS = {
     "initialisation": INITIALISATION_SCHEMA,
     "keywords": KEYWORDS_SCHEMA,
@@ -99,6 +119,7 @@ _TASK_SCHEMAS = {
     "dk_class": DK_CLASS_SCHEMA,
     "dk_classification": DK_CLASS_SCHEMA,
     "rvk_scoring": RVK_SCORING_SCHEMA,
+    "rvk_anchor_selection": RVK_ANCHOR_SELECTION_SCHEMA,
 }
 
 # JSON-Instruktions-Texte (deutsch, da Prompts deutsch sind)
@@ -175,6 +196,22 @@ _JSON_INSTRUCTIONS = {
         '  ]\n'
         '}\n'
         'Nutze nur die angegebenen RVK-Kandidaten. Werte alle Kandidaten auf einer Skala von 0 bis 5 je Kriterium. '
+        'Gib NUR das JSON-Objekt aus, keinen weiteren Text.'
+    ),
+    "rvk_anchor_selection": (
+        '\n\nGib deine gesamte Antwort als ein einziges valides JSON-Objekt aus:\n'
+        '{\n'
+        '  "anchors": [\n'
+        '    {\n'
+        '      "keyword": "Schlagwort1",\n'
+        '      "gnd_id": "1234567-8",\n'
+        '      "role": "core",\n'
+        '      "reason": "Kurzbegründung"\n'
+        '    }\n'
+        '  ]\n'
+        '}\n'
+        'Nutze nur Schlagworte aus der gelieferten Liste. Waehle hoechstens 8 RVK-Anker. '
+        'Bevorzuge Kernkonzepte und vermeide Kontext-, Medien- oder Institutionsterme, sofern sie nicht zentrales Thema sind. '
         'Gib NUR das JSON-Objekt aus, keinen weiteren Text.'
     ),
 }

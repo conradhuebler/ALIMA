@@ -339,6 +339,7 @@ class PipelineManager:
         config_manager=None,
     ):
         self.alima_manager = alima_manager
+        self.llm_service = alima_manager.llm_service
         self.cache_manager = cache_manager
         self.logger = logger or logging.getLogger(__name__)
         self.config_manager = config_manager
@@ -1347,6 +1348,8 @@ class PipelineManager:
             rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
                 final_keywords,
                 self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
+                original_abstract=self.current_analysis_state.original_abstract if self.current_analysis_state else "",
+                stream_callback=self._stream_callback_adapter,
             )
             dk_search_result = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
@@ -1440,6 +1443,8 @@ class PipelineManager:
             rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
                 self.current_analysis_state.final_llm_analysis.extracted_gnd_keywords if self.current_analysis_state and self.current_analysis_state.final_llm_analysis else [],
                 self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
+                original_abstract=original_abstract,
+                stream_callback=self._stream_callback_adapter,
             )
 
             # Prepare kwargs for DK classification - Claude Generated (2026-02-17)

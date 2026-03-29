@@ -4,7 +4,6 @@ Claude Generated - Pipeline widget as web interface
 """
 
 import asyncio
-import html
 import json
 import logging
 import os
@@ -13,15 +12,11 @@ import tempfile
 import threading
 import unicodedata
 import uuid
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 from datetime import datetime
 import subprocess
 import sys
-from urllib.parse import quote
-
-import requests
 
 # Add project root to sys.path BEFORE importing src modules
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -46,6 +41,11 @@ from src.utils.config_manager import ConfigManager
 from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
 from src.utils.pipeline_utils import PipelineJsonManager
 from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
+from src.webapp.result_serialization import (
+    ensure_json_serializable as _ensure_json_serializable,
+    extract_results_from_analysis_state as _extract_results_from_analysis_state,
+    prepare_results_for_export as _prepare_results_for_export,
+)
 
 # Setup logging - Claude Generated: configurable via LOG_LEVEL env var
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
@@ -345,7 +345,7 @@ async def get_session(session_id: str) -> dict:
         "status": session.status,
         "current_step": session.current_step,
         "created_at": session.created_at,
-        "results": _prepare_results_for_export(session.results),
+        "results": _prepare_results_for_export(session.results, validate_rvk=False),
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
     }
@@ -455,7 +455,6 @@ async def start_analysis(
     if session.status == "running":
         raise HTTPException(status_code=400, detail="Analysis already running")
 
-    session.status = "running"
     session.input_data = {"type": input_type, "content": content}
 
     # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
@@ -472,6 +471,8 @@ async def start_analysis(
         except Exception as e:
             logger.error(f"Failed to read file: {e}")
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    session.status = "running"
 
     # Start analysis in background with file contents, not the UploadFile object
     asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value))
@@ -498,7 +499,6 @@ async def process_input_only(
     if session.status == "running":
         raise HTTPException(status_code=400, detail="Analysis already running")
 
-    session.status = "running"
     session.input_data = {"type": input_type, "content": content}
 
     # READ FILE CONTENTS IMMEDIATELY before creating background task - Claude Generated (Defensive)
@@ -512,6 +512,8 @@ async def process_input_only(
         except Exception as e:
             logger.error(f"Failed to read file: {e}")
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    session.status = "running"
 
     # Start input-only processing in background - Claude Generated
     asyncio.create_task(run_input_extraction(session_id, input_type, content, file_contents, file.filename if file else None))
@@ -591,320 +593,6 @@ def _autosave_session_state(session: Session):
         logger.error(f"Auto-save failed for session {session.session_id}: {e}")
         session.autosave_failed = True
         # Don't raise - auto-save is best-effort, shouldn't block pipeline
-
-
-def _ensure_list(value):
-    """Normalize legacy comma-separated strings to arrays for the web API."""
-    if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, (list, tuple, set)):
-        return list(value)
-    return []
-
-
-def _ensure_json_serializable(value):
-    """Recursively convert non-JSON-serializable types."""
-    if isinstance(value, set):
-        return list(value)
-    if isinstance(value, dict):
-        return {k: _ensure_json_serializable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_ensure_json_serializable(v) for v in value]
-    return value
-
-
-def _parse_classification_entry(item: Any) -> Dict[str, Any]:
-    """Normalize a legacy string or structured classification object."""
-    extras: Dict[str, Any] = {}
-
-    if isinstance(item, dict):
-        extras = {k: v for k, v in item.items()
-                  if k not in {"system", "code", "display"}}
-        display = str(item.get("display") or "").strip()
-        system = str(item.get("system") or "").strip().upper()
-        code = str(item.get("code") or "").strip()
-    else:
-        display = str(item or "").strip()
-        system = ""
-        code = ""
-
-    if not display and system and code:
-        display = f"{system} {code}".strip()
-
-    if display and not system:
-        upper_display = display.upper()
-        if upper_display.startswith("DK "):
-            system = "DK"
-            code = code or display[3:].strip()
-        elif upper_display.startswith("RVK "):
-            system = "RVK"
-            code = code or display[4:].strip()
-
-    if not code:
-        code = display
-
-    if not display:
-        display = f"{system} {code}".strip() if system else str(code).strip()
-
-    return {
-        "system": system or "UNKNOWN",
-        "code": code,
-        "display": display,
-        **extras,
-    }
-
-
-@lru_cache(maxsize=256)
-def _validate_rvk_notation(code: str) -> Dict[str, Any]:
-    """Validate an RVK notation against the official RVK API.
-
-    The API returns a `node` object for valid notations and `error-code: 2`
-    / `error-message: Notation Not Found` for unknown ones.
-    """
-    normalized_code = re.sub(r"\s+", " ", str(code or "").strip()).upper()
-    if not normalized_code:
-        return {
-            "status": "non_standard",
-            "is_standard": False,
-            "canonical_code": "",
-            "label": None,
-            "message": "Empty RVK notation",
-        }
-
-    url = f"https://rvk.uni-regensburg.de/api/json/node/{quote(normalized_code, safe='')}"
-
-    try:
-        response = requests.get(url, timeout=6)
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        logger.warning(f"RVK API validation failed for '{normalized_code}': {exc}")
-        return {
-            "status": "validation_error",
-            "is_standard": None,
-            "canonical_code": normalized_code,
-            "label": None,
-            "message": str(exc),
-        }
-
-    node = payload.get("node") if isinstance(payload, dict) else None
-    if isinstance(node, dict) and node.get("notation"):
-        return {
-            "status": "standard",
-            "is_standard": True,
-            "canonical_code": str(node.get("notation", "")).strip(),
-            "label": html.unescape(str(node.get("benennung", "")).strip()) or None,
-            "message": None,
-        }
-
-    return {
-        "status": "non_standard",
-        "is_standard": False,
-        "canonical_code": normalized_code,
-        "label": None,
-        "message": payload.get("error-message", "Notation Not Found") if isinstance(payload, dict) else "Notation Not Found",
-    }
-
-
-def _build_structured_classifications(raw_classifications, validate_rvk: bool = False):
-    """Normalize classifications into structured entries.
-
-    When `validate_rvk` is enabled, RVK entries are checked against the
-    official RVK API and annotated with validation metadata.
-    """
-    structured = []
-
-    for item in _ensure_list(raw_classifications):
-        if not item:
-            continue
-
-        entry = _parse_classification_entry(item)
-
-        if entry["system"] == "RVK":
-            if validate_rvk:
-                validation = _validate_rvk_notation(entry["code"])
-                entry.update({
-                    "validation_status": validation["status"],
-                    "is_standard": validation["is_standard"],
-                    "canonical_code": validation["canonical_code"],
-                    "label": validation["label"],
-                    "validation_message": validation["message"],
-                    "validation_source": "rvk_api",
-                })
-            else:
-                entry.update({
-                    "validation_status": "not_checked",
-                    "is_standard": None,
-                    "canonical_code": entry["code"],
-                    "label": None,
-                    "validation_message": None,
-                    "validation_source": None,
-                })
-
-        structured.append(entry)
-
-    return structured
-
-
-def _prepare_results_for_export(results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Ensure export payload contains the structured classification schema.
-
-    This enriches older session payloads too, because the export endpoint may
-    be called for sessions created before the schema update.
-    """
-    prepared = dict(results or {})
-
-    legacy_classifications = _ensure_list(prepared.get("dk_classifications", []))
-    raw_structured = prepared.get("classifications") or legacy_classifications
-    structured_classifications = _build_structured_classifications(raw_structured, validate_rvk=True)
-
-    if not legacy_classifications:
-        legacy_classifications = [entry["display"] for entry in structured_classifications]
-
-    rvk_entries = [entry for entry in structured_classifications if entry.get("system") == "RVK"]
-    prepared["classifications"] = _ensure_json_serializable(structured_classifications)
-    prepared["classifications_deprecated_alias"] = "dk_classifications"
-    prepared["dk_classifications"] = _ensure_json_serializable(legacy_classifications)
-    prepared["classification_validation"] = {
-        "rvk_checked_via": "https://rvk.uni-regensburg.de/regensburger-verbundklassifikation-online/rvk-api",
-        "rvk_total": len(rvk_entries),
-        "rvk_standard": sum(1 for entry in rvk_entries if entry.get("validation_status") == "standard"),
-        "rvk_non_standard": sum(1 for entry in rvk_entries if entry.get("validation_status") == "non_standard"),
-        "rvk_validation_errors": sum(1 for entry in rvk_entries if entry.get("validation_status") == "validation_error"),
-    }
-
-    rvk_provenance = prepared.get("rvk_provenance") or {}
-    prepared["rvk_provenance"] = {
-        "catalog_standard": int(rvk_provenance.get("catalog_standard", 0) or 0),
-        "catalog_nonstandard": int(rvk_provenance.get("catalog_nonstandard", 0) or 0),
-        "rvk_gnd_index": int(rvk_provenance.get("rvk_gnd_index", 0) or 0),
-        "rvk_api": int(rvk_provenance.get("rvk_api", 0) or 0),
-    }
-
-    return _ensure_json_serializable(prepared)
-
-
-def _extract_results_from_analysis_state(analysis_state) -> dict:
-    """Extract results dict from KeywordAnalysisState - shared logic for callback and recovery - Claude Generated"""
-
-    # Extract final GND keywords from LLM analysis
-    final_keywords = []
-    if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-        final_keywords = _ensure_list(
-            getattr(analysis_state.final_llm_analysis, 'extracted_gnd_keywords', [])
-        )
-
-    # Extract DK classifications
-    dk_classifications = _ensure_list(getattr(analysis_state, 'dk_classifications', []))
-    rvk_provenance = getattr(analysis_state, 'rvk_provenance', None)
-
-    # Extract initial keywords
-    initial_keywords = _ensure_list(getattr(analysis_state, 'initial_keywords', []))
-
-    # Extract original abstract
-    original_abstract = getattr(analysis_state, 'original_abstract', '')
-
-    # Extract working title - Claude Generated
-    working_title = getattr(analysis_state, 'working_title', '')
-
-    # Extract search results
-    search_results = getattr(analysis_state, 'search_results', [])
-
-    # Extract DK search results
-    dk_search_results = getattr(analysis_state, 'dk_search_results', [])
-
-    # Serialize search_results properly
-    serialized_search_results = []
-    if search_results:
-        for result in search_results:
-            try:
-                search_term = getattr(result, 'search_term', '') if hasattr(result, 'search_term') else ''
-                result_data = getattr(result, 'results', {}) if hasattr(result, 'results') else {}
-
-                serialized_search_results.append({
-                    "search_term": search_term,
-                    "results": result_data if isinstance(result_data, dict) else {}
-                })
-            except Exception as e:
-                logger.warning(f"Error serializing search result: {e}")
-                continue
-
-    # Serialize initial_llm_call_details
-    initial_llm_details = None
-    try:
-        if hasattr(analysis_state, 'initial_llm_call_details') and analysis_state.initial_llm_call_details:
-            llm_call = analysis_state.initial_llm_call_details
-            initial_llm_details = {
-                "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
-                "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
-                "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
-                "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
-                "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
-                "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
-            }
-    except Exception as e:
-        logger.warning(f"Error serializing initial_llm_call_details: {e}")
-        initial_llm_details = None
-
-    # Serialize final_llm_analysis
-    final_llm_details = None
-    try:
-        if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
-            llm_call = analysis_state.final_llm_analysis
-            final_llm_details = {
-                "response_full_text": getattr(llm_call, 'response_full_text', '') if hasattr(llm_call, 'response_full_text') else '',
-                "provider": getattr(llm_call, 'provider', '') if hasattr(llm_call, 'provider') else '',
-                "model": getattr(llm_call, 'model', '') if hasattr(llm_call, 'model') else '',
-                "extracted_keywords": getattr(llm_call, 'extracted_keywords', []) if hasattr(llm_call, 'extracted_keywords') else [],
-                "extracted_gnd_keywords": getattr(llm_call, 'extracted_gnd_keywords', []) if hasattr(llm_call, 'extracted_gnd_keywords') else [],
-                "token_count": getattr(llm_call, 'token_count', 0) if hasattr(llm_call, 'token_count') else 0,
-            }
-    except Exception as e:
-        logger.warning(f"Error serializing final_llm_analysis: {e}")
-        final_llm_details = None
-
-    structured_classifications = _build_structured_classifications(dk_classifications, validate_rvk=False)
-
-    return {
-        # Input & Keywords & Title
-        "original_abstract": original_abstract,
-        "working_title": working_title,  # Claude Generated
-        "initial_keywords": _ensure_json_serializable(initial_keywords),
-        "final_keywords": _ensure_json_serializable(final_keywords),
-
-        # GND/SWB Search Results
-        "search_results": _ensure_json_serializable(serialized_search_results),
-
-        # DK Classification Results
-        "classifications": _ensure_json_serializable(structured_classifications),
-        "classifications_deprecated_alias": "dk_classifications",
-        "dk_classifications": _ensure_json_serializable(dk_classifications),
-        "rvk_provenance": _ensure_json_serializable(rvk_provenance),
-        "dk_search_results": _ensure_json_serializable(dk_search_results),
-        "dk_search_results_flattened": _ensure_json_serializable(
-            getattr(analysis_state, 'dk_search_results_flattened', [])),
-        "dk_statistics": _ensure_json_serializable(
-            getattr(analysis_state, 'dk_statistics', None)),
-
-        # LLM Analysis Details
-        "initial_llm_call_details": _ensure_json_serializable(initial_llm_details),
-        "final_llm_call_details": _ensure_json_serializable(final_llm_details),
-
-        # GND Verification Results - Claude Generated
-        "verification": _ensure_json_serializable(
-            getattr(analysis_state.final_llm_analysis, 'verification', None)
-            if hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis
-            else None
-        ),
-
-        # Pipeline Metadata
-        "pipeline_metadata": {
-            "search_suggesters_used": _ensure_json_serializable(getattr(analysis_state, 'search_suggesters_used', [])),
-            "initial_gnd_classes": _ensure_json_serializable(getattr(analysis_state, 'initial_gnd_classes', [])),
-            "has_final_llm_analysis": bool(final_llm_details),
-            "has_initial_llm_analysis": bool(initial_llm_details),
-        }
-    }
 
 
 def cleanup_old_autosaves(max_age_hours: int = None):
@@ -1004,7 +692,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 await websocket.send_json({
                     "type": "complete",
                     "status": session.status,
-                    "results": make_json_serializable(_prepare_results_for_export(session.results)),
+                    "results": make_json_serializable(
+                        _prepare_results_for_export(session.results, validate_rvk=False)
+                    ),
                     "error": session.error_message,
                     "current_step": session.current_step,
                 })
@@ -1034,7 +724,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "status": session.status,
                 "current_step": session.current_step,
                 "current_step_status": session.current_step_status,  # 'running' or 'completed' - Claude Generated
-                "results": make_json_serializable(_prepare_results_for_export(session.results)),
+                "results": make_json_serializable(
+                    _prepare_results_for_export(session.results, validate_rvk=False)
+                ),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
                 "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
                 "dk_search_progress": session.dk_search_progress,  # DK search progress info - Claude Generated
@@ -1100,7 +792,7 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
             "current_step": session.current_step,
             "is_complete": is_complete,
             "input": session.input_data,
-            "results": _prepare_results_for_export(session.results),
+            "results": _prepare_results_for_export(session.results, validate_rvk=True),
             "autosave_timestamp": session.autosave_timestamp,
         }
 
@@ -1165,7 +857,9 @@ async def recover_session(session_id: str) -> dict:
         return {
             "session_id": session_id,
             "status": "recovered",
-            "results": make_json_serializable(_prepare_results_for_export(session.results)),
+            "results": make_json_serializable(
+                _prepare_results_for_export(session.results, validate_rvk=False)
+            ),
             "metadata": metadata,
             "message": "Results recovered successfully"
         }
@@ -1353,7 +1047,10 @@ async def run_analysis(
             session.current_analysis_state = analysis_state
 
             # Use shared extraction helper (DRY principle) - Claude Generated
-            session.results = _extract_results_from_analysis_state(analysis_state)
+            session.results = _prepare_results_for_export(
+                _extract_results_from_analysis_state(analysis_state),
+                validate_rvk=True,
+            )
 
             # Synchronize session.working_title with session.results['working_title'] - Claude Generated
             if session.results.get('working_title'):

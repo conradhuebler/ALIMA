@@ -22,8 +22,11 @@ This file summarizes notable changes in this branch relative to [`conradhuebler/
   - local RVK MarcXML GND index for `GND-ID -> RVK` lookup
   - periodic RVK dump release checks and index refresh
 - Improved RVK candidate filtering to reject obvious artifacts, preserve plausible local variants, and record RVK provenance.
+- Reintroduced the catalog RVK validation cap as an anchor-aware, branch-balanced shortlist instead of a blind global top-N, so RVK API validation now prefers thematically central candidates while keeping a small exploration budget.
 - Added thematic RVK anchor handling so RVK lookup can prefer a smaller, thematically central GND subset.
+- Added an LLM-based `rvk_anchor_selection` step that picks RVK anchor terms from the verified GND keyword list, with the previous heuristic anchor selection retained as fallback.
 - Experimental deterministic RVK ranking was introduced and later disabled again as the active output path; final RVK output currently comes from the constrained LLM selection.
+- Added a DK-guided second RVK scoring pass: the final selected DK classes now contribute a compact semantic profile from matched keywords and sample titles, which is fed into the fixed RVK shortlist scorer before final RVK output is chosen.
 - Updated PyQt labels and data handling so DK/RVK classifications are treated more neutrally instead of implying DK-only output.
 
 ### Web Application

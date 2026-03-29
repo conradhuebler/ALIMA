@@ -5,8 +5,29 @@ from typing import List, Dict, Any, Set, Optional, Union
 from pathlib import Path
 import sys
 import json
+import tempfile
 from abc import ABC, ABCMeta, abstractmethod
-from PyQt6.QtCore import QObject, pyqtSignal
+
+try:
+    from PyQt6.QtCore import QObject, pyqtSignal
+except ModuleNotFoundError:
+    class _DummySignal:
+        def __init__(self, *args, **kwargs):
+            self._subscribers = []
+
+        def connect(self, callback):
+            self._subscribers.append(callback)
+
+        def emit(self, *args, **kwargs):
+            for callback in list(self._subscribers):
+                callback(*args, **kwargs)
+
+    def pyqtSignal(*args, **kwargs):
+        return _DummySignal()
+
+    class QObject:
+        def __init__(self, *args, **kwargs):
+            super().__init__()
 
 
 class BaseSuggesterError(Exception):
@@ -15,9 +36,12 @@ class BaseSuggesterError(Exception):
     pass
 
 
-# Definiere eine neue Metaklasse, die von beiden erbt
-class QObjectABCMeta(type(QObject), ABCMeta):
-    pass
+if QObject.__module__ == __name__:
+    class QObjectABCMeta(ABCMeta):
+        pass
+else:
+    class QObjectABCMeta(type(QObject), ABCMeta):
+        pass
 
 
 class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
@@ -58,12 +82,8 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
             Path to the data directory
         """
         if not data_dir:
-            # Default to a subdirectory in the current script's directory
-            return (
-                Path(sys.argv[0]).parent.resolve()
-                / "data"
-                / self.__class__.__name__.lower()
-            )
+            # Default to a writable temp/cache location instead of the Python binary path.
+            return Path(tempfile.gettempdir()) / "alima_data" / self.__class__.__name__.lower()
 
         if isinstance(data_dir, str):
             return Path(data_dir)

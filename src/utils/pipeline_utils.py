@@ -1925,6 +1925,12 @@ class PipelineStepExecutor:
         allowed_standard_rvk_map = {}
         allowed_nonstandard_rvk_map = {}
         rvk_source_map = {}
+        selected_rvk_meta = {}
+        anchor_terms = {
+            canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+            for keyword in (rvk_anchor_keywords or [])
+            if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+        }
         for result in results_with_titles:
             if str(result.get("classification_type", result.get("type", "DK"))).upper() != "RVK":
                 continue
@@ -1940,6 +1946,17 @@ class PipelineStepExecutor:
             rvk_source_map[normalized] = {
                 "source": result.get("source", "catalog"),
                 "status": rvk_status or "standard",
+            }
+            matched_keywords = {
+                canonicalize_keyword(str(item or ""))
+                for item in (result.get("matched_keywords") or [])
+                if canonicalize_keyword(str(item or ""))
+            }
+            selected_rvk_meta[normalized] = {
+                "branch": str(result.get("branch_family", "") or ""),
+                "depth": len([part for part in str(result.get("ancestor_path", "") or "").split(">") if part.strip()]),
+                "anchor_hit_count": len(anchor_terms.intersection(matched_keywords)),
+                "source": result.get("source", "catalog"),
             }
             if rvk_status in {"non_standard", "validation_error"}:
                 allowed_nonstandard_rvk_map[normalized] = f"RVK {normalized}"
@@ -2028,6 +2045,49 @@ class PipelineStepExecutor:
                 code for code in llm_classifications
                 if str(code or "").strip().upper().startswith("RVK ")
             ]
+
+            rescored_rvk = self._select_final_rvk_with_dk_context(
+                results_with_titles,
+                original_abstract,
+                llm_dk_only,
+                rvk_anchor_keywords=rvk_anchor_keywords,
+                model=model,
+                provider=provider,
+                stream_callback=stream_callback,
+                mode=mode,
+                llm_kwargs=alima_kwargs,
+            )
+            if rescored_rvk:
+                llm_rvk_only = rescored_rvk
+
+            pruned_llm_rvk = []
+            for code in llm_rvk_only:
+                normalized = canonicalize_rvk_notation(str(code or "")[4:].strip())
+                meta = selected_rvk_meta.get(normalized, {})
+                depth = int(meta.get("depth", 0) or 0)
+                anchor_hit_count = int(meta.get("anchor_hit_count", 0) or 0)
+                source = str(meta.get("source", "catalog") or "catalog")
+                branch = str(meta.get("branch", "") or "")
+
+                is_broad_catalog = source == "catalog" and depth <= 2 and anchor_hit_count <= 1
+                has_more_specific_peer = any(
+                    other_code != normalized
+                    and str(other_meta.get("branch", "") or "") == branch
+                    and int(other_meta.get("depth", 0) or 0) > depth
+                    and int(other_meta.get("anchor_hit_count", 0) or 0) >= anchor_hit_count
+                    for other_code, other_meta in selected_rvk_meta.items()
+                )
+
+                if is_broad_catalog and has_more_specific_peer:
+                    if stream_callback:
+                        stream_callback(
+                            f"⚠️ Verwerfe zu allgemeine RVK-Auswahl: RVK {normalized}\n",
+                            "dk_classification",
+                        )
+                    continue
+                pruned_llm_rvk.append(code)
+
+            llm_rvk_only = pruned_llm_rvk
 
             max_total_classifications = 10
             max_dk_count = max(0, max_total_classifications - len(llm_rvk_only))
@@ -2215,6 +2275,7 @@ class PipelineStepExecutor:
         self,
         keyword_results: List[Dict[str, Any]],
         stream_callback: Optional[callable] = None,
+        rvk_anchor_keywords: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Validate catalog-derived RVK candidates and drop only obvious artifacts."""
         from .clients.rvk_api_client import RvkApiClient
@@ -2225,10 +2286,20 @@ class PipelineStepExecutor:
         nonstandard_count = 0
         artifact_count = 0
         validation_error_count = 0
+        pruned_general_count = 0
         max_validation_candidates = 120
+        max_anchor_candidates = 96
+        max_exploration_candidates = 12
+        max_per_anchor = 12
+        max_per_branch = 18
         unique_plausible_codes = []
         seen_plausible_codes = set()
         evidence_by_code: Dict[str, Dict[str, Any]] = {}
+        anchor_terms = {
+            canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+            for keyword in (rvk_anchor_keywords or [])
+            if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+        }
 
         for kw_result in keyword_results:
             keyword = kw_result.get("keyword", "")
@@ -2271,16 +2342,149 @@ class PipelineStepExecutor:
                 + min(int(evidence.get("title_hits", 0)), 10)
             )
 
-        unique_plausible_codes.sort(key=lambda code: (-_evidence_score(code), code))
-        selected_codes = unique_plausible_codes[:max_validation_candidates]
+        def _branch_key(code: str) -> str:
+            match = re.match(r"^([A-Z]{1,3})\s*", code)
+            return match.group(1) if match else (code.split()[0] if code.split() else code)
+
+        def _compact_rvk(code: str) -> str:
+            return re.sub(r"[^A-Z0-9.]", "", str(code or "").upper())
+
+        def _is_parent_like(parent_code: str, child_code: str) -> bool:
+            parent_compact = _compact_rvk(parent_code)
+            child_compact = _compact_rvk(child_code)
+            return (
+                bool(parent_compact)
+                and bool(child_compact)
+                and child_compact != parent_compact
+                and child_compact.startswith(parent_compact)
+                and len(child_compact) > len(parent_compact) + 1
+            )
+
+        candidate_meta = []
+        for code in unique_plausible_codes:
+            evidence = evidence_by_code.get(code, {})
+            keyword_hits = {
+                canonicalize_keyword(str(item or ""))
+                for item in evidence.get("keyword_hits", set())
+                if canonicalize_keyword(str(item or ""))
+            }
+            anchor_hits = sorted(anchor_terms.intersection(keyword_hits))
+            specificity_bonus = min(len(code.replace(" ", "")), 12)
+            keyword_hit_count = len(keyword_hits)
+            count_value = int(evidence.get("count", 0))
+            title_hit_count = int(evidence.get("title_hits", 0))
+            score = (
+                len(anchor_hits) * 120
+                + keyword_hit_count * 15
+                + count_value * 4
+                + min(title_hit_count, 6)
+                + specificity_bonus
+            )
+            candidate_meta.append({
+                "code": code,
+                "score": score,
+                "anchor_hits": anchor_hits,
+                "anchor_hit_count": len(anchor_hits),
+                "branch": _branch_key(code),
+                "keyword_hit_count": keyword_hit_count,
+                "count_value": count_value,
+                "title_hit_count": title_hit_count,
+            })
+
+        candidate_meta.sort(
+            key=lambda item: (
+                -int(item["anchor_hit_count"]),
+                -int(item["score"]),
+                item["code"],
+            )
+        )
+
+        selected_codes: List[str] = []
+        selected_set = set()
+        branch_counts: Dict[str, int] = {}
+        anchor_counts: Dict[str, int] = {anchor: 0 for anchor in anchor_terms}
+        meta_by_code = {item["code"]: item for item in candidate_meta}
+
+        def _is_strong_anchor_candidate(item: Dict[str, Any]) -> bool:
+            if item["anchor_hit_count"] >= 2:
+                return True
+            if item["anchor_hit_count"] == 1:
+                return (
+                    int(item.get("keyword_hit_count", 0)) >= 2
+                    or int(item.get("count_value", 0)) >= 8
+                    or int(item.get("title_hit_count", 0)) >= 3
+                )
+            return False
+
+        anchored_candidates = [
+            item for item in candidate_meta
+            if item["anchor_hit_count"] > 0 and (not anchor_terms or _is_strong_anchor_candidate(item))
+        ]
+        if anchor_terms and not anchored_candidates:
+            anchored_candidates = [item for item in candidate_meta if item["anchor_hit_count"] > 0]
+        exploratory_candidates = [item for item in candidate_meta if item["anchor_hit_count"] == 0]
+
+        def _can_take_branch(item: Dict[str, Any]) -> bool:
+            return branch_counts.get(item["branch"], 0) < max_per_branch
+
+        def _select_item(item: Dict[str, Any]) -> None:
+            code = item["code"]
+            if code in selected_set:
+                return
+            selected_set.add(code)
+            selected_codes.append(code)
+            branch_counts[item["branch"]] = branch_counts.get(item["branch"], 0) + 1
+            for anchor in item["anchor_hits"]:
+                anchor_counts[anchor] = anchor_counts.get(anchor, 0) + 1
+
+        if anchored_candidates:
+            for item in anchored_candidates:
+                if len(selected_codes) >= max_anchor_candidates:
+                    break
+                if not _can_take_branch(item):
+                    continue
+                if item["anchor_hits"] and not any(anchor_counts.get(anchor, 0) < max_per_anchor for anchor in item["anchor_hits"]):
+                    continue
+                _select_item(item)
+
+            for item in anchored_candidates:
+                if len(selected_codes) >= max_anchor_candidates:
+                    break
+                if item["code"] in selected_set or not _can_take_branch(item):
+                    continue
+                _select_item(item)
+
+        remaining_slots = max_validation_candidates - len(selected_codes)
+        exploration_slots = min(max_exploration_candidates, max(0, remaining_slots))
+
+        for item in exploratory_candidates:
+            if exploration_slots <= 0 or len(selected_codes) >= max_validation_candidates:
+                break
+            if not _can_take_branch(item):
+                continue
+            _select_item(item)
+            exploration_slots -= 1
+
+        if not selected_codes:
+            # Fallback: keep the strongest codes even if no anchor-balanced shortlist could be built.
+            selected_codes = [item["code"] for item in candidate_meta[:max_validation_candidates]]
+
+        selected_total = len(selected_codes)
+        anchored_total = sum(1 for item in candidate_meta if item["code"] in set(selected_codes) and item["anchor_hit_count"] > 0)
+        exploratory_total = selected_total - anchored_total
 
         if selected_codes and stream_callback:
+            shortlist_parts = []
+            if anchor_terms:
+                shortlist_parts.append(f"{anchored_total} ankergestuetzt")
+                if exploratory_total:
+                    shortlist_parts.append(f"{exploratory_total} explorativ")
+                shortlist_parts.append(f"{len(branch_counts)} Zweige")
             stream_callback(
                 (
-                    f"🔎 Prüfe die {len(selected_codes)} stärksten von "
-                    f"{len(unique_plausible_codes)} eindeutigen RVK-Kandidaten gegen die RVK-API...\n"
-                    if len(selected_codes) < len(unique_plausible_codes)
-                    else f"🔎 Prüfe {len(selected_codes)} eindeutige RVK-Kandidaten gegen die RVK-API...\n"
+                    f"🔎 Prüfe {len(selected_codes)} eindeutige RVK-Kandidaten gegen die RVK-API"
+                    + (f" ({', '.join(shortlist_parts)})" if shortlist_parts else "")
+                    + "...\n"
                 ),
                 "dk_search",
             )
@@ -2322,6 +2526,29 @@ class PipelineStepExecutor:
                             "dk_search",
                         )
 
+        pruned_standard_codes = set()
+        standard_validated_codes = [
+            code for code in selected_codes
+            if validation_cache.get(code, {}).get("status") == "standard"
+        ]
+        for parent_code in standard_validated_codes:
+            parent_meta = meta_by_code.get(parent_code, {})
+            parent_branch = parent_meta.get("branch", "")
+            for child_code in standard_validated_codes:
+                if child_code == parent_code:
+                    continue
+                child_meta = meta_by_code.get(child_code, {})
+                if parent_branch and parent_branch != child_meta.get("branch", ""):
+                    continue
+                if not _is_parent_like(parent_code, child_code):
+                    continue
+                if (
+                    int(child_meta.get("anchor_hit_count", 0)) >= int(parent_meta.get("anchor_hit_count", 0))
+                    and int(child_meta.get("score", 0)) >= int(parent_meta.get("score", 0)) - 10
+                ):
+                    pruned_standard_codes.add(parent_code)
+                    break
+
         for kw_result in keyword_results:
             cleaned_classifications = []
 
@@ -2348,6 +2575,9 @@ class PipelineStepExecutor:
                 status = validation.get("status", "")
                 if status == "standard":
                     normalized = validation.get("notation") or normalized
+                    if normalized in pruned_standard_codes:
+                        pruned_general_count += 1
+                        continue
                     updated = dict(classification)
                     updated["dk"] = normalized
                     updated["rvk_validation_status"] = "standard"
@@ -2389,7 +2619,7 @@ class PipelineStepExecutor:
                 updated_result["classifications"] = cleaned_classifications
                 cleaned_results.append(updated_result)
 
-        if stream_callback and (standard_count or nonstandard_count or artifact_count or validation_error_count):
+        if stream_callback and (standard_count or nonstandard_count or artifact_count or validation_error_count or pruned_general_count):
             parts = []
             if standard_count:
                 parts.append(f"{standard_count} standard")
@@ -2397,6 +2627,8 @@ class PipelineStepExecutor:
                 parts.append(f"{nonstandard_count} nicht-standardisiert/lokal")
             if validation_error_count:
                 parts.append(f"{validation_error_count} ungeprüft (API-Fehler)")
+            if pruned_general_count:
+                parts.append(f"{pruned_general_count} allgemeine Elternknoten verworfen")
             if artifact_count:
                 parts.append(f"{artifact_count} Artefakte verworfen")
             stream_callback(
@@ -2584,7 +2816,7 @@ class PipelineStepExecutor:
         raw_tokens = re.findall(r"[a-zA-ZäöüÄÖÜß]{4,}", normalized)
         return [token for token in raw_tokens if token not in stopwords]
 
-    def _derive_rvk_anchor_keywords(
+    def _derive_rvk_anchor_keywords_heuristic(
         self,
         verified_keywords: List[str],
         llm_analysis: Optional["LlmKeywordAnalysis"] = None,
@@ -2666,6 +2898,126 @@ class PipelineStepExecutor:
             selected = verified_keywords[: min(max_anchors, len(verified_keywords))]
 
         return selected
+
+    def _derive_rvk_anchor_keywords(
+        self,
+        verified_keywords: List[str],
+        llm_analysis: Optional["LlmKeywordAnalysis"] = None,
+        original_abstract: str = "",
+        max_anchors: int = 8,
+        stream_callback: Optional[callable] = None,
+    ) -> List[str]:
+        """Derive RVK anchors with an LLM-first selection and heuristic fallback."""
+        if not verified_keywords:
+            return []
+
+        heuristic_selected = self._derive_rvk_anchor_keywords_heuristic(
+            verified_keywords,
+            llm_analysis=llm_analysis,
+            max_anchors=max_anchors,
+        )
+
+        if not self.alima_manager:
+            return heuristic_selected
+
+        analysis_fragments = []
+        if original_abstract:
+            analysis_fragments.append(str(original_abstract))
+
+        if llm_analysis:
+            analysis_text = str(getattr(llm_analysis, "analyse_text", "") or "")
+            if analysis_text:
+                analysis_fragments.append(f"\nThematische Analyse:\n{analysis_text}")
+            missing_concepts = list(getattr(llm_analysis, "missing_concepts", []) or [])
+            if missing_concepts:
+                analysis_fragments.append(
+                    "\nFehlende Konzepte:\n" + ", ".join(str(item) for item in missing_concepts if str(item).strip())
+                )
+
+        abstract_for_selection = "\n".join(fragment for fragment in analysis_fragments if fragment).strip()
+        if not abstract_for_selection:
+            return heuristic_selected
+
+        from ..core.data_models import AbstractData
+        from ..core.json_response_parser import parse_json_response
+
+        keyword_lines = "\n".join(verified_keywords)
+        abstract_data = AbstractData(
+            abstract=abstract_for_selection,
+            keywords=keyword_lines,
+        )
+
+        provider = getattr(llm_analysis, "provider_used", None) if llm_analysis else None
+        model = getattr(llm_analysis, "model_used", None) if llm_analysis else None
+
+        try:
+            task_state = self.alima_manager.analyze_abstract(
+                abstract_data=abstract_data,
+                task="rvk_anchor_selection",
+                model=model,
+                provider=provider,
+                stream_callback=None,
+            )
+            if task_state.status == "failed":
+                return heuristic_selected
+
+            parsed = parse_json_response(task_state.analysis_result.full_text) or {}
+            anchors = parsed.get("anchors", [])
+            if not isinstance(anchors, list):
+                return heuristic_selected
+
+            keyword_by_gnd: Dict[str, str] = {}
+            keyword_by_text: Dict[str, str] = {}
+            for keyword in verified_keywords:
+                clean_keyword = keyword.split("(GND-ID:")[0].strip()
+                clean_key = canonicalize_keyword(clean_keyword)
+                if clean_key:
+                    keyword_by_text[clean_key] = keyword
+                gnd_id = extract_gnd_id(keyword)
+                if gnd_id:
+                    keyword_by_gnd[gnd_id] = keyword
+
+            selected = []
+            seen = set()
+            for item in anchors:
+                if not isinstance(item, dict):
+                    continue
+                gnd_id = str(item.get("gnd_id", "") or "").strip()
+                keyword_text = canonicalize_keyword(str(item.get("keyword", "") or "").strip())
+                matched = None
+                if gnd_id and gnd_id in keyword_by_gnd:
+                    matched = keyword_by_gnd[gnd_id]
+                elif keyword_text and keyword_text in keyword_by_text:
+                    matched = keyword_by_text[keyword_text]
+                if matched and matched not in seen:
+                    selected.append(matched)
+                    seen.add(matched)
+                if len(selected) >= max_anchors:
+                    break
+
+            if selected:
+                if stream_callback:
+                    preview = ", ".join(keyword.split("(GND-ID:")[0].strip() for keyword in selected[:6])
+                    if len(selected) > 6:
+                        preview += f", +{len(selected) - 6} weitere"
+                    stream_callback(
+                        f"ℹ️ RVK-Anker (LLM): {preview}\n",
+                        "dk_search",
+                    )
+                return selected
+        except Exception as exc:
+            if self.logger:
+                self.logger.warning(f"LLM RVK anchor selection failed, falling back to heuristic: {exc}")
+
+        if stream_callback and heuristic_selected:
+            preview = ", ".join(keyword.split("(GND-ID:")[0].strip() for keyword in heuristic_selected[:6])
+            if len(heuristic_selected) > 6:
+                preview += f", +{len(heuristic_selected) - 6} weitere"
+            stream_callback(
+                f"ℹ️ RVK-Anker (heuristisch): {preview}\n",
+                "dk_search",
+            )
+        return heuristic_selected
 
     def _rvk_domain_profile(self, abstract_text: str, matched_keywords: List[str]) -> Dict[str, int]:
         """Estimate thematic domain strength from the abstract and matched keywords."""
@@ -2931,6 +3283,366 @@ class PipelineStepExecutor:
                     "dk_classification",
                 )
             return {}
+
+    def _build_dk_semantic_profile(
+        self,
+        selected_dk_codes: List[str],
+        candidate_results: List[Dict[str, Any]],
+        max_keywords: int = 6,
+        max_titles: int = 3,
+        max_codes: int = 6,
+    ) -> str:
+        """Build compact semantic hints from the selected DK classes."""
+        if not selected_dk_codes or not candidate_results:
+            return ""
+
+        aggregated: Dict[str, Dict[str, Any]] = {}
+        for candidate in candidate_results:
+            cls_type = str(candidate.get("classification_type", candidate.get("type", "DK"))).upper()
+            if cls_type != "DK":
+                continue
+
+            raw_code = str(candidate.get("dk", "") or "").strip()
+            if not raw_code:
+                continue
+
+            key = f"DK {raw_code}"
+            current = aggregated.setdefault(
+                key,
+                {
+                    "matched_keywords": [],
+                    "titles": [],
+                    "count": 0,
+                },
+            )
+            current["count"] += int(candidate.get("count", 0) or 0)
+
+            seen_keywords = set(current["matched_keywords"])
+            for keyword in (candidate.get("matched_keywords") or candidate.get("keywords") or []):
+                clean_keyword = str(keyword or "").strip()
+                if clean_keyword and clean_keyword not in seen_keywords:
+                    current["matched_keywords"].append(clean_keyword)
+                    seen_keywords.add(clean_keyword)
+
+            seen_titles = set(current["titles"])
+            for title in (candidate.get("titles") or []):
+                clean_title = str(title or "").strip()
+                if clean_title and clean_title not in seen_titles:
+                    current["titles"].append(clean_title)
+                    seen_titles.add(clean_title)
+
+        lines = []
+        for code in selected_dk_codes:
+            clean_code = str(code or "").strip()
+            if not clean_code or clean_code.upper().startswith("RVK "):
+                continue
+
+            normalized = clean_code if clean_code.upper().startswith("DK ") else f"DK {clean_code}"
+            data = aggregated.get(normalized)
+            if not data:
+                continue
+
+            keywords = ", ".join(data.get("matched_keywords", [])[:max_keywords])
+            titles = " | ".join(data.get("titles", [])[:max_titles])
+            parts = [normalized]
+            if keywords:
+                parts.append(f"Schlagworte: {keywords}")
+            if titles:
+                parts.append(f"Beispieltitel: {titles}")
+            if data.get("count"):
+                parts.append(f"Haeufigkeit: {int(data['count'])}")
+            lines.append(" | ".join(parts))
+            if len(lines) >= max_codes:
+                break
+
+        return "\n".join(lines)
+
+    def _build_rvk_scoring_shortlist(
+        self,
+        candidate_results: List[Dict[str, Any]],
+        original_abstract: str,
+        rvk_anchor_keywords: Optional[List[str]] = None,
+        max_standard: int = 8,
+        max_nonstandard: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Build a compact validated RVK shortlist for the second-pass scorer."""
+        aggregated: Dict[str, Dict[str, Any]] = {}
+        anchor_keywords = {
+            canonicalize_keyword(keyword.split("(GND-ID:")[0].strip()).lower()
+            for keyword in (rvk_anchor_keywords or [])
+            if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
+        }
+
+        def _source_rank(source: str) -> int:
+            return {
+                "rvk_gnd_index": 3,
+                "rvk_api": 2,
+                "catalog": 1,
+            }.get(source, 0)
+
+        def _status_rank(status: str) -> int:
+            return {
+                "standard": 3,
+                "non_standard": 2,
+                "validation_error": 1,
+            }.get(status, 0)
+
+        for candidate in candidate_results:
+            cls_type = str(candidate.get("classification_type", candidate.get("type", "DK"))).upper()
+            if cls_type != "RVK":
+                continue
+
+            normalized = canonicalize_rvk_notation(candidate.get("dk", ""))
+            if not normalized:
+                continue
+
+            current = aggregated.get(normalized)
+            if current is None:
+                current = dict(candidate)
+                current["dk"] = normalized
+                current["matched_keywords"] = list(candidate.get("matched_keywords", []) or candidate.get("keywords", []) or [])
+                current["titles"] = list(candidate.get("titles", []) or [])
+                current["register"] = list(candidate.get("register", []) or [])
+                current["count"] = int(candidate.get("count", 0) or 0)
+                aggregated[normalized] = current
+                continue
+
+            current["count"] = int(current.get("count", 0) or 0) + int(candidate.get("count", 0) or 0)
+            for field in ("matched_keywords", "titles", "register"):
+                existing = list(current.get(field, []) or [])
+                seen = set(existing)
+                incoming = candidate.get(field, []) or candidate.get("keywords", []) or []
+                for value in incoming:
+                    clean_value = str(value or "").strip()
+                    if clean_value and clean_value not in seen:
+                        existing.append(clean_value)
+                        seen.add(clean_value)
+                current[field] = existing
+
+            if candidate.get("label") and not current.get("label"):
+                current["label"] = candidate.get("label")
+            if candidate.get("ancestor_path") and not current.get("ancestor_path"):
+                current["ancestor_path"] = candidate.get("ancestor_path")
+            if candidate.get("branch_family") and not current.get("branch_family"):
+                current["branch_family"] = candidate.get("branch_family")
+
+            current_source = str(current.get("source", "catalog") or "catalog")
+            incoming_source = str(candidate.get("source", "catalog") or "catalog")
+            current_status = str(current.get("rvk_validation_status", "standard") or "standard")
+            incoming_status = str(candidate.get("rvk_validation_status", "standard") or "standard")
+            replace_source = _source_rank(incoming_source) > _source_rank(current_source)
+            replace_status = _status_rank(incoming_status) > _status_rank(current_status)
+            if replace_status or (incoming_status == current_status and replace_source):
+                current["source"] = incoming_source
+                current["rvk_validation_status"] = incoming_status
+                current["validation_message"] = candidate.get("validation_message", current.get("validation_message", ""))
+
+        standard_candidates = []
+        nonstandard_candidates = []
+        for candidate in aggregated.values():
+            candidate["_score"] = self._score_rvk_candidate(
+                candidate,
+                original_abstract,
+                rvk_anchor_keywords=rvk_anchor_keywords,
+            )
+            matched_keyword_set = {
+                canonicalize_keyword(keyword).lower()
+                for keyword in (candidate.get("matched_keywords") or [])
+                if canonicalize_keyword(keyword)
+            }
+            candidate["_anchor_hit_count"] = len(anchor_keywords.intersection(matched_keyword_set))
+            candidate["_source_rank"] = _source_rank(str(candidate.get("source", "catalog") or "catalog"))
+            candidate["_status_rank"] = _status_rank(str(candidate.get("rvk_validation_status", "standard") or "standard"))
+            status = str(candidate.get("rvk_validation_status", "standard") or "standard")
+            if status == "standard":
+                standard_candidates.append(candidate)
+            elif status in {"non_standard", "validation_error"}:
+                nonstandard_candidates.append(candidate)
+
+        def _sort_key(item: Dict[str, Any]):
+            return (
+                -int(item.get("_anchor_hit_count", 0)),
+                -int(item.get("_source_rank", 0)),
+                -int(item.get("_status_rank", 0)),
+                -int(item.get("_score", 0)),
+                item.get("dk", ""),
+            )
+
+        standard_candidates.sort(key=_sort_key)
+        nonstandard_candidates.sort(key=_sort_key)
+
+        shortlist = standard_candidates[:max_standard]
+        if not shortlist:
+            shortlist = nonstandard_candidates[:max_nonstandard]
+        elif len(shortlist) < max_standard:
+            remaining = max_nonstandard
+            for candidate in nonstandard_candidates:
+                if remaining <= 0:
+                    break
+                shortlist.append(candidate)
+                remaining -= 1
+
+        return shortlist
+
+    def _select_final_rvk_with_dk_context(
+        self,
+        candidate_results: List[Dict[str, Any]],
+        original_abstract: str,
+        selected_dk_codes: List[str],
+        rvk_anchor_keywords: Optional[List[str]] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        stream_callback: Optional[callable] = None,
+        mode=None,
+        llm_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        """Use a DK-guided second LLM pass to rank a fixed validated RVK shortlist."""
+        shortlist = self._build_rvk_scoring_shortlist(
+            candidate_results,
+            original_abstract,
+            rvk_anchor_keywords=rvk_anchor_keywords,
+        )
+        if not shortlist:
+            return []
+
+        dk_profile = self._build_dk_semantic_profile(selected_dk_codes, candidate_results)
+        abstract_for_scoring = str(original_abstract or "").strip()
+        if dk_profile:
+            abstract_for_scoring += (
+                "\n\nDK-Profil aus der bereits gewaehlten DK-Seite:\n"
+                f"{dk_profile}\n"
+                "Nutze dieses DK-Profil als zusaetzlichen thematischen Hinweis fuer die RVK-Auswahl."
+            )
+
+        if stream_callback:
+            stream_callback(
+                f"ℹ️ RVK-Zweitranking mit DK-Profil: {len(shortlist)} Kandidaten\n",
+                "dk_classification",
+            )
+            if dk_profile:
+                stream_callback(
+                    "DK-Profil fuer RVK-Zweitranking:\n"
+                    + "\n".join(f"  {line}" for line in dk_profile.splitlines() if line.strip())
+                    + "\n",
+                    "dk_classification",
+                )
+            shortlist_lines = []
+            for candidate in shortlist:
+                line = f"  RVK {candidate['dk']}"
+                if candidate.get("label"):
+                    line += f" | {candidate['label']}"
+                if candidate.get("ancestor_path"):
+                    line += f" | Pfad: {candidate['ancestor_path']}"
+                source = str(candidate.get("source", "catalog") or "catalog")
+                status = str(candidate.get("rvk_validation_status", "standard") or "standard")
+                line += f" | Quelle: {source}"
+                if status != "standard":
+                    line += f" ({status})"
+                shortlist_lines.append(line)
+            if shortlist_lines:
+                stream_callback(
+                    "RVK-Kandidaten fuer DK-basiertes Zweitranking:\n"
+                    + "\n".join(shortlist_lines)
+                    + "\n",
+                    "dk_classification",
+                )
+
+        llm_scores = self._score_rvk_shortlist_with_llm(
+            shortlist,
+            abstract_for_scoring,
+            model=model,
+            provider=provider,
+            stream_callback=stream_callback,
+            mode=mode,
+            llm_kwargs=llm_kwargs,
+        )
+        if not llm_scores:
+            return []
+
+        scored_candidates = []
+        for candidate in shortlist:
+            score = llm_scores.get(candidate["dk"])
+            if not score:
+                continue
+            candidate_copy = dict(candidate)
+            candidate_copy["_llm_total_score"] = int(score.get("total_score", 0) or 0)
+            candidate_copy["_llm_thematic_fit"] = int(score.get("thematic_fit", 0) or 0)
+            candidate_copy["_llm_branch_fit"] = int(score.get("branch_fit", 0) or 0)
+            candidate_copy["_llm_specificity"] = int(score.get("specificity", 0) or 0)
+            candidate_copy["_llm_reason"] = str(score.get("reason", "") or "")
+            scored_candidates.append(candidate_copy)
+
+        if not scored_candidates:
+            return []
+
+        standard_candidates = [
+            candidate for candidate in scored_candidates
+            if str(candidate.get("rvk_validation_status", "standard") or "standard") == "standard"
+        ]
+        nonstandard_candidates = [
+            candidate for candidate in scored_candidates
+            if str(candidate.get("rvk_validation_status", "standard") or "standard") in {"non_standard", "validation_error"}
+        ]
+
+        def _sort_key(item: Dict[str, Any]):
+            return (
+                -int(item.get("_llm_total_score", 0)),
+                -int(item.get("_llm_thematic_fit", 0)),
+                -int(item.get("_llm_branch_fit", 0)),
+                -int(item.get("_llm_specificity", 0)),
+                -int(item.get("_anchor_hit_count", 0)),
+                -int(item.get("_score", 0)),
+                item.get("dk", ""),
+            )
+
+        standard_candidates.sort(key=_sort_key)
+        nonstandard_candidates.sort(key=_sort_key)
+
+        if stream_callback:
+            score_lines = []
+            for candidate in sorted(scored_candidates, key=_sort_key):
+                line = (
+                    f"  RVK {candidate['dk']}: total={int(candidate.get('_llm_total_score', 0))}, "
+                    f"thematisch={int(candidate.get('_llm_thematic_fit', 0))}, "
+                    f"Pfad={int(candidate.get('_llm_branch_fit', 0))}, "
+                    f"Spezifitaet={int(candidate.get('_llm_specificity', 0))}"
+                )
+                reason = str(candidate.get("_llm_reason", "") or "").strip()
+                if reason:
+                    line += f" | {reason}"
+                score_lines.append(line)
+            if score_lines:
+                stream_callback(
+                    "RVK-Bewertung aus DK-basiertem Zweitranking:\n"
+                    + "\n".join(score_lines)
+                    + "\n",
+                    "dk_classification",
+                )
+
+        selected: List[str] = []
+        selected_branches = set()
+        for candidate in standard_candidates:
+            branch = str(candidate.get("branch_family", "") or "")
+            if branch and branch in selected_branches and len(selected) >= 1:
+                continue
+            selected.append(f"RVK {candidate['dk']}")
+            if branch:
+                selected_branches.add(branch)
+            if len(selected) >= 2:
+                break
+
+        if not selected and nonstandard_candidates:
+            selected.append(f"RVK {nonstandard_candidates[0]['dk']}")
+
+        if stream_callback and selected:
+            stream_callback(
+                "RVK-Auswahl nach DK-basiertem Zweitranking:\n"
+                + "\n".join(f"  {code}" for code in selected)
+                + "\n",
+                "dk_classification",
+            )
+
+        return selected
 
     def _select_final_rvk_candidates(
         self,
@@ -3789,6 +4501,7 @@ class PipelineStepExecutor:
             dk_search_results = self._validate_catalog_rvk_candidates(
                 dk_search_results,
                 stream_callback=stream_callback,
+                rvk_anchor_keywords=rvk_anchor_keywords,
             )
             dk_search_results = self._inject_rvk_api_fallback(
                 rvk_anchor_search_keywords or final_search_keywords,
@@ -3833,6 +4546,7 @@ class PipelineStepExecutor:
                 dk_search_results = self._validate_catalog_rvk_candidates(
                     dk_search_results,
                     stream_callback=stream_callback,
+                    rvk_anchor_keywords=rvk_anchor_keywords,
                 )
                 dk_search_results = self._inject_rvk_api_fallback(
                     final_search_keywords,
@@ -3960,7 +4674,12 @@ class PipelineStepExecutor:
             if stream_callback:
                 stream_callback(f"\n▶ [dk_classification]\n", "dk_classification")
             try:
-                rvk_anchor_keywords = self._derive_rvk_anchor_keywords(final_keywords, kw_analysis)
+                rvk_anchor_keywords = self._derive_rvk_anchor_keywords(
+                    final_keywords,
+                    kw_analysis,
+                    original_abstract=input_text,
+                    stream_callback=_cb("dk_classification"),
+                )
                 dk_search = self.execute_dk_search(
                     keywords=final_keywords,
                     rvk_anchor_keywords=rvk_anchor_keywords,

@@ -20,35 +20,46 @@ except ImportError:
 import os
 from pathlib import Path
 
-# Create debug log directory
-debug_log_dir = Path.home() / ".config/alima/logs"
-debug_log_dir.mkdir(parents=True, exist_ok=True)
-
-# Console handler - only INFO and above
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_format = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(console_format)
-
-# File handler - DEBUG level for detailed debugging
-debug_file_path = debug_log_dir / "biblio_debug.log"
-file_handler = logging.FileHandler(debug_file_path, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_format = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s] %(message)s")
-file_handler.setFormatter(file_format)
-
-# Error file handler - for failed requests
-error_file_path = debug_log_dir / "biblio_errors.log"
-error_handler = logging.FileHandler(error_file_path, encoding='utf-8')
-error_handler.setLevel(logging.WARNING)
-error_handler.setFormatter(file_format)
-
 logger = logging.getLogger("biblio_extractor")
 logger.setLevel(logging.DEBUG)  # Logger captures all levels
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-logger.addHandler(error_handler)
 logger.propagate = False  # Prevent duplicate output via root logger
+
+
+def _configure_logger() -> None:
+    """Configure console/file logging once without failing on restricted filesystems."""
+    if logger.handlers:
+        return
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_format = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    console_handler.setFormatter(console_format)
+    logger.addHandler(console_handler)
+
+    file_format = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s] %(message)s"
+    )
+
+    try:
+        debug_log_dir = Path.home() / ".config/alima/logs"
+        debug_log_dir.mkdir(parents=True, exist_ok=True)
+
+        debug_file_path = debug_log_dir / "biblio_debug.log"
+        file_handler = logging.FileHandler(debug_file_path, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(file_format)
+        logger.addHandler(file_handler)
+
+        error_file_path = debug_log_dir / "biblio_errors.log"
+        error_handler = logging.FileHandler(error_file_path, encoding="utf-8")
+        error_handler.setLevel(logging.WARNING)
+        error_handler.setFormatter(file_format)
+        logger.addHandler(error_handler)
+    except OSError as exc:
+        logger.warning(f"BiblioClient file logging disabled: {exc}")
+
+
+_configure_logger()
 
 
 class BiblioClient:
@@ -297,6 +308,10 @@ class BiblioClient:
                     else:
                         logger.error(f"❌ Server error after {max_retries} attempts")
                         return []
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"❌ Request failed for '{term}': {e}")
+                return []
 
         return []
 

@@ -2,9 +2,17 @@ import unittest
 import tempfile
 import os
 from datetime import datetime, timedelta
-from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from unittest.mock import patch
 
+try:
+    from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+    PYQT_IMPORT_ERROR = None
+except ModuleNotFoundError as exc:
+    UnifiedKnowledgeManager = None
+    PYQT_IMPORT_ERROR = exc
+
+
+@unittest.skipIf(PYQT_IMPORT_ERROR is not None, f"PyQt6-backed database stack unavailable: {PYQT_IMPORT_ERROR}")
 class TestCache(unittest.TestCase):
     def setUp(self):
         """Test-Setup vor jedem Test"""
