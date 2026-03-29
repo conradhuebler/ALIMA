@@ -320,7 +320,6 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
             output_file = f"{analysis_state.working_title}.json"
             logger.info(f"Auto-generated output filename from working title: {output_file}")
         elif not output_file:
-            from datetime import datetime
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_file = f"analysis_state_{timestamp}.json"
             logger.info(f"Auto-generated output filename from timestamp: {output_file}")
@@ -354,6 +353,12 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
 
     except Exception as e:
         logger.error(f"Pipeline execution failed: {e}")
+    finally:
+        try:
+            if getattr(cache_manager, "db_manager", None):
+                cache_manager.db_manager.close_connection()
+        except Exception as cleanup_error:
+            logger.debug(f"CLI cache cleanup failed: {cleanup_error}")
 
 
 def handle_batch(args, config_manager: ConfigManager, llm_service: LlmService,
@@ -522,5 +527,11 @@ def handle_batch(args, config_manager: ConfigManager, llm_service: LlmService,
 
     except Exception as e:
         logger.error(f"Batch processing failed: {e}")
+    finally:
+        try:
+            if getattr(cache_manager, "db_manager", None):
+                cache_manager.db_manager.close_connection()
+        except Exception as cleanup_error:
+            logger.debug(f"Batch cache cleanup failed: {cleanup_error}")
         import traceback
         traceback.print_exc()

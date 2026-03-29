@@ -121,12 +121,14 @@ python alima_cli.py db-config set-mysql \
 - **Path**: Configurable database file location
 - **Advantages**: No server setup required, portable
 - **Use Case**: Development, single-user environments
+- **Webapp/CLI concurrency**: acceptable for light local use, but not the recommended production backend for multiple simultaneous web users plus CLI writers
 
 ### MySQL/MariaDB (Remote Database)
 - **Requirements**: PyMySQL package (`pip install pymysql`)
 - **Features**: Full remote database support
 - **SSL**: Configurable SSL connection
 - **Use Case**: Production, multi-user environments
+- **Recommended for**: several simultaneous webapp users, shared deployments, and concurrent CLI + webapp access
 
 ## Legacy Configuration Migration
 
@@ -212,6 +214,8 @@ python alima_cli.py db-config set-mysql \
 # Test the connection
 python alima_cli.py db-config test
 ```
+
+For ALIMA webapp deployments with multiple concurrent users, prefer `mysql` or `mariadb` over SQLite. SQLite remains useful for local development and single-user setups, but it is a file-based database and is not the intended long-term backend for shared production use.
 
 ### Multi-Environment Setup
 ```bash

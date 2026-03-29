@@ -78,6 +78,20 @@ async def lifespan(app):
     logging.getLogger("uvicorn.access").addFilter(_SuppressSessionPolling())
     logger.info("Starting ALIMA Webapp...")
 
+    try:
+        startup_config = ConfigManager(logger=logger).load_config()
+        db_cfg = startup_config.database_config
+        if db_cfg.db_type.lower() in {"sqlite", "sqlite3"}:
+            logger.warning(
+                "ALIMA webapp is configured to use SQLite (%s). "
+                "This is acceptable for development or light single-process use, "
+                "but MariaDB/MySQL is recommended for concurrent multi-user webapp "
+                "access and simultaneous CLI usage.",
+                db_cfg.sqlite_path,
+            )
+    except Exception as e:
+        logger.warning(f"Could not validate database configuration during startup: {e}")
+
     # Setup Qt plugin paths for SQL drivers - Claude Generated
     setup_qt_plugin_paths()
     drivers = get_available_sql_drivers()

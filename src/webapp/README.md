@@ -30,6 +30,16 @@ python3 src/alima_webapp.py
 
 Der Server läuft dann unter `http://localhost:8000`
 
+### Datenbank-Empfehlung für Mehrbenutzerbetrieb
+
+- `sqlite`: geeignet für Entwicklung, lokale Tests und leichte Einzelprozess-Nutzung
+- `mysql`/`mariadb`: empfohlen für mehrere gleichzeitige Webapp-Nutzer und parallele CLI-Nutzung
+
+Wichtig:
+- Die Webapp hält aktive Sessions aktuell im Prozessspeicher.
+- Ein einzelner Webserver-Prozess kann mehrere gleichzeitige Nutzer bedienen.
+- Mehrere Worker/Prozesse hinter einem Load Balancer sind derzeit nicht vollständig unterstützt, weil Session-Status nicht in einem externen Store liegt.
+
 ### 2. Webapp öffnen
 
 Öffnen Sie im Browser: `http://localhost:8000`
@@ -67,7 +77,7 @@ Der Server läuft dann unter `http://localhost:8000`
 ### Backend (`app.py`)
 
 - FastAPI Server mit RESTful API
-- Ruft ALIMA CLI auf für Analysen
+- Führt die Pipeline direkt im Prozess aus
 - WebSocket für Live-Streaming
 - Session Management
 
@@ -86,7 +96,7 @@ Der Server läuft dann unter `http://localhost:8000`
    ↓
 2. Frontend: POST /api/analyze mit Eingabe
    ↓
-3. Backend: Ruft alima_cli.py auf
+3. Backend: Startet PipelineManager direkt
    ↓
 4. Backend: Streaming-Output via WebSocket
    ↓
@@ -123,6 +133,8 @@ Die Webapp nutzt die gleiche `config.json` wie die CLI und GUI:
 ```
 
 Provider, Modelle und Einstellungen werden automatisch übernommen.
+
+Für produktiven Mehrbenutzerbetrieb sollte die Datenbank in `config.json` auf `mysql` oder `mariadb` gesetzt werden.
 
 ## Fehlerbehebung
 

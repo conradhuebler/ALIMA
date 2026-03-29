@@ -30,6 +30,11 @@ ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Index
 *   **🌐 WebAPP:** Server-basierte Schnittstelle für webbasierte Nutzung — gleiche Konfiguration wie GUI und CLI
 *   **📤 Katalog-Integration:** K10+/WinIBW-Export für direktes Einfügen in Bibliothekskataloge
 
+Hinweis zum Mehrbenutzerbetrieb:
+- Für lokale Entwicklung und Einzelplatznutzung reicht SQLite.
+- Für mehrere gleichzeitige WebAPP-Nutzer und parallele CLI-Nutzung sollte `mysql` oder `mariadb` als Datenbank konfiguriert werden.
+- Die aktuelle WebAPP verwaltet aktive Sessions im Prozessspeicher; ein einzelner Serverprozess kann mehrere Nutzer bedienen, aber ein Multi-Worker-Setup benötigt zusätzlich einen externen Session-Store.
+
 ## Installation
 
 ### Voraussetzungen
