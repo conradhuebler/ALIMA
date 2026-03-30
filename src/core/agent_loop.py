@@ -54,7 +54,7 @@ class AgentLoop:
         Args:
             system_prompt: System instructions for the agent
             user_prompt: User's request
-            tools: Tool names to make available (None = all registered)
+            tools: Tool names to make available (None = no tools, [] = all registered)
             provider: LLM provider name
             model: Model name
             temperature: Sampling temperature (lower = more deterministic)
@@ -64,8 +64,12 @@ class AgentLoop:
         Returns:
             AgentResult with final content, tool log, and iteration count
         """
-        # Get tool schemas
-        tool_schemas = self.tool_registry.get_tool_schemas(tools)
+        # Get tool schemas - only if tools list is provided
+        # None means no tools, empty list means all registered tools
+        if tools is None:
+            tool_schemas = None  # No tools available
+        else:
+            tool_schemas = self.tool_registry.get_tool_schemas(tools if tools else None)
 
         # Build initial messages
         messages: List[Dict[str, Any]] = [
@@ -90,7 +94,7 @@ class AgentLoop:
             # Call LLM with tools
             logger.info(f"Agent iteration {iteration}/{self.max_iterations}")
             if self.stream_callback:
-                self.stream_callback(f"\n🔄 Iteration {iteration}")
+                self.stream_callback(f"\n🔄 Iteration {iteration}: Warte auf LLM-Antwort...")
 
             try:
                 response: AgentResponse = self.llm_service.generate_with_tools(
@@ -112,6 +116,15 @@ class AgentLoop:
 
             # Case 1: LLM wants to call tools
             if response.has_tool_calls:
+                # Show LLM's reasoning before tool calls (transparency)
+                if response.content and self.stream_callback:
+                    reasoning = response.content.strip()
+                    if reasoning:
+                        # Truncate long reasoning to first 200 chars
+                        if len(reasoning) > 200:
+                            reasoning = reasoning[:200] + "..."
+                        self.stream_callback(f"\n💭 {reasoning}\n")
+
                 # Append assistant message with tool calls to conversation
                 assistant_msg = self._build_assistant_tool_message(response)
                 messages.append(assistant_msg)
@@ -138,8 +151,12 @@ class AgentLoop:
                         continue
 
                     logger.info(f"  🔧 Executing tool: {tc.name}({_truncate_args(tc.arguments)})")
+
+                    # Show tool type for better transparency
+                    tool_type = self._get_tool_type_label(tc.name)
                     if self.stream_callback:
-                        self.stream_callback(f"\n  🔧 {tc.name}()")
+                        args_preview = _truncate_args(tc.arguments, 60)
+                        self.stream_callback(f"\n  🔧 {tool_type}: {tc.name}({args_preview})")
 
                     # Execute tool
                     tool_start = time.time()
@@ -155,6 +172,20 @@ class AgentLoop:
                         "duration_s": round(tool_duration, 2),
                     }
                     tool_log.append(log_entry)
+
+                    # Show result summary for transparency
+                    if self.stream_callback:
+                        result_preview = result_str[:100] + "..." if len(result_str) > 100 else result_str
+                        # Count results if it's a list
+                        try:
+                            parsed = json.loads(result_str)
+                            if isinstance(parsed, list):
+                                result_preview = f"{len(parsed)} Ergebnisse"
+                            elif isinstance(parsed, dict):
+                                result_preview = f"{len(parsed)} Einträge"
+                        except:
+                            pass
+                        self.stream_callback(f"    ✓ {result_preview} ({tool_duration:.1f}s)")
 
                     # Add tool result to messages
                     messages.append({
@@ -174,7 +205,7 @@ class AgentLoop:
             # Case 2: LLM returned final text (no tool calls)
             final_content = response.content
             if self.stream_callback and final_content:
-                self.stream_callback(f"\n{final_content}")
+                self.stream_callback(f"\n✅ Fertig nach {iteration} Iterationen\n")
             logger.info(f"Agent completed after {iteration} iterations")
             break
 
@@ -207,10 +238,32 @@ class AgentLoop:
             tokens_used=0,  # TODO: Track from provider responses
         )
 
+    def _get_tool_type_label(self, tool_name: str) -> str:
+        """Get a human-readable label for the tool type.
+
+        Returns:
+            Label indicating the tool category (LLM, DB, Web, etc.)
+        """
+        # Database tools
+        db_tools = {"get_gnd_entry", "get_gnd_batch", "get_dk_cache", "get_classification",
+                    "get_search_cache", "list_pipeline_results", "get_pipeline_result"}
+        # Web/API tools
+        web_tools = {"search_gnd", "search_lobid", "search_swb", "search_catalog"}
+        # Pipeline tools
+        pipeline_tools = {"run_pipeline_step", "save_pipeline_result"}
+
+        if tool_name in db_tools:
+            return "🗄️ DB"
+        elif tool_name in web_tools:
+            return "🌐 Web"
+        elif tool_name in pipeline_tools:
+            return "⚙️ Pipeline"
+        else:
+            return "🔧 Tool"
+
     def _build_assistant_tool_message(self, response: AgentResponse) -> Dict[str, Any]:
         """Build assistant message containing tool calls for conversation history."""
-        # Format depends on provider, but we store in a generic format
-        # that _convert_messages_for_* methods in LlmService can handle
+        # Store in generic format - converters in LlmService will transform for each provider
         tool_calls_data = []
         for tc in response.tool_calls:
             tool_calls_data.append({

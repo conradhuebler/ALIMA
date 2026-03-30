@@ -772,6 +772,52 @@ class PipelineTab(QWidget):
         self.iterative_search_checkbox.toggled.connect(self.max_iterations_spin.setEnabled)
         self.max_iterations_spin.valueChanged.connect(self.on_max_iterations_changed)
 
+        # Separator before Agentic Mode - Claude Generated
+        sep3 = QFrame()
+        sep3.setFrameShape(QFrame.Shape.VLine)
+        sep3.setFixedHeight(20)
+        sep3.setStyleSheet("color: #ccc;")
+        adv_layout.addWidget(sep3)
+
+        # Agentic Mode Checkbox - Claude Generated
+        self.agentic_mode_checkbox = QCheckBox("🤖 Agentic Modus")
+        self.agentic_mode_checkbox.setToolTip(
+            "Verwendet LLM-gesteuerte Agenten mit MCP-Tools statt sequenzieller Pipeline.\n"
+            "Die Agenten entscheiden autonom, welche Such-Tools sie verwenden.\n\n"
+            "⚠️ Experimentell: Erhöht Token-Nutzung um ca. 3x"
+        )
+        self.agentic_mode_checkbox.setStyleSheet(
+            "QCheckBox { font-weight: bold; color: #d32f2f; font-size: 11px; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }"
+        )
+        self.agentic_mode_checkbox.setChecked(False)
+        self.agentic_mode_checkbox.stateChanged.connect(self.on_agentic_mode_toggled)
+        adv_layout.addWidget(self.agentic_mode_checkbox)
+
+        # Workflow selector for Agentic Mode - Claude Generated
+        workflow_label = QLabel("Workflow:")
+        workflow_label.setStyleSheet("color: #666; font-size: 10px;")
+        workflow_label.setVisible(False)
+        adv_layout.addWidget(workflow_label)
+        self.agentic_workflow_label = workflow_label  # Keep reference for visibility toggle
+
+        self.workflow_combo = QComboBox()
+        self.workflow_combo.setMinimumWidth(120)
+        self.workflow_combo.setMaximumWidth(180)
+        self.workflow_combo.setEnabled(False)
+        self.workflow_combo.setVisible(False)
+        self.workflow_combo.setToolTip(
+            "Workflow-Konfiguration für Agent-Modus\n"
+            "default_alima: Standard ALIMA Pipeline\n"
+            "minimal: Reduzierte Pipeline\n"
+            "extended: Erweiterte Pipeline"
+        )
+        self.workflow_combo.setStyleSheet(
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; }"
+        )
+        self._populate_workflow_combo()
+        adv_layout.addWidget(self.workflow_combo)
+
         adv_layout.addStretch()
         main_layout.addWidget(self.advanced_frame)
 
@@ -1706,6 +1752,50 @@ class PipelineTab(QWidget):
         if hasattr(self, 'unified_input') and self.unified_input:
             self.unified_input._update_webcam_frame_visibility()
             self.logger.debug("Webcam frame visibility updated")
+
+    def _populate_workflow_combo(self):
+        """Populate workflow combo with available workflows - Claude Generated"""
+        try:
+            self.workflow_combo.clear()
+            self.workflow_combo.addItem("default_alima", "default_alima")
+            self.workflow_combo.addItem("minimal", "minimal")
+            self.workflow_combo.addItem("extended", "extended")
+            self.logger.debug(f"Workflow combo populated with {self.workflow_combo.count()} workflows")
+        except Exception as e:
+            self.logger.error(f"Error populating workflow combo: {e}")
+
+    def on_agentic_mode_toggled(self, state):
+        """Handle agentic mode checkbox toggle - Claude Generated"""
+        enabled = state == Qt.CheckState.Checked.value
+
+        self.logger.info(f"Agentic mode {'enabled' if enabled else 'disabled'}")
+
+        # Enable/disable workflow combo
+        self.workflow_combo.setEnabled(enabled)
+        self.agentic_workflow_label.setVisible(enabled)
+        self.workflow_combo.setVisible(enabled)
+
+        # Update pipeline configuration
+        if self.pipeline_manager and self.pipeline_manager.config:
+            self.pipeline_manager.config.enable_agentic_mode = enabled
+
+            if enabled:
+                # Set workflow if selected
+                workflow_name = self.workflow_combo.currentData()
+                if workflow_name:
+                    self.pipeline_manager.config.workflow_name = workflow_name
+                    self.logger.info(f"Workflow set to: {workflow_name}")
+
+                # Show warning about experimental feature
+                if self.main_window and hasattr(self.main_window, "global_status_bar"):
+                    self.main_window.global_status_bar.show_temporary_message(
+                        "🤖 Agentic Modus aktiviert - Experimentell!", 3000
+                    )
+            else:
+                if self.main_window and hasattr(self.main_window, "global_status_bar"):
+                    self.main_window.global_status_bar.show_temporary_message(
+                        "Agentic Modus deaktiviert", 2000
+                    )
 
     @pyqtSlot(object)
     def on_step_started(self, step: PipelineStep):

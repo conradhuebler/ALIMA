@@ -1,18 +1,16 @@
 """Agentic Pipeline Executor - Claude Generated
 
-Bridges the MetaAgent system with PipelineManager's KeywordAnalysisState output format.
+Executes ALIMA workflows using GenericAgent instances configured from YAML.
 Produces identical output to the sequential pipeline, but using LLM-driven agents with MCP tools.
 """
 import logging
-import time
-from typing import Dict, Any, Optional, List, Callable
-from datetime import datetime
+from typing import Optional, List, Callable
+from pathlib import Path
 
-from src.core.data_models import (
-    KeywordAnalysisState, LlmKeywordAnalysis, SearchResult,
-)
 from src.core.agents.base_agent import AgentConfig
-from src.core.agents.meta_agent import MetaAgent
+from src.core.workflows.workflow_loader import WorkflowLoader
+from src.core.workflows.workflow_executor import WorkflowExecutor
+from src.core.workflows.workflow_context import WorkflowContext
 from src.mcp.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -20,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 class AgenticPipelineExecutor:
     """
-    Executes the ALIMA pipeline using agents instead of sequential steps.
+    Executes ALIMA workflows using GenericAgent instances configured from YAML.
 
-    Produces the same KeywordAnalysisState output as the sequential PipelineStepExecutor,
-    ensuring backward compatibility with JSON export, GUI display, and CLI formatting.
+    All workflow steps, prompts, and tools are defined in YAML files,
+    making the pipeline fully configurable without code changes.
     """
 
     def __init__(
@@ -40,6 +38,9 @@ class AgenticPipelineExecutor:
         self.tool_registry = ToolRegistry(config_manager=config_manager)
         self.tool_registry.register_all_tools()
 
+        # Initialize workflow loader
+        self.workflow_loader = WorkflowLoader()
+
     def execute(
         self,
         abstract: str,
@@ -53,7 +54,9 @@ class AgenticPipelineExecutor:
         quality_threshold: float = 0.6,
         input_type: str = "text",
         source_value: Optional[str] = None,
-    ) -> KeywordAnalysisState:
+        workflow_name: Optional[str] = None,
+        custom_workflow_path: Optional[str] = None,
+    ):
         """
         Execute full agentic pipeline, return KeywordAnalysisState.
 
@@ -62,25 +65,53 @@ class AgenticPipelineExecutor:
             provider: LLM provider name
             model: Model name
             temperature: Sampling temperature
-            initial_keywords: Pre-generated keywords (skip initialisation if provided)
-            enable_classification: Run DK classification
-            enable_validation: Run validation
+            initial_keywords: Pre-generated keywords
+            enable_classification: Run DK classification (deprecated - use workflow)
+            enable_validation: Run validation (deprecated - use workflow)
             max_iterations: Max tool-calling iterations per agent
             quality_threshold: Minimum quality score for each agent
             input_type: Source type ('text', 'doi', 'pdf', etc.)
             source_value: Original source (DOI, file path, etc.)
+            workflow_name: Name of workflow to use (default: "default_alima")
+            custom_workflow_path: Path to custom workflow YAML/JSON file
 
         Returns:
             KeywordAnalysisState compatible with sequential pipeline output
         """
         logger.info(f"Starting agentic pipeline with {provider}/{model}")
 
-        # Adapt stream callback from pipeline format (token, step_id) to agent format (text)
-        def agent_stream(text: str):
-            if self.stream_callback:
-                self.stream_callback(text, "agentic")
+        # Determine workflow name
+        if custom_workflow_path:
+            workflow_name = None  # Will load from file
+        elif workflow_name is None:
+            workflow_name = "default_alima"
 
-        # Configure agents
+        # Load workflow
+        try:
+            if custom_workflow_path:
+                workflow = self.workflow_loader.load_from_file(Path(custom_workflow_path))
+                logger.info(f"Loaded custom workflow from {custom_workflow_path}")
+            else:
+                workflow = self.workflow_loader.load(workflow_name)
+                logger.info(f"Loaded workflow: {workflow.name}")
+        except Exception as e:
+            logger.error(f"Failed to load workflow: {e}")
+            # Fall back to default workflow
+            workflow = self.workflow_loader.create_default_workflow()
+            logger.info("Using fallback default workflow")
+
+        # Create workflow context
+        context = WorkflowContext(
+            abstract=abstract,
+            initial_keywords=initial_keywords or [],
+            input_type=input_type,
+            source_value=source_value,
+            provider=provider,
+            model=model,
+            temperature=temperature,
+        )
+
+        # Create agent config
         agent_config = AgentConfig(
             provider=provider,
             model=model,
@@ -89,134 +120,25 @@ class AgenticPipelineExecutor:
             quality_threshold=quality_threshold,
         )
 
-        # Run MetaAgent
-        meta = MetaAgent(
+        # Adapt stream callback
+        def workflow_stream(text: str):
+            if self.stream_callback:
+                self.stream_callback(text, "workflow")
+
+        # Create executor
+        executor = WorkflowExecutor(
             llm_service=self.llm_service,
             tool_registry=self.tool_registry,
-            config=agent_config,
-            stream_callback=agent_stream,
+            config_manager=self.config_manager,
         )
 
-        results = meta.execute(
-            abstract=abstract,
-            initial_keywords=initial_keywords,
-            enable_classification=enable_classification,
-            enable_validation=enable_validation,
+        # Execute workflow
+        context = executor.execute(
+            workflow=workflow,
+            context=context,
+            agent_config=agent_config,
+            stream_callback=workflow_stream,
         )
 
         # Convert to KeywordAnalysisState
-        state = self._convert_to_state(results, abstract, provider, model, temperature,
-                                        input_type, source_value)
-        return state
-
-    def _convert_to_state(
-        self,
-        results: Dict[str, Any],
-        abstract: str,
-        provider: str,
-        model: str,
-        temperature: float,
-        input_type: str,
-        source_value: Optional[str],
-    ) -> KeywordAnalysisState:
-        """Convert MetaAgent results to KeywordAnalysisState."""
-
-        # Extract keywords
-        selected_kw = results.get("keywords", {}).get("selected_keywords", [])
-        gnd_keywords = [kw.get("title", "") for kw in selected_kw if kw.get("title")]
-        gnd_ids = [kw.get("gnd_id", "") for kw in selected_kw if kw.get("gnd_id")]
-
-        # Extract classifications
-        dk_raw = results.get("classification", {}).get("dk_classifications", [])
-        dk_codes = [c.get("code", "") for c in dk_raw if c.get("code")]
-
-        # Build search results
-        search_data = results.get("search", {})
-        search_results = []
-        for entry in search_data.get("gnd_entries", []):
-            search_results.append(SearchResult(
-                search_term=entry.get("title", ""),
-                results={entry.get("gnd_id", ""): {"title": entry.get("title", ""), "source": entry.get("source", "")}},
-            ))
-
-        # Build LLM analysis records
-        search_agent_result = search_data.get("_agent_result")
-        keyword_agent_result = results.get("keywords", {}).get("_agent_result")
-
-        # Aggregate full response text from agents for LlmKeywordAnalysis
-        initial_response = ""
-        if search_agent_result:
-            initial_response = search_agent_result.content
-
-        final_response = ""
-        if keyword_agent_result:
-            final_response = keyword_agent_result.content
-
-        initial_analysis = LlmKeywordAnalysis(
-            task_name="agentic_search",
-            model_used=model,
-            provider_used=provider,
-            prompt_template="[agentic: SearchAgent system prompt]",
-            filled_prompt="[agentic: dynamic]",
-            temperature=temperature,
-            seed=None,
-            response_full_text=initial_response,
-            extracted_gnd_keywords=gnd_keywords,
-            extracted_gnd_classes=gnd_ids,
-            missing_concepts=results.get("keywords", {}).get("missing_concepts", []),
-        )
-
-        final_analysis = LlmKeywordAnalysis(
-            task_name="agentic_keywords",
-            model_used=model,
-            provider_used=provider,
-            prompt_template="[agentic: KeywordAgent system prompt]",
-            filled_prompt="[agentic: dynamic]",
-            temperature=temperature,
-            seed=None,
-            response_full_text=final_response,
-            extracted_gnd_keywords=gnd_keywords,
-            extracted_gnd_classes=gnd_ids,
-        )
-
-        # Build classification analysis if available
-        dk_analysis = None
-        class_result = results.get("classification", {})
-        if class_result:
-            class_agent_result = class_result.get("_agent_result")
-            dk_analysis = LlmKeywordAnalysis(
-                task_name="agentic_classification",
-                model_used=model,
-                provider_used=provider,
-                prompt_template="[agentic: ClassificationAgent system prompt]",
-                filled_prompt="[agentic: dynamic]",
-                temperature=temperature,
-                seed=None,
-                response_full_text=class_agent_result.content if class_agent_result else "",
-                extracted_gnd_keywords=[],
-                extracted_gnd_classes=dk_codes,
-            )
-
-        state = KeywordAnalysisState(
-            original_abstract=abstract,
-            initial_keywords=results.get("initial_keywords", []),
-            search_suggesters_used=["agentic"],
-            working_title=None,
-            input_type=input_type,
-            source_value=source_value,
-            initial_gnd_classes=gnd_ids,
-            search_results=search_results[:50],  # Limit to avoid huge JSONs
-            initial_llm_call_details=initial_analysis,
-            final_llm_analysis=final_analysis,
-            timestamp=datetime.now().isoformat(),
-            pipeline_step_completed="classification" if dk_codes else "keywords",
-            dk_llm_analysis=dk_analysis,
-            dk_classifications=dk_codes,
-            refinement_iterations=[{
-                "type": "agentic",
-                "agent_log": results.get("agent_log", []),
-                "total_duration_s": results.get("total_duration_s", 0),
-            }],
-        )
-
-        return state
+        return context.to_keyword_analysis_state()

@@ -80,6 +80,10 @@ class PipelineConfig:
     agentic_max_iterations: int = 20
     agentic_quality_threshold: float = 0.6
 
+    # Workflow configuration: Custom agent workflows - Claude Generated
+    workflow_name: str = "default_alima"  # Workflow to use when enable_agentic_mode=True
+    custom_workflow_path: Optional[str] = None  # Path to custom workflow YAML/JSON file
+
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
 
@@ -571,10 +575,14 @@ class PipelineManager:
 
     def _start_agentic_pipeline(self, pipeline_id: str, input_text: str,
                                  input_type: str, input_source: Optional[str]) -> str:
-        """Execute pipeline in agentic mode using MCP tools - Claude Generated"""
-        from src.core.agentic_executor import AgenticPipelineExecutor
+        """Execute pipeline using MetaAgent orchestration - Claude Generated
 
-        self.logger.info(f"🤖 Starting AGENTIC pipeline {pipeline_id}")
+        The MetaAgent coordinates specialized SubAgents with shared context
+        and tool caching to avoid redundant searches.
+        """
+        from src.core.agents.meta_agent import MetaAgent, MetaAgentConfig
+
+        self.logger.info(f"🤖 Starting MetaAgent pipeline {pipeline_id}")
 
         # Determine provider/model from config
         provider = self.config.global_provider_override or ""
@@ -589,41 +597,52 @@ class PipelineManager:
                     model = model or step_cfg.model or ""
                     break
 
-        temperature = 0.3
+        temperature = 0.5
         for step_id in ["initialisation", "keywords"]:
             step_cfg = self.config.step_configs.get(step_id)
             if step_cfg and step_cfg.temperature is not None:
                 temperature = step_cfg.temperature
                 break
 
+        # Create MetaAgent config
+        meta_config = MetaAgentConfig(
+            provider=provider,
+            model=model,
+            temperature=temperature,
+            max_tokens=4096,
+            max_iterations=self.config.agentic_max_iterations or 20,
+            quality_threshold=self.config.agentic_quality_threshold or 0.6,
+            enable_classification="dk_classification" in self.config.step_configs
+                and self.config.step_configs["dk_classification"].enabled,
+        )
+
         try:
-            executor = AgenticPipelineExecutor(
-                llm_service=self.llm_service,
+            # Create MetaAgent
+            meta_agent = MetaAgent(
+                llm_service=self.alima_manager.llm_service,
                 config_manager=self.config_manager,
                 stream_callback=self.stream_callback,
             )
 
-            self.current_analysis_state = executor.execute(
+            # Execute pipeline
+            self.current_analysis_state = meta_agent.execute(
                 abstract=input_text,
-                provider=provider,
-                model=model,
-                temperature=temperature,
-                enable_classification="dk_classification" in self.config.step_configs
-                    and self.config.step_configs["dk_classification"].enabled,
-                max_iterations=self.config.agentic_max_iterations,
-                quality_threshold=self.config.agentic_quality_threshold,
+                initial_keywords=[],  # Will be extracted
+                config=meta_config,
                 input_type=input_type,
                 source_value=input_source,
             )
 
-            # Emit completion
-            self.pipeline_completed.emit(True)
+            # Call completion callback
+            if self.pipeline_completed_callback:
+                self.pipeline_completed_callback(self.current_analysis_state)
 
         except Exception as e:
-            self.logger.error(f"Agentic pipeline failed: {e}")
+            self.logger.error(f"MetaAgent pipeline failed: {e}")
             if self.stream_callback:
-                self.stream_callback(f"\n❌ Agentic Pipeline Fehler: {e}", "error")
-            self.pipeline_completed.emit(False)
+                self.stream_callback(f"\n❌ MetaAgent Pipeline Fehler: {e}", "error")
+            if self.pipeline_completed_callback:
+                self.pipeline_completed_callback(None)
 
         return pipeline_id
 

@@ -117,6 +117,10 @@ def create_argument_parser():
     pipeline_parser.add_argument("--agentic-max-iterations", type=int, default=20, help="Max tool-calling iterations per agent (default: 20)")
     pipeline_parser.add_argument("--agentic-quality-threshold", type=float, default=0.6, help="Min quality score per agent (default: 0.6)")
 
+    # Workflow configuration - Claude Generated
+    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: default_alima)")
+    pipeline_parser.add_argument("--custom-workflow", type=str, default=None, help="Path to custom workflow YAML/JSON file")
+
     # Global provider/model override - Claude Generated
     pipeline_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",
                                  help="Force ALL LLM steps: PROVIDER/MODEL or PROVIDER|MODEL (e.g. gemini/gemini-2.0-flash, openai_compatible/glm-4.6:cloud)")

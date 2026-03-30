@@ -1,0 +1,216 @@
+# MetaAgent Workflow Configuration - Claude Generated
+#
+# Configurable SubAgents for ALIMA pipeline.
+# Each step defines agent type, prompts, tools, and configuration.
+
+name: "ALIMA MetaAgent Pipeline"
+description: "Intelligent orchestration with cached tool results"
+version: "3.0"
+
+# Global settings shared across all SubAgents
+settings:
+  max_tool_iterations: 20
+  max_self_reflection_iterations: 1
+  quality_threshold: 0.6
+  timeout_seconds: 300
+  temperature: 0.5
+  top_p: 0.9
+  max_tokens: 4096
+
+# SubAgent pipeline - each step is a configured agent
+pipeline:
+  # Step 1: Keyword Extraction
+  - id: "extraction"
+    agent_type: "SubAgent"
+    description: "Extract initial keywords from abstract"
+    enabled: true
+
+    system_prompt: |
+      Du bist ein präziser und fachlich versierter Bibliothekar mit Expertise in kontrolliertem Vokabular.
+
+      Deine Aufgabe:
+      1) Erstelle einen kurzen Arbeitstitel
+      2) Generiere bis zu 20 deutsche Schlagworte für die Recherche
+
+      Anforderungen:
+      - Zerlege komplexe Begriffe in Einzelbegriffe
+      - Füge Oberbegriffe hinzu
+      - Orientiere dich an der GND-Systematik
+
+      Ausgabe als JSON:
+      ```json
+      {
+        "title": "Autorenname_Thema",
+        "keywords": ["Schlagwort1", "Schlagwort2", ...]
+      }
+      ```
+
+    user_prompt_template: |
+      Analysiere den folgenden Abstract:
+      {abstract}
+
+      Generiere deutsche Schlagworte für die bibliothekarische Erschließung.
+
+    input_mapping:
+      abstract: "${abstract}"
+
+    output_mapping:
+      title: "extraction.title"
+      keywords: "extraction.keywords"
+
+    tools: []  # Pure LLM task, no tools
+
+    validation:
+      min_results: 3
+      required_fields: ["keywords"]
+
+  # Step 2: GND Search
+  - id: "search"
+    agent_type: "SubAgent"
+    description: "Search GND/SWB for subject headings"
+    enabled: true
+    depends_on: ["extraction"]
+
+    system_prompt: |
+      Du bist ein GND-Suchexperte für die Bibliothekserschließung.
+
+      Deine Aufgabe: Finde relevante GND-Einträge zu den gegebenen Keywords.
+
+      WICHTIG - PERFORMANCE-OPTIMIERUNG:
+      - Nutze IMMER search_swb oder search_lobid mit ALLEN Keywords gleichzeitig
+      - Batch-Suche ist 10x schneller als einzelne Suchen
+      - Einzelne search_gnd-Aufrufe sind NUR für Nachschlagungen spezifischer GND-IDs
+
+      Vorgehen:
+      1. Erkläre ZUERST kurz welche Keywords du suchst und warum (Transparenz)
+      2. Rufe EINEN Batch-Search auf mit allen Keywords: search_swb(terms=[...])
+      3. Analysiere die Ergebnisse
+      4. Bei Bedarf: gezielte Nachschlagungen mit get_gnd_entry oder get_gnd_batch
+
+      Ausgabe als JSON:
+      ```json
+      {
+        "search_strategy": "Kurze Erklärung der Suchstrategie",
+        "search_terms_used": [...],
+        "gnd_entries": [{"gnd_id": "...", "title": "...", "ddc": "..."}],
+        "coverage_assessment": "..."
+      }
+      ```
+
+    user_prompt_template: |
+      Finde GND-Schlagwörter für:
+
+      Abstract: {abstract}
+
+      Extrahierte Keywords: {keywords}
+
+      Vorherige Ergebnisse: {previous_context}
+
+      HINWEIS: Nutze search_swb mit der kompletten Keyword-Liste für effiziente Batch-Suche.
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.extraction.keywords}"
+      previous_context: "${steps.extraction}"
+
+    output_mapping:
+      gnd_entries: "search.gnd_entries"
+      search_terms: "search.search_terms"
+
+    tools:
+      preset: "library"  # search_gnd, search_lobid, search_swb, get_search_cache
+
+    validation:
+      min_results: 5
+      required_fields: ["gnd_entries"]
+
+  # Step 3: Keyword Selection
+  - id: "selection"
+    agent_type: "SubAgent"
+    description: "Select relevant GND keywords from pool"
+    enabled: true
+    depends_on: ["search"]
+
+    system_prompt: |
+      Du bist ein GND-Schlagwort-Experte.
+
+      Deine Aufgabe: Wähle die relevantesten GND-Einträge aus dem Pool.
+
+      Regeln:
+      - Nutze nur vorgegebene GND-IDs
+      - Bilde Schlagwortketten für Spezifität
+      - Dokumentiere fehlende Konzepte
+
+      Ausgabe als JSON:
+      ```json
+      {
+        "selected_keywords": [{"gnd_id": "...", "title": "..."}],
+        "missing_concepts": [...]
+      }
+      ```
+
+    user_prompt_template: |
+      Wähle relevante GND-Schlagworte:
+
+      Abstract: {abstract}
+      Extrahierte Keywords: {keywords}
+      GND-Einträge: {gnd_entries}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.extraction.keywords}"
+      gnd_entries: "${steps.search.gnd_entries}"
+
+    output_mapping:
+      selected_keywords: "selection.selected_keywords"
+      missing_concepts: "selection.missing_concepts"
+
+    tools:
+      explicit: ["get_gnd_entry", "get_gnd_batch"]
+
+    validation:
+      min_results: 5
+      required_fields: ["selected_keywords"]
+
+  # Step 4: Classification
+  - id: "classification"
+    agent_type: "SubAgent"
+    description: "Assign DK/RVK classifications"
+    enabled: true
+    depends_on: ["selection"]
+
+    system_prompt: |
+      Du bist ein DK-Klassifikations-Experte.
+
+      Deine Aufgabe: Bestimme passende DK-Klassifikationen.
+
+      Ausgabe als JSON:
+      ```json
+      {
+        "dk_classifications": [{"code": "...", "title": "...", "confidence": 0.9}],
+        "rvk_classifications": [],
+        "reasoning": "..."
+      }
+      ```
+
+    user_prompt_template: |
+      Weise DK-Klassifikationen zu:
+
+      Abstract: {abstract}
+      Schlagwörter: {keywords}
+      GND-Einträge mit DDC: {gnd_entries}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.selection.selected_keywords}"
+      gnd_entries: "${steps.search.gnd_entries}"
+
+    output_mapping:
+      dk_classifications: "classification.dk_codes"
+
+    tools:
+      explicit: ["get_dk_cache", "get_classification", "search_catalog"]
+
+    validation:
+      min_results: 1
+      required_fields: ["dk_classifications"]

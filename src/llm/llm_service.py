@@ -2420,7 +2420,7 @@ class LlmService(QObject):
         provider: str,
         model: str,
         messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 4096,
@@ -2438,7 +2438,7 @@ class LlmService(QObject):
             provider: Provider name
             model: Model name
             messages: Conversation messages [{"role": "system"|"user"|"assistant"|"tool", "content": ...}]
-            tools: Tool definitions in JSON Schema format
+            tools: Tool definitions in JSON Schema format (None = no tools, just text response)
             temperature: Sampling temperature
             top_p: Top-p sampling
             max_tokens: Max tokens to generate
@@ -2459,6 +2459,10 @@ class LlmService(QObject):
         provider_info = self.supported_providers.get(provider)
         if not provider_info:
             raise ValueError(f"Unknown provider: {provider}")
+
+        # Normalize None to empty list for consistent handling
+        if tools is None:
+            tools = []
 
         generator_func = provider_info.get('generator')
 

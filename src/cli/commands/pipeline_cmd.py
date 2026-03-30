@@ -209,6 +209,14 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                 updated_pipeline_config.agentic_quality_threshold = getattr(args, 'agentic_quality_threshold', 0.6)
                 logger.info("🤖 Agentic mode enabled")
 
+                # Workflow configuration - Claude Generated
+                if getattr(args, 'workflow', None):
+                    updated_pipeline_config.workflow_name = args.workflow
+                    logger.info(f"📋 Workflow: {args.workflow}")
+                if getattr(args, 'custom_workflow', None):
+                    updated_pipeline_config.custom_workflow_path = args.custom_workflow
+                    logger.info(f"📋 Custom workflow: {args.custom_workflow}")
+
             # Set pipeline configuration
             pipeline_manager.set_config(updated_pipeline_config)
 
