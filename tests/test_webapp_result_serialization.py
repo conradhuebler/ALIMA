@@ -6,6 +6,7 @@ from src.webapp.result_serialization import (
     build_export_payload,
     extract_results_from_analysis_state,
     prepare_results_for_export,
+    validate_rvk_notation,
 )
 
 
@@ -31,6 +32,7 @@ class TestWebappResultSerialization(unittest.TestCase):
 
     @patch("src.webapp.result_serialization.requests.get")
     def test_prepare_results_with_rvk_validation_calls_api(self, mock_get):
+        validate_rvk_notation.cache_clear()
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {
