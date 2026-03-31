@@ -1,9 +1,18 @@
 import unittest
 from unittest.mock import Mock, patch
 import asyncio
-from src.core.search_engine import SearchEngine
-from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 
+try:
+    from src.core.search_engine import SearchEngine
+    from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+    PYQT_IMPORT_ERROR = None
+except ModuleNotFoundError as exc:
+    SearchEngine = None
+    UnifiedKnowledgeManager = None
+    PYQT_IMPORT_ERROR = exc
+
+
+@unittest.skipIf(PYQT_IMPORT_ERROR is not None, f"PyQt6-backed search stack unavailable: {PYQT_IMPORT_ERROR}")
 class TestSearch(unittest.TestCase):
     def setUp(self):
         """Test-Setup vor jedem Test"""

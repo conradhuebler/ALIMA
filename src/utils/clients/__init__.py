@@ -12,5 +12,7 @@ except ImportError:
     BiblioClient = None
 
 from .marcxml_client import MarcXmlClient
+from .rvk_api_client import RvkApiClient
+from .rvk_marc_index import RvkMarcIndex
 
-__all__ = ['BiblioClient', 'MarcXmlClient']
+__all__ = ['BiblioClient', 'MarcXmlClient', 'RvkApiClient', 'RvkMarcIndex']

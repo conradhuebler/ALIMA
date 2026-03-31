@@ -369,12 +369,12 @@ class AnalysisReviewTab(QWidget):
 
         self.dk_coverage_table = QTableWidget()
         self.dk_coverage_table.setColumnCount(2)
-        self.dk_coverage_table.setHorizontalHeaderLabels(["Keyword", "DK Classifications"])
+        self.dk_coverage_table.setHorizontalHeaderLabels(["Keyword", "Klassifikationen (DK/RVK)"])
         self.dk_coverage_table.horizontalHeader().setStretchLastSection(True)
         dk_stats_layout.addWidget(self.dk_coverage_table)
 
         dk_stats_layout.addStretch()
-        self.details_tabs.addTab(dk_stats_widget, "DK-Statistik")
+        self.details_tabs.addTab(dk_stats_widget, "Klassifikations-Statistik")
 
         # Initially hide tabs that are empty until data is available - Claude Generated
         # Indices: 5=Chunks, 6=Iterationsverlauf, 7=DK/RVK, 8=K10+ Export, 10=DK-Statistik
@@ -473,17 +473,17 @@ class AnalysisReviewTab(QWidget):
             chunk_details_item.setText(1, "Keine Chunks")
 
         # DK/RVK Classifications - Claude Generated
-        dk_count = len(self.current_analysis.dk_classifications)
+        dk_count = len(self.current_analysis.classifications)
         dk_item = QTreeWidgetItem(root)
         dk_item.setText(0, "DK/RVK-Klassifikationen")
         dk_item.setText(1, f"{dk_count} Klassifikationen")
-        dk_item.setData(0, Qt.ItemDataRole.UserRole, "dk_classifications")
+        dk_item.setData(0, Qt.ItemDataRole.UserRole, "classifications")
 
         # K10+ Export - Claude Generated
         k10plus_item = QTreeWidgetItem(root)
         k10plus_item.setText(0, "K10+ Export")
         k10plus_item.setData(0, Qt.ItemDataRole.UserRole, "k10plus")
-        if self.current_analysis.dk_classifications or (self.current_analysis.final_llm_analysis and self.current_analysis.final_llm_analysis.extracted_gnd_keywords):
+        if self.current_analysis.classifications or (self.current_analysis.final_llm_analysis and self.current_analysis.final_llm_analysis.extracted_gnd_keywords):
             k10plus_item.setText(1, "Bereit")
         else:
             k10plus_item.setText(1, "Keine Daten")
@@ -496,7 +496,7 @@ class AnalysisReviewTab(QWidget):
 
         # DK Statistics - Claude Generated
         dk_stats_item = QTreeWidgetItem(root)
-        dk_stats_item.setText(0, "DK-Statistik")
+        dk_stats_item.setText(0, "Klassifikations-Statistik")
         dk_stats_item.setData(0, Qt.ItemDataRole.UserRole, "dk_statistics")
         if self.current_analysis.dk_statistics:
             total = self.current_analysis.dk_statistics.get("total_classifications", 0)
@@ -531,14 +531,14 @@ class AnalysisReviewTab(QWidget):
 
                 lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
 
-        # DK Classifications (6700)
+        # Klassifikationen (6700)
         if self.current_analysis:
-            for dk in self.current_analysis.dk_classifications:
-                # Remove label if present ("628.5 - Label" → "628.5")
-                dk_code = dk.split(" - ")[0].strip() if " - " in dk else dk.strip()
-                # Remove "DK " prefix if present
-                dk_clean = dk_code.replace("DK ", "").strip()
-                lines.append(f"{K10PLUS_CLASSIFICATION_TAG} DK {dk_clean}")
+            for classification in self.current_analysis.classifications:
+                system, code = self._split_classification_code(classification)
+                if not code:
+                    continue
+                export_system = system or "DK"
+                lines.append(f"{K10PLUS_CLASSIFICATION_TAG} {export_system} {code}")
 
         return lines
 
@@ -552,12 +552,24 @@ class AnalysisReviewTab(QWidget):
         # Optional: Show status message (if parent has statusBar)
         # This is handled by global status bar now
 
+    @staticmethod
+    def _split_classification_code(classification: str) -> tuple[str, str]:
+        """Split a prefixed classification string into (system, code)."""
+        value = str(classification or "").strip()
+        upper = value.upper()
+
+        if upper.startswith("DK "):
+            return ("DK", value[3:].strip())
+        if upper.startswith("RVK "):
+            return ("RVK", value[4:].strip())
+        return ("", value)
+
     def _get_titles_for_classification(self, dk_code: str, max_titles: int = 20) -> tuple[list, int]:
         """
-        Extract titles for a specific DK classification from search results - Claude Generated
+        Extract titles for a specific classification from search results - Claude Generated
 
         Args:
-            dk_code: DK classification code (e.g., "DK 504.064" or "504.064")
+            dk_code: Classification code (e.g., "DK 504.064" or "RVK CC 7270")
             max_titles: Maximum number of titles to return (default: 20)
 
         Returns:
@@ -566,14 +578,14 @@ class AnalysisReviewTab(QWidget):
         if not self.current_analysis or not self.current_analysis.dk_search_results:
             return ([], 0)
 
-        # Normalize DK code (remove "DK " prefix if present)
-        normalized_code = dk_code.replace("DK ", "").strip()
+        expected_type, normalized_code = self._split_classification_code(dk_code)
 
         # Search for matching entry in dk_search_results
         for result in self.current_analysis.dk_search_results:
             result_code = str(result.get("dk", "")).strip()
+            result_type = str(result.get("classification_type", "")).strip().upper()
 
-            if result_code == normalized_code:
+            if result_code == normalized_code and (not expected_type or result_type == expected_type):
                 titles = result.get("titles", [])
                 total_count = len(titles)
 
@@ -634,17 +646,17 @@ class AnalysisReviewTab(QWidget):
             self.chunk_details_text.setPlainText("Keine LLM-Analyse verfügbar")
 
         # DK/RVK Classifications - Claude Generated (HTML-formatted with enhanced transparency)
-        has_dk = bool(self.current_analysis.dk_classifications)
+        has_dk = bool(self.current_analysis.classifications)
         self.details_tabs.setTabVisible(7, has_dk)   # DK/RVK tab
         self.details_tabs.setTabVisible(8, has_dk or bool(
             self.current_analysis.final_llm_analysis and
             self.current_analysis.final_llm_analysis.extracted_gnd_keywords
         ))  # K10+ Export tab
-        if self.current_analysis.dk_classifications:
+        if self.current_analysis.classifications:
             html_parts = []
             html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
 
-            for idx, dk_code in enumerate(self.current_analysis.dk_classifications, 1):
+            for idx, dk_code in enumerate(self.current_analysis.classifications, 1):
                 # Get titles for this classification
                 titles, total_count = self._get_titles_for_classification(dk_code)
 
@@ -860,8 +872,8 @@ class AnalysisReviewTab(QWidget):
         initial_gnd_classes = self.current_analysis.initial_gnd_classes or []
         stats_text += f"Initial GND-Klassen: {len(initial_gnd_classes)} Klassen\n"
 
-        # DK/RVK Classifications - Claude Generated (Extended with title count)
-        dk_classifications = self.current_analysis.dk_classifications or []
+        # DK/RVK classifications - Claude Generated (Extended with title count)
+        dk_classifications = self.current_analysis.classifications or []
         total_titles = 0
         for dk_code in dk_classifications:
             _, count = self._get_titles_for_classification(dk_code, max_titles=999999)
@@ -995,7 +1007,7 @@ class AnalysisReviewTab(QWidget):
             self.details_tabs.setCurrentIndex(4)
         elif step_type == "chunk_details":
             self.details_tabs.setCurrentIndex(5)
-        elif step_type == "dk_classifications":
+        elif step_type in {"classifications", "dk_classifications"}:
             self.details_tabs.setCurrentIndex(6)
         elif step_type == "k10plus":
             self.details_tabs.setCurrentIndex(7)

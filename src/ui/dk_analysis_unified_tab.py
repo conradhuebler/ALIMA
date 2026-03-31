@@ -1,5 +1,5 @@
 """
-DkAnalysisUnifiedTab - DK LLM Classification Tab for ALIMA
+DkAnalysisUnifiedTab - LLM classification tab for ALIMA
 Pure AbstractTab wrapping the dk_classification pipeline step.
 UB catalog search and statistics have moved to UBCatalogTab.
 Claude Generated
@@ -24,7 +24,7 @@ from ..utils.pipeline_utils import PipelineResultFormatter
 
 class DkAnalysisUnifiedTab(AbstractTab):
     """
-    DK Analysis Tab for LLM-based classification.
+    Classification tab for LLM-based DK/RVK assignment.
     Receives DK catalog search results (from UBCatalogTab or pipeline) as
     keyword input and runs the dk_classification LLM step.
     Claude Generated
@@ -53,7 +53,7 @@ class DkAnalysisUnifiedTab(AbstractTab):
         self.logger = logging.getLogger(__name__)
 
         # Update group box title
-        self.input_group.setTitle("DK Classification Input")
+        self.input_group.setTitle("Klassifikations-Input (DK/RVK)")
 
         # Give keywords area more room for DK results
         self.keywords_edit.setMinimumHeight(150)

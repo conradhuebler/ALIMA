@@ -1003,7 +1003,7 @@ class PipelineTab(QWidget):
         self.dk_frequency_threshold.setRange(1, 50)
         from ..utils.pipeline_defaults import DEFAULT_DK_FREQUENCY_THRESHOLD
         self.dk_frequency_threshold.setValue(DEFAULT_DK_FREQUENCY_THRESHOLD)
-        self.dk_frequency_threshold.setToolTip("Nur DK-Codes mit >= N Vorkommen")
+        self.dk_frequency_threshold.setToolTip("Nur Klassifikationen mit >= N Vorkommen")
         config_grid.addWidget(self.dk_frequency_threshold, 0, 3)
 
         config_grid.setColumnStretch(4, 1)  # Push to left
@@ -1042,7 +1042,7 @@ class PipelineTab(QWidget):
 
         filter_grid.addWidget(QLabel("Modus:"), 0, 4)
         self.dk_filter_mode = QComboBox()
-        self.dk_filter_mode.addItems(["Alle", "Titel", "DK-Codes", "Keywords"])
+        self.dk_filter_mode.addItems(["Alle", "Titel", "Klassifikationscodes", "Keywords"])
         self.dk_filter_mode.currentTextChanged.connect(self._filter_dk_search_results)
         filter_grid.addWidget(self.dk_filter_mode, 0, 5)
 
@@ -1202,7 +1202,7 @@ class PipelineTab(QWidget):
                         any(filter_text in kw for kw in keywords))
             elif filter_mode == "Titel":
                 match = any(filter_text in title for title in titles)
-            elif filter_mode == "DK-Codes":
+            elif filter_mode == "Klassifikationscodes":
                 match = filter_text in dk_code
             elif filter_mode == "Keywords":
                 match = any(filter_text in kw for kw in keywords)
@@ -1256,7 +1256,7 @@ class PipelineTab(QWidget):
         dk_search_results: List[Dict[str, Any]],
         max_titles_per_code: int = 5
     ) -> str:
-        """Format DK classifications with catalog titles using HTML - Claude Generated"""
+        """Format final classifications with catalog titles using HTML - Claude Generated"""
         if not dk_classifications:
             return "Keine DK/RVK-Klassifikationen generiert"
 
@@ -1305,20 +1305,33 @@ class PipelineTab(QWidget):
         html_parts.append("</body></html>")
         return "".join(html_parts)
 
+    @staticmethod
+    def _split_classification_code(classification: str) -> tuple[str, str]:
+        """Split a prefixed classification string into (system, code)."""
+        value = str(classification or "").strip()
+        upper = value.upper()
+
+        if upper.startswith("DK "):
+            return ("DK", value[3:].strip())
+        if upper.startswith("RVK "):
+            return ("RVK", value[4:].strip())
+        return ("", value)
+
     def _get_titles_for_dk_code(
         self,
         dk_code: str,
         dk_search_results: List[Dict[str, Any]]
     ) -> tuple[list, int]:
-        """Extract titles for a specific DK code - Claude Generated"""
+        """Extract titles for a specific classification code - Claude Generated"""
         if not dk_search_results:
             return ([], 0)
 
-        normalized_code = dk_code.replace("DK ", "").strip()
+        expected_type, normalized_code = self._split_classification_code(dk_code)
 
         for result in dk_search_results:
             result_code = str(result.get("dk", "")).strip()
-            if result_code == normalized_code:
+            result_type = str(result.get("classification_type", "")).strip().upper()
+            if result_code == normalized_code and (not expected_type or result_type == expected_type):
                 titles = result.get("titles", [])
                 return (titles[:50], len(titles))  # Max 50 for display
 
@@ -1871,7 +1884,7 @@ class PipelineTab(QWidget):
                         orig = dedup.get("original_count", 0)
                         rate = dedup.get("deduplication_rate", "0%")
                         self.dk_compact_stats.setText(
-                            f"📊 <b>DK-Statistik:</b> {orig} Katalogtreffer → <b>{total}</b> unikale Klassifikationen "
+                            f"📊 <b>Klassifikations-Statistik:</b> {orig} Katalogtreffer → <b>{total}</b> unikale Klassifikationen "
                             f"(Deduplizierungsrate: {rate})"
                         )
 
@@ -1954,7 +1967,7 @@ class PipelineTab(QWidget):
 
         # Optional: Auto-save after completion - Claude Generated
         if hasattr(analysis_state, 'working_title') and analysis_state.working_title:
-            from ..utils.pipeline_utils import PipelineJsonManager
+            from ..utils.pipeline_utils import export_analysis_state_to_file
             from ..utils.pipeline_defaults import get_autosave_dir
 
             auto_save_dir = get_autosave_dir(getattr(self, 'config_manager', None))
@@ -1962,7 +1975,7 @@ class PipelineTab(QWidget):
 
             auto_save_file = auto_save_dir / f"{analysis_state.working_title}.json"
             try:
-                PipelineJsonManager.save_analysis_state(analysis_state, str(auto_save_file))
+                export_analysis_state_to_file(analysis_state, str(auto_save_file))
                 self.logger.info(f"✅ Auto-saved pipeline result to: {auto_save_file}")
             except Exception as e:
                 self.logger.warning(f"Auto-save failed: {e}")
@@ -2182,8 +2195,8 @@ class PipelineTab(QWidget):
                 loaded_steps.append("Suche")
             if state.final_llm_analysis:
                 loaded_steps.append("Schlagworte")
-            if state.dk_classifications:
-                loaded_steps.append("DK-Klassifikation")
+            if state.classifications:
+                loaded_steps.append("Klassifikation")
 
             if loaded_steps:
                 loaded_info = " → ".join(loaded_steps)
@@ -2223,14 +2236,14 @@ class PipelineTab(QWidget):
                     self.keywords_result.setPlainText(f"📁 Finale Schlagwörter:\n{final_keywords}")
 
                 # DK Classification Results Display - Claude Generated (Enhanced with titles)
-                if state.dk_classifications and hasattr(self, 'dk_classification_results'):
+                if state.classifications and hasattr(self, 'dk_classification_results'):
                     html_display = self._format_dk_classifications_with_titles(
-                        state.dk_classifications,
+                        state.classifications,
                         state.dk_search_results_flattened  # flattened format has {dk, titles} at top level
                     )
                     self.dk_classification_results.setHtml(
                         f"<div style='background: #E8F5E8; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>"
-                        f"<strong>📁 Geladene DK-Klassifikationen</strong>"
+                        f"<strong>📁 Geladene Klassifikationen (DK/RVK)</strong>"
                         f"</div>{html_display}"
                     )
 

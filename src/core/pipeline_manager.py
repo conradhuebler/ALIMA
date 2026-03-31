@@ -31,6 +31,7 @@ from ..utils.pipeline_utils import (
     PipelineStepExecutor,
     PipelineResultFormatter,
     PipelineJsonManager,
+    export_analysis_state_to_file,
     execute_input_extraction,
     build_working_title,  # For title generation - Claude Generated
     extract_source_identifier,  # For title generation - Claude Generated
@@ -339,6 +340,7 @@ class PipelineManager:
         config_manager=None,
     ):
         self.alima_manager = alima_manager
+        self.llm_service = alima_manager.llm_service
         self.cache_manager = cache_manager
         self.logger = logger or logging.getLogger(__name__)
         self.config_manager = config_manager
@@ -1344,8 +1346,17 @@ class PipelineManager:
                 catalog_web_record_url = ""
                 strict_gnd_validation = True
 
+            rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
+                final_keywords,
+                self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
+                original_abstract=self.current_analysis_state.original_abstract if self.current_analysis_state else "",
+                initial_keywords=self.current_analysis_state.initial_keywords if self.current_analysis_state else None,
+                search_results=self.current_analysis_state.search_results if self.current_analysis_state else None,
+                stream_callback=self._stream_callback_adapter,
+            )
             dk_search_result = self.pipeline_executor.execute_dk_search(
                 keywords=final_keywords,
+                rvk_anchor_keywords=rvk_anchor_keywords,
                 stream_callback=self._stream_callback_adapter,
                 max_results=getattr(step_config, 'max_results', DEFAULT_DK_MAX_RESULTS),
                 catalog_token=catalog_token,
@@ -1432,6 +1443,14 @@ class PipelineManager:
             
             # Use the shared pipeline executor for DK classification
             step_config = self.config.get_step_config("dk_classification")
+            rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
+                self.current_analysis_state.final_llm_analysis.extracted_gnd_keywords if self.current_analysis_state and self.current_analysis_state.final_llm_analysis else [],
+                self.current_analysis_state.final_llm_analysis if self.current_analysis_state else None,
+                original_abstract=original_abstract,
+                initial_keywords=self.current_analysis_state.initial_keywords if self.current_analysis_state else None,
+                search_results=self.current_analysis_state.search_results if self.current_analysis_state else None,
+                stream_callback=self._stream_callback_adapter,
+            )
 
             # Prepare kwargs for DK classification - Claude Generated (2026-02-17)
             dk_kwargs = {
@@ -1443,6 +1462,7 @@ class PipelineManager:
                 "temperature": step_config.temperature or 0.7,
                 "top_p": step_config.top_p or 0.1,
                 "dk_frequency_threshold": getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),
+                "rvk_anchor_keywords": rvk_anchor_keywords,
                 "repetition_penalty": step_config.repetition_penalty,
                 "think": step_config.think,
             }
@@ -1662,8 +1682,9 @@ class PipelineManager:
             raise ValueError("No analysis state available to save")
 
         try:
-            PipelineJsonManager.save_analysis_state(
-                self.current_analysis_state, file_path
+            export_analysis_state_to_file(
+                self.current_analysis_state,
+                file_path,
             )
             self.logger.info(f"Analysis state saved to {file_path}")
         except Exception as e:

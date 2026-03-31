@@ -30,6 +30,11 @@ ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Index
 *   **🌐 WebAPP:** Server-basierte Schnittstelle für webbasierte Nutzung — gleiche Konfiguration wie GUI und CLI
 *   **📤 Katalog-Integration:** K10+/WinIBW-Export für direktes Einfügen in Bibliothekskataloge
 
+Hinweis zum Mehrbenutzerbetrieb:
+- Für lokale Entwicklung und Einzelplatznutzung reicht SQLite.
+- Für mehrere gleichzeitige WebAPP-Nutzer und parallele CLI-Nutzung sollte `mysql` oder `mariadb` als Datenbank konfiguriert werden.
+- Die aktuelle WebAPP verwaltet aktive Sessions im Prozessspeicher; ein einzelner Serverprozess kann mehrere Nutzer bedienen, aber ein Multi-Worker-Setup benötigt zusätzlich einen externen Session-Store.
+
 ## Installation
 
 ### Voraussetzungen
@@ -63,6 +68,8 @@ ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Index
 Die Konfiguration von ALIMA erfolgt über die Datei `config.json` im `~/.config/alima/`-Verzeichnis (Linux/macOS) oder `%APPDATA%\ALIMA\` (Windows). Die Anwendung bietet einen Einstellungsdialog, um diese Datei komfortabel zu verwalten.
 
 Die Konfiguration der LLM-Provider ist im `unified_config`-Abschnitt zentralisiert und ermöglicht eine detaillierte Steuerung von Providern, Modellen und Aufgaben-Präferenzen.
+
+Für eine Konfiguration ohne lokalen SRU-Katalog, aber mit **Lobid** für die Schlagwortsuche und **GVK/GBV-SRU** für DK/RVK-Klassifikationen, gibt es ein Beispiel in `config.example.lobid-gbv.json`. Wichtig: Der SRU-Preset heißt in ALIMA `gbv` und verweist auf den GVK-Endpunkt.
 
 ### Struktur der `config.json`
 
@@ -151,8 +158,10 @@ Der erste Schritt bietet ein flexibles Eingabefeld mit mehreren Optionen:
 *   **DOI/URL:** Geben Sie eine DOI (z.B. `10.1007/...`) oder eine URL zu einem wissenschaftlichen Artikel ein. ALIMA versucht automatisch, den Inhalt aufzulösen und den Volltext zu extrahieren.
 *   **Datei laden (PDF & Bilder):**
     *   Klicken Sie auf den "Datei auswählen"-Button, um eine lokale Datei zu laden.
-    *   **PDF-Dateien:** Das System extrahiert automatisch den Text aus der PDF. Bei gescannten Dokumenten oder PDFs ohne Textebene wird eine KI-basierte OCR (Texterkennung) versucht.
+    *   **PDF-Dateien:** Das System extrahiert automatisch den Text aus der PDF. Bei gescannten Dokumenten oder PDFs ohne Textebene wird eine KI-basierte OCR (Texterkennung) versucht. Dafür werden `pdf2image` und eine installierte Poppler-Umgebung benötigt.
     *   **Bild-Dateien:** Bei Bildformaten (PNG, JPG etc.) wird automatisch eine KI-basierte OCR gestartet, um den im Bild enthaltenen Text zu extrahieren.
+
+Hinweis: Unter macOS kann Poppler z.B. mit `brew install poppler` installiert werden.
 
 Nach der erfolgreichen Extraktion der Daten aus einer dieser Quellen können Sie die Analyse mit dem "🚀 Auto-Pipeline"-Button starten.
 
