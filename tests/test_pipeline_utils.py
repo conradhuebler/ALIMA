@@ -165,8 +165,8 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.mock_alima_manager.analyze_abstract.return_value = mock_task_state
 
         # Mock cache_manager for GND title and synonyms
-        self.mock_cache_manager.get_gnd_title_by_id.side_effect = lambda gnd_id:
-            {
+        self.mock_cache_manager.get_gnd_title_by_id.side_effect = lambda gnd_id: {
+
                 "4061694-5": "Umweltverschmutzung",
                 "4009274-4": "Cadmium",
                 "4032184-0": "Kontamination",

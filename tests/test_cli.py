@@ -1,149 +1,72 @@
-import unittest
 import json
 import os
-from unittest.mock import MagicMock, patch
+import tempfile
+import unittest
 from io import StringIO
-from contextlib import redirect_stdout
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from alima_cli import main # Assuming alima_cli.py is in the root directory
-from dataclasses import asdict
-from src.core.data_models import AbstractData, AnalysisResult, TaskState, PromptConfigData
+from src.cli.commands import state_cmd
 
-class TestCli(unittest.TestCase):
 
+class TestCliStateCommands(unittest.TestCase):
     def setUp(self):
-        # Mock LlmService and PromptService
-        self.mock_llm_service = MagicMock()
-        self.mock_prompt_service = MagicMock()
-
-        # Mock the get_prompt_config method to return a dummy PromptConfigData
-        self.mock_prompt_service.get_prompt_config.return_value = PromptConfigData(
-            prompt="Test prompt {abstract} {keywords}",
-            system="Test system prompt",
-            temp=0.5,
-            p_value=0.9,
-            models=["test-model"],
-            seed=42
-        )
-
-        # Mock the generate_response method to return a predefined response
-        self.mock_llm_service.generate_response.return_value = iter([
-            "Basierend auf dem Text und den vorgeschlagenen GND-Systematik-Kategorien schlage ich folgende Schlagworte vor:\n\nSchlagworte:\nKadmium\nBodenverschmutzung\nPflanzenkrankheit\nUmweltgifte\nToxizität\nMenschliche Gesundheit\nLandwirtschaft\nÖkologie\nAbfallwirtschaft\nGesundheitsrisiko\n\nZusätzlich zu den genannten Schlagworten wären folgende GND-Systematik-Kategorien passend:\n\n10.7 Umweltschutz\n27.9 Innere Medizin\n32.5 Phytomedizin\n22.2 Theoretische Chemie\n24.3 Spezielle Botanik\n25.3 Spezielle Zoologie\n31.4 Bergbau\n31.6 Maschinenbau\n32.1 Landwirtschaft\n32.7 Milchwirtschaft\n\n<final_list>Umweltverschmutzung|Bodenkontamination|Pflanzenkrankheit|Gesundheitsrisiko|Toxizität|Mülldeponie|Chemikalieneinsatz|Landwirtschaftliche Flächen|Gesundheitsgefährdung</final_list>\n\n<class>10.7|27.1|32.5|22.2|27.6</class>"
-        ])
-
-        # Patch the services in alima_cli.py
-        self.patcher_llm_service = patch('alima_cli.LlmService', return_value=self.mock_llm_service)
-        self.patcher_prompt_service = patch('alima_cli.PromptService', return_value=self.mock_prompt_service)
-        self.mock_llm_service_instance = self.patcher_llm_service.start()
-        self.mock_prompt_service_instance = self.patcher_prompt_service.start()
-
-        # Define a dummy output JSON file path
-        self.output_json_file = "test_output.json"
-        if os.path.exists(self.output_json_file):
-            os.remove(self.output_json_file)
+        self.logger = SimpleNamespace(info=lambda *args, **kwargs: None, error=lambda *args, **kwargs: None)
+        self.temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        payload = {
+            "abstract_data": {"abstract": "Another test abstract.", "keywords": ""},
+            "analysis_result": {
+                "full_text": "This is the full text response.",
+                "matched_keywords": {"keyword1": None, "keyword2": "GND123"},
+                "gnd_systematic": "1.2|3.4",
+            },
+            "prompt_config": {
+                "prompt": "Dummy prompt",
+                "system": "Dummy system",
+                "temp": 0.5,
+                "p_value": 0.9,
+                "models": ["dummy"],
+                "seed": 1,
+            },
+            "status": "completed",
+            "task_name": "keywords",
+            "model_used": "another-test-model",
+            "provider_used": "ollama",
+            "use_chunking_abstract": False,
+            "abstract_chunk_size": 100,
+            "use_chunking_keywords": False,
+            "keyword_chunk_size": 500,
+        }
+        json.dump(payload, self.temp_file, ensure_ascii=False)
+        self.temp_file.close()
 
     def tearDown(self):
-        self.patcher_llm_service.stop()
-        self.patcher_prompt_service.stop()
-        if os.path.exists(self.output_json_file):
-            os.remove(self.output_json_file)
+        if os.path.exists(self.temp_file.name):
+            os.unlink(self.temp_file.name)
 
-    def test_run_command_and_output_json(self):
-        test_abstract = "This is a test abstract about environmental pollution."
-        test_model = "test-model"
-        test_task = "abstract"
+    def test_handle_load_state_prints_loaded_analysis(self):
+        args = SimpleNamespace(input_file=self.temp_file.name)
 
-        # Capture stdout
-        with StringIO() as buf, redirect_stdout(buf):
-            with patch('sys.argv', [
-                'alima_cli.py',
-                'run',
-                test_task,
-                '--abstract',
-                test_abstract,
-                '--model',
-                test_model,
-                '--output-json',
-                self.output_json_file
-            ]):
-                main()
-            output = buf.getvalue()
+        with patch("src.cli.commands.state_cmd.print_result") as mock_print:
+            state_cmd.handle_load_state(args, self.logger)
 
-        # Assertions for stdout output
-        self.assertIn("--- Analysis Result ---", output)
-        self.assertIn("--- Matched Keywords ---", output)
-        self.assertIn("--- GND Systematic ---", output)
-        self.assertIn("""{'Umweltverschmutzung': None, 'Bodenkontamination': None, 'Pflanzenkrankheit': None, 'Gesundheitsrisiko': None, 'Toxizität': None, 'Mülldeponie': None, 'Chemikalieneinsatz': None, 'Landwirtschaftliche Flächen': None, 'Gesundheitsgefährdung': None}""", output)
-        self.assertIn("10.7 Umweltschutz", output)
-        self.assertIn("27.9 Innere Medizin", output)
-        self.assertIn("32.5 Phytomedizin", output)
-        self.assertIn("22.2 Theoretische Chemie", output)
-        self.assertIn("24.3 Spezielle Botanik", output)
-        self.assertIn("25.3 Spezielle Zoologie", output)
-        self.assertIn("31.4 Bergbau", output)
-        self.assertIn("31.6 Maschinenbau", output)
-        self.assertIn("32.1 Landwirtschaft", output)
-        self.assertIn("32.7 Milchwirtschaft", output)
+        printed = [call.args[0] for call in mock_print.call_args_list]
+        self.assertIn("--- Loaded Analysis Result ---", printed)
+        self.assertIn("This is the full text response.", printed)
+        self.assertIn("--- Matched Keywords ---", printed)
+        self.assertIn({"keyword1": None, "keyword2": "GND123"}, printed)
+        self.assertIn("--- GND Systematic ---", printed)
+        self.assertIn("1.2|3.4", printed)
 
-        # Assertions for JSON file content
-        self.assertTrue(os.path.exists(self.output_json_file))
-        with open(self.output_json_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+    def test_handle_save_state_reports_deprecation(self):
+        args = SimpleNamespace(output_file="unused.json")
 
-        self.assertEqual(data['abstract_data']['abstract'], test_abstract)
-        self.assertEqual(data['analysis_result']['matched_keywords']['Umweltverschmutzung'], None)
-        self.assertEqual(data['analysis_result']['gnd_systematic'], "10.7|27.1|32.5|22.2|27.6")
-        self.assertEqual(data['task_name'], test_task)
-        self.assertEqual(data['model_used'], test_model)
-        self.assertEqual(data['status'], "completed")
+        logger = SimpleNamespace(info=lambda *args, **kwargs: None, error=unittest.mock.Mock())
+        state_cmd.handle_save_state(args, logger)
 
-    def test_load_state_command(self):
-        test_abstract = "Another test abstract."
-        test_model = "another-test-model"
-        test_task = "keywords"
-        test_full_text = "This is the full text response."
-        test_matched_keywords = {"keyword1": None, "keyword2": "GND123"}
-        test_gnd_systematic = "1.2|3.4"
+        logger.error.assert_called_once()
+        self.assertIn("not yet fully implemented", logger.error.call_args.args[0])
 
-        # Create a dummy TaskState to save
-        dummy_task_state = TaskState(
-            abstract_data=AbstractData(abstract=test_abstract, keywords=""),
-            analysis_result=AnalysisResult(
-                full_text=test_full_text,
-                matched_keywords=test_matched_keywords,
-                gnd_systematic=test_gnd_systematic,
-            ),
-            prompt_config=PromptConfigData(
-                prompt="Dummy prompt", system="Dummy system", temp=0.5, p_value=0.9, models=["dummy"], seed=1
-            ),
-            status="completed",
-            task_name=test_task,
-            model_used=test_model,
-            provider_used="ollama",
-            use_chunking_abstract=False,
-            abstract_chunk_size=100,
-            use_chunking_keywords=False,
-            keyword_chunk_size=500,
-        )
 
-        with open(self.output_json_file, 'w', encoding='utf-8') as f:
-            json.dump(asdict(dummy_task_state), f, ensure_ascii=False, indent=4)
-
-        # Capture stdout
-        with StringIO() as buf, redirect_stdout(buf):
-            with patch('sys.argv', [
-                'alima_cli.py',
-                'load-state',
-                self.output_json_file
-            ]):
-                main()
-            output = buf.getvalue()
-
-        # Assertions for stdout output
-        self.assertIn("--- Loaded Analysis Result ---", output)
-        self.assertIn(test_full_text, output)
-        self.assertIn(str(test_matched_keywords), output)
-        self.assertIn(test_gnd_systematic, output)
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

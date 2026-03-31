@@ -1658,7 +1658,7 @@ class PipelineStepConfigWidget(QWidget):
             self.dk_frequency_spinbox.setValue(10)  # Default value
             self.dk_frequency_spinbox.setSuffix(" Vorkommen")
             self.dk_frequency_spinbox.setToolTip(
-                "Mindest-Häufigkeit für DK-Klassifikationen.\n"
+                "Mindest-Häufigkeit für Klassifikationen (DK/RVK).\n"
                 "Nur Klassifikationen mit ≥ N Vorkommen im Katalog\n"
                 "werden an das LLM weitergegeben.\n\n"
                 "Niedrigere Werte = mehr Ergebnisse\n"

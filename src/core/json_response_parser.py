@@ -6,9 +6,15 @@ Handhabt diverse LLM-Eigenheiten: think-Blöcke, Code-Fences, umgebender Text.
 import json
 import re
 import logging
+import html
 from typing import Optional, Dict, List
 
 logger = logging.getLogger(__name__)
+
+
+def _clean_text(value: str) -> str:
+    """Normalize parser output for downstream pipeline consumers."""
+    return html.unescape(value).strip()
 
 
 def parse_json_response(text: str) -> Optional[Dict]:
@@ -100,10 +106,12 @@ def extract_keywords_from_json(data: Dict) -> str:
     parts = []
     for kw in keywords:
         if isinstance(kw, str):
-            parts.append(kw)
+            cleaned = _clean_text(kw)
+            if cleaned:
+                parts.append(cleaned)
         elif isinstance(kw, dict):
-            name = kw.get("keyword", "")
-            gnd_id = kw.get("gnd_id", "")
+            name = _clean_text(kw.get("keyword", ""))
+            gnd_id = _clean_text(kw.get("gnd_id", ""))
             if name:
                 if gnd_id:
                     parts.append(f"{name} ({gnd_id})")
@@ -117,7 +125,7 @@ def extract_title_from_json(data: Dict) -> Optional[str]:
     """Extrahiert Titel aus JSON data['title']."""
     title = data.get("title")
     if title and isinstance(title, str):
-        return title.strip()
+        return _clean_text(title)
     return None
 
 
@@ -125,7 +133,7 @@ def extract_missing_concepts_from_json(data: Dict) -> List[str]:
     """Extrahiert fehlende Konzepte aus data['missing_concepts']."""
     concepts = data.get("missing_concepts", [])
     if isinstance(concepts, list):
-        return [c.strip() for c in concepts if isinstance(c, str) and c.strip()]
+        return [_clean_text(c) for c in concepts if isinstance(c, str) and _clean_text(c)]
     return []
 
 
@@ -133,7 +141,7 @@ def extract_gnd_classes_from_json(data: Dict) -> List[str]:
     """Extrahiert GND-Klassen aus data['gnd_classes']."""
     classes = data.get("gnd_classes", [])
     if isinstance(classes, list):
-        return [c.strip() for c in classes if isinstance(c, str) and c.strip()]
+        return [_clean_text(c) for c in classes if isinstance(c, str) and _clean_text(c)]
     return []
 
 
@@ -141,7 +149,7 @@ def extract_analyse_from_json(data: Dict) -> Optional[str]:
     """Extrahiert den Analyse-/Diskussionstext aus JSON - Claude Generated"""
     analyse = data.get("analyse")
     if analyse and isinstance(analyse, str):
-        return analyse.strip()
+        return _clean_text(analyse)
     return None
 
 
@@ -156,8 +164,8 @@ def extract_keyword_chains_from_json(data: Dict) -> List[Dict]:
     result = []
     for chain_obj in chains:
         if isinstance(chain_obj, dict):
-            chain_list = chain_obj.get("chain", [])
-            reason = chain_obj.get("reason", "")
+            chain_list = [_clean_text(item) for item in chain_obj.get("chain", []) if isinstance(item, str) and _clean_text(item)]
+            reason = _clean_text(chain_obj.get("reason", "")) if isinstance(chain_obj.get("reason", ""), str) else ""
             if chain_list:
                 result.append({"chain": chain_list, "reason": reason})
     return result
@@ -167,7 +175,7 @@ def extract_missing_superordinate_from_json(data: Dict) -> List[str]:
     """Extrahiert fehlende Oberbegriffe aus JSON - Claude Generated"""
     terms = data.get("missing_superordinate_terms", [])
     if isinstance(terms, list):
-        return [t.strip() for t in terms if isinstance(t, str) and t.strip()]
+        return [_clean_text(t) for t in terms if isinstance(t, str) and _clean_text(t)]
     return []
 
 
@@ -184,8 +192,8 @@ def extract_dk_from_json(data: Dict) -> List[str]:
     codes = []
     for cls in classifications:
         if isinstance(cls, dict):
-            code = cls.get("code", "").strip()
-            cls_type = cls.get("type", "").strip().upper()
+            code = _clean_text(cls.get("code", ""))
+            cls_type = _clean_text(cls.get("type", "")).upper()
             if code:
                 # If type is specified and code doesn't start with it, prepend
                 if cls_type and not code.upper().startswith(cls_type):
@@ -193,6 +201,8 @@ def extract_dk_from_json(data: Dict) -> List[str]:
                 else:
                     codes.append(code)
         elif isinstance(cls, str):
-            codes.append(cls.strip())
+            cleaned = _clean_text(cls)
+            if cleaned:
+                codes.append(cleaned)
 
     return codes

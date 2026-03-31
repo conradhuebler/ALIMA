@@ -146,7 +146,7 @@ def create_argument_parser():
 
     batch_parser.add_argument(
         "--siegel-cache-dir", metavar="DIR",
-        help="Cache-Verzeichnis fuer K10Plus XML-Dateien (default: kein Cache)"
+        help="Cache-Verzeichnis für K10Plus XML-Dateien (default: kein Cache)"
     )
 
     batch_parser.add_argument("--output-dir", help="Directory for output JSON files")

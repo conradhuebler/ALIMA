@@ -53,11 +53,14 @@ class AlimaWebapp {
         this.isAnalyzing = false;
         this.currentStep = 0;
         this.ws = null;
+        this.pollInterval = null;
         this.cameraStream = null;
         this.capturedCameraImage = null;
         this.cameraBlob = null;
         this.pendingSourceType = 'text';   // Source type for working title / filename - Claude Generated
         this.pendingInputSource = '';       // DOI, URL, or filename for working title - Claude Generated
+        this.streamRawBuffer = '';
+        this.streamRenderPending = false;
 
         this.setupPipelineSteps();
         this.setupEventListeners();
@@ -85,6 +88,7 @@ class AlimaWebapp {
             if (data.status === 'running') {
                 this.isAnalyzing = true;
                 this.updateButtonState();
+                this.setResultsPanelState('running');
                 this.showResultsPanel();
                 this.enableExportButton(true);
                 localStorage.setItem('alima_running_session', this.sessionId);
@@ -171,6 +175,7 @@ class AlimaWebapp {
         if (status === 'running') {
             this.isAnalyzing = true;
             this.updateButtonState();
+            this.setResultsPanelState('running');
             this.enableExportButton(true);
             this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)\n`);
             this.connectWebSocket();
@@ -228,11 +233,12 @@ class AlimaWebapp {
             const stepEl = document.createElement('div');
             stepEl.className = 'step pending';
             stepEl.id = `step-${step.id}`;
+            stepEl.dataset.step = step.id;
             stepEl.innerHTML = `
                 <div class="step-status">▷</div>
                 <div class="step-content">
                     <div class="step-name">${step.name}</div>
-                    <div class="step-info">${step.description}</div>
+                    <div class="step-info" data-default-info="${step.description}">${step.description}</div>
                 </div>
             `;
             container.appendChild(stepEl);
@@ -309,7 +315,7 @@ class AlimaWebapp {
 
         // Clear logs button
         document.getElementById('clear-logs-btn').addEventListener('click', () => {
-            document.getElementById('stream-text').textContent = '';
+            this.clearStreamText();
         });
 
         // File input
@@ -608,6 +614,11 @@ class AlimaWebapp {
             this.updateButtonState();
             this.clearStreamText();
             this.resetSteps();
+            this.resetResultsPanelContent();
+            this.hideRecoveryOption();
+            this.setResultsPanelState('running');
+            this.showResultsPanel();
+            this.enableExportButton(true);
 
             // Create FormData for multipart request
             const formData = new FormData();
@@ -651,12 +662,6 @@ class AlimaWebapp {
             // Persist session ID so page reload can reconnect - Claude Generated
             localStorage.setItem('alima_running_session', this.sessionId);
 
-            // Show results panel immediately - Claude Generated (2026-01-06)
-            this.showResultsPanel();
-
-            // Enable export button immediately - Claude Generated (2026-01-06)
-            this.enableExportButton(true); // true = running state
-
             // Connect WebSocket for live updates
             this.connectWebSocket();
 
@@ -672,11 +677,16 @@ class AlimaWebapp {
     connectViaPolling() {
         console.log('Using polling instead of WebSocket');
 
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
+        }
+
         let lastStep = null;
         let pollCount = 0;
         const maxPolls = 2400; // 20 minutes max (2400 * 0.5s)
 
-        const pollInterval = setInterval(async () => {
+        this.pollInterval = setInterval(async () => {
             pollCount++;
 
             try {
@@ -719,7 +729,8 @@ class AlimaWebapp {
                         error: data.error_message,
                         current_step: data.current_step
                     });
-                    clearInterval(pollInterval);
+                    clearInterval(this.pollInterval);
+                    this.pollInterval = null;
                 }
             } catch (error) {
                 console.error('Poll error:', error);
@@ -728,7 +739,8 @@ class AlimaWebapp {
 
             // Timeout after max polls
             if (pollCount > maxPolls) {
-                clearInterval(pollInterval);
+                clearInterval(this.pollInterval);
+                this.pollInterval = null;
                 console.warn('Polling timeout after', maxPolls, 'attempts');
                 this.isAnalyzing = false;
                 this.updateButtonState();
@@ -762,6 +774,7 @@ class AlimaWebapp {
         this.ws.onopen = () => {
             wsConnected = true;
             clearTimeout(wsTimeout);
+            this.hideRecoveryOption();
             console.log('WebSocket connected');
         };
 
@@ -783,8 +796,8 @@ class AlimaWebapp {
             } else if (msg.type === 'error') {
                 // Server-side timeout or error - fall back to polling - Claude Generated
                 console.warn('Server WS error:', msg.error);
-                this.showRecoveryOption();
                 if (this.isAnalyzing) {
+                    this.showRecoveryOption();
                     this.connectViaPolling();
                 }
             }
@@ -795,8 +808,8 @@ class AlimaWebapp {
             console.error('WebSocket error (wasConnected=' + wsConnected + '):', error);
             if (wsConnected) {
                 // Error on an established connection - show recovery and fall back
-                this.showRecoveryOption();
                 if (this.isAnalyzing) {
+                    this.showRecoveryOption();
                     this.appendStreamText(`\n⚠️ WebSocket-Fehler, wechsle zu Polling…\n`);
                     this.connectViaPolling();
                 }
@@ -811,12 +824,10 @@ class AlimaWebapp {
 
             // Only react to abnormal closure if WS was actually established - Claude Generated
             // Code 1006 can also fire when the 2s timeout calls this.ws.close() before connection
-            if ((event.code === 1006 || event.code === 1011) && wsConnected) {
+            if ((event.code === 1006 || event.code === 1011) && wsConnected && this.isAnalyzing) {
                 this.showRecoveryOption();
-                if (this.isAnalyzing) {
-                    this.appendStreamText(`\n⚠️ Verbindung unterbrochen, wechsle zu Polling…\n`);
-                    this.connectViaPolling();
-                }
+                this.appendStreamText(`\n⚠️ Verbindung unterbrochen, wechsle zu Polling…\n`);
+                this.connectViaPolling();
             }
         };
     }
@@ -834,21 +845,31 @@ class AlimaWebapp {
         }
 
         if (msg.current_step) {
+            this.hideRecoveryOption();
             console.log(`📊 Step update: ${msg.current_step}`);
 
             // Map backend step names to frontend
             const stepMap = {
                 'initialisation': 'initialisation',
                 'search': 'search',
-                'dk_search': 'search',          // dk_search maps to search visually
+                'dk_search': 'classification',
                 'keywords': 'keywords',
                 'classification': 'classification',
-                'dk_classification': 'classification',  // Claude Generated
+                'dk_classification': 'classification',
+            };
+            const stepInfoMap = {
+                'initialisation': 'Schlagworte',
+                'search': 'GND/SWB',
+                'dk_search': 'Katalogabgleich',
+                'keywords': 'Finale Worte',
+                'classification': 'Codeauswahl',
+                'dk_classification': 'Codeauswahl',
             };
 
             const displayStep = stepMap[msg.current_step] || msg.current_step;
             const stepStatus = msg.current_step_status || 'running';  // Claude Generated
             this.updateStepStatus(displayStep, stepStatus);
+            this.updateStepInfo(displayStep, stepInfoMap[msg.current_step]);
 
             // Mark previous steps as completed
             const stepIndex = this.steps.findIndex(s => s.id === displayStep);
@@ -868,7 +889,8 @@ class AlimaWebapp {
                 if (stepElement) {
                     const infoElement = stepElement.querySelector('.step-info');
                     if (infoElement) {
-                        infoElement.textContent = `${infoElement.textContent.split('(')[0].trim()} ${progressText}`;
+                        const baseText = stepInfoMap[msg.current_step] || infoElement.dataset.defaultInfo || infoElement.textContent.split('(')[0].trim();
+                        infoElement.textContent = `${baseText} ${progressText}`;
                     }
                 }
             }
@@ -905,6 +927,8 @@ class AlimaWebapp {
         console.log('Analysis complete:', msg);
 
         if (msg.status === 'completed') {
+            this.setResultsPanelState('completed');
+
             // Display working title if available - Claude Generated
             if (msg.results && msg.results.working_title) {
                 this.displayWorkingTitle(msg.results.working_title);
@@ -950,6 +974,9 @@ class AlimaWebapp {
                     `;
                     resultsSummary.innerHTML = summaryHTML;
                 }
+            } else if (msg.results) {
+                // Render the completed pipeline payload into the stream and summary panel.
+                this.displayResults(msg.results);
             }
         } else if (msg.status === 'error') {
             this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
@@ -958,6 +985,7 @@ class AlimaWebapp {
 
         this.isAnalyzing = false;
         this.updateButtonState();
+        this.hideRecoveryOption();
 
         // Clear persisted session - pipeline is done - Claude Generated
         localStorage.removeItem('alima_running_session');
@@ -969,6 +997,10 @@ class AlimaWebapp {
 
         if (this.ws) {
             this.ws.close();
+        }
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
+            this.pollInterval = null;
         }
 
         // Browser notification on completion - Claude Generated
@@ -1032,10 +1064,21 @@ class AlimaWebapp {
         statusEl.textContent = icons[status] || '◆';
     }
 
+    updateStepInfo(stepId, text) {
+        const stepEl = document.getElementById(`step-${stepId}`);
+        if (!stepEl) return;
+
+        const infoEl = stepEl.querySelector('.step-info');
+        if (!infoEl) return;
+
+        infoEl.textContent = text || infoEl.dataset.defaultInfo || '';
+    }
+
     // Reset all steps
     resetSteps() {
         this.steps.forEach(step => {
             this.updateStepStatus(step.id, 'pending');
+            this.updateStepInfo(step.id, step.description);
         });
     }
 
@@ -1073,9 +1116,87 @@ class AlimaWebapp {
         }
     }
 
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    normalizeList(value) {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            return value.split(',').map(item => item.trim()).filter(Boolean);
+        }
+        return [];
+    }
+
+    normalizeClassifications(value, legacyValue) {
+        if (Array.isArray(value)) {
+            return value.map(item => {
+                if (typeof item === 'string') {
+                    return { display: item, system: '', code: item };
+                }
+                if (item && typeof item === 'object') {
+                    const display = item.display || [item.system, item.code].filter(Boolean).join(' ').trim() || item.code || '';
+                    return {
+                        display,
+                        system: item.system || '',
+                        code: item.code || display,
+                        validation_status: item.validation_status || null,
+                        is_standard: Object.prototype.hasOwnProperty.call(item, 'is_standard') ? item.is_standard : null,
+                        canonical_code: item.canonical_code || item.code || display,
+                        label: item.label || null,
+                        validation_message: item.validation_message || null,
+                        validation_source: item.validation_source || null,
+                    };
+                }
+                return null;
+            }).filter(Boolean);
+        }
+
+        return this.normalizeList(legacyValue).map(item => ({
+            display: item,
+            system: '',
+            code: item,
+            validation_status: null,
+            is_standard: null,
+            canonical_code: item,
+            label: null,
+            validation_message: null,
+            validation_source: null,
+        }));
+    }
+
+    getRvkValidationSummary(classifications, backendSummary = null) {
+        const rvkEntries = classifications.filter(cls => cls.system === 'RVK');
+        if (backendSummary && typeof backendSummary === 'object') {
+            return {
+                total: backendSummary.rvk_total || rvkEntries.length,
+                standard: backendSummary.rvk_standard || 0,
+                nonStandard: backendSummary.rvk_non_standard || 0,
+                errors: backendSummary.rvk_validation_errors || 0,
+            };
+        }
+
+        return {
+            total: rvkEntries.length,
+            standard: rvkEntries.filter(cls => cls.validation_status === 'standard').length,
+            nonStandard: rvkEntries.filter(cls => cls.validation_status === 'non_standard').length,
+            errors: rvkEntries.filter(cls => cls.validation_status === 'validation_error').length,
+        };
+    }
+
     // Display results in stream (Claude Generated - Updated for full results)
     displayResults(results) {
         if (!results) return;
+
+        const initialKeywords = this.normalizeList(results.initial_keywords);
+        const finalKeywords = this.normalizeList(results.final_keywords);
+        const classifications = this.normalizeClassifications(results.classifications, results.dk_classifications);
+        const rvkSummary = this.getRvkValidationSummary(classifications, results.classification_validation);
 
         // Display original abstract
         if (results.original_abstract) {
@@ -1087,17 +1208,17 @@ class AlimaWebapp {
         }
 
         // Display initial keywords
-        if (results.initial_keywords && results.initial_keywords.length > 0) {
+        if (initialKeywords.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] Initiale Schlagworte (frei):`);
-            results.initial_keywords.forEach(kw => {
+            initialKeywords.forEach(kw => {
                 this.appendStreamText(`  • ${kw}`);
             });
         }
 
         // Display final GND-compliant keywords with verification status - Claude Generated
-        if (results.final_keywords && results.final_keywords.length > 0) {
+        if (finalKeywords.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] GND-Schlagworte:`);
-            results.final_keywords.forEach(kw => {
+            finalKeywords.forEach(kw => {
                 this.appendStreamText(`  ✓ ${kw}`);
             });
 
@@ -1113,11 +1234,31 @@ class AlimaWebapp {
         }
 
         // Display DK/RVK classifications
-        if (results.dk_classifications && results.dk_classifications.length > 0) {
+        if (classifications.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] DK/RVK Klassifikationen:`);
-            results.dk_classifications.forEach(cls => {
-                this.appendStreamText(`  ${cls}`);
+            classifications.forEach(cls => {
+                this.appendStreamText(`  ${cls.display}`);
             });
+
+            if (rvkSummary.nonStandard > 0) {
+                this.appendStreamText(`  ⚠️ ${rvkSummary.nonStandard} RVK-Notation(en) sind nicht standardisiert`);
+            } else if (rvkSummary.total > 0 && rvkSummary.errors === 0) {
+                this.appendStreamText(`  ✓ RVK-Prüfung: ${rvkSummary.standard}/${rvkSummary.total} standardisiert`);
+            }
+
+            if (rvkSummary.errors > 0) {
+                this.appendStreamText(`  ⚠️ RVK-Prüfung unvollständig: ${rvkSummary.errors} API-Fehler`);
+            }
+
+            const provenance = results.rvk_provenance || {};
+            const provenanceParts = [];
+            if (provenance.catalog_standard > 0) provenanceParts.push(`Katalog standard ${provenance.catalog_standard}`);
+            if (provenance.catalog_nonstandard > 0) provenanceParts.push(`Katalog lokal ${provenance.catalog_nonstandard}`);
+            if (provenance.rvk_gnd_index > 0) provenanceParts.push(`RVK-GND-Index ${provenance.rvk_gnd_index}`);
+            if (provenance.rvk_api > 0) provenanceParts.push(`RVK-API-Label ${provenance.rvk_api}`);
+            if (provenanceParts.length > 0) {
+                this.appendStreamText(`  ℹ️ RVK-Quellen: ${provenanceParts.join(', ')}`);
+            }
         }
 
         // Display DK search results summary
@@ -1125,8 +1266,21 @@ class AlimaWebapp {
             this.appendStreamText(`\n[${this.getTime()}] DK-Suche:`);
             results.dk_search_results.forEach(result => {
                 const keyword = result.keyword || 'unbekannt';
-                const count = result.count || 0;
-                this.appendStreamText(`  ${keyword}: ${count} Titel`);
+                const classifications = Array.isArray(result.classifications) ? result.classifications : [];
+                const titleSet = new Set();
+                classifications.forEach(cls => {
+                    const titles = Array.isArray(cls.titles) ? cls.titles : [];
+                    titles.forEach(title => {
+                        const clean = String(title || '').trim();
+                        if (clean) titleSet.add(clean);
+                    });
+                });
+
+                if (titleSet.size > 0) {
+                    this.appendStreamText(`  ${keyword}: ${titleSet.size} Titel`);
+                } else {
+                    this.appendStreamText(`  ${keyword}: ${classifications.length} Klassifikationen`);
+                }
             });
         }
 
@@ -1140,7 +1294,12 @@ class AlimaWebapp {
 
         summaryDiv.innerHTML = '';
 
-        if (results.final_keywords && results.final_keywords.length > 0) {
+        const finalKeywords = this.normalizeList(results.final_keywords);
+        const classifications = this.normalizeClassifications(results.classifications, results.dk_classifications);
+        const initialKeywords = this.normalizeList(results.initial_keywords);
+        const rvkSummary = this.getRvkValidationSummary(classifications, results.classification_validation);
+
+        if (finalKeywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item keyword';
             item.style.maxHeight = '100px';
@@ -1151,29 +1310,71 @@ class AlimaWebapp {
             const verificationBadge = (results.verification && results.verification.stats)
                 ? ` <span style="color: #4caf50; font-size: 0.85em;">(${results.verification.stats.verified_count}/${results.verification.stats.total_extracted} GND-verifiziert)</span>`
                 : '';
-            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${results.final_keywords.join(', ')}`;
+            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${finalKeywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
 
-        if (results.dk_classifications && results.dk_classifications.length > 0) {
+        if (classifications.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item classification';
-            item.style.maxHeight = '120px';
+            item.style.maxHeight = '220px';
             item.style.overflowY = 'auto';
             item.style.wordWrap = 'break-word';
             item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>Klassifikationen:</strong> ${results.dk_classifications.join(', ')}`;
+            const validationSummary = rvkSummary.total > 0
+                ? `<div class="classification-validation-summary">
+                    <span class="classification-badge classification-badge--standard">RVK standard: ${rvkSummary.standard}</span>
+                    <span class="classification-badge classification-badge--non-standard">RVK nicht standard: ${rvkSummary.nonStandard}</span>
+                    ${rvkSummary.errors > 0 ? `<span class="classification-badge classification-badge--unknown">API-Fehler: ${rvkSummary.errors}</span>` : ''}
+                </div>`
+                : '';
+
+            const itemsHtml = classifications.map(cls => {
+                const systemClass = cls.system === 'RVK'
+                    ? 'classification-badge classification-badge--rvk'
+                    : 'classification-badge classification-badge--dk';
+
+                let validationHtml = '';
+                if (cls.system === 'RVK') {
+                    if (cls.validation_status === 'standard') {
+                        validationHtml = '<span class="classification-badge classification-badge--standard">standard</span>';
+                    } else if (cls.validation_status === 'non_standard') {
+                        validationHtml = '<span class="classification-badge classification-badge--non-standard">nicht standard</span>';
+                    } else if (cls.validation_status === 'validation_error') {
+                        validationHtml = '<span class="classification-badge classification-badge--unknown">API-Fehler</span>';
+                    }
+                }
+
+                const metaParts = [];
+                if (cls.system === 'RVK' && cls.label) {
+                    metaParts.push(this.escapeHtml(cls.label));
+                }
+                if (cls.system === 'RVK' && cls.validation_message && cls.validation_status !== 'standard') {
+                    metaParts.push(this.escapeHtml(cls.validation_message));
+                }
+
+                return `<div class="classification-entry">
+                    <div class="classification-entry__head">
+                        <span class="${systemClass}">${this.escapeHtml(cls.system || 'Code')}</span>
+                        <span class="classification-entry__code">${this.escapeHtml(cls.display)}</span>
+                        ${validationHtml}
+                    </div>
+                    ${metaParts.length > 0 ? `<div class="classification-entry__meta">${metaParts.join(' · ')}</div>` : ''}
+                </div>`;
+            }).join('');
+
+            item.innerHTML = `<strong>Klassifikationen:</strong>${validationSummary}<div class="classification-entry-list">${itemsHtml}</div>`;
             summaryDiv.appendChild(item);
         }
 
-        if (results.initial_keywords && results.initial_keywords.length > 0) {
+        if (initialKeywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item';
             item.style.maxHeight = '100px';
             item.style.overflowY = 'auto';
             item.style.wordWrap = 'break-word';
             item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${results.initial_keywords.join(', ')}`;
+            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${initialKeywords.join(', ')}`;
             summaryDiv.appendChild(item);
         }
     }
@@ -1278,20 +1479,16 @@ class AlimaWebapp {
 
     // Stream text manipulation
     appendStreamText(text) {
-        const streamEl = document.getElementById('stream-text');
-        streamEl.textContent += text + '\n';
-
-        // Ensure scrolling to bottom - Claude Generated (2026-01-13)
-        this.scrollToBottom(streamEl);
+        if (this.streamRawBuffer && !this.streamRawBuffer.endsWith('\n')) {
+            this.streamRawBuffer += '\n';
+        }
+        this.streamRawBuffer += `${text}\n`;
+        this.scheduleStreamRender();
     }
 
     appendStreamToken(text) {
-        // Append token without adding newline (for streaming output)
-        const streamEl = document.getElementById('stream-text');
-        streamEl.textContent += text;
-
-        // Ensure scrolling to bottom - Claude Generated (2026-01-13)
-        this.scrollToBottom(streamEl);
+        this.streamRawBuffer += text;
+        this.scheduleStreamRender();
     }
 
     // Reliable scroll to bottom - Claude Generated (2026-01-13)
@@ -1319,8 +1516,280 @@ class AlimaWebapp {
     }
 
     clearStreamText() {
-        document.getElementById('stream-text').textContent = '';
+        this.streamRawBuffer = '';
+        this.streamRenderPending = false;
+        const streamEl = document.getElementById('stream-text');
+        if (streamEl) {
+            streamEl.innerHTML = '';
+        }
         this.lastDisplayedStep = null;  // Reset step tracking - Claude Generated
+    }
+
+    scheduleStreamRender() {
+        if (this.streamRenderPending) return;
+        this.streamRenderPending = true;
+        requestAnimationFrame(() => {
+            this.streamRenderPending = false;
+            this.renderStreamBuffer();
+        });
+    }
+
+    renderStreamBuffer() {
+        const streamEl = document.getElementById('stream-text');
+        if (!streamEl) return;
+        streamEl.innerHTML = this.streamBufferToHtml(this.streamRawBuffer);
+        this.scrollToBottom(streamEl);
+    }
+
+    streamBufferToHtml(text) {
+        const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+        const html = [];
+        let index = 0;
+
+        while (index < lines.length) {
+            const line = this.normalizeSpecialLogLine(lines[index]);
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                html.push('<div class="stream-log-blank"></div>');
+                index += 1;
+                continue;
+            }
+
+            if (trimmed === '## Analyse') {
+                html.push('<h2 class="stream-md-heading stream-md-heading--2">Analyse</h2>');
+                index += 1;
+                continue;
+            }
+
+            if (this.isStructuredSectionLabel(trimmed)) {
+                html.push(`<h3 class="stream-md-heading stream-md-heading--3">${this.renderInlineMarkdown(trimmed.replace(/:$/, ''))}</h3>`);
+                index += 1;
+                continue;
+            }
+
+            if (trimmed.startsWith('ℹ️ RVK-Zweitranking')) {
+                html.push(`<div class="stream-log-line stream-log-line--info">${this.renderInlineMarkdown(trimmed)}</div>`);
+                index += 1;
+                continue;
+            }
+
+            if (this.isMarkdownTableStart(lines, index)) {
+                const tableResult = this.renderMarkdownTable(lines, index);
+                html.push(tableResult.html);
+                index = tableResult.nextIndex;
+                continue;
+            }
+
+            if (this.isPipeRecordBlockStart(lines, index)) {
+                const tableResult = this.renderPipeRecordTable(lines, index);
+                html.push(tableResult.html);
+                index = tableResult.nextIndex;
+                continue;
+            }
+
+            if (/^#{1,3}\s+/.test(trimmed)) {
+                const level = Math.min(3, trimmed.match(/^#+/)[0].length);
+                const content = trimmed.replace(/^#{1,3}\s+/, '');
+                html.push(`<h${level} class="stream-md-heading stream-md-heading--${level}">${this.renderInlineMarkdown(content)}</h${level}>`);
+                index += 1;
+                continue;
+            }
+
+            if (/^\s*[-*]\s+/.test(line)) {
+                const items = [];
+                while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+                    items.push(lines[index].replace(/^\s*[-*]\s+/, ''));
+                    index += 1;
+                }
+                const itemsHtml = items
+                    .map(item => `<li>${this.renderInlineMarkdown(item)}</li>`)
+                    .join('');
+                html.push(`<ul class="stream-md-list">${itemsHtml}</ul>`);
+                continue;
+            }
+
+            html.push(`<div class="stream-log-line">${this.renderInlineMarkdown(line)}</div>`);
+            index += 1;
+        }
+
+        return html.join('');
+    }
+
+    normalizeSpecialLogLine(line) {
+        let normalized = String(line || '');
+        normalized = normalized.replace(/<\|begin_of_thought\|>/g, '## Analyse');
+        normalized = normalized.replace(/<\|end_of_thought\|>/g, '').trimEnd();
+        return normalized;
+    }
+
+    isStructuredSectionLabel(line) {
+        const trimmed = String(line || '').trim();
+        return [
+            'DK-Profil für RVK-Zweitranking:',
+            'RVK-Kandidaten für DK-basiertes Zweitranking:',
+            'RVK-Bewertung aus DK-basiertem Zweitranking:',
+            'RVK-Auswahl nach DK-basiertem Zweitranking:',
+        ].includes(trimmed);
+    }
+
+    isMarkdownTableStart(lines, index) {
+        if (index + 1 >= lines.length) return false;
+        return this.isPotentialMarkdownTableRow(lines[index]) && this.isMarkdownTableSeparator(lines[index + 1]);
+    }
+
+    isPotentialMarkdownTableRow(line) {
+        const trimmed = String(line || '').trim();
+        if (!trimmed || !trimmed.includes('|')) return false;
+        const pipeCount = (trimmed.match(/\|/g) || []).length;
+        if (pipeCount < 2) return false;
+        if (trimmed.startsWith('🔍 ') || trimmed.startsWith('✅ ') || trimmed.startsWith('⚠️ ') || trimmed.startsWith('❌ ')) {
+            return false;
+        }
+        return true;
+    }
+
+    isMarkdownTableSeparator(line) {
+        const trimmed = String(line || '').trim();
+        if (!trimmed.includes('-')) return false;
+        const normalized = trimmed.replace(/^\|/, '').replace(/\|$/, '').trim();
+        const cells = normalized.split('|').map(cell => cell.trim()).filter(Boolean);
+        return cells.length >= 2 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+    }
+
+    parseMarkdownTableRow(line) {
+        const trimmed = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '');
+        return trimmed.split('|').map(cell => cell.trim());
+    }
+
+    isPipeRecordBlockStart(lines, index) {
+        if (index + 1 >= lines.length) return false;
+        const current = String(lines[index] || '').trim();
+        const next = String(lines[index + 1] || '').trim();
+        return this.isPipeRecordLine(current) && this.isPipeRecordLine(next);
+    }
+
+    isPipeRecordLine(line) {
+        const trimmed = String(line || '').trim();
+        if (!trimmed || this.isMarkdownTableSeparator(trimmed)) {
+            return false;
+        }
+        if (trimmed.startsWith('═══') || trimmed.startsWith('[') || trimmed.startsWith('ℹ️ ') || trimmed.startsWith('✅ ') || trimmed.startsWith('⚠️ ') || trimmed.startsWith('❌ ') || trimmed.startsWith('🔎 ')) {
+            return false;
+        }
+        const pipeCount = (trimmed.match(/\|/g) || []).length;
+        return pipeCount >= 2;
+    }
+
+    splitPipeRecordLine(line) {
+        return String(line || '').split('|').map(cell => cell.trim()).filter(Boolean);
+    }
+
+    renderPipeRecordTable(lines, startIndex) {
+        const rows = [];
+        let index = startIndex;
+        const keyValueRows = [];
+        let renderAsKeyValue = true;
+
+        while (index < lines.length && this.isPipeRecordLine(lines[index])) {
+            const row = this.splitPipeRecordLine(lines[index]);
+            if (row.length >= 2) {
+                rows.push(row);
+                const head = row[0] || '';
+                const detailCells = row.slice(1);
+                const details = [];
+                for (const cell of detailCells) {
+                    const match = cell.match(/^([^:]+):\s*(.+)$/);
+                    if (match) {
+                        details.push({
+                            label: match[1].trim(),
+                            value: match[2].trim(),
+                        });
+                    } else {
+                        renderAsKeyValue = false;
+                    }
+                }
+                if (details.length > 0) {
+                    keyValueRows.push({ head, details });
+                } else {
+                    renderAsKeyValue = false;
+                }
+            }
+            index += 1;
+        }
+
+        if (renderAsKeyValue && keyValueRows.length > 0) {
+            const bodyHtml = keyValueRows
+                .map(row => {
+                    const detailHtml = row.details
+                        .map(detail => `<div class="stream-record-detail"><span class="stream-record-detail__label">${this.renderInlineMarkdown(detail.label)}</span><span class="stream-record-detail__value">${this.renderInlineMarkdown(detail.value)}</span></div>`)
+                        .join('');
+                    return `<tr><th class="stream-record-head">${this.renderInlineMarkdown(row.head)}</th><td>${detailHtml}</td></tr>`;
+                })
+                .join('');
+
+            return {
+                html: `<table class="stream-md-table stream-md-table--records stream-md-table--keyvalue"><tbody>${bodyHtml}</tbody></table>`,
+                nextIndex: index,
+            };
+        }
+
+        let maxColumns = 0;
+        for (const row of rows) {
+            maxColumns = Math.max(maxColumns, row.length);
+        }
+        const bodyHtml = rows
+            .map(row => {
+                const padded = Array.from({ length: maxColumns }, (_, cellIndex) => row[cellIndex] || '');
+                return `<tr>${padded.map(cell => `<td>${this.renderInlineMarkdown(cell)}</td>`).join('')}</tr>`;
+            })
+            .join('');
+
+        return {
+            html: `<table class="stream-md-table stream-md-table--records"><tbody>${bodyHtml}</tbody></table>`,
+            nextIndex: index,
+        };
+    }
+
+    renderMarkdownTable(lines, startIndex) {
+        const headers = this.parseMarkdownTableRow(lines[startIndex]);
+        const rows = [];
+        let index = startIndex + 2;
+
+        while (index < lines.length && this.isPotentialMarkdownTableRow(lines[index])) {
+            rows.push(this.parseMarkdownTableRow(lines[index]));
+            index += 1;
+        }
+
+        const headerHtml = headers
+            .map(cell => `<th>${this.renderInlineMarkdown(cell)}</th>`)
+            .join('');
+        const bodyHtml = rows
+            .map(row => {
+                const cells = headers.map((_, cellIndex) => row[cellIndex] || '');
+                return `<tr>${cells.map(cell => `<td>${this.renderInlineMarkdown(cell)}</td>`).join('')}</tr>`;
+            })
+            .join('');
+
+        return {
+            html: `<table class="stream-md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`,
+            nextIndex: index,
+        };
+    }
+
+    renderInlineMarkdown(text) {
+        let html = this.escapeHtml(text);
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        return html;
+    }
+
+    resetResultsPanelContent() {
+        const summaryDiv = document.getElementById('results-summary');
+        if (summaryDiv) {
+            summaryDiv.innerHTML = '';
+        }
     }
 
     // Results panel
@@ -1330,6 +1799,32 @@ class AlimaWebapp {
 
     hideResultsPanel() {
         document.getElementById('results-panel').style.display = 'none';
+        this.setResultsPanelState('idle');
+    }
+
+    setResultsPanelState(state = 'idle') {
+        const panel = document.getElementById('results-panel');
+        const title = document.getElementById('results-panel-title');
+        if (!panel || !title) return;
+
+        panel.classList.remove('card--success', 'card--warning');
+        title.classList.remove('card-label--success', 'card-label--warning');
+
+        if (state === 'running') {
+            panel.classList.add('card--warning');
+            title.classList.add('card-label--warning');
+            title.textContent = '▶ Analyse läuft';
+            return;
+        }
+
+        if (state === 'completed') {
+            panel.classList.add('card--success');
+            title.classList.add('card-label--success');
+            title.textContent = '✓ Analyse abgeschlossen';
+            return;
+        }
+
+        title.textContent = 'Analyse';
     }
 
     // Update button state
@@ -1586,6 +2081,22 @@ class AlimaWebapp {
         if (recoveryMsg) {
             recoveryMsg.style.display = 'inline';
             recoveryMsg.textContent = 'Verbindung unterbrochen. Ergebnisse können wiederhergestellt werden.';
+        }
+    }
+
+    hideRecoveryOption() {
+        const recoveryBtn = document.getElementById('recovery-btn');
+        const recoveryMsg = document.getElementById('recovery-message');
+
+        if (recoveryBtn) {
+            recoveryBtn.style.display = 'none';
+            recoveryBtn.disabled = false;
+        }
+
+        if (recoveryMsg) {
+            recoveryMsg.style.display = 'none';
+            recoveryMsg.textContent = '';
+            recoveryMsg.style.color = '';
         }
     }
 

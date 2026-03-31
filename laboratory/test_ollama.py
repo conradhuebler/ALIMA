@@ -1,8 +1,14 @@
+import os
+
 from ollama import Client
+
+
+auth_token = os.environ.get("OLLAMA_AUTH_TOKEN", "")
+headers = {'Authorization': auth_token} if auth_token else {}
 
 client = Client(
     host="https://ollama.com",
-    headers={'Authorization': '3906daf19dbc42bab768c2c2ae5df634.zksO6Spr0fDqAcLM0eYr8Jaz'}
+    headers=headers,
 )
 
 messages = [

@@ -583,7 +583,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.search_tab, "🔍 GND-Suche")
         self.tabs.addTab(self.analyse_keywords, "✅ Verifikation")
         self.tabs.addTab(self.ub_catalog_tab, "📚 UB-Katalog")        # NEW - Claude Generated
-        self.tabs.addTab(self.dk_analysis_unified_tab, "📊 DK-Analyse")
+        self.tabs.addTab(self.dk_analysis_unified_tab, "📊 Klassifikationen")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
 
         # Comparison tab - initially hidden until comparison is loaded - Claude Generated
@@ -771,12 +771,12 @@ class MainWindow(QMainWindow):
             # Pass DK-specific result text so history shows classification, not keywords - Claude Generated
             self.dk_analysis_tab.add_external_analysis_to_history(analysis_state, result_text=dk_text)
 
-        if hasattr(analysis_state, 'dk_classifications') and analysis_state.dk_classifications:
+        if hasattr(analysis_state, 'classifications') and analysis_state.classifications:
             self.dk_classification_tab.update_data(analysis_state)
             self.logger.info("✅ DK statistics and analysis tabs populated with pipeline results.")
 
         # 6. 📊 Analyse-Review Tab - Sende finale Ergebnisse (lossless) - Claude Generated
-        if analysis_state.final_llm_analysis or analysis_state.dk_classifications:
+        if analysis_state.final_llm_analysis or analysis_state.classifications:
             self.analysis_review_tab.receive_full_state(analysis_state)
             self.logger.info("✅ Analysis review tab populated with full pipeline state (lossless).")
 
@@ -786,16 +786,16 @@ class MainWindow(QMainWindow):
         # displayed directly in pipeline_tab via on_step_completed() callbacks.
         if analysis_state.dk_search_results:
             self.logger.info(f"DK search results available: {len(analysis_state.dk_search_results)} entries")
-        if analysis_state.dk_classifications:
-            self.logger.info(f"DK classifications available: {len(analysis_state.dk_classifications)} entries")
+        if analysis_state.classifications:
+            self.logger.info(f"Classifications available: {len(analysis_state.classifications)} entries")
 
         self.logger.info("Pipeline results successfully distributed to all tabs")
 
         # Auto-navigate to DK Classification tab if results are available - Claude Generated
-        if hasattr(analysis_state, 'dk_classifications') and analysis_state.dk_classifications:
+        if hasattr(analysis_state, 'classifications') and analysis_state.classifications:
             # Find index of DK classification tab
             for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == "📚 DK-Zuordnung":
+                if self.tabs.tabText(i) == "📊 Klassifikationen":
                     self.tabs.setCurrentIndex(i)
                     break
 

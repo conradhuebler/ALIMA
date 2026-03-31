@@ -1460,6 +1460,16 @@ class LlmService(QObject):
                 "stream": stream,
             }
 
+            # Some OpenAI multimodal/reasoning models reject non-default sampling controls
+            # on chat completions. For image OCR we prefer compatibility over tuning.
+            strict_default_sampling_models = ("gpt-4o", "gpt-5", "o1", "o3", "o4")
+            if image and any(model.lower().startswith(prefix) for prefix in strict_default_sampling_models):
+                params.pop("temperature", None)
+                params.pop("top_p", None)
+                self.logger.info(
+                    f"🔧 OpenAI-compat image request: omitting temperature/top_p for {model}"
+                )
+
             # Add seed if provided
             if seed is not None:
                 params["seed"] = seed
