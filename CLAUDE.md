@@ -69,6 +69,30 @@
 - **Include Co-Author info**: All commits include Claude contribution notes with proper attribution
 - **Test artifacts stay local**: Build outputs and temporary files are ignored by .gitignore
 
+### Quality Assurance — Test Maintenance Rules
+
+**The test suite MUST stay green. Broken tests that are silently ignored are worse than no tests.**
+
+#### When refactoring or renaming APIs:
+- Update ALL affected tests in the same commit — never leave tests failing
+- If a class/method is renamed, grep for all test references and update them
+- If a table schema changes, update `test_search.py` to reflect the new schema
+
+#### Test isolation requirements:
+- Tests using `UnifiedKnowledgeManager` MUST call `UnifiedKnowledgeManager.reset()` in both `setUp` and `tearDown`
+- Tests MUST use `DatabaseConfig(db_type='sqlite', sqlite_path=<tempfile>)` — never rely on the production config (which may point to MariaDB)
+- Tests using Qt classes (SearchEngine, LlmService) require a `QApplication` — use `Mock(spec=...)` to avoid it
+
+#### When submitting or reviewing PRs:
+- Run `python -m pytest tests/ -v` locally before opening a PR
+- A PR that introduces new test failures is not ready to merge
+- If existing tests were already broken (pre-existing failures), fix them in a separate commit and note it explicitly
+
+#### Root cause of the 9-month debt (documented for future reference):
+- `SearchEngine` was rewritten from async to Qt-signal-based in July 2025
+- Tests in `test_cache.py` / `test_search.py` were not updated → silently broken for 9 months
+- Discovered during PR #9 review (March 2026)
+
 ### Critical Requirements
 **All pipeline changes MUST be usable by both CLI and GUI interfaces:**
 - Shared Logic: All pipeline functionality uses `src/utils/pipeline_utils.py`
