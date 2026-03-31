@@ -1,6 +1,7 @@
+"""Tests for SearchEngine (Qt-signal-based API, replaced async API July 2025)."""
 import unittest
-from unittest.mock import Mock, patch
-import asyncio
+from unittest.mock import Mock
+from collections import Counter
 
 try:
     from src.core.search_engine import SearchEngine
@@ -14,110 +15,62 @@ except ModuleNotFoundError as exc:
 
 @unittest.skipIf(PYQT_IMPORT_ERROR is not None, f"PyQt6-backed search stack unavailable: {PYQT_IMPORT_ERROR}")
 class TestSearch(unittest.TestCase):
+
     def setUp(self):
-        """Test-Setup vor jedem Test"""
         self.cache_manager = Mock(spec=UnifiedKnowledgeManager)
         self.search_engine = SearchEngine(self.cache_manager)
 
-    async def async_test(self, coroutine):
-        """Hilfsmethode für asynchrone Tests"""
-        return await coroutine
-
     def test_extract_subject_headings(self):
-        """Testet die Extraktion von GND-Schlagworten"""
-        # Test-Item mit verschiedenen Schlagwort-Varianten
         test_item = {
             "subject": [
-                {
-                    "type": ["SubjectHeading"],
-                    "id": "https://d-nb.info/gnd/123456789",
-                    "label": "Test Subject 1"
-                },
-                {
-                    "componentList": [
-                        {
-                            "type": ["SubjectHeading"],
-                            "id": "https://d-nb.info/gnd/987654321",
-                            "label": "Test Subject 2"
-                        }
-                    ]
-                }
+                {"type": ["SubjectHeading"], "id": "https://d-nb.info/gnd/123456789", "label": "Test Subject 1"},
+                {"componentList": [{"type": ["SubjectHeading"], "id": "https://d-nb.info/gnd/987654321", "label": "Test Subject 2"}]}
             ]
         }
-
         headings = self.search_engine.extract_subject_headings(test_item)
-        
         self.assertEqual(len(headings), 2)
         self.assertEqual(headings[0], ("Test Subject 1", "https://d-nb.info/gnd/123456789"))
         self.assertEqual(headings[1], ("Test Subject 2", "https://d-nb.info/gnd/987654321"))
 
-    @patch('requests.get')
-    async def test_search_term(self, mock_get):
-        """Testet die Suche nach einem einzelnen Begriff"""
-        # Mock-Response
-        mock_response = Mock()
-        mock_response.iter_lines.return_value = [
-            '{"subject": [{"type": ["SubjectHeading"], "id": "https://d-nb.info/gnd/123", "label": "Test"}]}'
-        ]
-        mock_get.return_value = mock_response
+    def test_extract_subject_headings_empty(self):
+        self.assertEqual(self.search_engine.extract_subject_headings({}), [])
 
-        # Cache-Miss simulieren
-        self.cache_manager.get_cached_results.return_value = None
+    def test_process_results_empty(self):
+        self.search_engine.term_results = {}
+        self.search_engine.total_counter = Counter()
+        result = self.search_engine.process_results(threshold=1.0)
+        self.assertEqual(result["exact_matches"], [])
+        self.assertEqual(result["frequent_matches"], [])
 
-        results = await self.async_test(
-            self.search_engine.search_term("test")
-        )
-
-        self.assertIsNotNone(results)
-        self.assertIn('headings', results)
-        self.assertIn('counter', results)
-
-    async def test_search_multiple_terms(self):
-        """Testet die Suche nach mehreren Begriffen"""
-        terms = ["test1", "test2"]
-        
-        # Mock für search_term
-        async def mock_search_term(term):
-            return {
-                'headings': {(f"Result for {term}", f"gnd/{term}")},
-                'counter': {(f"Result for {term}", f"gnd/{term}"): 1},
-                'total': 1
-            }
-
-        with patch.object(self.search_engine, 'search_term', side_effect=mock_search_term):
-            results = await self.async_test(
-                self.search_engine.search(terms)
-            )
-
-        self.assertIn('exact_matches', results)
-        self.assertIn('frequent_matches', results)
-
-    def test_process_results(self):
-        """Testet die Verarbeitung der Suchergebnisse"""
-        # Setup Test-Ergebnisse
-        self.search_engine.current_results = {
-            'term_results': {
-                'test': {
-                    'headings': {("Test Term", "gnd/123")},
-                    'counter': {("Test Term", "gnd/123"): 5}
-                }
-            },
-            'total_counter': {("Test Term", "gnd/123"): 5}
+    def test_process_results_with_data(self):
+        self.search_engine.term_results = {
+            'test': {'headings': {("Test Term", "gnd/123")}, 'counter': {("Test Term", "gnd/123"): 5}}
         }
+        self.search_engine.total_counter = Counter({("Test Term", "gnd/123"): 5})
+        result = self.search_engine.process_results(threshold=1.0)
+        self.assertIn('exact_matches', result)
+        self.assertIn('frequent_matches', result)
 
-        results = self.search_engine.process_results(threshold=1.0)
-        
-        self.assertIn('exact_matches', results)
-        self.assertIn('frequent_matches', results)
+    def test_search_uses_cache(self):
+        cached = {'headings': {('Cached Term', 'gnd/999')}, 'counter': {('Cached Term', 'gnd/999'): 1}, 'total': 1}
+        self.cache_manager.get_cached_results.return_value = cached
+        self.search_engine.term_results = {}
+        self.search_engine.total_counter = Counter()
+        self.search_engine.pending_requests = 1
+        self.search_engine.threshold = 1.0
+        self.search_engine.search_term("cached_query")
+        self.cache_manager.get_cached_results.assert_called_once_with("cached_query")
+        self.assertIn("cached_query", self.search_engine.term_results)
 
-    def test_error_handling(self):
-        """Testet die Fehlerbehandlung"""
-        async def test_error():
-            with patch('requests.get', side_effect=Exception("Test Error")):
-                return await self.search_engine.search_term("error_test")
+    def test_search_term_no_cache_hit(self):
+        self.cache_manager.get_cached_results.return_value = None
+        self.search_engine.term_results = {}
+        self.search_engine.total_counter = Counter()
+        self.search_engine.pending_requests = 1
+        self.search_engine.threshold = 1.0
+        self.search_engine.search_term("network_query")
+        self.assertNotIn("network_query", self.search_engine.term_results)
 
-        result = asyncio.run(test_error())
-        self.assertIsNone(result)
 
 if __name__ == '__main__':
     unittest.main()

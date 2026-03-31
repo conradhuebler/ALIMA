@@ -1,170 +1,111 @@
+"""Tests for UnifiedKnowledgeManager (current API).
+
+NOTE: The old CacheManager API (searches/cache_stats tables) was replaced
+during the August 2025 restructure. These tests cover the current
+Facts/Mappings architecture with proper singleton reset + SQLite isolation.
+"""
 import unittest
 import tempfile
 import os
-from datetime import datetime, timedelta
-from unittest.mock import patch
 
 try:
     from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+    from src.utils.config_models import DatabaseConfig
     PYQT_IMPORT_ERROR = None
 except ModuleNotFoundError as exc:
     UnifiedKnowledgeManager = None
+    DatabaseConfig = None
     PYQT_IMPORT_ERROR = exc
 
 
+def _make_sqlite_config(path):
+    cfg = DatabaseConfig(db_type='sqlite')
+    cfg.sqlite_path = path
+    return cfg
+
+
 @unittest.skipIf(PYQT_IMPORT_ERROR is not None, f"PyQt6-backed database stack unavailable: {PYQT_IMPORT_ERROR}")
-class TestCache(unittest.TestCase):
+class TestUnifiedKnowledgeManager(unittest.TestCase):
+
     def setUp(self):
-        """Test-Setup vor jedem Test"""
-        # Temporäre Datenbankdatei erstellen
-        self.temp_db = tempfile.NamedTemporaryFile(delete=False)
-        self.cache_manager = UnifiedKnowledgeManager(db_path=self.temp_db.name)
+        UnifiedKnowledgeManager.reset()
+        self.temp_db = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
+        self.temp_db.close()
+        self.km = UnifiedKnowledgeManager(database_config=_make_sqlite_config(self.temp_db.name))
 
     def tearDown(self):
-        """Aufräumen nach jedem Test"""
-        self.cache_manager.db_manager.close_connection()
-        os.unlink(self.temp_db.name)
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.temp_db.name)
+        except OSError:
+            pass
 
-    def test_cache_creation(self):
-        """Testet die Erstellung der Cache-Datenbank"""
-        # Überprüfe, ob die Tabellen existieren
-        tables = self.cache_manager.db_manager.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
-        table_names = [table['name'] for table in tables]
+    def test_schema_tables_exist(self):
+        tables = self.km.db_manager.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
+        names = {t['name'] for t in tables}
+        for expected in ('gnd_entries', 'classifications', 'search_mappings', 'catalog_dk_cache'):
+            self.assertIn(expected, names)
 
-        self.assertIn('searches', table_names)
-        self.assertIn('cache_stats', table_names)
+    def test_store_and_retrieve_gnd_fact(self):
+        self.km.store_gnd_fact("4123456-7", {"title": "Testschlagwort", "description": "", "synonyms": "", "ddcs": ""})
+        entry = self.km.get_gnd_fact("4123456-7")
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.title, "Testschlagwort")
 
-    def test_cache_results(self):
-        """Testet das Cachen von Suchergebnissen"""
-        test_results = {
-            'headings': {('Test Term', 'gnd/123')},
-            'counter': {('Test Term', 'gnd/123'): 1},
-            'total': 1,
-            'timestamp': datetime.now().isoformat()
-        }
+    def test_get_gnd_fact_missing_returns_none(self):
+        self.assertIsNone(self.km.get_gnd_fact("does-not-exist"))
 
-        self.cache_manager.cache_results("test", test_results)
-        
-        cached = self.cache_manager.get_cached_results("test")
-        self.assertIsNotNone(cached)
-        self.assertEqual(cached['total'], 1)
+    def test_get_gnd_facts_batch(self):
+        self.km.store_gnd_fact("1111111-1", {"title": "Alpha", "description": "", "synonyms": "", "ddcs": ""})
+        self.km.store_gnd_fact("2222222-2", {"title": "Beta",  "description": "", "synonyms": "", "ddcs": ""})
+        batch = self.km.get_gnd_facts_batch(["1111111-1", "2222222-2", "9999999-9"])
+        self.assertIn("1111111-1", batch)
+        self.assertIn("2222222-2", batch)
+        self.assertNotIn("9999999-9", batch)
 
-    def test_cache_expiration(self):
-        """Testet die Cache-Ablauflogik"""
-        old_results = {
-            'headings': {('Old Term', 'gnd/456')},
-            'counter': {('Old Term', 'gnd/456'): 1},
-            'total': 1,
-            'timestamp': (datetime.now() - timedelta(hours=25)).isoformat()
-        }
+    def test_search_mapping_roundtrip(self):
+        self.km.update_search_mapping("Klimawandel", "lobid", found_gnd_ids=["4031483-2"])
+        mapping = self.km.get_search_mapping("Klimawandel", "lobid")
+        self.assertIsNotNone(mapping)
+        self.assertIn("4031483-2", mapping.found_gnd_ids)
 
-        self.cache_manager.cache_results("old_test", old_results)
-        
-        # Sollte None zurückgeben, da der Cache abgelaufen ist
-        cached = self.cache_manager.get_cached_results("old_test", max_age_hours=24)
-        self.assertIsNone(cached)
+    def test_search_mapping_missing_returns_none(self):
+        self.assertIsNone(self.km.get_search_mapping("unbekannt", "lobid"))
 
-    def test_cache_stats(self):
-        """Testet die Cache-Statistiken"""
-        # Simuliere einige Cache-Zugriffe
-        test_results = {
-            'headings': set(),
-            'counter': {},
-            'total': 0,
-            'timestamp': datetime.now().isoformat()
-        }
+    def test_store_classification_fact(self):
+        self.km.store_classification_fact("004", "DDC", title="Informatik")
+        cls = self.km.get_classification_fact("004", "DDC")
+        self.assertIsNotNone(cls)
+        self.assertEqual(cls.title, "Informatik")
 
-        self.cache_manager.cache_results("stats_test", test_results)
-        
-        # Cache-Hit
-        self.cache_manager.get_cached_results("stats_test")
-        
-        # Cache-Miss
-        self.cache_manager.get_cached_results("non_existent")
+    def test_database_stats(self):
+        self.km.store_gnd_fact("5555555-5", {"title": "Stats-Test", "description": "", "synonyms": "", "ddcs": ""})
+        stats = self.km.get_database_stats()
+        self.assertGreaterEqual(stats.get('gnd_entries_count', 0), 1)
 
-        stats = self.cache_manager.get_stats(days=1)
-        self.assertGreater(stats['cache_hits'], 0)
-        self.assertGreater(stats['cache_misses'], 0)
+    def test_singleton_behavior(self):
+        km2 = UnifiedKnowledgeManager(database_config=_make_sqlite_config(self.temp_db.name))
+        self.assertIs(self.km, km2)
 
-    def test_cleanup_old_entries(self):
-        """Testet die Bereinigung alter Cache-Einträge"""
-        # Füge alte und neue Einträge hinzu
-        old_results = {
-            'headings': set(),
-            'counter': {},
-            'total': 0,
-            'timestamp': (datetime.now() - timedelta(days=31)).isoformat()
-        }
-        new_results = {
-            'headings': set(),
-            'counter': {},
-            'total': 0,
-            'timestamp': datetime.now().isoformat()
-        }
-
-        self.cache_manager.cache_results("old_entry", old_results)
-        self.cache_manager.cache_results("new_entry", new_results)
-
-        # Bereinige alte Einträge
-        removed = self.cache_manager.cleanup_old_entries(max_age_days=30)
-        self.assertEqual(removed, 1)
-
-        # Überprüfe, ob nur der alte Eintrag entfernt wurde
-        self.assertIsNone(self.cache_manager.get_cached_results("old_entry"))
-        self.assertIsNotNone(self.cache_manager.get_cached_results("new_entry"))
-
-    def test_cache_conversion(self):
-        """Testet die Konvertierung der Cache-Daten"""
-        test_data = {
-            'headings': {('Test', 'gnd/123')},
-            'counter': {('Test', 'gnd/123'): 1},
-            'total': 1
-        }
-
-        # Test Konvertierung für Speicherung
-        storage_data = self.cache_manager._convert_for_storage(test_data)
-        self.assertIsInstance(storage_data['headings'], list)
-        
-        # Test Konvertierung von Speicherung
-        restored_data = self.cache_manager._convert_from_storage(storage_data)
-        self.assertIsInstance(restored_data['headings'], set)
-
-    def test_error_handling(self):
-        """Testet die Fehlerbehandlung"""
-        # Test mit ungültiger Datenbankverbindung
-        with patch.object(self.cache_manager, 'conn', side_effect=sqlite3.Error):
-            result = self.cache_manager.get_cached_results("test")
-            self.assertIsNone(result)
+    def test_reset_clears_singleton(self):
+        UnifiedKnowledgeManager.reset()
+        km_new = UnifiedKnowledgeManager(database_config=_make_sqlite_config(self.temp_db.name))
+        self.assertIsNotNone(km_new)
+        self.km = km_new
 
     def test_concurrent_access(self):
-        """Testet gleichzeitigen Zugriff auf den Cache"""
         import threading
+        errors = []
+        def store(idx):
+            try:
+                self.km.store_gnd_fact(f"concurrent-{idx}", {"title": f"Thread {idx}", "description": "", "synonyms": "", "ddcs": ""})
+            except Exception as e:
+                errors.append(e)
+        threads = [threading.Thread(target=store, args=(i,)) for i in range(5)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        self.assertEqual(errors, [])
 
-        def cache_operation():
-            results = {
-                'headings': set(),
-                'counter': {},
-                'total': 0,
-                'timestamp': datetime.now().isoformat()
-            }
-            self.cache_manager.cache_results(f"thread_test_{threading.get_ident()}", results)
-
-        # Starte mehrere Threads
-        threads = []
-        for _ in range(5):
-            t = threading.Thread(target=cache_operation)
-            threads.append(t)
-            t.start()
-
-        # Warte auf alle Threads
-        for t in threads:
-            t.join()
-
-        # Überprüfe, ob alle Einträge gespeichert wurden
-        cursor = self.cache_manager.conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM searches")
-        count = cursor.fetchone()[0]
-        self.assertEqual(count, 5)
 
 if __name__ == '__main__':
     unittest.main()
