@@ -238,6 +238,92 @@ class SharedContext:
             dk_classifications=[cls.get("code", "") for cls in self.dk_classifications],
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize SharedContext to a JSON-compatible dict for saving intermediate state.
+
+        Tool result cache is NOT serialized (not needed for warm-start).
+
+        Returns:
+            Dict with all pipeline state fields
+        """
+        return {
+            "abstract": self.abstract,
+            "initial_keywords": self.initial_keywords,
+            "input_type": self.input_type,
+            "source_value": self.source_value,
+            "provider": self.provider,
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "working_title": self.working_title,
+            "extracted_keywords": self.extracted_keywords,
+            "gnd_entries": self.gnd_entries,
+            "selected_keywords": self.selected_keywords,
+            "dk_classifications": self.dk_classifications,
+            "step_results": self.step_results,
+            "quality_scores": self.quality_scores,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SharedContext":
+        """Deserialize SharedContext from a dict (e.g. loaded from JSON file).
+
+        Creates a fresh ToolResultCache — the cache is not restored from disk.
+
+        Args:
+            data: Dict as produced by to_dict()
+
+        Returns:
+            SharedContext with pre-populated pipeline state
+        """
+        ctx = cls(
+            abstract=data.get("abstract", ""),
+            initial_keywords=data.get("initial_keywords", []),
+            input_type=data.get("input_type", "text"),
+            source_value=data.get("source_value"),
+            provider=data.get("provider", ""),
+            model=data.get("model", ""),
+            temperature=data.get("temperature", 0.5),
+            max_tokens=data.get("max_tokens", 4096),
+        )
+        ctx.working_title = data.get("working_title", "")
+        ctx.extracted_keywords = data.get("extracted_keywords", [])
+        ctx.gnd_entries = data.get("gnd_entries", [])
+        ctx.selected_keywords = data.get("selected_keywords", [])
+        ctx.dk_classifications = data.get("dk_classifications", [])
+        ctx.step_results = data.get("step_results", {})
+        ctx.quality_scores = data.get("quality_scores", {})
+        return ctx
+
+    def save_to_file(self, path: str) -> None:
+        """Save context state to a JSON file.
+
+        Args:
+            path: File path to write to
+        """
+        import json as _json
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved SharedContext to {path}")
+
+    @classmethod
+    def load_from_file(cls, path: str) -> "SharedContext":
+        """Load context state from a JSON file.
+
+        Args:
+            path: File path to read from
+
+        Returns:
+            SharedContext with restored pipeline state
+        """
+        import json as _json
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        ctx = cls.from_dict(data)
+        logger.info(f"Loaded SharedContext from {path} "
+                    f"(steps completed: {list(ctx.step_results.keys())})")
+        return ctx
+
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of the context state.
 

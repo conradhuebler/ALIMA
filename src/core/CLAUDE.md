@@ -63,21 +63,38 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - **Implementation**: `extract_missing_concepts_from_response()` in processing_utils.py, `execute_fallback_gnd_search()` + `execute_iterative_keyword_refinement()` in pipeline_utils.py
 - **Documentation**: See `docs/iterative_gnd_search.md` for complete architecture and implementation plan
 
-### ✅ ADDED: Agentic Workflow with MCP Tools
-- **Agent System**: `src/core/agents/` - BaseAgent with self-reflection, SearchAgent, KeywordAgent, ClassificationAgent, ValidationAgent, MetaAgent
-- **MCP Tool Layer**: `src/mcp/` - 16 tools wrapping DB (UnifiedKnowledgeManager), web services (suggesters), and pipeline results
-- **Agent Loop**: `src/core/agent_loop.py` - Provider-agnostic tool-calling loop with safety features (max iterations, diminishing-returns detection)
-- **Tool-Calling in LlmService**: `generate_with_tools()` supporting Ollama, OpenAI, Anthropic, Gemini native tool-calling + text fallback
+### ✅ Agentic Workflow with MCP Tools
+- **Active path**: `PipelineManager._start_agentic_pipeline()` → `MetaAgent` → 4 SubAgents
+- **SubAgents** (`src/core/agents/sub_agents/`): KeywordExtractionAgent → SearchAgent → KeywordSelectionAgent → ClassificationAgent
+- **Prompt configuration**: `workflows/meta_agent_default.yaml` - edit prompts here, no code changes needed
+- **Tool caching**: `CachingToolRegistry` deduplicates identical tool calls across SubAgents
+- **MCP Tool Layer**: `src/mcp/` - 16 tools for DB, web services, and pipeline results
+- **Agent Loop**: `src/core/agent_loop.py` - provider-agnostic tool-calling with safety features
 - **Pipeline Integration**: `PipelineConfig.enable_agentic_mode`, CLI `--agentic`, GUI checkbox
-- **Pipeline Results as Tools**: `list_pipeline_results`, `get_pipeline_result` etc. allow agents to access/discuss saved results
-- **WARNING**: Experimental feature with 3x token usage increase - opt-in only
+- **Tests**: `tests/test_agents.py` - 37 tests for SharedContext, CachingToolRegistry, SubAgents, MetaAgent, single-step
+- **WARNING**: Experimental feature with ~3x token usage increase - opt-in only
+
+### ✅ Single-Step Agentic Execution
+Run individual pipeline steps with pre-loaded context (warm-start):
+- **`SharedContext.save_to_file(path)` / `load_from_file(path)`**: JSON serialization of pipeline state
+- **`MetaAgent.execute(step_id=..., input_context=...)`**: run only one step with pre-populated context
+- **Dependency validation**: `_validate_dependencies()` checks required fields before each step
+- **CLI**: `--step extraction|search|selection|classification` + `--resume-from <file.json>`
+- **`PipelineConfig`**: `agentic_step_id`, `agentic_input_context_path`
+
+**Step dependencies** (what must be in context):
+| Step | Requires |
+|------|----------|
+| `extraction` | — |
+| `search` | `extracted_keywords` |
+| `selection` | `gnd_entries` |
+| `classification` | `selected_keywords` |
 
 ## [Instructions Block - Operator-Defined Tasks]
 
 ### Future Tasks
 1. **WIP - Pipeline Enhancements**: Batch processing, templates, configuration UI
-2. **ADDED - Pipeline Step Caching**: Cache intermediate results for resume functionality  
-3. **ADD - Pipeline Webhooks**: External system notifications on step completion
+2. **ADD - Pipeline Webhooks**: External system notifications on step completion
 4. **Performance Optimization**: Implement connection pooling for database operations
 5. **Result Pagination**: Add support for large dataset handling
 6. **Memory Optimization**: Optimize memory usage for large text processing

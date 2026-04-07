@@ -231,6 +231,14 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                     updated_pipeline_config.custom_workflow_path = args.custom_workflow
                     logger.info(f"📋 Custom workflow: {args.custom_workflow}")
 
+                # Single-step execution - Claude Generated
+                if getattr(args, 'step', None):
+                    updated_pipeline_config.agentic_step_id = args.step
+                    logger.info(f"🎯 Single-step mode: {args.step}")
+                if getattr(args, 'resume_from', None):
+                    updated_pipeline_config.agentic_input_context_path = args.resume_from
+                    logger.info(f"📂 Warm-start from: {args.resume_from}")
+
             # Set pipeline configuration
             pipeline_manager.set_config(updated_pipeline_config)
 

@@ -118,8 +118,16 @@ def create_argument_parser():
     pipeline_parser.add_argument("--agentic-quality-threshold", type=float, default=0.6, help="Min quality score per agent (default: 0.6)")
 
     # Workflow configuration - Claude Generated
-    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: default_alima)")
+    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: meta_agent_default)")
     pipeline_parser.add_argument("--custom-workflow", type=str, default=None, help="Path to custom workflow YAML/JSON file")
+
+    # Single-step execution - Claude Generated
+    pipeline_parser.add_argument("--step", type=str, default=None,
+                                 metavar="STEP_ID",
+                                 help="Run only a single agentic step: extraction|search|selection|classification")
+    pipeline_parser.add_argument("--resume-from", type=str, default=None,
+                                 metavar="FILE",
+                                 help="JSON file with saved SharedContext to warm-start single-step execution")
 
     # Global provider/model override - Claude Generated
     pipeline_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",

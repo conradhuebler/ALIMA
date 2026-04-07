@@ -185,6 +185,14 @@ class MetaAgent:
             SubAgentStepConfig(id="classification", agent_class=ClassificationAgent),
         ]
 
+    # Dependencies each step requires to be pre-populated in SharedContext
+    STEP_DEPENDENCIES: Dict[str, List[str]] = {
+        "extraction": [],
+        "search": ["extracted_keywords"],
+        "selection": ["gnd_entries"],
+        "classification": ["selected_keywords"],
+    }
+
     def execute(
         self,
         abstract: str,
@@ -192,8 +200,10 @@ class MetaAgent:
         config: Optional[MetaAgentConfig] = None,
         input_type: str = "text",
         source_value: Optional[str] = None,
+        step_id: Optional[str] = None,
+        input_context: Optional[SharedContext] = None,
     ) -> KeywordAnalysisState:
-        """Execute the full ALIMA pipeline.
+        """Execute the ALIMA pipeline — either all steps or a single step.
 
         Args:
             abstract: The text to analyze
@@ -201,9 +211,13 @@ class MetaAgent:
             config: Execution configuration
             input_type: Type of input (text, doi, etc.)
             source_value: Original source (DOI, file path, etc.)
+            step_id: If set, run only this one step (e.g. "search", "selection").
+                     Requires input_context to supply results from previous steps.
+            input_context: Pre-populated SharedContext for warm-start / single-step
+                           execution. Overrides abstract/initial_keywords when provided.
 
         Returns:
-            KeywordAnalysisState with all results
+            KeywordAnalysisState with results from executed steps
         """
         start_time = time.time()
         config = config or MetaAgentConfig()
@@ -212,20 +226,43 @@ class MetaAgent:
         if not self.workflow_steps:
             self.load_workflow(config.workflow_name)
 
-        # Initialize shared context
-        context = SharedContext(
-            abstract=abstract,
-            initial_keywords=initial_keywords or [],
-            input_type=input_type,
-            source_value=source_value,
-            provider=config.provider,
-            model=config.model,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-        )
+        # Build or reuse context
+        if input_context is not None:
+            context = input_context
+            # Apply LLM config from current run (may differ from saved context)
+            context.provider = config.provider or context.provider
+            context.model = config.model or context.model
+            context.temperature = config.temperature
+            context.max_tokens = config.max_tokens
+            self.logger.info("Using provided input_context (warm-start)")
+        else:
+            context = SharedContext(
+                abstract=abstract,
+                initial_keywords=initial_keywords or [],
+                input_type=input_type,
+                source_value=source_value,
+                provider=config.provider,
+                model=config.model,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+            )
 
-        self.logger.info(f"Starting MetaAgent pipeline with {config.provider}/{config.model}")
-        self._stream(f"\n{'='*50}\n🤖 MetaAgent Pipeline\n{'='*50}\n", "workflow")
+        mode_label = f"Step '{step_id}'" if step_id else "Full Pipeline"
+        self.logger.info(f"Starting MetaAgent {mode_label} with {config.provider}/{config.model}")
+        self._stream(f"\n{'='*50}\n🤖 MetaAgent — {mode_label}\n{'='*50}\n", "workflow")
+
+        # Determine which steps to run
+        if step_id is not None:
+            steps_to_run = [s for s in self.workflow_steps if s.id == step_id]
+            if not steps_to_run:
+                raise ValueError(
+                    f"Step '{step_id}' not found in workflow. "
+                    f"Available: {[s.id for s in self.workflow_steps]}"
+                )
+            # Validate that required preceding data is available
+            self._validate_dependencies(step_id, context)
+        else:
+            steps_to_run = self.workflow_steps
 
         # Track step results
         step_results: List[PipelineStepResult] = []
@@ -235,8 +272,8 @@ class MetaAgent:
             if self.stream_callback:
                 self.stream_callback(text, "agent")
 
-        # Execute workflow steps
-        for step_config in self.workflow_steps:
+        # Execute selected steps
+        for step_config in steps_to_run:
             step_name = step_config.id
 
             # Skip disabled steps
@@ -249,10 +286,10 @@ class MetaAgent:
                 self.logger.info(f"Skipping {step_name} (classification disabled)")
                 continue
 
-            # Skip search if we have cached entries and config allows
-            if step_name == "search" and config.skip_search_if_cached:
+            # Skip search if GND entries already present (full-pipeline only)
+            if step_id is None and step_name == "search" and config.skip_search_if_cached:
                 if len(context.gnd_entries) > 0:
-                    self.logger.info(f"Skipping {step_name} (GND entries already cached)")
+                    self.logger.info(f"Skipping {step_name} (GND entries already in context)")
                     continue
 
             step_result = self._execute_step(
@@ -265,23 +302,44 @@ class MetaAgent:
             )
             step_results.append(step_result)
 
-            # Check if step failed
             if not step_result.success:
                 self.logger.error(f"Pipeline step {step_name} failed: {step_result.error}")
                 # Continue with next step if possible
 
-        # Build final state
         duration = time.time() - start_time
-        self.logger.info(f"MetaAgent pipeline completed in {duration:.1f}s")
-        self._stream(f"\n{'='*50}\n✅ Pipeline completed ({duration:.1f}s)\n{'='*50}\n", "workflow")
+        self.logger.info(f"MetaAgent {mode_label} completed in {duration:.1f}s")
+        self._stream(f"\n{'='*50}\n✅ {mode_label} abgeschlossen ({duration:.1f}s)\n{'='*50}\n", "workflow")
 
-        # Log cache statistics
         cache_stats = context.tool_result_cache.get_stats()
-        self.logger.info(f"Cache stats: {cache_stats['total_hits']} hits, {cache_stats['total_misses']} misses, "
-                         f"hit rate: {cache_stats['hit_rate']:.1%}")
+        self.logger.info(
+            f"Cache stats: {cache_stats['total_hits']} hits, "
+            f"{cache_stats['total_misses']} misses, "
+            f"hit rate: {cache_stats['hit_rate']:.1%}"
+        )
 
-        # Convert to KeywordAnalysisState
         return context.to_keyword_analysis_state()
+
+    def _validate_dependencies(self, step_id: str, context: SharedContext) -> None:
+        """Validate that required preceding data is present for a single-step run.
+
+        Args:
+            step_id: The step to be executed
+            context: Current SharedContext
+
+        Raises:
+            ValueError: If a required context field is missing
+        """
+        required = self.STEP_DEPENDENCIES.get(step_id, [])
+        missing = []
+        for field_name in required:
+            value = getattr(context, field_name, None)
+            if not value:
+                missing.append(field_name)
+        if missing:
+            raise ValueError(
+                f"Step '{step_id}' requires the following context fields to be populated "
+                f"(from a previous run or input_context): {missing}"
+            )
 
     def _execute_step(
         self,
@@ -368,7 +426,7 @@ class MetaAgent:
 
     def get_step_order(self) -> List[str]:
         """Get ordered list of pipeline step names."""
-        return [step_name for step_name, _ in self.pipeline_steps]
+        return [step.id for step in self.workflow_steps]
 
     def assess_quality(self, context: SharedContext) -> float:
         """Assess overall pipeline quality.

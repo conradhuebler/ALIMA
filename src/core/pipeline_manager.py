@@ -82,8 +82,12 @@ class PipelineConfig:
     agentic_quality_threshold: float = 0.6
 
     # Workflow configuration: Custom agent workflows - Claude Generated
-    workflow_name: str = "default_alima"  # Workflow to use when enable_agentic_mode=True
+    workflow_name: str = "meta_agent_default"  # Workflow to use when enable_agentic_mode=True
     custom_workflow_path: Optional[str] = None  # Path to custom workflow YAML/JSON file
+
+    # Single-step agentic execution - Claude Generated
+    agentic_step_id: Optional[str] = None         # If set, run only this step
+    agentic_input_context_path: Optional[str] = None  # JSON file to load as warm-start context
 
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
@@ -536,7 +540,7 @@ class PipelineManager:
         if force_update:
             self.logger.info("⚠️ Force update enabled: catalog cache will be ignored")
 
-        # Agentic mode: use AgenticPipelineExecutor instead of sequential steps - Claude Generated
+        # Agentic mode: use MetaAgent instead of sequential steps - Claude Generated
         if self.config.enable_agentic_mode:
             return self._start_agentic_pipeline(pipeline_id, input_text, input_type, input_source)
 
@@ -626,13 +630,22 @@ class PipelineManager:
                 stream_callback=self.stream_callback,
             )
 
-            # Execute pipeline
+            # Load warm-start context if a path was provided
+            input_context = None
+            if self.config.agentic_input_context_path:
+                from src.core.agents.shared_context import SharedContext
+                input_context = SharedContext.load_from_file(self.config.agentic_input_context_path)
+                self.logger.info(f"Loaded input context from {self.config.agentic_input_context_path}")
+
+            # Execute pipeline (full or single-step)
             self.current_analysis_state = meta_agent.execute(
                 abstract=input_text,
-                initial_keywords=[],  # Will be extracted
+                initial_keywords=[],
                 config=meta_config,
                 input_type=input_type,
                 source_value=input_source,
+                step_id=self.config.agentic_step_id or None,
+                input_context=input_context,
             )
 
             # Call completion callback
