@@ -229,21 +229,74 @@ class TestKeywordExtractionAgent(unittest.TestCase):
 
 
 class TestSearchAgent(unittest.TestCase):
-    """Tests for SearchAgent (GND/SWB search with tools)."""
+    """Tests for SearchAgent (deterministic GND/SWB/Lobid search, no LLM)."""
 
-    def _run_search_agent(self, response_content: str) -> tuple:
+    def _make_registry_with_results(self, swb_ids=None, lobid_ids=None, batch_entries=None):
+        """Build a mock registry that returns realistic search responses."""
+        registry = MagicMock()
+
+        def make_swb(ids):
+            return json.dumps({
+                "source": "swb",
+                "results": {
+                    "Bibliothek": {
+                        kw: {"gndid": [gid], "ddc": [], "count": 1}
+                        for gid, kw in zip(ids, [f"kw{i}" for i in range(len(ids))])
+                    }
+                }
+            })
+
+        def make_lobid(ids):
+            return json.dumps({
+                "source": "lobid",
+                "results": {
+                    "Katalog": {
+                        kw: {"gndid": [gid], "ddc": [], "count": 1}
+                        for gid, kw in zip(ids, [f"kw{i}" for i in range(len(ids))])
+                    }
+                }
+            })
+
+        def make_batch(entries):
+            return json.dumps({
+                "count": len(entries),
+                "entries": {
+                    e["gnd_id"]: {"title": e["title"], "description": "", "synonyms": "", "ddcs": ""}
+                    for e in entries
+                }
+            })
+
+        _swb_ids = swb_ids or ["4006278-9"]
+        _lobid_ids = lobid_ids or ["4030351-5"]
+        _entries = batch_entries or [
+            {"gnd_id": "4006278-9", "title": "Bibliothek"},
+            {"gnd_id": "4030351-5", "title": "Katalog"},
+        ]
+
+        def execute(tool_name, args):
+            if tool_name == "search_swb":
+                return make_swb(_swb_ids)
+            if tool_name == "search_lobid":
+                return make_lobid(_lobid_ids)
+            if tool_name == "get_gnd_batch":
+                return make_batch(_entries)
+            return json.dumps({})
+
+        registry.execute.side_effect = execute
+        registry.get_tool_schemas.return_value = []
+        registry.get_tool_names.return_value = ["search_swb", "search_lobid", "get_gnd_batch"]
+        return registry
+
+    def _run_search_agent(self, registry=None) -> tuple:
         ctx = make_shared_context()
         ctx.extracted_keywords = ["Bibliothek", "Katalog"]
-        registry = make_mock_tool_registry()
+        reg = registry or self._make_registry_with_results()
         agent = SearchAgent(
             shared_context=ctx,
             llm_service=MagicMock(),
-            tool_registry=registry,
+            tool_registry=reg,
         )
-        mock_result = make_agent_result(response_content)
-        with patch("src.core.agents.sub_agents.base_sub_agent.AgentLoop") as MockLoop:
-            MockLoop.return_value.run.return_value = mock_result
-            result = agent.execute()
+        result = agent.execute()
         return result, ctx
 
     def test_search_agent_has_tools(self):
@@ -253,27 +306,85 @@ class TestSearchAgent(unittest.TestCase):
             tool_registry=make_mock_tool_registry(),
         )
         tools = agent.get_available_tools()
-        self.assertTrue(len(tools) > 0)
-        self.assertIn("search_gnd", tools)
+        self.assertIn("search_swb", tools)
+        self.assertIn("search_lobid", tools)
+        self.assertIn("get_gnd_batch", tools)
+
+    def test_no_llm_called(self):
+        """SearchAgent must not call the LLM at all."""
+        llm = MagicMock()
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Bibliothek"]
+        agent = SearchAgent(
+            shared_context=ctx,
+            llm_service=llm,
+            tool_registry=self._make_registry_with_results(),
+        )
+        agent.execute()
+        llm.generate_with_tools.assert_not_called()
+
+    def test_exactly_three_tool_calls(self):
+        """SearchAgent makes exactly 3 tool calls: swb, lobid, get_gnd_batch."""
+        result, ctx = self._run_search_agent()
+        self.assertEqual(result.tool_calls, 3)
+        self.assertEqual(result.iterations, 1)
 
     def test_gnd_entries_stored_in_context(self):
-        # LLMs typically wrap JSON in markdown blocks; _extract_json handles this
-        gnd_data = {
-            "gnd_entries": [
-                {"gnd_id": "4006278-9", "title": "Bibliothek", "ddc_codes": ["020"]},
-                {"gnd_id": "4030351-5", "title": "Katalog", "ddc_codes": ["025"]},
-            ],
-            "search_terms_used": ["Bibliothek"],
-            "coverage_assessment": "gut",
-        }
-        response = f"```json\n{json.dumps(gnd_data)}\n```"
-        result, ctx = self._run_search_agent(response)
+        result, ctx = self._run_search_agent()
         self.assertTrue(result.success)
         self.assertTrue(len(ctx.gnd_entries) >= 2)
 
-    def test_malformed_response_still_succeeds(self):
-        result, ctx = self._run_search_agent("Keine GND-Einträge gefunden.")
+    def test_deduplication_across_sources(self):
+        """Same GND ID from SWB and Lobid should appear only once in context."""
+        # Both sources return the same ID
+        registry = self._make_registry_with_results(
+            swb_ids=["4006278-9"],
+            lobid_ids=["4006278-9"],  # duplicate
+            batch_entries=[{"gnd_id": "4006278-9", "title": "Bibliothek"}],
+        )
+        result, ctx = self._run_search_agent(registry)
+        self.assertEqual(len(ctx.gnd_entries), 1)
+
+    def test_empty_keywords_returns_empty(self):
+        ctx = make_shared_context()
+        ctx.extracted_keywords = []
+        ctx.initial_keywords = []
+        agent = SearchAgent(
+            shared_context=ctx,
+            llm_service=MagicMock(),
+            tool_registry=self._make_registry_with_results(),
+        )
+        result = agent.execute()
         self.assertTrue(result.success)
+        self.assertEqual(result.data.get("gnd_entries", []), [])
+
+    def test_failed_swb_still_returns_lobid_results(self):
+        """If SWB fails, Lobid results are still collected."""
+        registry = MagicMock()
+        registry.get_tool_schemas.return_value = []
+        call_count = {"n": 0}
+
+        def execute(tool_name, args):
+            call_count["n"] += 1
+            if tool_name == "search_swb":
+                raise RuntimeError("SWB unavailable")
+            if tool_name == "search_lobid":
+                return json.dumps({"source": "lobid", "results": {
+                    "Bibliothek": {"Bibliothek": {"gndid": ["4006278-9"], "ddc": [], "count": 1}}
+                }})
+            if tool_name == "get_gnd_batch":
+                return json.dumps({"count": 1, "entries": {
+                    "4006278-9": {"title": "Bibliothek", "description": "", "synonyms": "", "ddcs": ""}
+                }})
+            return json.dumps({})
+
+        registry.execute.side_effect = execute
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Bibliothek"]
+        agent = SearchAgent(shared_context=ctx, llm_service=MagicMock(), tool_registry=registry)
+        result = agent.execute()
+        self.assertTrue(result.success)
+        self.assertEqual(len(ctx.gnd_entries), 1)
 
 
 class TestMetaAgentIntegration(unittest.TestCase):
