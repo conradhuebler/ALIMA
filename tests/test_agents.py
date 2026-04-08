@@ -655,5 +655,170 @@ class TestMetaAgentSingleStep(unittest.TestCase):
         self.assertEqual(ctx.model, "new_model")
 
 
+class TestMissingConceptLoop(unittest.TestCase):
+    """Tests for MetaAgent missing-concept feedback loop."""
+
+    def _make_agent_and_context(self):
+        """Return a MetaAgent with default workflow steps and a basic SharedContext."""
+        from src.core.agents.meta_agent import MetaAgent
+        agent = MetaAgent.__new__(MetaAgent)
+        agent.llm_service = MagicMock()
+        agent.config_manager = None
+        agent.stream_callback = None
+        agent.logger = __import__("logging").getLogger("test")
+        agent.tool_registry = MagicMock()
+        agent.tool_registry.register_all_tools = MagicMock()
+        agent.workflow_steps = agent._get_default_steps()
+
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Bibliothek"]
+        ctx.gnd_entries = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
+        ctx.selected_keywords = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
+        ctx.set_step_result("selection", {
+            "selected_keywords": [{"gnd_id": "4006278-9", "title": "Bibliothek"}],
+            "missing_concepts": ["UV-LED", "Dampfphasenepitaxie"],
+        })
+        return agent, ctx
+
+    def test_no_loop_when_disabled(self):
+        """Loop must not run when enable_missing_concept_search=False."""
+        from src.core.agents.meta_agent import MetaAgentConfig
+        agent, ctx = self._make_agent_and_context()
+        config = MetaAgentConfig(enable_missing_concept_search=False)
+        step_results = []
+
+        with patch.object(agent, "_execute_step") as mock_exec:
+            agent._run_missing_concept_loop(ctx, config, lambda t: None, step_results)
+
+        mock_exec.assert_not_called()
+        self.assertEqual(len(step_results), 0)
+
+    def test_no_loop_when_no_missing_concepts(self):
+        """Loop must not run when missing_concepts is empty."""
+        from src.core.agents.meta_agent import MetaAgentConfig
+        agent, ctx = self._make_agent_and_context()
+        # Overwrite with empty missing_concepts
+        ctx.set_step_result("selection", {
+            "selected_keywords": ctx.selected_keywords,
+            "missing_concepts": [],
+        })
+        config = MetaAgentConfig(enable_missing_concept_search=True, max_missing_concept_iterations=2)
+        step_results = []
+
+        with patch.object(agent, "_execute_step") as mock_exec:
+            agent._run_missing_concept_loop(ctx, config, lambda t: None, step_results)
+
+        mock_exec.assert_not_called()
+
+    def test_loop_runs_once_with_missing_concepts(self):
+        """One iteration: search + selection each called once."""
+        from src.core.agents.meta_agent import MetaAgentConfig, PipelineStepResult
+        agent, ctx = self._make_agent_and_context()
+        config = MetaAgentConfig(enable_missing_concept_search=True, max_missing_concept_iterations=1)
+        step_results = []
+
+        def fake_exec(step_name, agent_class, context, *args, **kwargs):
+            if step_name == "selection":
+                # After re-selection, no more missing concepts → loop stops
+                context.set_step_result("selection", {
+                    "selected_keywords": context.selected_keywords,
+                    "missing_concepts": [],
+                })
+            return PipelineStepResult(
+                step_name=step_name, agent_name="mock",
+                success=True, duration_seconds=0.1, data={}
+            )
+
+        with patch.object(agent, "_execute_step", side_effect=fake_exec) as mock_exec:
+            agent._run_missing_concept_loop(ctx, config, lambda t: None, step_results)
+
+        calls = [c.args[0] for c in mock_exec.call_args_list]
+        self.assertEqual(calls, ["search", "selection"])
+        self.assertEqual(len(step_results), 2)
+
+    def test_loop_respects_max_iterations(self):
+        """Loop runs at most max_missing_concept_iterations times."""
+        from src.core.agents.meta_agent import MetaAgentConfig, PipelineStepResult
+        agent, ctx = self._make_agent_and_context()
+        config = MetaAgentConfig(enable_missing_concept_search=True, max_missing_concept_iterations=2)
+        step_results = []
+
+        def fake_exec(step_name, agent_class, context, *args, **kwargs):
+            if step_name == "selection":
+                # Always report more missing concepts → would loop forever without the cap
+                context.set_step_result("selection", {
+                    "selected_keywords": [],
+                    "missing_concepts": ["NochEinBegriff"],
+                })
+            return PipelineStepResult(
+                step_name=step_name, agent_name="mock",
+                success=True, duration_seconds=0.1, data={}
+            )
+
+        with patch.object(agent, "_execute_step", side_effect=fake_exec):
+            agent._run_missing_concept_loop(ctx, config, lambda t: None, step_results)
+
+        # 2 iterations × (search + selection) = 4 calls
+        self.assertEqual(len(step_results), 4)
+
+    def test_missing_concepts_added_to_search_terms(self):
+        """SearchAgent includes missing_concepts in its search terms."""
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Bibliothek"]
+        ctx.missing_concepts = ["UV-LED", "Dampfphasenepitaxie"]
+
+        searched_terms = []
+
+        def execute(tool_name, args):
+            if tool_name in ("search_swb", "search_lobid"):
+                searched_terms.extend(args.get("terms", []))
+            return json.dumps({"source": tool_name, "results": {}})
+
+        registry = MagicMock()
+        registry.execute.side_effect = execute
+        registry.get_tool_schemas.return_value = []
+
+        # Patch get_gnd_batch to avoid error on empty IDs
+        def execute2(tool_name, args):
+            if tool_name in ("search_swb", "search_lobid"):
+                searched_terms.extend(args.get("terms", []))
+                return json.dumps({"source": tool_name, "results": {}})
+            if tool_name == "get_gnd_batch":
+                return json.dumps({"count": 0, "entries": {}})
+            return json.dumps({})
+
+        registry.execute.side_effect = execute2
+
+        agent = SearchAgent(
+            shared_context=ctx,
+            llm_service=MagicMock(),
+            tool_registry=registry,
+        )
+        agent.execute()
+
+        self.assertIn("UV-LED", searched_terms)
+        self.assertIn("Dampfphasenepitaxie", searched_terms)
+        self.assertIn("Bibliothek", searched_terms)
+
+    def test_missing_concepts_cleared_after_loop(self):
+        """context.missing_concepts is reset to [] after each loop iteration."""
+        from src.core.agents.meta_agent import MetaAgentConfig, PipelineStepResult
+        agent, ctx = self._make_agent_and_context()
+        config = MetaAgentConfig(enable_missing_concept_search=True, max_missing_concept_iterations=1)
+
+        def fake_exec(step_name, agent_class, context, *args, **kwargs):
+            if step_name == "selection":
+                context.set_step_result("selection", {"selected_keywords": [], "missing_concepts": []})
+            return PipelineStepResult(
+                step_name=step_name, agent_name="mock",
+                success=True, duration_seconds=0.0, data={}
+            )
+
+        with patch.object(agent, "_execute_step", side_effect=fake_exec):
+            agent._run_missing_concept_loop(ctx, config, lambda t: None, [])
+
+        self.assertEqual(ctx.missing_concepts, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -58,7 +58,9 @@ class SearchAgent(BaseSubAgent):
         Calls search_swb and search_lobid with all keywords at once,
         collects unique GND IDs, then fetches full entries via get_gnd_batch.
         """
-        keywords = self.context.extracted_keywords or self.context.initial_keywords
+        # Base keywords + any missing concepts from a previous selection round
+        base = self.context.extracted_keywords or self.context.initial_keywords
+        keywords = list(dict.fromkeys(base + self.context.missing_concepts))
         if not keywords:
             logger.warning("SearchAgent: no keywords in context, skipping search")
             return SubAgentResult(success=True, data={"gnd_entries": []})

@@ -133,6 +133,7 @@ class SharedContext:
     extracted_keywords: List[str] = field(default_factory=list)
     gnd_entries: List[Dict] = field(default_factory=list)
     selected_keywords: List[Dict] = field(default_factory=list)
+    missing_concepts: List[str] = field(default_factory=list)  # From selection, drives feedback loop
     dk_classifications: List[Dict] = field(default_factory=list)
 
     def get_step_result(self, step_name: str) -> Optional[Dict]:
@@ -259,6 +260,7 @@ class SharedContext:
             "extracted_keywords": self.extracted_keywords,
             "gnd_entries": self.gnd_entries,
             "selected_keywords": self.selected_keywords,
+            "missing_concepts": self.missing_concepts,
             "dk_classifications": self.dk_classifications,
             "step_results": self.step_results,
             "quality_scores": self.quality_scores,
@@ -290,6 +292,7 @@ class SharedContext:
         ctx.extracted_keywords = data.get("extracted_keywords", [])
         ctx.gnd_entries = data.get("gnd_entries", [])
         ctx.selected_keywords = data.get("selected_keywords", [])
+        ctx.missing_concepts = data.get("missing_concepts", [])
         ctx.dk_classifications = data.get("dk_classifications", [])
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})

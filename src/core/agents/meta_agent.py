@@ -53,6 +53,8 @@ class MetaAgentConfig:
     enable_classification: bool = True
     skip_search_if_cached: bool = True
     workflow_name: str = "meta_agent_default"  # Name of workflow YAML to load
+    enable_missing_concept_search: bool = True  # Re-search missing concepts after selection
+    max_missing_concept_iterations: int = 1     # Max feedback rounds (prevents infinite loop)
 
 
 @dataclass
@@ -306,6 +308,10 @@ class MetaAgent:
                 self.logger.error(f"Pipeline step {step_name} failed: {step_result.error}")
                 # Continue with next step if possible
 
+        # After selection: optional missing-concept feedback loop (full pipeline only)
+        if step_id is None and config.enable_missing_concept_search:
+            self._run_missing_concept_loop(context, config, step_stream, step_results)
+
         duration = time.time() - start_time
         self.logger.info(f"MetaAgent {mode_label} completed in {duration:.1f}s")
         self._stream(f"\n{'='*50}\n✅ {mode_label} abgeschlossen ({duration:.1f}s)\n{'='*50}\n", "workflow")
@@ -318,6 +324,72 @@ class MetaAgent:
         )
 
         return context.to_keyword_analysis_state()
+
+    def _run_missing_concept_loop(
+        self,
+        context: SharedContext,
+        config: MetaAgentConfig,
+        step_stream: Callable[[str], None],
+        step_results: List[PipelineStepResult],
+    ) -> None:
+        """Re-search and re-select for concepts missing from the GND pool.
+
+        Runs at most config.max_missing_concept_iterations rounds.  Each round:
+          1. Searches for the missing concepts (added to context.gnd_entries)
+          2. Re-runs selection with the expanded GND pool
+        Stops early if selection reports no more missing concepts.
+
+        Args:
+            context: Shared context (mutated in-place)
+            config: MetaAgent configuration
+            step_stream: Stream callback adapter
+            step_results: Accumulator for PipelineStepResult objects
+        """
+        if not config.enable_missing_concept_search:
+            return
+
+        search_cfg = next((s for s in self.workflow_steps if s.id == "search"), None)
+        sel_cfg = next((s for s in self.workflow_steps if s.id == "selection"), None)
+        if not search_cfg or not sel_cfg:
+            return
+
+        selection_result = context.get_step_result("selection")
+        if not selection_result:
+            return
+
+        for iteration in range(config.max_missing_concept_iterations):
+            missing = [m for m in selection_result.get("missing_concepts", []) if m]
+            if not missing:
+                break
+
+            self.logger.info(f"Missing-concept loop {iteration + 1}: {missing}")
+            self._stream(
+                f"\n🔄 Nachsuche Runde {iteration + 1}: "
+                f"{len(missing)} fehlende Konzepte: {', '.join(missing[:5])}"
+                f"{'...' if len(missing) > 5 else ''}\n",
+                "workflow",
+            )
+
+            # Write missing concepts into context so SearchAgent includes them
+            context.missing_concepts = missing
+
+            # Re-run search (deterministic: reads extracted_keywords + missing_concepts)
+            r = self._execute_step(
+                "search", search_cfg.agent_class, context, step_stream,
+                search_cfg.custom_system_prompt, search_cfg.custom_user_prompt,
+            )
+            step_results.append(r)
+
+            # Re-run selection with the expanded GND pool
+            r = self._execute_step(
+                "selection", sel_cfg.agent_class, context, step_stream,
+                sel_cfg.custom_system_prompt, sel_cfg.custom_user_prompt,
+            )
+            step_results.append(r)
+            selection_result = context.get_step_result("selection") or {}
+
+            # Clear so next search round starts clean
+            context.missing_concepts = []
 
     def _validate_dependencies(self, step_id: str, context: SharedContext) -> None:
         """Validate that required preceding data is present for a single-step run.

@@ -89,6 +89,10 @@ class PipelineConfig:
     agentic_step_id: Optional[str] = None         # If set, run only this step
     agentic_input_context_path: Optional[str] = None  # JSON file to load as warm-start context
 
+    # Missing-concept feedback loop - Claude Generated
+    agentic_missing_concept_search: bool = True   # Re-search after selection if concepts missing
+    agentic_missing_concept_iterations: int = 1   # Max feedback rounds (prevents infinite loop)
+
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
 
@@ -620,6 +624,8 @@ class PipelineManager:
             quality_threshold=self.config.agentic_quality_threshold or 0.6,
             enable_classification="dk_classification" in self.config.step_configs
                 and self.config.step_configs["dk_classification"].enabled,
+            enable_missing_concept_search=self.config.agentic_missing_concept_search,
+            max_missing_concept_iterations=self.config.agentic_missing_concept_iterations,
         )
 
         try:
