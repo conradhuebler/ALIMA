@@ -77,12 +77,30 @@ class TestSharedContext(unittest.TestCase):
         ctx.working_title = "Autor_Thema_2024"
         ctx.extracted_keywords = ["Bibliothek", "Katalog"]
         ctx.selected_keywords = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
+        ctx.gnd_entries = [
+            {"title": "Bibliothek", "gnd_id": "4006278-9", "gnd_ids": ["4006278-9"], "ddc_codes": ["020"], "count": 5},
+            {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"], "ddc_codes": ["025.3"], "count": 3},
+        ]
         ctx.dk_classifications = [{"code": "02", "title": "Bibliothekswesen", "confidence": 0.9}]
+        ctx.keyword_chains = [
+            {"chain": ["Bibliothek", "Katalog"], "reason": "Verwandte Begriffe"},
+        ]
+        ctx.rvk_classifications = [{"code": "AN", "title": "Bibliothekswesen", "confidence": 0.8}]
 
         state = ctx.to_keyword_analysis_state()
         self.assertEqual(state.original_abstract, ctx.abstract)
         self.assertEqual(state.working_title, "Autor_Thema_2024")
         self.assertEqual(state.dk_classifications, ["02"])
+        # search_results should include gnd_entries data
+        self.assertTrue(len(state.search_results) > 0)
+        # initial_gnd_classes should contain DDC codes
+        self.assertIn("020", state.initial_gnd_classes)
+        # dk_search_results_flattened should have entries
+        self.assertTrue(len(state.dk_search_results_flattened) > 0)
+        # rvk_provenance should be populated
+        self.assertIn("AN", state.rvk_provenance)
+        # final_llm_analysis should contain Schlagwortketten
+        self.assertIn("Schlagwortketten", state.final_llm_analysis.response_full_text)
 
     def test_get_summary_returns_correct_counts(self):
         ctx = make_shared_context()
@@ -499,7 +517,9 @@ class TestSharedContextSerialization(unittest.TestCase):
         ctx.extracted_keywords = ["Bibliothek", "Katalog", "GND"]
         ctx.gnd_entries = [{"gnd_id": "4006278-9", "title": "Bibliothek", "ddc_codes": ["020"]}]
         ctx.selected_keywords = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
+        ctx.keyword_chains = [{"chain": ["Bibliothek", "Katalog"], "reason": "Verwandt"}]
         ctx.dk_classifications = [{"code": "02", "title": "Bibliothekswesen", "confidence": 0.9}]
+        ctx.rvk_classifications = [{"code": "AN", "title": "Bibliothekswesen", "confidence": 0.8}]
         ctx.set_step_result("extraction", {"keywords": ["Bibliothek"]}, quality=0.8)
         return ctx
 

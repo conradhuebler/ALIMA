@@ -134,8 +134,11 @@ class SharedContext:
     extracted_keywords: List[str] = field(default_factory=list)
     gnd_entries: List[Dict] = field(default_factory=list)
     selected_keywords: List[Dict] = field(default_factory=list)
+    keyword_chains: List[Dict] = field(default_factory=list)  # Schlagwortketten: [{chain: [...], reason: "..."}]
     missing_concepts: List[str] = field(default_factory=list)  # From selection, drives feedback loop
     dk_classifications: List[Dict] = field(default_factory=list)
+    rvk_classifications: List[Dict] = field(default_factory=list)  # RVK classifications from classification step
+    dk_search_results: List[Dict] = field(default_factory=list)  # DK catalog search results
 
     def get_step_result(self, step_name: str) -> Optional[Dict]:
         """Get result from a specific pipeline step.
@@ -184,6 +187,10 @@ class SharedContext:
     def to_keyword_analysis_state(self):
         """Convert SharedContext to KeywordAnalysisState for output compatibility.
 
+        Produces a state that is fully compatible with the hardcoded pipeline's
+        KeywordAnalysisState, including search_results, Schlagwortketten,
+        DK classifications with statistics, and RVK provenance.
+
         Returns:
             KeywordAnalysisState with all gathered data
         """
@@ -196,6 +203,15 @@ class SharedContext:
 
         # --- DK codes as plain strings ---
         dk_codes = [cls.get("code", "") for cls in self.dk_classifications if cls.get("code")]
+
+        # --- initial GND classes from entries with DDC codes ---
+        initial_gnd_classes = []
+        seen_ddc = set()
+        for entry in self.gnd_entries:
+            for ddc in entry.get("ddc_codes", []):
+                if ddc and ddc not in seen_ddc:
+                    seen_ddc.add(ddc)
+                    initial_gnd_classes.append(ddc)
 
         # --- dk_search_results_flattened: [{dk, classification_type, titles, count, reasoning}] ---
         dk_search_results_flattened = []
@@ -212,24 +228,58 @@ class SharedContext:
                     "reasoning": reason,
                 })
 
-        # --- search_results: GUI expects {title → {gndid: [gnd_id], ...}} format ---
-        # Use selected_keywords (GND-verified subset), not raw gnd_entries
-        selected_results: Dict[str, Dict] = {}
-        for kw in self.selected_keywords:
-            title = kw.get("title", "")
-            gnd_id = kw.get("gnd_id", "")
-            if title:
-                selected_results[title] = {
-                    "gndid": [gnd_id] if gnd_id else [],
-                    "ddc_codes": kw.get("ddc_codes", []),
-                }
+        # --- DK statistics ---
+        dk_statistics = None
+        if dk_search_results_flattened:
+            from collections import Counter
+            dk_counter = Counter(r["dk"] for r in dk_search_results_flattened)
+            total = sum(dk_counter.values())
+            unique = len(dk_counter)
+            top_10 = [
+                {"dk": dk, "count": cnt, "percentage": round(cnt / total * 100, 1) if total else 0}
+                for dk, cnt in dk_counter.most_common(10)
+            ]
+            dk_statistics = {
+                "total_classifications": total,
+                "unique_dk_codes": unique,
+                "deduplication_ratio": round(unique / total, 2) if total else 0,
+                "top_10": top_10,
+            }
+
+        # --- search_results: GUI expects {title → {gndid: [gnd_id], ddc_codes: [...]}} format ---
+        # Build from gnd_entries for full coverage (not just selected_keywords)
+        # so the SearchTab can display all results
+        search_results_dict: Dict[str, Dict] = {}
+        for entry in self.gnd_entries:
+            title = entry.get("title", "")
+            if not title:
+                continue
+            gnd_ids = entry.get("gnd_ids", [])
+            primary_gnd_id = entry.get("gnd_id", "")
+            all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
+            search_results_dict[title] = {
+                "gndid": all_gnd_ids,
+                "ddc_codes": entry.get("ddc_codes", []),
+            }
         # One SearchResult per extracted keyword (search_term = original search term)
         search_results = []
         for ekw in (self.extracted_keywords or ["meta_agent"]):
             search_results.append(SearchResult(
                 search_term=ekw,
-                results=selected_results,
+                results=search_results_dict,
             ))
+
+        # --- Build Schlagwortketten text for final_llm_analysis ---
+        chain_lines = []
+        for chain_data in self.keyword_chains:
+            chain_terms = chain_data.get("chain", [])
+            reason = chain_data.get("reason", "")
+            chain_str = " → ".join(chain_terms) if chain_terms else ""
+            if chain_str:
+                line = f"  {chain_str}"
+                if reason:
+                    line += f" ({reason})"
+                chain_lines.append(line)
 
         # --- initial_llm_call_details: extraction step → abstract_tab ---
         extraction_result = self.step_results.get("extraction", {})
@@ -251,6 +301,9 @@ class SharedContext:
             f"- {kw.get('title', kw.get('gnd_id', ''))} (GND-ID: {kw.get('gnd_id', '')})"
             for kw in self.selected_keywords
         )
+        response_parts = [f"Ausgewählte GND-Schlagworte ({len(self.selected_keywords)}):\n{kw_lines}"]
+        if chain_lines:
+            response_parts.append(f"\nSchlagwortketten ({len(self.keyword_chains)}):\n" + "\n".join(chain_lines))
         final_analysis = LlmKeywordAnalysis(
             task_name="keywords",
             model_used=self.model,
@@ -259,11 +312,9 @@ class SharedContext:
             filled_prompt="",
             temperature=self.temperature,
             seed=None,
-            response_full_text=(
-                f"Ausgewählte GND-Schlagworte ({len(self.selected_keywords)}):\n"
-                f"{kw_lines}\n"
-            ),
+            response_full_text="\n".join(response_parts),
             extracted_gnd_keywords=kw_titles,
+            missing_concepts=self.missing_concepts,
         )
 
         # --- dk_llm_analysis: classification step → dk_analysis_tab ---
@@ -283,6 +334,18 @@ class SharedContext:
             extracted_gnd_classes=dk_codes,
         ) if dk_text else None
 
+        # --- RVK provenance ---
+        rvk_provenance = {}
+        if self.rvk_classifications:
+            for rvk in self.rvk_classifications:
+                code = rvk.get("code", "")
+                if code:
+                    rvk_provenance[code] = {
+                        "source": "agentic_classification",
+                        "confidence": rvk.get("confidence", 0),
+                        "title": rvk.get("title", ""),
+                    }
+
         state = KeywordAnalysisState(
             original_abstract=self.abstract,
             initial_keywords=self.extracted_keywords or self.initial_keywords,
@@ -290,6 +353,7 @@ class SharedContext:
             working_title=self.working_title,
             input_type=self.input_type,
             source_value=self.source_value,
+            initial_gnd_classes=initial_gnd_classes,
             initial_llm_call_details=initial_analysis,
             final_llm_analysis=final_analysis,
             dk_llm_analysis=dk_analysis,
@@ -297,6 +361,10 @@ class SharedContext:
             dk_classifications=dk_codes,
         )
         state.dk_search_results_flattened = dk_search_results_flattened
+        state.dk_search_results = self.dk_search_results
+        state.dk_statistics = dk_statistics
+        if rvk_provenance:
+            state.rvk_provenance = rvk_provenance
         return state
 
     def to_dict(self) -> Dict[str, Any]:
@@ -320,8 +388,11 @@ class SharedContext:
             "extracted_keywords": self.extracted_keywords,
             "gnd_entries": self.gnd_entries,
             "selected_keywords": self.selected_keywords,
+            "keyword_chains": self.keyword_chains,
             "missing_concepts": self.missing_concepts,
             "dk_classifications": self.dk_classifications,
+            "rvk_classifications": self.rvk_classifications,
+            "dk_search_results": self.dk_search_results,
             "step_results": self.step_results,
             "quality_scores": self.quality_scores,
         }
@@ -352,8 +423,11 @@ class SharedContext:
         ctx.extracted_keywords = data.get("extracted_keywords", [])
         ctx.gnd_entries = data.get("gnd_entries", [])
         ctx.selected_keywords = data.get("selected_keywords", [])
+        ctx.keyword_chains = data.get("keyword_chains", [])
         ctx.missing_concepts = data.get("missing_concepts", [])
         ctx.dk_classifications = data.get("dk_classifications", [])
+        ctx.rvk_classifications = data.get("rvk_classifications", [])
+        ctx.dk_search_results = data.get("dk_search_results", [])
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})
         return ctx

@@ -342,6 +342,9 @@ class MetaAgent:
           2. Re-runs selection with the expanded GND pool
         Stops early if selection reports no more missing concepts.
 
+        Skips the loop entirely if all missing concepts are already in the
+        extracted keywords (re-searching won't find new results).
+
         Args:
             context: Shared context (mutated in-place)
             config: MetaAgent configuration
@@ -363,6 +366,20 @@ class MetaAgent:
         for iteration in range(config.max_missing_concept_iterations):
             missing = [m for m in selection_result.get("missing_concepts", []) if m]
             if not missing:
+                break
+
+            # Check if all missing concepts are already covered by extracted keywords
+            # (re-searching won't find new results in that case)
+            extracted_lower = {kw.lower() for kw in (context.extracted_keywords or [])}
+            truly_missing = [m for m in missing if m.lower() not in extracted_lower]
+            if not truly_missing:
+                self.logger.info(
+                    f"Missing-concept loop: all {len(missing)} concepts already in extracted keywords, skipping re-search"
+                )
+                self._stream(
+                    f"ℹ️ {len(missing)} fehlende Konzepte bereits in extrahierten Keywords, Nachsuche übersprungen\n",
+                    "workflow",
+                )
                 break
 
             self.logger.info(f"Missing-concept loop {iteration + 1}: {missing}")

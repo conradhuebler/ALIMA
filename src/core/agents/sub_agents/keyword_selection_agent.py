@@ -1,18 +1,19 @@
 """Keyword Selection SubAgent - Claude Generated
 
 Selects relevant GND keywords from the search pool using a chunked
-quick-choice approach — mirroring the normal pipeline strategy.
+quick-choice approach, then builds Schlagwortketten for specificity.
 
 Strategy:
   1. Sort context.gnd_entries by catalog frequency (count) descending
   2. Split into chunks of chunk_size entries
   3. For each chunk: ask LLM to pick relevant entries (compact flat-list format)
   4. Parse <final_list> tags from each response
-  5. Deduplicate and store as context.selected_keywords
-  6. Identify missing_concepts: extracted_keywords not covered by any result
+  5. After all chunks: request Schlagwortketten from selected keywords
+  6. Deduplicate and store as context.selected_keywords + context.keyword_chains
+  7. Identify missing_concepts: extracted_keywords not covered by any result
 
-No AgentLoop / tool-calling needed — this step is fully deterministic in
-structure (same logic regardless of content), same as SearchAgent.
+No AgentLoop / tool-calling needed for chunk selection (deterministic structure).
+Schlagwortketten use one additional LLM call after all chunks complete.
 """
 
 import json
@@ -50,8 +51,8 @@ class KeywordSelectionAgent(BaseSubAgent):
     """Select relevant GND keywords from pool using chunked quick-choice.
 
     Processes the full GND pool in sorted chunks (by catalog frequency),
-    matching the behaviour of the normal pipeline's keyword selection step.
-    No tool-calling — deterministic chunked LLM calls.
+    then builds Schlagwortketten for specificity.
+    No tool-calling for chunk selection — deterministic chunked LLM calls.
     """
 
     @property
@@ -62,7 +63,7 @@ class KeywordSelectionAgent(BaseSubAgent):
     def agent_id(self) -> str:
         return "selection"
 
-    # ── Required abstract stubs (not used — execute() is overridden) ──
+    # -- Required abstract stubs (not used -- execute() is overridden) --
 
     def get_system_prompt(self) -> str:
         return SYSTEM_PROMPT
@@ -77,15 +78,16 @@ class KeywordSelectionAgent(BaseSubAgent):
     def parse_result(self, llm_output: str) -> Dict[str, Any]:
         return {}
 
-    # ── Core: chunked deterministic execution ──
+    # -- Core: chunked deterministic execution --
 
     def execute(self) -> SubAgentResult:
-        """Process GND pool in sorted chunks, pick relevant keywords per chunk."""
+        """Process GND pool in sorted chunks, pick relevant keywords per chunk,
+        then build Schlagwortketten from the selection."""
         if not self.context.gnd_entries:
             logger.warning("KeywordSelectionAgent: no GND entries in context")
             return SubAgentResult(
                 success=True,
-                data={"selected_keywords": [], "missing_concepts": [], "reasoning": "No GND pool available"},
+                data={"selected_keywords": [], "keyword_chains": [], "missing_concepts": [], "reasoning": "No GND pool available"},
             )
 
         abstract = self.context.abstract
@@ -95,11 +97,11 @@ class KeywordSelectionAgent(BaseSubAgent):
 
         if self.stream_callback:
             self.stream_callback(
-                f"\n{'='*50}\n🤖 {self.agent_name}\n{'='*50}\n"
-                f"📚 {len(self.context.gnd_entries)} GND-Einträge → Chunk-Selektion\n"
+                f"\n{'='*50}\n\U0001f916 {self.agent_name}\n{'='*50}\n"
+                f"\U0001f4da {len(self.context.gnd_entries)} GND-Eintr\u00e4ge \u2192 Chunk-Selektion\n"
             )
 
-        # Sort by catalog frequency (count) descending — quick-choice: most relevant first
+        # Sort by catalog frequency (count) descending -- quick-choice: most relevant first
         sorted_entries = sorted(
             self.context.gnd_entries,
             key=lambda e: e.get("count", 0),
@@ -134,25 +136,39 @@ class KeywordSelectionAgent(BaseSubAgent):
         selected_list = list(selected.values())
 
         if self.stream_callback:
-            self.stream_callback(f"✅ Gesamt: {len(selected_list)} GND-Schlagworte ausgewählt\n")
+            self.stream_callback(f"\u2705 Gesamt: {len(selected_list)} GND-Schlagworte ausgew\u00e4hlt\n")
 
-        # Identify missing_concepts: extracted_keywords not represented in selected
+        # Build Schlagwortketten from selected keywords
+        keyword_chains: List[Dict] = []
+        if selected_list:
+            keyword_chains = self._build_keyword_chains(
+                selected_keywords=selected_list,
+                abstract=abstract,
+            )
+            if keyword_chains and self.stream_callback:
+                self.stream_callback(
+                    f"\U0001f517 {len(keyword_chains)} Schlagwortkette{'n' if len(keyword_chains) != 1 else ''} erstellt\n"
+                )
+
+        # Identify missing_concepts: extracted keywords not represented in selected
         missing = self._find_missing_concepts(
             extracted=self.context.extracted_keywords,
             selected_titles={v["title"].lower() for v in selected.values()},
         )
         if missing and self.stream_callback:
-            self.stream_callback(f"❓ {len(missing)} fehlende Konzepte: {', '.join(missing[:5])}"
+            self.stream_callback(f"\u2753 {len(missing)} fehlende Konzepte: {', '.join(missing[:5])}"
                                  f"{'...' if len(missing) > 5 else ''}\n")
 
         # Update shared context
         self.context.selected_keywords = selected_list
+        self.context.keyword_chains = keyword_chains
         self.context.missing_concepts = missing
 
         result_data = {
             "selected_keywords": selected_list,
+            "keyword_chains": keyword_chains,
             "missing_concepts": missing,
-            "reasoning": f"Chunked selection: {total_chunks} Chunks, {len(selected_list)} Schlagworte",
+            "reasoning": f"Chunked selection: {total_chunks} Chunks, {len(selected_list)} Schlagworte, {len(keyword_chains)} Ketten",
         }
         self.context.set_step_result(self.agent_id, result_data, quality=1.0)
 
@@ -163,6 +179,131 @@ class KeywordSelectionAgent(BaseSubAgent):
             iterations=total_chunks,
             tool_calls=llm_calls,
         )
+
+    def _build_keyword_chains(
+        self,
+        selected_keywords: List[Dict[str, str]],
+        abstract: str,
+    ) -> List[Dict]:
+        """Ask LLM to compose Schlagwortketten from selected keywords.
+
+        Schlagwortketten are compound subject headings combining multiple
+        GND terms into chains for specificity, matching the normal pipeline's
+        ``extract_keyword_chains_from_response()`` format.
+
+        Returns:
+            List of {"chain": [...], "reason": "..."} dicts.
+        """
+        if not selected_keywords or len(selected_keywords) < 2:
+            return []
+
+        kw_lines = "\n".join(
+            f"- {kw.get('title', '')} (GND-ID: {kw.get('gnd_id', '')})"
+            for kw in selected_keywords[:60]  # Limit to avoid token overflow
+        )
+
+        chain_prompt = (
+            f"Abstract:\n{abstract[:2000]}\n\n"
+            f"Ausgew\u00e4hlte GND-Schlagworte:\n{kw_lines}\n\n"
+            "Bilde **Schlagwortketten** (Verkn\u00fcpfungen verwandter Begriffe f\u00fcr Spezifit\u00e4t).\n"
+            "Regeln:\n"
+            "- Jede Kette verbindet 2-5 verwandte Begriffe mit \u2192\n"
+            "- Begriffe stammen **nur** aus der obigen Liste\n"
+            "- Jede Kette hat eine kurze Begr\u00fcndung\n\n"
+            "Ausgabeformat:\n"
+            "<schlagwortketten>\n"
+            "Begriff1 \u2192 Begriff2 \u2192 Begriff3 (Begr\u00fcndung)\n"
+            "Begriff4 \u2192 Begriff5 (Begr\u00fcndung)\n"
+            "</schlagwortketten>\n"
+        )
+
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": chain_prompt},
+        ]
+
+        if self.context.verbose:
+            self._log_prompt_verbose(SYSTEM_PROMPT, chain_prompt, label="Schlagwortketten")
+
+        try:
+            tokens: List[str] = []
+
+            def _collect(token: str) -> None:
+                tokens.append(token)
+
+            response = self.llm_service.generate_with_tools(
+                provider=self.context.provider,
+                model=self.context.model,
+                messages=messages,
+                tools=[],  # No tools -- plain text response
+                temperature=self.context.temperature,
+                max_tokens=min(self.context.max_tokens, 1024),
+                stream_callback=_collect,
+            )
+
+            raw = response.content if response else "".join(tokens)
+
+        except Exception as e:
+            logger.warning(f"KeywordSelectionAgent: Schlagwortketten LLM call failed: {e}")
+            return []
+
+        return self._parse_schlagwortketten(raw, selected_keywords)
+
+    def _parse_schlagwortketten(
+        self,
+        llm_output: str,
+        selected_keywords: List[Dict[str, str]],
+    ) -> List[Dict]:
+        """Parse <schlagwortketten> tags from LLM output.
+
+        Each line inside the tag has the format:
+            Begriff1 -> Begriff2 -> Begriff3 (Begrundung)
+
+        Returns:
+            List of {"chain": [...], "reason": "..."} dicts matching
+            the format used by extract_keyword_chains_from_response().
+        """
+        chains: List[Dict] = []
+
+        # Try to find <schlagwortketten> or <keyword_chains> tag
+        match = re.search(
+            r'<(?:schlagwortketten|keyword_chains)>(.*?)</(?:schlagwortketten|keyword_chains)>',
+            llm_output, re.DOTALL | re.IGNORECASE
+        )
+        if match:
+            content = match.group(1).strip()
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line or '→' not in line and '->' not in line:
+                    continue
+                # Normalize arrow
+                line = line.replace('->', '→')
+                # Split chain and reason
+                reason = ""
+                if '(' in line and ')' in line:
+                    paren_start = line.rfind('(')
+                    paren_end = line.rfind(')')
+                    if paren_end > paren_start:
+                        reason = line[paren_start + 1:paren_end].strip()
+                        line = line[:paren_start].strip()
+                # Split by arrow
+                parts = [p.strip() for p in line.split('→') if p.strip()]
+                if len(parts) >= 2:
+                    chains.append({"chain": parts, "reason": reason})
+
+        # Fallback: try JSON format
+        if not chains:
+            try:
+                from src.core.json_response_parser import parse_json_response
+                data = parse_json_response(llm_output)
+                if data and "keyword_chains" in data:
+                    for c in data["keyword_chains"]:
+                        if isinstance(c, dict) and "chain" in c:
+                            chains.append(c)
+            except Exception:
+                pass
+
+        return chains
 
     def _process_chunk(
         self,
@@ -185,13 +326,16 @@ class KeywordSelectionAgent(BaseSubAgent):
 
         user_prompt = (
             f"Abstract:\n{abstract[:3000]}\n\n"
-            "**Kriterien für Relevanz:**\n"
-            "- **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erwähnt oder **thematisch eng verknüpft** sein.\n"
-            "- **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** für das Verständnis des Abstracts sind.\n"
-            "- **Keine Allgemeinplätze**: Schlagworte wie \"Wissenschaft\", \"Technologie\" oder \"Gesellschaft\" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begründet werden.\n\n"
+            "**Kriterien f\u00fcr Relevanz:**\n"
+            "- **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erw\u00e4hnt oder **thematisch eng verkn\u00fcpft** sein.\n"
+            "- **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** f\u00fcr das Verst\u00e4ndnis des Abstracts sind.\n"
+            "- **Keine Allgemeinpl\u00e4tze**: Schlagworte wie \"Wissenschaft\", \"Technologie\" oder \"Gesellschaft\" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begr\u00fcndet werden.\n\n"
             f"Zur Auswahl stehende GND-Schlagworte (Chunk {chunk_idx}/{total_chunks}):\n{kw_lines}\n\n"
-            "Bitte gib deine Antwort in folgendem Format (nur relevante Schlagworte, kommasepariert):\n"
-            "<final_list>Schlagwort (GND-ID: X), Schlagwort (GND-ID: Y)</final_list>"
+            "W\u00e4hle die relevanten Schlagworte aus und gib sie in EINES dieser Formate:\n"
+            "1. XML-Tags: <final_list>Schlagwort (GND-ID: X), Schlagwort (GND-ID: Y)</final_list>\n"
+            "2. Komma-separiert: Schlagwort (GND-ID: X), Schlagwort (GND-ID: Y)\n"
+            "3. Als Liste:\n- Schlagwort (GND-ID: X)\n- Schlagwort (GND-ID: Y)\n\n"
+            "WICHTIG: Verwende **nur** Schlagworte aus der obigen Liste und gib die GND-ID mit an."
         )
 
         messages = [
@@ -216,7 +360,7 @@ class KeywordSelectionAgent(BaseSubAgent):
                 provider=self.context.provider,
                 model=self.context.model,
                 messages=messages,
-                tools=[],  # No tools — force plain text response
+                tools=[],  # No tools -- force plain text response
                 temperature=self.context.temperature,
                 max_tokens=self.context.max_tokens,
                 stream_callback=_collect,
@@ -230,8 +374,8 @@ class KeywordSelectionAgent(BaseSubAgent):
 
         if self.stream_callback:
             self.stream_callback(
-                f"  🔄 Chunk {chunk_idx}/{total_chunks}: "
-                f"{len(chunk)} Schlagworte → {len(chunk_selected)} ausgewählt\n"
+                f"  \U0001f504 Chunk {chunk_idx}/{total_chunks}: "
+                f"{len(chunk)} Schlagworte \u2192 {len(chunk_selected)} ausgew\u00e4hlt\n"
             )
 
         return chunk_selected
@@ -241,71 +385,103 @@ class KeywordSelectionAgent(BaseSubAgent):
         llm_output: str,
         chunk: List[Dict[str, Any]],
     ) -> List[Dict[str, str]]:
-        """Parse <final_list>...</final_list> from LLM output.
+        """Parse selected keywords from LLM output with robust fallbacks.
 
-        Builds a title→gnd_id lookup from the chunk so we can resolve IDs.
+        Strategy (in order):
+        1. <final_list> tag extraction (case-insensitive)
+        2. GND-ID pattern extraction across entire response
+        3. Substring match of chunk titles in response text
+
         Returns list of {gnd_id, title} for each matched entry.
         """
-        # Build lookup: title_lower → {gnd_id, title}
+        # Build lookup: title_lower -> {gnd_id, title}
         title_lookup: Dict[str, Dict[str, str]] = {}
+        gnd_id_lookup: Dict[str, Dict[str, str]] = {}
         for entry in chunk:
             title = entry.get("title", "")
+            gnd_id = entry.get("gnd_id", "")
             if title:
                 title_lookup[title.lower()] = {
-                    "gnd_id": entry.get("gnd_id", ""),
+                    "gnd_id": gnd_id,
+                    "title": title,
+                }
+            if gnd_id:
+                gnd_id_lookup[gnd_id] = {
+                    "gnd_id": gnd_id,
                     "title": title,
                 }
 
-        # Extract <final_list> content
-        match = re.search(r"<final_list>(.*?)</final_list>", llm_output, re.DOTALL)
-        if not match:
-            logger.debug("KeywordSelectionAgent: no <final_list> tag found in chunk response")
-            return []
-
-        raw_list = match.group(1).strip()
         results: List[Dict[str, str]] = []
         seen: Set[str] = set()
 
-        for item in raw_list.split(","):
-            item = item.strip()
-            if not item:
-                continue
+        def _add(title_key: str, gnd_id: str, title: str) -> None:
+            key = title_key.lower()
+            if key not in seen:
+                seen.add(key)
+                results.append({"gnd_id": gnd_id, "title": title})
 
-            # Try to parse "Title (GND-ID: XXXX)" format first
-            id_match = re.search(r"\(GND-ID:\s*([^\)]+)\)", item)
-            if id_match:
-                gnd_id = id_match.group(1).strip()
-                title_part = item[:item.rfind("(")].strip()
-            else:
-                # Fallback: try "Title (XXXX)" or just "Title"
-                paren_match = re.search(r"\(([^\)]+)\)", item)
-                if paren_match:
-                    gnd_id = paren_match.group(1).strip()
+        # -- Strategy 1: <final_list> tag extraction --
+        match = re.search(r"<final_list>(.*?)</final_list>", llm_output, re.DOTALL | re.IGNORECASE)
+        if match:
+            raw_list = match.group(1).strip()
+            # Support comma, pipe, and semicolon separators
+            items = re.split(r'[,\|;]\s*', raw_list)
+            for item in items:
+                item = item.strip()
+                if not item:
+                    continue
+                # Remove numbering like "1.", "2)", etc.
+                item = re.sub(r'^\d+[\.\)]\s*', '', item).strip()
+                # Try "Title (GND-ID: XXXX)" format
+                id_match = re.search(r'\(GND-ID:\s*([^\)]+)\)', item, re.IGNORECASE)
+                if id_match:
+                    gnd_id = id_match.group(1).strip()
                     title_part = item[:item.rfind("(")].strip()
                 else:
-                    gnd_id = ""
-                    title_part = item
+                    # Try generic parenthetical "Title (XXXX-XX)"
+                    paren_match = re.search(r'\(([0-9X-]+[0-9X])\)', item)
+                    if paren_match:
+                        gnd_id = paren_match.group(1).strip()
+                        title_part = item[:item.rfind("(")].strip()
+                    else:
+                        gnd_id = ""
+                        title_part = item
 
-            # Match against chunk titles
-            title_lower = title_part.lower()
-            if title_lower in title_lookup and title_lower not in seen:
-                seen.add(title_lower)
-                entry = dict(title_lookup[title_lower])
-                if gnd_id and not entry.get("gnd_id"):
-                    entry["gnd_id"] = gnd_id
-                results.append(entry)
-            elif gnd_id:
-                # Try matching by GND-ID across chunk
-                for chunk_entry in chunk:
-                    if str(chunk_entry.get("gnd_id", "")) == gnd_id:
-                        key = chunk_entry["title"].lower()
-                        if key not in seen:
-                            seen.add(key)
-                            results.append({
-                                "gnd_id": chunk_entry["gnd_id"],
-                                "title": chunk_entry["title"],
-                            })
-                        break
+                # Match against chunk titles
+                title_lower = title_part.lower().strip()
+                if title_lower in title_lookup:
+                    entry = title_lookup[title_lower]
+                    _add(title_lower, gnd_id or entry["gnd_id"], entry["title"])
+                elif gnd_id and gnd_id in gnd_id_lookup:
+                    entry = gnd_id_lookup[gnd_id]
+                    _add(entry["title"].lower(), entry["gnd_id"], entry["title"])
+                else:
+                    # Substring match: check if any chunk title is contained
+                    for lookup_title, entry in title_lookup.items():
+                        if lookup_title in title_lower or title_lower in lookup_title:
+                            _add(lookup_title, gnd_id or entry["gnd_id"], entry["title"])
+                            break
+
+        # -- Strategy 2: GND-ID pattern extraction across entire response --
+        if not results:
+            gnd_pattern = re.findall(r'\((\d{4,}-\d{1,2})\)', llm_output)
+            for gnd_id in gnd_pattern:
+                if gnd_id in gnd_id_lookup:
+                    entry = gnd_id_lookup[gnd_id]
+                    _add(entry["title"].lower(), entry["gnd_id"], entry["title"])
+
+        # -- Strategy 3: Substring match of chunk titles in response --
+        if not results:
+            response_lower = llm_output.lower()
+            for lookup_title, entry in title_lookup.items():
+                # Check if the title appears in the response
+                if lookup_title in response_lower:
+                    _add(lookup_title, entry["gnd_id"], entry["title"])
+
+        if results:
+            logger.debug(f"KeywordSelectionAgent: parsed {len(results)} entries from chunk response")
+        else:
+            logger.debug("KeywordSelectionAgent: no entries parsed from chunk response")
 
         return results
 
@@ -324,5 +500,5 @@ class KeywordSelectionAgent(BaseSubAgent):
         return missing
 
     def _update_shared_context(self, result_data: Dict[str, Any]) -> None:
-        """Not used — execute() updates context directly."""
+        """Not used -- execute() updates context directly."""
         pass

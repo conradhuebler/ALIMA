@@ -654,24 +654,60 @@ class PipelineStreamWidget(QWidget):
             total_duration = f"{total_seconds:.1f}s"
 
         self.add_pipeline_message(
-            f"🎉 Pipeline vollständig abgeschlossen in {total_duration}!", "success"
+            f"\U0001f389 Pipeline vollständig abgeschlossen in {total_duration}!", "success"
         )
 
         # Show result summary for agentic pipeline (no per-step signals are emitted)
         if analysis_state and hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
             kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
             if kw_list:
+                # Show full keyword list (not just 5)
+                kw_display = ', '.join(kw_list)
                 self.add_pipeline_message(
-                    f"📌 {len(kw_list)} GND-Schlagworte ausgewählt: "
-                    f"{', '.join(kw_list[:5])}{'...' if len(kw_list) > 5 else ''}",
+                    f"\U0001f4cc {len(kw_list)} GND-Schlagworte ausgewählt:\n{kw_display}",
                     "success"
                 )
+            # Show Schlagwortketten if present in response
+            response_text = analysis_state.final_llm_analysis.response_full_text or ""
+            if "Schlagwortketten" in response_text or "schlagwortketten" in response_text.lower():
+                chain_lines = [line for line in response_text.split('\n')
+                               if '\u2192' in line or '->' in line]
+                if chain_lines:
+                    self.add_pipeline_message(
+                        f"\U0001f517 Schlagwortketten:\n" + '\n'.join(chain_lines[:10]),
+                        "success"
+                    )
+
+        # Show DK classifications with titles
         if analysis_state and analysis_state.dk_classifications:
             dk_codes = analysis_state.dk_classifications
+            # Build descriptive DK display if dk_search_results_flattened is available
+            dk_display_parts = []
+            if hasattr(analysis_state, 'dk_search_results_flattened') and analysis_state.dk_search_results_flattened:
+                for item in analysis_state.dk_search_results_flattened[:10]:
+                    dk_code = item.get('dk', '')
+                    title = ', '.join(item.get('titles', [])) if item.get('titles') else ''
+                    conf = item.get('count', 0)
+                    if dk_code:
+                        if title:
+                            dk_display_parts.append(f"{dk_code} ({title})")
+                        else:
+                            dk_display_parts.append(dk_code)
+            if not dk_display_parts:
+                dk_display_parts = dk_codes[:10]
             self.add_pipeline_message(
-                f"🏷 DK-Klassifikationen: {', '.join(dk_codes[:5])}{'...' if len(dk_codes) > 5 else ''}",
+                f"\U0001f3f7 DK-Klassifikationen:\n" + ', '.join(dk_display_parts),
                 "success"
             )
+
+        # Show RVK classifications if available
+        if analysis_state and hasattr(analysis_state, 'rvk_provenance') and analysis_state.rvk_provenance:
+            rvk_count = len(analysis_state.rvk_provenance)
+            if rvk_count:
+                self.add_pipeline_message(
+                    f"\U0001f4d6 {rvk_count} RVK-Klassifikationen zugeordnet",
+                    "success"
+                )
 
     @pyqtSlot(str)
     def on_llm_token_received(self, token: str):
