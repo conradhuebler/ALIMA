@@ -16,6 +16,7 @@ import re
 from typing import Dict, List, Any
 
 from src.core.agents.sub_agents.base_sub_agent import BaseSubAgent, SubAgentResult
+from src.core.agents.tool_providers import DKDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -61,146 +62,26 @@ class ClassificationAgent(BaseSubAgent):
                 data={"dk_classifications": [], "rvk_classifications": [], "reasoning": "No keywords available"},
             )
 
-        # Phase 1: Batch-collect DK/DDC data
-        dk_data = self._collect_dk_data()
-
-        # Phase 2: Single LLM call with all data pre-loaded
-        result = self._classify_with_llm(dk_data)
-
-        return result
-
-    def _collect_dk_data(self) -> Dict[str, Any]:
-        """Phase 1: Batch-collect DK/DDC data from tools.
-
-        Collects data from:
-        - get_dk_cache: For each selected keyword (returns {cached, term, titles: [...]})
-        - search_catalog: For the abstract's main terms (returns {source, results: {term: {kw: {...}}}})
-        - GND entries with DDC codes: Already in context
-
-        Returns:
-            Dict with dk_cache_results, catalog_results, ddc_entries
-        """
-        dk_cache_results: List[Dict] = []
-        catalog_results: List[Dict] = []
-        tool_calls = 0
-
-        # 1. DK cache lookups for each selected keyword
-        # get_dk_cache returns: {"cached": true, "term": "...", "titles": [...], "status": "success"}
-        # Each title dict has: {"title": "...", "classifications": ["DK 540", "RVK VK 8000"], ...}
-        seen_terms = set()
-        for kw in self.context.selected_keywords[:30]:
-            term = kw.get("title", "")
-            if not term or term.lower() in seen_terms:
-                continue
-            seen_terms.add(term.lower())
-
-            try:
-                raw = self.caching_registry.execute("get_dk_cache", {"term": term})
-                data = json.loads(raw) if isinstance(raw, str) else raw
-                tool_calls += 1
-
-                if isinstance(data, dict) and data.get("cached"):
-                    titles = data.get("titles", [])
-                    if isinstance(titles, list):
-                        for title_entry in titles:
-                            if not isinstance(title_entry, dict):
-                                continue
-                            # Extract DK codes from classifications list
-                            classifications = title_entry.get("classifications", [])
-                            if isinstance(classifications, list):
-                                for cls in classifications:
-                                    cls_str = str(cls)
-                                    # Parse "DK 540" or plain "540" patterns
-                                    dk_match = re.match(r'(?:DK\s+)?(\d[\d.]+)', cls_str)
-                                    rvk_match = re.match(r'RVK\s+(.+)', cls_str)
-                                    if dk_match:
-                                        dk_cache_results.append({
-                                            "keyword": term,
-                                            "dk": dk_match.group(1),
-                                            "title": title_entry.get("title", ""),
-                                            "count": title_entry.get("count", 0),
-                                            "classification_type": "DK",
-                                        })
-                                    elif rvk_match:
-                                        dk_cache_results.append({
-                                            "keyword": term,
-                                            "dk": rvk_match.group(1),
-                                            "title": title_entry.get("title", ""),
-                                            "count": title_entry.get("count", 0),
-                                            "classification_type": "RVK",
-                                        })
-            except Exception as e:
-                logger.debug(f"get_dk_cache('{term}') failed: {e}")
-
-        # 2. Catalog search for main terms
-        # search_catalog returns: {"source": "catalog", "results": {term: {kw: {"count": N, "gndid": [...], "ddc": [...], "dk": [...]}}}}
-        if self.context.extracted_keywords:
-            try:
-                raw = self.caching_registry.execute("search_catalog", {
-                    "terms": self.context.extracted_keywords[:10],
-                })
-                data = json.loads(raw) if isinstance(raw, str) else raw
-                tool_calls += 1
-
-                if isinstance(data, dict):
-                    results = data.get("results", {})
-                    for term, term_results in results.items():
-                        if not isinstance(term_results, dict):
-                            continue
-                        for kw_title, kw_data in term_results.items():
-                            if not isinstance(kw_data, dict):
-                                continue
-                            # Extract DK codes from kw_data["dk"] and kw_data["ddc"]
-                            dk_codes = kw_data.get("dk", [])
-                            ddc_codes = kw_data.get("ddc", [])
-                            count = kw_data.get("count", 0)
-                            for dk in dk_codes:
-                                if dk:
-                                    catalog_results.append({
-                                        "keyword": kw_title,
-                                        "dk": str(dk),
-                                        "title": kw_title,
-                                        "count": count,
-                                        "classification_type": "DK",
-                                    })
-                            for ddc in ddc_codes:
-                                if ddc:
-                                    catalog_results.append({
-                                        "keyword": kw_title,
-                                        "dk": str(ddc),
-                                        "title": kw_title,
-                                        "count": count,
-                                        "classification_type": "DDC",
-                                    })
-            except Exception as e:
-                logger.debug(f"search_catalog failed: {e}")
-
-        # 3. GND entries with DDC codes (already in context)
-        ddc_entries = [
-            e for e in self.context.gnd_entries
-            if e.get("ddc_codes") or e.get("dk_codes")
-        ]
-        # Sort by frequency
-        ddc_entries.sort(key=lambda e: e.get("count", 0), reverse=True)
+        # Phase 1: Batch-collect DK/DDC data via DKDataProvider
+        dk_provider = DKDataProvider(self.caching_registry, self.context)
+        dk_result = dk_provider.collect()
 
         if self.stream_callback:
             self.stream_callback(
                 f"  \U0001f4da DK-Daten gesammelt: "
-                f"{len(dk_cache_results)} Cache-Einträge, "
-                f"{len(catalog_results)} Katalog-Einträge, "
-                f"{len(ddc_entries)} GND-DDC-Einträge\n"
+                f"{len(dk_result.dk_entries)} DK-Einträge, "
+                f"{len(dk_result.ddc_from_gnd)} GND-DDC-Einträge "
+                f"({dk_result.tool_calls} Tool-Calls)\n"
             )
 
-        return {
-            "dk_cache_results": dk_cache_results,
-            "catalog_results": catalog_results,
-            "ddc_entries": ddc_entries[:50],  # Top 50 by frequency
-            "tool_calls": tool_calls,
-        }
+        # Phase 2: Single LLM call with all data pre-loaded
+        result = self._classify_with_llm(dk_result)
 
-    def _classify_with_llm(self, dk_data: Dict[str, Any]) -> SubAgentResult:
+        return result
+
+    def _classify_with_llm(self, dk_data: "DKDataResult") -> SubAgentResult:
         """Phase 2: Single LLM call with all DK data pre-loaded in the prompt."""
-        # Build user prompt with all DK data
+        # Build user prompt with DK data
         prompt_parts = [
             f"**Aufgabe**: Weise DK-Klassifikationen zu.\n",
             f"**Abstract:**\n{self.context.abstract[:2000]}\n",
@@ -215,33 +96,10 @@ class ClassificationAgent(BaseSubAgent):
         if self.context.working_title:
             prompt_parts.append(f"\n**Arbeitstitel:** {self.context.working_title}\n")
 
-        # Include DK cache results
-        dk_cache = dk_data.get("dk_cache_results", [])
-        if dk_cache:
-            prompt_parts.append(f"\n**DK-Cache ({len(dk_cache)} Einträge):**\n")
-            for entry in dk_cache[:30]:
-                dk_code = entry.get("dk", entry.get("classification", entry.get("code", "")))
-                title = entry.get("title", "")
-                count = entry.get("count", 0)
-                prompt_parts.append(f"- {dk_code}: {title} (Häufigkeit: {count})\n")
-
-        # Include catalog results with DK/DDC codes
-        catalog = dk_data.get("catalog_results", [])
-        if catalog:
-            prompt_parts.append(f"\n**Katalog-Ergebnisse ({len(catalog)} Einträge):**\n")
-            for entry in catalog[:20]:
-                dk_code = entry.get("dk", entry.get("classification", ""))
-                title = entry.get("title", "")
-                prompt_parts.append(f"- {dk_code}: {title}\n")
-
-        # Include GND entries with DDC codes
-        ddc_entries = dk_data.get("ddc_entries", [])
-        if ddc_entries:
-            prompt_parts.append(f"\n**GND-Einträge mit DDC ({len(ddc_entries)}):**\n")
-            for entry in ddc_entries[:50]:
-                ddc = entry.get("ddc_codes", [])
-                title = entry.get("title", "")
-                prompt_parts.append(f"- {title}: DDC {ddc}\n")
+        # Include DK data using DKDataResult.format_for_prompt()
+        dk_prompt_text = dk_data.format_for_prompt(max_entries=30)
+        if dk_prompt_text:
+            prompt_parts.append(dk_prompt_text)
 
         # Include previous context
         previous_context = self.get_previous_context()
@@ -369,12 +227,12 @@ Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
             data=result_data,
             quality_score=1.0,
             iterations=1,  # Single LLM call, no iteration
-            tool_calls=dk_data.get("tool_calls", 0),
+            tool_calls=dk_data.tool_calls,
         )
 
     def _build_dk_search_results(
         self,
-        dk_data: Dict[str, Any],
+        dk_data: "DKDataResult",
         dk_classifications: List[Dict],
     ) -> List[Dict]:
         """Build dk_search_results from collected DK data and LLM classifications.
@@ -384,10 +242,10 @@ Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
         """
         results = []
 
-        # Add DK cache results
+        # Add DK entries from DKDataResult (deduplicated)
         seen_dk = set()
-        for entry in dk_data.get("dk_cache_results", []):
-            dk_code = entry.get("dk", entry.get("classification", entry.get("code", "")))
+        for entry in dk_data.dk_entries:
+            dk_code = entry.get("dk", "")
             if dk_code and dk_code not in seen_dk:
                 seen_dk.add(dk_code)
                 results.append({

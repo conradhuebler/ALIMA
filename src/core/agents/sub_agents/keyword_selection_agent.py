@@ -462,7 +462,44 @@ class KeywordSelectionAgent(BaseSubAgent):
                             _add(lookup_title, gnd_id or entry["gnd_id"], entry["title"])
                             break
 
-        # -- Strategy 2: GND-ID pattern extraction across entire response --
+        # -- Strategy 2: JSON extraction --
+        if not results:
+            try:
+                from src.core.json_response_parser import parse_json_response
+                json_data = parse_json_response(llm_output)
+                if json_data and isinstance(json_data, dict):
+                    # Try "selected" or "keywords" or "selected_keywords" keys
+                    for key in ("selected", "keywords", "selected_keywords"):
+                        items = json_data.get(key, [])
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict):
+                                    title = item.get("title", "")
+                                    gnd_id = item.get("gnd_id", "")
+                                    if title:
+                                        title_lower = title.lower().strip()
+                                        if title_lower in title_lookup:
+                                            entry = title_lookup[title_lower]
+                                            _add(title_lower, gnd_id or entry["gnd_id"], entry["title"])
+                                        elif gnd_id and gnd_id in gnd_id_lookup:
+                                            entry = gnd_id_lookup[gnd_id]
+                                            _add(entry["title"].lower(), entry["gnd_id"], entry["title"])
+                                elif isinstance(item, str):
+                                    title_lower = item.lower().strip()
+                                    if title_lower in title_lookup:
+                                        entry = title_lookup[title_lower]
+                                        _add(title_lower, entry["gnd_id"], entry["title"])
+                elif json_data and isinstance(json_data, list):
+                    for item in json_data:
+                        if isinstance(item, str):
+                            title_lower = item.lower().strip()
+                            if title_lower in title_lookup:
+                                entry = title_lookup[title_lower]
+                                _add(title_lower, entry["gnd_id"], entry["title"])
+            except Exception as e:
+                logger.debug(f"KeywordSelectionAgent: JSON parsing fallback failed: {e}")
+
+        # -- Strategy 3: GND-ID pattern extraction across entire response --
         if not results:
             gnd_pattern = re.findall(r'\((\d{4,}-\d{1,2})\)', llm_output)
             for gnd_id in gnd_pattern:
@@ -470,7 +507,7 @@ class KeywordSelectionAgent(BaseSubAgent):
                     entry = gnd_id_lookup[gnd_id]
                     _add(entry["title"].lower(), entry["gnd_id"], entry["title"])
 
-        # -- Strategy 3: Substring match of chunk titles in response --
+        # -- Strategy 4: Substring match of chunk titles in response --
         if not results:
             response_lower = llm_output.lower()
             for lookup_title, entry in title_lookup.items():
