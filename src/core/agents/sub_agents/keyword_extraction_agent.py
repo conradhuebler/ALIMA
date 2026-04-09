@@ -32,24 +32,41 @@ class KeywordExtractionAgent(BaseSubAgent):
         return "extraction"
 
     def get_system_prompt(self) -> str:
-        """System prompt for keyword extraction."""
-        return """Du bist ein präziser und fachlich versierter Bibliothekar mit Expertise in kontrolliertem Vokabular und bibliothekarischer Erschließung.
+        """System prompt for keyword extraction (from prompts.json 'initialisation')."""
+        return """\
+Du bist ein präziser und fachlich versierter Bibliothekar mit Expertise in kontrolliertem Vokabular und bibliothekarischer Erschließung. Du hast zwei Aufgaben:
+1) Erstelle einen kurzen und prägnanten Arbeitstitel für den Erschließungsworkflow, der ggf. den Autorennamen bzw. die Institution mit beinhaltet
+2) Basierend auf einem gegebenen Abstract und ggf. bereits vorhandenen Keywords **bis zu 20 passende, vollständig deutsche Schlagworte** zu generieren, die als Suchbegriffe für eine systematische Recherche in Fachtexten dienen.
 
-Deine Aufgabe:
-1) Erstelle einen kurzen und prägnanten Arbeitstitel für den Erschließungsworkflow
-2) Generiere **bis zu 20 passende, vollständig deutsche Schlagworte** für eine systematische Recherche
+**Anforderungen an die Schlagworte:**
+1. **Präzision & Spezifität:** Die Schlagworte können allgemeiner sein.
+2. **Zerlegung komplexer Begriffe:** Bei zusammengesetzten oder mehrteiligen Begriffen sind diese in Einzelbegriffe aufzuspalten (z. B. *„Dampfschifffahrtskaptitän"* → *„Dampfschifffahrt | Kapitän"*).
+3. **Oberbegriffe ergänzen:** Falls ein Begriff eine spezifische Fachkategorie darstellt, ist der passende Oberbegriff mit aufzunehmen (z. B. *„Template-Effekt"* → *„Molekularbiologie | Template-Effekt"*).
+4. **Keine unnötigen Zusammensetzungen:** Vermeide künstliche Kombinationen (z. B. *„Thermodynamischer Template-Effekt"* → *„Thermodynamik | Template-Effekt"*).
+5. **GND-Konformität:** Die Schlagworte sollen sich an der **GND-Systematik** (Gemeinsame Normdatei) orientieren, um später eine systematische Extraktion zu ermöglichen.
 
-Anforderungen an die Schlagworte:
-- **Präzision & Spezifität**: Die Schlagworte können allgemeiner sein
-- **Zerlegung komplexer Begriffe**: Bei zusammengesetzten Begriffen in Einzelbegriffe aufspalten
-- **Oberbegriffe ergänzen**: Wenn ein Begriff eine Fachkategorie darstellt, Oberbegriff aufnehmen
-- **GND-Konformität**: Orientiere dich an der GND-Systematik (Gemeinsame Normdatei)
+**Arbeitsweise:**
+- Analysiere das Abstract systematisch und identifiziere die zentralen Fachbegriffe.
+- Falls bereits Keywords vorliegen, integriere diese in die Analyse.
+- Generiere eine Liste präziser Suchbegriffe, die sowohl Einzelbegriffe als auch Oberbegriffe enthalten.
 
-WICHTIG: Gib das Ergebnis als valides JSON-Objekt aus:
+**Ausgabe als JSON-Objekt:**
 ```json
 {
   "title": "Autorenname_Thema_Kurzwort",
   "keywords": ["Schlagwort1", "Schlagwort2", "Schlagwort3", ...]
+}
+```
+
+**Beispiel:**
+*Abstract:* *„Die Studie untersucht die Rolle von Mikroplastik in marinen Ökosystemen, insbesondere dessen Auswirkungen auf Korallenriffe."*
+*Vorhandene Keywords:* *„Mikroplastik, Korallenriffe"*
+
+**Ausgabe:**
+```json
+{
+  "title": "Meyer_Mikroplast_Oekotox",
+  "keywords": ["Mikroplastik", "Umweltverschmutzung", "Meeresoekologie", "Korallenriffe", "Marine Oekosysteme", "Plastikpartikel", "Oekotoxikologie", "Umweltbelastung", "Meeresverschmutzung"]
 }
 ```
 
@@ -61,16 +78,11 @@ Keine Erläuterungen oder Kommentare außerhalb des JSON."""
 
     def build_user_prompt(self) -> str:
         """Build prompt from abstract."""
-        prompt_parts = [
-            "Analysiere den folgenden Abstract und generiere deutsche Schlagworte für die bibliothekarische Erschließung:\n",
-            f"**Abstract:**\n{self.context.abstract[:3000]}\n",
-        ]
-
-        if self.context.initial_keywords:
-            prompt_parts.append(f"\n**Vorhandene Keywords:**\n{', '.join(self.context.initial_keywords[:20])}\n")
-
-        prompt_parts.append("\nGib das Ergebnis als JSON zurück.")
-        return "\n".join(prompt_parts)
+        keywords_str = ", ".join(self.context.initial_keywords) if self.context.initial_keywords else "(keine)"
+        return (
+            f"Eingabetext:\n{self.context.abstract[:3000]}\n\n"
+            f"Vorhandene Keywords:\n{keywords_str}"
+        )
 
     def parse_result(self, llm_output: str) -> Dict[str, Any]:
         """Parse LLM output for keywords and title."""

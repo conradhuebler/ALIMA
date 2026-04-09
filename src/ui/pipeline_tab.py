@@ -2047,6 +2047,16 @@ class PipelineTab(QWidget):
                     "Pipeline", "completed"
                 )
 
+        # Propagate working_title to stream widget (agentic: no on_step_completed fires)
+        if analysis_state and hasattr(analysis_state, 'working_title') and analysis_state.working_title:
+            working_title = analysis_state.working_title
+            if hasattr(self, 'title_label'):
+                self.title_label.setText(f"📋 {working_title}")
+            if hasattr(self, 'title_override_field'):
+                self.title_override_field.setPlaceholderText(f"Current: {working_title}")
+            if hasattr(self, 'stream_widget'):
+                self.stream_widget.set_working_title(working_title)
+
         # Notify streaming widget
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_pipeline_completed(analysis_state)

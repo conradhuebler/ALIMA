@@ -92,6 +92,7 @@ class PipelineConfig:
     # Missing-concept feedback loop - Claude Generated
     agentic_missing_concept_search: bool = True   # Re-search after selection if concepts missing
     agentic_missing_concept_iterations: int = 1   # Max feedback rounds (prevents infinite loop)
+    agentic_verbose: bool = False                  # Log full prompts to stream + logger
 
     # Search config (no LLM needed)
     search_suggesters: List[str] = field(default_factory=lambda: ["lobid", "swb"])
@@ -626,6 +627,7 @@ class PipelineManager:
                 and self.config.step_configs["dk_classification"].enabled,
             enable_missing_concept_search=self.config.agentic_missing_concept_search,
             max_missing_concept_iterations=self.config.agentic_missing_concept_iterations,
+            verbose=self.config.agentic_verbose,
         )
 
         try:

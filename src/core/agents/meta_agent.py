@@ -55,6 +55,7 @@ class MetaAgentConfig:
     workflow_name: str = "meta_agent_default"  # Name of workflow YAML to load
     enable_missing_concept_search: bool = True  # Re-search missing concepts after selection
     max_missing_concept_iterations: int = 1     # Max feedback rounds (prevents infinite loop)
+    verbose: bool = False                       # Log full prompts to stream + logger
 
 
 @dataclass
@@ -236,6 +237,7 @@ class MetaAgent:
             context.model = config.model or context.model
             context.temperature = config.temperature
             context.max_tokens = config.max_tokens
+            context.verbose = config.verbose
             self.logger.info("Using provided input_context (warm-start)")
         else:
             context = SharedContext(
@@ -247,6 +249,7 @@ class MetaAgent:
                 model=config.model,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
+                verbose=config.verbose,
             )
 
         mode_label = f"Step '{step_id}'" if step_id else "Full Pipeline"
@@ -308,9 +311,9 @@ class MetaAgent:
                 self.logger.error(f"Pipeline step {step_name} failed: {step_result.error}")
                 # Continue with next step if possible
 
-        # After selection: optional missing-concept feedback loop (full pipeline only)
-        if step_id is None and config.enable_missing_concept_search:
-            self._run_missing_concept_loop(context, config, step_stream, step_results)
+            # After selection: run missing-concept loop BEFORE classification
+            if step_id is None and step_name == "selection" and config.enable_missing_concept_search:
+                self._run_missing_concept_loop(context, config, step_stream, step_results)
 
         duration = time.time() - start_time
         self.logger.info(f"MetaAgent {mode_label} completed in {duration:.1f}s")

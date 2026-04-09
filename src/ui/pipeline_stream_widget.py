@@ -657,6 +657,22 @@ class PipelineStreamWidget(QWidget):
             f"🎉 Pipeline vollständig abgeschlossen in {total_duration}!", "success"
         )
 
+        # Show result summary for agentic pipeline (no per-step signals are emitted)
+        if analysis_state and hasattr(analysis_state, 'final_llm_analysis') and analysis_state.final_llm_analysis:
+            kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
+            if kw_list:
+                self.add_pipeline_message(
+                    f"📌 {len(kw_list)} GND-Schlagworte ausgewählt: "
+                    f"{', '.join(kw_list[:5])}{'...' if len(kw_list) > 5 else ''}",
+                    "success"
+                )
+        if analysis_state and analysis_state.dk_classifications:
+            dk_codes = analysis_state.dk_classifications
+            self.add_pipeline_message(
+                f"🏷 DK-Klassifikationen: {', '.join(dk_codes[:5])}{'...' if len(dk_codes) > 5 else ''}",
+                "success"
+            )
+
     @pyqtSlot(str)
     def on_llm_token_received(self, token: str):
         """Handle streaming LLM token - Claude Generated"""

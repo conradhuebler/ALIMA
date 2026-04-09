@@ -240,8 +240,8 @@ class TestSearchAgent(unittest.TestCase):
                 "source": "swb",
                 "results": {
                     "Bibliothek": {
-                        kw: {"gndid": [gid], "ddc": [], "count": 1}
-                        for gid, kw in zip(ids, [f"kw{i}" for i in range(len(ids))])
+                        f"swb_kw{i}": {"gndid": [gid], "ddc": [], "count": 1}
+                        for i, gid in enumerate(ids)
                     }
                 }
             })
@@ -251,8 +251,8 @@ class TestSearchAgent(unittest.TestCase):
                 "source": "lobid",
                 "results": {
                     "Katalog": {
-                        kw: {"gndid": [gid], "ddc": [], "count": 1}
-                        for gid, kw in zip(ids, [f"kw{i}" for i in range(len(ids))])
+                        f"lobid_kw{i}": {"gndid": [gid], "ddc": [], "count": 1}
+                        for i, gid in enumerate(ids)
                     }
                 }
             })
@@ -335,13 +335,26 @@ class TestSearchAgent(unittest.TestCase):
         self.assertTrue(len(ctx.gnd_entries) >= 2)
 
     def test_deduplication_across_sources(self):
-        """Same GND ID from SWB and Lobid should appear only once in context."""
-        # Both sources return the same ID
-        registry = self._make_registry_with_results(
-            swb_ids=["4006278-9"],
-            lobid_ids=["4006278-9"],  # duplicate
-            batch_entries=[{"gnd_id": "4006278-9", "title": "Bibliothek"}],
-        )
+        """Same keyword title from SWB and Lobid should appear only once in context."""
+        registry = MagicMock()
+        registry.get_tool_schemas.return_value = []
+        registry.get_tool_names.return_value = ["search_swb", "search_lobid", "get_gnd_batch"]
+
+        same_kw = {"Bibliothekswesen": {"gndid": ["4006278-9"], "ddc": [], "count": 3}}
+
+        def execute(tool_name, args):
+            if tool_name == "search_swb":
+                return json.dumps({"source": "swb", "results": {"Bibliothek": same_kw}})
+            if tool_name == "search_lobid":
+                # Same keyword title, same GND ID — should not create a second entry
+                return json.dumps({"source": "lobid", "results": {"Bibliothek": same_kw}})
+            if tool_name == "get_gnd_batch":
+                return json.dumps({"count": 1, "entries": {
+                    "4006278-9": {"title": "Bibliothekswesen", "description": "Info", "synonyms": [], "ddcs": []}
+                }})
+            return json.dumps({})
+
+        registry.execute.side_effect = execute
         result, ctx = self._run_search_agent(registry)
         self.assertEqual(len(ctx.gnd_entries), 1)
 
@@ -603,26 +616,27 @@ class TestMetaAgentSingleStep(unittest.TestCase):
     def test_execute_single_step_uses_input_context(self):
         """Single-step run with warm-start context updates context in place."""
         from src.core.agents.meta_agent import MetaAgent, MetaAgentConfig
+        from src.core.data_models import AgentResponse, StopReason
 
         ctx = make_shared_context()
         ctx.extracted_keywords = ["Bibliothek", "Katalog"]
-        ctx.gnd_entries = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
+        ctx.gnd_entries = [{"gnd_id": "4006278-9", "title": "Bibliothek", "count": 5}]
 
-        response = json.dumps({
-            "selected_keywords": [{"gnd_id": "4006278-9", "title": "Bibliothek"}],
-            "missing_concepts": [],
-        })
-        mock_result = make_agent_result(f"```json\n{response}\n```")
-
+        # Selection agent now uses generate_with_tools (no AgentLoop) with <final_list> response
         agent = self._make_meta_agent()
-        with patch("src.core.agents.sub_agents.base_sub_agent.AgentLoop") as MockLoop:
-            MockLoop.return_value.run.return_value = mock_result
-            state = agent.execute(
-                abstract=ctx.abstract,
-                step_id="selection",
-                input_context=ctx,
-                config=MetaAgentConfig(provider="test", model="test"),
-            )
+        mock_response = AgentResponse(
+            content="<final_list>Bibliothek (GND-ID: 4006278-9)</final_list>",
+            tool_calls=[],
+            stop_reason=StopReason.END_TURN,
+        )
+        agent.llm_service.generate_with_tools.return_value = mock_response
+
+        state = agent.execute(
+            abstract=ctx.abstract,
+            step_id="selection",
+            input_context=ctx,
+            config=MetaAgentConfig(provider="test", model="test"),
+        )
 
         self.assertIsNotNone(state)
         # Context was updated by the selection agent

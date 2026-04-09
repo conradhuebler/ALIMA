@@ -116,6 +116,7 @@ def create_argument_parser():
     pipeline_parser.add_argument("--agentic", action="store_true", help="Use agentic mode with MCP tools instead of sequential pipeline")
     pipeline_parser.add_argument("--agentic-max-iterations", type=int, default=20, help="Max tool-calling iterations per agent (default: 20)")
     pipeline_parser.add_argument("--agentic-quality-threshold", type=float, default=0.6, help="Min quality score per agent (default: 0.6)")
+    pipeline_parser.add_argument("--agentic-verbose", action="store_true", help="Log full system+user prompts to stream in agentic mode")
 
     # Workflow configuration - Claude Generated
     pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: meta_agent_default)")

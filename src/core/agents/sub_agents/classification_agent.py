@@ -30,16 +30,23 @@ class ClassificationAgent(BaseSubAgent):
         return "classification"
 
     def get_system_prompt(self) -> str:
-        """System prompt for classification."""
-        return """Du bist ein **Experte für DK-Klassifikation (Dewey-Dezimalklassifikation)** mit tiefem Verständnis bibliothekarischer Standards.
-
-**Deine Aufgaben:**
-1. Analysiere den Abstract und die GND-Schlagwörter
-2. Bestimme die passende DK-Hauptklasse (100er-Stelle)
-3. Verfeinere auf Unterklasse (10er-Stelle) wenn möglich
-4. Gib maximal 3 DK-Notationen an, sortiert nach Relevanz
-
-**Ausgabeformat:**
+        """System prompt for classification (from prompts.json 'dk_classification')."""
+        return """\
+**Deine Rolle als bibliothekarischer Klassifikations-Experte:**
+Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
+1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende Klassifikationen aus dem Bibliotheksbestand zu einer **hierarchischen Themenstruktur**.
+2. **Mehrfachklassifikation**: Wähle **bis zu 10 passende Klassifikationsnummern** (DK/DDC/RVK) aus, die:
+  - **Primärthemen** des Abstracts abdecken,
+  - **Sekundärbeziehungen** (z. B. Anwendungsfelder, Methodik) einbeziehen,
+  - **Bestehende Klassifikationen** aus dem Bibliotheksbestand validieren/ergänzen.
+3. **Klassifikationsregeln**:
+  - Verwende nur Klassifikationen, die mit der Titelliste auftauchen.
+  - **Typischerweise sind die Häufigkeiten ein guter Indikator für die Relevanz der Klassifikation.** Gib ggf. zu den 10 Klassifikatoren noch 5 weitere potentielle Klassifikatoren an, die eine geringe Häufigkeit aufweisen.
+4. **Iterativer Prozess**: Überprüfe jede Klassifikation auf:
+  - **Thematische Passung** (deckt der Code das Kernkonzept ab?),
+  - **Hierarchische Konsistenz** (passt der Code zur übergeordneten Ebene?),
+  - **Redundanz** (vermeide doppelte Abdeckung desselben Themas).
+5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus:
 ```json
 {
   "dk_classifications": [
@@ -51,10 +58,10 @@ class ClassificationAgent(BaseSubAgent):
 }
 ```
 
-**Wichtig:**
-- Konfidenzwerte zwischen 0.0 und 1.0
-- Begründe jede Klassifikation kurz
-- Bevorzuge spezifische über generelle Klassen"""
+**Werkzeuge & Limits:**
+- Nutze **nur** die im Bibliotheksbestand enthaltenen Klassifikationen als Referenz – keine externen Quellen.
+- Konfidenzwerte zwischen 0.0 und 1.0.
+- Begründe jede Klassifikation kurz."""
 
     def get_available_tools(self) -> List[str]:
         """Tools for classification."""
@@ -72,28 +79,36 @@ class ClassificationAgent(BaseSubAgent):
             f"**Abstract:**\n{self.context.abstract[:2000]}\n",
         ]
 
-        # Include selected keywords
+        # Include selected keywords (all — typically ≤20)
         if self.context.selected_keywords:
-            kw_json = json.dumps(self.context.selected_keywords[:30], ensure_ascii=False, indent=2)
+            kw_json = json.dumps(self.context.selected_keywords, ensure_ascii=False, indent=2)
             prompt_parts.append(f"\n**Ausgewählte Schlagwörter:**\n{kw_json}\n")
 
         # Include working title
         if self.context.working_title:
             prompt_parts.append(f"\n**Arbeitstitel:** {self.context.working_title}\n")
 
-        # Include GND entries with DDC codes
-        gnd_with_ddc = [e for e in self.context.gnd_entries if e.get("ddc") or e.get("ddcs")]
+        # Include GND entries with DDC codes (field is ddc_codes from SearchAgent)
+        gnd_with_ddc = [e for e in self.context.gnd_entries if e.get("ddc_codes")]
         if gnd_with_ddc:
-            prompt_parts.append(f"\n**GND-Einträge mit DDC ({len(gnd_with_ddc)} gefunden):**\n")
-            for entry in gnd_with_ddc[:20]:
-                ddc = entry.get("ddc") or entry.get("ddcs", "")
+            gnd_with_ddc.sort(key=lambda e: e.get("count", 0), reverse=True)
+            prompt_parts.append(f"\n**GND-Einträge mit DDC ({len(gnd_with_ddc)} gefunden, top 50):**\n")
+            for entry in gnd_with_ddc[:50]:
+                ddc = entry.get("ddc_codes", [])
                 prompt_parts.append(f"- {entry.get('title')}: DDC {ddc}\n")
 
         previous_context = self.get_previous_context()
         if previous_context:
             prompt_parts.append(f"\n**Kontext:**\n{previous_context}\n")
 
-        prompt_parts.append("\nBestimme die passendsten DK-Klassifikationen.")
+        prompt_parts.append(
+            "\n**Strukturierte Vorgehensweise:**\n"
+            "1. **Themenextraktion**: Identifiziere Kernkonzepte im Abstract und verknüpfe sie mit den GND-Schlagworten.\n"
+            "2. **Klassifikationsabgleich**: Übernimm Klassifikationen aus dem Bibliotheksbestand als Basis; ergänze fehlende durch logische Ableitung.\n"
+            "3. **Validierung**: Prüfe Präzision, Hierarchie und Einzigartigkeit.\n"
+            "4. **Auswahl**: Wähle die relevantesten Klassifikationen (max. 10).\n\n"
+            "Bestimme die passendsten DK-Klassifikationen und gib das Ergebnis als JSON zurück."
+        )
         return "\n".join(prompt_parts)
 
     def parse_result(self, llm_output: str) -> Dict[str, Any]:

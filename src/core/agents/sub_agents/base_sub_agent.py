@@ -161,26 +161,34 @@ class BaseSubAgent(ABC):
         if "{abstract}" in result:
             result = result.replace("{abstract}", self.context.abstract[:5000])
 
-        # Replace keywords
+        # Replace keywords (no cap — extracted keywords are small by nature)
         if "{keywords}" in result:
             keywords = self.context.extracted_keywords or self.context.initial_keywords
-            result = result.replace("{keywords}", ", ".join(keywords[:50]))
+            result = result.replace("{keywords}", ", ".join(keywords))
 
-        # Replace gnd_entries (as JSON string, truncated)
+        # Replace gnd_entries — compact flat-list sorted by count, top 200
         if "{gnd_entries}" in result:
-            import json
-            gnd_json = json.dumps(self.context.gnd_entries[:30], ensure_ascii=False, indent=2)
-            result = result.replace("{gnd_entries}", gnd_json)
+            sorted_entries = sorted(
+                self.context.gnd_entries,
+                key=lambda e: e.get("count", 0),
+                reverse=True,
+            )
+            lines = [
+                f"{e.get('title')} (GND-ID: {e.get('gnd_id', '')})"
+                for e in sorted_entries[:200]
+                if e.get("title")
+            ]
+            result = result.replace("{gnd_entries}", "\n".join(lines))
 
         # Replace working title
         if "{title}" in result or "{working_title}" in result:
             result = result.replace("{title}", self.context.working_title or "")
             result = result.replace("{working_title}", self.context.working_title or "")
 
-        # Replace selected keywords
+        # Replace selected keywords (no cap — typically ≤20)
         if "{selected_keywords}" in result:
             import json
-            selected_json = json.dumps(self.context.selected_keywords[:30], ensure_ascii=False, indent=2)
+            selected_json = json.dumps(self.context.selected_keywords, ensure_ascii=False, indent=2)
             result = result.replace("{selected_keywords}", selected_json)
 
         # Replace previous context
@@ -188,6 +196,25 @@ class BaseSubAgent(ABC):
             result = result.replace("{previous_context}", self.get_previous_context())
 
         return result
+
+    def _log_prompt_verbose(self, system_prompt: str, user_prompt: str, label: str = "") -> None:
+        """Log full system + user prompt when verbose mode is active.
+
+        Streams to callback AND logs at DEBUG level.
+        """
+        sep = "─" * 60
+        tag = f" [{label}]" if label else ""
+        block = (
+            f"\n{sep}\n"
+            f"🔍 VERBOSE PROMPT{tag}\n"
+            f"{sep}\n"
+            f"── SYSTEM ──\n{system_prompt}\n"
+            f"── USER ──\n{user_prompt}\n"
+            f"{sep}\n"
+        )
+        self.logger.debug(block)
+        if self.stream_callback:
+            self.stream_callback(block)
 
     def execute(self) -> SubAgentResult:
         """Execute this SubAgent.
@@ -224,6 +251,10 @@ class BaseSubAgent(ABC):
                 user_preview = user_prompt.split('\n')[0][:100]
                 self.stream_callback(f"📝 Input: {user_preview}...\n")
                 self.stream_callback(f"⏳ Sende an LLM ({self.context.provider}/{self.context.model})...\n")
+
+            # Verbose: log full prompts
+            if self.context.verbose:
+                self._log_prompt_verbose(system_prompt, user_prompt)
 
             # Get available tools - None means no tools, empty list is still tools
             tools = self.get_available_tools()

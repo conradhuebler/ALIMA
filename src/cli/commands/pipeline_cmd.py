@@ -221,6 +221,7 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                 updated_pipeline_config.enable_agentic_mode = True
                 updated_pipeline_config.agentic_max_iterations = getattr(args, 'agentic_max_iterations', 20)
                 updated_pipeline_config.agentic_quality_threshold = getattr(args, 'agentic_quality_threshold', 0.6)
+                updated_pipeline_config.agentic_verbose = getattr(args, 'agentic_verbose', False)
                 logger.info("🤖 Agentic mode enabled")
 
                 # Workflow configuration - Claude Generated

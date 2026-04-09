@@ -2221,6 +2221,15 @@ class PipelineConfigDialog(QDialog):
         )
         global_layout.addWidget(self.agentic_mode_checkbox)
 
+        # Agentic verbose mode - Claude Generated
+        self.agentic_verbose_checkbox = QCheckBox("🔍 Agentic Verbose (vollständige Prompts loggen)")
+        self.agentic_verbose_checkbox.setChecked(False)
+        self.agentic_verbose_checkbox.setToolTip(
+            "Gibt im Agentic-Modus vollständige System- und User-Prompts in den Stream-Log aus.\n"
+            "Nützlich für Debugging und Transparenz der LLM-Anfragen."
+        )
+        global_layout.addWidget(self.agentic_verbose_checkbox)
+
         layout.addWidget(global_group)
 
         # Buttons
@@ -2331,6 +2340,8 @@ class PipelineConfigDialog(QDialog):
             self.stop_on_error_checkbox.setChecked(config.stop_on_error)
             if hasattr(config, 'enable_agentic_mode'):
                 self.agentic_mode_checkbox.setChecked(config.enable_agentic_mode)
+            if hasattr(config, 'agentic_verbose'):
+                self.agentic_verbose_checkbox.setChecked(config.agentic_verbose)
 
         except Exception as e:
             self.logger.error(f"Error loading config: {e}")
@@ -2438,6 +2449,7 @@ class PipelineConfigDialog(QDialog):
                 step_configs=step_configs_converted,
                 search_suggesters=search_suggesters,
                 enable_agentic_mode=self.agentic_mode_checkbox.isChecked(),
+                agentic_verbose=self.agentic_verbose_checkbox.isChecked(),
             )
 
             self.logger.info("Configuration saved using baseline + override pattern")

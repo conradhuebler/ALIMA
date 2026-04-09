@@ -127,6 +127,7 @@ class SharedContext:
     model: str = ""
     temperature: float = 0.5
     max_tokens: int = 4096
+    verbose: bool = False  # Log full prompts to stream + logger when True
 
     # Working data (built during execution)
     working_title: str = ""
@@ -188,56 +189,115 @@ class SharedContext:
         """
         from src.core.data_models import KeywordAnalysisState, LlmKeywordAnalysis, SearchResult
 
-        # Build LLM analysis result with required fields
-        final_analysis = LlmKeywordAnalysis(
-            task_name="meta_agent",
+        # --- keyword titles (selected, GND-verified) ---
+        kw_titles = [kw.get("title", kw.get("gnd_id", ""))
+                     for kw in self.selected_keywords
+                     if kw.get("title") or kw.get("gnd_id")]
+
+        # --- DK codes as plain strings ---
+        dk_codes = [cls.get("code", "") for cls in self.dk_classifications if cls.get("code")]
+
+        # --- dk_search_results_flattened: [{dk, classification_type, titles, count, reasoning}] ---
+        dk_search_results_flattened = []
+        for cls in self.dk_classifications:
+            code = cls.get("code", "")
+            title = cls.get("title", "")
+            reason = cls.get("reason", cls.get("reasoning", ""))
+            if code:
+                dk_search_results_flattened.append({
+                    "dk": code,
+                    "classification_type": "DK",
+                    "titles": [title] if title else [],
+                    "count": int(cls.get("confidence", 0) * 100),
+                    "reasoning": reason,
+                })
+
+        # --- search_results: GUI expects {title → {gndid: [gnd_id], ...}} format ---
+        # Use selected_keywords (GND-verified subset), not raw gnd_entries
+        selected_results: Dict[str, Dict] = {}
+        for kw in self.selected_keywords:
+            title = kw.get("title", "")
+            gnd_id = kw.get("gnd_id", "")
+            if title:
+                selected_results[title] = {
+                    "gndid": [gnd_id] if gnd_id else [],
+                    "ddc_codes": kw.get("ddc_codes", []),
+                }
+        # One SearchResult per extracted keyword (search_term = original search term)
+        search_results = []
+        for ekw in (self.extracted_keywords or ["meta_agent"]):
+            search_results.append(SearchResult(
+                search_term=ekw,
+                results=selected_results,
+            ))
+
+        # --- initial_llm_call_details: extraction step → abstract_tab ---
+        extraction_result = self.step_results.get("extraction", {})
+        initial_analysis = LlmKeywordAnalysis(
+            task_name="extraction",
             model_used=self.model,
             provider_used=self.provider,
-            prompt_template="meta_agent_workflow",
+            prompt_template="initialisation",
             filled_prompt="",
             temperature=self.temperature,
             seed=None,
-            response_full_text=json.dumps({
-                "keywords": self.selected_keywords,
-                "classifications": self.dk_classifications,
-                "working_title": self.working_title,
-            }),
-            extracted_gnd_keywords=[kw.get("gnd_id", kw.get("title", ""))
-                                   for kw in self.selected_keywords],
-            extracted_gnd_classes=[cls.get("code", "")
-                                  for cls in self.dk_classifications],
+            response_full_text=extraction_result.get("raw_output", ""),
+            extracted_gnd_keywords=self.extracted_keywords,
         )
 
-        # Convert GND entries to SearchResult objects
-        # SearchResult structure: search_term + results dict
-        search_results = []
-        for entry in self.gnd_entries:
-            gnd_id = entry.get("gnd_id", "")
-            title = entry.get("title", "")
-            # Build results dict structure
-            results = {
-                gnd_id: {
-                    "title": title,
-                    "description": entry.get("description", ""),
-                    "ddc_codes": entry.get("ddc_codes", []),
-                    "gnd_parent": entry.get("gnd_parent"),
-                    "synonyms": entry.get("synonyms", []),
-                }
-            }
-            search_results.append(SearchResult(
-                search_term=title,
-                results=results,
-            ))
+        # --- final_llm_analysis: keyword selection → verifikation tab / analyse_keywords ---
+        selection_result = self.step_results.get("selection", {})
+        kw_lines = "\n".join(
+            f"- {kw.get('title', kw.get('gnd_id', ''))} (GND-ID: {kw.get('gnd_id', '')})"
+            for kw in self.selected_keywords
+        )
+        final_analysis = LlmKeywordAnalysis(
+            task_name="keywords",
+            model_used=self.model,
+            provider_used=self.provider,
+            prompt_template="keywords_chunked",
+            filled_prompt="",
+            temperature=self.temperature,
+            seed=None,
+            response_full_text=(
+                f"Ausgewählte GND-Schlagworte ({len(self.selected_keywords)}):\n"
+                f"{kw_lines}\n"
+            ),
+            extracted_gnd_keywords=kw_titles,
+        )
 
-        return KeywordAnalysisState(
+        # --- dk_llm_analysis: classification step → dk_analysis_tab ---
+        classification_result = self.step_results.get("classification", {})
+        dk_reasoning = classification_result.get("reasoning", "")
+        dk_raw = classification_result.get("raw_output", "")
+        dk_text = dk_reasoning or dk_raw or ""
+        dk_analysis = LlmKeywordAnalysis(
+            task_name="dk_classification",
+            model_used=self.model,
+            provider_used=self.provider,
+            prompt_template="dk_classification",
+            filled_prompt="",
+            temperature=self.temperature,
+            seed=None,
+            response_full_text=dk_text,
+            extracted_gnd_classes=dk_codes,
+        ) if dk_text else None
+
+        state = KeywordAnalysisState(
             original_abstract=self.abstract,
-            initial_keywords=self.initial_keywords,
-            search_suggesters_used=["meta_agent"],
+            initial_keywords=self.extracted_keywords or self.initial_keywords,
+            search_suggesters_used=["swb", "lobid"],
             working_title=self.working_title,
+            input_type=self.input_type,
+            source_value=self.source_value,
+            initial_llm_call_details=initial_analysis,
             final_llm_analysis=final_analysis,
+            dk_llm_analysis=dk_analysis,
             search_results=search_results,
-            dk_classifications=[cls.get("code", "") for cls in self.dk_classifications],
+            dk_classifications=dk_codes,
         )
+        state.dk_search_results_flattened = dk_search_results_flattened
+        return state
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize SharedContext to a JSON-compatible dict for saving intermediate state.
