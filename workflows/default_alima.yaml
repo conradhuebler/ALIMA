@@ -1,0 +1,287 @@
+# ALIMA Standard Workflow - Migrated from prompts.json
+#
+# This workflow uses GenericAgent with prompts from markdown files.
+# All prompts are defined in workflows/prompts/*.md for easy editing.
+
+name: "ALIMA Standard Workflow"
+description: "Full ALIMA pipeline migrated from prompts.json"
+version: "2.0"
+
+# Global settings
+settings:
+  max_tool_iterations: 20
+  max_self_reflection_iterations: 3
+  quality_threshold: 0.6
+  timeout_seconds: 300
+  temperature: 0.5
+  top_p: 0.5
+  max_tokens: 4096
+
+# Workflow steps
+steps:
+  # Step 1: Initialisation - Generate free keywords from abstract
+  - id: "initialisation"
+    description: "Generate free keywords from abstract"
+    agent_type: "GenericAgent"
+    enabled: true
+
+    # Load prompts from markdown files
+    system_prompt_file: "prompts/initialisation.md"
+    user_prompt_file: "prompts/initialisation.md"
+
+    # Override with inline prompts (for reference)
+    system_prompt: |
+      **Aufgabe:**
+      Analysiere das folgende Abstract und generiere **bis zu 10 präzise, deutsche Schlagworte** für eine bibliothekarische Recherche. Zerlege komplexe Begriffe in Einzelbegriffe, füge Oberbegriffe hinzu und orientiere dich an der GND-Systematik.
+
+      **Formatierung der Ausgabe:**
+      - Gib das Ergebnis als **valides JSON-Objekt** aus.
+      - Struktur: `{"title": "...", "keywords": ["..."]}`
+      - Keine Erläuterungen, Kommentare oder Formatierungen außerhalb des JSON.
+
+    user_prompt_template: |
+      Du bist ein präziser und fachlich versierter Bibliothekar mit Expertise in kontrolliertem Vokabular und bibliothekarischer Erschließung. Du hast zwei Aufgaben:
+      1) Erstelle einen kurzen und prägnanten Arbeitstitel für den Erschließungsworkflow
+      2) Basierend auf einem gegebenen Abstract und ggf. bereits vorhandenen Keywords **bis zu 20 passende, vollständig deutsche Schlagworte** zu generieren.
+
+      **Anforderungen an die Schlagworte:**
+      1. **Präzision & Spezifität:** Die Schlagworte können allgemeiner sein.
+      2. **Zerlegung komplexer Begriffe:** Bei zusammengesetzten Begriffen diese in Einzelbegriffe aufzuspalten
+      3. **Oberbegriffe ergänzen:** Falls ein Begriff eine spezifische Fachkategorie darstellt, Oberbegriff mit aufnehmen
+      4. **GND-Konformität:** Die Schlagworte sollen sich an der GND-Systematik orientieren
+
+      **Ausgabe als JSON-Objekt:**
+      ```json
+      {{
+        "title": "Autorenname_Thema_Kurzwort",
+        "keywords": ["Schlagwort1", "Schlagwort2", "Schlagwort3", ...]
+      }}
+      ```
+
+      Eingabetext:
+      {abstract}
+
+      Vorhandene Keywords:
+      {keywords}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${initial_keywords}"
+
+    output_mapping:
+      title: "initialisation.title"
+      keywords: "initialisation.keywords"
+
+    tools:
+      preset: "knowledge"
+
+    output_extraction:
+      type: "json"
+      schema:
+        title: "$.title"
+        keywords: "$.keywords"
+
+    validation:
+      min_results: 1
+      required_fields: ["keywords"]
+
+  # Step 2: Search - Find GND entries from keywords
+  - id: "search"
+    description: "Search GND/SWB for subject headings"
+    agent_type: "GenericAgent"
+    enabled: true
+    depends_on: ["initialisation"]
+
+    system_prompt: |
+      Du bist ein GND-Suchexperte für die Bibliothekserschließung. Deine Aufgabe ist es, zu einem gegebenen Abstract möglichst viele relevante GND-Schlagwörter zu finden.
+
+      **Dein Vorgehen:**
+      1. Lies den Abstract sorgfältig und identifiziere die Kernthemen
+      2. Generiere Suchbegriffe (deutsch und englisch) für die wichtigsten Konzepte
+      3. Nutze die verfügbaren Such-Tools systematisch:
+         - `search_gnd`: Lokale GND-Datenbank durchsuchen
+         - `search_lobid`: Lobid.org API für GND-Einträge
+         - `search_swb`: SWB-Katalog für Schlagwörter mit GND-IDs
+         - `get_search_cache`: Prüfe ob Ergebnisse bereits gecacht sind
+      4. Sammle alle gefundenen GND-Einträge mit IDs, Titeln und DDC-Codes
+
+      **Wichtige Regeln:**
+      - Suche breiter als nur offensichtliche Begriffe - auch verwandte und übergeordnete Konzepte
+      - Nutze sowohl Fachbegriffe als auch Synonyme
+      - Prüfe den Cache bevor du eine Web-Suche startest
+
+      **Ausgabeformat:**
+      Gib dein Ergebnis als JSON zurück:
+      ```json
+      {
+        "search_terms_used": ["Begriff1", "Begriff2", ...],
+        "gnd_entries": [
+          {"gnd_id": "...", "title": "...", "ddcs": "...", "source": "lobid|swb|local"},
+          ...
+        ],
+        "coverage_assessment": "Kurze Einschätzung der Abdeckung"
+      }
+      ```
+
+    user_prompt_template: |
+      Finde GND-Schlagwörter für folgenden Abstract:
+
+      {abstract}
+
+      Bereits identifizierte freie Schlagwörter: {keywords}
+
+      Nutze diese als Ausgangspunkt für die Suche, aber erweitere auch darüber hinaus.
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.initialisation.keywords}"
+
+    output_mapping:
+      gnd_entries: "search.gnd_entries"
+      search_terms: "search.search_terms"
+
+    tools:
+      preset: "library"
+
+    output_extraction:
+      type: "json"
+      schema:
+        search_terms: "$.search_terms_used"
+        gnd_entries: "$.gnd_entries"
+
+    validation:
+      min_results: 5
+      required_fields: ["gnd_entries"]
+
+    self_reflection:
+      enabled: true
+      max_iterations: 3
+
+  # Step 3: Keywords - Select best GND keywords from pool
+  - id: "keywords"
+    description: "Select relevant GND keywords"
+    agent_type: "GenericAgent"
+    enabled: true
+    depends_on: ["search"]
+
+    system_prompt_file: "prompts/keywords.md"
+
+    system_prompt: |
+      Du bist **ALIMA Agent**, ein hochpräziser Wissensassistent mit spezialisierten Fähigkeiten in:
+      1. **Systematischer Analyse** (inspiriert von langem Denkprozess nach dem Template),
+      2. **GND-Schlagwortung** (basierend auf OGND-Standards),
+      3. **Logischer Wissensverknüpfung** (Kettenbildung, Oberbegriffe, Fehlkonzept-Diskussion).
+
+      **Deine Kernregeln:**
+      - **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte (keine Synonyme/Alternativen).
+      - **Hierarchie beachten**: Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen.
+      - **Fehlende Konzepte dokumentieren**: Falls ein Thema nicht abgedeckt ist, schlage Oberbegriffe vor.
+      - **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
+
+    user_prompt_template: |
+      **Aufgabe**:
+      Analysiere den folgenden **Abstract** und wende einen **systematischen GND-Schlagwortungsprozess** an. Dein Ziel ist es:
+      1. **Themen zu identifizieren** und hierarchisch zu strukturieren.
+      2. **Nur** die vorgegebenen GND-Schlagworte zu verwenden (keine Ergänzungen!).
+      3. **Schlagwortketten** zu bilden, um Spezifität zu erhöhen.
+      4. **Fehlende Konzepte** zu dokumentieren.
+      5. **Am Ende** gib das Ergebnis als **JSON-Objekt** aus.
+
+      Abstract:
+      {abstract}
+
+      Verfügbare GND-Schlagworte:
+      {keywords}
+
+      **Wichtige Hinweise:**
+      1. Keine externen Daten - nutze nur die vorgegebenen GND-Schlagworte
+      2. Präzision vor Vollständigkeit
+      3. JSON-Format: Die Ausgabe muss ein valides JSON-Objekt sein
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.search.gnd_entries}"
+
+    output_mapping:
+      selected_keywords: "keywords.selected"
+      missing_concepts: "keywords.missing"
+
+    tools:
+      preset: "knowledge"
+      explicit: ["get_gnd_entry", "get_gnd_batch", "search_gnd"]
+
+    output_extraction:
+      type: "json"
+      schema:
+        selected_keywords: "$.keywords"
+        missing_concepts: "$.missing_concepts"
+
+    validation:
+      min_results: 5
+      required_fields: ["selected_keywords"]
+
+    self_reflection:
+      enabled: true
+      max_iterations: 3
+
+  # Step 4: DK Classification
+  - id: "dk_classification"
+    description: "Assign DK classifications"
+    agent_type: "GenericAgent"
+    enabled: true
+    depends_on: ["keywords"]
+
+    system_prompt_file: "prompts/dk_classification.md"
+
+    system_prompt: |
+      Du bist ein **Experte für DK-Klassifikation (Dewey-Dezimalklassifikation)** mit tiefem Verständnis bibliothekarischer Standards.
+
+      **Deine Aufgaben:**
+      1. Analysiere den Abstract und die GND-Schlagwörter
+      2. Bestimme die passende DK-Hauptklasse (100er-Stelle)
+      3. Verfeinere auf Unterklasse (10er-Stelle) wenn möglich
+      4. Gib maximal 3 DK-Notationen an, sortiert nach Relevanz
+
+      **Ausgabeformat:**
+      ```json
+      {
+        "dk_classifications": [
+          {"code": "530", "title": "Physik", "confidence": 0.9},
+          {"code": "540", "title": "Chemie", "confidence": 0.7}
+        ],
+        "reasoning": "Kurze Begründung der Auswahl"
+      }
+      ```
+
+    user_prompt_template: |
+      Weise DK-Klassifikationen zu:
+
+      Abstract:
+      {abstract}
+
+      Schlagwörter:
+      {keywords}
+
+      Verfügbare DK-Klassifikationen aus dem Katalog:
+      {dk_entries}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.keywords.selected_keywords"
+      dk_entries: "${steps.search.gnd_entries}"
+
+    output_mapping:
+      dk_classifications: "classification.dk_codes"
+
+    tools:
+      preset: "knowledge"
+      explicit: ["search_catalog", "get_dk_cache", "get_classification"]
+
+    output_extraction:
+      type: "json"
+      schema:
+        dk_classifications: "$.dk_classifications"
+
+    self_reflection:
+      enabled: true
+      max_iterations: 2

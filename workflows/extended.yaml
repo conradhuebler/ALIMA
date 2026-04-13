@@ -1,0 +1,168 @@
+# ALIMA Extended Workflow - With Validation
+#
+# Full pipeline with quality validation step enabled.
+
+name: "Extended Workflow"
+description: "Full pipeline with quality validation"
+version: "2.0"
+
+settings:
+  max_tool_iterations: 20
+  max_self_reflection_iterations: 3
+  quality_threshold: 0.6
+  timeout_seconds: 300
+
+steps:
+  - id: "initialisation"
+    description: "Generate free keywords from abstract"
+    agent_type: "GenericAgent"
+    enabled: true
+
+    system_prompt: |
+      **Aufgabe:**
+      Analysiere das folgende Abstract und generiere **bis zu 10 präzise, deutsche Schlagworte** für eine bibliothekarische Recherche. Zerlege komplexe Begriffe in Einzelbegriffe, füge Oberbegriffe hinzu und orientiere dich an der GND-Systematik.
+
+      **Formatierung der Ausgabe:**
+      - Gib das Ergebnis als **valides JSON-Objekt** aus.
+      - Struktur: `{"title": "...", "keywords": ["..."]}`
+
+    user_prompt_template: |
+      Du bist ein präziser und fachlich versierter Bibliothekar.
+
+      Eingabetext:
+      {abstract}
+
+      Vorhandene Keywords:
+      {keywords}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${initial_keywords}"
+
+    output_mapping:
+      title: "initialisation.title"
+      keywords: "initialisation.keywords"
+
+    tools:
+      preset: "knowledge"
+
+    output_extraction:
+      type: "json"
+      schema:
+        title: "$.title"
+        keywords: "$.keywords"
+
+  - id: "search"
+    description: "Search GND/SWB for subject headings"
+    agent_type: "GenericAgent"
+    enabled: true
+    depends_on: ["initialisation"]
+
+    system_prompt: |
+      Du bist ein GND-Suchexperte für die Bibliothekserschließung. Nutze die Such-Tools um relevante GND-Schlagwörter zu finden.
+
+      **Verfügbare Tools:**
+      - `search_gnd`: Lokale GND-Datenbank
+      - `search_lobid`: Lobid.org API
+      - `search_swb`: SWB-Katalog
+
+      **Ausgabeformat:** JSON mit `search_terms_used`, `gnd_entries`, `coverage_assessment`
+
+    user_prompt_template: |
+      Finde GND-Schlagwörter für: {abstract}
+      Keywords: {keywords}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.initialisation.keywords}"
+
+    output_mapping:
+      gnd_entries: "search.gnd_entries"
+
+    tools:
+      preset: "library"
+
+    output_extraction:
+      type: "json"
+
+  - id: "keywords"
+    description: "Select relevant GND keywords"
+    agent_type: "GenericAgent"
+    enabled: true
+    depends_on: ["search"]
+
+    system_prompt_file: "prompts/keywords.md"
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.search.gnd_entries"
+
+    output_mapping:
+      selected_keywords: "keywords.selected"
+
+    tools:
+      preset: "knowledge"
+
+  - id: "dk_classification"
+    description: "Assign DK classifications"
+    agent_type: "GenericAgent"
+    enabled: true
+    depends_on: ["keywords"]
+
+    system_prompt_file: "prompts/dk_classification.md"
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.keywords.selected_keywords}"
+
+    output_mapping:
+      dk_classifications: "classification.dk_codes"
+
+    tools:
+      preset: "knowledge"
+
+  - id: "validation"
+    description: "Validate results quality"
+    agent_type: "GenericAgent"
+    enabled: true  # Enabled in extended workflow
+    depends_on: ["keywords", "dk_classification"]
+
+    system_prompt: |
+      Du bist ein Qualitätsprüfer für die bibliothekarische Sacherschließung.
+
+      **Deine Aufgabe:**
+      1. Prüfe die ausgewählten GND-Schlagwörter auf Gültigkeit
+      2. Prüfe ob die DK-Klassifikationen zu den Schlagwörtern passen
+      3. Bewerte die Abdeckung des Themas
+
+      **Ausgabeformat:**
+      ```json
+      {
+        "valid": true,
+        "quality_score": 0.85,
+        "missing_coverage": ["Thema1"],
+        "recommendations": ["Empfehlung1"]
+      }
+      ```
+
+    user_prompt_template: |
+      Validiere die folgenden Ergebnisse:
+
+      Abstract: {abstract}
+      Schlagwörter: {keywords}
+      Klassifikationen: {classifications}
+
+    input_mapping:
+      abstract: "${abstract}"
+      keywords: "${steps.keywords.selected_keywords}"
+      classifications: "${steps.classification.dk_codes}"
+
+    output_mapping:
+      quality_score: "validation.score"
+      recommendations: "validation.recommendations"
+
+    tools:
+      preset: "knowledge"
+
+    self_reflection:
+      enabled: false

@@ -1,0 +1,66 @@
+# ALIMA Minimal Workflow - Keywords Only
+#
+# Skips search step, uses pre-provided keywords directly.
+
+name: "Minimal Workflow"
+description: "Keywords only, use pre-generated keywords without search"
+version: "2.0"
+
+settings:
+  max_tool_iterations: 15
+  max_self_reflection_iterations: 2
+  quality_threshold: 0.6
+  timeout_seconds: 180
+
+steps:
+  - id: "keywords"
+    description: "Select keywords from pre-provided list"
+    agent_type: "GenericAgent"
+    enabled: true
+
+    system_prompt: |
+      Du bist **ALIMA Agent**, ein hochpräziser Wissensassistent mit spezialisierten Fähigkeiten in:
+      1. **Systematischer Analyse** (inspiriert von langem Denkprozess nach dem Template),
+      2. **GND-Schlagwortung** (basierend auf OGND-Standards),
+      3. **Logischer Wissensverknüpfung** (Kettenbildung, Oberbegriffe, Fehlkonzept-Diskussion).
+
+      **Deine Kernregeln:**
+      - **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte (keine Synonyme/Alternativen).
+      - **Hierarchie beachten**: Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen.
+      - **Fehlende Konzepte dokumentieren**: Falls ein Thema nicht abgedeckt ist, schlage Oberbegriffe vor.
+      - **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
+
+    user_prompt_template: |
+      Wähle die relevantesten GND-Schlagwörter aus den vorgegebenen Kandidaten:
+
+      Abstract:
+      {abstract}
+
+      Verfügbare GND-Kandidaten:
+      {gnd_entries}
+
+      **Wichtige Hinweise:**
+      1. Nutze nur die vorgegebenen Schlagworte
+      2. Wähle 5-15 relevante Schlagwörter
+      3. JSON-Format für die Ausgabe
+
+    input_mapping:
+      abstract: "${abstract}"
+      gnd_entries: "${initial_keywords}"
+
+    output_mapping:
+      selected_keywords: "keywords.selected"
+      missing_concepts: "keywords.missing"
+
+    tools:
+      preset: "knowledge"
+
+    output_extraction:
+      type: "json"
+      schema:
+        selected_keywords: "$.keywords"
+        missing_concepts: "$.missing_concepts"
+
+    validation:
+      min_results: 5
+      required_fields: ["selected_keywords"]
