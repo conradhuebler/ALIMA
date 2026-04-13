@@ -34,7 +34,7 @@ Analysiere den folgenden **Abstract** und wende einen **systematischen Klassifik
   - Verknüpfe diese mit den **Schlagworten** aus dem Bibliotheksbestand. 
 2. **Klassifikationsabgleich**: 
   - Suche im Bibliotheksbestand nach **ähnlichen Titeln/Schlagworten** und übernimm deren Klassifikationen als Basis. 
-  - Ergänze fehlende Klassifikationen durch **logische Ableitung** aus der DK/DDC/RVK-Systematik. 
+  - Wähle ausschließlich Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes. 
 3. **Validierung**: 
   - Prüfe jede Klassifikation auf: 
     - **Präzision** (deckt sie das Konzept exakt ab?), 
@@ -93,18 +93,11 @@ DK: 54 (Häufigkeit: 4) | Beispieltitel: Quantum Chemistry | Quantum chemistry |
 ```json
 {{
   "classifications": [
-    {{"code": "DK 616.89", "type": "DK"}},
-    {{"code": "DK 006.3", "type": "DK"}},
-    {{"code": "QP 340", "type": "RVK"}},
-    {{"code": "DK 616.07", "type": "DK"}},
-    {{"code": "DK 610.28", "type": "DK"}},
-    {{"code": "DK 342.6", "type": "DK"}},
-    {{"code": "DK 323.448", "type": "DK"}},
-    {{"code": "QP 430", "type": "RVK"}},
-    {{"code": "DK 621.39", "type": "DK"}},
-    {{"code": "DK 006.4", "type": "DK"}}
+    {{"code": "DK 541.14", "type": "DK"}},
+    {{"code": "DK 530.145", "type": "DK"}},
+    {{"code": "DK 54", "type": "DK"}}
   ],
-  "analyse": "Die Klassifikationen spiegeln die quantenchemische Methodik (DK 530.145) und die photokatalytische Reaktionstypen (DK 541.14) wider. Die wichtigsten Codes stammen aus dem Bibliotheksbestand mit hoher Häufigkeit."
+  "analyse": "Die Klassifikationen stammen direkt aus dem Bibliotheksbestand: DK 541.14 (Photochemie/Photophysik), DK 530.145 (Quantenchemie) und der übergeordnete Code DK 54 als Oberbegriff."
 }}
 ```
 

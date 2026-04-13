@@ -109,7 +109,7 @@ class ClassificationAgent(BaseSubAgent):
         prompt_parts.append(
             "\n**Strukturierte Vorgehensweise:**\n"
             "1. **Themenextraktion**: Identifiziere Kernkonzepte im Abstract und verknüpfe sie mit den GND-Schlagworten.\n"
-            "2. **Klassifikationsabgleich**: Übernimm Klassifikationen aus dem Bibliotheksbestand als Basis; ergänze fehlende durch logische Ableitung.\n"
+            "2. **Klassifikationsabgleich**: Wähle ausschließlich Klassifikationen, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes.\n"
             "3. **Validierung**: Prüfe Präzision, Hierarchie und Einzigartigkeit.\n"
             "4. **Auswahl**: Wähle die relevantesten Klassifikationen (max. 10).\n\n"
             "Bestimme die passendsten DK-Klassifikationen und gib das Ergebnis als JSON zurück."
