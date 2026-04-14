@@ -129,6 +129,11 @@ class SharedContext:
     max_tokens: int = 4096
     verbose: bool = False  # Log full prompts to stream + logger when True
 
+    # Reference prompts source (PromptService over prompts.json). SubAgents look
+    # up their task-specific system prompt + temperature here so the agentic
+    # pipeline mirrors the rigid pipeline's prompt behaviour.
+    prompt_service: Any = None
+
     # Working data (built during execution)
     working_title: str = ""
     extracted_keywords: List[str] = field(default_factory=list)

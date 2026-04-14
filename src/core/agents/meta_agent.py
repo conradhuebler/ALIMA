@@ -117,8 +117,33 @@ class MetaAgent:
         self.tool_registry = ToolRegistry(config_manager=config_manager)
         self.tool_registry.register_all_tools()
 
+        # Load PromptService so SubAgents use prompts.json as reference
+        # (same source as the rigid pipeline → prompt parity).
+        self.prompt_service = self._init_prompt_service(config_manager)
+
         # Loaded workflow steps
         self.workflow_steps: List[SubAgentStepConfig] = []
+
+    @staticmethod
+    def _init_prompt_service(config_manager):
+        """Build a PromptService from the system config's prompts_path.
+
+        Returns None (with warning) if unavailable — SubAgents fall back to
+        their inline prompts in that case.
+        """
+        try:
+            from src.llm.prompt_service import PromptService
+            prompts_path = None
+            if config_manager is not None:
+                cfg = config_manager.get_config() if hasattr(config_manager, "get_config") else None
+                sys_cfg = getattr(cfg, "system_config", None) if cfg else None
+                prompts_path = getattr(sys_cfg, "prompts_path", None)
+            if not prompts_path:
+                prompts_path = str(Path(__file__).parent.parent.parent.parent / "prompts.json")
+            return PromptService(prompts_path, logger)
+        except Exception as e:
+            logger.warning(f"PromptService init failed, SubAgents will use inline prompts: {e}")
+            return None
 
     def load_workflow(self, workflow_name: str) -> List[SubAgentStepConfig]:
         """Load workflow configuration from YAML file.
@@ -238,6 +263,7 @@ class MetaAgent:
             context.temperature = config.temperature
             context.max_tokens = config.max_tokens
             context.verbose = config.verbose
+            context.prompt_service = getattr(self, "prompt_service", None)
             self.logger.info("Using provided input_context (warm-start)")
         else:
             context = SharedContext(
@@ -250,6 +276,7 @@ class MetaAgent:
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 verbose=config.verbose,
+                prompt_service=getattr(self, "prompt_service", None),
             )
 
         mode_label = f"Step '{step_id}'" if step_id else "Full Pipeline"
@@ -399,6 +426,22 @@ class MetaAgent:
                 search_cfg.custom_system_prompt, search_cfg.custom_user_prompt,
             )
             step_results.append(r)
+
+            # Dedup gnd_entries by gnd_id — prevents accumulation across loop rounds
+            # (SearchAgent appends to context.gnd_entries; same concepts produce dupes).
+            seen_ids: set = set()
+            deduped: List[Dict] = []
+            for e in context.gnd_entries:
+                gid = str(e.get("gnd_id", "")).strip()
+                key = gid or (e.get("title", "").lower())
+                if key and key not in seen_ids:
+                    seen_ids.add(key)
+                    deduped.append(e)
+            if len(deduped) != len(context.gnd_entries):
+                self.logger.info(
+                    f"Missing-concept loop: deduped gnd_entries {len(context.gnd_entries)} → {len(deduped)}"
+                )
+                context.gnd_entries = deduped
 
             # Re-run selection with the expanded GND pool
             r = self._execute_step(

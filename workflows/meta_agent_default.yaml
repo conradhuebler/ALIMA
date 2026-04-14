@@ -5,7 +5,16 @@
 
 name: "ALIMA MetaAgent Pipeline"
 description: "Intelligent orchestration with cached tool results"
-version: "3.0"
+version: "3.1"
+
+# Reference prompts are loaded from prompts.json (single source of truth) via
+# PromptService. Per-step mapping:
+#   extraction     → prompts.json task 'initialisation'     (temp 0.5)
+#   selection      → prompts.json task 'keywords_chunked'   (temp 0.01, per-chunk)
+#                  → prompts.json task 'keywords'           (temp 0.5, for chain building)
+#   classification → prompts.json task 'dk_classification'
+# The system_prompt blocks below are only used if PromptService is unavailable.
+# Global temperature/top_p in `settings` is a fallback — prompt-task overrides win.
 
 # Global settings shared across all SubAgents
 settings:

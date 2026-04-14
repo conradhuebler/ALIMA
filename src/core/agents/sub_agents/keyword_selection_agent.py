@@ -138,10 +138,12 @@ class KeywordSelectionAgent(BaseSubAgent):
         if self.stream_callback:
             self.stream_callback(f"\u2705 Gesamt: {len(selected_list)} GND-Schlagworte ausgew\u00e4hlt\n")
 
-        # Build Schlagwortketten from selected keywords
+        # Build Schlagwortketten + missing_concepts from selected keywords
+        # (single LLM call via prompts.json 'keywords' task — matches rigid pipeline).
         keyword_chains: List[Dict] = []
+        llm_missing: List[str] = []
         if selected_list:
-            keyword_chains = self._build_keyword_chains(
+            keyword_chains, llm_missing = self._build_keyword_chains(
                 selected_keywords=selected_list,
                 abstract=abstract,
             )
@@ -150,11 +152,14 @@ class KeywordSelectionAgent(BaseSubAgent):
                     f"\U0001f517 {len(keyword_chains)} Schlagwortkette{'n' if len(keyword_chains) != 1 else ''} erstellt\n"
                 )
 
-        # Identify missing_concepts: extracted keywords not represented in selected
-        missing = self._find_missing_concepts(
-            extracted=self.context.extracted_keywords,
-            selected_titles={v["title"].lower() for v in selected.values()},
-        )
+        # Prefer LLM-reported missing_concepts; fall back to local diff
+        if llm_missing:
+            missing = llm_missing
+        else:
+            missing = self._find_missing_concepts(
+                extracted=self.context.extracted_keywords,
+                selected_titles={v["title"].lower() for v in selected.values()},
+            )
         if missing and self.stream_callback:
             self.stream_callback(f"\u2753 {len(missing)} fehlende Konzepte: {', '.join(missing[:5])}"
                                  f"{'...' if len(missing) > 5 else ''}\n")
@@ -184,59 +189,65 @@ class KeywordSelectionAgent(BaseSubAgent):
         self,
         selected_keywords: List[Dict[str, str]],
         abstract: str,
-    ) -> List[Dict]:
-        """Ask LLM to compose Schlagwortketten from selected keywords.
-
-        Schlagwortketten are compound subject headings combining multiple
-        GND terms into chains for specificity, matching the normal pipeline's
-        ``extract_keyword_chains_from_response()`` format.
+    ) -> tuple:
+        """Ask LLM to compose Schlagwortketten + detect missing concepts
+        in a single call, using the prompts.json 'keywords' template.
 
         Returns:
-            List of {"chain": [...], "reason": "..."} dicts.
+            Tuple (chains, missing_concepts) where chains is a list of
+            {"chain":[...], "reason":"..."} dicts. Missing concepts may be
+            empty if the LLM didn't provide them (caller falls back).
         """
         if not selected_keywords or len(selected_keywords) < 2:
-            return []
+            return [], []
 
         kw_lines = "\n".join(
             f"- {kw.get('title', '')} (GND-ID: {kw.get('gnd_id', '')})"
             for kw in selected_keywords[:60]  # Limit to avoid token overflow
         )
 
-        chain_prompt = (
-            f"Abstract:\n{abstract[:2000]}\n\n"
-            f"Ausgew\u00e4hlte GND-Schlagworte:\n{kw_lines}\n\n"
-            "Bilde **Schlagwortketten** (Verkn\u00fcpfungen verwandter Begriffe f\u00fcr Spezifit\u00e4t).\n"
-            "Regeln:\n"
-            "- Jede Kette verbindet 2-5 verwandte Begriffe mit \u2192\n"
-            "- Begriffe stammen **nur** aus der obigen Liste\n"
-            "- Jede Kette hat eine kurze Begr\u00fcndung\n\n"
-            "Ausgabeformat:\n"
-            "<schlagwortketten>\n"
-            "Begriff1 \u2192 Begriff2 \u2192 Begriff3 (Begr\u00fcndung)\n"
-            "Begriff4 \u2192 Begriff5 (Begr\u00fcndung)\n"
-            "</schlagwortketten>\n"
-        )
+        # Reference system prompt + user template + temperature from prompts.json 'keywords'
+        # The 'keywords' task asks for keywords + keyword_chains + missing_concepts in one JSON.
+        task_cfg = self._load_task_prompt("keywords")
+        system_prompt = task_cfg.system if task_cfg and task_cfg.system else SYSTEM_PROMPT
+        chain_temperature = task_cfg.temp if task_cfg else self.context.temperature
+
+        if task_cfg and task_cfg.prompt:
+            chain_prompt = (
+                task_cfg.prompt
+                .replace("{abstract}", abstract[:2000])
+                .replace("{keywords}", kw_lines)
+            )
+        else:
+            chain_prompt = (
+                f"Abstract:\n{abstract[:2000]}\n\n"
+                f"Ausgew\u00e4hlte GND-Schlagworte:\n{kw_lines}\n\n"
+                "Bilde Schlagwortketten und nenne fehlende Konzepte. JSON-Output:\n"
+                '{"keyword_chains":[{"chain":["A","B"],"reason":"..."}], "missing_concepts":["..."]}'
+            )
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": chain_prompt},
         ]
 
         if self.context.verbose:
-            self._log_prompt_verbose(SYSTEM_PROMPT, chain_prompt, label="Schlagwortketten")
+            self._log_prompt_verbose(system_prompt, chain_prompt, label="Schlagwortketten")
 
         try:
             tokens: List[str] = []
 
             def _collect(token: str) -> None:
                 tokens.append(token)
+                if self.stream_callback:
+                    self.stream_callback(token)
 
             response = self.llm_service.generate_with_tools(
                 provider=self.context.provider,
                 model=self.context.model,
                 messages=messages,
                 tools=[],  # No tools -- plain text response
-                temperature=self.context.temperature,
+                temperature=chain_temperature,
                 max_tokens=min(self.context.max_tokens, 1024),
                 stream_callback=_collect,
             )
@@ -245,9 +256,23 @@ class KeywordSelectionAgent(BaseSubAgent):
 
         except Exception as e:
             logger.warning(f"KeywordSelectionAgent: Schlagwortketten LLM call failed: {e}")
-            return []
+            return [], []
 
-        return self._parse_schlagwortketten(raw, selected_keywords)
+        chains = self._parse_schlagwortketten(raw, selected_keywords)
+        missing = self._parse_missing_concepts(raw)
+        return chains, missing
+
+    def _parse_missing_concepts(self, llm_output: str) -> List[str]:
+        """Extract missing_concepts from LLM JSON output (prompts.json 'keywords' schema)."""
+        try:
+            from src.core.json_response_parser import parse_json_response
+            data = parse_json_response(llm_output)
+            if isinstance(data, dict):
+                items = data.get("missing_concepts") or []
+                return [str(m).strip() for m in items if m]
+        except Exception:
+            pass
+        return []
 
     def _parse_schlagwortketten(
         self,
@@ -324,28 +349,33 @@ class KeywordSelectionAgent(BaseSubAgent):
             if e.get("title")
         )
 
-        user_prompt = (
-            f"Abstract:\n{abstract[:3000]}\n\n"
-            "**Kriterien f\u00fcr Relevanz:**\n"
-            "- **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erw\u00e4hnt oder **thematisch eng verkn\u00fcpft** sein.\n"
-            "- **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** f\u00fcr das Verst\u00e4ndnis des Abstracts sind.\n"
-            "- **Keine Allgemeinpl\u00e4tze**: Schlagworte wie \"Wissenschaft\", \"Technologie\" oder \"Gesellschaft\" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begr\u00fcndet werden.\n\n"
-            f"Zur Auswahl stehende GND-Schlagworte (Chunk {chunk_idx}/{total_chunks}):\n{kw_lines}\n\n"
-            "W\u00e4hle die relevanten Schlagworte aus und gib sie in EINES dieser Formate:\n"
-            "1. XML-Tags: <final_list>Schlagwort (GND-ID: X), Schlagwort (GND-ID: Y)</final_list>\n"
-            "2. Komma-separiert: Schlagwort (GND-ID: X), Schlagwort (GND-ID: Y)\n"
-            "3. Als Liste:\n- Schlagwort (GND-ID: X)\n- Schlagwort (GND-ID: Y)\n\n"
-            "WICHTIG: Verwende **nur** Schlagworte aus der obigen Liste und gib die GND-ID mit an."
-        )
+        # Reference prompt + temperature from prompts.json 'keywords_chunked'
+        # (rigid pipeline uses temp=0.01 for deterministic chunking).
+        task_cfg = self._load_task_prompt("keywords_chunked")
+        system_prompt = task_cfg.system if task_cfg and task_cfg.system else SYSTEM_PROMPT
+        chunk_temperature = task_cfg.temp if task_cfg else self.context.temperature
+
+        # Render the reference user-prompt template from prompts.json with
+        # {abstract} + {keywords} = this chunk. Keeps system+user in agreement
+        # (JSON output as specified in prompts.json), matching the rigid pipeline.
+        if task_cfg and task_cfg.prompt:
+            user_prompt = task_cfg.prompt.replace("{abstract}", abstract[:3000]).replace("{keywords}", kw_lines)
+            user_prompt = f"[Chunk {chunk_idx}/{total_chunks}]\n" + user_prompt
+        else:
+            user_prompt = (
+                f"Abstract:\n{abstract[:3000]}\n\n"
+                f"Zur Auswahl stehende GND-Schlagworte (Chunk {chunk_idx}/{total_chunks}):\n{kw_lines}\n\n"
+                'Gib die relevanten Schlagworte als JSON aus: {"keywords": [{"keyword": "...", "gnd_id": "..."}]}'
+            )
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
         # Verbose: log full prompt for this chunk
         if self.context.verbose:
-            self._log_prompt_verbose(SYSTEM_PROMPT, user_prompt, label=f"Chunk {chunk_idx}/{total_chunks}")
+            self._log_prompt_verbose(system_prompt, user_prompt, label=f"Chunk {chunk_idx}/{total_chunks}")
 
         chunk_selected: List[Dict[str, str]] = []
 
@@ -355,13 +385,15 @@ class KeywordSelectionAgent(BaseSubAgent):
 
             def _collect(token: str) -> None:
                 tokens.append(token)
+                if self.stream_callback:
+                    self.stream_callback(token)
 
             response = self.llm_service.generate_with_tools(
                 provider=self.context.provider,
                 model=self.context.model,
                 messages=messages,
                 tools=[],  # No tools -- force plain text response
-                temperature=self.context.temperature,
+                temperature=chunk_temperature,
                 max_tokens=self.context.max_tokens,
                 stream_callback=_collect,
             )
@@ -474,7 +506,9 @@ class KeywordSelectionAgent(BaseSubAgent):
                         if isinstance(items, list):
                             for item in items:
                                 if isinstance(item, dict):
-                                    title = item.get("title", "")
+                                    # prompts.json 'keywords_chunked' uses {"keyword","gnd_id"};
+                                    # accept both 'keyword' and 'title' as the label key
+                                    title = item.get("title") or item.get("keyword") or ""
                                     gnd_id = item.get("gnd_id", "")
                                     if title:
                                         title_lower = title.lower().strip()

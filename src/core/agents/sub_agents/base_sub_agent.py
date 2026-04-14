@@ -40,6 +40,11 @@ class SubAgentResult:
 
 
 class BaseSubAgent(ABC):
+    # Subclasses set this to the prompts.json task name whose system prompt and
+    # temperature should be used for the LLM call. When set and context.prompt_service
+    # is available, the task's system prompt + temp override the agent's local defaults.
+    prompt_task: Optional[str] = None
+
     """Abstract base class for specialized SubAgents.
 
     Each SubAgent handles a specific task in the ALIMA pipeline:
@@ -197,6 +202,26 @@ class BaseSubAgent(ABC):
 
         return result
 
+    def _load_task_prompt(self, task_name: Optional[str] = None):
+        """Load reference prompt config from prompts.json via PromptService.
+
+        Returns PromptConfigData (with .system, .temp, .seed, .prompt) or None
+        if no PromptService is attached or the task is not configured.
+        Falls back to model 'default' when the specific model has no entry.
+        """
+        task = task_name or self.prompt_task
+        if not task:
+            return None
+        service = getattr(self.context, "prompt_service", None)
+        if service is None:
+            return None
+        try:
+            model_key = self.context.model or "default"
+            return service.get_prompt_config(task, model_key)
+        except Exception as e:
+            self.logger.debug(f"PromptService lookup failed for task '{task}': {e}")
+            return None
+
     def _log_prompt_verbose(self, system_prompt: str, user_prompt: str, label: str = "") -> None:
         """Log full system + user prompt when verbose mode is active.
 
@@ -233,8 +258,21 @@ class BaseSubAgent(ABC):
             self.stream_callback(f"\n{'='*50}\n🤖 {self.agent_name}{tools_info}\n{'='*50}\n")
 
         try:
-            # Build prompts - use overrides if provided from workflow
-            system_prompt = self._system_prompt_override or self.get_system_prompt()
+            # Load task config from prompts.json (single source of truth)
+            task_cfg = self._load_task_prompt()
+            effective_temperature = self.context.temperature
+            if task_cfg is not None:
+                effective_temperature = task_cfg.temp
+
+            # Build prompts - precedence: prompts.json task > workflow override > agent default
+            # (prompts.json is the single source of truth; YAML inline prompts act as
+            # fallback / documentation only.)
+            if task_cfg is not None and task_cfg.system:
+                system_prompt = task_cfg.system
+            elif self._system_prompt_override:
+                system_prompt = self._system_prompt_override
+            else:
+                system_prompt = self.get_system_prompt()
             user_prompt = self._user_prompt_override or self.build_user_prompt()
 
             # Replace placeholders in custom prompts
@@ -277,7 +315,7 @@ class BaseSubAgent(ABC):
                 tools=tools if tools else None,  # None disables tool calling
                 provider=self.context.provider,
                 model=self.context.model,
-                temperature=self.context.temperature,
+                temperature=effective_temperature,
                 max_tokens=self.context.max_tokens,
             )
 

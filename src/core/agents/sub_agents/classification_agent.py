@@ -115,7 +115,10 @@ class ClassificationAgent(BaseSubAgent):
             "Bestimme die passendsten DK-Klassifikationen und gib das Ergebnis als JSON zurück."
         )
 
-        system_prompt = """\
+        # Reference system prompt + temperature from prompts.json 'dk_list'
+        task_cfg = self._load_task_prompt("dk_classification")
+        classification_temperature = task_cfg.temp if task_cfg else self.context.temperature
+        system_prompt = task_cfg.system if task_cfg and task_cfg.system else """\
 **Deine Rolle als bibliothekarischer Klassifikations-Experte:**
 Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
 1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende Klassifikationen aus dem Bibliotheksbestand zu einer **hierarchischen Themenstruktur**.
@@ -167,6 +170,8 @@ Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
 
             def _collect(token: str) -> None:
                 tokens.append(token)
+                if self.stream_callback:
+                    self.stream_callback(token)
 
             response = self.llm_service.generate_with_tools(
                 provider=self.context.provider,
@@ -176,7 +181,7 @@ Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
                     {"role": "user", "content": user_prompt},
                 ],
                 tools=[],  # No tools — single LLM call with all data pre-loaded
-                temperature=self.context.temperature,
+                temperature=classification_temperature,
                 max_tokens=self.context.max_tokens,
                 stream_callback=_collect,
             )
@@ -187,11 +192,49 @@ Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
             logger.error(f"ClassificationAgent LLM call failed: {e}")
             return SubAgentResult(success=False, data={}, error=str(e))
 
-        # Parse result
+        # Parse result — supports both schemas:
+        #   (a) prompts.json 'dk_classification': {"classifications":[{"code","type"}], "analyse"}
+        #   (b) legacy inline: {"dk_classifications":[...], "rvk_classifications":[...], "reasoning"}
         parsed = self._extract_json(raw_output)
-        dk_classifications = parsed.get("dk_classifications", [])
-        rvk_classifications = parsed.get("rvk_classifications", [])
-        reasoning = parsed.get("reasoning", "")
+        dk_classifications: List[Dict] = []
+        rvk_classifications: List[Dict] = []
+        # Normalize alternate schemas into the canonical 'classifications' list
+        raw_list = parsed.get("classifications")
+        if raw_list is None and isinstance(parsed.get("selected_classifications"), list):
+            # Plain list of code strings (or mixed dicts) without explicit type
+            raw_list = parsed["selected_classifications"]
+        if isinstance(raw_list, list):
+            for cls in raw_list:
+                if isinstance(cls, str):
+                    cls = {"code": cls}
+                if not isinstance(cls, dict):
+                    continue
+                raw_code = str(cls.get("code", "")).strip()
+                cls_type = str(cls.get("type", "")).upper().strip()
+                # Infer type from code prefix if missing
+                if not cls_type:
+                    if raw_code.upper().startswith("DK"):
+                        cls_type = "DK"
+                    elif raw_code.upper().startswith("RVK"):
+                        cls_type = "RVK"
+                    elif raw_code.upper().startswith("DDC"):
+                        cls_type = "DDC"
+                # Strip "DK "/"RVK "/"DDC " prefix from the code
+                code = re.sub(r"^(DK|RVK|DDC)\s*", "", raw_code, flags=re.IGNORECASE).strip()
+                entry = {
+                    "code": code,
+                    "title": cls.get("title", ""),
+                    "confidence": cls.get("confidence", 0.8),
+                    "reason": cls.get("reason", cls.get("reasoning", "")),
+                }
+                if cls_type == "RVK":
+                    rvk_classifications.append(entry)
+                else:
+                    dk_classifications.append(entry)
+        else:
+            dk_classifications = parsed.get("dk_classifications", []) or []
+            rvk_classifications = parsed.get("rvk_classifications", []) or []
+        reasoning = parsed.get("analyse") or parsed.get("reasoning", "")
 
         result_data = {
             "dk_classifications": dk_classifications,

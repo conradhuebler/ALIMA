@@ -21,7 +21,13 @@ class KeywordExtractionAgent(BaseSubAgent):
     and generates relevant German keywords for library cataloging.
 
     No tool calls - pure LLM reasoning task.
+
+    System prompt + temperature come from prompts.json task 'initialisation'
+    (same as the rigid pipeline). The inline prompt in get_system_prompt()
+    is a fallback when PromptService is unavailable.
     """
+
+    prompt_task = "initialisation"
 
     @property
     def agent_name(self) -> str:
