@@ -411,12 +411,11 @@ class ComprehensiveSettingsDialog(QDialog):
         system_layout.addRow("Webcam:", self.enable_webcam_input)
 
         # Global font size — Claude Generated
-        from PyQt6.QtWidgets import QSpinBox as _QSpinBox
-        self.font_size_spin = _QSpinBox()
+        self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 16)
         self.font_size_spin.setSuffix(" pt")
         self.font_size_spin.setToolTip("Basis-Schriftgröße für alle Bedienelemente (8–16 pt)")
-        system_layout.addRow("🔠 Schriftgröße:", self.font_size_spin)
+        system_layout.addRow("Schriftgröße:", self.font_size_spin)
 
         self.log_level = QComboBox()
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])

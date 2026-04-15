@@ -1042,6 +1042,8 @@ class MainWindow(QMainWindow):
             _apply_dark_app_palette(app)
         else:
             _apply_light_app_palette(app)
+        if app:
+            app.setStyleSheet(get_main_stylesheet())
         self.setStyleSheet(get_main_stylesheet())
         self._reapply_tab_stylesheets()
         label = "☀️ Helles Design" if dark else "🌙 Dunkles Design"
@@ -1052,6 +1054,10 @@ class MainWindow(QMainWindow):
     def apply_font_size(self, pt: int) -> None:
         """Set global font size and refresh all stylesheets. — Claude Generated"""
         set_font_size(pt)
+        # Apply to QApplication so ALL widgets (incl. dialogs) pick it up
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(get_main_stylesheet())
         self.setStyleSheet(get_main_stylesheet())
         self._reapply_tab_stylesheets()
         self.settings.setValue("font_size", pt)
