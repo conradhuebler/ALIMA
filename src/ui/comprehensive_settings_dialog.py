@@ -410,6 +410,14 @@ class ComprehensiveSettingsDialog(QDialog):
         # Note: Saved on dialog close via _get_config_from_ui() - Claude Generated
         system_layout.addRow("Webcam:", self.enable_webcam_input)
 
+        # Global font size — Claude Generated
+        from PyQt6.QtWidgets import QSpinBox as _QSpinBox
+        self.font_size_spin = _QSpinBox()
+        self.font_size_spin.setRange(8, 16)
+        self.font_size_spin.setSuffix(" pt")
+        self.font_size_spin.setToolTip("Basis-Schriftgröße für alle Bedienelemente (8–16 pt)")
+        system_layout.addRow("🔠 Schriftgröße:", self.font_size_spin)
+
         self.log_level = QComboBox()
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         system_layout.addRow("Log Level:", self.log_level)
@@ -676,6 +684,7 @@ class ComprehensiveSettingsDialog(QDialog):
 
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
+        self.font_size_spin.setValue(getattr(config.ui_config, "font_size", 10))
 
         # Repetition Detection settings - Claude Generated
         rep_config = getattr(config, 'repetition_config', None)
@@ -933,7 +942,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # UI configuration - Claude Generated (Webcam Feature)
         from ..utils.config_models import UIConfig, RepetitionDetectionConfig
         config.ui_config = UIConfig(
-            enable_webcam_input=self.enable_webcam_input.isChecked()
+            enable_webcam_input=self.enable_webcam_input.isChecked(),
+            font_size=self.font_size_spin.value(),
         )
 
         # Repetition Detection configuration - Claude Generated

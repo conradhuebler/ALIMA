@@ -673,7 +673,7 @@ class SystemConfig:
 class UIConfig:
     """UI-specific configuration - Claude Generated"""
     enable_webcam_input: bool = False  # Enable webcam capture in Pipeline tab
-    # Future UI options can be added here
+    font_size: int = 10  # Global base font size in pt (8–16) — Claude Generated
 
 
 @dataclass

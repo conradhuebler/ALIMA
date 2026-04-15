@@ -27,6 +27,7 @@ from datetime import datetime
 import json
 
 from ..core.pipeline_manager import PipelineStep
+from .styles import get_font_size
 
 
 class PipelineStreamWidget(QWidget):
@@ -119,7 +120,7 @@ class PipelineStreamWidget(QWidget):
             QSizePolicy.Policy.Ignored
         )
 
-        font = QFont("Consolas", 10)
+        font = QFont("Consolas", get_font_size())
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.stream_text.setFont(font)
 
@@ -716,6 +717,11 @@ class PipelineStreamWidget(QWidget):
         """Set working title for log filename - Claude Generated"""
         self.current_working_title = working_title
         self.logger.info(f"Stream widget: working_title set to '{working_title}'")
+
+    def refresh_styles(self):
+        """Re-apply font after global font-size change. Called by MainWindow.apply_font_size(). — Claude Generated"""
+        if hasattr(self, "stream_text"):
+            self.stream_text.setFont(QFont("Consolas", get_font_size()))
 
     def reset_for_new_pipeline(self):
         """Reset widget for new pipeline - Claude Generated"""

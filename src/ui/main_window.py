@@ -60,7 +60,7 @@ from .dk_analysis_unified_tab import DkAnalysisUnifiedTab
 from .ub_catalog_tab import UBCatalogTab
 from .tablewidget import TableWidget, DatabaseViewerDialog
 from .image_analysis_tab import ImageAnalysisTab
-from .styles import get_main_stylesheet, set_dark_mode
+from .styles import get_main_stylesheet, set_dark_mode, set_font_size, get_font_size
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
 from .comparison_tab import ComparisonTab
@@ -1013,6 +1013,16 @@ class MainWindow(QMainWindow):
             dark = is_system_dark_mode(app)
         self.apply_theme(dark)
 
+        # Load font size preference — Claude Generated
+        saved_fs = self.settings.value("font_size", None)
+        if saved_fs is None and self.config_manager:
+            try:
+                saved_fs = self.config_manager.get_config().ui_config.font_size
+            except Exception:
+                saved_fs = 10
+        if saved_fs is not None:
+            self.apply_font_size(int(saved_fs))
+
     def save_settings(self):
         """Speichert die aktuellen Einstellungen"""
         self.settings.setValue("geometry", self.saveGeometry())
@@ -1039,6 +1049,19 @@ class MainWindow(QMainWindow):
             self._theme_action.setText(label)
         self.settings.setValue("dark_mode", dark)
 
+    def apply_font_size(self, pt: int) -> None:
+        """Set global font size and refresh all stylesheets. — Claude Generated"""
+        set_font_size(pt)
+        self.setStyleSheet(get_main_stylesheet())
+        self._reapply_tab_stylesheets()
+        self.settings.setValue("font_size", pt)
+        if self.config_manager:
+            try:
+                self.config_manager.get_config().ui_config.font_size = pt
+                self.config_manager.save_config()
+            except Exception as e:
+                self.logger.debug(f"Could not persist font_size to config: {e}")
+
     def _reapply_tab_stylesheets(self):
         """Re-apply stylesheets to all tabs after theme change — Claude Generated"""
         for i in range(self.tabs.count()):
@@ -1053,9 +1076,26 @@ class MainWindow(QMainWindow):
         """Toggle between dark and light theme — Claude Generated"""
         self.apply_theme(not self._dark_mode)
 
+    def _set_font_size_from_menu(self, pt: int) -> None:
+        """Apply font size from menu and update checkmarks. — Claude Generated"""
+        self.apply_font_size(pt)
+        if hasattr(self, "_font_size_menu"):
+            for action in self._font_size_menu.actions():
+                try:
+                    action.setChecked(action.text() == f"{pt} pt")
+                except Exception:
+                    pass
+
     def _on_config_changed(self):
         """Handle configuration changes from comprehensive settings dialog - Claude Generated"""
         self.logger.info("Configuration changed, refreshing components")
+        # Apply font size if it changed in the settings dialog — Claude Generated
+        try:
+            new_fs = self.config_manager.get_config().ui_config.font_size
+            if new_fs != get_font_size():
+                self.apply_font_size(new_fs)
+        except Exception:
+            pass
         self._refresh_components()
 
     def _refresh_components(self):
@@ -2155,6 +2195,15 @@ class MainWindow(QMainWindow):
         # Dark/light theme toggle — Claude Generated
         self._theme_action = tools_menu.addAction("🌙 Dunkles Design")
         self._theme_action.triggered.connect(self._toggle_theme)
+
+        # Font size submenu — Claude Generated
+        font_menu = tools_menu.addMenu("🔠 Schriftgröße")
+        for pt in [8, 9, 10, 11, 12, 13, 14, 16]:
+            action = font_menu.addAction(f"{pt} pt")
+            action.setCheckable(True)
+            action.setChecked(pt == get_font_size())
+            action.triggered.connect(lambda checked, size=pt: self._set_font_size_from_menu(size))
+        self._font_size_menu = font_menu
 
         tools_menu.addSeparator()
 

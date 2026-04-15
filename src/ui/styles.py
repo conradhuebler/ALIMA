@@ -5,10 +5,24 @@ Unified UI styles for ALIMA application
 # Module-level dark mode state — Claude Generated
 _dark_mode = False
 
+# Module-level font size state — Claude Generated
+_font_size: int = 10
+
 
 def set_dark_mode(dark: bool):
     global _dark_mode
     _dark_mode = dark
+
+
+def set_font_size(pt: int) -> None:
+    """Set global base font size (clamped 8–16 pt). Call get_main_stylesheet() afterwards. — Claude Generated"""
+    global _font_size
+    _font_size = max(8, min(16, int(pt)))
+
+
+def get_font_size() -> int:
+    """Return current global base font size in pt. — Claude Generated"""
+    return _font_size
 
 
 def get_colors() -> dict:
@@ -105,30 +119,32 @@ DARK_COLORS = {
     "comparison_only_b_text": "#f9e2af",
 }
 
-# Standard layout constants
+# Standard layout constants (static values; for font size use get_font_size())
 LAYOUT = {
     "margin": 15,
     "spacing": 12,
     "inner_spacing": 8,
     "border_radius": 8,
-    "input_font_size": 11,
+    "input_font_size": 11,  # kept for backward compat — use get_font_size()+1 for dynamic value
 }
 
 
 def get_main_stylesheet():
-    """Get the main application stylesheet"""
+    """Get the main application stylesheet. Uses _font_size for global scaling. — Claude Generated"""
+    fs = _font_size          # base
+    fs1 = _font_size + 1     # inputs / group box titles
     return f"""
     /* Main application styles */
     QWidget {{
         font-family: 'Segoe UI', Arial, sans-serif;
-        font-size: 10pt;
+        font-size: {fs}pt;
         color: {get_colors()['text']};
     }}
-    
+
     /* Group boxes */
     QGroupBox {{
         font-weight: bold;
-        font-size: 11pt;
+        font-size: {fs1}pt;
         border: 1px solid {get_colors()['border']};
         border-radius: 8px;
         margin-top: 12px;
@@ -152,7 +168,7 @@ def get_main_stylesheet():
         background-color: {get_colors()['primary']};
         color: white;
         font-weight: bold;
-        font-size: 10pt;
+        font-size: {fs}pt;
         min-height: 20px;
     }}
     
@@ -175,7 +191,7 @@ def get_main_stylesheet():
         border-radius: 4px;
         padding: 8px;
         background-color: {get_colors()['background']};
-        font-size: 11pt;
+        font-size: {fs1}pt;
         line-height: 1.4;
     }}
     
@@ -188,7 +204,7 @@ def get_main_stylesheet():
         border-radius: 4px;
         padding: 8px;
         background-color: {get_colors()['background']};
-        font-size: 10pt;
+        font-size: {fs}pt;
     }}
     
     QLineEdit:focus {{
@@ -198,16 +214,16 @@ def get_main_stylesheet():
     /* Labels */
     QLabel {{
         color: {get_colors()['text']};
-        font-size: 10pt;
+        font-size: {fs}pt;
     }}
-    
+
     /* Combo boxes */
     QComboBox {{
         border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         padding: 6px 8px;
         background-color: {get_colors()['background']};
-        font-size: 10pt;
+        font-size: {fs}pt;
         min-height: 20px;
     }}
     
@@ -230,7 +246,7 @@ def get_main_stylesheet():
     QCheckBox {{
         color: {get_colors()['text']};
         spacing: 8px;
-        font-size: 10pt;
+        font-size: {fs}pt;
     }}
     
     QCheckBox::indicator {{
@@ -252,7 +268,7 @@ def get_main_stylesheet():
         border-radius: 4px;
         background-color: {get_colors()['background']};
         gridline-color: {get_colors()['border_light']};
-        font-size: 10pt;
+        font-size: {fs}pt;
     }}
     
     QTableWidget::item {{
@@ -277,7 +293,7 @@ def get_main_stylesheet():
         border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         text-align: center;
-        font-size: 10pt;
+        font-size: {fs}pt;
         font-weight: bold;
     }}
     
@@ -311,7 +327,7 @@ def get_main_stylesheet():
         border-radius: 4px;
         padding: 6px 8px;
         background-color: {get_colors()['background']};
-        font-size: 10pt;
+        font-size: {fs}pt;
     }}
     
     QSpinBox:focus {{
@@ -394,7 +410,7 @@ def get_main_stylesheet():
         border: 1px solid {get_colors()['border']};
         border-radius: 4px;
         background-color: {get_colors()['background']};
-        font-size: 10pt;
+        font-size: {fs}pt;
     }}
     
     QTreeWidget::item {{
@@ -414,7 +430,8 @@ def get_main_stylesheet():
 
 
 def get_button_styles():
-    """Get button style variations"""
+    """Get button style variations. Uses global _font_size. — Claude Generated"""
+    fs = _font_size
     return {
         "primary": f"""
             QPushButton {{
@@ -424,7 +441,7 @@ def get_button_styles():
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {fs}pt;
                 min-height: 20px;
             }}
             QPushButton:hover {{
@@ -446,7 +463,7 @@ def get_button_styles():
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {fs}pt;
                 min-height: 20px;
             }}
             QPushButton:hover {{
@@ -468,7 +485,7 @@ def get_button_styles():
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {fs}pt;
                 min-height: 20px;
             }}
             QPushButton:hover {{
@@ -490,7 +507,7 @@ def get_button_styles():
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {fs}pt;
                 min-height: 20px;
             }}
             QPushButton:hover {{
@@ -512,7 +529,7 @@ def get_button_styles():
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {fs}pt;
                 min-height: 20px;
             }}
             QPushButton:hover {{
@@ -534,7 +551,7 @@ def get_button_styles():
                 border-radius: 6px;
                 padding: 10px 20px;
                 font-weight: bold;
-                font-size: 10pt;
+                font-size: {fs}pt;
                 min-height: 20px;
             }}
             QPushButton:hover {{
@@ -611,7 +628,7 @@ def get_image_preview_style():
             border-radius: 8px;
             background-color: {get_colors()['background_light']};
             color: {get_colors()['text_muted']};
-            font-size: 12pt;
+            font-size: {_font_size + 2}pt;
             text-align: center;
             padding: 20px;
         }}
