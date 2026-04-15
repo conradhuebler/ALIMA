@@ -100,6 +100,7 @@ class MetaAgent:
         llm_service,
         config_manager=None,
         stream_callback: Optional[Callable[[str, str], None]] = None,
+        context_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ):
         """Initialize MetaAgent.
 
@@ -107,10 +108,15 @@ class MetaAgent:
             llm_service: LLM service for generation
             config_manager: Optional config manager
             stream_callback: Optional callback for streaming output (text, step_id)
+            context_callback: Optional callback invoked after each SubAgent with
+                (step_name, snapshot_dict). snapshot_dict merges SharedContext.to_dict()
+                with per-step meta: _step_status, _step_duration, _step_quality,
+                _step_iteration, _cache_stats.
         """
         self.llm_service = llm_service
         self.config_manager = config_manager
         self.stream_callback = stream_callback
+        self.context_callback = context_callback
         self.logger = logging.getLogger(__name__)
 
         # Initialize tool registry
@@ -324,6 +330,8 @@ class MetaAgent:
                     self.logger.info(f"Skipping {step_name} (GND entries already in context)")
                     continue
 
+            self._emit_context(step_name, context, status="running")
+
             step_result = self._execute_step(
                 step_name=step_name,
                 agent_class=step_config.agent_class,
@@ -333,6 +341,10 @@ class MetaAgent:
                 custom_user_prompt=step_config.custom_user_prompt,
             )
             step_results.append(step_result)
+            self._emit_context(
+                step_name, context, step_result,
+                status="completed" if step_result.success else "error",
+            )
 
             if not step_result.success:
                 self.logger.error(f"Pipeline step {step_name} failed: {step_result.error}")
@@ -421,11 +433,16 @@ class MetaAgent:
             context.missing_concepts = missing
 
             # Re-run search (deterministic: reads extracted_keywords + missing_concepts)
+            self._emit_context("search", context, status="running", iteration=iteration + 1)
             r = self._execute_step(
                 "search", search_cfg.agent_class, context, step_stream,
                 search_cfg.custom_system_prompt, search_cfg.custom_user_prompt,
             )
             step_results.append(r)
+            self._emit_context(
+                "search", context, r, iteration=iteration + 1,
+                status="completed" if r.success else "error",
+            )
 
             # Dedup gnd_entries by gnd_id — prevents accumulation across loop rounds
             # (SearchAgent appends to context.gnd_entries; same concepts produce dupes).
@@ -444,11 +461,16 @@ class MetaAgent:
                 context.gnd_entries = deduped
 
             # Re-run selection with the expanded GND pool
+            self._emit_context("selection", context, status="running", iteration=iteration + 1)
             r = self._execute_step(
                 "selection", sel_cfg.agent_class, context, step_stream,
                 sel_cfg.custom_system_prompt, sel_cfg.custom_user_prompt,
             )
             step_results.append(r)
+            self._emit_context(
+                "selection", context, r, iteration=iteration + 1,
+                status="completed" if r.success else "error",
+            )
             selection_result = context.get_step_result("selection") or {}
 
             # Clear so next search round starts clean
@@ -558,6 +580,34 @@ class MetaAgent:
         """
         if self.stream_callback:
             self.stream_callback(text, step_id)
+
+    def _emit_context(
+        self,
+        step_name: str,
+        context: SharedContext,
+        step_result: Optional[PipelineStepResult] = None,
+        iteration: int = 0,
+        status: str = "completed",
+    ) -> None:
+        """Emit context snapshot to context_callback (if set). Claude Generated."""
+        cb = getattr(self, "context_callback", None)
+        if not cb:
+            return
+        try:
+            snap = context.to_dict()
+            snap["_step_name"] = step_name
+            snap["_step_status"] = status
+            snap["_step_iteration"] = iteration
+            if step_result is not None:
+                snap["_step_duration"] = step_result.duration_seconds
+                snap["_step_quality"] = step_result.quality_score
+                snap["_step_agent"] = step_result.agent_name
+                snap["_step_success"] = step_result.success
+                snap["_step_error"] = step_result.error
+            snap["_cache_stats"] = context.tool_result_cache.get_stats()
+            cb(step_name, snap)
+        except Exception as e:
+            self.logger.warning(f"context_callback failed for {step_name}: {e}")
 
     def get_step_order(self) -> List[str]:
         """Get ordered list of pipeline step names."""

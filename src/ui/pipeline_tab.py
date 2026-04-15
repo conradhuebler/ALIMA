@@ -45,6 +45,7 @@ from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
 from .unified_input_widget import UnifiedInputWidget
 from .pipeline_stream_widget import PipelineStreamWidget
+from .agentic_context_widget import AgenticContextWidget
 from .workers import PipelineWorker
 
 
@@ -475,7 +476,18 @@ class PipelineTab(QWidget):
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)
         self.stream_widget.abort_generation_requested.connect(self.on_abort_current_step_requested)  # Claude Generated
 
-        self.main_splitter.addWidget(self.stream_widget)
+        # Right side: vertical split between stream widget and agentic context widget - Claude Generated
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.addWidget(self.stream_widget)
+        self.agentic_context_widget = AgenticContextWidget()
+        self.agentic_context_widget.setVisible(False)
+        right_splitter.addWidget(self.agentic_context_widget)
+        right_splitter.setStretchFactor(0, 60)
+        right_splitter.setStretchFactor(1, 40)
+        right_splitter.setSizes([400, 300])
+        self._right_splitter = right_splitter
+
+        self.main_splitter.addWidget(right_splitter)
 
         # Initial split: 65% tabs (dominant when idle), 35% stream - Claude Generated
         self.main_splitter.setStretchFactor(0, 65)
@@ -1457,6 +1469,10 @@ class PipelineTab(QWidget):
         self.pipeline_worker.stream_token.connect(self.on_llm_stream_token)
         self.pipeline_worker.aborted.connect(self.on_pipeline_aborted)  # Claude Generated
         self.pipeline_worker.repetition_detected.connect(self.on_repetition_detected)  # Claude Generated (2026-02-17)
+        if hasattr(self, "agentic_context_widget"):
+            self.pipeline_worker.agentic_context_updated.connect(
+                self.agentic_context_widget.on_context_updated
+            )  # Claude Generated
 
         # Start the worker
         self.pipeline_worker.start()
@@ -1787,6 +1803,10 @@ class PipelineTab(QWidget):
         self.workflow_combo.setEnabled(enabled)
         self.agentic_workflow_label.setVisible(enabled)
         self.workflow_combo.setVisible(enabled)
+        if hasattr(self, "agentic_context_widget"):
+            self.agentic_context_widget.setVisible(enabled)
+            if enabled:
+                self.agentic_context_widget.reset()
 
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:

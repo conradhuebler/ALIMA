@@ -119,6 +119,7 @@ class PipelineWorker(StoppableWorker):
     pipeline_completed = pyqtSignal(object)  # analysis_state
     stream_token = pyqtSignal(str, str)  # token, step_id
     repetition_detected = pyqtSignal(object, list, bool, bool, float)  # result, suggestions, grace_period, resolved, grace_seconds - Claude Generated (2026-02-17)
+    agentic_context_updated = pyqtSignal(str, dict)  # step_name, snapshot dict - Claude Generated
 
     def __init__(
         self,
@@ -154,6 +155,7 @@ class PipelineWorker(StoppableWorker):
                 pipeline_completed=self.pipeline_completed.emit,
                 stream_callback=self.stream_token.emit,
                 repetition_detected=self.repetition_detected.emit,
+                agentic_context=self.agentic_context_updated.emit,
             )
 
             # Set interrupt flag in pipeline manager for step-level checks

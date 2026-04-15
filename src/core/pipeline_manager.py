@@ -406,6 +406,7 @@ class PipelineManager:
             None  # Callback for LLM streaming tokens
         )
         self.repetition_detected_callback: Optional[Callable] = None  # Claude Generated (2026-02-17)
+        self.agentic_context_callback: Optional[Callable] = None  # Claude Generated
 
         # Interrupt handling with thread-safety - Claude Generated
         import threading
@@ -466,6 +467,7 @@ class PipelineManager:
         pipeline_completed: Optional[Callable] = None,
         stream_callback: Optional[Callable] = None,
         repetition_detected: Optional[Callable] = None,  # Claude Generated (2026-02-17)
+        agentic_context: Optional[Callable] = None,  # Claude Generated
     ):
         """Set callbacks for pipeline events - Claude Generated"""
         self.step_started_callback = step_started
@@ -474,6 +476,7 @@ class PipelineManager:
         self.pipeline_completed_callback = pipeline_completed
         self.stream_callback = stream_callback
         self.repetition_detected_callback = repetition_detected  # Claude Generated (2026-02-17)
+        self.agentic_context_callback = agentic_context  # Claude Generated
 
     def set_interrupt_flag(self, lock, is_interrupted_func: Callable) -> None:
         """Set interrupt check function from worker - Claude Generated
@@ -636,6 +639,7 @@ class PipelineManager:
                 llm_service=self.alima_manager.llm_service,
                 config_manager=self.config_manager,
                 stream_callback=self.stream_callback,
+                context_callback=self.agentic_context_callback,
             )
 
             # Load warm-start context if a path was provided
