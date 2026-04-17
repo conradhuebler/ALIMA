@@ -26,7 +26,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from ..core.data_models import KeywordAnalysisState
 from ..utils.pipeline_utils import PipelineJsonManager
 from ..utils.pipeline_defaults import get_autosave_dir
-from .styles import get_colors, get_main_stylesheet, LAYOUT
+from .styles import get_colors, get_main_stylesheet, get_font_size, LAYOUT
 
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ class ComparisonTab(QWidget):
             "Laden Sie zwei Analysis-States und klicken Sie auf \"Vergleichen\"."
         )
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.placeholder.setStyleSheet(f"color: {get_colors()['text_muted']}; font-size: 12pt; padding: 40px;")
+        self.placeholder.setStyleSheet(f"color: {get_colors()['text_muted']}; font-size: {get_font_size() + 2}pt; padding: 40px;")
         layout.addWidget(self.placeholder)
 
     def _init_content_tabs(self):
@@ -651,7 +651,7 @@ class ComparisonTab(QWidget):
             QPushButton:hover {{ background-color: {c['primary_hover']}; }}
             QPushButton:disabled {{ background-color: {c['background_dark']}; color: {c['text_muted']}; }}
         """)
-        self.placeholder.setStyleSheet(f"color: {c['text_muted']}; font-size: 12pt; padding: 40px;")
+        self.placeholder.setStyleSheet(f"color: {c['text_muted']}; font-size: {get_font_size() + 2}pt; padding: 40px;")
         # Re-run comparison if data available
         if self.state_a and self.state_b:
             self.run_comparison()

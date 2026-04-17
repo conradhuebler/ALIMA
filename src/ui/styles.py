@@ -2,11 +2,17 @@
 Unified UI styles for ALIMA application
 """
 
+from PyQt6.QtGui import QFont
+
 # Module-level dark mode state — Claude Generated
 _dark_mode = False
 
 # Module-level font size state — Claude Generated
 _font_size: int = 10
+
+# Font families used app-wide — Claude Generated
+DEFAULT_FONT_FAMILY = "Segoe UI"
+MONOSPACE_FONT_FAMILY = "Consolas"
 
 
 def set_dark_mode(dark: bool):
@@ -23,6 +29,20 @@ def set_font_size(pt: int) -> None:
 def get_font_size() -> int:
     """Return current global base font size in pt. — Claude Generated"""
     return _font_size
+
+
+def get_scaled_font(size_delta: int = 0, *, monospace: bool = False, bold: bool = False) -> QFont:
+    """Return a QFont scaled from the global base font size.
+
+    Replaces hardcoded QFont(family, N) calls so font-size changes cascade everywhere.
+    — Claude Generated
+    """
+    family = MONOSPACE_FONT_FAMILY if monospace else DEFAULT_FONT_FAMILY
+    pt = max(6, _font_size + size_delta)
+    f = QFont(family, pt)
+    if bold:
+        f.setBold(True)
+    return f
 
 
 def get_colors() -> dict:

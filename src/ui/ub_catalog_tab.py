@@ -21,6 +21,7 @@ from .styles import (
     get_main_stylesheet,
     get_button_styles,
     get_confidence_style,
+    get_scaled_font,
     LAYOUT,
 )
 
@@ -126,7 +127,7 @@ class UBSearchPanel(QWidget):
         self.keywords_input = QTextEdit()
         self.keywords_input.setPlaceholderText("Keywords eingeben...")
         self.keywords_input.setMaximumHeight(60)
-        self.keywords_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.keywords_input.setFont(get_scaled_font(size_delta=+1))
         input_layout.addWidget(self.keywords_input)
 
         # Button row: [Suchen] [progress_bar, stretch] [Max.:] [spinbox]

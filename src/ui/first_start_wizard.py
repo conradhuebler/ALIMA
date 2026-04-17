@@ -458,7 +458,7 @@ class LLMSetupPage(QWizardPage):
 
         # Preset hint label (hidden until presets applied) - Claude Generated
         self._preset_hint = QLabel("🏛️ (Institutions-Standard)")
-        self._preset_hint.setStyleSheet("color: gray; font-style: italic; font-size: 11px;")
+        self._preset_hint.setStyleSheet("color: gray; font-style: italic;")
         self._preset_hint.setVisible(False)
         layout.addWidget(self._preset_hint)
 

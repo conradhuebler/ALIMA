@@ -34,6 +34,7 @@ from .styles import (
     get_button_styles,
     get_status_label_styles,
     get_image_preview_style,
+    get_scaled_font,
     LAYOUT,
     COLORS,
 )
@@ -284,7 +285,7 @@ class ImageAnalysisTab(QWidget):
         self.prompt_input.setPlaceholderText("Prompt für die Bildanalyse...")
         self.prompt_input.setText(DEFAULT_PROMPT)
         self.prompt_input.setMaximumHeight(120)
-        self.prompt_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.prompt_input.setFont(get_scaled_font(size_delta=+1))
         prompt_layout.addWidget(self.prompt_input)
 
         right_layout.addWidget(prompt_group)
@@ -324,7 +325,7 @@ class ImageAnalysisTab(QWidget):
         self.output_field.setPlaceholderText(
             "Der extrahierte Text wird hier angezeigt..."
         )
-        self.output_field.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.output_field.setFont(get_scaled_font(size_delta=+1))
         results_layout.addWidget(self.output_field)
 
         right_layout.addWidget(results_group)

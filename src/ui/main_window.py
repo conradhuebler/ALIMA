@@ -29,7 +29,7 @@ import os
 import tempfile
 from pathlib import Path
 from PyQt6.QtCore import Qt, QSettings, pyqtSlot, QThread, pyqtSignal
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QCursor, QFont
 import re
 import os
 import sys
@@ -60,7 +60,13 @@ from .dk_analysis_unified_tab import DkAnalysisUnifiedTab
 from .ub_catalog_tab import UBCatalogTab
 from .tablewidget import TableWidget, DatabaseViewerDialog
 from .image_analysis_tab import ImageAnalysisTab
-from .styles import get_main_stylesheet, set_dark_mode, set_font_size, get_font_size
+from .styles import (
+    get_main_stylesheet,
+    set_dark_mode,
+    set_font_size,
+    get_font_size,
+    DEFAULT_FONT_FAMILY,
+)
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
 from .comparison_tab import ComparisonTab
@@ -1017,7 +1023,7 @@ class MainWindow(QMainWindow):
         saved_fs = self.settings.value("font_size", None)
         if saved_fs is None and self.config_manager:
             try:
-                saved_fs = self.config_manager.get_config().ui_config.font_size
+                saved_fs = self.config_manager.load_config().ui_config.font_size
             except Exception:
                 saved_fs = 10
         if saved_fs is not None:
@@ -1052,21 +1058,45 @@ class MainWindow(QMainWindow):
         self.settings.setValue("dark_mode", dark)
 
     def apply_font_size(self, pt: int) -> None:
-        """Set global font size and refresh all stylesheets. — Claude Generated"""
+        """Set global font size and refresh all stylesheets.
+
+        Root cause of earlier "font doesn't apply" bug: many widgets call
+        setFont(QFont(...)) directly, which beats the stylesheet cascade.
+        Fix: (1) QApplication.setFont() for all widgets that rely on Qt defaults,
+        (2) refresh_styles() walk so widgets with explicit setFont() rebuild
+        their fonts via get_scaled_font(). — Claude Generated
+        """
         set_font_size(pt)
-        # Apply to QApplication so ALL widgets (incl. dialogs) pick it up
         app = QApplication.instance()
         if app:
+            app.setFont(QFont(DEFAULT_FONT_FAMILY, pt))
             app.setStyleSheet(get_main_stylesheet())
         self.setStyleSheet(get_main_stylesheet())
         self._reapply_tab_stylesheets()
+        self._walk_refresh_styles(self)
         self.settings.setValue("font_size", pt)
         if self.config_manager:
             try:
-                self.config_manager.get_config().ui_config.font_size = pt
-                self.config_manager.save_config()
+                config = self.config_manager.load_config()
+                config.ui_config.font_size = pt
+                self.config_manager.save_config(config)
             except Exception as e:
                 self.logger.debug(f"Could not persist font_size to config: {e}")
+
+    def _walk_refresh_styles(self, widget) -> None:
+        """Recursively call refresh_styles() on all child widgets that define it. — Claude Generated"""
+        try:
+            for child in widget.findChildren(QWidget):
+                fn = getattr(child, "refresh_styles", None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception as e:
+                        self.logger.debug(
+                            f"refresh_styles on {child.__class__.__name__} failed: {e}"
+                        )
+        except Exception as e:
+            self.logger.debug(f"_walk_refresh_styles failed: {e}")
 
     def _reapply_tab_stylesheets(self):
         """Re-apply stylesheets to all tabs after theme change — Claude Generated"""
@@ -1097,7 +1127,7 @@ class MainWindow(QMainWindow):
         self.logger.info("Configuration changed, refreshing components")
         # Apply font size if it changed in the settings dialog — Claude Generated
         try:
-            new_fs = self.config_manager.get_config().ui_config.font_size
+            new_fs = self.config_manager.load_config().ui_config.font_size
             if new_fs != get_font_size():
                 self.apply_font_size(new_fs)
         except Exception:
@@ -1934,7 +1964,8 @@ class MainWindow(QMainWindow):
                 
                 self.progress_text = QTextEdit()
                 self.progress_text.setReadOnly(True)
-                self.progress_text.setFont(QFont("Consolas", 9))
+                from .styles import get_scaled_font
+                self.progress_text.setFont(get_scaled_font(size_delta=-1, monospace=True))
                 layout.addWidget(self.progress_text)
                 
                 self.cancel_button = QPushButton("Abbrechen")

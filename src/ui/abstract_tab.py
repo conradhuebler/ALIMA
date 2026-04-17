@@ -68,6 +68,7 @@ from .styles import (
     get_main_stylesheet,
     get_button_styles,
     get_status_label_styles,
+    get_font_size,
     LAYOUT,
     COLORS,
 )
@@ -246,7 +247,7 @@ class AbstractTab(QWidget):
         self.abstract_edit = QTextEdit()
         # Increase font size
         font = self.abstract_edit.font()
-        font.setPointSize(LAYOUT["input_font_size"])
+        font.setPointSize(get_font_size() + 1)
         self.abstract_edit.setFont(font)
         input_layout.addWidget(self.abstract_edit)
 
@@ -255,7 +256,7 @@ class AbstractTab(QWidget):
         self.keywords_edit.setMaximumHeight(80)
         # Increase font size
         font = self.keywords_edit.font()
-        font.setPointSize(LAYOUT["input_font_size"])
+        font.setPointSize(get_font_size() + 1)
         self.keywords_edit.setFont(font)
         input_layout.addWidget(self.keywords_edit)
 
@@ -511,7 +512,7 @@ class AbstractTab(QWidget):
         self.results_edit.setReadOnly(True)
         # Increase font size
         font = self.results_edit.font()
-        font.setPointSize(LAYOUT["input_font_size"])
+        font.setPointSize(get_font_size() + 1)
         self.results_edit.setFont(font)
         results_layout.addWidget(self.results_edit)
 
