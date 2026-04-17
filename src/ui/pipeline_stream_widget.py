@@ -78,21 +78,21 @@ class PipelineStreamWidget(QWidget):
         header_layout.setSpacing(6)
 
         title_label = QLabel("📝 Live")
-        title_label.setStyleSheet("font-weight: bold; font-size: 11px; color: #888;")
+        title_label.setStyleSheet("font-weight: bold; color: #888;")
         header_layout.addWidget(title_label)
 
         header_layout.addStretch()
 
         self.auto_scroll_checkbox = QCheckBox("Auto-scroll")
         self.auto_scroll_checkbox.setChecked(True)
-        self.auto_scroll_checkbox.setStyleSheet("font-size: 10px; color: #888;")
+        self.auto_scroll_checkbox.setStyleSheet("color: #888;")
         header_layout.addWidget(self.auto_scroll_checkbox)
 
         self.clear_button = QPushButton("🗑️")
         self.clear_button.setFixedSize(26, 22)
         self.clear_button.setToolTip("Stream leeren")
         self.clear_button.setStyleSheet(
-            "QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px; font-size: 11px; }"
+            "QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px; }"
             "QPushButton:hover { background: #333; }"
         )
         self.clear_button.clicked.connect(self.clear_stream)
@@ -102,7 +102,7 @@ class PipelineStreamWidget(QWidget):
         self.save_log_button.setFixedSize(26, 22)
         self.save_log_button.setToolTip("Log speichern")
         self.save_log_button.setStyleSheet(
-            "QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px; font-size: 11px; }"
+            "QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px; }"
             "QPushButton:hover { background: #333; }"
         )
         self.save_log_button.clicked.connect(self.save_stream_log)
@@ -120,7 +120,8 @@ class PipelineStreamWidget(QWidget):
             QSizePolicy.Policy.Ignored
         )
 
-        font = QFont("Consolas", get_font_size())
+        from .styles import get_scaled_font
+        font = get_scaled_font(monospace=True)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.stream_text.setFont(font)
 
@@ -204,6 +205,7 @@ class PipelineStreamWidget(QWidget):
         self.repetition_warning_frame = QFrame()
         self.repetition_warning_frame.setFixedHeight(28)  # Always reserves 28px, no layout shift - Claude Generated
         self._warning_style_state = "hidden"  # Track style state to avoid redundant setStyleSheet - Claude Generated
+        self._last_shown_detection_type = ""  # Track last shown type to skip redundant rebuilds - Claude Generated
         self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
 
         bar_layout = QHBoxLayout(self.repetition_warning_frame)
@@ -211,20 +213,20 @@ class PipelineStreamWidget(QWidget):
         bar_layout.setSpacing(6)
 
         self.warning_icon_label = QLabel("⚠️")
-        self.warning_icon_label.setStyleSheet("font-size: 11px;")
+        self.warning_icon_label.setStyleSheet("")
         bar_layout.addWidget(self.warning_icon_label)
 
         self.warning_title_label = QLabel("Wiederholung erkannt")
-        self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
+        self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
         bar_layout.addWidget(self.warning_title_label)
 
         self.warning_details_label = QLabel("")
         self.warning_details_label.setWordWrap(False)
-        self.warning_details_label.setStyleSheet("color: #ffe0b2; font-size: 10px;")
+        self.warning_details_label.setStyleSheet("color: #ffe0b2;")
         bar_layout.addWidget(self.warning_details_label, 1)  # stretch fills remaining space
 
         self.countdown_label = QLabel("")
-        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold; font-size: 10px;")
+        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold;")
         self.countdown_label.setVisible(False)
         bar_layout.addWidget(self.countdown_label)
 
@@ -234,7 +236,7 @@ class PipelineStreamWidget(QWidget):
 
         self.abort_now_button = QPushButton("🛑 Abbrechen")
         self.abort_now_button.setStyleSheet(
-            "background-color: #d32f2f; color: white; font-size: 10px; font-weight: bold;"
+            "background-color: #d32f2f; color: white; font-weight: bold;"
             " border-radius: 3px; padding: 1px 5px;"
         )
         self.abort_now_button.clicked.connect(self._on_abort_requested)
@@ -242,7 +244,7 @@ class PipelineStreamWidget(QWidget):
 
         self.continue_button = QPushButton("Fortfahren")
         self.continue_button.setStyleSheet(
-            "background-color: #555; color: #ccc; font-size: 10px; padding: 1px 5px;"
+            "background-color: #555; color: #ccc; padding: 1px 5px;"
         )
         self.continue_button.clicked.connect(self.hide_repetition_warning)
         bar_layout.addWidget(self.continue_button)
@@ -286,57 +288,65 @@ class PipelineStreamWidget(QWidget):
         """
         self.current_suggestions = suggestions
 
+        # If already showing orange warning for the same detection type, skip expensive rebuild - Claude Generated
+        already_showing = (self._warning_style_state == "orange" and
+                           self._last_shown_detection_type == detection_type)
+
         # Reset to orange warning state (in case previous run left it green) - Claude Generated
         if self._warning_style_state != "orange":
             self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
             self._warning_style_state = "orange"
-        self.warning_icon_label.setText("⚠️")
-        self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
-        self.continue_button.setVisible(True)
+        self._last_shown_detection_type = detection_type
 
-        # Set warning title based on detection type
-        type_labels = {
-            "char_pattern": "Zeichenwiederholung erkannt",
-            "ngram": "Phrasenwiederholung erkannt",
-            "window_similarity": "Textblock-Wiederholung erkannt",
-        }
-        self.warning_title_label.setText(type_labels.get(detection_type, "Wiederholung erkannt"))
+        if not already_showing:
+            self.warning_icon_label.setText("⚠️")
+            self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
+            self.continue_button.setVisible(True)
+
+            # Set warning title based on detection type
+            type_labels = {
+                "char_pattern": "Zeichenwiederholung erkannt",
+                "ngram": "Phrasenwiederholung erkannt",
+                "window_similarity": "Textblock-Wiederholung erkannt",
+            }
+            self.warning_title_label.setText(type_labels.get(detection_type, "Wiederholung erkannt"))
+
+            # Clear existing suggestion buttons and rebuild (only once per new detection type)
+            while self.suggestions_button_layout.count():
+                item = self.suggestions_button_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+            for i, suggestion in enumerate(suggestions[:3]):
+                button = QPushButton(suggestion.get("label", f"Option {i+1}"))
+                button.setToolTip(suggestion.get("description", ""))
+                button.setStyleSheet("padding: 1px 4px;")
+                params = suggestion.get("params", {})
+
+                def make_handler(p):
+                    return lambda: self._on_suggestion_clicked(p)
+
+                button.clicked.connect(make_handler(params))
+                self.suggestions_button_layout.addWidget(button)
+
+        # Always update the details label (shows latest repeat count)
         self.warning_details_label.setText(details)
 
         # Handle grace period countdown - Claude Generated (2026-02-17)
-        if grace_period:
+        if grace_period and not already_showing:
             self.grace_period_end = time.time() + grace_seconds
             self.grace_timer.stop()
             self.grace_timer.start(200)  # Update every 200ms (reused timer) - Claude Generated
 
             self.countdown_label.setText(f"⏳ {grace_seconds:.1f}s")
             self.countdown_label.setVisible(True)
-        else:
+        elif not grace_period:
             self.countdown_label.setVisible(False)
             self.grace_timer.stop()
 
-        # Clear existing suggestion buttons
-        while self.suggestions_button_layout.count():
-            item = self.suggestions_button_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        # Add suggestion buttons (compact, max 3 to save space in bar)
-        for i, suggestion in enumerate(suggestions[:3]):
-            button = QPushButton(suggestion.get("label", f"Option {i+1}"))
-            button.setToolTip(suggestion.get("description", ""))
-            button.setStyleSheet("font-size: 10px; padding: 1px 4px;")
-
-            params = suggestion.get("params", {})
-
-            def make_handler(p):
-                return lambda: self._on_suggestion_clicked(p)
-
-            button.clicked.connect(make_handler(params))
-            self.suggestions_button_layout.addWidget(button)
-
         # Show the warning panel (children visible + orange style)
-        self._set_warning_children_visible(True)
+        if not already_showing:
+            self._set_warning_children_visible(True)
 
         # NOTE: Don't log to pipeline stream during streaming - it fragments the LLM output!
         # The warning panel already shows this information visually - Claude Generated (2026-02-17)
@@ -359,6 +369,7 @@ class PipelineStreamWidget(QWidget):
         """
         self.grace_timer.stop()
         self.countdown_label.setVisible(False)
+        self._last_shown_detection_type = ""  # Reset so next warning does full rebuild - Claude Generated
 
         if resolved:
             # Switch to green "resolved" state – panel stays visible - Claude Generated
@@ -367,7 +378,7 @@ class PipelineStreamWidget(QWidget):
                 self._warning_style_state = "green"
             self.warning_icon_label.setText("✅")
             self.warning_title_label.setText("Wiederholung behoben – Generation läuft weiter")
-            self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #4caf50;")
+            self.warning_title_label.setStyleSheet("font-weight: bold; color: #4caf50;")
             self.warning_details_label.setText("")
 
             # Clear suggestion buttons
@@ -384,7 +395,7 @@ class PipelineStreamWidget(QWidget):
             # Explicit dismiss or pipeline reset: hide children + transparent frame - Claude Generated
             self._set_warning_children_visible(False)
             self.warning_icon_label.setText("⚠️")
-            self.warning_title_label.setStyleSheet("font-size: 10px; font-weight: bold; color: #ff9800;")
+            self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
             self.continue_button.setVisible(True)
 
     def _on_abort_requested(self):
@@ -720,8 +731,9 @@ class PipelineStreamWidget(QWidget):
 
     def refresh_styles(self):
         """Re-apply font after global font-size change. Called by MainWindow.apply_font_size(). — Claude Generated"""
+        from .styles import get_scaled_font
         if hasattr(self, "stream_text"):
-            self.stream_text.setFont(QFont("Consolas", get_font_size()))
+            self.stream_text.setFont(get_scaled_font(monospace=True))
 
     def reset_for_new_pipeline(self):
         """Reset widget for new pipeline - Claude Generated"""
