@@ -747,12 +747,12 @@ class UnifiedInputWidget(QWidget):
         # Drop instruction
         drop_label = QLabel("Dateien hier ablegen")
         drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_label.setStyleSheet("color: #666; font-size: 14px; font-weight: bold;")
+        drop_label.setStyleSheet("color: #666; font-weight: bold;")
         frame_layout.addWidget(drop_label)
 
         supported_label = QLabel("PDF, Bilder, Text-Dateien")
         supported_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        supported_label.setStyleSheet("color: #999; font-size: 11px;")
+        supported_label.setStyleSheet("color: #999;")
         frame_layout.addWidget(supported_label)
 
         drop_zone_layout.addWidget(self.drop_frame)
@@ -793,12 +793,12 @@ class UnifiedInputWidget(QWidget):
         # Icon + Text
         webcam_label = QLabel("Klicken für Aufnahme")
         webcam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        webcam_label.setStyleSheet("color: #1976d2; font-size: 14px; font-weight: bold;")
+        webcam_label.setStyleSheet("color: #1976d2; font-weight: bold;")
         frame_layout.addWidget(webcam_label)
 
         info_label = QLabel("Webcam-Bild aufnehmen")
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
+        info_label.setStyleSheet("color: #666;")
         frame_layout.addWidget(info_label)
 
         webcam_layout.addWidget(self.webcam_frame)
@@ -848,7 +848,7 @@ class UnifiedInputWidget(QWidget):
         # Header Label statt GroupBox Title
         header_label = QLabel("📄 Extrahierter Text")
         header_label.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #333; padding: 5px;"
+            "font-weight: bold; color: #333; padding: 5px;"
         )
         layout.addWidget(header_label)
 

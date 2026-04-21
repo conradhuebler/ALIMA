@@ -8,7 +8,7 @@ Claude Generated
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox,
-    QPushButton, QTextEdit, QLabel, QGroupBox, QScrollArea,
+    QPushButton, QTextEdit, QLabel, QGroupBox, QScrollArea, QFrame,
     QMessageBox, QFileDialog, QProgressDialog, QGridLayout,
     QSplitter, QListWidget, QListWidgetItem, QStackedWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView  # Claude Generated
@@ -393,10 +393,22 @@ class ComprehensiveSettingsDialog(QDialog):
             self.sru_database.setPlaceholderText("e.g., dnb")
     
     def _create_system_tab(self) -> QWidget:
-        """Create system configuration tab - Claude Generated"""
+        """Create system configuration tab - Claude Generated
+
+        Wraps all group boxes in a QScrollArea so nothing gets crushed at
+        normal dialog height. — Claude Generated
+        """
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
         widget = QWidget()
-        layout = QVBoxLayout()
-        
+        layout = QVBoxLayout(widget)
+
         # System settings
         system_group = QGroupBox("System Settings")
         system_layout = QFormLayout()
@@ -409,6 +421,13 @@ class ComprehensiveSettingsDialog(QDialog):
         self.enable_webcam_input.setToolTip("Enable/disable the webcam button for capturing images directly from camera")
         # Note: Saved on dialog close via _get_config_from_ui() - Claude Generated
         system_layout.addRow("Webcam:", self.enable_webcam_input)
+
+        # Global font size — Claude Generated
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(8, 16)
+        self.font_size_spin.setSuffix(" pt")
+        self.font_size_spin.setToolTip("Basis-Schriftgröße für alle Bedienelemente (8–16 pt)")
+        system_layout.addRow("Schriftgröße:", self.font_size_spin)
 
         self.log_level = QComboBox()
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
@@ -561,11 +580,12 @@ class ComprehensiveSettingsDialog(QDialog):
         
         paths_group.setLayout(paths_layout)
         layout.addWidget(paths_group)
-        
+
         layout.addStretch()
-        widget.setLayout(layout)
-        return widget
-    
+        scroll.setWidget(widget)
+        outer_layout.addWidget(scroll)
+        return outer
+
     def _create_about_tab(self) -> QWidget:
         """Create about tab - Claude Generated"""
         widget = QWidget()
@@ -676,6 +696,7 @@ class ComprehensiveSettingsDialog(QDialog):
 
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
+        self.font_size_spin.setValue(getattr(config.ui_config, "font_size", 10))
 
         # Repetition Detection settings - Claude Generated
         rep_config = getattr(config, 'repetition_config', None)
@@ -933,7 +954,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # UI configuration - Claude Generated (Webcam Feature)
         from ..utils.config_models import UIConfig, RepetitionDetectionConfig
         config.ui_config = UIConfig(
-            enable_webcam_input=self.enable_webcam_input.isChecked()
+            enable_webcam_input=self.enable_webcam_input.isChecked(),
+            font_size=self.font_size_spin.value(),
         )
 
         # Repetition Detection configuration - Claude Generated
@@ -1116,7 +1138,7 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Task categories header
         tasks_header = QLabel("📋 Verfügbare Tasks")
-        tasks_header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+        tasks_header.setStyleSheet("font-weight: bold; padding: 10px;")
         left_layout.addWidget(tasks_header)
         
         # Tasks list widget
@@ -1137,7 +1159,7 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # Right side header
         config_header = QLabel("⚙️ Modell-Prioritäten konfigurieren")
-        config_header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 10px;")
+        config_header.setStyleSheet("font-weight: bold; padding: 10px;")
         right_layout.addWidget(config_header)
         
         # Selected task info

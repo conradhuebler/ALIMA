@@ -744,7 +744,7 @@ class UnifiedProviderTab(QWidget):
         left_task_layout = QVBoxLayout(left_task_widget)
         
         task_categories_label = QLabel("📋 Available Tasks")
-        task_categories_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        task_categories_label.setStyleSheet("font-weight: bold; padding: 5px;")
         left_task_layout.addWidget(task_categories_label)
         
         self.task_categories_list = QListWidget()
@@ -758,7 +758,7 @@ class UnifiedProviderTab(QWidget):
         right_task_layout = QVBoxLayout(right_task_widget)
         
         config_header_label = QLabel("⚙️ Model Priority Configuration")
-        config_header_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        config_header_label.setStyleSheet("font-weight: bold; padding: 5px;")
         right_task_layout.addWidget(config_header_label)
         
         # Selected task info

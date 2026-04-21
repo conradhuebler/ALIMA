@@ -36,6 +36,7 @@ from .styles import (
     get_main_stylesheet,
     get_button_styles,
     get_status_label_styles,
+    get_scaled_font,
     LAYOUT,
     COLORS,
 )
@@ -165,7 +166,7 @@ class SearchTab(QWidget):
 
         # Hauptsuchfeld mit Beschreibung
         search_header = QLabel("Suchbegriffe:")
-        search_header.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        search_header.setFont(get_scaled_font(bold=True))
         search_layout.addWidget(search_header)
 
         self.search_input = QTextEdit()
@@ -173,7 +174,7 @@ class SearchTab(QWidget):
             "Suchbegriffe (durch Komma getrennt oder in Anführungszeichen für exakte Phrasen)"
         )
         self.search_input.setMaximumHeight(100)
-        self.search_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.search_input.setFont(get_scaled_font(size_delta=+1))
         search_layout.addWidget(self.search_input)
 
         # Suchoptionen-Bereich
@@ -185,7 +186,7 @@ class SearchTab(QWidget):
 
         # Checkboxen für die verschiedenen Suchquellen
         sources_label = QLabel("Suchquellen:")
-        sources_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        sources_label.setFont(get_scaled_font(size_delta=-1, bold=True))
         options_layout.addWidget(sources_label)
 
         self.lobid_button = QCheckBox("Lobid")
@@ -208,7 +209,7 @@ class SearchTab(QWidget):
 
         # Ergebnisanzahl-Steuerung
         results_label = QLabel("Max. Ergebnisse:")
-        results_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        results_label.setFont(get_scaled_font(size_delta=-1, bold=True))
         #options_layout.addWidget(results_label)
 
         self.num_results = QSpinBox()
@@ -251,7 +252,7 @@ class SearchTab(QWidget):
         table_layout.setContentsMargins(0, 0, 0, 0)
 
         table_header = QLabel("Gefundene Schlagwörter:")
-        table_header.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        table_header.setFont(get_scaled_font(bold=True))
         table_layout.addWidget(table_header)
 
         self.results_table = QTableWidget()
@@ -274,7 +275,7 @@ class SearchTab(QWidget):
         details_layout.setContentsMargins(0, 0, 0, 0)
 
         details_header = QLabel("GND-Details:")
-        details_header.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        details_header.setFont(get_scaled_font(bold=True))
         details_layout.addWidget(details_header)
 
         self.details_display = QTextEdit()
@@ -1251,7 +1252,7 @@ class SearchTab(QWidget):
                 begriff = entry_data.get('label', entry_data.get('title', 'N/A'))
                 begriff_item = QTableWidgetItem(begriff)
                 if is_selected:
-                    begriff_item.setFont(QFont("Segoe UI", weight=QFont.Weight.Bold))
+                    begriff_item.setFont(get_scaled_font(bold=True))
                     begriff_item.setForeground(QColor("#2e7d32"))  # Dark green
                     begriff_item.setText(f"✅ {begriff}")
                 self.results_table.setItem(row, 0, begriff_item)
@@ -1466,7 +1467,7 @@ class SearchTab(QWidget):
             # Deselect
             new_text = begriff_text.replace("✅ ", "")
             begriff_item.setText(new_text)
-            begriff_item.setFont(QFont("Segoe UI", weight=QFont.Weight.Normal))
+            begriff_item.setFont(get_scaled_font())
             begriff_item.setForeground(QColor("#000000"))  # Black
 
             # Remove highlighting
@@ -1491,7 +1492,7 @@ class SearchTab(QWidget):
             if not begriff_text.startswith("✅"):
                 new_text = f"✅ {begriff_text.replace('🔧 ', '')}"  # Remove manual indicator if present
                 begriff_item.setText(new_text)
-            begriff_item.setFont(QFont("Segoe UI", weight=QFont.Weight.Bold))
+            begriff_item.setFont(get_scaled_font(bold=True))
             begriff_item.setForeground(QColor("#2e7d32"))  # Dark green
 
             # Add highlighting

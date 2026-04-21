@@ -29,6 +29,7 @@ from .styles import (
     get_button_styles,
     get_status_label_styles,
     get_confidence_style,
+    get_scaled_font,
     LAYOUT,
     COLORS,
 )
@@ -197,9 +198,23 @@ class AnalysisReviewTab(QWidget):
         main_layout.addWidget(self.main_splitter)
 
     def refresh_styles(self):
-        """Re-apply styles after theme change — Claude Generated"""
-        from .styles import get_main_stylesheet
+        """Re-apply styles and fonts after theme/font-size change — Claude Generated"""
         self.setStyleSheet(get_main_stylesheet())
+        # Re-apply fonts to all text widgets so font-size changes propagate
+        for attr in (
+            "abstract_text", "initial_keywords_text", "gnd_keywords_text",
+            "final_analysis_text", "chunk_details_text", "dk_classification_display",
+            "stats_text",
+        ):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.setFont(get_scaled_font(size_delta=+1))
+        if hasattr(self, "missing_concepts_text"):
+            self.missing_concepts_text.setFont(get_scaled_font())
+        if hasattr(self, "k10plus_text"):
+            self.k10plus_text.setFont(get_scaled_font(size_delta=+1, monospace=True))
+        for lbl in getattr(self, "dk_dedup_labels", {}).values():
+            lbl.setFont(get_scaled_font())
 
     def _create_stat_label(self, key: str, label_text: str) -> QLabel:
         """Create a statistics label widget - Claude Generated
@@ -212,7 +227,7 @@ class AnalysisReviewTab(QWidget):
             QLabel widget
         """
         label = QLabel(f"{label_text} <i>N/A</i>")
-        label.setFont(QFont("Arial", 10))
+        label.setFont(get_scaled_font())
         label.setTextFormat(Qt.TextFormat.RichText)
         self.dk_dedup_labels[key] = label
         return label
@@ -224,13 +239,13 @@ class AnalysisReviewTab(QWidget):
         # Original Abstract tab
         self.abstract_text = QTextEdit()
         self.abstract_text.setReadOnly(True)
-        self.abstract_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.abstract_text.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.abstract_text, "Original Abstract")
 
         # Initial Keywords tab
         self.initial_keywords_text = QTextEdit()
         self.initial_keywords_text.setReadOnly(True)
-        self.initial_keywords_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.initial_keywords_text.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.initial_keywords_text, "Initial Keywords")
 
         # Search Results tab
@@ -245,19 +260,19 @@ class AnalysisReviewTab(QWidget):
         # GND Compliant Keywords tab
         self.gnd_keywords_text = QTextEdit()
         self.gnd_keywords_text.setReadOnly(True)
-        self.gnd_keywords_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.gnd_keywords_text.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.gnd_keywords_text, "GND-Keywords")
 
         # Final Analysis tab
         self.final_analysis_text = QTextEdit()
         self.final_analysis_text.setReadOnly(True)
-        self.final_analysis_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.final_analysis_text.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.final_analysis_text, "Finale Analyse")
 
         # Chunk Details tab
         self.chunk_details_text = QTextEdit()
         self.chunk_details_text.setReadOnly(True)
-        self.chunk_details_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.chunk_details_text.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.chunk_details_text, "Chunks")
 
         # Iteration History tab
@@ -266,7 +281,7 @@ class AnalysisReviewTab(QWidget):
         iteration_layout.setSpacing(LAYOUT["inner_spacing"])
 
         iteration_label = QLabel("<b>🔄 Iterative GND-Suche Verlauf</b>")
-        iteration_label.setFont(QFont("Segoe UI", 11))
+        iteration_label.setFont(get_scaled_font(size_delta=+1))
         iteration_layout.addWidget(iteration_label)
 
         # Iteration table
@@ -291,7 +306,7 @@ class AnalysisReviewTab(QWidget):
         self.missing_concepts_text = QTextEdit()
         self.missing_concepts_text.setReadOnly(True)
         self.missing_concepts_text.setMaximumHeight(100)
-        self.missing_concepts_text.setFont(QFont("Segoe UI", 10))
+        self.missing_concepts_text.setFont(get_scaled_font())
         iteration_layout.addWidget(self.missing_concepts_text)
 
         iteration_layout.addStretch()
@@ -301,7 +316,7 @@ class AnalysisReviewTab(QWidget):
         # DK/RVK Classifications tab
         self.dk_classification_display = QTextEdit()
         self.dk_classification_display.setReadOnly(True)
-        self.dk_classification_display.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.dk_classification_display.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.dk_classification_display, "DK/RVK")
 
         # K10+ Export tab
@@ -314,7 +329,7 @@ class AnalysisReviewTab(QWidget):
 
         self.k10plus_text = QTextEdit()
         self.k10plus_text.setReadOnly(True)
-        self.k10plus_text.setFont(QFont("Courier New", 11))
+        self.k10plus_text.setFont(get_scaled_font(size_delta=+1, monospace=True))
         k10plus_layout.addWidget(self.k10plus_text)
 
         copy_button = QPushButton("📋 In Zwischenablage kopieren")
@@ -327,7 +342,7 @@ class AnalysisReviewTab(QWidget):
         # Statistics tab
         self.stats_text = QTextEdit()
         self.stats_text.setReadOnly(True)
-        self.stats_text.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.stats_text.setFont(get_scaled_font(size_delta=+1))
         self.details_tabs.addTab(self.stats_text, "Statistiken")
 
         # DK Statistics tab
@@ -350,7 +365,7 @@ class AnalysisReviewTab(QWidget):
 
         # Top 10 Table
         top10_label = QLabel("<b>Top 10 Most Frequent Classifications</b>")
-        top10_label.setFont(QFont("Segoe UI", 11))
+        top10_label.setFont(get_scaled_font(size_delta=+1))
         dk_stats_layout.addWidget(top10_label)
 
         self.dk_top10_table = QTableWidget()
@@ -364,7 +379,7 @@ class AnalysisReviewTab(QWidget):
 
         # Keyword Coverage Table
         coverage_label = QLabel("<b>Keyword Coverage</b>")
-        coverage_label.setFont(QFont("Segoe UI", 11))
+        coverage_label.setFont(get_scaled_font(size_delta=+1))
         dk_stats_layout.addWidget(coverage_label)
 
         self.dk_coverage_table = QTableWidget()

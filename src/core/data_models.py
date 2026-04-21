@@ -75,6 +75,7 @@ class LlmKeywordAnalysis:
     analyse_text: Optional[str] = None  # Analysis/thought section from LLM response - Claude Generated
     chunk_responses: List[str] = field(default_factory=list)  # Intermediate responses from chunked analysis - Claude Generated
     missing_concepts: List[str] = field(default_factory=list)  # Missing concepts identified for iterative refinement - Claude Generated
+    keyword_chains: List[Dict] = field(default_factory=list)  # Schlagwortketten with reasons from LLM response - Claude Generated
     verification: Optional[Dict[str, Any]] = None  # GND pool verification results - Claude Generated
 
 

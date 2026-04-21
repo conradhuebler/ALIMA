@@ -517,6 +517,8 @@ class AlimaManager:
             repetition_last_detected: Optional[RepetitionResult] = None  # Last detection result
             repetition_count = 0  # Count total detections
             repetition_resolved_count = 0  # Count successful resolutions
+            repetition_clean_chunks = 0  # Consecutive clean chunks since last detection - Claude Generated
+            repetition_clean_since: Optional[float] = None  # Timestamp when clean streak started - Claude Generated
 
             try:
                 chunk_count = 0
@@ -540,6 +542,8 @@ class AlimaManager:
                     rep_result = self.repetition_detector.add_chunk(text_chunk)
                     if rep_result and rep_result.is_repetitive:
                         # Repetition detected - handle grace period - Claude Generated (2026-02-17)
+                        repetition_clean_chunks = 0  # Reset clean-chunk counter on any detection - Claude Generated
+                        repetition_clean_since = None  # Reset clean streak timer - Claude Generated
                         if repetition_grace_start is None:
                             # START grace period
                             repetition_grace_start = time.time()
@@ -586,16 +590,25 @@ class AlimaManager:
                     else:
                         # No repetition in this chunk - check for resolution - Claude Generated (2026-02-17)
                         if repetition_grace_start is not None:
-                            # RESOLVED - repetition stopped during grace period
-                            elapsed = time.time() - repetition_grace_start
-                            repetition_resolved_count += 1  # Count resolution
-                            self.logger.info(f"✅ REPETITION_RESOLVED: Stopped after {elapsed:.1f}s, continuing generation")
-                            repetition_grace_start = None
-                            repetition_last_detected = None
+                            repetition_clean_chunks += 1
+                            if repetition_clean_since is None:
+                                repetition_clean_since = time.time()
+                            # Require BOTH 5 consecutive clean chunks AND 1.0s clean time
+                            # to guard against fast-streaming false resolutions - Claude Generated
+                            clean_elapsed = time.time() - repetition_clean_since
+                            if repetition_clean_chunks >= 5 and clean_elapsed >= 1.0:
+                                # RESOLVED - repetition stopped during grace period
+                                elapsed = time.time() - repetition_grace_start
+                                repetition_resolved_count += 1  # Count resolution
+                                self.logger.info(f"✅ REPETITION_RESOLVED: Stopped after {elapsed:.1f}s, continuing generation")
+                                repetition_grace_start = None
+                                repetition_last_detected = None
+                                repetition_clean_chunks = 0
+                                repetition_clean_since = None
 
-                            # Notify UI that repetition resolved
-                            if on_repetition_detected:
-                                on_repetition_detected(None, [], False, True, 0.0)  # result, suggestions, grace_period, resolved, grace_seconds
+                                # Notify UI that repetition resolved
+                                if on_repetition_detected:
+                                    on_repetition_detected(None, [], False, True, 0.0)  # result, suggestions, grace_period, resolved, grace_seconds
 
                     if stream_callback:
                         self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")

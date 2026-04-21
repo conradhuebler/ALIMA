@@ -382,7 +382,6 @@ class HybridStepConfigWidget(QWidget):
                 border-radius: 4px;
                 padding: 6px 12px;
                 color: #1976d2;
-                font-size: 12px;
             }
             QPushButton:hover {
                 background-color: #bbdefb;
@@ -402,7 +401,7 @@ class HybridStepConfigWidget(QWidget):
             "<span style='padding: 2px 4px;'>⚪ Override/Default</span> = Manual selection or system default"
         )
         legend_label.setWordWrap(True)
-        legend_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 8px; padding: 8px; background-color: #f5f5f5; border-radius: 4px;")
+        legend_label.setStyleSheet("color: #666; margin-top: 8px; padding: 8px; background-color: #f5f5f5; border-radius: 4px;")
         smart_layout.addWidget(legend_label, 3, 0, 1, 2)
 
         layout.addWidget(self.smart_group)
@@ -1639,7 +1638,7 @@ class PipelineStepConfigWidget(QWidget):
 
             # Add warning banner
             warning_label = QLabel("⚠️ Erhöht Token-Kosten um 2-3x")
-            warning_label.setStyleSheet("color: #ff6600; font-size: 10px; padding: 3px;")
+            warning_label.setStyleSheet("color: #ff6600; padding: 3px;")
             refinement_layout.addWidget(warning_label)
 
             refinement_group.setLayout(refinement_layout)

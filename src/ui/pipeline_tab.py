@@ -74,22 +74,22 @@ class PipelineStepWidget(QFrame):
         header_layout = QHBoxLayout()
 
         # Status icon
+        from .styles import get_scaled_font
         self.status_label = QLabel()
+        self.status_label.setFont(get_scaled_font(size_delta=+4, bold=True))
         header_layout.addWidget(self.status_label)
 
         # Step name
         name_label = QLabel(self.step.name)
-        name_font = QFont()
-        name_font.setPointSize(12)
-        name_font.setBold(True)
-        name_label.setFont(name_font)
+        name_label.setFont(get_scaled_font(size_delta=+2, bold=True))
+        self._name_label = name_label  # keep ref for refresh_styles
         header_layout.addWidget(name_label)
 
         header_layout.addStretch()
 
         # Enhanced Provider/Model info with task preference indicators - Claude Generated
         self.provider_model_label = QLabel()
-        self.provider_model_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.provider_model_label.setStyleSheet("color: #666;")
         self._update_provider_model_display()
         header_layout.addWidget(self.provider_model_label)
 
@@ -117,11 +117,11 @@ class PipelineStepWidget(QFrame):
             llm_steps = ["initialisation", "keywords", "dk_classification"]
             if self.step.step_id in llm_steps:
                 self.provider_model_label.setText("⚠️ No provider configured")
-                self.provider_model_label.setStyleSheet("color: #ff9800; font-size: 10px; font-style: italic;")
+                self.provider_model_label.setStyleSheet("color: #ff9800; font-style: italic;")
             else:
                 # Non-LLM steps (like search) don't need provider info
                 self.provider_model_label.setText("No LLM required")
-                self.provider_model_label.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
+                self.provider_model_label.setStyleSheet("color: #666; font-style: italic;")
             return
 
         # Build display text with visual indicators
@@ -156,7 +156,7 @@ class PipelineStepWidget(QFrame):
 
         display_text = " ".join(display_parts)
         self.provider_model_label.setText(display_text)
-        self.provider_model_label.setStyleSheet(f"color: {style_color}; font-size: 10px;")
+        self.provider_model_label.setStyleSheet(f"color: {style_color};")
 
         # Set tooltip with full details
         tooltip_parts = [f"Provider: {self.step.provider}", f"Model: {self.step.model}"]
@@ -168,36 +168,28 @@ class PipelineStepWidget(QFrame):
         """Update visual status indicator - Claude Generated"""
         if self.step.status == "pending":
             self.status_label.setText("▷")
-            self.status_label.setStyleSheet(
-                "color: #999; font-size: 16px; font-weight: bold;"
-            )
+            self.status_label.setStyleSheet("color: #999;")
             self.setStyleSheet(
                 "QFrame { border-color: #ddd; background-color: #fafafa; }"
             )
 
         elif self.step.status == "running":
             self.status_label.setText("▶")
-            self.status_label.setStyleSheet(
-                "color: #2196f3; font-size: 16px; font-weight: bold;"
-            )
+            self.status_label.setStyleSheet("color: #2196f3;")
             self.setStyleSheet(
                 "QFrame { border-color: #2196f3; background-color: #e3f2fd; }"
             )
 
         elif self.step.status == "completed":
             self.status_label.setText("✓")
-            self.status_label.setStyleSheet(
-                "color: #4caf50; font-size: 16px; font-weight: bold;"
-            )
+            self.status_label.setStyleSheet("color: #4caf50;")
             self.setStyleSheet(
                 "QFrame { border-color: #4caf50; background-color: #e8f5e8; }"
             )
 
         elif self.step.status == "error":
             self.status_label.setText("✗")
-            self.status_label.setStyleSheet(
-                "color: #d32f2f; font-size: 16px; font-weight: bold;"
-            )
+            self.status_label.setStyleSheet("color: #d32f2f;")
             self.setStyleSheet(
                 "QFrame { border-color: #d32f2f; background-color: #ffebee; }"
             )
@@ -220,6 +212,12 @@ class PipelineStepWidget(QFrame):
         """Update step data and refresh display - Claude Generated"""
         self.step = step
         self.update_status_display()
+
+    def refresh_styles(self):
+        """Re-apply fonts after global font-size change. — Claude Generated"""
+        from .styles import get_scaled_font
+        if hasattr(self, "_name_label"):
+            self._name_label.setFont(get_scaled_font(size_delta=+2, bold=True))
 
 
 class PipelineTab(QWidget):
@@ -387,14 +385,14 @@ class PipelineTab(QWidget):
 
         # Title label (always visible, empty until title generated) - Claude Generated
         self.title_label = QLabel()
-        self.title_label.setStyleSheet("font-size: 11px; color: #555555; padding: 2px;")
+        self.title_label.setStyleSheet("color: #555555; padding: 2px;")
         title_layout.addWidget(self.title_label)
 
         # Title override field - Claude Generated
         from PyQt6.QtWidgets import QLineEdit
         self.title_override_field = QLineEdit()
         self.title_override_field.setPlaceholderText("Optional: Arbeitstitel überschreiben")
-        self.title_override_field.setStyleSheet("font-size: 10px; padding: 6px; border: 1px solid #ddd; border-radius: 3px;")
+        self.title_override_field.setStyleSheet("padding: 6px; border: 1px solid #ddd; border-radius: 3px;")
         self.title_override_field.returnPressed.connect(self.on_title_override_changed)
         self.title_override_field.editingFinished.connect(self.on_title_override_changed)
         title_layout.addWidget(self.title_override_field)
@@ -631,7 +629,6 @@ class PipelineTab(QWidget):
                 padding: 5px 14px;
                 border-radius: 3px;
                 font-weight: bold;
-                font-size: 12px;
             }
             QPushButton:hover { background-color: #45a049; }
             QPushButton:disabled { background-color: #ccc; }
@@ -651,7 +648,6 @@ class PipelineTab(QWidget):
                 padding: 5px 10px;
                 border-radius: 3px;
                 font-weight: bold;
-                font-size: 12px;
             }
             QPushButton:hover { background-color: #da190b; }
             QPushButton:disabled { background-color: #e57373; }
@@ -691,7 +687,7 @@ class PipelineTab(QWidget):
         self.advanced_toggle_button.setStyleSheet(
             """
             QPushButton { background: transparent; border: 1px solid #ccc;
-                          padding: 3px 8px; border-radius: 3px; font-size: 11px; color: #555; }
+                          padding: 3px 8px; border-radius: 3px; color: #555; }
             QPushButton:hover { background: #e9ecef; }
             QPushButton:checked { background: #e3f2fd; border-color: #90caf9; color: #1976d2; }
             """
@@ -708,7 +704,7 @@ class PipelineTab(QWidget):
 
         # Pipeline status label - Claude Generated
         self.pipeline_status_label = QLabel("Bereit")
-        self.pipeline_status_label.setStyleSheet("font-size: 11px; color: #666; padding-left: 8px;")
+        self.pipeline_status_label.setStyleSheet("color: #666; padding-left: 8px;")
         tb_layout.addWidget(self.pipeline_status_label)
 
         main_layout.addWidget(self.toolbar_frame)
@@ -728,7 +724,7 @@ class PipelineTab(QWidget):
 
         # Global Model Override ComboBox - Claude Generated
         override_label = QLabel("🔬 Modell-Override:")
-        override_label.setStyleSheet("font-size: 11px; color: #555;")
+        override_label.setStyleSheet("color: #555;")
         override_label.setToolTip("Erzwingt Provider/Modell für alle LLM-Steps")
         adv_layout.addWidget(override_label)
 
@@ -741,7 +737,7 @@ class PipelineTab(QWidget):
             "\"-- Standard --\" = Normale Provider-Auswahl"
         )
         self.global_override_combo.setStyleSheet(
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; }"
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }"
         )
         self._populate_global_override_combo()
         adv_layout.addWidget(self.global_override_combo)
@@ -762,13 +758,13 @@ class PipelineTab(QWidget):
             "⏱️ Verlängert Analysezeit um 30-70 Sekunden"
         )
         self.iterative_search_checkbox.setStyleSheet(
-            "QCheckBox { font-weight: bold; color: #0066cc; font-size: 11px; }"
+            "QCheckBox { font-weight: bold; color: #0066cc; }"
             "QCheckBox::indicator { width: 16px; height: 16px; }"
         )
         adv_layout.addWidget(self.iterative_search_checkbox)
 
         iterations_label = QLabel("Max:")
-        iterations_label.setStyleSheet("color: #666; font-size: 10px;")
+        iterations_label.setStyleSheet("color: #666;")
         adv_layout.addWidget(iterations_label)
 
         self.max_iterations_spin = QSpinBox()
@@ -846,7 +842,7 @@ class PipelineTab(QWidget):
             config = self.pipeline_manager.config
             if not hasattr(config, 'step_configs') or not config.step_configs:
                 self.mode_indicator_label.setText("🤖 Smart Mode")
-                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
                 self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
                 return
 
@@ -871,22 +867,22 @@ class PipelineTab(QWidget):
             # Set configuration indicator based on dominant type
             if dominant_config == "baseline" or config_counts["override"] == 0:
                 self.mode_indicator_label.setText("🤖 Smart Baseline")
-                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
                 self.mode_indicator_label.setToolTip("Configuration: Smart Baseline (automatic provider/model selection)")
             elif config_counts["baseline"] == 0:
                 self.mode_indicator_label.setText("⚙️ Full Override")
-                self.mode_indicator_label.setStyleSheet("color: #d32f2f; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setStyleSheet("color: #d32f2f; font-weight: bold;")
                 self.mode_indicator_label.setToolTip("Configuration: Full Override (all steps manually configured)")
             else:  # mixed
                 self.mode_indicator_label.setText("🔧 Mixed Config")
-                self.mode_indicator_label.setStyleSheet("color: #1976d2; font-size: 11px; font-weight: bold;")
+                self.mode_indicator_label.setStyleSheet("color: #1976d2; font-weight: bold;")
                 self.mode_indicator_label.setToolTip(f"Configuration: Mixed (baseline: {config_counts['baseline']}, override: {config_counts['override']})")
 
         except Exception as e:
             self.logger.error(f"Error updating mode indicator: {e}")
             # Fallback to Smart Mode
             self.mode_indicator_label.setText("🤖 Smart Mode")
-            self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-size: 11px; font-weight: bold;")
+            self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
             self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
 
     def jump_to_step(self, step_id: str):
@@ -977,7 +973,7 @@ class PipelineTab(QWidget):
         # Label kompakter gestylt
         label = QLabel(label_text)
         label.setStyleSheet(
-            "font-weight: bold; font-size: 11px; color: #555; padding: 2px;"
+            "font-weight: bold; color: #555; padding: 2px;"
         )
         label.setMaximumHeight(18)  # Explizite Height
         label.setWordWrap(False)  # Keine Zeilenumbrüche
@@ -1016,11 +1012,35 @@ class PipelineTab(QWidget):
 
     def create_keywords_step_widget(self) -> QWidget:
         """Create keywords step widget (Verbale Erschließung) - Claude Generated"""
-        # TODO - erweitern um Tabelle mit Ergebnissen ggf anpassen an Verschlagwortungsrelevante Dinge, welche Schlagworte ignoriert wurde ...
-        widget, self.keywords_result = self._create_text_result_widget(
-            label_text="Finale GND-Schlagworte:",
-            placeholder="Finale Schlagworte werden hier angezeigt..."
-        )
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # ── Finale Schlagworte ────────────────────────────────────────────────
+        kw_label = QLabel("Finale GND-Schlagworte:")
+        kw_label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        kw_label.setMaximumHeight(18)
+        layout.addWidget(kw_label, 0)
+
+        self.keywords_result = QTextEdit()
+        self.keywords_result.setReadOnly(True)
+        self.keywords_result.setPlaceholderText("Finale Schlagworte werden hier angezeigt...")
+        self.keywords_result.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.keywords_result, 1)
+
+        # ── Schlagwortketten ─────────────────────────────────────────────────
+        chains_label = QLabel("Schlagwortketten (mit Verifikation):")
+        chains_label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        chains_label.setMaximumHeight(18)
+        layout.addWidget(chains_label, 0)
+
+        self.keyword_chains_result = QTextEdit()
+        self.keyword_chains_result.setReadOnly(True)
+        self.keyword_chains_result.setPlaceholderText("Schlagwortketten erscheinen nach Abschluss der Verschlagwortung...")
+        self.keyword_chains_result.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.keyword_chains_result, 2)
+
         return widget
 
     def create_dk_search_step_widget(self) -> QWidget:
@@ -1040,7 +1060,7 @@ class PipelineTab(QWidget):
 
         # Config Section (kompakter)
         config_header = QLabel("⚙️ Katalog-Such-Konfiguration")
-        config_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        config_header.setStyleSheet("font-weight: bold; color: #555;")
         controls_layout.addWidget(config_header)
 
         # Kompakte Grid-Layout statt 3 separate Rows
@@ -1078,7 +1098,7 @@ class PipelineTab(QWidget):
 
         # Filter Section (kompakter)
         filter_header = QLabel("🔍 Ergebnisse filtern")
-        filter_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        filter_header.setStyleSheet("font-weight: bold; color: #555;")
         controls_layout.addWidget(filter_header)
 
         # Filter Grid
@@ -1105,7 +1125,7 @@ class PipelineTab(QWidget):
         filter_grid.addWidget(self.dk_filter_mode, 0, 5)
 
         self.dk_filter_count_label = QLabel("")
-        self.dk_filter_count_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.dk_filter_count_label.setStyleSheet("color: #666;")
         filter_grid.addWidget(self.dk_filter_count_label, 0, 6)
 
         filter_grid.setColumnStretch(7, 1)  # Push to left
@@ -1120,7 +1140,7 @@ class PipelineTab(QWidget):
         results_layout.setContentsMargins(5, 5, 5, 5)
 
         results_header = QLabel("📊 Katalog-Suchergebnisse")
-        results_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        results_header.setStyleSheet("font-weight: bold; color: #555;")
         results_layout.addWidget(results_header)
 
         self.dk_search_raw_data = []  # Store for filtering
@@ -1164,7 +1184,7 @@ class PipelineTab(QWidget):
 
         # Header statt GroupBox
         input_header = QLabel("📥 Eingangsdaten für LLM-Klassifikation")
-        input_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        input_header.setStyleSheet("font-weight: bold; color: #555;")
         input_layout.addWidget(input_header)
 
         self.dk_input_summary = QTextEdit()
@@ -1187,7 +1207,7 @@ class PipelineTab(QWidget):
 
         # Header statt GroupBox
         results_header = QLabel("✅ Finale DK/RVK-Klassifikationen")
-        results_header.setStyleSheet("font-weight: bold; font-size: 11px; color: #555;")
+        results_header.setStyleSheet("font-weight: bold; color: #555;")
         results_layout.addWidget(results_header)
 
         self.dk_classification_results = QTextEdit()
@@ -1216,7 +1236,7 @@ class PipelineTab(QWidget):
         self.dk_compact_stats = QLabel()
         self.dk_compact_stats.setWordWrap(True)
         self.dk_compact_stats.setTextFormat(Qt.TextFormat.RichText)
-        self.dk_compact_stats.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
+        self.dk_compact_stats.setStyleSheet("color: #666; padding: 5px;")
         layout.addWidget(self.dk_compact_stats)
 
         return widget
@@ -1928,16 +1948,74 @@ class PipelineTab(QWidget):
             final_keywords = step.output_data.get("final_keywords", "")
             self.logger.debug(f"Keywords step output_data: {step.output_data}")
             self.logger.debug(f"Final keywords: '{final_keywords}'")
+            # Normalise to list for cross-check below - Claude Generated
+            if isinstance(final_keywords, list):
+                final_keywords_list = final_keywords
+                final_keywords_text = "\n".join(final_keywords)
+            else:
+                final_keywords_text = str(final_keywords)
+                final_keywords_list = [l.strip() for l in final_keywords_text.splitlines() if l.strip()]
             if hasattr(self, "keywords_result"):
-                # Handle both string and list formats
-                if isinstance(final_keywords, list):
-                    final_keywords_text = "\n".join(final_keywords)
-                else:
-                    final_keywords_text = str(final_keywords)
                 self.keywords_result.setPlainText(final_keywords_text)
                 self.logger.debug(
                     f"Set keywords_result text to: '{final_keywords_text}'"
                 )
+
+            # ── Schlagwortketten mit Verifikation anzeigen ─────────────────── Claude Generated
+            if hasattr(self, "keyword_chains_result"):
+                llm_analysis = step.output_data.get("llm_analysis")
+                chains = llm_analysis.keyword_chains if llm_analysis else []
+                if chains:
+                    import re as _re
+                    def _normalise(kw: str) -> str:
+                        return _re.sub(r"\s*\(GND-ID:[^)]*\)", "", kw).strip().lower()
+
+                    def _esc(s: str) -> str:
+                        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                    final_normalised = {_normalise(k) for k in final_keywords_list}
+
+                    blocks = []
+                    for c in chains:
+                        parts = c.get("chain", [])
+                        reason = c.get("reason", "")
+                        kw_html_parts = []
+                        all_present = True
+                        for kw in parts:
+                            if _normalise(kw) in final_normalised:
+                                kw_html_parts.append(
+                                    f'<span style="color:#4caf50;font-weight:bold">{_esc(kw)}</span>'
+                                )
+                            else:
+                                kw_html_parts.append(
+                                    f'<span style="color:#f44336;font-weight:bold">{_esc(kw)} ✗</span>'
+                                )
+                                all_present = False
+                        arrow = '<span style="color:#888"> → </span>'
+                        chain_html = arrow.join(kw_html_parts)
+                        status_icon = "✓" if all_present else "⚠"
+                        status_color = "#4caf50" if all_present else "#ff9800"
+                        block = (
+                            f'<p style="margin:4px 0 0 0">'
+                            f'<span style="color:{status_color};font-weight:bold">{status_icon} </span>'
+                            f'{chain_html}</p>'
+                        )
+                        if reason:
+                            block += (
+                                f'<p style="margin:1px 0 6px 16px;color:#aaa;font-style:italic">'
+                                f'{_esc(reason)}</p>'
+                            )
+                        else:
+                            block += '<p style="margin:0 0 6px 0"></p>'
+                        blocks.append(block)
+
+                    self.keyword_chains_result.setHtml(
+                        '<html><body style="font-family:monospace">'
+                        + "".join(blocks)
+                        + "</body></html>"
+                    )
+                else:
+                    self.keyword_chains_result.setPlainText("Keine Schlagwortketten in LLM-Antwort gefunden.")
 
         elif step.step_id == "dk_search" and step.output_data:
             # Display DK search results with counts and titles - Claude Generated (Enhanced with filtering)

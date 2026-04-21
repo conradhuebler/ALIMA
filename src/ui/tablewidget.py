@@ -98,7 +98,7 @@ class TableWidget(QWidget):
 
         # Title and info labels
         self.title_label = QLabel(f"📊 Datenbank: {self.database_config.db_type.upper()}")
-        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self.title_label.setStyleSheet("font-weight: bold;")
         self.info_label = QLabel("")
 
         header_layout.addWidget(QLabel("Tabelle:"))

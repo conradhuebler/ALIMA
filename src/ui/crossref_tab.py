@@ -20,6 +20,7 @@ from .styles import (
     get_main_stylesheet,
     get_button_styles,
     get_status_label_styles,
+    get_scaled_font,
     LAYOUT,
     COLORS,
 )
@@ -89,7 +90,7 @@ class CrossrefTab(QWidget):
         self.doi_input.setPlaceholderText(
             "Gib die DOI ein, z.B. 10.1007/978-3-031-47390-6"
         )
-        self.doi_input.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.doi_input.setFont(get_scaled_font(size_delta=+1))
 
         self.fetch_button = QPushButton("Abfrage starten")
         self.fetch_button.setStyleSheet(btn_styles["primary"])
@@ -118,28 +119,28 @@ class CrossrefTab(QWidget):
         self.main_result = QTextEdit()
         self.main_result.setReadOnly(True)
         self.main_result.setPlaceholderText("Hier werden die Ergebnisse angezeigt...")
-        self.main_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.main_result.setFont(get_scaled_font(size_delta=+1))
         self.result_tabs.addTab(self.main_result, "Hauptergebnisse")
 
         # Tab für About
         self.about_result = QTextEdit()
         self.about_result.setReadOnly(True)
         self.about_result.setPlaceholderText("Über dieses Buch...")
-        self.about_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.about_result.setFont(get_scaled_font(size_delta=+1))
         self.result_tabs.addTab(self.about_result, "Über das Buch")
 
         # Tab für Inhaltsverzeichnis
         self.toc_result = QTextEdit()
         self.toc_result.setReadOnly(True)
         self.toc_result.setPlaceholderText("Inhaltsverzeichnis...")
-        self.toc_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.toc_result.setFont(get_scaled_font(size_delta=+1))
         self.result_tabs.addTab(self.toc_result, "Inhaltsverzeichnis")
 
         # Tab für Keywords
         self.keywords_result = QTextEdit()
         self.keywords_result.setReadOnly(True)
         self.keywords_result.setPlaceholderText("Schlüsselwörter...")
-        self.keywords_result.setFont(QFont("Segoe UI", LAYOUT["input_font_size"]))
+        self.keywords_result.setFont(get_scaled_font(size_delta=+1))
         self.result_tabs.addTab(self.keywords_result, "Schlüsselwörter")
 
         # Standardmäßig alle Tabs außer dem Haupttab ausblenden

@@ -128,7 +128,8 @@ class PromptEditorDialog(QDialog):
             "No configuration loaded.\nUse New or Open to start editing."
         )
         self.no_config_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.no_config_label.setFont(QFont("Arial", 14))
+        from .styles import get_scaled_font
+        self.no_config_label.setFont(get_scaled_font(size_delta=+4))
         self.editor_layout.addWidget(self.no_config_label)
 
         splitter.addWidget(self.editor_panel)
