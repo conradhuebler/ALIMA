@@ -261,19 +261,18 @@ class PipelineStreamWidget(QWidget):
         self.grace_period_end = 0.0
 
         layout.addWidget(self.repetition_warning_frame)
-
-        # Start with children hidden (panel is transparent placeholder) - Claude Generated
-        self._set_warning_children_visible(False)
+        # Children stay visible always – only stylesheet + text content change.
+        # Calling setVisible(False) on children collapses their width in QHBoxLayout
+        # and propagates a sizeHint change upward, causing the window to resize. — Claude Generated
 
     def _set_warning_children_visible(self, visible: bool):
-        """Show/hide warning panel content without changing frame size - Claude Generated
-        Frame stays at fixed 28px. When hidden, children are invisible and frame is transparent.
+        """No-op kept for call-site compatibility — layout changes removed. — Claude Generated
+        Visual hiding/showing is handled purely via stylesheet and text content.
+        Only the frame stylesheet is switched here.
         """
         if not visible and self._warning_style_state != "hidden":
             self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
             self._warning_style_state = "hidden"
-        for child in self.repetition_warning_frame.findChildren(QWidget):
-            child.setVisible(visible)
 
     def show_repetition_warning(self, detection_type: str, details: str, suggestions: List[Dict],
                                  grace_period: bool = False, grace_seconds: float = 2.0):
@@ -301,7 +300,8 @@ class PipelineStreamWidget(QWidget):
         if not already_showing:
             self.warning_icon_label.setText("⚠️")
             self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
-            self.continue_button.setVisible(True)
+            # Restore continue button appearance via stylesheet — no setVisible call — Claude Generated
+            self.continue_button.setStyleSheet("background-color: #555; color: #ccc; padding: 1px 5px;")
 
             # Set warning title based on detection type
             type_labels = {
@@ -332,21 +332,15 @@ class PipelineStreamWidget(QWidget):
         # Always update the details label (shows latest repeat count)
         self.warning_details_label.setText(details)
 
-        # Handle grace period countdown - Claude Generated (2026-02-17)
+        # Handle grace period countdown — use empty text instead of setVisible to avoid layout shifts — Claude Generated
         if grace_period and not already_showing:
             self.grace_period_end = time.time() + grace_seconds
             self.grace_timer.stop()
             self.grace_timer.start(200)  # Update every 200ms (reused timer) - Claude Generated
-
             self.countdown_label.setText(f"⏳ {grace_seconds:.1f}s")
-            self.countdown_label.setVisible(True)
         elif not grace_period:
-            self.countdown_label.setVisible(False)
+            self.countdown_label.setText("")
             self.grace_timer.stop()
-
-        # Show the warning panel (children visible + orange style)
-        if not already_showing:
-            self._set_warning_children_visible(True)
 
         # NOTE: Don't log to pipeline stream during streaming - it fragments the LLM output!
         # The warning panel already shows this information visually - Claude Generated (2026-02-17)
@@ -368,7 +362,7 @@ class PipelineStreamWidget(QWidget):
                       If False, actually hide the panel (explicit user dismiss or reset).
         """
         self.grace_timer.stop()
-        self.countdown_label.setVisible(False)
+        self.countdown_label.setText("")  # Clear text instead of setVisible(False) — no layout shift — Claude Generated
         self._last_shown_detection_type = ""  # Reset so next warning does full rebuild - Claude Generated
 
         if resolved:
@@ -387,16 +381,26 @@ class PipelineStreamWidget(QWidget):
                 if item.widget():
                     item.widget().deleteLater()
 
-            # Hide "Trotzdem fortfahren" button, keep abort button visible
-            self.continue_button.setVisible(False)
+            # Make "Fortfahren" button transparent instead of invisible — no layout change — Claude Generated
+            self.continue_button.setStyleSheet("background: transparent; border: none; color: transparent;")
 
             # Panel stays visible – no setVisible(False) call
         else:
-            # Explicit dismiss or pipeline reset: hide children + transparent frame - Claude Generated
-            self._set_warning_children_visible(False)
-            self.warning_icon_label.setText("⚠️")
-            self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
-            self.continue_button.setVisible(True)
+            # Explicit dismiss or pipeline reset: reset to transparent/hidden state — Claude Generated
+            # Use stylesheet + empty text only, NOT setVisible(False) — avoids sizeHint propagation
+            if self._warning_style_state != "hidden":
+                self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
+                self._warning_style_state = "hidden"
+            self.warning_icon_label.setText("")
+            self.warning_title_label.setText("")
+            self.warning_details_label.setText("")
+            self.countdown_label.setText("")
+            self.continue_button.setStyleSheet("background: transparent; border: none; color: transparent;")
+            # Clear suggestion buttons (deleteLater is fine — they go transparent via stylesheet while pending)
+            while self.suggestions_button_layout.count():
+                item = self.suggestions_button_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
 
     def _on_abort_requested(self):
         """Handle immediate abort button click - Claude Generated"""
