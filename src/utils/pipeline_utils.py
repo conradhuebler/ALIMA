@@ -1442,6 +1442,14 @@ class PipelineStepExecutor:
         )
 
         # Create final analysis details
+        # Extract keyword chains from response for display in verification tab - Claude Generated
+        from ..core.processing_utils import extract_keyword_chains_from_response
+        _prompt_cfg = task_state.prompt_config
+        _output_fmt = _prompt_cfg.output_format if _prompt_cfg else None
+        extracted_chains = extract_keyword_chains_from_response(
+            task_state.analysis_result.full_text, output_format=_output_fmt
+        )
+
         llm_analysis = LlmKeywordAnalysis(
             task_name=task,
             model_used=model,
@@ -1457,6 +1465,7 @@ class PipelineStepExecutor:
             response_full_text=task_state.analysis_result.full_text,
             extracted_gnd_keywords=final_keywords,  # Store verified keywords only
             extracted_gnd_classes=extracted_gnd_classes,
+            keyword_chains=extracted_chains,  # Store parsed chains for UI display - Claude Generated
             verification=verification_result,  # Store verification details - Claude Generated
         )
 
@@ -1640,6 +1649,7 @@ class PipelineStepExecutor:
             final_keywords = deduplicated_keywords
 
         # Update the LlmKeywordAnalysis to include chunk information
+        # Keyword chains come from the final consolidation response - Claude Generated
         final_llm_analysis = LlmKeywordAnalysis(
             task_name=f"{task} (chunked)",
             model_used=model,
@@ -1651,6 +1661,7 @@ class PipelineStepExecutor:
             response_full_text=final_single_result[2].response_full_text,  # Only final consolidation response
             extracted_gnd_keywords=final_keywords,  # Use verified keywords only - Claude Generated
             extracted_gnd_classes=final_single_result[1],
+            keyword_chains=final_single_result[2].keyword_chains,  # Chains from final consolidation - Claude Generated
             chunk_responses=combined_responses,  # Store chunk responses separately - Claude Generated
             verification=final_single_result[2].verification,  # Use verification from _execute_single_keyword_analysis() - Claude Generated
         )

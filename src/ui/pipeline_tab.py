@@ -954,11 +954,35 @@ class PipelineTab(QWidget):
 
     def create_keywords_step_widget(self) -> QWidget:
         """Create keywords step widget (Verbale Erschließung) - Claude Generated"""
-        # TODO - erweitern um Tabelle mit Ergebnissen ggf anpassen an Verschlagwortungsrelevante Dinge, welche Schlagworte ignoriert wurde ...
-        widget, self.keywords_result = self._create_text_result_widget(
-            label_text="Finale GND-Schlagworte:",
-            placeholder="Finale Schlagworte werden hier angezeigt..."
-        )
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # ── Finale Schlagworte ────────────────────────────────────────────────
+        kw_label = QLabel("Finale GND-Schlagworte:")
+        kw_label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        kw_label.setMaximumHeight(18)
+        layout.addWidget(kw_label, 0)
+
+        self.keywords_result = QTextEdit()
+        self.keywords_result.setReadOnly(True)
+        self.keywords_result.setPlaceholderText("Finale Schlagworte werden hier angezeigt...")
+        self.keywords_result.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.keywords_result, 1)
+
+        # ── Schlagwortketten ─────────────────────────────────────────────────
+        chains_label = QLabel("Schlagwortketten (mit Verifikation):")
+        chains_label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        chains_label.setMaximumHeight(18)
+        layout.addWidget(chains_label, 0)
+
+        self.keyword_chains_result = QTextEdit()
+        self.keyword_chains_result.setReadOnly(True)
+        self.keyword_chains_result.setPlaceholderText("Schlagwortketten erscheinen nach Abschluss der Verschlagwortung...")
+        self.keyword_chains_result.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(self.keyword_chains_result, 2)
+
         return widget
 
     def create_dk_search_step_widget(self) -> QWidget:
@@ -1814,16 +1838,74 @@ class PipelineTab(QWidget):
             final_keywords = step.output_data.get("final_keywords", "")
             self.logger.debug(f"Keywords step output_data: {step.output_data}")
             self.logger.debug(f"Final keywords: '{final_keywords}'")
+            # Normalise to list for cross-check below - Claude Generated
+            if isinstance(final_keywords, list):
+                final_keywords_list = final_keywords
+                final_keywords_text = "\n".join(final_keywords)
+            else:
+                final_keywords_text = str(final_keywords)
+                final_keywords_list = [l.strip() for l in final_keywords_text.splitlines() if l.strip()]
             if hasattr(self, "keywords_result"):
-                # Handle both string and list formats
-                if isinstance(final_keywords, list):
-                    final_keywords_text = "\n".join(final_keywords)
-                else:
-                    final_keywords_text = str(final_keywords)
                 self.keywords_result.setPlainText(final_keywords_text)
                 self.logger.debug(
                     f"Set keywords_result text to: '{final_keywords_text}'"
                 )
+
+            # ── Schlagwortketten mit Verifikation anzeigen ─────────────────── Claude Generated
+            if hasattr(self, "keyword_chains_result"):
+                llm_analysis = step.output_data.get("llm_analysis")
+                chains = llm_analysis.keyword_chains if llm_analysis else []
+                if chains:
+                    import re as _re
+                    def _normalise(kw: str) -> str:
+                        return _re.sub(r"\s*\(GND-ID:[^)]*\)", "", kw).strip().lower()
+
+                    def _esc(s: str) -> str:
+                        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                    final_normalised = {_normalise(k) for k in final_keywords_list}
+
+                    blocks = []
+                    for c in chains:
+                        parts = c.get("chain", [])
+                        reason = c.get("reason", "")
+                        kw_html_parts = []
+                        all_present = True
+                        for kw in parts:
+                            if _normalise(kw) in final_normalised:
+                                kw_html_parts.append(
+                                    f'<span style="color:#4caf50;font-weight:bold">{_esc(kw)}</span>'
+                                )
+                            else:
+                                kw_html_parts.append(
+                                    f'<span style="color:#f44336;font-weight:bold">{_esc(kw)} ✗</span>'
+                                )
+                                all_present = False
+                        arrow = '<span style="color:#888"> → </span>'
+                        chain_html = arrow.join(kw_html_parts)
+                        status_icon = "✓" if all_present else "⚠"
+                        status_color = "#4caf50" if all_present else "#ff9800"
+                        block = (
+                            f'<p style="margin:4px 0 0 0">'
+                            f'<span style="color:{status_color};font-weight:bold">{status_icon} </span>'
+                            f'{chain_html}</p>'
+                        )
+                        if reason:
+                            block += (
+                                f'<p style="margin:1px 0 6px 16px;color:#aaa;font-style:italic">'
+                                f'{_esc(reason)}</p>'
+                            )
+                        else:
+                            block += '<p style="margin:0 0 6px 0"></p>'
+                        blocks.append(block)
+
+                    self.keyword_chains_result.setHtml(
+                        '<html><body style="font-family:monospace">'
+                        + "".join(blocks)
+                        + "</body></html>"
+                    )
+                else:
+                    self.keyword_chains_result.setPlainText("Keine Schlagwortketten in LLM-Antwort gefunden.")
 
         elif step.step_id == "dk_search" and step.output_data:
             # Display DK search results with counts and titles - Claude Generated (Enhanced with filtering)
