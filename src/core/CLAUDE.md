@@ -63,32 +63,23 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - **Implementation**: `extract_missing_concepts_from_response()` in processing_utils.py, `execute_fallback_gnd_search()` + `execute_iterative_keyword_refinement()` in pipeline_utils.py
 - **Documentation**: See `docs/iterative_gnd_search.md` for complete architecture and implementation plan
 
-### ✅ Agentic Workflow with MCP Tools
-- **Active path**: `PipelineManager._start_agentic_pipeline()` → `MetaAgent` → 4 SubAgents
-- **SubAgents** (`src/core/agents/sub_agents/`): KeywordExtractionAgent → SearchAgent → KeywordSelectionAgent → ClassificationAgent
-- **Prompt configuration**: `workflows/meta_agent_default.yaml` - edit prompts here, no code changes needed
-- **Tool caching**: `CachingToolRegistry` deduplicates identical tool calls across SubAgents
-- **MCP Tool Layer**: `src/mcp/` - 16 tools for DB, web services, and pipeline results
-- **Agent Loop**: `src/core/agent_loop.py` - provider-agnostic tool-calling with safety features
-- **Pipeline Integration**: `PipelineConfig.enable_agentic_mode`, CLI `--agentic`, GUI checkbox
-- **Tests**: `tests/test_agents.py` - 37 tests for SharedContext, CachingToolRegistry, SubAgents, MetaAgent, single-step
-- **WARNING**: Experimental feature with ~3x token usage increase - opt-in only
-
-### ✅ Single-Step Agentic Execution
-Run individual pipeline steps with pre-loaded context (warm-start):
-- **`SharedContext.save_to_file(path)` / `load_from_file(path)`**: JSON serialization of pipeline state
-- **`MetaAgent.execute(step_id=..., input_context=...)`**: run only one step with pre-populated context
-- **Dependency validation**: `_validate_dependencies()` checks required fields before each step
-- **CLI**: `--step extraction|search|selection|classification` + `--resume-from <file.json>`
-- **`PipelineConfig`**: `agentic_step_id`, `agentic_input_context_path`
-
-**Step dependencies** (what must be in context):
-| Step | Requires |
-|------|----------|
-| `extraction` | — |
-| `search` | `extracted_keywords` |
-| `selection` | `gnd_entries` |
-| `classification` | `selected_keywords` |
+### ✅ v4 Workflow System (Agentic)
+Replaces the former MetaAgent + 4 SubAgents dispatch (removed April 2026).
+- **Active path**: `PipelineManager._start_agentic_pipeline()` → `_start_v4_workflow_pipeline()` → `WorkflowExecutor`
+- **Core classes** (`src/core/agents/`):
+  - `WorkflowLoader` parses YAML into `WorkflowDef`/`StepConfig`
+  - `WorkflowExecutor` runs steps sequentially against a `SharedContext`
+  - `LLMAgentStep` + `DeterministicStep` (registered via `@register_step` in `registry.py`)
+  - `deterministic_functions.py`: `gnd_batch_search`, `dk_classification_twophase`, `catalog_multi_search`, `gnd_entry_lookup`, `extract_gnd_related`, `gnd_batch_metadata`
+- **Workflows** (`workflows/`): `alima_classic`, `catalog_search`, `synonym_expansion`, `batch_metadata` (all v4)
+- **Tool caching**: `CachingToolRegistry` (in `sub_agents/` dir, kept) deduplicates tool calls
+- **MCP Tool Layer**: `src/mcp/` — 16 tools unchanged
+- **Agent Loop**: `src/core/agent_loop.py` — provider-agnostic tool-calling (used by LLMAgentStep)
+- **Pipeline Integration**: `PipelineConfig.enable_agentic_mode` + `workflow_name`; CLI `alima workflow <name>` / `pipeline --agentic`; GUI workflow dropdown in PipelineConfigDialog
+- **Single-step**: `SharedContext.save_to_file/load_from_file` for warm-start + `WorkflowExecutor.run(..., only_step=<id>)`
+- **Tests**: `tests/test_agents_v2.py` (59 tests) + `tests/test_agents.py` (SharedContext/ToolCache only)
+- **Legacy**: `workflows/legacy/` holds archived v3 YAMLs (meta_agent_default, default_alima, extended, minimal), not discovered at runtime
+- **WARNING**: agentic mode still ~3x token usage vs rigid pipeline — opt-in only
 
 ## [Instructions Block - Operator-Defined Tasks]
 

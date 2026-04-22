@@ -1,0 +1,74 @@
+name: "Catalog Search"
+version: "4.0"
+description: "Multi-source catalog lookup (SWB + Lobid + catalog) with optional LLM ranking."
+
+settings:
+  temperature: 0.2
+  max_tokens: 2048
+
+# Input contract: ${extra.queries} — list of search strings.
+# Pass via `alima workflow catalog_search --input '{"queries": ["Kadmium","Toxikologie"]}'`.
+
+steps:
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 1: Fan-out to SWB + Lobid + catalog
+  # ──────────────────────────────────────────────────────────────────
+  - id: search
+    type: deterministic
+    function: catalog_multi_search
+    description: "Fan-out term list over SWB/Lobid/catalog, merge by title."
+    enabled: true
+
+    inputs:
+      queries: "${extra.queries}"
+
+    outputs:
+      extra.catalog_hits: "result.hits"
+      extra.catalog_tool_calls: "result.tool_calls"
+
+    config:
+      sources: [swb, lobid, catalog]
+      enrich_from_local_db: true
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 2: Optional LLM ranking — disabled by default
+  # Flip `enabled: true` to let an LLM re-order the hits relative to
+  # an explicit intent supplied via ${extra.intent}.
+  # ──────────────────────────────────────────────────────────────────
+  - id: rank
+    type: llm_agent
+    description: "Rank hits by relevance to ${extra.intent}"
+    enabled: false
+    depends_on: [search]
+
+    inputs:
+      hits: "${steps.search.result.hits}"
+      intent: "${extra.intent}"
+
+    outputs:
+      extra.ranked_hits: "response.ranked"
+
+    llm:
+      temperature: 0.2
+      max_tokens: 2048
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du bist ein bibliothekarischer Retrieval-Experte. Bewerte gegebene
+      Trefferliste gegen eine Nutzerintention und gib eine neu sortierte
+      Liste als JSON zurück.
+
+    user_prompt: |
+      **Intent:**
+      {intent}
+
+      **Treffer:**
+      {hits}
+
+      Gib JSON zurück:
+      ```json
+      {"ranked": [{"title": "...", "gnd_id": "...", "score": 0.0, "reason": "..."}]}
+      ```

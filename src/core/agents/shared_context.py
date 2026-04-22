@@ -145,6 +145,11 @@ class SharedContext:
     rvk_classifications: List[Dict] = field(default_factory=list)  # RVK classifications from classification step
     dk_search_results: List[Dict] = field(default_factory=list)  # DK catalog search results
 
+    # Generic escape hatch for workflows that need fields not modelled above.
+    # Non-ALIMA workflows (catalog search, synonym expansion, batch metadata)
+    # write their input + step outputs here; reachable via ${extra.<key>...}.
+    extra: Dict[str, Any] = field(default_factory=dict)
+
     def get_step_result(self, step_name: str) -> Optional[Dict]:
         """Get result from a specific pipeline step.
 
@@ -400,6 +405,7 @@ class SharedContext:
             "dk_search_results": self.dk_search_results,
             "step_results": self.step_results,
             "quality_scores": self.quality_scores,
+            "extra": self.extra,
         }
 
     @classmethod
@@ -435,6 +441,7 @@ class SharedContext:
         ctx.dk_search_results = data.get("dk_search_results", [])
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})
+        ctx.extra = data.get("extra", {}) or {}
         return ctx
 
     def save_to_file(self, path: str) -> None:

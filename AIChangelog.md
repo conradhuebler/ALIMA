@@ -2,6 +2,29 @@
 
 ## 2026
 
+### v4 Agent Workflow System (April 22, 2026)
+- **Replaces MetaAgent + SubAgents**: The hardcoded 4-SubAgent pipeline (`KeywordExtractionAgent`, `SearchAgent`, `KeywordSelectionAgent`, `ClassificationAgent`) was deleted. Agent dispatch now runs through the generic v4 `WorkflowExecutor`.
+- **Plan**: Option B from Agent-System-Restructuring plan — Generic LLMAgentStep + DeterministicStep + plugin registry.
+- **Phase 1-2 (Foundation + Migration)**:
+  - New files: `registry.py`, `workflow_loader.py`, `workflow_executor.py`, `context_path.py`, `steps/{base_step,llm_agent_step,deterministic_step}.py`, `deterministic_functions.py`
+  - `SharedContext.extra: Dict` added for non-ALIMA fields + `${steps.X.Y}` / `${extra.Y}` context-path resolver
+  - `workflows/alima_classic.yaml` reproduces the classic 4-step pipeline in v4 schema
+- **Phase 3 (PoC workflows)**:
+  - `workflows/catalog_search.yaml` — multi-source catalog lookup (SWB + Lobid + catalog) with optional LLM ranking
+  - `workflows/synonym_expansion.yaml` — single keyword → GND entry → LLM expansion → validated GND candidates
+  - `workflows/batch_metadata.yaml` — bulk GND-ID metadata fetch with optional Lobid fallback
+- **Phase 4 (CLI/GUI integration)**:
+  - New CLI: `alima workflow <name> [--input|--input-file|--output|--only-step]` + `alima workflows list`
+  - `PipelineConfigDialog` gained a workflow-selection `QComboBox` populated from discovered v4 YAMLs
+  - Fixed pre-existing argparse conflict: CLI `--step` (provider override, `append`) vs single-step agentic `--step`; renamed the second to `--only-step`
+- **Phase 5 (cleanup)**:
+  - Deleted: `meta_agent.py`, `base_sub_agent.py`, `keyword_extraction_agent.py`, `search_agent.py`, `keyword_selection_agent.py`, `classification_agent.py`
+  - Archived: `workflows/{meta_agent_default,default_alima,extended,minimal}.yaml` → `workflows/legacy/` (no longer discovered)
+  - Removed MetaAgent fallback branch from `PipelineManager._start_agentic_pipeline()`
+  - Default `workflow_name` changed from `meta_agent_default` → `alima_classic`
+  - `tests/test_agents.py` reduced to `SharedContext` + `ToolResultCache` + `CachingToolRegistry` coverage; MetaAgent/SubAgent tests removed (replacement coverage in `tests/test_agents_v2.py`, 59 tests total)
+- **Kept unchanged**: `CachingToolRegistry`, MCP tool layer, `agent_loop.py`, `LlmService`, rigid `pipeline_utils.py` path
+
 ### WebApp Auto-Save & Recovery System (January 6, 2026)
 - **Complete reliability upgrade** for long-running pipeline analyses in web interface
 - **Auto-Save Infrastructure**: Incremental JSON saving after each pipeline step

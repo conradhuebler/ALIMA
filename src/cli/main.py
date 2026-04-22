@@ -28,6 +28,7 @@ from src.cli.commands import (
     state_cmd,
     protocol_cmd,
     setup_cmd,
+    workflow_cmd,
 )
 
 
@@ -119,16 +120,13 @@ def create_argument_parser():
     pipeline_parser.add_argument("--agentic-verbose", action="store_true", help="Log full system+user prompts to stream in agentic mode")
 
     # Workflow configuration - Claude Generated
-    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: meta_agent_default)")
+    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: alima_classic)")
     pipeline_parser.add_argument("--custom-workflow", type=str, default=None, help="Path to custom workflow YAML/JSON file")
 
     # Single-step execution - Claude Generated
-    pipeline_parser.add_argument("--step", type=str, default=None,
+    pipeline_parser.add_argument("--only-step", type=str, default=None,
                                  metavar="STEP_ID",
                                  help="Run only a single agentic step: extraction|search|selection|classification")
-    pipeline_parser.add_argument("--resume-from", type=str, default=None,
-                                 metavar="FILE",
-                                 help="JSON file with saved SharedContext to warm-start single-step execution")
 
     # Global provider/model override - Claude Generated
     pipeline_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",
@@ -320,6 +318,29 @@ def create_argument_parser():
     migrate_import_parser.add_argument("--clear", action="store_true", help="Clear destination before import")
     migrate_import_parser.add_argument("--dry-run", action="store_true", help="Validate without importing")
 
+    # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated
+    workflow_parser = subparsers.add_parser(
+        "workflow",
+        help="Run a v4 workflow (YAML-driven agent pipeline) by name",
+    )
+    workflow_parser.add_argument("name", help="Workflow name (e.g. alima_classic) or path to YAML")
+    wf_input = workflow_parser.add_mutually_exclusive_group()
+    wf_input.add_argument("--input", help="JSON string with workflow input")
+    wf_input.add_argument("--input-file", help="Path to JSON file with workflow input")
+    workflow_parser.add_argument("--output", help="Path to write JSON report")
+    workflow_parser.add_argument("--provider", help="Default LLM provider")
+    workflow_parser.add_argument("--model", help="Default LLM model")
+    workflow_parser.add_argument("--temperature", type=float, help="Default LLM temperature")
+    workflow_parser.add_argument("--only-step", help="Run only the named step")
+    workflow_parser.add_argument("--quiet", action="store_true", help="Suppress streaming output")
+
+    workflows_parser = subparsers.add_parser(
+        "workflows",
+        help="Inspect v4 workflows (`alima workflows list`)",
+    )
+    workflows_sub = workflows_parser.add_subparsers(dest="workflows_action")
+    workflows_sub.add_parser("list", help="List all discovered workflow YAMLs")
+
     # Setup wizard command
     setup_parser = subparsers.add_parser("setup", help="Run ALIMA first-start setup wizard")
     setup_parser.add_argument("--skip-gnd", action="store_true", help="Skip GND database download option")
@@ -341,7 +362,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # Check for first-run setup requirement (except for specific commands)
-    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
+    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "workflows"]:
         config_manager = ConfigManager()
         config = config_manager.load_config()
 
@@ -353,7 +374,7 @@ def main():
             return
 
     # Check if prompts file exists (except for specific commands)
-    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config"]:
+    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "workflows"]:
         config_manager = ConfigManager()
         config = config_manager.load_config()
         prompts_file_path = config.system_config.prompts_path
@@ -368,7 +389,7 @@ def main():
     llm_service = None
     prompt_service = None
 
-    if args.command in ["pipeline", "batch"]:
+    if args.command in ["pipeline", "batch", "workflow"]:
         config_manager = ConfigManager()
         config = config_manager.load_config()
         prompts_path = config.system_config.prompts_path
@@ -416,6 +437,13 @@ def main():
         database_cmd.handle_clear_cache(args, logger)
     elif args.command == "dnb-import":
         database_cmd.handle_dnb_import(args, logger)
+    elif args.command == "workflow":
+        sys.exit(workflow_cmd.handle_workflow(args, config_manager, llm_service, logger))
+    elif args.command == "workflows":
+        if args.workflows_action == "list":
+            sys.exit(workflow_cmd.handle_workflows_list(args, logger))
+        else:
+            parser.print_help()
     else:
         parser.print_help()
 

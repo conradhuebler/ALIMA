@@ -1,0 +1,29 @@
+name: "GND Batch Metadata"
+version: "4.0"
+description: "Bulk-fetch metadata for a list of GND IDs (local DB + optional Lobid fallback)."
+
+settings:
+  temperature: 0.0
+  max_tokens: 1024
+
+# Input contract: ${extra.gnd_ids} — list of GND identifier strings.
+# Pass via `alima workflow batch_metadata --input '{"gnd_ids": ["4037944-9","4053309-8"]}'`.
+
+steps:
+
+  - id: fetch
+    type: deterministic
+    function: gnd_batch_metadata
+    description: "Batch-fetch from local GND DB with optional Lobid fallback."
+    enabled: true
+
+    inputs:
+      gnd_ids: "${extra.gnd_ids}"
+
+    outputs:
+      extra.metadata: "result.entries"
+      extra.missing_ids: "result.missing"
+      extra.fetch_tool_calls: "result.tool_calls"
+
+    config:
+      lobid_fallback: true

@@ -815,10 +815,9 @@ class PipelineTab(QWidget):
         self.workflow_combo.setEnabled(False)
         self.workflow_combo.setVisible(False)
         self.workflow_combo.setToolTip(
-            "Workflow-Konfiguration für Agent-Modus\n"
-            "default_alima: Standard ALIMA Pipeline\n"
-            "minimal: Reduzierte Pipeline\n"
-            "extended: Erweiterte Pipeline"
+            "Workflow für Agent-Modus (v4 YAMLs aus workflows/)\n"
+            "alima_classic: 4-Step ALIMA-Pipeline (default)\n"
+            "catalog_search / synonym_expansion / batch_metadata: PoC-Workflows"
         )
         self.workflow_combo.setStyleSheet(
             "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; }"
@@ -1803,12 +1802,35 @@ class PipelineTab(QWidget):
             self.logger.debug("Webcam frame visibility updated")
 
     def _populate_workflow_combo(self):
-        """Populate workflow combo with available workflows - Claude Generated"""
+        """Populate workflow combo from discovered v4 YAMLs - Claude Generated.
+
+        Scans ``DEFAULT_SEARCH_PATHS`` for workflow files and lists each by
+        stem (label shows version). The legacy hardcoded v3 names were
+        removed in the Phase 5 cleanup.
+        """
         try:
+            from src.core.agents.workflow_loader import (
+                DEFAULT_SEARCH_PATHS,
+                load_workflow,
+            )
             self.workflow_combo.clear()
-            self.workflow_combo.addItem("default_alima", "default_alima")
-            self.workflow_combo.addItem("minimal", "minimal")
-            self.workflow_combo.addItem("extended", "extended")
+            seen: set = set()
+            for base in DEFAULT_SEARCH_PATHS:
+                if not base.exists() or not base.is_dir():
+                    continue
+                for path in sorted(base.glob("*.yaml")):
+                    key = path.resolve()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    try:
+                        wf = load_workflow(path, strict=False)
+                        label = f"{path.stem} (v{wf.version})"
+                    except Exception:
+                        continue
+                    self.workflow_combo.addItem(label, path.stem)
+            if self.workflow_combo.count() == 0:
+                self.workflow_combo.addItem("alima_classic", "alima_classic")
             self.logger.debug(f"Workflow combo populated with {self.workflow_combo.count()} workflows")
         except Exception as e:
             self.logger.error(f"Error populating workflow combo: {e}")

@@ -2229,6 +2229,19 @@ class PipelineConfigDialog(QDialog):
         )
         global_layout.addWidget(self.agentic_verbose_checkbox)
 
+        # Workflow selector (v4 YAML workflows) - Claude Generated
+        workflow_row = QHBoxLayout()
+        workflow_row.addWidget(QLabel("📋 Workflow:"))
+        self.workflow_combo = QComboBox()
+        self.workflow_combo.setToolTip(
+            "Welches Workflow-YAML der Agentic-Modus lädt.\n"
+            "v4-Workflows (alima_classic, catalog_search, ...) laufen über den\n"
+            "generischen WorkflowExecutor. Andere Werte fallen auf den MetaAgent zurück."
+        )
+        self._populate_workflow_combo()
+        workflow_row.addWidget(self.workflow_combo, 1)
+        global_layout.addLayout(workflow_row)
+
         layout.addWidget(global_group)
 
         # Buttons
@@ -2341,6 +2354,10 @@ class PipelineConfigDialog(QDialog):
                 self.agentic_mode_checkbox.setChecked(config.enable_agentic_mode)
             if hasattr(config, 'agentic_verbose'):
                 self.agentic_verbose_checkbox.setChecked(config.agentic_verbose)
+            if hasattr(config, 'workflow_name') and hasattr(self, 'workflow_combo'):
+                idx = self.workflow_combo.findData(config.workflow_name)
+                if idx >= 0:
+                    self.workflow_combo.setCurrentIndex(idx)
 
         except Exception as e:
             self.logger.error(f"Error loading config: {e}")
@@ -2442,6 +2459,11 @@ class PipelineConfigDialog(QDialog):
                     self.logger.warning(f"Error saving pipeline defaults: {e}")
 
             # Step 5: Create final configuration with converted objects
+            selected_workflow = (
+                self.workflow_combo.currentData()
+                if hasattr(self, 'workflow_combo') else None
+            ) or "alima_classic"
+
             final_config = PipelineConfig(
                 auto_advance=self.auto_advance_checkbox.isChecked(),
                 stop_on_error=self.stop_on_error_checkbox.isChecked(),
@@ -2449,6 +2471,7 @@ class PipelineConfigDialog(QDialog):
                 search_suggesters=search_suggesters,
                 enable_agentic_mode=self.agentic_mode_checkbox.isChecked(),
                 agentic_verbose=self.agentic_verbose_checkbox.isChecked(),
+                workflow_name=selected_workflow,
             )
 
             self.logger.info("Configuration saved using baseline + override pattern")
@@ -2631,6 +2654,45 @@ class PipelineConfigDialog(QDialog):
                 self, "Fehler beim Speichern",
                 f"Fehler beim Speichern der Provider-Einstellungen:\n\n{str(e)}"
             )
+
+    def _populate_workflow_combo(self) -> None:
+        """Populate workflow combo from workflows/ directory - Claude Generated.
+
+        Lists every v4 YAML. Legacy v3 workflows live in ``workflows/legacy/``
+        and are not discovered; the MetaAgent dispatch was removed.
+        """
+        try:
+            from src.core.agents.workflow_loader import (
+                DEFAULT_SEARCH_PATHS,
+                load_workflow,
+            )
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(f"Workflow loader unavailable: {e}")
+            return
+
+        self.workflow_combo.blockSignals(True)
+        self.workflow_combo.clear()
+
+        seen: set = set()
+        for base in DEFAULT_SEARCH_PATHS:
+            if not base.exists() or not base.is_dir():
+                continue
+            for path in sorted(base.glob("*.yaml")):
+                key = path.resolve()
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    wf = load_workflow(path, strict=False)
+                    label = f"{path.stem} (v{wf.version})"
+                except Exception:
+                    continue
+                self.workflow_combo.addItem(label, path.stem)
+
+        if self.workflow_combo.count() == 0:
+            self.workflow_combo.addItem("alima_classic", "alima_classic")
+
+        self.workflow_combo.blockSignals(False)
 
     def _populate_provider_dropdown(self, combo: QComboBox):
         """Populate provider dropdown with available providers - Claude Generated"""

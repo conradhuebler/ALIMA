@@ -1,0 +1,291 @@
+name: "ALIMA Classic Pipeline"
+version: "4.0"
+description: "ALIMA 4-step pipeline (extraction → search → selection → classification) in v4 schema"
+
+settings:
+  temperature: 0.5
+  top_p: 0.9
+  max_tokens: 4096
+
+steps:
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 1: Extraction — free keywords from abstract
+  # ──────────────────────────────────────────────────────────────────
+  - id: extraction
+    type: llm_agent
+    description: "Extract initial German keywords + working title from abstract"
+    enabled: true
+
+    inputs:
+      abstract: "${abstract}"
+      keywords: "${initial_keywords}"
+
+    outputs:
+      extracted_keywords: "response.keywords"
+      working_title: "response.title"
+
+    llm:
+      temperature: 0.5
+      max_tokens: 4096
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du bist **ALIMA Agent**, ein präziser und fachlich versierter Bibliothekar mit
+      Expertise in kontrolliertem Vokabular und bibliothekarischer Erschließung.
+
+      **Deine Aufgaben:**
+      1) Erstelle einen kurzen, prägnanten Arbeitstitel für den Erschließungsworkflow.
+      2) Generiere bis zu 20 passende, vollständig deutsche Schlagworte, die als
+         Suchbegriffe für eine systematische Recherche dienen.
+
+      **Anforderungen an die Schlagworte:**
+      1. **Präzision & Spezifität:** Die Schlagworte können allgemeiner sein.
+      2. **Zerlegung komplexer Begriffe:** z. B. „Dampfschifffahrtskapitän" → „Dampfschifffahrt | Kapitän"
+      3. **Oberbegriffe ergänzen:** z. B. „Template-Effekt" → „Molekularbiologie | Template-Effekt"
+      4. **Keine unnötigen Zusammensetzungen:** z. B. „Thermodynamischer Template-Effekt" → „Thermodynamik | Template-Effekt"
+      5. **GND-Konformität:** orientiere dich an der Gemeinsamen Normdatei.
+
+      **Ausgabe als valides JSON:**
+      ```json
+      {"title": "Autorenname_Thema", "keywords": ["Schlagwort1", "Schlagwort2"]}
+      ```
+      Keine Erläuterungen oder Kommentare außerhalb des JSON.
+
+    user_prompt: |
+      Analysiere den folgenden Abstract und generiere deutsche Schlagworte.
+
+      Eingabetext:
+      {abstract}
+
+      Vorhandene Keywords:
+      {keywords}
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 2: Search — deterministic GND/SWB/Lobid batch search
+  # ──────────────────────────────────────────────────────────────────
+  - id: search
+    type: deterministic
+    function: gnd_batch_search
+    description: "Batch-search SWB + Lobid for GND entries, enrich from local DB"
+    enabled: true
+    depends_on: [extraction]
+
+    inputs:
+      keywords: "${extracted_keywords}"
+
+    outputs:
+      gnd_entries: "result.entries"
+
+    config:
+      sources: [swb, lobid]
+      enrich_from_local_db: true
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 3: Selection — chunked selection of relevant GND keywords
+  # ──────────────────────────────────────────────────────────────────
+  - id: selection_chunks
+    type: llm_agent
+    description: "Chunked relevance filter over GND pool (keywords_chunked task)"
+    enabled: true
+    depends_on: [search]
+
+    inputs:
+      abstract: "${abstract}"
+      gnd_entries: "${gnd_entries}"
+
+    outputs:
+      selected_keywords: "response.keywords"
+
+    llm:
+      temperature: 0.01
+      max_tokens: 4096
+      max_iterations: 1
+
+    tools: []
+
+    chunking:
+      enabled: true
+      chunk_field: gnd_entries
+      chunk_size: 350
+      sort_by: count
+      sort_desc: true
+      merge_key: keywords
+      dedup_field: title
+
+    system_prompt: |
+      **Deine Rolle als Bibliothekar:**
+      Du bist ein **präziser und selektiver GND-Schlagwort-Experte** mit folgenden Kernregeln:
+      1. **Strenge Relevanzprüfung**: Wähle *nur* Schlagworte aus, die **direkt** zum Abstract passen.
+      2. **Ignorieren von Nicht-Relevanten**: Alle Schlagworte ohne Bezug zum Text **ausschließen**.
+      3. **Keine Ergänzungen**: Nutze **nur** die vorgegebenen GND-Schlagworte.
+      4. **Effizienz**: Die Liste wird in mehreren Anfragen abgearbeitet — konzentriere dich auf die aktuelle Teilmenge.
+      5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
+
+    user_prompt: |
+      **Aufgabe**: Filtere aus der Teilliste von GND-Schlagworten nur die relevanten heraus.
+      Ausgabe als JSON: `{"keywords": [{"keyword": "...", "gnd_id": "...", "title": "..."}]}`.
+
+      Chunk {chunk_index}/{chunk_total}:
+
+      Abstract:
+      {abstract}
+
+      GND-Schlagworte (Teilmenge):
+      {gnd_entries}
+
+      **Wichtig**: Nur JSON ausgeben, keine Analyse oder Begründung.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 4: Chain building — Schlagwortketten + missing_concepts
+  # ──────────────────────────────────────────────────────────────────
+  - id: selection
+    type: llm_agent
+    description: "Build Schlagwortketten from selected keywords, detect missing concepts"
+    enabled: true
+    depends_on: [selection_chunks]
+
+    inputs:
+      abstract: "${abstract}"
+      keywords: "${selected_keywords}"
+
+    outputs:
+      keyword_chains: "response.keyword_chains"
+      missing_concepts: "response.missing_concepts"
+
+    llm:
+      temperature: 0.5
+      max_tokens: 2048
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du bist **ALIMA Agent**, ein hochpräziser Wissensassistent mit Fähigkeiten in:
+      1. **Systematischer Analyse**
+      2. **GND-Schlagwortung** (OGND-Standards)
+      3. **Logischer Wissensverknüpfung** (Kettenbildung, Fehlkonzept-Diskussion)
+
+      **Kernregeln:**
+      - **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte.
+      - **Hierarchie beachten**: Kombiniere zu Ketten (z. B. "KI → Machine Learning → Medizin").
+      - **Fehlende Konzepte dokumentieren**: Schlage Oberbegriffe vor.
+      - **JSON-Ausgabe**.
+
+    user_prompt: |
+      **Aufgabe**: Bilde Schlagwortketten aus den ausgewählten GND-Schlagworten und
+      dokumentiere fehlende Konzepte.
+
+      Ausgabe als JSON:
+      ```json
+      {
+        "keyword_chains": [
+          {"chain": ["Schlagwort1", "Schlagwort2"], "reason": "Begründung"}
+        ],
+        "missing_concepts": ["Konzept1", "Konzept2"]
+      }
+      ```
+
+      Abstract:
+      {abstract}
+
+      Ausgewählte Schlagworte:
+      {keywords}
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 5a: DK data collection — deterministic batch tool calls
+  # ──────────────────────────────────────────────────────────────────
+  - id: dk_collect
+    type: deterministic
+    function: dk_data_collect
+    description: "Collect DK/DDC data from cache + catalog + GND entries"
+    enabled: true
+    depends_on: [selection]
+
+    inputs: {}
+
+    outputs:
+      dk_entries: "result.dk_entries"
+      ddc_from_gnd: "result.ddc_from_gnd"
+      dk_prompt_text: "result.formatted_prompt"
+
+    config:
+      max_keywords: 30
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 5b: Classification — single LLM call with pre-loaded DK data
+  # ──────────────────────────────────────────────────────────────────
+  - id: classification
+    type: llm_agent
+    description: "Assign DK/DDC/RVK classifications"
+    enabled: true
+    depends_on: [dk_collect]
+
+    inputs:
+      abstract: "${abstract}"
+      keywords: "${selected_keywords}"
+      dk_context: "${steps.dk_collect.dk_prompt_text}"
+
+    outputs:
+      dk_classifications: "response.classifications"
+      analyse: "response.analyse"
+
+    llm:
+      temperature: 0.5
+      max_tokens: 4096
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      **Deine Rolle als bibliothekarischer Klassifikations-Experte:**
+      Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
+      1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende
+         Klassifikationen zu einer hierarchischen Themenstruktur.
+      2. **Mehrfachklassifikation**: Wähle bis zu 10 passende Klassifikationsnummern (DK/DDC/RVK).
+      3. **Klassifikationsregeln**:
+         - Verwende nur Klassifikationen, die im Bibliotheksbestand vorkommen.
+         - Die Häufigkeiten sind ein guter Indikator für Relevanz.
+      4. **Validierung**: Prüfe Passung, Hierarchie, Redundanz.
+      5. **JSON-Ausgabe**.
+
+    user_prompt: |
+      **Aufgabe**: Weise DK-Klassifikationen zu.
+
+      Abstract:
+      {abstract}
+
+      Ausgewählte Schlagworte:
+      {keywords}
+
+      {dk_context}
+
+      Gib das Ergebnis als valides JSON aus:
+      ```json
+      {
+        "classifications": [
+          {"code": "DK 540", "type": "DK"},
+          {"code": "QP 340", "type": "RVK"}
+        ],
+        "analyse": "Kurze Begründung"
+      }
+      ```
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 5c: Post-process — build dk_search_results for GUI
+  # ──────────────────────────────────────────────────────────────────
+  - id: dk_postprocess
+    type: deterministic
+    function: build_dk_search_results
+    description: "Merge DK cache entries with LLM classifications into GUI format"
+    enabled: true
+    depends_on: [classification]
+
+    inputs:
+      dk_entries: "${steps.dk_collect.dk_entries}"
+      dk_classifications: "${steps.classification.dk_classifications}"
+
+    outputs:
+      dk_search_results: "result.results"

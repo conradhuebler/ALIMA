@@ -1,0 +1,117 @@
+name: "Synonym & GND Expansion"
+version: "4.0"
+description: "Single keyword → GND entry → synonyms + LLM expansion → validated GND candidates."
+
+settings:
+  temperature: 0.3
+  max_tokens: 2048
+
+# Input contract: ${extra.keyword} — a single German keyword / subject term.
+# Pass via `alima workflow synonym_expansion --input '{"keyword": "Nachhaltigkeit"}'`.
+
+steps:
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 1: Local GND lookup for the seed keyword
+  # ──────────────────────────────────────────────────────────────────
+  - id: lookup
+    type: deterministic
+    function: gnd_entry_lookup
+    description: "Search local GND for best matching entry."
+    enabled: true
+
+    inputs:
+      keyword: "${extra.keyword}"
+
+    outputs:
+      extra.seed_gnd_id: "result.gnd_id"
+      extra.seed_entry: "result.entry"
+      extra.seed_alternatives: "result.alternatives"
+
+    config:
+      min_results: 5
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 2: Pure extractor — pull synonyms/DDC from the seed entry
+  # ──────────────────────────────────────────────────────────────────
+  - id: extract_related
+    type: deterministic
+    function: extract_gnd_related
+    description: "Harvest synonyms + DDC codes from the seed GND entry."
+    enabled: true
+    depends_on: [lookup]
+
+    inputs:
+      entry: "${extra.seed_entry}"
+
+    outputs:
+      extra.seed_synonyms: "result.synonyms"
+      extra.seed_ddcs: "result.ddcs"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 3: LLM proposes fachlich verwandte Begriffe
+  # ──────────────────────────────────────────────────────────────────
+  - id: expand
+    type: llm_agent
+    description: "LLM suggests related German subject terms."
+    enabled: true
+    depends_on: [extract_related]
+
+    inputs:
+      keyword: "${extra.keyword}"
+      synonyms: "${extra.seed_synonyms}"
+      seed_title: "${steps.lookup.result.title}"
+      seed_description: "${steps.lookup.result.description}"
+
+    outputs:
+      extra.expansion_candidates: "response.candidates"
+
+    llm:
+      temperature: 0.3
+      max_tokens: 1024
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du bist ein bibliothekarischer Thesaurus-Assistent. Schlage zu einem
+      gegebenen GND-Schlagwort **fachlich verwandte deutsche Begriffe** vor
+      (Ober-/Unterbegriffe, assoziative Nachbarschaft). Nutze bekannte
+      Synonyme als Startpunkt, erfinde keine GND-IDs.
+
+    user_prompt: |
+      **Seed-Keyword:** {keyword}
+      **GND-Titel:** {seed_title}
+      **Beschreibung:** {seed_description}
+      **Vorhandene Synonyme:** {synonyms}
+
+      Gib JSON zurück, genau folgendes Format:
+      ```json
+      {
+        "candidates": [
+          {"term": "...", "relation": "broader|narrower|related|synonym", "reason": "..."}
+        ]
+      }
+      ```
+      Keine Erläuterung außerhalb des JSON.
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 4: Validate candidate terms against local GND via batch search
+  # ──────────────────────────────────────────────────────────────────
+  - id: validate
+    type: deterministic
+    function: gnd_batch_search
+    description: "Batch-resolve candidate terms to GND IDs (local + SWB + Lobid)."
+    enabled: true
+    depends_on: [expand]
+
+    inputs:
+      keywords: "${steps.expand.result.candidates}"
+
+    outputs:
+      extra.validated_entries: "result.entries"
+      extra.validated_tool_calls: "result.tool_calls"
+
+    config:
+      sources: [swb, lobid]
+      enrich_from_local_db: true

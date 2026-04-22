@@ -3,6 +3,7 @@ Pipeline Manager - Orchestrates the complete ALIMA analysis pipeline
 Claude Generated - Extends AlimaManager functionality for UI pipeline workflow
 """
 
+from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable
 import logging
 from dataclasses import dataclass, field
@@ -82,7 +83,7 @@ class PipelineConfig:
     agentic_quality_threshold: float = 0.6
 
     # Workflow configuration: Custom agent workflows - Claude Generated
-    workflow_name: str = "meta_agent_default"  # Workflow to use when enable_agentic_mode=True
+    workflow_name: str = "alima_classic"  # v4 workflow to use when enable_agentic_mode=True
     custom_workflow_path: Optional[str] = None  # Path to custom workflow YAML/JSON file
 
     # Single-step agentic execution - Claude Generated
@@ -587,87 +588,147 @@ class PipelineManager:
 
         return pipeline_id
 
+    def _resolve_workflow_path(self) -> Optional[str]:
+        """Resolve the configured workflow name/custom path to a filesystem path.
+
+        Returns the first existing match from (custom_workflow_path,
+        workflow search paths).  ``None`` if nothing found.
+        """
+        from src.core.agents.workflow_loader import find_workflow_file
+
+        if self.config.custom_workflow_path:
+            p = Path(self.config.custom_workflow_path)
+            if p.exists():
+                return str(p)
+        if self.config.workflow_name:
+            found = find_workflow_file(self.config.workflow_name)
+            if found is not None:
+                return str(found)
+        return None
+
     def _start_agentic_pipeline(self, pipeline_id: str, input_text: str,
                                  input_type: str, input_source: Optional[str]) -> str:
-        """Execute pipeline using MetaAgent orchestration - Claude Generated
+        """Execute pipeline via v4 WorkflowExecutor — Claude Generated.
 
-        The MetaAgent coordinates specialized SubAgents with shared context
-        and tool caching to avoid redundant searches.
+        Resolves the configured workflow YAML and delegates to
+        :meth:`_start_v4_workflow_pipeline`. The legacy v3 MetaAgent dispatch
+        was removed in the Phase 5 cleanup; v3 YAMLs now live under
+        ``workflows/legacy/`` and are no longer discovered.
         """
-        from src.core.agents.meta_agent import MetaAgent, MetaAgentConfig
+        wf_path = self._resolve_workflow_path()
+        if not wf_path:
+            msg = (
+                f"Agentic workflow '{self.config.workflow_name}' not found. "
+                "Use `alima workflows list` to see available v4 workflows."
+            )
+            self.logger.error(msg)
+            if self.stream_callback:
+                self.stream_callback(f"\n❌ {msg}", "error")
+            if self.pipeline_completed_callback:
+                self.pipeline_completed_callback(None)
+            return pipeline_id
 
-        self.logger.info(f"🤖 Starting MetaAgent pipeline {pipeline_id}")
+        return self._start_v4_workflow_pipeline(
+            pipeline_id, input_text, input_type, input_source, wf_path
+        )
 
-        # Determine provider/model from config
+    def _start_v4_workflow_pipeline(
+        self,
+        pipeline_id: str,
+        input_text: str,
+        input_type: str,
+        input_source: Optional[str],
+        workflow_path: str,
+    ) -> str:
+        """Execute a v4 YAML workflow through :class:`WorkflowExecutor` - Claude Generated.
+
+        Populates ``self.current_analysis_state`` by converting the resulting
+        :class:`SharedContext` via ``to_keyword_analysis_state()`` so the rest
+        of the GUI/CLI stack stays untouched.
+        """
+        # Side-effect imports register built-in step types + tool fns.
+        from src.core.agents import deterministic_functions as _fns  # noqa: F401
+        from src.core.agents import steps as _steps  # noqa: F401
+        from src.core.agents.shared_context import SharedContext
+        from src.core.agents.sub_agents import create_caching_registry
+        from src.core.agents.workflow_executor import WorkflowExecutor
+        from src.core.agents.workflow_loader import load_workflow
+
+        self.logger.info(f"🚀 Starting v4 workflow pipeline {pipeline_id}: {workflow_path}")
+
         provider = self.config.global_provider_override or ""
         model = self.config.global_model_override or ""
-
-        # If not set, try to get from first LLM step config
         if not provider or not model:
-            for step_id in ["initialisation", "keywords", "dk_classification"]:
-                step_cfg = self.config.step_configs.get(step_id)
-                if step_cfg:
-                    provider = provider or step_cfg.provider or ""
-                    model = model or step_cfg.model or ""
-                    break
+            for step_id in ("initialisation", "keywords", "dk_classification"):
+                cfg = self.config.step_configs.get(step_id)
+                if cfg:
+                    provider = provider or cfg.provider or ""
+                    model = model or cfg.model or ""
+                    if provider and model:
+                        break
 
         temperature = 0.5
-        for step_id in ["initialisation", "keywords"]:
-            step_cfg = self.config.step_configs.get(step_id)
-            if step_cfg and step_cfg.temperature is not None:
-                temperature = step_cfg.temperature
+        for step_id in ("initialisation", "keywords"):
+            cfg = self.config.step_configs.get(step_id)
+            if cfg and cfg.temperature is not None:
+                temperature = cfg.temperature
                 break
 
-        # Create MetaAgent config
-        meta_config = MetaAgentConfig(
-            provider=provider,
-            model=model,
-            temperature=temperature,
-            max_tokens=4096,
-            max_iterations=self.config.agentic_max_iterations or 20,
-            quality_threshold=self.config.agentic_quality_threshold or 0.6,
-            enable_classification="dk_classification" in self.config.step_configs
-                and self.config.step_configs["dk_classification"].enabled,
-            enable_missing_concept_search=self.config.agentic_missing_concept_search,
-            max_missing_concept_iterations=self.config.agentic_missing_concept_iterations,
-            verbose=self.config.agentic_verbose,
+        if self.config.agentic_input_context_path:
+            ctx = SharedContext.load_from_file(self.config.agentic_input_context_path)
+            self.logger.info(
+                f"Loaded warm-start context from {self.config.agentic_input_context_path}"
+            )
+        else:
+            ctx = SharedContext(
+                abstract=input_text,
+                initial_keywords=[],
+                input_type=input_type,
+                source_value=input_source,
+            )
+        ctx.provider = provider or ctx.provider
+        ctx.model = model or ctx.model
+        ctx.temperature = temperature
+        ctx.verbose = self.config.agentic_verbose
+
+        try:
+            workflow = load_workflow(workflow_path, strict=True)
+        except Exception as e:
+            self.logger.error(f"Failed to load v4 workflow '{workflow_path}': {e}")
+            if self.pipeline_completed_callback:
+                self.pipeline_completed_callback(None)
+            return pipeline_id
+
+        tool_registry = create_caching_registry(config_manager=self.config_manager)
+
+        def _stream(msg: str) -> None:
+            if self.stream_callback:
+                self.stream_callback(msg, "agentic")
+
+        executor = WorkflowExecutor(
+            llm_service=self.alima_manager.llm_service,
+            tool_registry=tool_registry,
+            stream_callback=_stream,
         )
 
         try:
-            # Create MetaAgent
-            meta_agent = MetaAgent(
-                llm_service=self.alima_manager.llm_service,
-                config_manager=self.config_manager,
-                stream_callback=self.stream_callback,
-                context_callback=self.agentic_context_callback,
+            report = executor.run(
+                workflow,
+                ctx,
+                only_step=self.config.agentic_step_id or None,
+                stop_on_error=True,
             )
+            if not report.success:
+                raise RuntimeError(report.error or "v4 workflow failed")
 
-            # Load warm-start context if a path was provided
-            input_context = None
-            if self.config.agentic_input_context_path:
-                from src.core.agents.shared_context import SharedContext
-                input_context = SharedContext.load_from_file(self.config.agentic_input_context_path)
-                self.logger.info(f"Loaded input context from {self.config.agentic_input_context_path}")
-
-            # Execute pipeline (full or single-step)
-            self.current_analysis_state = meta_agent.execute(
-                abstract=input_text,
-                initial_keywords=[],
-                config=meta_config,
-                input_type=input_type,
-                source_value=input_source,
-                step_id=self.config.agentic_step_id or None,
-                input_context=input_context,
-            )
-
-            # Call completion callback
+            self.current_analysis_state = ctx.to_keyword_analysis_state()
             if self.pipeline_completed_callback:
                 self.pipeline_completed_callback(self.current_analysis_state)
 
-        except Exception as e:
-            self.logger.error(f"MetaAgent pipeline failed: {e}")
+        except Exception as e:  # noqa: BLE001
+            self.logger.error(f"v4 workflow pipeline failed: {e}")
             if self.stream_callback:
-                self.stream_callback(f"\n❌ MetaAgent Pipeline Fehler: {e}", "error")
+                self.stream_callback(f"\n❌ Workflow Fehler: {e}", "error")
             if self.pipeline_completed_callback:
                 self.pipeline_completed_callback(None)
 
@@ -676,7 +737,7 @@ class PipelineManager:
     def start_pipeline_with_file(self, input_source: str, input_type: str = "auto") -> str:
         """Start pipeline with file input (PDF, Image) - Claude Generated"""
         pipeline_id = str(uuid.uuid4())
-        
+
         try:
             self.logger.info(f"Starting file-based pipeline: {input_source} (type: {input_type})")
             
