@@ -207,9 +207,9 @@ steps:
     inputs: {}
 
     outputs:
-      dk_entries: "result.dk_entries"
-      ddc_from_gnd: "result.ddc_from_gnd"
-      dk_prompt_text: "result.formatted_prompt"
+      extra.dk_entries: "result.dk_entries"
+      extra.ddc_from_gnd: "result.ddc_from_gnd"
+      extra.dk_prompt_text: "result.formatted_prompt"
 
     config:
       max_keywords: 30
@@ -226,7 +226,7 @@ steps:
     inputs:
       abstract: "${abstract}"
       keywords: "${selected_keywords}"
-      dk_context: "${steps.dk_collect.dk_prompt_text}"
+      dk_context: "${extra.dk_prompt_text}"
 
     outputs:
       dk_classifications: "response.classifications"
@@ -284,7 +284,7 @@ steps:
     depends_on: [classification]
 
     inputs:
-      dk_entries: "${steps.dk_collect.dk_entries}"
+      dk_entries: "${extra.dk_entries}"
       dk_classifications: "${steps.classification.dk_classifications}"
 
     outputs:
