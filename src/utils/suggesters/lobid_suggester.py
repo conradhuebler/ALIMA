@@ -165,24 +165,30 @@ class LobidSuggester(BaseSuggester):
 
         return subjects
 
-    def _get_search_url(self, query: str) -> str:
+    def _get_search_url(self, query: str, search_type: str = "kw") -> str:
         """
         Get the URL for the lobid.org API search.
 
         Args:
             query: URL-encoded search term
+            search_type: "kw" (default, any-field), "title" (titleAll:), "freetext" (any)
 
         Returns:
             Complete search URL
         """
-        return f"https://lobid.org/resources/search?q={query}&format=json&aggregations=subject.componentList.id"
+        if search_type == "title":
+            q = f"title:{query}"
+        else:
+            q = query
+        return f"https://lobid.org/resources/search?q={q}&format=json&aggregations=subject.componentList.id"
 
-    def _get_results(self, searches: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def _get_results(self, searches: List[str], search_type: str = "kw") -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Get search results from lobid.org.
 
         Args:
             searches: List of search terms
+            search_type: Query mode — see :meth:`_get_search_url`.
 
         Returns:
             Dictionary with structure:
@@ -199,7 +205,7 @@ class LobidSuggester(BaseSuggester):
 
         for search in searches:
             query = urllib.parse.quote(search)
-            url = self._get_search_url(query)
+            url = self._get_search_url(query, search_type=search_type)
 
             try:
                 with urllib.request.urlopen(url) as response:
@@ -264,12 +270,13 @@ class LobidSuggester(BaseSuggester):
 
         self.gnd_subjects = self._get_gnd_subjects()
 
-    def search(self, searches: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def search(self, searches: List[str], search_type: str = "kw") -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Search for subjects related to the given search terms.
 
         Args:
             searches: List of search terms
+            search_type: "kw" (default), "title", or "freetext"
 
         Returns:
             Dictionary with structure:
@@ -284,4 +291,4 @@ class LobidSuggester(BaseSuggester):
                 }
             }
         """
-        return self._get_results(searches)
+        return self._get_results(searches, search_type=search_type)

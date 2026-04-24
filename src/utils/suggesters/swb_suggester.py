@@ -430,7 +430,7 @@ class SWBSuggester(BaseSuggester):
             return f"{base_domain}{base_path}/{url}"
 
     def extract_gnd_from_swb(
-        self, search_term: str, max_pages: int = 5
+        self, search_term: str, max_pages: int = 5, search_type: str = "kw"
     ) -> Dict[str, Dict[str, Any]]:
         """
         Extract subject GND IDs from SWB for the given search term,
@@ -439,15 +439,22 @@ class SWBSuggester(BaseSuggester):
         Args:
             search_term: Term to search for
             max_pages: Maximum number of result pages to scan
+            search_type: "kw" (default, IKT 2074 subject), "title" (IKT 2058 title),
+                "freetext" (IKT 2072 anyword)
 
         Returns:
             Dictionary mapping subject names to their metadata
         """
-        # Check cache first
-        if search_term in self.cache:
+        # Cache key includes search_type so title/kw results don't collide
+        cache_key = f"{search_type}:{search_term}" if search_type != "kw" else search_term
+        if cache_key in self.cache:
             if self.debug:
-                print(f"Using cached results for '{search_term}'")
-            return self.cache[search_term]
+                print(f"Using cached results for '{cache_key}'")
+            return self.cache[cache_key]
+
+        # IKT codes: 2074=Sachbegriff (GND subject), 2058=Titel, 2072=Allgemeinstichwort
+        ikt_map = {"kw": "2074", "title": "2058", "freetext": "2072"}
+        ikt = ikt_map.get(search_type, "2074")
 
         # Correct URL for the subject search
         base_url = "https://swb.bsz-bw.de/DB=2.104/SET=20/TTL=1/CMD"
@@ -457,7 +464,7 @@ class SWBSuggester(BaseSuggester):
             "RETRACE": "0",
             "TRM_OLD": "",
             "ACT": "SRCHA",
-            "IKT": "2074",  # 2074 for subjects instead of 2072
+            "IKT": ikt,
             "SRT": "RLV",
             "TRM": search_term,
             "MATCFILTER": "N",
@@ -537,8 +544,8 @@ class SWBSuggester(BaseSuggester):
                 "dk": set(),  # Empty set for DK
             }
 
-        # Cache results
-        self.cache[search_term] = results
+        # Cache results under the search_type-aware key
+        self.cache[cache_key] = results
         self._save_cache()
 
         return results
@@ -554,7 +561,7 @@ class SWBSuggester(BaseSuggester):
         pass
 
     def search(
-        self, searches: List[str], max_pages: int = 5
+        self, searches: List[str], max_pages: int = 5, search_type: str = "kw"
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Search for subjects related to the given search terms.
@@ -562,6 +569,7 @@ class SWBSuggester(BaseSuggester):
         Args:
             searches: List of search terms
             max_pages: Maximum number of result pages to scan per search term
+            search_type: "kw" (default), "title", or "freetext"
 
         Returns:
             Dictionary with structure:
@@ -579,7 +587,9 @@ class SWBSuggester(BaseSuggester):
         results = {}
 
         for search_term in searches:
-            results[search_term] = self.extract_gnd_from_swb(search_term, max_pages)
+            results[search_term] = self.extract_gnd_from_swb(
+                search_term, max_pages, search_type=search_type
+            )
 
             # Signal that we've processed this term
             self.currentTerm.emit(search_term)

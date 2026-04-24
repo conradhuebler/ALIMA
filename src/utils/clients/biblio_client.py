@@ -1383,14 +1383,21 @@ class BiblioClient:
 
         return processed_items
 
-    def search_subjects(self, search_terms: List[str], max_results: int = DEFAULT_DK_MAX_RESULTS) -> Dict[str, Dict[str, Any]]:
+    def search_subjects(
+        self,
+        search_terms: List[str],
+        max_results: int = DEFAULT_DK_MAX_RESULTS,
+        search_type: str = "kw",
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Claude Generated - Search catalog for subjects and return in suggester format.
-        
+
         Args:
             search_terms: List of search terms to look for
             max_results: Maximum results to process per term
-            
+            search_type: "kw" (default, Libero 'ku' anyword), "title" (Libero 'k'),
+                "freetext" (Libero 'ku')
+
         Returns:
             Dictionary with structure:
             {
@@ -1404,13 +1411,16 @@ class BiblioClient:
                 }
             }
         """
+        libero_map = {"kw": "ku", "title": "k", "freetext": "ku"}
+        libero_use = libero_map.get(search_type, "ku")
+
         results = {}
-        
+
         for search_term in search_terms:
-            logger.debug(f"Searching catalog subjects for: {search_term}")
+            logger.debug(f"Searching catalog subjects for: {search_term} (use={libero_use})")
 
             # Search catalog for this term
-            search_results = self.search(search_term)
+            search_results = self.search(search_term, search_type=libero_use)
 
             # Web fallback for search_subjects if SOAP fails - Claude Generated
             if not search_results and self.enable_web_fallback:
@@ -1483,6 +1493,80 @@ class BiblioClient:
             
             results[search_term] = term_subjects
             logger.debug(f"Found {len(term_subjects)} subjects for '{search_term}'")
+
+        return results
+
+    def search_titles(
+        self,
+        search_terms: List[str],
+        max_results: int = 25,
+        search_type: str = "title",
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Search catalog and return bibliographic records per query.
+
+        Unlike search_subjects (which aggregates Schlagwörter from the hits),
+        this method returns the actual book records — intended for the
+        title_list_search workflow where the LLM extracts titles from
+        free-form text and the catalog is queried in title mode.
+
+        Args:
+            search_terms: List of query strings (typically book titles).
+            max_results: Maximum records to process per query.
+            search_type: "title" (Libero 'k', default), "kw" ('ku' anyword),
+                "freetext" ('ku'), or any raw Libero use-code (e.g. 'kb'
+                author, 'ke' combined author, 'sk' subjects, 'i' ISBN).
+
+        Returns:
+            Mapping ``{search_term: [record, ...]}``. Each record contains
+            rsn, title, authors, year, dk_codes, rvk_codes, ddc_codes,
+            subjects, mab_subjects.
+        """
+        libero_map = {"kw": "ku", "title": "k", "freetext": "ku"}
+        libero_use = libero_map.get(search_type, search_type)
+
+        results: Dict[str, List[Dict[str, Any]]] = {}
+
+        for term in search_terms:
+            logger.debug(f"search_titles: '{term}' (use={libero_use})")
+            hits = self.search(term, search_type=libero_use)
+
+            if not hits and self.enable_web_fallback:
+                logger.debug(f"SOAP empty for '{term}', trying web fallback")
+                hits = self._search_web(term)
+
+            if not hits:
+                results[term] = []
+                continue
+
+            if len(hits) > max_results * 2:
+                hits = hits[: max_results * 2]
+
+            processed = self.process_search_results(hits, max_items=max_results)
+
+            records = []
+            for item in processed:
+                rsn = item.get("rsn")
+                title = item.get("title", "").strip()
+                if not title:
+                    continue
+                dk_codes = list(item.get("decimal_classifications") or [])
+                rvk_codes = list(item.get("rvk_classifications") or [])
+                records.append({
+                    "rsn": rsn,
+                    "title": title,
+                    "authors": item.get("author", []) or item.get("authors", []),
+                    "isbn": item.get("isbn", ""),
+                    "publication": item.get("publication", ""),
+                    "year": item.get("year", "") or item.get("publication_year", ""),
+                    "dk_codes": dk_codes,
+                    "rvk_codes": rvk_codes,
+                    "ddc_codes": list(item.get("ddc_codes") or []),
+                    "subjects": list(item.get("subjects") or []),
+                    "mab_subjects": list(item.get("mab_subjects") or []),
+                })
+
+            results[term] = records
+            logger.debug(f"search_titles '{term}': {len(records)} records")
 
         return results
 

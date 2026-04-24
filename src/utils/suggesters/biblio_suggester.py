@@ -74,13 +74,15 @@ class BiblioSuggester(BaseSuggester):
         # BiblioExtractor doesn't need preparation
         pass
     
-    def search(self, searches: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def search(self, searches: List[str], search_type: str = "kw") -> Dict[str, Dict[str, Dict[str, Any]]]:
         """
         Search for subjects related to the given search terms.
-        
+
         Args:
             searches: List of search terms
-            
+            search_type: "kw" (default, Libero 'ku' anyword), "title" (Libero 'k'),
+                "freetext" (Libero 'ku')
+
         Returns:
             Dictionary with structure:
             {
@@ -96,7 +98,7 @@ class BiblioSuggester(BaseSuggester):
         """
         try:
             # Use BiblioExtractor's search_subjects method
-            results = self.extractor.search_subjects(searches)
+            results = self.extractor.search_subjects(searches, search_type=search_type)
             #self.logger.info(f"Search completed for terms: {searches}")
             #self.logger.info(f"Search results: {results}")
                     # Log keys of all entries
@@ -116,6 +118,28 @@ class BiblioSuggester(BaseSuggester):
             self.logger.error(error_msg)
             raise BiblioSuggesterError(error_msg) from e
     
+    def search_titles(
+        self,
+        search_terms: List[str],
+        search_type: str = "title",
+        max_results: int = 25,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Return bibliographic records per query via catalog title search.
+
+        Thin passthrough to ``BiblioClient.search_titles``. Unlike
+        :meth:`search`, results are book records (not aggregated subjects).
+        """
+        try:
+            return self.extractor.search_titles(
+                search_terms,
+                max_results=max_results,
+                search_type=search_type,
+            )
+        except Exception as e:
+            error_msg = f"BiblioSuggester search_titles failed: {str(e)}"
+            self.logger.error(error_msg)
+            raise BiblioSuggesterError(error_msg) from e
+
     def extract_dk_classifications(self, keywords: List[str]) -> List[Dict[str, Any]]:
         """
         Claude Generated - Extract DK classifications for given keywords.

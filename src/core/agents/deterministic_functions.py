@@ -318,6 +318,7 @@ def catalog_multi_search(
     stream_callback: Optional[Callable[[str], None]] = None,
     sources: Optional[List[str]] = None,
     enrich_from_local_db: bool = True,
+    search_type: str = "kw",
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Multi-source free-text catalog search (SWB + Lobid + catalog).
@@ -325,6 +326,10 @@ def catalog_multi_search(
     Unlike ``gnd_batch_search`` (which targets keyword lookups for the
     pipeline), this fn also hits the catalog SOAP/SRU and returns a
     result-oriented structure suitable for end-user display.
+
+    Args:
+        search_type: ``"kw"`` (default, subject/keyword), ``"title"`` (title-only
+            lookup across all backends), ``"freetext"`` (anyword).
 
     Returns:
         ``{"hits": [...], "queries": [...], "tool_calls": N}``.
@@ -337,6 +342,7 @@ def catalog_multi_search(
     if config:
         sources = sources or config.get("sources")
         enrich_from_local_db = config.get("enrich_from_local_db", enrich_from_local_db)
+        search_type = config.get("search_type", search_type)
 
     sources = sources or ["swb", "lobid", "catalog"]
     src_tools = {"swb": "search_swb", "lobid": "search_lobid", "catalog": "search_catalog"}
@@ -347,7 +353,8 @@ def catalog_multi_search(
 
     if stream_callback:
         stream_callback(
-            f"\n🔎 catalog_multi_search: {len(queries)} queries × {len(sources)} sources\n"
+            f"\n🔎 catalog_multi_search: {len(queries)} queries × "
+            f"{len(sources)} sources (search_type={search_type})\n"
         )
 
     pool: Dict[str, Dict[str, Any]] = {}
@@ -360,7 +367,9 @@ def catalog_multi_search(
             logger.warning(f"catalog_multi_search: unknown source '{src}'")
             continue
         try:
-            raw = tool_registry.execute(tool, {"terms": queries})
+            raw = tool_registry.execute(
+                tool, {"terms": queries, "search_type": search_type}
+            )
             tool_calls += 1
             data = _parse_batch_response(raw)
             for key, entry in data.items():
@@ -403,6 +412,100 @@ def catalog_multi_search(
 
     if stream_callback:
         stream_callback(f"✅ {len(hits)} unique hits, {tool_calls} tool calls\n")
+
+    return {"hits": hits, "queries": queries, "tool_calls": tool_calls}
+
+
+# ============================================================
+# catalog_title_search — Title-only bibliographic lookup
+# ============================================================
+
+@register_tool_fn("catalog_title_search")
+def catalog_title_search(
+    queries: List[str],
+    *,
+    tool_registry: Any = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    search_type: str = "title",
+    max_results: int = 25,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Bibliographic-only catalog search (no GND/SWB/Lobid enrichment).
+
+    Takes a list of queries (typically book titles extracted by an LLM)
+    and returns raw catalog hits per query. Intended for the
+    ``title_list_search`` workflow. GND enrichment, if desired, must be
+    requested separately via ``gnd_batch_search`` in a follow-up step.
+
+    Args:
+        queries: List of query strings.
+        search_type: Libero use-code or alias (see
+            :meth:`BiblioClient.search_titles`). Default ``"title"``.
+        max_results: Maximum records per query.
+
+    Returns:
+        ``{"hits": [...], "queries": [...], "tool_calls": N}``.
+        Each hit: ``{query, rsn, title, authors, year, dk_codes,
+        rvk_codes, ddc_codes, subjects, mab_subjects}``.
+    """
+    if tool_registry is None:
+        raise RuntimeError("catalog_title_search requires tool_registry")
+
+    if config:
+        search_type = config.get("search_type", search_type)
+        max_results = config.get("max_results", max_results)
+
+    # Accept both ["title1","title2"] and [{"title":"...","authors":[...],"isbn":"..."}, ...].
+    # For title-mode search, the "title" field drives the query.
+    def _coerce(q: Any) -> Optional[str]:
+        if isinstance(q, str):
+            return q or None
+        if isinstance(q, dict):
+            for field in ("title", "term", "keyword", "label"):
+                v = q.get(field)
+                if isinstance(v, str) and v:
+                    return v
+        return None
+
+    queries = list(dict.fromkeys(c for c in (_coerce(q) for q in (queries or [])) if c))
+    if not queries:
+        return {"hits": [], "queries": [], "tool_calls": 0}
+
+    if stream_callback:
+        stream_callback(
+            f"\n🔎 catalog_title_search: {len(queries)} queries "
+            f"(search_type={search_type}, max={max_results})\n"
+        )
+
+    hits: List[Dict[str, Any]] = []
+    tool_calls = 0
+
+    try:
+        raw = tool_registry.execute(
+            "search_catalog_titles",
+            {
+                "terms": queries,
+                "search_type": search_type,
+                "max_results": max_results,
+            },
+        )
+        tool_calls += 1
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        if "error" in data:
+            logger.warning(f"catalog_title_search: {data['error']}")
+            return {"hits": [], "queries": queries, "tool_calls": tool_calls}
+
+        per_query = data.get("results", {}) or {}
+        for query, records in per_query.items():
+            if stream_callback:
+                stream_callback(f"  📚 '{query}': {len(records)} hits\n")
+            for rec in records:
+                hits.append({"query": query, **rec})
+    except Exception as e:
+        logger.warning(f"catalog_title_search: search_catalog_titles failed: {e}")
+
+    if stream_callback:
+        stream_callback(f"✅ {len(hits)} total records, {tool_calls} tool calls\n")
 
     return {"hits": hits, "queries": queries, "tool_calls": tool_calls}
 

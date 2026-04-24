@@ -898,6 +898,17 @@ class UnifiedInputWidget(QWidget):
 
         layout.addWidget(self.text_display)
 
+        # Workflow-specific hint under the text field; empty by default.
+        # Pipeline tab calls set_hint() when the selected workflow expects a
+        # particular input shape (e.g. title list).
+        self.workflow_hint_label = QLabel("")
+        self.workflow_hint_label.setWordWrap(True)
+        self.workflow_hint_label.setStyleSheet(
+            "color: #6272a4; font-style: italic; padding: 2px 6px;"
+        )
+        self.workflow_hint_label.setVisible(False)
+        layout.addWidget(self.workflow_hint_label)
+
         # Action buttons for text
         text_actions = QHBoxLayout()
 
@@ -1044,6 +1055,20 @@ class UnifiedInputWidget(QWidget):
 
             if file_path:
                 self.process_file(file_path)
+
+    def set_hint(self, text: str) -> None:
+        """Show/hide a workflow-specific hint under the text field.
+
+        Call with an empty string to hide the hint.
+        """
+        if not hasattr(self, "workflow_hint_label"):
+            return
+        if text:
+            self.workflow_hint_label.setText(text)
+            self.workflow_hint_label.setVisible(True)
+        else:
+            self.workflow_hint_label.clear()
+            self.workflow_hint_label.setVisible(False)
 
     def _on_append_mode_changed(self, state):
         """Handle append mode checkbox state change - Claude Generated (Multi-Image OCR feature)"""

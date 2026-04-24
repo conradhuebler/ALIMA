@@ -1,0 +1,200 @@
+name: "Title List Catalog Search"
+version: "4.3"
+description: "LLM extracts rich bibliographic records (title, authors, ISBN, publisher, year) from free text, catalog queried by title, LLM performs metadata-aware duplicate analysis."
+
+settings:
+  temperature: 0.1
+  max_tokens: 2048
+
+# Input contract: free-form text via ${abstract}. LLM extracts titles *with*
+# available metadata (authors, ISBN, publisher, year); catalog is queried in
+# title-mode (Libero 'k'); a second LLM pass compares wishlist metadata
+# against catalog hits to find duplicates — including cases where the
+# publisher re-released a book under a new ISBN.
+#
+# Use via GUI (workflow dropdown) or CLI:
+#   alima workflow title_list_search --input '{"abstract": "1. Mikroplastik ...\n2. Cadmium ..."}'
+
+steps:
+
+  - id: extract_titles
+    type: llm_agent
+    description: "Titel + Metadaten (Autor, ISBN, Verlag, Jahr) aus Freitext extrahieren."
+    enabled: true
+
+    inputs:
+      raw_text: "${abstract}"
+
+    outputs:
+      extra.titles: "response.titles"
+
+    llm:
+      temperature: 0.1
+      max_tokens: 2048
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du bist Bibliothekar. Extrahiere aus beliebigem Eingabetext alle
+      Werktitel (Bücher, Artikel, Sammelbände, Monographien) – jeweils mit
+      allen Metadaten, die im Text erkennbar sind: Autor(en), ISBN, Verlag,
+      Erscheinungsjahr. Fehlende Felder als leerer String oder leeres Array
+      ausgeben; NICHT raten.
+
+      Ignoriere Zeitschriftennamen, URLs, Seitenzahlen, DOIs und Kommentare.
+      Bei Unsicherheit über einen Titel lieber weglassen als halluzinieren.
+      Antworte ausschließlich mit gültigem JSON (kein Markdown-Wrapper).
+
+    user_prompt: |
+      **Eingabe:**
+      {raw_text}
+
+      Gib reines JSON zurück in genau dieser Struktur:
+      ```json
+      {
+        "titles": [
+          {
+            "title": "Haupttitel ggf. mit Untertitel",
+            "authors": ["Nachname, Vorname", "..."],
+            "isbn": "978-...",
+            "publisher": "",
+            "year": ""
+          }
+        ]
+      }
+      ```
+
+  - id: search
+    type: deterministic
+    function: catalog_title_search
+    description: "Titel-Suche im Bibliothekskatalog (Libero use='k'). Reine Buchdatensätze."
+    enabled: true
+    depends_on: [extract_titles]
+
+    inputs:
+      queries: "${extra.titles}"
+
+    outputs:
+      extra.catalog_hits: "result.hits"
+      extra.catalog_tool_calls: "result.tool_calls"
+
+    config:
+      search_type: title
+      max_results: 25
+
+  - id: analyze_duplicates
+    type: llm_agent
+    description: "Duplikatanalyse: Wunschliste-Metadaten vs. Katalog-Treffer (titelbasiert, ISBN-unabhängig)."
+    enabled: true
+    depends_on: [search]
+
+    inputs:
+      wishlist: "${extra.titles}"
+      catalog_hits: "${extra.catalog_hits}"
+
+    outputs:
+      extra.duplicate_analysis: "response.analysis"
+      extra.duplicate_summary: "response.summary"
+
+    llm:
+      temperature: 0.1
+      max_tokens: 4096
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du bist Erwerbungsbibliothekar. Deine Aufgabe: prüfe für jeden Titel
+      der Wunschliste, wie er sich zum Bestand verhält. Unterscheide
+      klar zwischen echten Duplikaten (identische Auflage) und Neuauflagen
+      (neue Auflage desselben Werks) – Neuauflagen sind KEINE Duplikate,
+      sondern eigenständige Erwerbungen.
+
+      Zu jedem Wunschlisten-Titel liegen Metadaten vor (Autor, ISBN, Verlag,
+      Jahr, soweit aus dem Quelltext erkennbar). Zu jedem Katalog-Treffer
+      liegen RSN, Titel, Autoren, ISBN, Publikationsangabe, Jahr,
+      Klassifikationen vor. Die Katalog-Treffer sind über das Feld `query`
+      dem auslösenden Wunschlisten-Titel zugeordnet.
+
+      Bewertung pro Wunschlisten-Eintrag:
+      1. Filtere Katalog-Treffer mit passendem `query`.
+      2. Vergleiche Titel + Autor zuerst; gleicher Werktitel = gleiches Werk.
+      3. Prüfe DANACH, ob es sich um dieselbe Auflage oder eine neue Auflage
+         handelt: Jahr und Auflagenangabe (Publikation, Untertitel, "2. Aufl.",
+         "überarbeitete Auflage") sind entscheidend.
+      4. Status vergeben:
+         - "duplicate"         IDENTISCHE Auflage bereits im Bestand:
+                               gleicher Titel, gleicher Autor, gleiches Jahr
+                               ODER unveränderter Nachdruck. Nur hier.
+         - "different_edition" Werk im Bestand, aber die Wunschliste zielt auf
+                               eine ANDERE (i.d.R. neuere) Auflage –
+                               abweichendes Jahr, abweichende Auflagenzahl,
+                               "Neuauflage", "überarbeitete Auflage".
+                               Neuerwerbung in der Regel sinnvoll.
+         - "likely_duplicate"  Titel+Autor stimmen, Auflagensituation unklar
+                               (z.B. Jahresangabe fehlt). Nur bei echter
+                               Unsicherheit nutzen; im Zweifel
+                               "different_edition".
+         - "new"               Treffer sind inhaltlich andere Werke
+                               (gleicher oder ähnlicher Titel, aber anderer
+                               Autor/Kontext).
+         - "no_match"          Keine passenden Katalog-Treffer vorhanden.
+
+      Faustregeln:
+      * Mehrere Auflagen im Bestand + Wunsch nach neuer Auflage ⇒
+        "different_edition", NICHT "duplicate".
+      * Abweichendes Erscheinungsjahr (> ~1 Jahr) bei gleichem Titel+Autor
+        ⇒ starkes Indiz für "different_edition".
+      * ISBN-Identität ist hinreichender Duplikat-Beweis, ISBN-Unterschied
+        allein widerlegt aber kein Duplikat.
+      * Wunschliste enthält Jahr in der Zukunft oder nach neuestem Bestand
+        ⇒ in der Regel "different_edition" (angekündigte Neuauflage).
+
+      Beispiel (entscheidend):
+        Bestand: Thiel, "Einführung X", 2016 / 2019 / 2023
+        Wunsch:  Thiel, "Einführung X", 2026
+        ⇒ status = "different_edition"
+           reasoning = "Werk bereits in 3 Auflagen im Bestand; 2026 ist
+           angekündigte Neuauflage und damit eigenständige Erwerbung."
+
+      Antworte ausschließlich mit gültigem JSON (kein Markdown, keine
+      Erklärung außerhalb des JSON).
+
+    user_prompt: |
+      **Wunschliste (aus Quelltext extrahiert, mit Metadaten):**
+      {wishlist}
+
+      **Katalog-Treffer (aus Libero, `query` verweist auf Wunschlisten-Titel):**
+      {catalog_hits}
+
+      Gib reines JSON zurück in genau dieser Struktur:
+      ```json
+      {
+        "analysis": [
+          {
+            "input_title": "Titel aus der Wunschliste",
+            "input_metadata": {
+              "authors": [],
+              "isbn": "",
+              "publisher": "",
+              "year": ""
+            },
+            "status": "duplicate|likely_duplicate|different_edition|new|no_match",
+            "matches": [
+              {
+                "rsn": "",
+                "title": "",
+                "authors": [],
+                "isbn": "",
+                "publication": "",
+                "year": "",
+                "match_reason": "Kurze Begründung (Titel+Autor identisch, abweichende ISBN)"
+              }
+            ],
+            "reasoning": "Gesamtbegründung, warum dieser Status vergeben wurde."
+          }
+        ],
+        "summary": "N Duplikate, M wahrscheinlich doppelt, K neue Auflage, L neu, P nicht gefunden."
+      }
+      ```

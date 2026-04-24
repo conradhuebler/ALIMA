@@ -141,6 +141,12 @@ SEARCH_LOBID = ToolDefinition(
                 "items": {"type": "string"},
                 "description": "List of search terms",
             },
+            "search_type": {
+                "type": "string",
+                "enum": ["kw", "title", "freetext"],
+                "default": "kw",
+                "description": "Query mode: kw=subject/keyword, title=title-only, freetext=any field",
+            },
         },
         "required": ["terms"],
     },
@@ -158,6 +164,12 @@ SEARCH_SWB = ToolDefinition(
                 "description": "List of search terms",
             },
             "max_pages": {"type": "integer", "description": "Max result pages per term", "default": 5},
+            "search_type": {
+                "type": "string",
+                "enum": ["kw", "title", "freetext"],
+                "default": "kw",
+                "description": "Query mode: kw=subject (IKT 2074), title=title (IKT 2058), freetext=anyword",
+            },
         },
         "required": ["terms"],
     },
@@ -173,6 +185,47 @@ SEARCH_CATALOG = ToolDefinition(
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "List of search terms",
+            },
+            "search_type": {
+                "type": "string",
+                "enum": ["kw", "title", "freetext"],
+                "default": "kw",
+                "description": "Query mode: kw=anyword (Libero 'ku'), title=title (Libero 'k'), freetext=anyword",
+            },
+        },
+        "required": ["terms"],
+    },
+)
+
+SEARCH_CATALOG_TITLES = ToolDefinition(
+    name="search_catalog_titles",
+    description=(
+        "Search bibliographic catalog for book records by title. "
+        "Returns per-query lists of records (rsn, title, authors, year, "
+        "dk_codes, rvk_codes, subjects). No GND/SWB/Lobid enrichment — "
+        "pure catalog hits intended for title-list workflows."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of title queries",
+            },
+            "search_type": {
+                "type": "string",
+                "default": "title",
+                "description": (
+                    "Libero use-code or alias: 'title' (ti, default), "
+                    "'kw'/'freetext' (ku), or raw codes like 'kb' (author), "
+                    "'ke' (combined author), 'sk' (subjects), 'i' (ISBN)."
+                ),
+            },
+            "max_results": {
+                "type": "integer",
+                "default": 25,
+                "description": "Maximum records per query",
             },
         },
         "required": ["terms"],
@@ -256,7 +309,7 @@ KNOWLEDGE_TOOLS = [
 ]
 
 LIBRARY_TOOLS = [
-    SEARCH_LOBID, SEARCH_SWB, SEARCH_CATALOG, RESOLVE_DOI,
+    SEARCH_LOBID, SEARCH_SWB, SEARCH_CATALOG, SEARCH_CATALOG_TITLES, RESOLVE_DOI,
 ]
 
 PIPELINE_RESULT_TOOLS = [

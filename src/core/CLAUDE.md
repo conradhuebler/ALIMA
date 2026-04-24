@@ -70,7 +70,7 @@ Replaces the former MetaAgent + 4 SubAgents dispatch (removed April 2026).
   - `WorkflowLoader` parses YAML into `WorkflowDef`/`StepConfig`
   - `WorkflowExecutor` runs steps sequentially against a `SharedContext`
   - `LLMAgentStep` + `DeterministicStep` (registered via `@register_step` in `registry.py`)
-  - `deterministic_functions.py`: `gnd_batch_search`, `dk_classification_twophase`, `catalog_multi_search`, `gnd_entry_lookup`, `extract_gnd_related`, `gnd_batch_metadata`
+  - `deterministic_functions.py`: `gnd_batch_search`, `dk_classification_twophase`, `catalog_multi_search`, `catalog_title_search`, `gnd_entry_lookup`, `extract_gnd_related`, `gnd_batch_metadata`
 - **Workflows** (`workflows/`): `alima_classic`, `catalog_search`, `synonym_expansion`, `batch_metadata` (all v4)
 - **Tool caching**: `CachingToolRegistry` (in `sub_agents/` dir, kept) deduplicates tool calls
 - **MCP Tool Layer**: `src/mcp/` — 16 tools unchanged

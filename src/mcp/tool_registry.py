@@ -84,7 +84,36 @@ class ToolRegistry:
             logger.warning(f"SWBSuggester init failed: {e}")
         try:
             from src.utils.suggesters.biblio_suggester import BiblioSuggester
-            self._biblio = BiblioSuggester()
+            cat_cfg = None
+            if self._config_manager is not None:
+                try:
+                    cat_cfg = self._config_manager.get_catalog_config()
+                except Exception as e:
+                    logger.debug(f"catalog_config unavailable: {e}")
+            if cat_cfg is None:
+                try:
+                    from src.utils.config_manager import ConfigManager
+                    cat_cfg = ConfigManager().get_catalog_config()
+                except Exception as e:
+                    logger.debug(f"ConfigManager fallback failed: {e}")
+            if cat_cfg is not None:
+                self._biblio = BiblioSuggester(
+                    token=getattr(cat_cfg, "catalog_token", "") or "",
+                    catalog_search_url=getattr(cat_cfg, "catalog_search_url", "") or "",
+                    catalog_details=getattr(cat_cfg, "catalog_details_url", "") or "",
+                )
+                try:
+                    web_search = getattr(cat_cfg, "catalog_web_search_url", "") or ""
+                    web_record = getattr(cat_cfg, "catalog_web_record_url", "") or ""
+                    if web_search:
+                        self._biblio.extractor.WEB_SEARCH_URL = web_search
+                        self._biblio.extractor.enable_web_fallback = True
+                    if web_record:
+                        self._biblio.extractor.WEB_RECORD_BASE_URL = web_record
+                except Exception as e:
+                    logger.debug(f"web fallback URL wiring failed: {e}")
+            else:
+                self._biblio = BiblioSuggester()
         except Exception as e:
             logger.warning(f"BiblioSuggester init failed: {e}")
         self._suggesters_initialized = True
@@ -197,11 +226,11 @@ class ToolRegistry:
     # Library Tool Handlers
     # ============================================================
 
-    def _handle_search_lobid(self, terms: List[str]) -> str:
+    def _handle_search_lobid(self, terms: List[str], search_type: str = "kw") -> str:
         self._init_suggesters()
         if self._lobid is None:
             return json.dumps({"error": "LobidSuggester not available"})
-        results = self._lobid.search(terms)
+        results = self._lobid.search(terms, search_type=search_type)
         # Convert sets to lists for JSON
         serializable = {}
         for term, keywords in results.items():
@@ -213,11 +242,11 @@ class ToolRegistry:
                 }
         return json.dumps({"source": "lobid", "results": serializable}, ensure_ascii=False)
 
-    def _handle_search_swb(self, terms: List[str], max_pages: int = 5) -> str:
+    def _handle_search_swb(self, terms: List[str], max_pages: int = 5, search_type: str = "kw") -> str:
         self._init_suggesters()
         if self._swb is None:
             return json.dumps({"error": "SWBSuggester not available"})
-        results = self._swb.search(terms, max_pages=max_pages)
+        results = self._swb.search(terms, max_pages=max_pages, search_type=search_type)
         serializable = {}
         for term, keywords in results.items():
             serializable[term] = {}
@@ -228,11 +257,11 @@ class ToolRegistry:
                 }
         return json.dumps({"source": "swb", "results": serializable}, ensure_ascii=False)
 
-    def _handle_search_catalog(self, terms: List[str]) -> str:
+    def _handle_search_catalog(self, terms: List[str], search_type: str = "kw") -> str:
         self._init_suggesters()
         if self._biblio is None:
             return json.dumps({"error": "BiblioSuggester not available"})
-        results = self._biblio.search(terms)
+        results = self._biblio.search(terms, search_type=search_type)
         serializable = {}
         for term, keywords in results.items():
             serializable[term] = {}
@@ -242,6 +271,23 @@ class ToolRegistry:
                     for k, v in data.items()
                 }
         return json.dumps({"source": "catalog", "results": serializable}, ensure_ascii=False)
+
+    def _handle_search_catalog_titles(
+        self,
+        terms: List[str],
+        search_type: str = "title",
+        max_results: int = 25,
+    ) -> str:
+        self._init_suggesters()
+        if self._biblio is None:
+            return json.dumps({"error": "BiblioSuggester not available"})
+        results = self._biblio.search_titles(
+            terms, search_type=search_type, max_results=max_results
+        )
+        return json.dumps(
+            {"source": "catalog_titles", "results": results},
+            ensure_ascii=False,
+        )
 
     def _handle_resolve_doi(self, doi: str) -> str:
         resolver = self._get_resolver()
@@ -368,6 +414,7 @@ class ToolRegistry:
         self.register(tool_schemas.SEARCH_LOBID, self._handle_search_lobid)
         self.register(tool_schemas.SEARCH_SWB, self._handle_search_swb)
         self.register(tool_schemas.SEARCH_CATALOG, self._handle_search_catalog)
+        self.register(tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
 
         # Pipeline result tools
@@ -395,6 +442,7 @@ class ToolRegistry:
                 (tool_schemas.SEARCH_LOBID, self._handle_search_lobid),
                 (tool_schemas.SEARCH_SWB, self._handle_search_swb),
                 (tool_schemas.SEARCH_CATALOG, self._handle_search_catalog),
+                (tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles),
                 (tool_schemas.RESOLVE_DOI, self._handle_resolve_doi),
             ],
             "pipeline": [

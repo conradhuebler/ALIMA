@@ -709,6 +709,7 @@ class PipelineManager:
             llm_service=self.alima_manager.llm_service,
             tool_registry=tool_registry,
             stream_callback=_stream,
+            context_callback=self.agentic_context_callback,
         )
 
         try:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.core.agents.registry import get_step_class
 from src.core.agents.steps.base_step import BaseStep, StepResult
@@ -45,10 +45,15 @@ class WorkflowExecutor:
         llm_service: Any = None,
         tool_registry: Any = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        context_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
     ) -> None:
         self.llm_service = llm_service
         self.tool_registry = tool_registry
         self.stream_callback = stream_callback
+        # Emits (step_id, snapshot) per step. Called once for "running" before
+        # execute() and once with final status after. Widget uses this for
+        # the live agentic-context display.
+        self.context_callback = context_callback
 
     def run(
         self,
@@ -110,8 +115,18 @@ class WorkflowExecutor:
             if self.stream_callback:
                 self.stream_callback(f"\n📍 Step: {cfg.id} ({cfg.type})\n")
 
+            self._emit_snapshot(context, cfg, status="running")
+
             result = step.execute(context)
             results.append(result)
+
+            self._emit_snapshot(
+                context,
+                cfg,
+                status="completed" if result.success else "error",
+                duration=result.duration_seconds,
+                error=result.error,
+            )
 
             if not result.success:
                 overall_success = False
@@ -127,3 +142,36 @@ class WorkflowExecutor:
             step_results=results,
             error=error,
         )
+
+    def _emit_snapshot(
+        self,
+        context: Any,
+        cfg: Any,
+        *,
+        status: str,
+        duration: Optional[float] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Push a SharedContext snapshot to the UI context_callback.
+
+        Swallows all exceptions so a flaky widget can never break workflow execution.
+        """
+        if self.context_callback is None:
+            return
+        try:
+            snap = context.to_dict() if hasattr(context, "to_dict") else {}
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"context snapshot serialization failed: {e}")
+            snap = {}
+        snap["_step_id"] = cfg.id
+        snap["_step_type"] = cfg.type
+        snap["_step_description"] = getattr(cfg, "description", "") or ""
+        snap["_step_status"] = status
+        if duration is not None:
+            snap["_step_duration"] = duration
+        if error:
+            snap["_step_error"] = error
+        try:
+            self.context_callback(cfg.id, snap)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"context_callback raised: {e}")

@@ -1,14 +1,17 @@
 """Agentic Context Widget - Claude Generated.
 
-Displays SharedContext state during agentic MetaAgent pipeline execution.
-Mirrors the visual language of PipelineStepWidget (status icons, dark monospace
-palette) but renders the dynamic context each SubAgent has produced.
+Dynamic, workflow-agnostic display of SharedContext state during v4
+workflow execution. Panels are built from the active ``WorkflowDef`` at
+run-start (no hardcoded step set), so new workflows are rendered
+automatically.
 
-Consumes snapshot dicts emitted by MetaAgent.context_callback (via
-PipelineWorker.agentic_context_updated). Each snapshot merges
-SharedContext.to_dict() with per-step meta:
-    _step_name, _step_status, _step_duration, _step_quality,
-    _step_iteration, _step_agent, _cache_stats.
+Each step gets a collapsible panel (default closed). The header always
+shows status icon, step id/type and duration. The body renders the
+SharedContext snapshot generically: known fields (``extracted_keywords``,
+``gnd_entries``, ``selected_keywords``, ``keyword_chains``,
+``dk_classifications``, ``rvk_classifications``, ``missing_concepts``)
+use typed renderers; all ``extra.*`` entries are rendered via a generic
+chip/table/JSON formatter. Panels auto-expand on ``running`` or ``error``.
 """
 
 from typing import Any, Dict, List, Optional
@@ -17,12 +20,11 @@ from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QLabel,
-    QProgressBar,
     QScrollArea,
     QSizePolicy,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -42,21 +44,43 @@ STATUS_COLOR = {
     "error": "#ff5555",
 }
 
-STEP_ORDER = ["extraction", "search", "selection", "classification"]
-STEP_LABEL = {
-    "extraction": "1. Extraction — Keywords aus Abstract",
-    "search": "2. Search — GND-Pool aufbauen",
-    "selection": "3. Selection — GND-Verifikation",
-    "classification": "4. Classification — DK/RVK",
-}
+# Known SharedContext fields that get typed rendering (rest falls back to
+# generic JSON-ish printer).
+TYPED_FIELDS = (
+    "extracted_keywords",
+    "gnd_entries",
+    "selected_keywords",
+    "keyword_chains",
+    "dk_classifications",
+    "rvk_classifications",
+    "missing_concepts",
+)
 
 
 class AgenticStepPanel(QFrame):
-    """Single panel rendering one SubAgent's current context slice."""
+    """Collapsible panel rendering one workflow step's context slice."""
 
-    def __init__(self, step_name: str, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        step_id: str,
+        step_type: str = "",
+        description: str = "",
+        output_paths: Optional[List[str]] = None,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
-        self.step_name = step_name
+        self.step_id = step_id
+        self.step_type = step_type
+        self.description = description
+        # Output paths this step writes (e.g. ["extra.titles", "extra.catalog_hits"]).
+        # Panel renders ONLY these fields to avoid showing earlier steps' data.
+        self.output_paths: List[str] = list(output_paths or [])
+        self._user_toggled = False  # Once user clicks, stop auto-expanding
+        # Status fields need to exist before _build() → _refresh_header_text
+        # dereferences them.
+        self._status = "pending"
+        self._duration: Optional[float] = None
+        self._error: Optional[str] = None
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet(
             "QFrame { background: #1e1e1e; border: 1px solid #333; border-radius: 4px; }"
@@ -65,229 +89,355 @@ class AgenticStepPanel(QFrame):
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(2)
 
-        header = QHBoxLayout()
-        header.setSpacing(8)
-
-        self.status_label = QLabel(STATUS_ICON["pending"])
-        self.status_label.setStyleSheet(
-            f"color: {STATUS_COLOR['pending']}; font-size: 16px; font-weight: bold;"
+        self.toggle_btn = QToolButton()
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setChecked(False)
+        self.toggle_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
-        header.addWidget(self.status_label)
-
-        self.title_label = QLabel(STEP_LABEL.get(self.step_name, self.step_name))
-        self.title_label.setStyleSheet(
-            "color: #f8f8f2; font-weight: bold; font-size: 12px;"
+        self.toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self.toggle_btn.setStyleSheet(
+            "QToolButton { background: transparent; border: none;"
+            " color: #f8f8f2; font-weight: bold; padding: 2px 4px; text-align: left; }"
+            "QToolButton:hover { background: #2a2a2a; }"
         )
-        header.addWidget(self.title_label)
-
-        header.addStretch()
-
-        self.meta_label = QLabel("")
-        self.meta_label.setStyleSheet("color: #bd93f9; font-size: 11px;")
-        header.addWidget(self.meta_label)
-
-        layout.addLayout(header)
-
-        self.quality_bar = QProgressBar()
-        self.quality_bar.setRange(0, 100)
-        self.quality_bar.setValue(0)
-        self.quality_bar.setTextVisible(True)
-        self.quality_bar.setFormat("Quality %p%")
-        self.quality_bar.setFixedHeight(10)
-        self.quality_bar.setStyleSheet(
-            "QProgressBar { background: #282a36; border: 1px solid #444; border-radius: 2px;"
-            " color: #f8f8f2; font-size: 9px; text-align: center; }"
-            "QProgressBar::chunk { background: #50fa7b; }"
+        self.toggle_btn.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.quality_bar.setVisible(False)
-        layout.addWidget(self.quality_bar)
+        self.toggle_btn.toggled.connect(self._on_toggled)
+        self._refresh_header_text()
+        layout.addWidget(self.toggle_btn)
 
-        self.missing_label = QLabel("")
-        self.missing_label.setStyleSheet(
-            "color: #ff9800; font-size: 11px; font-weight: bold;"
-        )
-        self.missing_label.setWordWrap(True)
-        self.missing_label.setVisible(False)
-        layout.addWidget(self.missing_label)
-
+        # Body fills the available widget space; internal scrollbar handles
+        # overflow. No max-height cap so tall content uses the full panel
+        # width and the outer QScrollArea handles vertical overflow.
         self.body = QTextEdit()
         self.body.setReadOnly(True)
         self.body.setFont(QFont("Consolas", 9))
         self.body.setStyleSheet(
-            "QTextEdit { background: #1e1e1e; color: #f8f8f2; border: none; }"
+            "QTextEdit { background: #181818; color: #f8f8f2;"
+            " border: 1px solid #2a2a2a; border-radius: 2px; }"
         )
-        self.body.setMaximumHeight(140)
+        self.body.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.body.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.body.setMinimumHeight(180)
         self.body.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        layout.addWidget(self.body)
+        self.body.setVisible(False)
+        layout.addWidget(self.body, stretch=1)
 
-    def reset(self) -> None:
-        self.update_status("pending")
-        self.meta_label.setText("")
-        self.quality_bar.setVisible(False)
-        self.quality_bar.setValue(0)
-        self.missing_label.setVisible(False)
-        self.missing_label.setText("")
-        self.body.clear()
-
-    def update_status(self, status: str) -> None:
-        icon = STATUS_ICON.get(status, "▷")
-        color = STATUS_COLOR.get(status, "#888888")
-        self.status_label.setText(icon)
-        self.status_label.setStyleSheet(
-            f"color: {color}; font-size: 16px; font-weight: bold;"
-        )
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def apply(self, snap: Dict[str, Any]) -> None:
-        status = snap.get("_step_status", "running")
-        self.update_status(status)
-
-        meta_parts: List[str] = []
-        agent = snap.get("_step_agent")
-        if agent:
-            meta_parts.append(agent)
-        iteration = snap.get("_step_iteration", 0) or 0
-        if iteration:
-            meta_parts.append(f"Iter {iteration}")
-        duration = snap.get("_step_duration")
-        if duration is not None:
-            meta_parts.append(f"{duration:.1f}s")
-        cache = snap.get("_cache_stats") or {}
-        if cache.get("total_hits") or cache.get("total_misses"):
-            rate = cache.get("hit_rate", 0.0) * 100
-            meta_parts.append(f"cache {rate:.0f}%")
-        self.meta_label.setText("  |  ".join(meta_parts))
-
-        quality = snap.get("_step_quality")
-        if quality is not None:
-            self.quality_bar.setVisible(True)
-            self.quality_bar.setValue(int(max(0.0, min(1.0, quality)) * 100))
+        self._status = snap.get("_step_status", "running")
+        self._duration = snap.get("_step_duration")
+        self._error = snap.get("_step_error")
+        self._refresh_header_text()
 
         self.body.setHtml(self._render_body(snap))
 
-        if self.step_name == "selection":
-            missing = snap.get("missing_concepts") or []
-            if missing:
-                preview = ", ".join(missing[:5])
-                more = "…" if len(missing) > 5 else ""
-                self.missing_label.setText(
-                    f"⚠ {len(missing)} fehlende Konzepte: {preview}{more}"
-                )
-                self.missing_label.setVisible(True)
-            else:
-                self.missing_label.setVisible(False)
+        # Auto-expand on running/error the first time (until user toggles)
+        if not self._user_toggled and self._status in ("running", "error"):
+            self.toggle_btn.setChecked(True)
+
+    def reset(self) -> None:
+        self._status = "pending"
+        self._duration = None
+        self._error = None
+        self._user_toggled = False
+        self.toggle_btn.setChecked(False)
+        self.body.clear()
+        self._refresh_header_text()
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _on_toggled(self, checked: bool) -> None:
+        self._user_toggled = True
+        self.body.setVisible(checked)
+        self.toggle_btn.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
+
+    def _refresh_header_text(self) -> None:
+        icon = STATUS_ICON.get(self._status, "▷")
+        color = STATUS_COLOR.get(self._status, "#888888")
+        parts = [f"<span style='color:{color}; font-size:14px;'>{icon}</span>"]
+        parts.append(
+            f"<span style='color:#f8f8f2; font-weight:bold;'>{self._esc(self.step_id)}</span>"
+        )
+        if self.step_type:
+            parts.append(
+                f"<span style='color:#6272a4;'>({self._esc(self.step_type)})</span>"
+            )
+        if self._duration is not None:
+            parts.append(
+                f"<span style='color:#bd93f9;'>{self._duration:.1f}s</span>"
+            )
+        if self._status == "error" and self._error:
+            parts.append(
+                f"<span style='color:#ff5555;'>❗ {self._esc(self._error[:60])}</span>"
+            )
+        # QToolButton text doesn't render HTML reliably → strip to plain
+        plain = [
+            f"{STATUS_ICON.get(self._status, '▷')} {self.step_id}",
+        ]
+        if self.step_type:
+            plain.append(f"({self.step_type})")
+        if self._duration is not None:
+            plain.append(f"{self._duration:.1f}s")
+        if self._status == "error" and self._error:
+            plain.append(f"❗ {self._error[:60]}")
+        self.toggle_btn.setText("  ".join(plain))
+        # Color-tint arrow/text via stylesheet override per status
+        self.toggle_btn.setStyleSheet(
+            "QToolButton { background: transparent; border: none;"
+            f" color: {color}; font-weight: bold; padding: 2px 4px; text-align: left; }}"
+            "QToolButton:hover { background: #2a2a2a; }"
+        )
+
+    # --- Rendering --------------------------------------------------------
 
     def _render_body(self, snap: Dict[str, Any]) -> str:
-        if self.step_name == "extraction":
-            kws = snap.get("extracted_keywords") or []
-            if not kws:
-                return "<i style='color:#888'>—</i>"
-            chips = "  ".join(
-                f"<span style='background:#44475a; color:#f8f8f2; padding:1px 6px;"
-                f" border-radius:3px;'>{self._esc(k)}</span>"
-                for k in kws
+        blocks: List[str] = []
+
+        if self.description:
+            blocks.append(
+                f"<div style='color:#6272a4; font-style:italic; margin-bottom:4px;'>"
+                f"{self._esc(self.description)}</div>"
             )
-            return f"<div>{chips}</div>"
 
-        if self.step_name == "search":
-            entries = snap.get("gnd_entries") or []
-            header = (
-                f"<div style='color:#8be9fd'>{len(entries)} GND-Einträge</div>"
+        if self._status == "error" and self._error:
+            blocks.append(
+                f"<div style='color:#ff5555; font-weight:bold;'>Fehler: "
+                f"{self._esc(self._error)}</div>"
             )
-            if not entries:
-                return header
-            rows = []
-            for e in entries[:10]:
-                title = self._esc(e.get("title", ""))
-                gid = self._esc(e.get("gnd_id", ""))
-                rows.append(
-                    f"<div><span style='color:#f1fa8c'>{gid}</span> "
-                    f"<span style='color:#f8f8f2'>{title}</span></div>"
-                )
-            if len(entries) > 10:
-                rows.append(
-                    f"<div style='color:#888'>… +{len(entries) - 10} weitere</div>"
-                )
-            return header + "".join(rows)
 
-        if self.step_name == "selection":
-            sel = snap.get("selected_keywords") or []
-            chains = snap.get("keyword_chains") or []
-            header = (
-                f"<div style='color:#8be9fd'>{len(sel)} ausgewählt"
-                f" · {len(chains)} Ketten</div>"
-            )
-            if not sel:
-                return header
-            rows = []
-            for kw in sel[:12]:
-                title = self._esc(kw.get("title", ""))
-                gid = self._esc(kw.get("gnd_id", ""))
-                conf = kw.get("confidence")
-                conf_s = (
-                    f" <span style='color:#50fa7b'>{int(conf * 100)}%</span>"
-                    if isinstance(conf, (int, float))
-                    else ""
-                )
-                rows.append(
-                    f"<div><span style='color:#f1fa8c'>{gid}</span> "
-                    f"<span style='color:#f8f8f2'>{title}</span>{conf_s}</div>"
-                )
-            if len(sel) > 12:
-                rows.append(
-                    f"<div style='color:#888'>… +{len(sel) - 12} weitere</div>"
-                )
-            return header + "".join(rows)
+        # Render ONLY the fields this step writes, so downstream panels
+        # don't re-display the upstream output. If no output_paths were
+        # declared, fall back to showing the whole snapshot (legacy).
+        if self.output_paths:
+            for path in self.output_paths:
+                val = self._resolve_snap_path(snap, path)
+                if val in (None, "", [], {}):
+                    continue
+                label, local = self._label_for_path(path)
+                blocks.append(self._render_field(label, val) if local in TYPED_FIELDS else self._render_generic(label, val))
+        else:
+            for name in TYPED_FIELDS:
+                val = snap.get(name)
+                if val:
+                    html = self._render_field(name, val)
+                    if html:
+                        blocks.append(html)
+            extra = snap.get("extra") or {}
+            if isinstance(extra, dict):
+                for key, val in extra.items():
+                    if val in (None, "", [], {}):
+                        continue
+                    blocks.append(self._render_generic(f"extra.{key}", val))
 
-        if self.step_name == "classification":
-            dks = snap.get("dk_classifications") or []
-            rvks = snap.get("rvk_classifications") or []
-            rows = []
-            if dks:
-                rows.append(
-                    f"<div style='color:#8be9fd'>DK ({len(dks)})</div>"
-                )
-                for cls in dks[:8]:
-                    code = self._esc(cls.get("code", ""))
-                    title = self._esc(cls.get("title", ""))
-                    conf = cls.get("confidence")
-                    color = self._conf_color(conf)
-                    rows.append(
-                        f"<div><span style='color:{color}; font-weight:bold'>{code}</span> "
-                        f"<span style='color:#f8f8f2'>{title}</span></div>"
-                    )
-            if rvks:
-                rows.append(
-                    f"<div style='color:#8be9fd; margin-top:4px'>RVK ({len(rvks)})</div>"
-                )
-                for cls in rvks[:8]:
-                    code = self._esc(cls.get("code", ""))
-                    title = self._esc(cls.get("title", ""))
-                    rows.append(
-                        f"<div><span style='color:#ffb86c; font-weight:bold'>{code}</span> "
-                        f"<span style='color:#f8f8f2'>{title}</span></div>"
-                    )
-            if not rows:
-                return "<i style='color:#888'>—</i>"
-            return "".join(rows)
-
-        return "<i style='color:#888'>—</i>"
+        if not blocks:
+            return "<i style='color:#888'>— keine Daten —</i>"
+        return "".join(blocks)
 
     @staticmethod
-    def _conf_color(conf: Any) -> str:
-        if not isinstance(conf, (int, float)):
-            return "#f8f8f2"
-        if conf >= 0.75:
-            return "#50fa7b"
-        if conf >= 0.5:
-            return "#8be9fd"
-        if conf >= 0.25:
-            return "#f1fa8c"
-        return "#ff5555"
+    def _resolve_snap_path(snap: Dict[str, Any], path: str) -> Any:
+        """Resolve dotted path like 'extra.titles' against snapshot dict."""
+        parts = path.split(".")
+        cur: Any = snap
+        for p in parts:
+            if isinstance(cur, dict) and p in cur:
+                cur = cur[p]
+            else:
+                return None
+        return cur
+
+    @staticmethod
+    def _label_for_path(path: str) -> tuple:
+        """Return (display_label, last_segment)."""
+        last = path.split(".")[-1]
+        return path, last
+
+    def _render_field(self, name: str, val: Any) -> str:
+        if name in ("extracted_keywords", "missing_concepts"):
+            return self._chips(name, val)
+        if name in ("gnd_entries", "selected_keywords", "dk_classifications", "rvk_classifications"):
+            return self._dict_list(name, val)
+        if name == "keyword_chains":
+            return self._chains(val)
+        return self._render_generic(name, val)
+
+    def _chips(self, label: str, val: Any) -> str:
+        if not isinstance(val, list):
+            return self._render_generic(label, val)
+        if not val:
+            return ""
+        chips = "  ".join(
+            f"<span style='background:#44475a; color:#f8f8f2; padding:1px 6px;"
+            f" border-radius:3px;'>{self._esc(k)}</span>"
+            for k in val
+        )
+        return (
+            f"<div style='color:#8be9fd; margin-top:4px;'>{self._esc(label)} "
+            f"({len(val)})</div><div>{chips}</div>"
+        )
+
+    # Field ordering + header keys for known record types. Unknown dicts
+    # fall back to the order keys appear in.
+    HEADER_KEYS = ("title", "keyword", "rsn", "code", "input_title", "label")
+    ID_KEYS = ("gnd_id", "gnd_ids", "rsn", "id")
+
+    def _dict_list(self, label: str, val: Any) -> str:
+        if not isinstance(val, list) or not val:
+            return ""
+        # Derive canonical key union so missing fields per record are visible.
+        canonical_keys: List[str] = []
+        seen = set()
+        for item in val:
+            if isinstance(item, dict):
+                for k in item.keys():
+                    if k not in seen:
+                        seen.add(k)
+                        canonical_keys.append(k)
+        rows: List[str] = [
+            f"<div style='color:#8be9fd; margin-top:6px; font-weight:bold;'>"
+            f"{self._esc(label)} ({len(val)})</div>"
+        ]
+        for idx, item in enumerate(val, start=1):
+            if not isinstance(item, dict):
+                rows.append(
+                    f"<div style='margin-left:6px;'>#{idx}: {self._esc(item)}</div>"
+                )
+                continue
+            rows.append(self._render_record(idx, item, canonical_keys))
+        return "".join(rows)
+
+    def _render_record(
+        self,
+        idx: int,
+        item: Dict[str, Any],
+        canonical_keys: Optional[List[str]] = None,
+    ) -> str:
+        """Render one dict as a labeled card with header + field lines.
+
+        Missing keys (present in canonical_keys but not in this item) render
+        as "— fehlt" so gaps are visible rather than silently hidden.
+        """
+        # Pick header: first non-empty value for a recognised header key.
+        header_val = ""
+        for hk in self.HEADER_KEYS:
+            v = item.get(hk)
+            if v:
+                header_val = str(v)
+                break
+        # Secondary identifier line (gnd_id, rsn, etc.) for quick scanning.
+        id_parts: List[str] = []
+        for ik in self.ID_KEYS:
+            v = item.get(ik)
+            if v:
+                if isinstance(v, list):
+                    v = ", ".join(str(x) for x in v)
+                id_parts.append(f"{ik}={v}")
+
+        header_html = (
+            f"<div style='color:#50fa7b; font-weight:bold;'>"
+            f"#{idx} {self._esc(header_val) if header_val else '(ohne Titel)'}"
+            f"</div>"
+        )
+        subheader_html = (
+            f"<div style='color:#f1fa8c; font-size:10px; margin-bottom:2px;'>"
+            f"{self._esc(' · '.join(id_parts))}</div>"
+            if id_parts
+            else ""
+        )
+
+        # Iterate canonical keys (union over all records); fall back to
+        # item's own keys if no canonical set was provided.
+        keys = canonical_keys or list(item.keys())
+        # Skip keys already shown in header/subheader
+        skip = set(self.HEADER_KEYS) | set(self.ID_KEYS)
+
+        lines: List[str] = []
+        for k in keys:
+            if k in skip:
+                continue
+            raw = item.get(k)
+            missing = raw in (None, "", [], {})
+            if missing:
+                v_html = "<span style='color:#6272a4; font-style:italic;'>— fehlt</span>"
+            else:
+                if isinstance(raw, list):
+                    v_str = ", ".join(str(x) for x in raw)
+                elif isinstance(raw, dict):
+                    v_str = ", ".join(f"{kk}={vv}" for kk, vv in raw.items())
+                else:
+                    v_str = str(raw)
+                v_html = (
+                    f"<span style='color:#f8f8f2; white-space:pre-wrap;'>"
+                    f"{self._esc(v_str)}</span>"
+                )
+            lines.append(
+                f"<div style='margin-left:10px;'>"
+                f"<span style='color:#bd93f9'>{self._esc(k)}:</span> {v_html}"
+                f"</div>"
+            )
+
+        return (
+            f"<div style='margin-top:6px; padding:4px 6px;"
+            f" border-left:3px solid #44475a; background:#161616;"
+            f" border-radius:2px;'>"
+            f"{header_html}{subheader_html}{''.join(lines)}</div>"
+        )
+
+    def _chains(self, val: Any) -> str:
+        if not isinstance(val, list) or not val:
+            return ""
+        rows: List[str] = [
+            f"<div style='color:#8be9fd; margin-top:4px;'>keyword_chains "
+            f"({len(val)})</div>"
+        ]
+        for ch in val:
+            if not isinstance(ch, dict):
+                continue
+            chain = ch.get("chain") or []
+            reason = ch.get("reason", "")
+            rows.append(
+                f"<div><span style='color:#f8f8f2'>• "
+                f"{self._esc(' → '.join(str(c) for c in chain))}</span>"
+                f" <span style='color:#6272a4'>{self._esc(reason)}</span></div>"
+            )
+        return "".join(rows)
+
+    def _render_generic(self, label: str, val: Any) -> str:
+        if isinstance(val, list):
+            # List of dicts → table-ish; list of strings → chips
+            if val and isinstance(val[0], dict):
+                return self._dict_list(label, val)
+            return self._chips(label, [str(v) for v in val])
+        if isinstance(val, dict):
+            rows = [
+                f"<div><span style='color:#f1fa8c'>{self._esc(k)}:</span> "
+                f"<span style='color:#f8f8f2; white-space:pre-wrap;'>{self._esc(v)}</span></div>"
+                for k, v in val.items()
+            ]
+            return (
+                f"<div style='color:#8be9fd; margin-top:4px;'>{self._esc(label)}"
+                f"</div>{''.join(rows)}"
+            )
+        return (
+            f"<div><span style='color:#8be9fd'>{self._esc(label)}:</span> "
+            f"<span style='color:#f8f8f2; white-space:pre-wrap;'>{self._esc(val)}</span></div>"
+        )
 
     @staticmethod
     def _esc(text: Any) -> str:
@@ -300,7 +450,7 @@ class AgenticStepPanel(QFrame):
 
 
 class AgenticContextWidget(QWidget):
-    """Container rendering the four agentic SubAgent panels."""
+    """Dynamic container rendering one panel per workflow step."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -313,28 +463,71 @@ class AgenticContextWidget(QWidget):
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(4)
 
-        header = QLabel("🤖 Agentic Context")
-        header.setStyleSheet(
+        self.header_label = QLabel("🤖 Agentic Context")
+        self.header_label.setStyleSheet(
             "color: #8be9fd; font-weight: bold; font-size: 11px; padding: 2px 4px;"
         )
-        outer.addWidget(header)
+        outer.addWidget(self.header_label)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        inner = QWidget()
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(6)
-
-        for step in STEP_ORDER:
-            panel = AgenticStepPanel(step)
-            self.panels[step] = panel
-            inner_layout.addWidget(panel)
-
-        inner_layout.addStretch()
-        scroll.setWidget(inner)
+        self._inner = QWidget()
+        self._inner_layout = QVBoxLayout(self._inner)
+        self._inner_layout.setContentsMargins(0, 0, 0, 0)
+        self._inner_layout.setSpacing(4)
+        self._inner_layout.addStretch()
+        scroll.setWidget(self._inner)
         outer.addWidget(scroll)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def build_panels(self, workflow_def: Any) -> None:
+        """Rebuild panels from a parsed ``WorkflowDef``.
+
+        Accepts either a WorkflowDef instance (preferred) or a dict with a
+        ``steps`` key, for testability. Call once at run start.
+        """
+        self.clear_panels()
+
+        steps = self._extract_steps(workflow_def)
+        if not steps:
+            return
+
+        # Insert panels before the stretch item
+        stretch_index = self._inner_layout.count() - 1
+        for s in steps:
+            if not self._step_enabled(s):
+                continue
+            step_id = self._step_field(s, "id")
+            step_type = self._step_field(s, "type") or ""
+            description = self._step_field(s, "description") or ""
+            if not step_id:
+                continue
+            outputs = self._step_field(s, "outputs") or {}
+            output_paths = list(outputs.keys()) if isinstance(outputs, dict) else []
+            panel = AgenticStepPanel(
+                step_id, step_type, description, output_paths=output_paths
+            )
+            self.panels[step_id] = panel
+            self._inner_layout.insertWidget(stretch_index, panel)
+            stretch_index += 1
+
+        name = getattr(workflow_def, "name", None) or (
+            workflow_def.get("name") if isinstance(workflow_def, dict) else None
+        )
+        if name:
+            self.header_label.setText(f"🤖 Agentic Context — {name}")
+        else:
+            self.header_label.setText("🤖 Agentic Context")
+
+    def clear_panels(self) -> None:
+        for panel in list(self.panels.values()):
+            self._inner_layout.removeWidget(panel)
+            panel.deleteLater()
+        self.panels.clear()
 
     @pyqtSlot(str, dict)
     def on_context_updated(self, step_name: str, snapshot: Dict[str, Any]) -> None:
@@ -346,3 +539,32 @@ class AgenticContextWidget(QWidget):
     def reset(self) -> None:
         for panel in self.panels.values():
             panel.reset()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_steps(workflow_def: Any) -> List[Any]:
+        if workflow_def is None:
+            return []
+        steps = getattr(workflow_def, "steps", None)
+        if steps is not None:
+            return list(steps)
+        if isinstance(workflow_def, dict):
+            return list(workflow_def.get("steps") or [])
+        return []
+
+    @staticmethod
+    def _step_enabled(step: Any) -> bool:
+        enabled = getattr(step, "enabled", None)
+        if enabled is None and isinstance(step, dict):
+            enabled = step.get("enabled", True)
+        return True if enabled is None else bool(enabled)
+
+    @staticmethod
+    def _step_field(step: Any, name: str) -> Optional[str]:
+        val = getattr(step, name, None)
+        if val is None and isinstance(step, dict):
+            val = step.get(name)
+        return val

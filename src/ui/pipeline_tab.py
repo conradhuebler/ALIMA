@@ -1472,6 +1472,11 @@ class PipelineTab(QWidget):
                     input_type = 'url' if doi_val.startswith(('http://', 'https://')) else 'doi'
                     input_source = doi_val
 
+        # Rebuild agentic-context panels from the selected workflow so the
+        # widget reflects the *current* workflow instead of the hardcoded
+        # 5-step pipeline view. Only relevant when agentic mode is on.
+        self._rebuild_agentic_panels()
+
         # Create and start worker thread - Claude Generated
         self.pipeline_worker = PipelineWorker(
             self.pipeline_manager, input_text,
@@ -1832,8 +1837,76 @@ class PipelineTab(QWidget):
             if self.workflow_combo.count() == 0:
                 self.workflow_combo.addItem("alima_classic", "alima_classic")
             self.logger.debug(f"Workflow combo populated with {self.workflow_combo.count()} workflows")
+            # Wire once — guard against duplicate connects on repopulate.
+            try:
+                self.workflow_combo.currentIndexChanged.disconnect(
+                    self._on_workflow_changed
+                )
+            except (TypeError, RuntimeError):
+                pass
+            self.workflow_combo.currentIndexChanged.connect(
+                self._on_workflow_changed
+            )
         except Exception as e:
             self.logger.error(f"Error populating workflow combo: {e}")
+
+    # Workflow-specific hints for the UnifiedInputWidget. Keys are YAML stems.
+    WORKFLOW_HINTS = {
+        "title_list_search": (
+            "💡 Titel eingeben – eine pro Zeile oder im Fließtext "
+            "(LLM extrahiert strukturierte Titel)."
+        ),
+        "catalog_search": (
+            "💡 Suchbegriffe kommagetrennt oder als Liste – werden parallel "
+            "gegen SWB / Lobid / Katalog geschickt."
+        ),
+    }
+
+    def _on_workflow_changed(self, _index: int) -> None:
+        """Apply workflow selection: update config + hint text - Claude Generated."""
+        if not hasattr(self, "workflow_combo"):
+            return
+        workflow_name = self.workflow_combo.currentData()
+        if workflow_name and self.pipeline_manager and self.pipeline_manager.config:
+            self.pipeline_manager.config.workflow_name = workflow_name
+
+        hint = self.WORKFLOW_HINTS.get(workflow_name or "", "")
+        if hasattr(self, "unified_input"):
+            self.unified_input.set_hint(hint)
+
+        # Keep the context widget panels in sync with the selected workflow.
+        self._rebuild_agentic_panels()
+
+    def _rebuild_agentic_panels(self) -> None:
+        """Load active workflow YAML and rebuild the context-widget panels.
+
+        No-op when agentic mode is off, widget missing, or the workflow can't
+        be found. Failures are logged but never abort the pipeline start.
+        """
+        if not hasattr(self, "agentic_context_widget"):
+            return
+        if not self.pipeline_manager or not self.pipeline_manager.config:
+            return
+        if not self.pipeline_manager.config.enable_agentic_mode:
+            return
+
+        try:
+            from src.core.agents.workflow_loader import (
+                find_workflow_file,
+                load_workflow,
+            )
+
+            wf_name = self.pipeline_manager.config.workflow_name or "alima_classic"
+            wf_path = find_workflow_file(wf_name)
+            if wf_path is None:
+                self.logger.warning(
+                    f"Agentic widget: workflow '{wf_name}' not found — panels not rebuilt"
+                )
+                return
+            wf_def = load_workflow(wf_path, strict=False)
+            self.agentic_context_widget.build_panels(wf_def)
+        except Exception as e:  # noqa: BLE001
+            self.logger.error(f"Agentic panel rebuild failed: {e}")
 
     def on_agentic_mode_toggled(self, state):
         """Handle agentic mode checkbox toggle - Claude Generated"""
@@ -1849,6 +1922,11 @@ class PipelineTab(QWidget):
             self.agentic_context_widget.setVisible(enabled)
             if enabled:
                 self.agentic_context_widget.reset()
+                # Preview panels for the currently-selected workflow so the
+                # widget is populated before the first run.
+                self._rebuild_agentic_panels()
+            else:
+                self.agentic_context_widget.clear_panels()
 
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:
