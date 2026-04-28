@@ -207,9 +207,19 @@ class SharedContext:
         from src.core.data_models import KeywordAnalysisState, LlmKeywordAnalysis, SearchResult
 
         # --- keyword titles (selected, GND-verified) ---
-        kw_titles = [kw.get("title", kw.get("gnd_id", ""))
-                     for kw in self.selected_keywords
-                     if kw.get("title") or kw.get("gnd_id")]
+        # Prefer curated final_keywords from selection step (15-20 items with GND IDs).
+        # Fall back to all selected_keywords if not available (e.g. old workflow runs).
+        final_kws = (self.extra or {}).get("final_keywords") or []
+        if final_kws:
+            kw_titles = [
+                f"{kw.get('keyword', '')} (GND-ID: {kw.get('gnd_id', '')})"
+                if kw.get("gnd_id") else kw.get("keyword", "")
+                for kw in final_kws if kw.get("keyword")
+            ]
+        else:
+            kw_titles = [kw.get("title", kw.get("gnd_id", ""))
+                         for kw in self.selected_keywords
+                         if kw.get("title") or kw.get("gnd_id")]
 
         # --- DK codes as plain strings ---
         dk_codes = [cls.get("code", "") for cls in self.dk_classifications if cls.get("code")]

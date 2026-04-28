@@ -88,19 +88,20 @@ steps:
   # ──────────────────────────────────────────────────────────────────
   - id: selection_chunks
     type: llm_agent
-    description: "Chunked relevance filter over GND pool (keywords_chunked task)"
+    description: "Chunked relevance filter over GND pool (prompts from prompts.json / keywords_chunked)"
     enabled: true
     depends_on: [search]
 
     inputs:
       abstract: "${abstract}"
-      gnd_entries: "${gnd_entries}"
+      keywords: "${gnd_entries}"
 
     outputs:
       selected_keywords: "response.keywords"
 
     llm:
       temperature: 0.01
+      top_p: 0.5
       max_tokens: 4096
       max_iterations: 1
 
@@ -108,35 +109,68 @@ steps:
 
     chunking:
       enabled: true
-      chunk_field: gnd_entries
+      chunk_field: keywords
+      chunk_fields: [title, gnd_id]   # project to keyword text + GND-ID only before LLM
       chunk_size: 350
       sort_by: count
       sort_desc: true
       merge_key: keywords
-      dedup_field: title
+      dedup_field: keyword
+      max_merged: 80
 
     system_prompt: |
       **Deine Rolle als Bibliothekar:**
       Du bist ein **präziser und selektiver GND-Schlagwort-Experte** mit folgenden Kernregeln:
-      1. **Strenge Relevanzprüfung**: Wähle *nur* Schlagworte aus, die **direkt** zum Abstract passen.
-      2. **Ignorieren von Nicht-Relevanten**: Alle Schlagworte ohne Bezug zum Text **ausschließen**.
-      3. **Keine Ergänzungen**: Nutze **nur** die vorgegebenen GND-Schlagworte.
-      4. **Effizienz**: Die Liste wird in mehreren Anfragen abgearbeitet — konzentriere dich auf die aktuelle Teilmenge.
+      1. **Strenge Relevanzprüfung**: Wähle *nur* Schlagworte aus, die **direkt** zum Abstract passen oder **losen thematischen Bezug** haben.
+      2. **Ignorieren von Nicht-Relevanten**: Alle Schlagworte, die **keinen** Bezug zum Text haben, werden **ausgeschlossen** – selbst wenn sie allgemein scheinen.
+      3. **Keine Ergänzungen**: Nutze **nur** die vorgegebenen GND-Schlagworte (keine Synonyme, Oberbegriffe oder kreative Ergänzungen).
+      4. **Effizienz**: Da die Liste in mehreren Anfragen abgearbeitet wird, konzentriere dich **ausschließlich** auf die aktuelle Teilmenge.
       5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
 
+      **Werkzeuge & Limits**:
+      - Nutze **keine** externen Quellen oder Tools – arbeite nur mit den gegebenen Daten.
+      - Bei Unklarheiten im Abstract: Frage nach (z. B. "Meint 'X' hier Konzept A oder B?").
+
+      **Beispiel für deine Denkweise**:
+      - *Abstract* enthält "KI in der Medizin" → Relevant: "Künstliche Intelligenz", "Medizin", "Diagnostik".
+      - *Nicht relevant*: "Bibliothekswesen", "Juristische Grundlagen", selbst wenn sie in der GND-Liste stehen.
+
     user_prompt: |
-      **Aufgabe**: Filtere aus der Teilliste von GND-Schlagworten nur die relevanten heraus.
-      Ausgabe als JSON: `{"keywords": [{"keyword": "...", "gnd_id": "...", "title": "..."}]}`.
+      **Aufgabe**:
+      Du erhältst einen **Abstract** und eine **Teilliste von GND-Schlagworten**. Deine Aufgabe ist es:
+      1. **Nur die relevanten Schlagworte** herauszufiltern – alle anderen **ignorieren**.
+      2. Die Auswahl als **JSON-Objekt** auszugeben.
 
-      Chunk {chunk_index}/{chunk_total}:
+      **Kriterien für Relevanz**:
+      - **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erwähnt oder **thematisch eng verknüpft** sein.
+      - **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** für das Verständnis des Abstracts sind.
+      - **Keine Allgemeinplätze**: Schlagworte wie "Wissenschaft", "Technologie" oder "Gesellschaft" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begründet werden.
 
-      Abstract:
+      **Beispiel**:
+      *Abstract*: "Studie zu Blockchain-Anwendungen in der Logistikbranche."
+      *GND-Schlagworte*: ["Blockchain", "Datenbanken", "Logistik", "Kryptowährungen", "Informatik"]
+      *Ausgabe*:
+      ```json
+      {
+        "keywords": [
+          {"keyword": "Blockchain", "gnd_id": "123456789"},
+          {"keyword": "Logistik", "gnd_id": "987654321"}
+        ]
+      }
+      ```
+
+      ---
+      **Jetzt starte mit der Analyse!**
+      ```
       {abstract}
+      {keywords}
+      ```
 
-      GND-Schlagworte (Teilmenge):
-      {gnd_entries}
-
-      **Wichtig**: Nur JSON ausgeben, keine Analyse oder Begründung.
+      **Wichtige Hinweise**:
+      1. **Keine Diskussion**: Gib **nur** das JSON-Objekt aus – keine Analyse oder Begründung.
+      2. **Reihenfolge**: Die Reihenfolge der Schlagworte in der Liste ist **beliebig**.
+      3. **Vollständigkeit**: Falls ein Schlagwort **zweifelhaft** ist, **beibehalten** – die finale Auswahl erfolgt in einem weiteren Schritt.
+      4. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit der Struktur `{"keywords": [{"keyword": "...", "gnd_id": "..."}]}`.
 
   # ──────────────────────────────────────────────────────────────────
   # Step 4: Chain building — Schlagwortketten + missing_concepts
@@ -154,6 +188,7 @@ steps:
     outputs:
       keyword_chains: "response.keyword_chains"
       missing_concepts: "response.missing_concepts"
+      extra.final_keywords: "response.final_keywords"
 
     llm:
       temperature: 0.5
@@ -172,11 +207,12 @@ steps:
       - **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte.
       - **Hierarchie beachten**: Kombiniere zu Ketten (z. B. "KI → Machine Learning → Medizin").
       - **Fehlende Konzepte dokumentieren**: Schlage Oberbegriffe vor.
+      - **final_keywords**: Flachliste der 10–20 wichtigsten GND-Schlagworte mit GND-IDs (aus den Ketten, keine Neuerfindungen).
       - **JSON-Ausgabe**.
 
     user_prompt: |
-      **Aufgabe**: Bilde Schlagwortketten aus den ausgewählten GND-Schlagworten und
-      dokumentiere fehlende Konzepte.
+      **Aufgabe**: Bilde Schlagwortketten aus den ausgewählten GND-Schlagworten,
+      dokumentiere fehlende Konzepte, und erzeuge eine kuratierte Flachliste.
 
       Ausgabe als JSON:
       ```json
@@ -184,23 +220,30 @@ steps:
         "keyword_chains": [
           {"chain": ["Schlagwort1", "Schlagwort2"], "reason": "Begründung"}
         ],
-        "missing_concepts": ["Konzept1", "Konzept2"]
+        "missing_concepts": ["Konzept1", "Konzept2"],
+        "final_keywords": [
+          {"keyword": "Schlagwort1", "gnd_id": "1234567-8"},
+          {"keyword": "Schlagwort2", "gnd_id": "9876543-2"}
+        ]
       }
       ```
+
+      `final_keywords`: Die 10–20 relevantesten Schlagworte aus den Ketten, geordnet nach Relevanz.
+      GND-IDs aus der Eingabeliste übernehmen — nur vorhandene Schlagworte, keine Neuerfindungen.
 
       Abstract:
       {abstract}
 
-      Ausgewählte Schlagworte:
+      Ausgewählte Schlagworte (mit GND-IDs):
       {keywords}
 
   # ──────────────────────────────────────────────────────────────────
-  # Step 5a: DK data collection — deterministic batch tool calls
+  # Step 5a: DK catalog search — classic per-keyword BiblioClient logic
   # ──────────────────────────────────────────────────────────────────
   - id: dk_collect
     type: deterministic
-    function: dk_data_collect
-    description: "Collect DK/DDC data from cache + catalog + GND entries"
+    function: dk_search_agentic
+    description: "Per-keyword catalog DK search — mirrors classic execute_dk_search"
     enabled: true
     depends_on: [selection]
 
@@ -208,32 +251,32 @@ steps:
 
     outputs:
       extra.dk_entries: "result.dk_entries"
-      extra.ddc_from_gnd: "result.ddc_from_gnd"
       extra.dk_prompt_text: "result.formatted_prompt"
+      dk_search_results: "result.dk_search_results"
 
     config:
       max_keywords: 30
 
   # ──────────────────────────────────────────────────────────────────
-  # Step 5b: Classification — single LLM call with pre-loaded DK data
+  # Step 5b: Classification — prompts loaded from prompts.json (dk_classification)
   # ──────────────────────────────────────────────────────────────────
   - id: classification
     type: llm_agent
-    description: "Assign DK/DDC/RVK classifications"
+    description: "Assign DK/DDC/RVK classifications (prompts from prompts.json / dk_classification)"
     enabled: true
     depends_on: [dk_collect]
 
     inputs:
       abstract: "${abstract}"
-      keywords: "${selected_keywords}"
-      dk_context: "${extra.dk_prompt_text}"
+      keywords: "${extra.dk_prompt_text}"
 
     outputs:
       dk_classifications: "response.classifications"
       analyse: "response.analyse"
 
     llm:
-      temperature: 0.5
+      temperature: 0.25
+      top_p: 0.01
       max_tokens: 4096
       max_iterations: 1
 
@@ -242,36 +285,114 @@ steps:
     system_prompt: |
       **Deine Rolle als bibliothekarischer Klassifikations-Experte:**
       Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
-      1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende
-         Klassifikationen zu einer hierarchischen Themenstruktur.
-      2. **Mehrfachklassifikation**: Wähle bis zu 10 passende Klassifikationsnummern (DK/DDC/RVK).
+      1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende Klassifikationen aus dem Bibliotheksbestand zu einer **hierarchischen Themenstruktur**.
+      2. **Mehrfachklassifikation**: Wähle **bis zu 10 passende Klassifikationsnummern** (DK/DDC/RVK) aus, die:
+        - **Primärthemen** des Abstracts abdecken,
+        - **Sekundärbeziehungen** (z. B. Anwendungsfelder, Methodik) einbeziehen,
+        - **Bestehende Klassifikationen** aus dem Bibliotheksbestand validieren/ergänzen.
       3. **Klassifikationsregeln**:
-         - Verwende nur Klassifikationen, die im Bibliotheksbestand vorkommen.
-         - Die Häufigkeiten sind ein guter Indikator für Relevanz.
-      4. **Validierung**: Prüfe Passung, Hierarchie, Redundanz.
-      5. **JSON-Ausgabe**.
+        - **Es gibt keine Priorisierung** der Klassifikatoren selbst. Verwende jedoch nur solche, die mit der Titelliste auftauchen
+        - **Typischerweise sind die Häufigkeiten ein guter Indikator für die Relevanz der Klassifikation.** Gib ggf. zu den 10 Klassifikatoren noch 5 weitere potentielle Klassifikatoren an, die eine geringe Häufigkeit aufweisen
+      4. **Iterativer Prozess**: Überprüfe jede Klassifikation auf:
+        - **Thematische Passung** (deckt der Code das Kernkonzept ab?),
+        - **Hierarchische Konsistenz** (passt der Code zur übergeordneten Ebene?),
+        - **Redundanz** (vermeide doppelte Abdeckung desselben Themas).
+      5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
+
+      **Werkzeuge & Limits**:
+      - Nutze **nur** die im Bibliotheksbestand enthaltenen Klassifikationen als Referenz – keine externen Quellen.
 
     user_prompt: |
-      **Aufgabe**: Weise DK-Klassifikationen zu.
+      **Aufgabe**:
+      Analysiere den folgenden **Abstract** und wende einen **systematischen Klassifikationsprozess** an, um **10 passende DK/DDC/RVK-Klassifikationen** zu ermitteln. Nutze den **Bibliotheksbestand** als Referenz für bestehende Zuordnungen.
 
-      Abstract:
-      {abstract}
+      **Strukturierte Vorgehensweise**:
+      1. **Themenextraktion**:
+        - Identifiziere **Kernkonzepte** im Abstract (z. B. Hauptgegenstand, Methode, Anwendungsfeld).
+        - Verknüpfe diese mit den **Schlagworten** aus dem Bibliotheksbestand.
+      2. **Klassifikationsabgleich**:
+        - Suche im Bibliotheksbestand nach **ähnlichen Titeln/Schlagworten** und übernimm deren Klassifikationen als Basis.
+        - Wähle ausschließlich Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes.
+      3. **Validierung**:
+        - Prüfe jede Klassifikation auf:
+          - **Präzision** (deckt sie das Konzept exakt ab?),
+          - **Hierarchie** (passt sie zur übergeordneten Ebene?),
+          - **Einzigartigkeit** (keine Überlappung mit anderen Codes).
+      4. **Auswahl der Top-10**:
+        - Wähle die **10 relevantesten Klassifikationen** aus, die:
+          - **Primärthemen** abdecken,
+          - **Sekundärbeziehungen** einbeziehen,
+          - **Bestehende Praxis** im Bibliotheksbestand widerspiegeln.
 
-      Ausgewählte Schlagworte:
-      {keywords}
+      **Format für deine Antwort**:
+      ```
+      <|begin_of_thought|>
+      **1. Themenanalyse**:
+      [Liste der identifizierten Kernkonzepte im Abstract + Verknüpfung zu Schlagworten.]
 
-      {dk_context}
+      **2. Klassifikationsvorschläge**:
+      [Tabelle mit Spalten: "Konzept", "Mögliche Klassifikation", "Begründung", "Quelle (Bibliotheksbestand)"]
 
-      Gib das Ergebnis als valides JSON aus:
+      **3. Validierungsschritte**:
+      [Beschreibung der Überprüfung auf Präzision, Hierarchie, Redundanz.]
+
+      **4. Finale Auswahl**:
+      [Begründung für die Auswahl der Top-10 Klassifikationen.]
+      <|end_of_thought|>
+
+      <|begin_of_solution|>
       ```json
       {
         "classifications": [
-          {"code": "DK 540", "type": "DK"},
+          {"code": "DK 616.89", "type": "DK"},
+          {"code": "DK 006.3", "type": "DK"},
           {"code": "QP 340", "type": "RVK"}
         ],
-        "analyse": "Kurze Begründung"
+        "analyse": "Kurze Zusammenfassung der wichtigsten Klassifikationen und deren Begründung."
       }
       ```
+      <|end_of_solution|>
+      ```
+
+      ---
+      ### **Beispiel für die finale Ausgabe**
+      *Abstract*:
+      "Quantenmechanische Studien zur Photokatalytischen Ringöffnung von N-Heterocyclen."
+
+      *Bibliotheksbestand* (Ausschnitt):
+      ```
+      DK: 541.14 (Häufigkeit: 3) | Beispieltitel: Photochemistry and photophysics | Molecular orbitals and organic chemical reactions
+      DK: 530.145 (Häufigkeit: 3) | Beispieltitel: Quantum Chemistry | Quantum chemistry
+      DK: 54 (Häufigkeit: 4) | Beispieltitel: Quantum Chemistry | Quantum chemistry | Introduction to computational chemistry
+      ```
+
+      **Ausgabe**:
+      ```json
+      {
+        "classifications": [
+          {"code": "DK 541.14", "type": "DK"},
+          {"code": "DK 530.145", "type": "DK"},
+          {"code": "DK 54", "type": "DK"}
+        ],
+        "analyse": "Die Klassifikationen stammen direkt aus dem Bibliotheksbestand: DK 541.14 (Photochemie/Photophysik), DK 530.145 (Quantenchemie) und der übergeordnete Code DK 54 als Oberbegriff."
+      }
+      ```
+
+      ---
+      ### **Jetzt starte mit der Analyse!**
+      ```
+      {abstract}
+      **Ausschnitt aus dem Bibliotheksbestand:**
+      {keywords}
+      ```
+
+      ---
+      **Wichtige Hinweise**:
+      1. **Priorisiere bestehende Klassifikationen** aus dem Bibliotheksbestand – ergänze nur bei Lücken.
+      2. **Vermeide Überlappungen**: Stelle sicher, dass jede Klassifikation ein **eindeutiges Thema** abdeckt.
+      3. **Hierarchie beachten**: Wähle spezifischere Codes (z. B. `DK616.89` statt `DK616`), wenn verfügbar.
+      4. **Maximal 10 Klassifikationen**: Selbst wenn mehr passen würden, beschränke dich auf die **wichtigsten**.
+      5. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit `classifications` und `analyse` Feldern.
 
   # ──────────────────────────────────────────────────────────────────
   # Step 5c: Post-process — build dk_search_results for GUI
@@ -279,7 +400,7 @@ steps:
   - id: dk_postprocess
     type: deterministic
     function: build_dk_search_results
-    description: "Merge DK cache entries with LLM classifications into GUI format"
+    description: "Merge DK catalog entries with LLM classifications into GUI format"
     enabled: true
     depends_on: [classification]
 

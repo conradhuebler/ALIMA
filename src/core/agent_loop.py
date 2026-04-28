@@ -93,7 +93,7 @@ class AgentLoop:
 
             # Call LLM with tools
             logger.info(f"Agent iteration {iteration}/{self.max_iterations}")
-            if self.stream_callback:
+            if self.stream_callback and self.max_iterations > 1:
                 self.stream_callback(f"\n🔄 Iteration {iteration}: Warte auf LLM-Antwort...")
 
             try:
@@ -204,9 +204,10 @@ class AgentLoop:
 
             # Case 2: LLM returned final text (no tool calls)
             final_content = response.content
-            if self.stream_callback and final_content:
+            if self.stream_callback and final_content and self.max_iterations > 1:
                 self.stream_callback(f"\n✅ Fertig nach {iteration} Iterationen\n")
             logger.info(f"Agent completed after {iteration} iterations")
+            logger.debug(f"LLM response content:\n{final_content}")
             break
 
         else:

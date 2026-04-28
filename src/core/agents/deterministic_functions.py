@@ -235,7 +235,7 @@ def dk_data_collect(
     if config:
         max_keywords = config.get("max_keywords", max_keywords)
 
-    provider = DKDataProvider(tool_registry, context)
+    provider = DKDataProvider(tool_registry, context, stream_callback=stream_callback)
     result = provider.collect(max_keywords=max_keywords)
 
     if stream_callback:
@@ -248,9 +248,155 @@ def dk_data_collect(
     return {
         "dk_entries": result.dk_entries,
         "ddc_from_gnd": result.ddc_from_gnd,
-        "formatted_prompt": result.format_for_prompt(max_entries=30),
+        "formatted_prompt": result.format_for_prompt(max_entries=60),
         "tool_calls": result.tool_calls,
         "has_data": result.has_data,
+    }
+
+
+# ============================================================
+# dk_search_agentic — classic execute_dk_search wrapper
+# ============================================================
+
+def _build_dk_keywords(context: Any, max_keywords: int) -> List[str]:
+    """Build keyword strings for execute_dk_search from SharedContext.
+
+    Priority: extra.final_keywords → selected_keywords → extracted_keywords.
+    Formats dicts as "Term (GND-ID: id)" so execute_dk_search GND-validation
+    recognises them.
+    """
+    keywords: List[str] = []
+    seen: set = set()
+
+    def _add(term: str, gnd_id: str = "") -> None:
+        t = term.strip()
+        if not t or t.lower() in seen:
+            return
+        seen.add(t.lower())
+        keywords.append(f"{t} (GND-ID: {gnd_id})" if gnd_id else t)
+
+    final_kws = (getattr(context, "extra", None) or {}).get("final_keywords") or []
+    for kw in final_kws[:max_keywords]:
+        _add(kw.get("keyword", "") or kw.get("title", ""), kw.get("gnd_id", ""))
+
+    if not keywords:
+        for kw in (getattr(context, "selected_keywords", None) or [])[:max_keywords]:
+            _add(kw.get("title", "") or kw.get("keyword", ""), kw.get("gnd_id", ""))
+
+    if not keywords:
+        for kw in (getattr(context, "extracted_keywords", None) or [])[:max_keywords]:
+            _add(str(kw) if not isinstance(kw, str) else kw)
+
+    return keywords
+
+
+@register_tool_fn("dk_search_agentic")
+def dk_search_agentic(
+    *,
+    context: Any = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    max_keywords: int = 30,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Classic per-keyword catalog DK search for the agentic pipeline.
+
+    Wraps ``PipelineStepExecutor.execute_dk_search`` so the agentic pipeline
+    uses identical catalog search logic (per-keyword BiblioClient/MarcXmlClient,
+    RVK validation, deduplication) as the classic rigid pipeline.
+
+    Returns:
+        ``{"dk_entries": [...], "dk_search_results": [...], "statistics": {...},
+           "formatted_prompt": "...", "has_data": bool}``
+
+    Stores keyword-centric ``dk_search_results`` on ``context`` for GUI display.
+    """
+    if context is None:
+        raise RuntimeError("dk_search_agentic requires context")
+
+    if config:
+        max_keywords = config.get("max_keywords", max_keywords)
+
+    keywords = _build_dk_keywords(context, max_keywords)
+    if not keywords:
+        if stream_callback:
+            stream_callback("⚠️ dk_search_agentic: no keywords available — skipping\n")
+        return {
+            "dk_entries": [],
+            "dk_search_results": [],
+            "statistics": {},
+            "formatted_prompt": "",
+            "has_data": False,
+        }
+
+    if stream_callback:
+        preview = ", ".join(keywords[:5])
+        more = f" … +{len(keywords) - 5}" if len(keywords) > 5 else ""
+        stream_callback(
+            f"\n🔍 dk_search_agentic: {len(keywords)} keywords → catalog DK search\n"
+            f"   {preview}{more}\n"
+        )
+
+    # execute_dk_search expects (msg, step_id) callback — adapt single-arg agentic callback
+    def _dk_cb(msg: str, step_id: str = None) -> None:
+        if stream_callback:
+            stream_callback(msg)
+
+    try:
+        from src.utils.pipeline_utils import PipelineStepExecutor, PipelineResultFormatter
+        from src.utils.config_manager import ConfigManager
+
+        config_manager = ConfigManager()
+        executor = PipelineStepExecutor(
+            alima_manager=None,
+            cache_manager=None,
+            logger=logger,
+            config_manager=config_manager,
+        )
+        dk_result = executor.execute_dk_search(
+            keywords=keywords,
+            stream_callback=_dk_cb,
+            strict_gnd_validation=True,  # keywords formatted as "Term (GND-ID: id)" — validated
+        )
+    except Exception as exc:
+        logger.error(f"dk_search_agentic: execute_dk_search failed: {exc}")
+        if stream_callback:
+            stream_callback(f"❌ DK-Katalogsuche fehlgeschlagen: {exc}\n")
+        return {
+            "dk_entries": [],
+            "dk_search_results": [],
+            "statistics": {},
+            "formatted_prompt": "",
+            "has_data": False,
+        }
+
+    classifications = dk_result.get("classifications", [])
+    keyword_results = dk_result.get("keyword_results", [])
+    statistics = dk_result.get("statistics", {})
+
+    # Store keyword-centric results for GUI transparency
+    if hasattr(context, "dk_search_results"):
+        context.dk_search_results = keyword_results
+
+    try:
+        from src.utils.pipeline_utils import PipelineResultFormatter
+        formatted_prompt = PipelineResultFormatter.format_dk_results_for_prompt(classifications)
+    except Exception as exc:
+        logger.warning(f"dk_search_agentic: format_dk_results_for_prompt failed: {exc}")
+        formatted_prompt = ""
+
+    if stream_callback:
+        stream_callback(
+            f"✅ dk_search_agentic: {len(classifications)} DK entries, "
+            f"{len(keyword_results)} keyword-centric results\n"
+        )
+
+    return {
+        "dk_entries": classifications,
+        "dk_search_results": keyword_results,
+        "statistics": statistics,
+        "formatted_prompt": formatted_prompt,
+        "has_data": bool(classifications),
     }
 
 

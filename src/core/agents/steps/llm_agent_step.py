@@ -96,20 +96,18 @@ class LLMAgentStep(BaseStep):
         resolved_inputs: Dict[str, Any],
         context: Any,
     ) -> Dict[str, Any]:
-        system_prompt = self._render(raw_cfg.get("system_prompt", ""), resolved_inputs)
-        user_prompt = self._render(raw_cfg.get("user_prompt", ""), resolved_inputs)
         tool_names = self._resolve_tools(raw_cfg.get("tools"))
-
         params = self._llm_params(raw_cfg, context)
-        if self.stream_callback:
-            self.stream_callback(
-                f"\n{'='*50}\n🤖 LLMAgent '{self.step_id}' "
-                f"({params['provider']}/{params['model']})\n{'='*50}\n"
-            )
+        system_prompt, user_prompt, params = self._resolve_prompts(
+            raw_cfg, resolved_inputs, context, params
+        )
+
+        _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
 
         result = self._invoke_loop(system_prompt, user_prompt, tool_names, params)
         parsed = _extract_json(result.content)
 
+        _log_response(self.step_id, result.content)
         return {
             "response": parsed,
             "response_text": result.content,
@@ -142,6 +140,16 @@ class LLMAgentStep(BaseStep):
                 reverse=bool(chunk_cfg.get("sort_desc", True)),
             )
 
+        # Project each dict to specified fields only — reduces LLM input size.
+        # Done AFTER sorting so sort_by field is still available during sort.
+        chunk_fields = chunk_cfg.get("chunk_fields")
+        if chunk_fields and isinstance(chunk_fields, list):
+            items = [
+                {k: item[k] for k in chunk_fields if k in item}
+                if isinstance(item, dict) else item
+                for item in items
+            ]
+
         chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
         total = len(chunks)
 
@@ -149,12 +157,15 @@ class LLMAgentStep(BaseStep):
         params = self._llm_params(raw_cfg, context)
         merge_key = chunk_cfg.get("merge_key", "keywords")
         dedup_field = chunk_cfg.get("dedup_field", "title")
+        max_merged = chunk_cfg.get("max_merged")  # optional cap on merged output size
 
+        header = (
+            f"\n{'='*50}\n🤖 LLMAgent '{self.step_id}' chunked: "
+            f"{len(items)} items × {total} chunks × {chunk_size}\n{'='*50}\n"
+        )
         if self.stream_callback:
-            self.stream_callback(
-                f"\n{'='*50}\n🤖 LLMAgent '{self.step_id}' chunked: "
-                f"{len(items)} items × {total} chunks × {chunk_size}\n{'='*50}\n"
-            )
+            self.stream_callback(header)
+        logger.info(header.strip())
 
         merged: List[Dict[str, Any]] = []
         seen: set = set()
@@ -167,16 +178,23 @@ class LLMAgentStep(BaseStep):
             chunk_inputs["chunk_index"] = idx
             chunk_inputs["chunk_total"] = total
 
-            system_prompt = self._render(raw_cfg.get("system_prompt", ""), chunk_inputs)
-            user_prompt = self._render(raw_cfg.get("user_prompt", ""), chunk_inputs)
+            system_prompt, user_prompt, chunk_params = self._resolve_prompts(
+                raw_cfg, chunk_inputs, context, params
+            )
 
+            chunk_header = f"\n▶ Chunk {idx}/{total} ({len(chunk)} items)\n"
             if self.stream_callback:
-                self.stream_callback(f"\n▶ Chunk {idx}/{total} ({len(chunk)} items)\n")
+                self.stream_callback(chunk_header)
+            _emit_prompts(
+                f"{self.step_id}[chunk {idx}/{total}]",
+                system_prompt, user_prompt, chunk_params, self.stream_callback,
+            )
 
-            result = self._invoke_loop(system_prompt, user_prompt, tool_names, params)
+            result = self._invoke_loop(system_prompt, user_prompt, tool_names, chunk_params)
             parsed = _extract_json(result.content)
             total_iterations += getattr(result, "iterations", 1)
             per_chunk.append({"index": idx, "response": parsed})
+            _log_response(f"{self.step_id}[chunk {idx}/{total}]", result.content)
 
             chunk_items = parsed.get(merge_key, []) if isinstance(parsed, dict) else []
             if isinstance(chunk_items, list):
@@ -192,6 +210,13 @@ class LLMAgentStep(BaseStep):
                         seen.add(key)
                     merged.append(it)
 
+        if max_merged and len(merged) > max_merged:
+            if self.stream_callback:
+                self.stream_callback(
+                    f"  ✂️ merged {len(merged)} → {max_merged} (max_merged limit)\n"
+                )
+            merged = merged[:max_merged]
+
         response = {merge_key: merged}
         return {
             "response": response,
@@ -202,6 +227,45 @@ class LLMAgentStep(BaseStep):
         }
 
     # ------------------------------------------------------------------
+
+    def _resolve_prompts(
+        self,
+        raw_cfg: Dict[str, Any],
+        resolved_inputs: Dict[str, Any],
+        context: Any,
+        params: Dict[str, Any],
+    ) -> tuple:
+        """Return (system_prompt, user_prompt, params).
+
+        If ``prompt_task`` is set in the step YAML and ``context.prompt_service``
+        is available, loads prompts + temp/top_p from PromptService (prompts.json).
+        Falls back to inline YAML ``system_prompt`` / ``user_prompt`` otherwise.
+        """
+        task = raw_cfg.get("prompt_task")
+        if task:
+            ps = getattr(context, "prompt_service", None)
+            if ps is not None:
+                try:
+                    cfg = ps.get_prompt_config(task, params.get("model", ""))
+                    if cfg:
+                        system_prompt = self._render(cfg.system or "", resolved_inputs)
+                        user_prompt = self._render(cfg.prompt or "", resolved_inputs)
+                        updated = dict(params)
+                        updated["temperature"] = float(cfg.temp)
+                        updated["top_p"] = float(cfg.p_value)
+                        logger.debug(
+                            f"LLMAgentStep '{self.step_id}': prompts loaded from "
+                            f"task='{task}' (temp={cfg.temp}, top_p={cfg.p_value})"
+                        )
+                        return system_prompt, user_prompt, updated
+                except Exception as exc:
+                    logger.warning(
+                        f"LLMAgentStep '{self.step_id}': PromptService lookup failed "
+                        f"for task='{task}': {exc} — falling back to inline YAML"
+                    )
+        system_prompt = self._render(raw_cfg.get("system_prompt", ""), resolved_inputs)
+        user_prompt = self._render(raw_cfg.get("user_prompt", ""), resolved_inputs)
+        return system_prompt, user_prompt, params
 
     def _llm_params(self, raw_cfg: Dict[str, Any], context: Any) -> Dict[str, Any]:
         llm_cfg = raw_cfg.get("llm", {}) or {}
@@ -281,6 +345,43 @@ class LLMAgentStep(BaseStep):
             if preset_name:
                 return list(TOOL_PRESETS.get(preset_name, []))
         return []
+
+
+def _emit_prompts(
+    step_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    params: Dict[str, Any],
+    stream_callback: Optional[Any],
+) -> None:
+    """Stream + log system/user prompts so they appear in the console before the LLM call."""
+    provider = params.get("provider", "")
+    model = params.get("model", "")
+    temp = params.get("temperature", "?")
+    top_p = params.get("top_p", "?")
+
+    header = (
+        f"\n{'='*50}\n🤖 LLMAgent '{step_id}' "
+        f"({provider}/{model}  temp={temp}  top_p={top_p})\n{'='*50}\n"
+    )
+    sys_block = f"--- SYSTEM ---\n{system_prompt}\n"
+    usr_block = f"--- USER ---\n{user_prompt}\n{'='*50}\n"
+
+    full = header + sys_block + usr_block
+    if stream_callback:
+        stream_callback(full)
+    logger.info(full)
+
+
+def _log_response(step_id: str, content: str) -> None:
+    """Log LLM response to logger so it appears in the console independently of stream_callback."""
+    if not content:
+        logger.info(f"[{step_id}] LLM response: (empty)")
+        return
+    preview = content[:600]
+    if len(content) > 600:
+        preview += f"\n... ({len(content)} chars total)"
+    logger.info(f"[{step_id}] LLM response:\n{preview}")
 
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)

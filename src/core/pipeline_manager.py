@@ -690,6 +690,7 @@ class PipelineManager:
         ctx.model = model or ctx.model
         ctx.temperature = temperature
         ctx.verbose = self.config.agentic_verbose
+        ctx.prompt_service = self.alima_manager.prompt_service
 
         try:
             workflow = load_workflow(workflow_path, strict=True)

@@ -2529,34 +2529,52 @@ class LlmService(QObject):
 
         options = {"temperature": temperature, "top_p": top_p}
 
+        # Stream token-by-token when no tools are active (most agentic steps have tools=[]).
+        # Tool-calling requires stream=False because partial tool-call JSON can't be parsed live.
+        use_streaming = stream_callback is not None and not ollama_tools
+
         try:
-            response = self.clients[provider].chat(
-                model=model,
-                messages=ollama_messages,
-                tools=ollama_tools if ollama_tools else None,
-                options=options,
-                stream=False,
-            )
-
-            # Parse response
-            content = ""
-            tool_calls = []
-
-            if "message" in response:
-                msg = response["message"]
-                content = msg.get("content", "") or ""
-
-                if "tool_calls" in msg and msg["tool_calls"]:
-                    for i, tc in enumerate(msg["tool_calls"]):
-                        func = tc.get("function", {})
-                        tool_calls.append(ToolCall(
-                            id=f"ollama_{i}_{func.get('name', 'unknown')}",
-                            name=func.get("name", ""),
-                            arguments=func.get("arguments", {}),
-                        ))
-
-            if stream_callback and content:
-                stream_callback(content)
+            if use_streaming:
+                response_stream = self.clients[provider].chat(
+                    model=model,
+                    messages=ollama_messages,
+                    options=options,
+                    stream=True,
+                )
+                content = ""
+                for chunk in response_stream:
+                    token = ""
+                    if isinstance(chunk, dict):
+                        token = (chunk.get("message") or {}).get("content", "") or ""
+                    elif hasattr(chunk, "message"):
+                        token = getattr(chunk.message, "content", "") or ""
+                    if token:
+                        content += token
+                        stream_callback(token)
+                tool_calls = []
+            else:
+                response = self.clients[provider].chat(
+                    model=model,
+                    messages=ollama_messages,
+                    tools=ollama_tools if ollama_tools else None,
+                    options=options,
+                    stream=False,
+                )
+                content = ""
+                tool_calls = []
+                if "message" in response:
+                    msg = response["message"]
+                    content = msg.get("content", "") or ""
+                    if "tool_calls" in msg and msg["tool_calls"]:
+                        for i, tc in enumerate(msg["tool_calls"]):
+                            func = tc.get("function", {})
+                            tool_calls.append(ToolCall(
+                                id=f"ollama_{i}_{func.get('name', 'unknown')}",
+                                name=func.get("name", ""),
+                                arguments=func.get("arguments", {}),
+                            ))
+                if stream_callback and content:
+                    stream_callback(content)
 
             stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
@@ -2594,43 +2612,66 @@ class LlmService(QObject):
         # Convert messages to OpenAI format
         openai_messages = self._convert_messages_for_openai(messages)
 
+        use_streaming = stream_callback is not None and not openai_tools
+
         try:
-            params = {
-                "model": model,
-                "messages": openai_messages,
-                "temperature": temperature,
-                "top_p": top_p,
-                "max_tokens": max_tokens,
-                "stream": False,
-            }
-            if openai_tools:
-                params["tools"] = openai_tools
+            if use_streaming:
+                params = {
+                    "model": model,
+                    "messages": openai_messages,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                }
+                response_stream = self.clients[provider].chat.completions.create(**params)
+                content = ""
+                for chunk in response_stream:
+                    token = ""
+                    if chunk.choices and chunk.choices[0].delta:
+                        token = chunk.choices[0].delta.content or ""
+                    if token:
+                        content += token
+                        stream_callback(token)
+                tool_calls = []
+                stop_reason = StopReason.END_TURN
+            else:
+                params = {
+                    "model": model,
+                    "messages": openai_messages,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_tokens": max_tokens,
+                    "stream": False,
+                }
+                if openai_tools:
+                    params["tools"] = openai_tools
 
-            response = self.clients[provider].chat.completions.create(**params)
+                response = self.clients[provider].chat.completions.create(**params)
 
-            content = response.choices[0].message.content or ""
-            tool_calls = []
+                content = response.choices[0].message.content or ""
+                tool_calls = []
 
-            if response.choices[0].message.tool_calls:
-                for tc in response.choices[0].message.tool_calls:
-                    args = tc.function.arguments
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except json.JSONDecodeError:
-                            args = {"raw": args}
-                    tool_calls.append(ToolCall(
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=args,
-                    ))
+                if response.choices[0].message.tool_calls:
+                    for tc in response.choices[0].message.tool_calls:
+                        args = tc.function.arguments
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except json.JSONDecodeError:
+                                args = {"raw": args}
+                        tool_calls.append(ToolCall(
+                            id=tc.id,
+                            name=tc.function.name,
+                            arguments=args,
+                        ))
 
-            if stream_callback and content:
-                stream_callback(content)
+                if stream_callback and content:
+                    stream_callback(content)
 
-            stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
-            if response.choices[0].finish_reason == "length":
-                stop_reason = StopReason.MAX_TOKENS
+                stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
+                if response.choices[0].finish_reason == "length":
+                    stop_reason = StopReason.MAX_TOKENS
 
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
 

@@ -102,14 +102,16 @@ class DKDataProvider:
     format.
     """
 
-    def __init__(self, caching_registry, context):
+    def __init__(self, caching_registry, context, stream_callback=None):
         """
         Args:
             caching_registry: CachingToolRegistry for MCP tool access
             context: SharedContext with pipeline state
+            stream_callback: optional progress sink
         """
         self.caching_registry = caching_registry
         self.context = context
+        self.stream_callback = stream_callback
 
     def collect(self, max_keywords: int = 30) -> DKDataResult:
         """Collect DK classification data from all sources.
@@ -167,17 +169,21 @@ class DKDataProvider:
         seen_terms: Set[str] = set()
 
         for kw in self.context.selected_keywords[:max_keywords]:
-            term = kw.get("title", "")
+            term = kw.get("title", "") or kw.get("keyword", "")
             if not term or term.lower() in seen_terms:
                 continue
             seen_terms.add(term.lower())
 
+            if self.stream_callback:
+                self.stream_callback(f"  🔎 DK-Cache: {term}\n")
             try:
                 raw = self.caching_registry.execute("get_dk_cache", {"term": term})
                 data = json.loads(raw) if isinstance(raw, str) else raw
                 tool_calls += 1
 
                 if not isinstance(data, dict) or not data.get("cached"):
+                    if self.stream_callback:
+                        self.stream_callback(f"    ∅ kein Cache-Treffer\n")
                     continue
 
                 titles = data.get("titles", [])
@@ -218,12 +224,17 @@ class DKDataProvider:
         return entries, tool_calls
 
     def _collect_from_catalog(self) -> tuple:
-        """Collect DK data from search_catalog for extracted keywords.
+        """Collect DK data from catalog title search using GND-verified keywords.
 
-        search_catalog returns:
-            {"source": "catalog", "results": {
-                "term1": {"kw1": {"count": N, "gndid": [...], "ddc": [...], "dk": [...]}}
-            }}
+        Uses ``search_catalog_titles`` (keyword/subject search mode) to fetch
+        actual bibliographic records, then extracts DK/RVK codes per title.
+        This mirrors the classic pipeline's ``execute_dk_search`` approach:
+        real title records with DK notations, not just aggregated keyword codes.
+
+        Search term priority:
+          1. ``context.extra["final_keywords"]`` — curated list from selection step
+          2. ``context.selected_keywords`` titles — GND-verified filtered pool
+          3. ``context.extracted_keywords`` — initial keywords (fallback only)
 
         Returns:
             (list of normalised DK entries, tool_call_count)
@@ -231,12 +242,43 @@ class DKDataProvider:
         entries: List[Dict] = []
         tool_calls = 0
 
-        if not self.context.extracted_keywords:
+        # Build search terms from GND-verified keywords (priority order)
+        search_terms: List[str] = []
+        seen: Set[str] = set()
+
+        final_kws = (getattr(self.context, "extra", None) or {}).get("final_keywords") or []
+        for kw in final_kws:
+            term = kw.get("keyword", "") or kw.get("title", "")
+            if term and term.lower() not in seen:
+                search_terms.append(term)
+                seen.add(term.lower())
+
+        if not search_terms:
+            for kw in (self.context.selected_keywords or [])[:20]:
+                term = kw.get("title", "") or kw.get("keyword", "")
+                if term and term.lower() not in seen:
+                    search_terms.append(term)
+                    seen.add(term.lower())
+
+        if not search_terms:
+            search_terms = (self.context.extracted_keywords or [])[:10]
+
+        if not search_terms:
             return entries, tool_calls
 
+        if self.stream_callback:
+            terms_preview = ", ".join(search_terms[:5])
+            more = f" … +{len(search_terms)-5}" if len(search_terms) > 5 else ""
+            self.stream_callback(
+                f"\n📚 Katalogsuche (DK): {len(search_terms)} Schlagworte: {terms_preview}{more}\n"
+            )
+
         try:
-            raw = self.caching_registry.execute("search_catalog", {
-                "terms": self.context.extracted_keywords[:10],
+            # Keyword/subject catalog search → returns actual book records with DK codes
+            raw = self.caching_registry.execute("search_catalog_titles", {
+                "terms": search_terms[:20],
+                "search_type": "kw",
+                "max_results": 15,
             })
             data = json.loads(raw) if isinstance(raw, str) else raw
             tool_calls += 1
@@ -244,38 +286,69 @@ class DKDataProvider:
             if not isinstance(data, dict):
                 return entries, tool_calls
 
-            results = data.get("results", {})
-            for term, term_results in results.items():
-                if not isinstance(term_results, dict):
+            results = data.get("results", {}) or {}
+
+            # First pass: count how often each DK code appears across all records
+            # (= how many catalog titles carry that DK code → frequency signal)
+            dk_freq: Dict[str, int] = {}
+            for records in results.values():
+                if not isinstance(records, list):
                     continue
-                for kw_title, kw_data in term_results.items():
-                    if not isinstance(kw_data, dict):
+                for rec in records:
+                    if not isinstance(rec, dict):
                         continue
-                    dk_codes = kw_data.get("dk", [])
-                    ddc_codes = kw_data.get("ddc", [])
-                    count = kw_data.get("count", 0)
+                    for dk in (rec.get("dk_codes") or []):
+                        if dk:
+                            dk_freq[str(dk)] = dk_freq.get(str(dk), 0) + 1
+
+            # Second pass: build entries with aggregated frequency count
+            for query, records in results.items():
+                if not isinstance(records, list):
+                    continue
+                for rec in records:
+                    if not isinstance(rec, dict):
+                        continue
+                    title = rec.get("title", "")
+                    dk_codes = rec.get("dk_codes", []) or []
+                    rvk_codes = rec.get("rvk_codes", []) or []
+                    ddc_codes = rec.get("ddc_codes", []) or []
                     for dk in dk_codes:
                         if dk:
                             entries.append({
-                                "keyword": kw_title,
+                                "keyword": query,
                                 "dk": str(dk),
-                                "title": kw_title,
-                                "count": count,
+                                "title": title,
+                                "count": dk_freq.get(str(dk), 1),
                                 "source": "catalog",
                                 "classification_type": "DK",
+                            })
+                    for rvk in rvk_codes:
+                        if rvk:
+                            entries.append({
+                                "keyword": query,
+                                "dk": str(rvk),
+                                "title": title,
+                                "count": 1,
+                                "source": "catalog",
+                                "classification_type": "RVK",
                             })
                     for ddc in ddc_codes:
                         if ddc:
                             entries.append({
-                                "keyword": kw_title,
+                                "keyword": query,
                                 "dk": str(ddc),
-                                "title": kw_title,
-                                "count": count,
+                                "title": title,
+                                "count": 1,
                                 "source": "catalog",
                                 "classification_type": "DDC",
                             })
+            if self.stream_callback:
+                dk_count = sum(1 for e in entries if e.get("classification_type") == "DK")
+                self.stream_callback(f"  ✅ {len(entries)} Einträge ({dk_count} DK)\n")
         except Exception as e:
-            logger.debug(f"search_catalog failed: {e}")
+            logger.debug(f"_collect_from_catalog (titles): {e}")
+            if self.stream_callback:
+                self.stream_callback(f"  ⚠️ Katalogsuche fehlgeschlagen: {e}\n")
 
         return entries, tool_calls
 

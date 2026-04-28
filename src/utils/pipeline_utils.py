@@ -5922,7 +5922,7 @@ class PipelineResultFormatter:
 
                     catalog_results.append(entry)
 
-        return "\n".join(catalog_results)
+        return "\n---\n".join(catalog_results)
 
     @staticmethod
     def parse_dk_results_from_text(text: str) -> List[Dict[str, Any]]:
