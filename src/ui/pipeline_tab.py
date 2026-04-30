@@ -45,7 +45,6 @@ from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
 from .unified_input_widget import UnifiedInputWidget
 from .pipeline_stream_widget import PipelineStreamWidget
-from .agentic_context_widget import AgenticContextWidget
 from .workers import PipelineWorker
 
 
@@ -233,6 +232,11 @@ class PipelineTab(QWidget):
     metadata_ready = pyqtSignal(dict)       # For CrossrefTab.display_metadata()
     analysis_results_ready = pyqtSignal(object)  # For AbstractTab analysis results
     pipeline_results_ready = pyqtSignal(object)  # Complete analysis_state for distribution - Claude Generated
+
+    # Agentic dock signals – routed through MainWindow to QDockWidget - Claude Generated
+    agentic_context_updated = pyqtSignal(str, dict)   # step_name, snapshot
+    agentic_mode_changed = pyqtSignal(bool)            # enabled
+    agentic_workflow_built = pyqtSignal(object)        # WorkflowDef
 
     def __init__(
         self,
@@ -467,25 +471,14 @@ class PipelineTab(QWidget):
         self.create_pipeline_step_tabs()
         self.main_splitter.addWidget(self.pipeline_tabs)
 
-        # Right side: Live streaming widget
+        # Right side: Live streaming widget (agentic context moved to floating QDockWidget) - Claude Generated
         self.stream_widget = PipelineStreamWidget()
 
         # Connect streaming widget signals
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)
         self.stream_widget.abort_generation_requested.connect(self.on_abort_current_step_requested)  # Claude Generated
 
-        # Right side: vertical split between stream widget and agentic context widget - Claude Generated
-        right_splitter = QSplitter(Qt.Orientation.Vertical)
-        right_splitter.addWidget(self.stream_widget)
-        self.agentic_context_widget = AgenticContextWidget()
-        self.agentic_context_widget.setVisible(False)
-        right_splitter.addWidget(self.agentic_context_widget)
-        right_splitter.setStretchFactor(0, 60)
-        right_splitter.setStretchFactor(1, 40)
-        right_splitter.setSizes([400, 300])
-        self._right_splitter = right_splitter
-
-        self.main_splitter.addWidget(right_splitter)
+        self.main_splitter.addWidget(self.stream_widget)
 
         # Initial split: 65% tabs (dominant when idle), 35% stream - Claude Generated
         self.main_splitter.setStretchFactor(0, 65)
@@ -1507,10 +1500,10 @@ class PipelineTab(QWidget):
         self.pipeline_worker.stream_token.connect(self.on_llm_stream_token)
         self.pipeline_worker.aborted.connect(self.on_pipeline_aborted)  # Claude Generated
         self.pipeline_worker.repetition_detected.connect(self.on_repetition_detected)  # Claude Generated (2026-02-17)
-        if hasattr(self, "agentic_context_widget"):
-            self.pipeline_worker.agentic_context_updated.connect(
-                self.agentic_context_widget.on_context_updated
-            )  # Claude Generated
+        # Forward agentic context updates to MainWindow dock via signal - Claude Generated
+        self.pipeline_worker.agentic_context_updated.connect(self.agentic_context_updated)
+        # Also update classical step tabs from agentic snapshots in real-time - Claude Generated
+        self.pipeline_worker.agentic_context_updated.connect(self._on_agentic_step_snapshot)
 
         # Start the worker
         self.pipeline_worker.start()
@@ -1892,13 +1885,11 @@ class PipelineTab(QWidget):
         self._rebuild_agentic_panels()
 
     def _rebuild_agentic_panels(self) -> None:
-        """Load active workflow YAML and rebuild the context-widget panels.
+        """Load active workflow YAML and emit workflow def to MainWindow dock.
 
-        No-op when agentic mode is off, widget missing, or the workflow can't
-        be found. Failures are logged but never abort the pipeline start.
+        No-op when agentic mode is off or the workflow can't be found.
+        Failures are logged but never abort the pipeline start.
         """
-        if not hasattr(self, "agentic_context_widget"):
-            return
         if not self.pipeline_manager or not self.pipeline_manager.config:
             return
         if not self.pipeline_manager.config.enable_agentic_mode:
@@ -1914,11 +1905,11 @@ class PipelineTab(QWidget):
             wf_path = find_workflow_file(wf_name)
             if wf_path is None:
                 self.logger.warning(
-                    f"Agentic widget: workflow '{wf_name}' not found — panels not rebuilt"
+                    f"Agentic dock: workflow '{wf_name}' not found — panels not rebuilt"
                 )
                 return
             wf_def = load_workflow(wf_path, strict=False)
-            self.agentic_context_widget.build_panels(wf_def)
+            self.agentic_workflow_built.emit(wf_def)
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Agentic panel rebuild failed: {e}")
 
@@ -1935,15 +1926,16 @@ class PipelineTab(QWidget):
         self.meta_agent_checkbox.setVisible(enabled)
         if not enabled:
             self.meta_agent_checkbox.setChecked(False)
-        if hasattr(self, "agentic_context_widget"):
-            self.agentic_context_widget.setVisible(enabled)
-            if enabled:
-                self.agentic_context_widget.reset()
-                # Preview panels for the currently-selected workflow so the
-                # widget is populated before the first run.
-                self._rebuild_agentic_panels()
-            else:
-                self.agentic_context_widget.clear_panels()
+        # Notify MainWindow dock, adjust splitter - Claude Generated
+        self.agentic_mode_changed.emit(enabled)
+        w = self.main_splitter.width() or 1000
+        if enabled:
+            # More space for stream; context lives in external dock
+            self.main_splitter.setSizes([int(w * 0.45), int(w * 0.55)])
+            # Preview workflow panels in dock before first run
+            self._rebuild_agentic_panels()
+        else:
+            self.main_splitter.setSizes([int(w * 0.65), int(w * 0.35)])
 
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:
@@ -2095,57 +2087,7 @@ class PipelineTab(QWidget):
             if hasattr(self, "keyword_chains_result"):
                 llm_analysis = step.output_data.get("llm_analysis")
                 chains = llm_analysis.keyword_chains if llm_analysis else []
-                if chains:
-                    import re as _re
-                    def _normalise(kw: str) -> str:
-                        return _re.sub(r"\s*\(GND-ID:[^)]*\)", "", kw).strip().lower()
-
-                    def _esc(s: str) -> str:
-                        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-                    final_normalised = {_normalise(k) for k in final_keywords_list}
-
-                    blocks = []
-                    for c in chains:
-                        parts = c.get("chain", [])
-                        reason = c.get("reason", "")
-                        kw_html_parts = []
-                        all_present = True
-                        for kw in parts:
-                            if _normalise(kw) in final_normalised:
-                                kw_html_parts.append(
-                                    f'<span style="color:#4caf50;font-weight:bold">{_esc(kw)}</span>'
-                                )
-                            else:
-                                kw_html_parts.append(
-                                    f'<span style="color:#f44336;font-weight:bold">{_esc(kw)} ✗</span>'
-                                )
-                                all_present = False
-                        arrow = '<span style="color:#888"> → </span>'
-                        chain_html = arrow.join(kw_html_parts)
-                        status_icon = "✓" if all_present else "⚠"
-                        status_color = "#4caf50" if all_present else "#ff9800"
-                        block = (
-                            f'<p style="margin:4px 0 0 0">'
-                            f'<span style="color:{status_color};font-weight:bold">{status_icon} </span>'
-                            f'{chain_html}</p>'
-                        )
-                        if reason:
-                            block += (
-                                f'<p style="margin:1px 0 6px 16px;color:#aaa;font-style:italic">'
-                                f'{_esc(reason)}</p>'
-                            )
-                        else:
-                            block += '<p style="margin:0 0 6px 0"></p>'
-                        blocks.append(block)
-
-                    self.keyword_chains_result.setHtml(
-                        '<html><body style="font-family:monospace">'
-                        + "".join(blocks)
-                        + "</body></html>"
-                    )
-                else:
-                    self.keyword_chains_result.setPlainText("Keine Schlagwortketten in LLM-Antwort gefunden.")
+                self._render_keyword_chains(chains, final_keywords_list)
 
         elif step.step_id == "dk_search" and step.output_data:
             # Display DK search results with counts and titles - Claude Generated (Enhanced with filtering)
@@ -2292,6 +2234,10 @@ class PipelineTab(QWidget):
         # Emit complete analysis_state for distribution to specialized tabs - Claude Generated
         if analysis_state:
             self.pipeline_results_ready.emit(analysis_state)
+            # Sync classical step tabs from agentic result (no step_completed fires in agentic mode) - Claude Generated
+            if (self.pipeline_manager and self.pipeline_manager.config
+                    and self.pipeline_manager.config.enable_agentic_mode):
+                self._sync_classical_tabs_from_state(analysis_state)
 
         # Optional: Auto-save after completion - Claude Generated
         if hasattr(analysis_state, 'working_title') and analysis_state.working_title:
@@ -2313,6 +2259,186 @@ class PipelineTab(QWidget):
             "Pipeline abgeschlossen",
             "Die komplette Analyse-Pipeline wurde erfolgreich abgeschlossen!",
         )
+
+    def _render_keyword_chains(self, chains: list, final_keywords_source) -> None:
+        """Render Schlagwortketten with green/red verification into keyword_chains_result - Claude Generated"""
+        if not hasattr(self, "keyword_chains_result"):
+            return
+        if not chains:
+            self.keyword_chains_result.setPlainText("Keine Schlagwortketten in LLM-Antwort gefunden.")
+            return
+
+        import re as _re
+
+        def _norm(kw: str) -> str:
+            return _re.sub(r"\s*\(GND-ID:[^)]*\)", "", kw).strip().lower()
+
+        def _esc(s: str) -> str:
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        # Normalize final keywords – accepts list[str] or list[dict{keyword}]
+        final_set: set = set()
+        for item in (final_keywords_source or []):
+            if isinstance(item, dict):
+                final_set.add(_norm(item.get("keyword", "")))
+            else:
+                final_set.add(_norm(str(item)))
+
+        blocks = []
+        for c in chains:
+            parts = c.get("chain", [])
+            reason = c.get("reason", "")
+            kw_html_parts = []
+            all_present = True
+            for kw in parts:
+                if _norm(kw) in final_set:
+                    kw_html_parts.append(f'<span style="color:#4caf50;font-weight:bold">{_esc(kw)}</span>')
+                else:
+                    kw_html_parts.append(f'<span style="color:#f44336;font-weight:bold">{_esc(kw)} ✗</span>')
+                    all_present = False
+            arrow = '<span style="color:#888"> → </span>'
+            status_color = "#4caf50" if all_present else "#ff9800"
+            block = (
+                f'<p style="margin:4px 0 0 0">'
+                f'<span style="color:{status_color};font-weight:bold">{"✓" if all_present else "⚠"} </span>'
+                f'{arrow.join(kw_html_parts)}</p>'
+            )
+            if reason:
+                block += f'<p style="margin:1px 0 6px 16px;color:#aaa;font-style:italic">{_esc(reason)}</p>'
+            else:
+                block += '<p style="margin:0 0 6px 0"></p>'
+            blocks.append(block)
+
+        self.keyword_chains_result.setHtml(
+            '<html><body style="font-family:monospace">' + "".join(blocks) + "</body></html>"
+        )
+
+    @pyqtSlot(str, dict)
+    def _on_agentic_step_snapshot(self, step_id: str, snapshot: dict) -> None:
+        """Update classical step-tab widgets from agentic step completion snapshots - Claude Generated.
+
+        Mapping: extraction→initialisation, search→search, selection→keywords,
+                 dk_collect→dk_search, dk_postprocess→dk_classification
+        """
+        if snapshot.get("_step_status") not in ("completed", "error"):
+            return  # skip running/pending intermediate emissions
+        try:
+            if step_id == "extraction":
+                keywords = snapshot.get("extracted_keywords", [])
+                if keywords and hasattr(self, "initialisation_result"):
+                    text = "\n".join(keywords) if isinstance(keywords, list) else str(keywords)
+                    self.initialisation_result.setPlainText(text)
+                working_title = snapshot.get("working_title", "")
+                if working_title:
+                    if hasattr(self, "title_label"):
+                        self.title_label.setText(f"📋 {working_title}")
+                    if hasattr(self, "title_override_field"):
+                        self.title_override_field.setPlaceholderText(f"Current: {working_title}")
+                    if hasattr(self, "stream_widget"):
+                        self.stream_widget.set_working_title(working_title)
+
+            elif step_id == "search":
+                gnd_entries = snapshot.get("gnd_entries", [])
+                if hasattr(self, "search_result"):
+                    if gnd_entries:
+                        lines = []
+                        for entry in gnd_entries:
+                            if isinstance(entry, dict):
+                                kw = entry.get("keyword") or entry.get("title", "")
+                                gnd_id = entry.get("gnd_id", "")
+                                lines.append(f"{kw} ({gnd_id})" if gnd_id else kw)
+                        self.search_result.setPlainText("\n".join(lines))
+                    else:
+                        self.search_result.setPlainText("Keine GND-Treffer gefunden")
+
+            elif step_id == "selection":
+                final_kws = snapshot.get("extra", {}).get("final_keywords", [])
+                if final_kws and hasattr(self, "keywords_result"):
+                    lines = []
+                    for kw in final_kws:
+                        if isinstance(kw, dict):
+                            lines.append(f"{kw.get('keyword', '')} (GND-ID: {kw.get('gnd_id', '')})")
+                        else:
+                            lines.append(str(kw))
+                    self.keywords_result.setPlainText("\n".join(lines))
+                chains = snapshot.get("keyword_chains", [])
+                if chains:
+                    self._render_keyword_chains(chains, final_kws)
+
+            elif step_id == "dk_collect":
+                dk_results = snapshot.get("dk_search_results", [])
+                if dk_results and hasattr(self, "dk_search_results"):
+                    self.dk_search_raw_data = dk_results
+                    self._display_dk_search_results(dk_results)
+
+            elif step_id == "dk_postprocess":
+                dk_results = snapshot.get("dk_search_results", [])
+                dk_class = snapshot.get("dk_classifications", [])
+                if dk_results and hasattr(self, "dk_search_results"):
+                    self.dk_search_raw_data = dk_results
+                    self._display_dk_search_results(dk_results)
+                if dk_class and hasattr(self, "dk_classification_results"):
+                    html_display = self._format_dk_classifications_with_titles(
+                        dk_class, dk_results
+                    )
+                    self.dk_classification_results.setHtml(html_display)
+
+        except Exception as e:
+            self.logger.warning(f"_on_agentic_step_snapshot({step_id}) failed: {e}")
+
+    def _sync_classical_tabs_from_state(self, state) -> None:
+        """Populate classical step-tab widgets from analysis_state after agentic run.
+
+        In agentic mode step_completed never fires, so this fills the same widgets
+        that on_step_completed() would normally update. - Claude Generated
+        """
+        try:
+            # Init tab: extracted keywords
+            if state.initial_keywords and hasattr(self, "initialisation_result"):
+                self.initialisation_result.setPlainText("\n".join(state.initial_keywords))
+
+            # Search tab: show search terms from search_results
+            if state.search_results and hasattr(self, "search_result"):
+                terms = [sr.search_term for sr in state.search_results if sr.search_term]
+                self.search_result.setPlainText("\n".join(terms) if terms else "Keine GND-Treffer gefunden")
+
+            # Keywords tab: final GND keywords
+            if hasattr(self, "keywords_result"):
+                final_kws = []
+                if state.final_llm_analysis and state.final_llm_analysis.extracted_gnd_keywords:
+                    final_kws = state.final_llm_analysis.extracted_gnd_keywords
+                elif state.initial_keywords:
+                    final_kws = state.initial_keywords
+                if final_kws:
+                    text = "\n".join(final_kws) if isinstance(final_kws, list) else str(final_kws)
+                    self.keywords_result.setPlainText(text)
+
+            # DK search tab
+            if state.dk_search_results_flattened and hasattr(self, "dk_search_results"):
+                self.dk_search_raw_data = state.dk_search_results_flattened
+                self._display_dk_search_results(state.dk_search_results_flattened)
+
+            # DK classification tab
+            if state.dk_classifications and hasattr(self, "dk_classification_results"):
+                html_display = self._format_dk_classifications_with_titles(
+                    state.dk_classifications,
+                    state.dk_search_results_flattened or []
+                )
+                self.dk_classification_results.setHtml(html_display)
+
+            # DK compact stats
+            if state.dk_statistics and hasattr(self, "dk_compact_stats"):
+                stats = state.dk_statistics
+                total = stats.get("total_classifications", 0)
+                dedup = stats.get("deduplication_stats", {})
+                orig = dedup.get("original_count", 0)
+                rate = dedup.get("deduplication_rate", "0%")
+                self.dk_compact_stats.setText(
+                    f"📊 <b>Klassifikations-Statistik:</b> {orig} Katalogtreffer → "
+                    f"<b>{total}</b> unikale Klassifikationen (Deduplizierungsrate: {rate})"
+                )
+        except Exception as e:
+            self.logger.warning(f"_sync_classical_tabs_from_state failed: {e}")
 
     def on_abort_current_step_requested(self):
         """Abort only the current LLM generation; pipeline continues - Claude Generated"""

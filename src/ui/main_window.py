@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QTextEdit,
     QSizePolicy,
+    QDockWidget,
 )
 import requests
 import gzip
@@ -70,6 +71,7 @@ from .styles import (
 from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
 from .comparison_tab import ComparisonTab
+from .agentic_context_widget import AgenticContextWidget
 # dk_classification_tab and dk_analysis_tab replaced by dk_analysis_unified_tab
 import logging
 
@@ -603,6 +605,41 @@ class MainWindow(QMainWindow):
 
         # Initialize status bar with services
         self.global_status_bar.set_services(self.llm_service, self.cache_manager)
+
+        # Agentic context dock – floatable/dockable, hidden until agentic mode is active - Claude Generated
+        self.agentic_context_widget = AgenticContextWidget()
+        self.agentic_dock = QDockWidget("🤖 Agentic Kontext", self)
+        self.agentic_dock.setWidget(self.agentic_context_widget)
+        self.agentic_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.BottomDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.agentic_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        self.agentic_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.agentic_dock)
+
+        # Connect pipeline_tab agentic signals to dock - Claude Generated
+        self.pipeline_tab.agentic_context_updated.connect(
+            self.agentic_context_widget.on_context_updated
+        )
+        self.pipeline_tab.agentic_mode_changed.connect(self._on_agentic_mode_changed)
+        self.pipeline_tab.agentic_workflow_built.connect(
+            self.agentic_context_widget.build_panels
+        )
+
+    def _on_agentic_mode_changed(self, enabled: bool) -> None:
+        """Show/hide the agentic context dock when pipeline mode changes - Claude Generated"""
+        if enabled:
+            self.agentic_context_widget.reset()
+            self.agentic_dock.show()
+        else:
+            self.agentic_context_widget.clear_panels()
+            self.agentic_dock.hide()
 
     def get_provider_info(self):
         """Get cached provider information from ProviderStatusService - Claude Generated"""

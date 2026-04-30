@@ -125,7 +125,7 @@ class AgenticStepPanel(QFrame):
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self.body.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self.body.setMinimumHeight(180)
+        self.body.setMinimumHeight(100)
         self.body.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
