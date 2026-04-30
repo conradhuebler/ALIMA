@@ -912,25 +912,6 @@ class UnifiedInputWidget(QWidget):
         # Action buttons for text
         text_actions = QHBoxLayout()
 
-        use_button = QPushButton("✅ Text verwenden")
-        use_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """
-        )
-        use_button.clicked.connect(self.use_current_text)
-        text_actions.addWidget(use_button)
-
         # Stop button for extraction - Claude Generated
         self.stop_extraction_button = QPushButton("⏹️ Stoppen")
         self.stop_extraction_button.setStyleSheet(

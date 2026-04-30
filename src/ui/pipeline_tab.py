@@ -318,31 +318,6 @@ class PipelineTab(QWidget):
         except Exception as e:
             self.logger.error(f"Error syncing iterative search controls: {e}")
 
-    def _populate_global_override_combo(self):
-        """Populate the global override combo with available provider/model pairs - Claude Generated"""
-        try:
-            self.global_override_combo.clear()
-            self.global_override_combo.addItem("-- Standard --", None)
-
-            from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            unified_config = config_manager.get_unified_config()
-            enabled_providers = unified_config.get_enabled_providers()
-
-            for provider in enabled_providers:
-                provider_name = provider.name
-                models = getattr(provider, 'available_models', []) or []
-                if not models and getattr(provider, 'preferred_model', None):
-                    models = [provider.preferred_model]
-
-                for model in models:
-                    display = f"{provider_name} | {model}"
-                    data = f"{provider_name}|{model}"
-                    self.global_override_combo.addItem(display, data)
-
-            self.logger.debug(f"Override combo populated: {self.global_override_combo.count() - 1} models")
-        except Exception as e:
-            self.logger.error(f"Error populating override combo: {e}")
 
     def update_current_step_duration(self):
         """Update the duration of the currently running step in the status label - Claude Generated"""
@@ -690,11 +665,6 @@ class PipelineTab(QWidget):
 
         tb_layout.addStretch()
 
-        # Mode indicator - Claude Generated
-        self.mode_indicator_label = QLabel()
-        self._update_mode_indicator()
-        tb_layout.addWidget(self.mode_indicator_label)
-
         # Pipeline status label - Claude Generated
         self.pipeline_status_label = QLabel("Bereit")
         self.pipeline_status_label.setStyleSheet("color: #666; padding-left: 8px;")
@@ -714,26 +684,6 @@ class PipelineTab(QWidget):
         adv_layout = QHBoxLayout(self.advanced_frame)
         adv_layout.setContentsMargins(8, 4, 8, 4)
         adv_layout.setSpacing(10)
-
-        # Global Model Override ComboBox - Claude Generated
-        override_label = QLabel("🔬 Modell-Override:")
-        override_label.setStyleSheet("color: #555;")
-        override_label.setToolTip("Erzwingt Provider/Modell für alle LLM-Steps")
-        adv_layout.addWidget(override_label)
-
-        self.global_override_combo = QComboBox()
-        self.global_override_combo.setMinimumWidth(180)
-        self.global_override_combo.setMaximumWidth(300)
-        self.global_override_combo.setToolTip(
-            "Globaler Override: Erzwingt Provider/Modell für alle LLM-Steps\n"
-            "(Initialisation, Keywords, DK-Klassifikation)\n\n"
-            "\"-- Standard --\" = Normale Provider-Auswahl"
-        )
-        self.global_override_combo.setStyleSheet(
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }"
-        )
-        self._populate_global_override_combo()
-        adv_layout.addWidget(self.global_override_combo)
 
         # Separator
         sep2 = QFrame()
@@ -791,7 +741,7 @@ class PipelineTab(QWidget):
             "QCheckBox { font-weight: bold; color: #d32f2f; font-size: 11px; }"
             "QCheckBox::indicator { width: 16px; height: 16px; }"
         )
-        self.agentic_mode_checkbox.setChecked(False)
+        self.agentic_mode_checkbox.setChecked(True)
         self.agentic_mode_checkbox.stateChanged.connect(self.on_agentic_mode_toggled)
         adv_layout.addWidget(self.agentic_mode_checkbox)
 
@@ -840,56 +790,6 @@ class PipelineTab(QWidget):
         visible = not self.advanced_frame.isVisible()
         self.advanced_frame.setVisible(visible)
         self.advanced_toggle_button.setText("▲ Erweitert" if visible else "▼ Erweitert")
-
-    def _update_mode_indicator(self):
-        """Update mode indicator to show current pipeline mode - Claude Generated"""
-        try:
-            # Get the overall pipeline mode by checking if most steps use Smart Mode
-            config = self.pipeline_manager.config
-            if not hasattr(config, 'step_configs') or not config.step_configs:
-                self.mode_indicator_label.setText("🤖 Smart Mode")
-                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
-                self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
-                return
-
-            # Count configuration types across LLM steps (baseline vs override)
-            llm_steps = ["initialisation", "keywords", "dk_classification"]
-            config_counts = {"baseline": 0, "override": 0}
-
-            for step_id in llm_steps:
-                if step_id in config.step_configs:
-                    step_config = config.step_configs[step_id]
-                    # In baseline + override architecture: check if provider/model are explicitly set
-                    if step_config.provider and step_config.model:
-                        config_counts["override"] += 1
-                    else:
-                        config_counts["baseline"] += 1
-                else:
-                    config_counts["baseline"] += 1  # Default to smart baseline
-
-            # Determine dominant configuration type
-            dominant_config = max(config_counts, key=config_counts.get)
-
-            # Set configuration indicator based on dominant type
-            if dominant_config == "baseline" or config_counts["override"] == 0:
-                self.mode_indicator_label.setText("🤖 Smart Baseline")
-                self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
-                self.mode_indicator_label.setToolTip("Configuration: Smart Baseline (automatic provider/model selection)")
-            elif config_counts["baseline"] == 0:
-                self.mode_indicator_label.setText("⚙️ Full Override")
-                self.mode_indicator_label.setStyleSheet("color: #d32f2f; font-weight: bold;")
-                self.mode_indicator_label.setToolTip("Configuration: Full Override (all steps manually configured)")
-            else:  # mixed
-                self.mode_indicator_label.setText("🔧 Mixed Config")
-                self.mode_indicator_label.setStyleSheet("color: #1976d2; font-weight: bold;")
-                self.mode_indicator_label.setToolTip(f"Configuration: Mixed (baseline: {config_counts['baseline']}, override: {config_counts['override']})")
-
-        except Exception as e:
-            self.logger.error(f"Error updating mode indicator: {e}")
-            # Fallback to Smart Mode
-            self.mode_indicator_label.setText("🤖 Smart Mode")
-            self.mode_indicator_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
-            self.mode_indicator_label.setToolTip("Pipeline Mode: Smart (automatic provider/model selection)")
 
     def jump_to_step(self, step_id: str):
         """Jump to specific pipeline step - Claude Generated"""
@@ -1437,9 +1337,6 @@ class PipelineTab(QWidget):
             )
             return
 
-        # Apply global model override from combo box - Claude Generated
-        self._apply_global_override_from_gui()
-
         # Update DK configuration from GUI widgets - Claude Generated
         self._update_dk_config_from_gui()
 
@@ -1515,27 +1412,6 @@ class PipelineTab(QWidget):
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_pipeline_started("pipeline_thread")
 
-    def _apply_global_override_from_gui(self):
-        """Apply global provider/model override from combo box to pipeline config - Claude Generated"""
-        if not hasattr(self, 'global_override_combo'):
-            return
-
-        override_data = self.global_override_combo.currentData()
-        config = self.pipeline_manager.config
-        if not config:
-            return
-
-        if override_data:
-            provider, model = PipelineConfig.parse_override_string(override_data)
-            config.global_provider_override = provider
-            config.global_model_override = model
-            config.apply_global_override()
-            self.logger.info(f"🔬 GUI override applied: {provider}/{model}")
-        else:
-            # "-- Standard --" selected, clear any previous override
-            config.global_provider_override = None
-            config.global_model_override = None
-
     def _update_dk_config_from_gui(self):
         """
         Update DK pipeline configuration from GUI widgets - Claude Generated
@@ -1589,9 +1465,6 @@ class PipelineTab(QWidget):
         # Update step widgets to reflect new configuration
         self.update_step_display_from_config()
 
-        # Update mode indicator to reflect new configuration
-        self._update_mode_indicator()
-
         QMessageBox.information(
             self,
             "Konfiguration gespeichert",
@@ -1639,9 +1512,6 @@ class PipelineTab(QWidget):
                     step_widget.setStyleSheet("")
 
                 step_widget.update_status_display()
-
-        # Update mode indicator to reflect configuration changes
-        self._update_mode_indicator()
 
     def _determine_selection_reason(self, step_id: str, provider: str, model: str) -> str:
         """Determine why this provider/model was selected for the step - Claude Generated"""
