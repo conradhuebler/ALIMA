@@ -102,7 +102,8 @@ class LLMAgentStep(BaseStep):
             raw_cfg, resolved_inputs, context, params
         )
 
-        _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
+        if getattr(context, 'verbose', False):
+            _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
 
         result = self._invoke_loop(system_prompt, user_prompt, tool_names, params)
         parsed = _extract_json(result.content)
@@ -185,10 +186,11 @@ class LLMAgentStep(BaseStep):
             chunk_header = f"\n▶ Chunk {idx}/{total} ({len(chunk)} items)\n"
             if self.stream_callback:
                 self.stream_callback(chunk_header)
-            _emit_prompts(
-                f"{self.step_id}[chunk {idx}/{total}]",
-                system_prompt, user_prompt, chunk_params, self.stream_callback,
-            )
+            if getattr(context, 'verbose', False):
+                _emit_prompts(
+                    f"{self.step_id}[chunk {idx}/{total}]",
+                    system_prompt, user_prompt, chunk_params, self.stream_callback,
+                )
 
             result = self._invoke_loop(system_prompt, user_prompt, tool_names, chunk_params)
             parsed = _extract_json(result.content)

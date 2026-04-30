@@ -6,6 +6,7 @@ Claude Generated - Extends AlimaManager functionality for UI pipeline workflow
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable
 import logging
+import re as _re
 from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
@@ -48,6 +49,117 @@ from ..utils.pipeline_defaults import (
     DEFAULT_DK_MAX_RESULTS,
     DEFAULT_DK_FREQUENCY_THRESHOLD,
 )
+
+
+class _AgenticStreamFilter:
+    """Line-buffer filter: strips JSON syntax from agentic LLM streaming output.
+
+    Non-JSON status messages (emojis, headers) pass through unchanged.
+    JSON keyword/gnd_id objects → "keyword (gnd_id)".
+    Compact single-line JSON objects/arrays → parsed and extracted.
+    Numeric, boolean, and structural-only lines → suppressed.
+    """
+
+    _SKIP = _re.compile(r'^[\s\{\}\[\],]*$|^```')
+    _KV_STR = _re.compile(r'"([^"]+)":\s*"([^"]*)"')
+    _KV_KEY_STRUCT = _re.compile(r'"[^"]+"\s*:\s*[\[\{]')
+    _KV_SCALAR = _re.compile(r'"[^"]+"\s*:\s*(?:[\d.eE+-]+|true|false|null)')
+
+    _STRUCTURAL_KEYS = frozenset({
+        'keywords', 'classifications', 'search_terms',
+        'missing_concepts', 'final_keywords', 'gnd_entries',
+    })
+
+    def __init__(self, raw_cb: Callable[[str], None]) -> None:
+        self._cb = raw_cb
+        self._buf = ""
+        self._pending_keyword = ""
+
+    def __call__(self, token: str) -> None:
+        self._buf += token
+        while '\n' in self._buf:
+            line, self._buf = self._buf.split('\n', 1)
+            self._process_line(line)
+
+    def flush(self) -> None:
+        if self._buf:
+            self._process_line(self._buf)
+            self._buf = ""
+        if self._pending_keyword:
+            self._cb(f"{self._pending_keyword}\n")
+            self._pending_keyword = ""
+
+    def _emit_parsed(self, obj: Any) -> None:
+        """Recursively emit readable text from a parsed JSON value."""
+        if isinstance(obj, dict):
+            keyword = obj.get('keyword') or ''
+            gnd_id = obj.get('gnd_id') or ''
+            if keyword and gnd_id:
+                self._cb(f"{keyword} ({gnd_id})\n")
+                return
+            if keyword:
+                self._cb(f"{keyword}\n")
+                return
+            # No keyword field — show title/string values then recurse into lists
+            for key in ('title', 'working_title'):
+                val = obj.get(key) or ''
+                if val:
+                    self._cb(f"{val}\n")
+            for key, val in obj.items():
+                if key in ('title', 'working_title'):
+                    continue
+                if isinstance(val, list):
+                    for item in val:
+                        self._emit_parsed(item)
+                elif isinstance(val, str) and val.strip() and key not in self._STRUCTURAL_KEYS:
+                    self._cb(f"{val}\n")
+        elif isinstance(obj, list):
+            for item in obj:
+                self._emit_parsed(item)
+        elif isinstance(obj, str) and obj.strip():
+            self._cb(f"{obj}\n")
+
+    def _process_line(self, line: str) -> None:
+        s = line.strip().rstrip(',')
+        if not s or self._SKIP.match(s):
+            return
+
+        # Compact JSON object or array on one line — parse directly
+        if s.startswith('{') or s.startswith('['):
+            if self._pending_keyword:
+                self._cb(f"{self._pending_keyword}\n")
+                self._pending_keyword = ""
+            try:
+                import json as _json
+                self._emit_parsed(_json.loads(s))
+            except Exception:
+                pass  # partial/invalid JSON — suppress
+            return
+
+        m = self._KV_STR.match(s)
+        if m:
+            key, val = m.groups()
+            if key == 'keyword':
+                self._pending_keyword = val
+            elif key == 'gnd_id' and self._pending_keyword:
+                self._cb(f"{self._pending_keyword} ({val})\n")
+                self._pending_keyword = ""
+            elif key not in self._STRUCTURAL_KEYS:
+                if self._pending_keyword:
+                    self._cb(f"{self._pending_keyword}\n")
+                    self._pending_keyword = ""
+                self._cb(f"{val}\n")
+            return
+        if self._KV_KEY_STRUCT.match(s) or self._KV_SCALAR.match(s):
+            if self._pending_keyword:
+                self._cb(f"{self._pending_keyword}\n")
+                self._pending_keyword = ""
+            return
+        # Non-JSON line (status message with emojis, headers) → pass through
+        if self._pending_keyword:
+            self._cb(f"{self._pending_keyword}\n")
+            self._pending_keyword = ""
+        self._cb(line + '\n')
 
 
 @dataclass
@@ -703,8 +815,15 @@ class PipelineManager:
 
         tool_registry = create_caching_registry(config_manager=self.config_manager)
 
+        _json_filter: Optional[_AgenticStreamFilter] = None
+        if self.stream_callback and not self.config.agentic_verbose:
+            _raw_cb = self.stream_callback  # capture for closure
+            _json_filter = _AgenticStreamFilter(lambda msg: _raw_cb(msg, "agentic"))
+
         def _stream(msg: str) -> None:
-            if self.stream_callback:
+            if _json_filter is not None:
+                _json_filter(msg)
+            elif self.stream_callback:
                 self.stream_callback(msg, "agentic")
 
         # Check for MetaAgent config in workflow YAML or UI override
@@ -755,6 +874,8 @@ class PipelineManager:
                     only_step=self.config.agentic_step_id or None,
                     stop_on_error=True,
                 )
+            if _json_filter is not None:
+                _json_filter.flush()
             if not report.success:
                 raise RuntimeError(report.error or "v4 workflow failed")
 
@@ -763,6 +884,8 @@ class PipelineManager:
                 self.pipeline_completed_callback(self.current_analysis_state)
 
         except Exception as e:  # noqa: BLE001
+            if _json_filter is not None:
+                _json_filter.flush()
             self.logger.error(f"v4 workflow pipeline failed: {e}")
             if self.stream_callback:
                 self.stream_callback(f"\n❌ Workflow Fehler: {e}", "error")

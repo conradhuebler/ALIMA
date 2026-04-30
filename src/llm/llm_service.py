@@ -2573,8 +2573,6 @@ class LlmService(QObject):
                                 name=func.get("name", ""),
                                 arguments=func.get("arguments", {}),
                             ))
-                if stream_callback and content:
-                    stream_callback(content)
 
             stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
@@ -2666,8 +2664,6 @@ class LlmService(QObject):
                             arguments=args,
                         ))
 
-                if stream_callback and content:
-                    stream_callback(content)
 
                 stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
                 if response.choices[0].finish_reason == "length":
@@ -2759,8 +2755,6 @@ class LlmService(QObject):
                         arguments=block.input if isinstance(block.input, dict) else {},
                     ))
 
-            if stream_callback and content:
-                stream_callback(content)
 
             if response.stop_reason == "tool_use":
                 stop_reason = StopReason.TOOL_USE
@@ -2863,8 +2857,6 @@ class LlmService(QObject):
                             arguments=args,
                         ))
 
-            if stream_callback and content:
-                stream_callback(content)
 
             stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
@@ -2942,8 +2934,6 @@ class LlmService(QObject):
                 output_format="xml",  # Avoid JSON mode to get free-form text
             )
 
-            if stream_callback and result:
-                stream_callback(result)
 
             # Try to parse tool calls from response
             tool_calls = []
