@@ -36,6 +36,7 @@ from src.core.agents.shared_context import SharedContext
 from src.core.agents.steps.base_step import BaseStep, StepConfig, StepResult
 from src.core.agents.steps.deterministic_step import DeterministicStep
 from src.core.agents.steps.llm_agent_step import LLMAgentStep
+from src.core.agents.steps.reflection_step import ReflectionStep
 from src.core.agents.workflow_executor import WorkflowExecutor
 from src.core.agents.workflow_loader import load_workflow, parse_steps
 from src.core.data_models import AgentResult
@@ -763,6 +764,129 @@ class TestCliWorkflowDispatch(unittest.TestCase):
         from src.cli.commands import workflow_cmd
         rc = workflow_cmd.handle_workflows_list(self._ns(), MagicMock())
         self.assertEqual(rc, 0)
+
+
+class TestMetaAgent(unittest.TestCase):
+    """Tests for MetaAgent orchestration layer."""
+
+    def setUp(self):
+        registry._reset_for_tests()
+        register_step("deterministic")(DeterministicStep)
+        register_step("reflection")(ReflectionStep)
+
+        @register_step("mock_llm")
+        class _MockLLMStep(BaseStep):
+            def run(self, context):
+                context.extracted_keywords = context.extracted_keywords or ["mock"]
+                return {"keywords": context.extracted_keywords}
+
+        @register_tool_fn("noop")
+        def _noop_fn(**_):
+            return {"result": "done"}
+
+    def tearDown(self):
+        registry._reset_for_tests()
+        register_step("llm_agent")(LLMAgentStep)
+        register_step("deterministic")(DeterministicStep)
+        register_step("reflection")(ReflectionStep)
+
+    @patch("src.core.agents.meta_agent.MetaAgent._run_reflection")
+    def test_meta_agent_runs_workflow_cycles(self, mock_reflect):
+        """MetaAgent should run multiple cycles when quality incomplete."""
+        from src.core.agents.meta_agent import MetaAgent
+        from src.core.agents.workflow_loader import WorkflowDef
+        from src.core.agents.steps.base_step import StepConfig
+
+        # First continue, then incomplete (rerun), then complete
+        mock_reflect.side_effect = [
+            {"status": "continue", "gaps": [], "action": "continue", "reason": "initialisation OK"},
+            {"status": "incomplete", "gaps": ["shallow_dk"], "action": "rerun_classification", "reason": "DK shallow"},
+            {"status": "complete", "gaps": [], "action": "finish", "reason": "OK"},
+        ]
+
+        steps = [
+            StepConfig(id="extraction", type="mock_llm", enabled=True, raw={"llm": {"max_iterations": 1}}),
+            StepConfig(id="search", type="deterministic", enabled=True, raw={"function": "noop"}),
+        ]
+        workflow = WorkflowDef(name="test", version="1", steps=steps)
+
+        ctx = SharedContext(abstract="Test abstract")
+        agent = MetaAgent(
+            llm_service=None,  # Use rule-based planner
+            tool_registry=MagicMock(),
+            max_cycles=5,
+        )
+
+        report = agent.run(workflow, ctx)
+        self.assertTrue(report.success)
+        self.assertGreaterEqual(len(ctx.execution_history), 1)
+
+    @patch("src.core.agents.meta_agent.MetaAgent._run_reflection")
+    def test_meta_agent_reruns_search_on_missing_concepts(self, mock_reflect):
+        """MetaAgent should rerun search when missing_concepts exist."""
+        from src.core.agents.meta_agent import MetaAgent
+        from src.core.agents.workflow_loader import WorkflowDef
+        from src.core.agents.steps.base_step import StepConfig
+
+        # Reflection returns incomplete to keep cycles going
+        mock_reflect.return_value = {
+            "status": "incomplete",
+            "gaps": ["missing_concepts"],
+            "action": "rerun_search",
+            "reason": "missing concepts found",
+        }
+
+        steps = [
+            StepConfig(id="extraction", type="mock_llm", enabled=True, raw={"llm": {"max_iterations": 1}}),
+            StepConfig(id="search", type="deterministic", enabled=True, raw={"function": "noop"}),
+        ]
+        workflow = WorkflowDef(name="test", version="1", steps=steps)
+
+        ctx = SharedContext(abstract="Test abstract")
+        ctx.extracted_keywords = ["initial"]
+        ctx.missing_concepts = ["missing1", "missing2"]
+
+        agent = MetaAgent(
+            llm_service=None,  # Use rule-based planner
+            tool_registry=MagicMock(),
+            max_cycles=3,
+        )
+
+        report = agent.run(workflow, ctx)
+        self.assertTrue(report.success)
+        # Should have run search at least once
+        steps_run = {h["step"] for h in ctx.execution_history}
+        self.assertIn("search", steps_run)
+
+    @patch("src.core.agents.steps.reflection_step.AgentLoop")
+    def test_reflection_step_detects_gaps(self, mock_loop_cls):
+        """ReflectionStep should detect shallow DK and missing keywords."""
+        from src.core.agents.steps.reflection_step import ReflectionStep
+        from src.core.data_models import AgentResult
+
+        mock_loop = MagicMock()
+        mock_loop_cls.return_value = mock_loop
+        mock_loop.run.return_value = AgentResult(
+            content='{"status": "incomplete", "gaps": ["shallow_dk"], "action": "rerun_classification", "reason": "DK too shallow"}',
+            tool_log=[],
+            iterations=1,
+        )
+
+        cfg = StepConfig(
+            id="reflection",
+            type="reflection",
+            raw={"llm": {"max_iterations": 1}},
+        )
+        step = ReflectionStep(config=cfg, llm_service=MagicMock())
+
+        ctx = SharedContext(abstract="Test")
+        ctx.dk_classifications = [{"code": "540", "title": "Chemistry"}]
+
+        result = step.execute(ctx)
+        self.assertTrue(result.success)
+        # Should detect shallow DK (only 3 digits)
+        gaps = result.data.get("gaps", [])
+        self.assertIn("shallow_dk", gaps)
 
 
 if __name__ == "__main__":

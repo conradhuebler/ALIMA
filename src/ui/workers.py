@@ -85,8 +85,12 @@ class SingleStepWorker(QThread):
         # This prevents one tab's worker from permanently stealing the callback of
         # another tab that may have run before — Claude Generated
         old_callback = getattr(self.pipeline_manager, 'stream_callback', None)
+
+        def _stream_cb(msg, step_id=""):
+            self.stream_token.emit(msg, step_id)
+
         try:
-            self.pipeline_manager.stream_callback = self.stream_token.emit
+            self.pipeline_manager.stream_callback = _stream_cb
 
             # Execute single step
             # For now, we use the config's first enabled step
@@ -148,12 +152,16 @@ class PipelineWorker(StoppableWorker):
             self.check_interruption()
 
             # Set up callbacks to emit signals - Claude Generated (updated 2026-02-17)
+            # stream_callback wrapper: signal expects (str, str) but callers often pass 1 arg
+            def _stream_cb(msg, step_id=""):
+                self.stream_token.emit(msg, step_id)
+
             self.pipeline_manager.set_callbacks(
                 step_started=self.step_started.emit,
                 step_completed=self.step_completed.emit,
                 step_error=self.step_error.emit,
                 pipeline_completed=self.pipeline_completed.emit,
-                stream_callback=self.stream_token.emit,
+                stream_callback=_stream_cb,
                 repetition_detected=self.repetition_detected.emit,
                 agentic_context=self.agentic_context_updated.emit,
             )

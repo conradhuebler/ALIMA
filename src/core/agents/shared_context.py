@@ -138,12 +138,20 @@ class SharedContext:
     working_title: str = ""
     extracted_keywords: List[str] = field(default_factory=list)
     gnd_entries: List[Dict] = field(default_factory=list)
+    gnd_entries_per_keyword: Dict[str, List[str]] = field(default_factory=dict)  # term -> [titles] mapping for UI display
     selected_keywords: List[Dict] = field(default_factory=list)
     keyword_chains: List[Dict] = field(default_factory=list)  # Schlagwortketten: [{chain: [...], reason: "..."}]
     missing_concepts: List[str] = field(default_factory=list)  # From selection, drives feedback loop
+    missing_concepts_searched: List[str] = field(default_factory=list)  # Already searched terms
     dk_classifications: List[Dict] = field(default_factory=list)
     rvk_classifications: List[Dict] = field(default_factory=list)  # RVK classifications from classification step
     dk_search_results: List[Dict] = field(default_factory=list)  # DK catalog search results
+    dk_catalog_stats: Dict[str, Any] = field(default_factory=dict)  # Aggregated catalog stats: total_titles, unique_notations, top_notations
+
+    # MetaAgent state
+    quality_report: Dict[str, Any] = field(default_factory=dict)  # ReflectionStep output
+    execution_history: List[Dict] = field(default_factory=list)  # MetaAgent cycle memory
+    max_missing_reruns: int = 1  # Max times to rerun search for missing concepts
 
     # Generic escape hatch for workflows that need fields not modelled above.
     # Non-ALIMA workflows (catalog search, synonym expansion, batch metadata)
@@ -267,26 +275,42 @@ class SharedContext:
             }
 
         # --- search_results: GUI expects {title → {gndid: [gnd_id], ddc_codes: [...]}} format ---
-        # Build from gnd_entries for full coverage (not just selected_keywords)
-        # so the SearchTab can display all results
-        search_results_dict: Dict[str, Dict] = {}
-        for entry in self.gnd_entries:
-            title = entry.get("title", "")
-            if not title:
-                continue
-            gnd_ids = entry.get("gnd_ids", [])
-            primary_gnd_id = entry.get("gnd_id", "")
-            all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
-            search_results_dict[title] = {
-                "gndid": all_gnd_ids,
-                "ddc_codes": entry.get("ddc_codes", []),
-            }
-        # One SearchResult per extracted keyword (search_term = original search term)
+        # Build per-keyword so each keyword only shows titles that matched it
         search_results = []
+        per_keyword = self.gnd_entries_per_keyword or {}
         for ekw in (self.extracted_keywords or ["meta_agent"]):
+            kw_results: Dict[str, Dict] = {}
+            matched_titles = set(per_keyword.get(ekw, []))
+            # Also match canonical form (lowercased)
+            for term, titles in per_keyword.items():
+                if term.lower() == ekw.lower():
+                    matched_titles.update(titles)
+            for entry in self.gnd_entries:
+                title = entry.get("title", "")
+                if title in matched_titles:
+                    gnd_ids = entry.get("gnd_ids", [])
+                    primary_gnd_id = entry.get("gnd_id", "")
+                    all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
+                    kw_results[title] = {
+                        "gndid": all_gnd_ids,
+                        "ddc_codes": entry.get("ddc_codes", []),
+                    }
+            # Fallback: if no per-keyword mapping, show all (old behavior)
+            if not kw_results and not per_keyword:
+                for entry in self.gnd_entries:
+                    title = entry.get("title", "")
+                    if not title:
+                        continue
+                    gnd_ids = entry.get("gnd_ids", [])
+                    primary_gnd_id = entry.get("gnd_id", "")
+                    all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
+                    kw_results[title] = {
+                        "gndid": all_gnd_ids,
+                        "ddc_codes": entry.get("ddc_codes", []),
+                    }
             search_results.append(SearchResult(
                 search_term=ekw,
-                results=search_results_dict,
+                results=kw_results,
             ))
 
         # --- Build Schlagwortketten text for final_llm_analysis ---
@@ -407,14 +431,20 @@ class SharedContext:
             "working_title": self.working_title,
             "extracted_keywords": self.extracted_keywords,
             "gnd_entries": self.gnd_entries,
+            "gnd_entries_per_keyword": self.gnd_entries_per_keyword,
             "selected_keywords": self.selected_keywords,
             "keyword_chains": self.keyword_chains,
             "missing_concepts": self.missing_concepts,
+            "missing_concepts_searched": self.missing_concepts_searched,
             "dk_classifications": self.dk_classifications,
             "rvk_classifications": self.rvk_classifications,
             "dk_search_results": self.dk_search_results,
+            "dk_catalog_stats": self.dk_catalog_stats,
             "step_results": self.step_results,
             "quality_scores": self.quality_scores,
+            "quality_report": self.quality_report,
+            "execution_history": self.execution_history,
+            "max_missing_reruns": self.max_missing_reruns,
             "extra": self.extra,
         }
 
@@ -443,14 +473,20 @@ class SharedContext:
         ctx.working_title = data.get("working_title", "")
         ctx.extracted_keywords = data.get("extracted_keywords", [])
         ctx.gnd_entries = data.get("gnd_entries", [])
+        ctx.gnd_entries_per_keyword = data.get("gnd_entries_per_keyword", {})
         ctx.selected_keywords = data.get("selected_keywords", [])
         ctx.keyword_chains = data.get("keyword_chains", [])
         ctx.missing_concepts = data.get("missing_concepts", [])
+        ctx.missing_concepts_searched = data.get("missing_concepts_searched", [])
         ctx.dk_classifications = data.get("dk_classifications", [])
         ctx.rvk_classifications = data.get("rvk_classifications", [])
         ctx.dk_search_results = data.get("dk_search_results", [])
+        ctx.dk_catalog_stats = data.get("dk_catalog_stats", {})
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})
+        ctx.quality_report = data.get("quality_report", {})
+        ctx.execution_history = data.get("execution_history", [])
+        ctx.max_missing_reruns = data.get("max_missing_reruns", 1)
         ctx.extra = data.get("extra", {}) or {}
         return ctx
 
@@ -497,7 +533,12 @@ class SharedContext:
             "gnd_entries_count": len(self.gnd_entries),
             "selected_keywords_count": len(self.selected_keywords),
             "dk_classifications_count": len(self.dk_classifications),
+            "dk_catalog_stats": self.dk_catalog_stats,
+            "missing_concepts": self.missing_concepts,
+            "missing_concepts_searched": self.missing_concepts_searched,
             "cache_stats": self.tool_result_cache.get_stats(),
             "steps_completed": list(self.step_results.keys()),
             "provider": f"{self.provider}/{self.model}",
+            "quality_report": self.quality_report,
+            "execution_history_count": len(self.execution_history),
         }

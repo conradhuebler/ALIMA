@@ -79,6 +79,7 @@ class PipelineConfig:
 
     # Agentic mode: LLM-driven agents with MCP tools instead of sequential steps - Claude Generated
     enable_agentic_mode: bool = False
+    meta_agent_enabled: bool = False  # Enable MetaAgent planning/reflection loop
     agentic_max_iterations: int = 20
     agentic_quality_threshold: float = 0.6
 
@@ -706,20 +707,54 @@ class PipelineManager:
             if self.stream_callback:
                 self.stream_callback(msg, "agentic")
 
-        executor = WorkflowExecutor(
-            llm_service=self.alima_manager.llm_service,
-            tool_registry=tool_registry,
-            stream_callback=_stream,
-            context_callback=self.agentic_context_callback,
-        )
+        # Check for MetaAgent config in workflow YAML or UI override
+        meta_cfg = workflow.raw.get("meta_agent", {}) or {}
+        use_meta = bool(meta_cfg.get("enabled", False)) or getattr(self.config, "meta_agent_enabled", False)
+        if getattr(self.config, "meta_agent_enabled", False):
+            meta_cfg = dict(meta_cfg)
+            meta_cfg["enabled"] = True
+
+        if use_meta:
+            from src.core.agents.meta_agent import MetaAgent
+            if self.stream_callback:
+                self.stream_callback(
+                    f"\n{'='*60}\n"
+                    f"🤖 MetaAgent mode enabled (max_cycles={meta_cfg.get('max_cycles', 10)})\n"
+                    f"{'='*60}\n"
+                )
+            self.logger.info(f"MetaAgent mode enabled for {workflow.name}")
+
+            executor = MetaAgent(
+                llm_service=self.alima_manager.llm_service,
+                tool_registry=tool_registry,
+                stream_callback=_stream,
+                context_callback=self.agentic_context_callback,
+                max_cycles=int(meta_cfg.get("max_cycles", 10)),
+                reflection_model=meta_cfg.get("reflection_model", model),
+                reflection_provider=meta_cfg.get("reflection_provider", provider),
+            )
+        else:
+            executor = WorkflowExecutor(
+                llm_service=self.alima_manager.llm_service,
+                tool_registry=tool_registry,
+                stream_callback=_stream,
+                context_callback=self.agentic_context_callback,
+            )
 
         try:
-            report = executor.run(
-                workflow,
-                ctx,
-                only_step=self.config.agentic_step_id or None,
-                stop_on_error=True,
-            )
+            if use_meta:
+                report = executor.run(
+                    workflow,
+                    ctx,
+                    meta_config=meta_cfg,
+                )
+            else:
+                report = executor.run(
+                    workflow,
+                    ctx,
+                    only_step=self.config.agentic_step_id or None,
+                    stop_on_error=True,
+                )
             if not report.success:
                 raise RuntimeError(report.error or "v4 workflow failed")
 

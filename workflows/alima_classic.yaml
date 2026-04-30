@@ -7,6 +7,16 @@ settings:
   top_p: 0.9
   max_tokens: 4096
 
+# Optional MetaAgent orchestration (disabled by default for backward compat)
+meta_agent:
+  enabled: false
+  max_cycles: 10
+  reflection_model: ""
+  reflection_provider: ""
+  quality_rules:
+    - "dk_depth: at_least_4_digits"
+    - "keywords: min_10_verified"
+
 steps:
 
   # ──────────────────────────────────────────────────────────────────
@@ -119,59 +129,23 @@ steps:
       max_merged: 80
 
     system_prompt: |
-      **Deine Rolle als Bibliothekar:**
-      Du bist ein **präziser und selektiver GND-Schlagwort-Experte** mit folgenden Kernregeln:
-      1. **Strenge Relevanzprüfung**: Wähle *nur* Schlagworte aus, die **direkt** zum Abstract passen oder **losen thematischen Bezug** haben.
-      2. **Ignorieren von Nicht-Relevanten**: Alle Schlagworte, die **keinen** Bezug zum Text haben, werden **ausgeschlossen** – selbst wenn sie allgemein scheinen.
-      3. **Keine Ergänzungen**: Nutze **nur** die vorgegebenen GND-Schlagworte (keine Synonyme, Oberbegriffe oder kreative Ergänzungen).
-      4. **Effizienz**: Da die Liste in mehreren Anfragen abgearbeitet wird, konzentriere dich **ausschließlich** auf die aktuelle Teilmenge.
-      5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
-
-      **Werkzeuge & Limits**:
-      - Nutze **keine** externen Quellen oder Tools – arbeite nur mit den gegebenen Daten.
-      - Bei Unklarheiten im Abstract: Frage nach (z. B. "Meint 'X' hier Konzept A oder B?").
-
-      **Beispiel für deine Denkweise**:
-      - *Abstract* enthält "KI in der Medizin" → Relevant: "Künstliche Intelligenz", "Medizin", "Diagnostik".
-      - *Nicht relevant*: "Bibliothekswesen", "Juristische Grundlagen", selbst wenn sie in der GND-Liste stehen.
+      Selektiver GND-Experte. Regeln:
+      1. Nur Schlagworte aus der vorgegebenen Liste übernehmen — keine Ergänzungen.
+      2. Relevant = direkt im Abstract erwähnt oder thematisch eng verknüpft.
+      3. Allgemeinplätze nur wenn spezifisch begründet.
+      4. Konzentriere dich auf die aktuelle Teilmenge (Chunk).
+      5. Ausgabe als valides JSON.
 
     user_prompt: |
-      **Aufgabe**:
-      Du erhältst einen **Abstract** und eine **Teilliste von GND-Schlagworten**. Deine Aufgabe ist es:
-      1. **Nur die relevanten Schlagworte** herauszufiltern – alle anderen **ignorieren**.
-      2. Die Auswahl als **JSON-Objekt** auszugeben.
-
-      **Kriterien für Relevanz**:
-      - **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erwähnt oder **thematisch eng verknüpft** sein.
-      - **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** für das Verständnis des Abstracts sind.
-      - **Keine Allgemeinplätze**: Schlagworte wie "Wissenschaft", "Technologie" oder "Gesellschaft" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begründet werden.
-
-      **Beispiel**:
-      *Abstract*: "Studie zu Blockchain-Anwendungen in der Logistikbranche."
-      *GND-Schlagworte*: ["Blockchain", "Datenbanken", "Logistik", "Kryptowährungen", "Informatik"]
-      *Ausgabe*:
-      ```json
-      {
-        "keywords": [
-          {"keyword": "Blockchain", "gnd_id": "123456789"},
-          {"keyword": "Logistik", "gnd_id": "987654321"}
-        ]
-      }
-      ```
-
-      ---
-      **Jetzt starte mit der Analyse!**
-      ```
+      Abstract:
       {abstract}
+
+      GND-Schlagworte (Teilliste):
       {keywords}
-      ```
 
-      **Wichtige Hinweise**:
-      1. **Keine Diskussion**: Gib **nur** das JSON-Objekt aus – keine Analyse oder Begründung.
-      2. **Reihenfolge**: Die Reihenfolge der Schlagworte in der Liste ist **beliebig**.
-      3. **Vollständigkeit**: Falls ein Schlagwort **zweifelhaft** ist, **beibehalten** – die finale Auswahl erfolgt in einem weiteren Schritt.
-      4. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit der Struktur `{"keywords": [{"keyword": "...", "gnd_id": "..."}]}`.
-
+      Aufgabe: Filtere nur die relevanten Schlagworte.
+      Ausgabeformat: `{"keywords": [{"keyword":"...","gnd_id":"..."}]}`
+      Keine Diskussion, nur JSON.
   # ──────────────────────────────────────────────────────────────────
   # Step 4: Chain building — Schlagwortketten + missing_concepts
   # ──────────────────────────────────────────────────────────────────
@@ -198,44 +172,19 @@ steps:
     tools: []
 
     system_prompt: |
-      Du bist **ALIMA Agent**, ein hochpräziser Wissensassistent mit Fähigkeiten in:
-      1. **Systematischer Analyse**
-      2. **GND-Schlagwortung** (OGND-Standards)
-      3. **Logischer Wissensverknüpfung** (Kettenbildung, Fehlkonzept-Diskussion)
-
-      **Kernregeln:**
-      - **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte.
-      - **Hierarchie beachten**: Kombiniere zu Ketten (z. B. "KI → Machine Learning → Medizin").
-      - **Fehlende Konzepte dokumentieren**: Schlage Oberbegriffe vor.
-      - **final_keywords**: Flachliste der 10–20 wichtigsten GND-Schlagworte mit GND-IDs (aus den Ketten, keine Neuerfindungen).
-      - **JSON-Ausgabe**.
+      Bilde Schlagwortketten aus GND-Schlagworten. Regeln:
+      1. Nur vorhandene Schlagworte verwenden — keine Neuerfindungen.
+      2. 10–20 final_keywords mit GND-IDs aus der Eingabe.
+      3. JSON-Ausgabe.
 
     user_prompt: |
-      **Aufgabe**: Bilde Schlagwortketten aus den ausgewählten GND-Schlagworten,
-      dokumentiere fehlende Konzepte, und erzeuge eine kuratierte Flachliste.
+      Abstract: {abstract}
 
-      Ausgabe als JSON:
-      ```json
-      {
-        "keyword_chains": [
-          {"chain": ["Schlagwort1", "Schlagwort2"], "reason": "Begründung"}
-        ],
-        "missing_concepts": ["Konzept1", "Konzept2"],
-        "final_keywords": [
-          {"keyword": "Schlagwort1", "gnd_id": "1234567-8"},
-          {"keyword": "Schlagwort2", "gnd_id": "9876543-2"}
-        ]
-      }
-      ```
-
-      `final_keywords`: Die 10–20 relevantesten Schlagworte aus den Ketten, geordnet nach Relevanz.
-      GND-IDs aus der Eingabeliste übernehmen — nur vorhandene Schlagworte, keine Neuerfindungen.
-
-      Abstract:
-      {abstract}
-
-      Ausgewählte Schlagworte (mit GND-IDs):
+      Ausgewählte Schlagworte:
       {keywords}
+
+      Aufgabe: Bilde Ketten, dokumentiere fehlende Konzepte, wähle 10–20 finale Keywords.
+      Format: {"keyword_chains":[{"chain":["A","B"],"reason":"..."}],"missing_concepts":[],"final_keywords":[{"keyword":"A","gnd_id":"123"}]}
 
   # ──────────────────────────────────────────────────────────────────
   # Step 5a: DK catalog search — classic per-keyword BiblioClient logic

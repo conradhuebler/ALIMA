@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from src.core.agents.registry import register_tool_fn
 from src.core.agents.tool_providers import DKDataProvider
@@ -83,6 +83,39 @@ def _parse_batch_response(raw: str) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def _parse_batch_response_with_terms(raw: str) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+    """Parse SWB/Lobid response into pool + track which search term found each title."""
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as e:
+        logger.warning(f"gnd_batch_search: could not parse response: {e}")
+        return {}, {}
+
+    out: Dict[str, Dict[str, Any]] = {}
+    terms_per_title: Dict[str, List[str]] = {}
+    for term, term_results in (data.get("results", {}) or {}).items():
+        if not isinstance(term_results, dict):
+            continue
+        for kw_title, kw_data in term_results.items():
+            if not isinstance(kw_data, dict):
+                continue
+            gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
+            if not gnd_ids and not kw_title:
+                continue
+            out[kw_title] = {
+                "title": kw_title,
+                "gnd_ids": gnd_ids,
+                "gnd_id": gnd_ids[0] if gnd_ids else "",
+                "ddc_codes": list(kw_data.get("ddc", [])),
+                "dk_codes": list(kw_data.get("dk", [])),
+                "count": kw_data.get("count", 0),
+                "description": "",
+                "synonyms": [],
+            }
+            terms_per_title.setdefault(kw_title, []).append(term)
+    return out, terms_per_title
+
+
 @register_tool_fn("gnd_batch_search")
 def gnd_batch_search(
     keywords: List[str],
@@ -135,12 +168,17 @@ def gnd_batch_search(
         return {"entries": [], "search_terms": [], "tool_calls": 0}
 
     if stream_callback:
+        kw_preview = ", ".join(keywords[:8])
+        more = f" … +{len(keywords)-8}" if len(keywords) > 8 else ""
         stream_callback(
             f"\n🔍 gnd_batch_search: {len(keywords)} keywords × {len(sources)} sources\n"
+            f"   Suche: {kw_preview}{more}\n"
         )
 
     pool: Dict[str, Dict[str, Any]] = {}
     tool_calls = 0
+    # Track which search term found which titles (for per-keyword GUI display)
+    entries_per_keyword: Dict[str, List[str]] = {}
 
     for src in sources:
         tool_name = source_tools.get(src)
@@ -150,10 +188,25 @@ def gnd_batch_search(
         try:
             raw = tool_registry.execute(tool_name, {"terms": keywords})
             tool_calls += 1
-            data = _parse_batch_response(raw)
+            data, terms_map = _parse_batch_response_with_terms(raw)
             _merge_into_pool(pool, data)
+            # Track term-to-title mapping for per-keyword display
+            for title, terms in terms_map.items():
+                for term in terms:
+                    entries_per_keyword.setdefault(term, []).append(title)
+            # Log per-keyword hit counts
             if stream_callback:
                 stream_callback(f"  🌐 {src}: {len(data)} hits\n")
+                for idx, kw in enumerate(keywords, 1):
+                    hits = [t for t, terms in terms_map.items() if kw in terms]
+                    if hits:
+                        stream_callback(
+                            f"    [{idx}/{len(keywords)}] '{kw}': {len(hits)} Treffer\n"
+                        )
+                    else:
+                        stream_callback(
+                            f"    [{idx}/{len(keywords)}] '{kw}': ∅\n"
+                        )
         except Exception as e:
             logger.warning(f"gnd_batch_search: {tool_name} failed: {e}")
 
@@ -195,6 +248,15 @@ def gnd_batch_search(
             if t and t not in existing_titles:
                 context.gnd_entries.append(entry)
                 existing_titles.add(t)
+
+    # Store per-keyword term-to-title mapping for correct UI display
+    if context is not None and hasattr(context, "gnd_entries_per_keyword"):
+        existing = context.gnd_entries_per_keyword or {}
+        for term, titles in entries_per_keyword.items():
+            current = set(existing.get(term, []))
+            current.update(titles)
+            existing[term] = list(current)
+        context.gnd_entries_per_keyword = existing
 
     if stream_callback:
         enriched = sum(1 for e in entries if e.get("description"))
@@ -254,6 +316,16 @@ def dk_data_collect(
     }
 
 
+def _parse_keyword_string(kw: str) -> Tuple[str, str]:
+    """Parse 'Term (GND-ID: id)' into (term, gnd_id)."""
+    import re
+    m = re.search(r"\(GND-ID:\s*([^)]+)\)", kw)
+    if m:
+        term = kw[:m.start()].strip()
+        return term, m.group(1).strip()
+    return kw.strip(), ""
+
+
 # ============================================================
 # dk_search_agentic — classic execute_dk_search wrapper
 # ============================================================
@@ -277,11 +349,20 @@ def _build_dk_keywords(context: Any, max_keywords: int) -> List[str]:
 
     final_kws = (getattr(context, "extra", None) or {}).get("final_keywords") or []
     for kw in final_kws[:max_keywords]:
-        _add(kw.get("keyword", "") or kw.get("title", ""), kw.get("gnd_id", ""))
+        if isinstance(kw, dict):
+            _add(kw.get("keyword", "") or kw.get("title", ""), kw.get("gnd_id", ""))
+        elif isinstance(kw, str):
+            # Parse "Term (GND-ID: id)" format
+            term, gid = _parse_keyword_string(kw)
+            _add(term, gid)
 
     if not keywords:
         for kw in (getattr(context, "selected_keywords", None) or [])[:max_keywords]:
-            _add(kw.get("title", "") or kw.get("keyword", ""), kw.get("gnd_id", ""))
+            if isinstance(kw, dict):
+                _add(kw.get("title", "") or kw.get("keyword", ""), kw.get("gnd_id", ""))
+            elif isinstance(kw, str):
+                term, gid = _parse_keyword_string(kw)
+                _add(term, gid)
 
     if not keywords:
         for kw in (getattr(context, "extracted_keywords", None) or [])[:max_keywords]:
@@ -374,6 +455,30 @@ def dk_search_agentic(
     keyword_results = dk_result.get("keyword_results", [])
     statistics = dk_result.get("statistics", {})
 
+    # Aggregate catalog stats for MetaAgent visibility
+    total_titles = sum(len(c.get("titles", [])) for c in classifications)
+    total_unique_notations = len(classifications)
+    total_keywords_searched = statistics.get("total_keywords_searched", len(keyword_results))
+    top_notations = [
+        {
+            "code": c.get("dk", ""),
+            "type": c.get("type", c.get("classification_type", "DK")),
+            "count": c.get("count", 0),
+            "titles": c.get("titles", [])[:5],  # cap for serialization
+            "title_count": len(c.get("titles", [])),
+        }
+        for c in classifications[:10]
+    ]
+    catalog_stats = {
+        "total_titles": total_titles,
+        "total_unique_notations": total_unique_notations,
+        "total_keywords_searched": total_keywords_searched,
+        "top_notations": top_notations,
+        "deduplication": statistics.get("deduplication_stats", {}),
+    }
+    if hasattr(context, "dk_catalog_stats"):
+        context.dk_catalog_stats = catalog_stats
+
     # Store keyword-centric results for GUI transparency
     if hasattr(context, "dk_search_results"):
         context.dk_search_results = keyword_results
@@ -389,6 +494,7 @@ def dk_search_agentic(
         stream_callback(
             f"✅ dk_search_agentic: {len(classifications)} DK entries, "
             f"{len(keyword_results)} keyword-centric results\n"
+            f"   📊 {total_titles} Titel, {total_unique_notations} Notationen\n"
         )
 
     return {
@@ -426,10 +532,16 @@ def build_dk_search_results(
         code = e.get("dk", "")
         if code and code not in seen:
             seen.add(code)
+            titles = e.get("titles", [])
+            # Fallback: if no titles list but single title field exists
+            if not titles and e.get("title"):
+                titles = [e.get("title")]
             results.append({
                 "keyword": e.get("keyword", ""),
                 "dk": code,
-                "title": e.get("title", ""),
+                "title": e.get("title", titles[0] if titles else ""),
+                "titles": titles,
+                "title_count": len(titles),
                 "count": e.get("count", 0),
                 "classification_type": e.get("classification_type", "DK"),
             })
@@ -437,10 +549,13 @@ def build_dk_search_results(
     for cls in dk_classifications:
         code = cls.get("code", "")
         if code:
+            cls_title = cls.get("title", "")
             results.append({
                 "keyword": "",
                 "dk": code,
-                "title": cls.get("title", ""),
+                "title": cls_title,
+                "titles": [cls_title] if cls_title else [],
+                "title_count": 1 if cls_title else 0,
                 "count": int(cls.get("confidence", 0) * 100),
                 "classification_type": "DK",
                 "reasoning": cls.get("reason", cls.get("reasoning", "")),
@@ -498,9 +613,12 @@ def catalog_multi_search(
         return {"hits": [], "queries": [], "tool_calls": 0}
 
     if stream_callback:
+        q_preview = ", ".join(queries[:8])
+        q_more = f" … +{len(queries)-8}" if len(queries) > 8 else ""
         stream_callback(
             f"\n🔎 catalog_multi_search: {len(queries)} queries × "
             f"{len(sources)} sources (search_type={search_type})\n"
+            f"   Suche: {q_preview}{q_more}\n"
         )
 
     pool: Dict[str, Dict[str, Any]] = {}
@@ -618,9 +736,12 @@ def catalog_title_search(
         return {"hits": [], "queries": [], "tool_calls": 0}
 
     if stream_callback:
+        q_preview = ", ".join(queries[:5])
+        q_more = f" … +{len(queries)-5}" if len(queries) > 5 else ""
         stream_callback(
             f"\n🔎 catalog_title_search: {len(queries)} queries "
             f"(search_type={search_type}, max={max_results})\n"
+            f"   Suche: {q_preview}{q_more}\n"
         )
 
     hits: List[Dict[str, Any]] = []

@@ -1112,48 +1112,65 @@ class SearchTab(QWidget):
         - 'outdated': Entry exists but is old (>= 90 days)
         - 'new': Entry was newly fetched (not in cache or no timestamp)
 
-        Args:
-            search_results: List of SearchResult objects from pipeline
+        Batched query: collects all unique IDs first, then fetches in a
+        single SQL query instead of N individual lookups.
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
         self.cache_status = {}
 
+        # Collect all unique GND IDs
+        all_ids = set()
         for search_result in search_results:
             for gnd_id in search_result.results.keys():
-                try:
-                    # Check if entry exists in cache
-                    entry = self.cache_manager.get_gnd_entry_by_id(gnd_id)
+                if gnd_id:
+                    all_ids.add(gnd_id)
 
-                    if entry and entry.get('updated_at'):
-                        # Parse timestamp and check age
-                        try:
-                            updated_str = entry.get('updated_at')
-                            # Handle different date formats
-                            if 'T' in updated_str:
-                                updated_dt = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
-                            else:
-                                updated_dt = datetime.strptime(updated_str, '%Y-%m-%d %H:%M:%S')
+        if not all_ids:
+            return
 
-                            age_days = (datetime.now() - updated_dt.replace(tzinfo=None)).days
+        # Batch fetch via db_manager (single query vs N individual lookups)
+        try:
+            db = getattr(self.cache_manager, "db_manager", None)
+            if db is None:
+                # Fallback: mark all as 'new' if no db access
+                for gid in all_ids:
+                    self.cache_status[gid] = 'new'
+                return
 
-                            if age_days >= 90:
-                                self.cache_status[gnd_id] = 'outdated'
-                            else:
-                                self.cache_status[gnd_id] = 'cache'
-                        except (ValueError, AttributeError) as e:
-                            self.logger.debug(f"Could not parse date for {gnd_id}: {e}")
-                            self.cache_status[gnd_id] = 'cache'  # Assume cache if exists
-                    elif entry:
-                        # Entry exists but no timestamp
-                        self.cache_status[gnd_id] = 'cache'
-                    else:
-                        # No entry found - newly fetched
-                        self.cache_status[gnd_id] = 'new'
+            id_list = list(all_ids)
+            placeholders = ",".join(["?"] * len(id_list))
+            sql = f"SELECT gnd_id, updated_at FROM gnd_entries WHERE gnd_id IN ({placeholders})"
+            rows = db.fetch_all(sql, id_list)
 
-                except Exception as e:
-                    self.logger.debug(f"Error checking cache for {gnd_id}: {e}")
-                    self.cache_status[gnd_id] = 'new'
+            # Build lookup from results
+            cached = {}
+            for row in rows:
+                gid = row.get("gnd_id")
+                updated_at = row.get("updated_at")
+                if gid:
+                    cached[gid] = updated_at
+
+            now = datetime.now()
+            for gid in all_ids:
+                updated_at = cached.get(gid)
+                if updated_at:
+                    try:
+                        updated_str = str(updated_at)
+                        if 'T' in updated_str:
+                            updated_dt = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
+                        else:
+                            updated_dt = datetime.strptime(updated_str, '%Y-%m-%d %H:%M:%S')
+                        age_days = (now - updated_dt.replace(tzinfo=None)).days
+                        self.cache_status[gid] = 'outdated' if age_days >= 90 else 'cache'
+                    except (ValueError, AttributeError):
+                        self.cache_status[gid] = 'cache'
+                else:
+                    self.cache_status[gid] = 'new'
+        except Exception as e:
+            self.logger.warning(f"Batch cache status query failed: {e}")
+            for gid in all_ids:
+                self.cache_status[gid] = 'new'
 
         self.logger.info(f"Cache status queried for {len(self.cache_status)} entries")
 

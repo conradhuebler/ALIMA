@@ -282,14 +282,21 @@ class AgenticStepPanel(QFrame):
             return self._render_generic(label, val)
         if not val:
             return ""
+        # Detect truncation sentinel
+        truncated = 0
+        items = val
+        if items and isinstance(items[-1], dict) and "_truncated" in items[-1]:
+            truncated = items[-1]["_truncated"]
+            items = items[:-1]
         chips = "  ".join(
             f"<span style='background:#44475a; color:#f8f8f2; padding:1px 6px;"
             f" border-radius:3px;'>{self._esc(k)}</span>"
-            for k in val
+            for k in items
         )
+        trunc_text = f" <span style='color:#ff79c6;'>+{truncated} more</span>" if truncated else ""
         return (
             f"<div style='color:#8be9fd; margin-top:4px;'>{self._esc(label)} "
-            f"({len(val)})</div><div>{chips}</div>"
+            f"({len(items)}{trunc_text})</div><div>{chips}</div>"
         )
 
     # Field ordering + header keys for known record types. Unknown dicts
@@ -300,20 +307,28 @@ class AgenticStepPanel(QFrame):
     def _dict_list(self, label: str, val: Any) -> str:
         if not isinstance(val, list) or not val:
             return ""
+        # Detect truncation sentinel
+        truncated = 0
+        items = val
+        if items and isinstance(items[-1], dict) and "_truncated" in items[-1]:
+            truncated = items[-1]["_truncated"]
+            items = items[:-1]
+
         # Derive canonical key union so missing fields per record are visible.
         canonical_keys: List[str] = []
         seen = set()
-        for item in val:
+        for item in items:
             if isinstance(item, dict):
                 for k in item.keys():
                     if k not in seen:
                         seen.add(k)
                         canonical_keys.append(k)
+        trunc_text = f" <span style='color:#ff79c6;'>+{truncated} more</span>" if truncated else ""
         rows: List[str] = [
             f"<div style='color:#8be9fd; margin-top:6px; font-weight:bold;'>"
-            f"{self._esc(label)} ({len(val)})</div>"
+            f"{self._esc(label)} ({len(items)}{trunc_text})</div>"
         ]
-        for idx, item in enumerate(val, start=1):
+        for idx, item in enumerate(items, start=1):
             if not isinstance(item, dict):
                 rows.append(
                     f"<div style='margin-left:6px;'>#{idx}: {self._esc(item)}</div>"
@@ -402,11 +417,18 @@ class AgenticStepPanel(QFrame):
     def _chains(self, val: Any) -> str:
         if not isinstance(val, list) or not val:
             return ""
+        # Detect truncation sentinel
+        truncated = 0
+        items = val
+        if items and isinstance(items[-1], dict) and "_truncated" in items[-1]:
+            truncated = items[-1]["_truncated"]
+            items = items[:-1]
+        trunc_text = f" <span style='color:#ff79c6;'>+{truncated} more</span>" if truncated else ""
         rows: List[str] = [
             f"<div style='color:#8be9fd; margin-top:4px;'>keyword_chains "
-            f"({len(val)})</div>"
+            f"({len(items)}{trunc_text})</div>"
         ]
-        for ch in val:
+        for ch in items:
             if not isinstance(ch, dict):
                 continue
             chain = ch.get("chain") or []

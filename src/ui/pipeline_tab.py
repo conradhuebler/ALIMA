@@ -802,6 +802,20 @@ class PipelineTab(QWidget):
         self.agentic_mode_checkbox.stateChanged.connect(self.on_agentic_mode_toggled)
         adv_layout.addWidget(self.agentic_mode_checkbox)
 
+        # MetaAgent feedback-loop checkbox (sub-option of Agentic) - Claude Generated
+        self.meta_agent_checkbox = QCheckBox("🔁 MetaAgent (Qualitäts-Loop)")
+        self.meta_agent_checkbox.setToolTip(
+            "Aktiviert den MetaAgent mit Plan/Reflektions-Schleife.\n"
+            "Erkennt fehlende Konzepte und flache DK-Codes, startet Steps neu."
+        )
+        self.meta_agent_checkbox.setStyleSheet(
+            "QCheckBox { font-size: 10px; color: #555; }"
+        )
+        self.meta_agent_checkbox.setChecked(False)
+        self.meta_agent_checkbox.setVisible(False)
+        self.meta_agent_checkbox.stateChanged.connect(self.on_meta_agent_toggled)
+        adv_layout.addWidget(self.meta_agent_checkbox)
+
         # Workflow selector for Agentic Mode - Claude Generated
         workflow_label = QLabel("Workflow:")
         workflow_label.setStyleSheet("color: #666; font-size: 10px;")
@@ -1914,10 +1928,13 @@ class PipelineTab(QWidget):
 
         self.logger.info(f"Agentic mode {'enabled' if enabled else 'disabled'}")
 
-        # Enable/disable workflow combo
+        # Enable/disable workflow combo + meta_agent checkbox
         self.workflow_combo.setEnabled(enabled)
         self.agentic_workflow_label.setVisible(enabled)
         self.workflow_combo.setVisible(enabled)
+        self.meta_agent_checkbox.setVisible(enabled)
+        if not enabled:
+            self.meta_agent_checkbox.setChecked(False)
         if hasattr(self, "agentic_context_widget"):
             self.agentic_context_widget.setVisible(enabled)
             if enabled:
@@ -1931,6 +1948,8 @@ class PipelineTab(QWidget):
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:
             self.pipeline_manager.config.enable_agentic_mode = enabled
+            if not enabled:
+                self.pipeline_manager.config.meta_agent_enabled = False
 
             if enabled:
                 # Set workflow if selected
@@ -1949,6 +1968,17 @@ class PipelineTab(QWidget):
                     self.main_window.global_status_bar.show_temporary_message(
                         "Agentic Modus deaktiviert", 2000
                     )
+
+    def on_meta_agent_toggled(self, state):
+        """Handle MetaAgent checkbox toggle - Claude Generated"""
+        enabled = state == Qt.CheckState.Checked.value
+        self.logger.info(f"MetaAgent {'enabled' if enabled else 'disabled'}")
+        if self.pipeline_manager and self.pipeline_manager.config:
+            self.pipeline_manager.config.meta_agent_enabled = enabled
+            if enabled and self.main_window and hasattr(self.main_window, "global_status_bar"):
+                self.main_window.global_status_bar.show_temporary_message(
+                    "🔁 MetaAgent-Loop aktiviert", 2000
+                )
 
     @pyqtSlot(object)
     def on_step_started(self, step: PipelineStep):

@@ -92,9 +92,9 @@ class AgentLoop:
                 break
 
             # Call LLM with tools
-            logger.info(f"Agent iteration {iteration}/{self.max_iterations}")
+            logger.info(f"Agent tool-call {iteration}/{self.max_iterations}")
             if self.stream_callback and self.max_iterations > 1:
-                self.stream_callback(f"\n🔄 Iteration {iteration}: Warte auf LLM-Antwort...")
+                self.stream_callback(f"\n🔄 Tool-Call {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
 
             try:
                 response: AgentResponse = self.llm_service.generate_with_tools(
@@ -108,7 +108,7 @@ class AgentLoop:
                     stream_callback=self.stream_callback,
                 )
             except Exception as e:
-                logger.error(f"LLM call failed at iteration {iteration}: {e}")
+                logger.error(f"LLM call failed at tool-call {iteration}: {e}")
                 if self.stream_callback:
                     self.stream_callback(f"\n❌ LLM-Fehler: {e}\n")
                 final_content = f"Error: {e}"
@@ -205,16 +205,16 @@ class AgentLoop:
             # Case 2: LLM returned final text (no tool calls)
             final_content = response.content
             if self.stream_callback and final_content and self.max_iterations > 1:
-                self.stream_callback(f"\n✅ Fertig nach {iteration} Iterationen\n")
-            logger.info(f"Agent completed after {iteration} iterations")
+                self.stream_callback(f"\n✅ Fertig nach {iteration} Tool-Calls\n")
+            logger.info(f"Agent completed after {iteration} tool-calls")
             logger.debug(f"LLM response content:\n{final_content}")
             break
 
         else:
             # max_iterations exhausted
-            logger.warning(f"Agent hit max iterations ({self.max_iterations})")
+            logger.warning(f"Agent hit max tool-calls ({self.max_iterations})")
             if self.stream_callback:
-                self.stream_callback(f"\n⚠️ Maximum {self.max_iterations} Iterationen erreicht\n")
+                self.stream_callback(f"\n⚠️ Maximum {self.max_iterations} Tool-Calls erreicht\n")
 
             # Force a final response without tools
             if not final_content:

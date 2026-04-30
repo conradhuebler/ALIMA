@@ -155,14 +155,33 @@ class WorkflowExecutor:
         """Push a SharedContext snapshot to the UI context_callback.
 
         Swallows all exceptions so a flaky widget can never break workflow execution.
+        To keep UI responsive, large lists are capped at MAX_SNAPSHOT_LIST_LEN
+        and the snapshot is only pushed for completed/error steps (not running).
         """
         if self.context_callback is None:
             return
+        # Skip "running" snapshots — the widget only needs the final state.
+        if status == "running":
+            return
+
+        MAX_LEN = 50  # cap large lists to keep serialization + render fast
         try:
             snap = context.to_dict() if hasattr(context, "to_dict") else {}
         except Exception as e:  # noqa: BLE001
             logger.debug(f"context snapshot serialization failed: {e}")
             snap = {}
+
+        # Cap large list fields to prevent UI slowdown with big datasets
+        for key in ("gnd_entries", "selected_keywords", "keyword_chains",
+                    "dk_classifications", "rvk_classifications",
+                    "dk_search_results", "extracted_keywords",
+                    "missing_concepts", "execution_history"):
+            val = snap.get(key)
+            if isinstance(val, list) and len(val) > MAX_LEN:
+                snap[key] = val[:MAX_LEN]
+                # add a sentinel so the widget knows data was truncated
+                snap[key].append({"_truncated": len(val) - MAX_LEN})
+
         snap["_step_id"] = cfg.id
         snap["_step_type"] = cfg.type
         snap["_step_description"] = getattr(cfg, "description", "") or ""
