@@ -238,6 +238,27 @@ class PipelineTab(QWidget):
     agentic_mode_changed = pyqtSignal(bool)            # enabled
     agentic_workflow_built = pyqtSignal(object)        # WorkflowDef
 
+    # Agentic step ID → classical step_widget key + tab index - Claude Generated
+    _AGENTIC_STEP_MAP = {
+        "extraction": ("initialisation", 1),
+        "search": ("search", 2),
+        "selection": ("keywords", 3),
+        "classification": ("dk_classification", 5),
+        "dk_collect": ("dk_search", 4),
+        "dk_postprocess": ("dk_classification", 5),
+    }
+
+    @staticmethod
+    def _dk_class_codes(dk_classifications) -> list:
+        """Convert dk_classifications (List[Dict] or List[str]) to flat code list - Claude Generated"""
+        codes = []
+        for cls in dk_classifications:
+            if isinstance(cls, dict):
+                codes.append(cls.get("code", str(cls)))
+            else:
+                codes.append(str(cls))
+        return codes
+
     def __init__(
         self,
         alima_manager: AlimaManager,
@@ -650,7 +671,7 @@ class PipelineTab(QWidget):
 
         # Advanced toggle button - Claude Generated
         self.advanced_toggle_button = QPushButton("▼ Erweitert")
-        self.advanced_toggle_button.setToolTip("Modell-Override und Iterative Suche einblenden")
+        self.advanced_toggle_button.setToolTip("LLM-Modell, Iterative Suche und Agentic-Optionen einblenden")
         self.advanced_toggle_button.setCheckable(True)
         self.advanced_toggle_button.setStyleSheet(
             """
@@ -684,6 +705,25 @@ class PipelineTab(QWidget):
         adv_layout = QHBoxLayout(self.advanced_frame)
         adv_layout.setContentsMargins(8, 4, 8, 4)
         adv_layout.setSpacing(10)
+
+        # LLM model selector – used by agentic pipeline (global_provider/model_override) - Claude Generated
+        llm_label = QLabel("🤖 LLM-Modell:")
+        llm_label.setStyleSheet("color: #555;")
+        adv_layout.addWidget(llm_label)
+
+        self.global_override_combo = QComboBox()
+        self.global_override_combo.setMinimumWidth(180)
+        self.global_override_combo.setMaximumWidth(300)
+        self.global_override_combo.setToolTip(
+            "Provider/Modell für LLM-Schritte.\n"
+            "Wird vom agentischen Workflow als primäres Modell verwendet.\n"
+            "\"-- Standard --\" = Aus Konfiguration/Task-Präferenzen"
+        )
+        self.global_override_combo.setStyleSheet(
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }"
+        )
+        self._populate_global_override_combo()
+        adv_layout.addWidget(self.global_override_combo)
 
         # Separator
         sep2 = QFrame()
@@ -741,7 +781,7 @@ class PipelineTab(QWidget):
             "QCheckBox { font-weight: bold; color: #d32f2f; font-size: 11px; }"
             "QCheckBox::indicator { width: 16px; height: 16px; }"
         )
-        self.agentic_mode_checkbox.setChecked(True)
+        self.agentic_mode_checkbox.setChecked(False)
         self.agentic_mode_checkbox.stateChanged.connect(self.on_agentic_mode_toggled)
         adv_layout.addWidget(self.agentic_mode_checkbox)
 
@@ -784,6 +824,23 @@ class PipelineTab(QWidget):
 
         adv_layout.addStretch()
         main_layout.addWidget(self.advanced_frame)
+
+    def _populate_global_override_combo(self):
+        """Populate LLM model selector with available provider/model pairs - Claude Generated"""
+        try:
+            self.global_override_combo.clear()
+            self.global_override_combo.addItem("-- Standard --", None)
+            from ..utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            unified_config = config_manager.get_unified_config()
+            for provider in unified_config.get_enabled_providers():
+                models = getattr(provider, 'available_models', []) or []
+                if not models and getattr(provider, 'preferred_model', None):
+                    models = [provider.preferred_model]
+                for model in models:
+                    self.global_override_combo.addItem(f"{provider.name} | {model}", f"{provider.name}|{model}")
+        except Exception as e:
+            self.logger.error(f"Error populating LLM combo: {e}")
 
     def toggle_advanced_panel(self):
         """Toggle visibility of the advanced options panel - Claude Generated"""
@@ -1337,7 +1394,8 @@ class PipelineTab(QWidget):
             )
             return
 
-        # Update DK configuration from GUI widgets - Claude Generated
+        # Apply LLM model selection + DK config - Claude Generated
+        self._apply_global_override_from_gui()
         self._update_dk_config_from_gui()
 
         # Stop any existing worker
@@ -1411,6 +1469,23 @@ class PipelineTab(QWidget):
         # Notify streaming widget
         if hasattr(self, "stream_widget"):
             self.stream_widget.on_pipeline_started("pipeline_thread")
+
+    def _apply_global_override_from_gui(self):
+        """Apply LLM model selection to pipeline config (global_provider/model_override) - Claude Generated"""
+        if not hasattr(self, 'global_override_combo'):
+            return
+        override_data = self.global_override_combo.currentData()
+        config = self.pipeline_manager.config
+        if not config:
+            return
+        if override_data:
+            provider, model = PipelineConfig.parse_override_string(override_data)
+            config.global_provider_override = provider
+            config.global_model_override = model
+            self.logger.info(f"🤖 LLM selected: {provider}/{model}")
+        else:
+            config.global_provider_override = None
+            config.global_model_override = None
 
     def _update_dk_config_from_gui(self):
         """
@@ -2188,10 +2263,21 @@ class PipelineTab(QWidget):
         """Update classical step-tab widgets from agentic step completion snapshots - Claude Generated.
 
         Mapping: extraction→initialisation, search→search, selection→keywords,
-                 dk_collect→dk_search, dk_postprocess→dk_classification
+                 classification→dk_classification, dk_collect→dk_search, dk_postprocess→dk_classification
         """
-        if snapshot.get("_step_status") not in ("completed", "error"):
+        status = snapshot.get("_step_status", "")
+        if status not in ("completed", "error"):
             return  # skip running/pending intermediate emissions
+
+        # Update PipelineStepWidget status indicator (▷▶✓✗) - Claude Generated
+        mapping = self._AGENTIC_STEP_MAP.get(step_id)
+        if mapping:
+            widget_key, _ = mapping
+            step_widget = self.step_widgets.get(widget_key)
+            if step_widget:
+                step_widget.step.status = status
+                step_widget.update_status_display()
+
         try:
             if step_id == "extraction":
                 keywords = snapshot.get("extracted_keywords", [])
@@ -2235,6 +2321,17 @@ class PipelineTab(QWidget):
                 if chains:
                     self._render_keyword_chains(chains, final_kws)
 
+            elif step_id == "classification":
+                # classification step produces dk_classifications before dk_postprocess - Claude Generated
+                dk_class = snapshot.get("dk_classifications", [])
+                dk_results = snapshot.get("dk_search_results", [])
+                if dk_class and hasattr(self, "dk_classification_results"):
+                    codes = self._dk_class_codes(dk_class)
+                    html_display = self._format_dk_classifications_with_titles(
+                        codes, dk_results
+                    )
+                    self.dk_classification_results.setHtml(html_display)
+
             elif step_id == "dk_collect":
                 dk_results = snapshot.get("dk_search_results", [])
                 if dk_results and hasattr(self, "dk_search_results"):
@@ -2248,8 +2345,9 @@ class PipelineTab(QWidget):
                     self.dk_search_raw_data = dk_results
                     self._display_dk_search_results(dk_results)
                 if dk_class and hasattr(self, "dk_classification_results"):
+                    codes = self._dk_class_codes(dk_class)
                     html_display = self._format_dk_classifications_with_titles(
-                        dk_class, dk_results
+                        codes, dk_results
                     )
                     self.dk_classification_results.setHtml(html_display)
 
@@ -2288,10 +2386,11 @@ class PipelineTab(QWidget):
                 self.dk_search_raw_data = state.dk_search_results_flattened
                 self._display_dk_search_results(state.dk_search_results_flattened)
 
-            # DK classification tab
+            # DK classification tab — state.dk_classifications may be List[Dict]
             if state.dk_classifications and hasattr(self, "dk_classification_results"):
+                codes = self._dk_class_codes(state.dk_classifications)
                 html_display = self._format_dk_classifications_with_titles(
-                    state.dk_classifications,
+                    codes,
                     state.dk_search_results_flattened or []
                 )
                 self.dk_classification_results.setHtml(html_display)
