@@ -72,6 +72,7 @@ from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
 from .comparison_tab import ComparisonTab
 from .agentic_context_widget import AgenticContextWidget
+from .chat_widget import ChatWidget
 # dk_classification_tab and dk_analysis_tab replaced by dk_analysis_unified_tab
 import logging
 
@@ -430,6 +431,46 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
+        # Agentic context dock – floatable/dockable, hidden until agentic mode is active - Claude Generated
+        self.agentic_context_widget = AgenticContextWidget()
+        self.agentic_dock = QDockWidget("🤖 Agentic Kontext", self)
+        self.agentic_dock.setWidget(self.agentic_context_widget)
+        self.agentic_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.BottomDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.agentic_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        self.agentic_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.agentic_dock)
+
+        # Chat dock — for discussing agentic pipeline results - Claude Generated
+        self.chat_widget = ChatWidget(
+            llm_service=self.llm_service,
+            prompt_service=self.alima_manager.prompt_service,
+            pipeline_manager=self.pipeline_manager,
+            parent=self,
+        )
+        self.chat_dock = QDockWidget("💬 Chat", self)
+        self.chat_dock.setWidget(self.chat_widget)
+        self.chat_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        self.chat_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+            | QDockWidget.DockWidgetFeature.DockWidgetClosable
+        )
+        self.chat_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
+        # Tabify with agentic dock when both visible
+        self.tabifyDockWidget(self.agentic_dock, self.chat_dock)
+
         # Menüleiste
         self.create_menu_bar()
 
@@ -559,6 +600,9 @@ class MainWindow(QMainWindow):
         # Central distribution via on_pipeline_results_ready slot
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_results_ready)
 
+        # Chat dock receives pipeline results for context - Claude Generated
+        self.pipeline_tab.pipeline_results_ready.connect(self.chat_widget.load_context)
+
         # Intermediate step distribution for better live feedback - Claude Generated
         self.pipeline_tab.analysis_results_ready.connect(self.on_intermediate_analysis_ready)
 
@@ -606,22 +650,11 @@ class MainWindow(QMainWindow):
         # Initialize status bar with services
         self.global_status_bar.set_services(self.llm_service, self.cache_manager)
 
-        # Agentic context dock – floatable/dockable, hidden until agentic mode is active - Claude Generated
-        self.agentic_context_widget = AgenticContextWidget()
-        self.agentic_dock = QDockWidget("🤖 Agentic Kontext", self)
-        self.agentic_dock.setWidget(self.agentic_context_widget)
-        self.agentic_dock.setAllowedAreas(
-            Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.BottomDockWidgetArea
-            | Qt.DockWidgetArea.LeftDockWidgetArea
-        )
-        self.agentic_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-            | QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        self.agentic_dock.hide()
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.agentic_dock)
+        # Show DB fallback notice if SQLite was used because MySQL/MariaDB driver missing
+        if getattr(self.cache_manager, 'db_fallback_notice', None):
+            self.global_status_bar.show_temporary_message(
+                self.cache_manager.db_fallback_notice, 8000
+            )
 
         # Connect pipeline_tab agentic signals to dock - Claude Generated
         self.pipeline_tab.agentic_context_updated.connect(
@@ -2311,6 +2344,20 @@ class MainWindow(QMainWindow):
         # Erschließungsvergleich - Claude Generated
         compare_states_action = tools_menu.addAction("🔍 Erschließungs&vergleich...")
         compare_states_action.triggered.connect(self._open_comparison_tab)
+
+        # ========== Ansicht-Menü ==========
+        view_menu = menubar.addMenu("&Ansicht")
+
+        # Chat-Dock anzeigen - Claude Generated
+        show_chat_action = view_menu.addAction("💬 &Chat")
+        show_chat_action.triggered.connect(self.chat_dock.show)
+        show_chat_action.setShortcut("Ctrl+Shift+C")
+
+        # Agentic-Kontext-Dock anzeigen - Claude Generated
+        show_agentic_action = view_menu.addAction("🤖 Agentic &Kontext")
+        show_agentic_action.triggered.connect(self.agentic_dock.show)
+
+        view_menu.addSeparator()
 
         # ========== Bearbeiten-Menü ==========
         edit_menu = menubar.addMenu("&Bearbeiten")

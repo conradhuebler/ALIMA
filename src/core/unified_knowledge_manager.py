@@ -111,6 +111,7 @@ class UnifiedKnowledgeManager:
 
         self.db_manager = DatabaseManager(database_config, f"unified_knowledge_{id(self)}")
         self._init_database()
+        self.db_fallback_notice = getattr(self.db_manager, 'db_fallback_notice', None)
 
         # Mark as initialized - Claude Generated
         UnifiedKnowledgeManager._initialized = True

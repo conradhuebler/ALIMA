@@ -39,6 +39,8 @@ class DatabaseManager:
         # Thread-local storage for per-thread connections - Claude Generated
         # QSqlDatabase connections CANNOT be shared across threads (causes segfaults)
         self._thread_local = threading.local()
+        self.db_fallback_notice: Optional[str] = None
+        self._fallback_triggered = False
 
         # Ensure QCoreApplication exists for QtSql
         if not QCoreApplication.instance():
@@ -120,7 +122,31 @@ class DatabaseManager:
         # Attempt to open connection
         if not connection.open():
             error = connection.lastError()
-            error_msg = f"Failed to open database connection: {error.text()}"
+            error_text = error.text()
+            # Fallback: if MySQL/MariaDB driver fails to load, switch to SQLite once
+            if (
+                self.config.db_type.lower() in ('mysql', 'mariadb')
+                and 'Driver not loaded' in error_text
+                and not self._fallback_triggered
+            ):
+                self._fallback_triggered = True
+                self.db_fallback_notice = (
+                    f"⚠️ {self.config.db_type.upper()} Treiber nicht ladbar. "
+                    f"Verwende SQLite Fallback."
+                )
+                self.logger.warning(self.db_fallback_notice + f" ({error_text})")
+                # Switch config to SQLite and retry
+                from ..utils.config_models import get_default_db_path
+                sqlite_path = self.config.sqlite_path or get_default_db_path()
+                self.config = DatabaseConfig(db_type='sqlite', sqlite_path=sqlite_path)
+                # Clean up failed connection
+                # Set local reference to None first to avoid Qt "still in use" warning
+                connection = None
+                QSqlDatabase.removeDatabase(thread_conn_name)
+                # Recurse: get_connection will now use SQLite config
+                return self.get_connection()
+
+            error_msg = f"Failed to open database connection: {error_text}"
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
 
