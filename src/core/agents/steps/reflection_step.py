@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from src.core.agent_loop import AgentLoop
+from src.core.agents.prompt_resolver import resolve_prompts
 from src.core.agents.registry import register_step
 from src.core.agents.steps.base_step import BaseStep, StepConfig
 from src.core.agents.steps.llm_agent_step import _emit_prompts, _log_response
@@ -121,11 +122,17 @@ class ReflectionStep(BaseStep):
             "current_step": current_step,
         }
 
-        system_prompt = self._render(
-            raw_cfg.get("system_prompt", DEFAULT_REFLECTION_SYSTEM_PROMPT), values
-        )
-        user_prompt = self._render(
-            raw_cfg.get("user_prompt", DEFAULT_REFLECTION_USER_PROMPT), values
+        workflow_prompts = {}
+        if hasattr(context, "_workflow_prompts"):
+            workflow_prompts = context._workflow_prompts or {}
+
+        system_prompt, user_prompt, llm_override = resolve_prompts(
+            raw_cfg=raw_cfg,
+            resolved_inputs=values,
+            context=context,
+            default_system=DEFAULT_REFLECTION_SYSTEM_PROMPT,
+            default_user=DEFAULT_REFLECTION_USER_PROMPT,
+            workflow_prompts=workflow_prompts,
         )
 
         # LLM params
@@ -139,6 +146,11 @@ class ReflectionStep(BaseStep):
             "provider": getattr(context, "provider", "") or "",
             "model": getattr(context, "model", "") or "",
         }
+        if llm_override:
+            if llm_override.get("temperature") is not None:
+                params["temperature"] = float(llm_override["temperature"])
+            if llm_override.get("top_p") is not None:
+                params["top_p"] = float(llm_override["top_p"])
 
         _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
 

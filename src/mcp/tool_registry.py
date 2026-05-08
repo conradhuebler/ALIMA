@@ -29,6 +29,8 @@ class ToolRegistry:
         self._swb = None
         self._biblio = None
         self._resolver = None
+        self._presets: Dict[str, List[str]] = {}
+        self._load_default_presets()
 
     def register(self, tool_def: ToolDefinition, handler: Callable):
         """Register a tool with its handler."""
@@ -44,6 +46,39 @@ class ToolRegistry:
     def get_tool_names(self) -> List[str]:
         """Get all registered tool names."""
         return list(self._tools.keys())
+
+    def register_preset(self, name: str, tool_names: List[str]) -> None:
+        """Register a named tool preset."""
+        self._presets[name] = list(tool_names)
+        logger.debug(f"Registered tool preset '{name}': {tool_names}")
+
+    def get_preset(self, name: str) -> List[str]:
+        """Get tool names for a preset. Returns empty list if unknown."""
+        return list(self._presets.get(name, []))
+
+    def list_presets(self) -> List[str]:
+        """List available preset names."""
+        return sorted(self._presets.keys())
+
+    def _load_default_presets(self) -> None:
+        """Load default presets from YAML file."""
+        import pathlib
+        preset_paths = [
+            pathlib.Path("src/mcp/default_presets.yaml"),
+            pathlib.Path.home() / ".config" / "alima" / "tool_presets.yaml",
+        ]
+        for ppath in preset_paths:
+            if ppath.exists():
+                try:
+                    import yaml
+                    with open(ppath, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                    for preset_name, tool_names in data.items():
+                        if isinstance(tool_names, list):
+                            self.register_preset(preset_name, tool_names)
+                    logger.info(f"Loaded {len(data)} tool presets from {ppath}")
+                except Exception as exc:
+                    logger.warning(f"Could not load tool presets from {ppath}: {exc}")
 
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool by name. Returns JSON string."""

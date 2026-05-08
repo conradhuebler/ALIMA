@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.core.agents.base_shared_context import BaseSharedContext
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,16 +99,10 @@ class ToolResultCache:
 
 
 @dataclass
-class SharedContext:
+class SharedContext(BaseSharedContext):
     """Shared state across all SubAgents in a MetaAgent execution.
 
-    Provides:
-    - Abstract and initial keywords (input data)
-    - Tool result cache (shared across all SubAgents)
-    - Conversation memory (shared LLM message history)
-    - Step results (outputs from each SubAgent)
-    - Quality scores (per-step quality metrics)
-    - Provider/model configuration
+    Extends BaseSharedContext with ALIMA-specific fields.
     """
     # Input data
     abstract: str = ""
@@ -117,22 +113,6 @@ class SharedContext:
     # Shared resources
     tool_result_cache: ToolResultCache = field(default_factory=ToolResultCache)
     conversation_memory: List[Dict] = field(default_factory=list)
-
-    # Pipeline results
-    step_results: Dict[str, Any] = field(default_factory=dict)
-    quality_scores: Dict[str, float] = field(default_factory=dict)
-
-    # LLM configuration
-    provider: str = ""
-    model: str = ""
-    temperature: float = 0.5
-    max_tokens: int = 4096
-    verbose: bool = False  # Log full prompts to stream + logger when True
-
-    # Reference prompts source (PromptService over prompts.json). SubAgents look
-    # up their task-specific system prompt + temperature here so the agentic
-    # pipeline mirrors the rigid pipeline's prompt behaviour.
-    prompt_service: Any = None
 
     # Working data (built during execution)
     working_title: str = ""
@@ -150,24 +130,7 @@ class SharedContext:
 
     # MetaAgent state
     quality_report: Dict[str, Any] = field(default_factory=dict)  # ReflectionStep output
-    execution_history: List[Dict] = field(default_factory=list)  # MetaAgent cycle memory
     max_missing_reruns: int = 1  # Max times to rerun search for missing concepts
-
-    # Generic escape hatch for workflows that need fields not modelled above.
-    # Non-ALIMA workflows (catalog search, synonym expansion, batch metadata)
-    # write their input + step outputs here; reachable via ${extra.<key>...}.
-    extra: Dict[str, Any] = field(default_factory=dict)
-
-    def get_step_result(self, step_name: str) -> Optional[Dict]:
-        """Get result from a specific pipeline step.
-
-        Args:
-            step_name: Name of the step (e.g., 'extraction', 'search')
-
-        Returns:
-            Step result dict or None if not found
-        """
-        return self.step_results.get(step_name)
 
     def set_step_result(self, step_name: str, result: Dict, quality: float = None) -> None:
         """Store result from a pipeline step.

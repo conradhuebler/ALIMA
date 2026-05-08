@@ -30,12 +30,16 @@ class AgentLoop:
         max_iterations: int = 20,
         timeout_seconds: int = 300,
         stream_callback: Optional[Callable[[str], None]] = None,
+        repeat_threshold: int = 3,
+        tool_labels: Optional[Dict[str, str]] = None,
     ):
         self.llm_service = llm_service
         self.tool_registry = tool_registry
         self.max_iterations = max_iterations
         self.timeout_seconds = timeout_seconds
         self.stream_callback = stream_callback
+        self.repeat_threshold = repeat_threshold
+        self.tool_labels = tool_labels or {}
 
     def run(
         self,
@@ -134,8 +138,8 @@ class AgentLoop:
                     # Diminishing returns detection
                     call_key = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
                     tool_call_counter[call_key] += 1
-                    if tool_call_counter[call_key] >= 3:
-                        logger.warning(f"Tool '{tc.name}' called 3x with same args - forcing conclusion")
+                    if tool_call_counter[call_key] >= self.repeat_threshold:
+                        logger.warning(f"Tool '{tc.name}' called {self.repeat_threshold}x with same args - forcing conclusion")
                         if self.stream_callback:
                             self.stream_callback(f"\n⚠️ Wiederholte Tool-Aufrufe erkannt, erzwinge Abschluss\n")
                         # Force conclusion by not providing more tool results
@@ -242,16 +246,21 @@ class AgentLoop:
     def _get_tool_type_label(self, tool_name: str) -> str:
         """Get a human-readable label for the tool type.
 
-        Returns:
-            Label indicating the tool category (LLM, DB, Web, etc.)
+        Uses ``self.tool_labels`` if configured, otherwise falls back to
+        built-in categories.
         """
-        # Database tools
+        # User-configured labels take priority
+        if tool_name in self.tool_labels:
+            return self.tool_labels[tool_name]
+
+        # Default categories
         db_tools = {"get_gnd_entry", "get_gnd_batch", "get_dk_cache", "get_classification",
-                    "get_search_cache", "list_pipeline_results", "get_pipeline_result"}
-        # Web/API tools
-        web_tools = {"search_gnd", "search_lobid", "search_swb", "search_catalog"}
-        # Pipeline tools
-        pipeline_tools = {"run_pipeline_step", "save_pipeline_result"}
+                    "get_search_cache", "list_pipeline_results", "get_pipeline_result",
+                    "store_search_result", "get_db_stats"}
+        web_tools = {"search_gnd", "search_lobid", "search_swb", "search_catalog",
+                     "search_catalog_titles", "resolve_doi"}
+        pipeline_tools = {"run_pipeline_step", "save_pipeline_result",
+                          "get_pipeline_keywords", "get_pipeline_abstract"}
 
         if tool_name in db_tools:
             return "🗄️ DB"

@@ -149,6 +149,8 @@ def gnd_batch_search(
 
     sources = sources or ["swb", "lobid"]
     source_tools = {"swb": "search_swb", "lobid": "search_lobid"}
+    if config:
+        source_tools = config.get("source_tool_map", source_tools)
 
     # Accept both ["term1","term2"] and [{"term":"t1"}, {"keyword":"t2"}, {"title":"t3"}].
     # Non-empty dict keys tried in order: term > keyword > title > label.
@@ -607,6 +609,8 @@ def catalog_multi_search(
 
     sources = sources or ["swb", "lobid", "catalog"]
     src_tools = {"swb": "search_swb", "lobid": "search_lobid", "catalog": "search_catalog"}
+    if config:
+        src_tools = config.get("source_tool_map", src_tools)
 
     queries = list(dict.fromkeys(q for q in (queries or []) if q))
     if not queries:

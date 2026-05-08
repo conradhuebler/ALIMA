@@ -770,6 +770,8 @@ class TestMetaAgent(unittest.TestCase):
     """Tests for MetaAgent orchestration layer."""
 
     def setUp(self):
+        self._saved_steps = dict(registry.STEP_REGISTRY)
+        self._saved_fns = dict(registry.TOOL_FN_REGISTRY)
         registry._reset_for_tests()
         register_step("deterministic")(DeterministicStep)
         register_step("reflection")(ReflectionStep)
@@ -785,10 +787,10 @@ class TestMetaAgent(unittest.TestCase):
             return {"result": "done"}
 
     def tearDown(self):
-        registry._reset_for_tests()
-        register_step("llm_agent")(LLMAgentStep)
-        register_step("deterministic")(DeterministicStep)
-        register_step("reflection")(ReflectionStep)
+        registry.STEP_REGISTRY.clear()
+        registry.STEP_REGISTRY.update(self._saved_steps)
+        registry.TOOL_FN_REGISTRY.clear()
+        registry.TOOL_FN_REGISTRY.update(self._saved_fns)
 
     @patch("src.core.agents.meta_agent.MetaAgent._run_reflection")
     def test_meta_agent_runs_workflow_cycles(self, mock_reflect):

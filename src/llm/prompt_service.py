@@ -4,6 +4,7 @@ import logging
 from typing import Optional, List, Dict
 
 from ..core.data_models import PromptConfigData
+from .yaml_prompt_service import YamlPromptService
 
 
 class PromptService:
@@ -14,6 +15,28 @@ class PromptService:
         self.config = self.load_config(config_path)
         self.tasks = self.config.keys()
         self.models_by_task = self._build_model_index()
+
+        # Merge YAML prompts if available (same directory as JSON file)
+        yaml_path = config_path.replace(".json", ".yaml")
+        if os.path.exists(yaml_path):
+            try:
+                yaml_service = YamlPromptService(yaml_path)
+                yaml_service.merge_into(self)
+                self.logger.info(f"Merged YAML prompts from {yaml_path}")
+            except Exception as exc:
+                self.logger.warning(f"Could not merge YAML prompts from {yaml_path}: {exc}")
+        # Also check for custom_prompts/*.yaml
+        custom_dir = os.path.join(os.path.dirname(config_path), "custom_prompts")
+        if os.path.isdir(custom_dir):
+            for fname in sorted(os.listdir(custom_dir)):
+                if fname.endswith(".yaml") or fname.endswith(".yml"):
+                    try:
+                        cpath = os.path.join(custom_dir, fname)
+                        cs = YamlPromptService(cpath)
+                        cs.merge_into(self)
+                        self.logger.info(f"Merged custom prompts from {cpath}")
+                    except Exception as exc:
+                        self.logger.warning(f"Could not merge custom prompts from {fname}: {exc}")
 
     def load_config(self, config_path: str) -> Dict:
         """Load the configuration file"""

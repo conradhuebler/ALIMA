@@ -279,7 +279,11 @@ class MetaAgent:
             f"- Fehlende Konzepte: {getattr(context, 'missing_concepts', []) or 'keine'}\n"
         )
 
-        system_prompt = (
+        # Resolve planning prompts from workflow YAML (meta_agent block or prompts block)
+        meta = workflow.meta_agent or {}
+        wp = workflow.prompts or {}
+
+        default_system = (
             "Du bist ALIMA MetaAgent Planer. Du entscheidest, welcher Pipeline-Schritt "
             "als nächstes ausgeführt wird, basierend auf dem aktuellen Zustand.\n\n"
             "Regeln:\n"
@@ -299,13 +303,23 @@ class MetaAgent:
             '}\n'
             "Keine Erläuterungen außerhalb des JSON."
         )
-
-        user_prompt = (
-            f"Verfügbare Steps:\n{steps_text}\n\n"
-            f"Ausführungsverlauf:\n{history_text}\n\n"
-            f"Aktueller Zustand:\n{state_text}\n\n"
-            f"Entscheide den nächsten Schritt."
+        default_user = (
+            "Verfügbare Steps:\n{steps_text}\n\n"
+            "Ausführungsverlauf:\n{history_text}\n\n"
+            "Aktueller Zustand:\n{state_text}\n\n"
+            "Entscheide den nächsten Schritt."
         )
+
+        system_prompt = meta.get("planning_system_prompt") or wp.get("planning", {}).get("system") or default_system
+        user_prompt = meta.get("planning_user_prompt") or wp.get("planning", {}).get("prompt") or default_user
+
+        # Substitute dynamic placeholders into custom user prompts
+        if "{steps_text}" in user_prompt:
+            user_prompt = user_prompt.replace("{steps_text}", steps_text)
+        if "{history_text}" in user_prompt:
+            user_prompt = user_prompt.replace("{history_text}", history_text)
+        if "{state_text}" in user_prompt:
+            user_prompt = user_prompt.replace("{state_text}", state_text)
 
         loop = AgentLoop(
             llm_service=self.llm_service,

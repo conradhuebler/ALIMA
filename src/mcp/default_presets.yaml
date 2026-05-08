@@ -1,0 +1,25 @@
+# Default tool presets for ALIMA agentic workflows.
+# Loaded by ToolRegistry at initialization.
+# Custom presets can be added here or in ~/.config/alima/tool_presets.yaml
+
+# Full library search stack (GND + web services + cache)
+library:
+  - search_gnd
+  - search_lobid
+  - search_swb
+  - get_search_cache
+
+# GND-centric lookups
+ gnd:
+  - search_gnd
+  - get_gnd_entry
+  - get_gnd_batch
+
+# Classification / DK data collection
+classification:
+  - get_dk_cache
+  - get_classification
+  - search_catalog
+
+# Empty preset (no tools)
+none: []

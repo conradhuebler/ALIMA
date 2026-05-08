@@ -44,14 +44,16 @@ from typing import Any, Dict, List, Optional
 
 from src.core.agent_loop import AgentLoop
 from src.core.agents.context_path import resolve_mapping
+from src.core.agents.prompt_resolver import resolve_prompts
 from src.core.agents.registry import register_step
 from src.core.agents.steps.base_step import BaseStep, StepConfig
 
 logger = logging.getLogger(__name__)
 
 
-# Simple built-in presets. Agents can override via ``tools.explicit``.
-TOOL_PRESETS: Dict[str, List[str]] = {
+# Built-in fallback presets when no ToolRegistry is available (e.g. tests).
+# In production, presets are loaded from src/mcp/default_presets.yaml.
+_TOOL_PRESETS_FALLBACK: Dict[str, List[str]] = {
     "library": ["search_gnd", "search_lobid", "search_swb", "get_search_cache"],
     "gnd": ["search_gnd", "get_gnd_entry", "get_gnd_batch"],
     "classification": ["get_dk_cache", "get_classification", "search_catalog"],
@@ -239,35 +241,32 @@ class LLMAgentStep(BaseStep):
     ) -> tuple:
         """Return (system_prompt, user_prompt, params).
 
-        If ``prompt_task`` is set in the step YAML and ``context.prompt_service``
-        is available, loads prompts + temp/top_p from PromptService (prompts.json).
-        Falls back to inline YAML ``system_prompt`` / ``user_prompt`` otherwise.
+        Uses centralized prompt_resolver for consistent override hierarchy:
+        inline YAML → prompt_task → workflow-level prompts → defaults.
         """
-        task = raw_cfg.get("prompt_task")
-        if task:
-            ps = getattr(context, "prompt_service", None)
-            if ps is not None:
-                try:
-                    cfg = ps.get_prompt_config(task, params.get("model", ""))
-                    if cfg:
-                        system_prompt = self._render(cfg.system or "", resolved_inputs)
-                        user_prompt = self._render(cfg.prompt or "", resolved_inputs)
-                        updated = dict(params)
-                        updated["temperature"] = float(cfg.temp)
-                        updated["top_p"] = float(cfg.p_value)
-                        logger.debug(
-                            f"LLMAgentStep '{self.step_id}': prompts loaded from "
-                            f"task='{task}' (temp={cfg.temp}, top_p={cfg.p_value})"
-                        )
-                        return system_prompt, user_prompt, updated
-                except Exception as exc:
-                    logger.warning(
-                        f"LLMAgentStep '{self.step_id}': PromptService lookup failed "
-                        f"for task='{task}': {exc} — falling back to inline YAML"
-                    )
-        system_prompt = self._render(raw_cfg.get("system_prompt", ""), resolved_inputs)
-        user_prompt = self._render(raw_cfg.get("user_prompt", ""), resolved_inputs)
-        return system_prompt, user_prompt, params
+        workflow_prompts = {}
+        # Try to get workflow-level prompts from the execution context
+        # (WorkflowExecutor could inject this, or we look it up via meta)
+        if hasattr(context, "_workflow_prompts"):
+            workflow_prompts = context._workflow_prompts or {}
+
+        system, user, llm_override = resolve_prompts(
+            raw_cfg=raw_cfg,
+            resolved_inputs=resolved_inputs,
+            context=context,
+            default_system=raw_cfg.get("system_prompt", ""),
+            default_user=raw_cfg.get("user_prompt", ""),
+            workflow_prompts=workflow_prompts,
+        )
+
+        if llm_override and llm_override.get("temperature") is not None:
+            updated = dict(params)
+            updated["temperature"] = llm_override["temperature"]
+            if llm_override.get("top_p") is not None:
+                updated["top_p"] = llm_override["top_p"]
+            return system, user, updated
+
+        return system, user, params
 
     def _llm_params(self, raw_cfg: Dict[str, Any], context: Any) -> Dict[str, Any]:
         llm_cfg = raw_cfg.get("llm", {}) or {}
@@ -332,8 +331,7 @@ class LLMAgentStep(BaseStep):
             out = out.replace("{" + name + "}", _stringify(values[name]))
         return out
 
-    @staticmethod
-    def _resolve_tools(cfg: Any) -> List[str]:
+    def _resolve_tools(self, cfg: Any) -> List[str]:
         """Turn the ``tools:`` block into a flat list of tool names."""
         if cfg is None:
             return []
@@ -345,7 +343,12 @@ class LLMAgentStep(BaseStep):
                 return list(explicit)
             preset_name = cfg.get("preset")
             if preset_name:
-                return list(TOOL_PRESETS.get(preset_name, []))
+                # Try registry first (production), fall back to built-in dict (tests)
+                if self.tool_registry is not None and hasattr(self.tool_registry, "get_preset"):
+                    preset_tools = self.tool_registry.get_preset(preset_name)
+                    if preset_tools:
+                        return list(preset_tools)
+                return list(_TOOL_PRESETS_FALLBACK.get(preset_name, []))
         return []
 
 

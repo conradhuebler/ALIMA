@@ -103,6 +103,31 @@ def list_tool_fns() -> list[str]:
     return sorted(TOOL_FN_REGISTRY)
 
 
+def register_step_from_yaml(name: str, yaml_path: str) -> None:
+    """Register a composite step type from a YAML file.
+
+    The YAML defines a sub-workflow (list of steps) that the CompositeStep
+    will execute.  This enables reusable step templates without Python code.
+    """
+    from pathlib import Path
+    from .steps.composite_step import CompositeStep
+
+    path = Path(yaml_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Step template not found: {yaml_path}")
+
+    class _DynamicCompositeStep(CompositeStep):
+        """Dynamically loaded composite step."""
+        _template_path = str(path)
+
+    # Re-registering the same name with the same class is idempotent
+    if name in STEP_REGISTRY and STEP_REGISTRY[name] is not _DynamicCompositeStep:
+        raise ValueError(
+            f"Step type '{name}' already registered to {STEP_REGISTRY[name].__name__}"
+        )
+    STEP_REGISTRY[name] = _DynamicCompositeStep
+
+
 def _reset_for_tests() -> None:
     """Clear both registries — used only in tests that register mock steps/fns."""
     STEP_REGISTRY.clear()

@@ -42,6 +42,8 @@ class WorkflowDef:
     steps: List[StepConfig] = field(default_factory=list)
     settings: Dict[str, Any] = field(default_factory=dict)
     context_init: Dict[str, Any] = field(default_factory=dict)
+    prompts: Dict[str, Any] = field(default_factory=dict)  # workflow-level prompt overrides
+    meta_agent: Dict[str, Any] = field(default_factory=dict)  # meta-agent config block
     raw: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -117,6 +119,8 @@ def load_workflow(
         steps=steps,
         settings=data.get("settings", {}) or {},
         context_init=data.get("context_init", {}) or {},
+        prompts=data.get("prompts", {}) or {},
+        meta_agent=data.get("meta_agent", {}) or {},
         raw=data,
     )
 
@@ -159,6 +163,7 @@ def parse_steps(
             depends_on=list(step.get("depends_on", []) or []),
             inputs=dict(step.get("inputs", {}) or {}),
             outputs=dict(step.get("outputs", {}) or {}),
+            condition=step.get("when") or None,
             raw=dict(step),
         ))
 

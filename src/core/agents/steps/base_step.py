@@ -35,6 +35,7 @@ class StepConfig:
     depends_on: List[str] = field(default_factory=list)
     inputs: Dict[str, Any] = field(default_factory=dict)
     outputs: Dict[str, str] = field(default_factory=dict)
+    condition: Optional[str] = None  # when: expression
     raw: Dict[str, Any] = field(default_factory=dict)
 
 

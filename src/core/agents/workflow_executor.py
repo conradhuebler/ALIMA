@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from src.core.agents.conditional_engine import ConditionalEngine
 from src.core.agents.registry import get_step_class
 from src.core.agents.steps.base_step import BaseStep, StepResult
 from src.core.agents.workflow_loader import WorkflowDef
@@ -80,6 +81,15 @@ class WorkflowExecutor:
         overall_success = True
         error: Optional[str] = None
 
+        # Inject workflow prompts into context for step-level prompt resolution
+        if hasattr(context, "_workflow_prompts"):
+            context._workflow_prompts = workflow.prompts
+        else:
+            try:
+                context._workflow_prompts = workflow.prompts
+            except Exception:
+                pass
+
         steps = workflow.steps
         if only_step:
             steps = [s for s in steps if s.id == only_step]
@@ -95,6 +105,21 @@ class WorkflowExecutor:
             if not cfg.enabled:
                 logger.info(f"Skipping '{cfg.id}' (disabled in workflow)")
                 continue
+
+            # Evaluate conditional expression
+            if cfg.condition:
+                should_run = ConditionalEngine.evaluate(cfg.condition, context)
+                if not should_run:
+                    logger.info(f"Skipping '{cfg.id}' (condition '{cfg.condition}' is False)")
+                    if self.stream_callback:
+                        self.stream_callback(f"\n⏭️ Step: {cfg.id} — skipped (condition)\n")
+                    results.append(StepResult(
+                        step_id=cfg.id,
+                        success=True,
+                        data={"skipped": True, "reason": f"condition '{cfg.condition}' evaluated to False"},
+                        duration_seconds=0.0,
+                    ))
+                    continue
 
             try:
                 step_cls = get_step_class(cfg.type)
