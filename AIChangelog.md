@@ -1,5 +1,9 @@
 # ALIMA AI Changelog
 
+> **Developer log.** Detailed dated entries per feature: file lists,
+> phase plans, internal refactors. For user-facing release notes
+> (topic-grouped), see [`CHANGELOG.md`](CHANGELOG.md).
+
 ## 2026
 
 ### v4 Agent Workflow System (April 22, 2026)

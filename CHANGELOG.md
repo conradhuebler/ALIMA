@@ -2,7 +2,21 @@
 
 This file summarizes notable changes in this branch since the last upstream release, [`v0.0.1`](https://github.com/conradhuebler/ALIMA/releases/tag/v0.0.1).
 
+> **User-facing release notes.** Topic-grouped, deduplicated.
+> For the detailed dated developer log (per-feature commits, file lists,
+> internal refactors), see [`AIChangelog.md`](AIChangelog.md).
+
 ## [Unreleased]
+
+### Agentic Workflow System (v4)
+
+- Replaced the hardcoded MetaAgent + 4 SubAgents architecture with a YAML-driven workflow system: every pipeline step is now defined declaratively and dispatched through a generic `WorkflowExecutor`.
+- Added `LLMAgentStep` and `DeterministicStep` step types with a plugin registry so new step types and tool functions can be added without touching the dispatch code.
+- Added context-path resolver (`${steps.X.Y}`, `${extra.Y}`) and free-form `SharedContext.extra` dict for cross-step data flow.
+- Shipped reference workflows: `alima_classic`, `catalog_search`, `synonym_expansion`, `batch_metadata`, `title_list_search`.
+- Added CLI commands `alima workflow <name>` and `alima workflows list`; GUI gained a workflow dropdown in the pipeline config dialog.
+- Added live agentic context dock (`AgenticContextWidget`) with per-step state visualization.
+- Optional MetaAgent planning loop (`PLAN → EXECUTE → REFLECT`) available behind `meta_agent.enabled: true` in any workflow.
 
 ### Pipeline And LLM Processing
 
