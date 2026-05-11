@@ -413,6 +413,14 @@ Strategie-Optionen, gemeinsame Schemas.
 ---
 
 ### WP11 — Provider/Modell-Portabilität (NEU)
+
+**Vor-Analyse von 2025**: `provider_strategy_*.md`-Set existiert
+(4 Docs, 951 Z.). Empfahl Vereinfachung der Fallback-Hierarchie
+(4-Tier → 2-Tier) + Entfernung von Model-Family-Recognition. WP11
+**baut Recognition aus**, nicht ab — neue Anforderung Multi-Provider
+braucht Familie-Pattern. Vereinfachung Fallback bleibt valide.
+Status-Marker in `provider_strategy_summary.md`.
+
 **Ziel**: Pipeline + Agent funktionieren reproducible auf >1
 Provider/Modell-Familie. Heute getunet für ein Setup (Audit:
 `<|begin_of_thought|>`-Markup = DeepSeek/Qwen, prompts.json hat nur

@@ -44,12 +44,14 @@ state shape and `PipelineStepExecutor` logic.
 
 ## Provider Strategy
 
-Analysis-only (not yet implemented).
+Analysis-only (not yet implemented). **Teilweise überholt** durch
+[`wp_detailed_plans.md` WP11](wp_detailed_plans.md) — Details siehe
+Status-Update in `provider_strategy_summary.md`.
 
+- [`provider_strategy_summary.md`](provider_strategy_summary.md) — Executive Summary + Status-Update
 - [`provider_strategy_analysis.md`](provider_strategy_analysis.md)
 - [`provider_strategy_technical_spec.md`](provider_strategy_technical_spec.md)
 - [`provider_strategy_migration_guide.md`](provider_strategy_migration_guide.md)
-- [`provider_strategy_summary.md`](provider_strategy_summary.md)
 
 ## Legacy / Archived
 

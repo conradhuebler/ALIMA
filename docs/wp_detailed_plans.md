@@ -530,6 +530,16 @@ Pro Feature × Frontend Matrix definieren. Webapp-Strategie expliziert
 
 ## WP11 — Provider/Modell-Portabilität
 
+### Vorarbeit / Querverweis
+- [`provider_strategy_summary.md`](provider_strategy_summary.md) +
+  Begleitdocs (analysis/technical_spec/migration_guide) sind 2025
+  entstandene Vor-Analyse. **Teilweise überholt**: dort wurde
+  Entfernung von Model-Family-Recognition empfohlen — WP11 will sie
+  *ausbauen*, weil prompts.json multi-variant-fähig ist und
+  Multi-Provider sie braucht. Vereinfachung Fallback-Hierarchie
+  bleibt sinnvoller Konsens. Provider-Strategy-Docs als Referenz
+  lesen für Code-Inventar (welche Methoden/Klassen Stand 2025).
+
 ### Ziel
 Pipeline + Agent + Chat funktionieren reproducible auf 3 Providern
 (Operator-Vorgabe: OpenAI-API + GWDG + Ollama). Effektiv 2 API-
