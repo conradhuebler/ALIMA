@@ -16,6 +16,11 @@ from .registry import (  # noqa: F401
 # Auto-register bundled renderers. Each import triggers the
 # ``@register_renderer`` decorator side-effect.
 from . import raw_json  # noqa: F401,E402
+from . import dk_table  # noqa: F401,E402
+from . import gnd_pool  # noqa: F401,E402
+from . import keyword_chains  # noqa: F401,E402
+from . import duplicate_table  # noqa: F401,E402
+from . import title_list  # noqa: F401,E402
 
 __all__ = [
     "BaseRenderer",

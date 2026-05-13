@@ -668,66 +668,20 @@ class AnalysisReviewTab(QWidget):
             self.current_analysis.final_llm_analysis.extracted_gnd_keywords
         ))  # K10+ Export tab
         if self.current_analysis.classifications:
-            html_parts = []
-            html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
+            # DkTableRenderer migration - Claude Generated (WP10 P-β)
+            from src.ui.renderers.dk_table import DkTableRenderer
 
-            for idx, dk_code in enumerate(self.current_analysis.classifications, 1):
-                # Get titles for this classification
+            rows = []
+            for dk_code in self.current_analysis.classifications:
                 titles, total_count = self._get_titles_for_classification(dk_code)
-
-                # Determine color based on frequency (confidence level) - Claude Generated
-                color, bg_color, _, _ = get_confidence_style(total_count)
-
-                # Classification header with background
-                html_parts.append(
-                    f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
-                    f"border-left: 4px solid {color}; border-radius: 4px;'>"
-                    f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
-                    f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
-                )
-
-                if total_count > 0:
-                    confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
-                    html_parts.append(
-                        f"<span style='color: {color}; font-weight: bold; font-size: 10pt;'>{confidence_bar} {total_count}</span>"
-                    )
-                html_parts.append("</div>")
-
-                if total_count > 0:
-                    html_parts.append(
-                        f"<p style='color: {color}; margin: 5px 0 0 0; font-size: 9pt; opacity: 0.8;'>"
-                        f"📚 Katalogisiert in {total_count} Titel{'n' if total_count != 1 else ''}</p>"
-                    )
-                html_parts.append("</div>")
-
-                # Titles list
-                if titles:
-                    html_parts.append("<div style='padding-left: 20px; margin-bottom: 20px;'>")
-                    html_parts.append("<ol style='font-size: 9pt; line-height: 1.6;'>")
-
-                    for title in titles:
-                        # Escape HTML special characters
-                        safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        html_parts.append(f"<li>{safe_title}</li>")
-
-                    html_parts.append("</ol>")
-
-                    if total_count > len(titles):
-                        html_parts.append(
-                            f"<p style='color: #888; font-style: italic; font-size: 9pt;'>"
-                            f"... und {total_count - len(titles)} weitere Titel</p>"
-                        )
-
-                    html_parts.append("</div>")
-                else:
-                    html_parts.append(
-                        "<div style='padding-left: 20px; margin-bottom: 20px;'>"
-                        "<p style='color: #888; font-style: italic; font-size: 9pt;'>Keine Titel gefunden</p>"
-                        "</div>"
-                    )
-
-            html_parts.append("</body></html>")
-            self.dk_classification_display.setHtml("".join(html_parts))
+                rows.append({
+                    "dk": dk_code,
+                    "titles": titles,
+                    "count": total_count,
+                })
+            self.dk_classification_display.setHtml(
+                DkTableRenderer().render_html(rows)
+            )
         else:
             self.dk_classification_display.setPlainText("Keine DK/RVK-Klassifikationen vorhanden")
 
@@ -825,36 +779,23 @@ class AnalysisReviewTab(QWidget):
             self.missing_concepts_text.setPlainText("Keine Daten verfügbar")
 
     def populate_search_results_table(self):
-        """Populate the search results table - Claude Generated (Refactored)"""
+        """Populate the search results table via GndPoolRenderer - Claude Generated (WP10 P-β)"""
         if not self.current_analysis:
             return
 
-        search_results = self.current_analysis.search_results
+        from src.ui.renderers.gnd_pool import GndPoolRenderer
 
-        # Count total results
-        total_results = 0
-        for result in search_results:
-            total_results += len(result.results)
-
-        self.search_results_table.setRowCount(total_results)
-
-        row = 0
-        for result in search_results:
-            search_term = result.search_term
-
+        rows = []
+        for result in self.current_analysis.search_results:
             for keyword, data in result.results.items():
-                self.search_results_table.setItem(row, 0, QTableWidgetItem(search_term))
-                self.search_results_table.setItem(row, 1, QTableWidgetItem(keyword))
-                self.search_results_table.setItem(
-                    row, 2, QTableWidgetItem(str(data.get("count", 0)))
-                )
                 gnd_ids = data.get("gndid", set())
-                gnd_id = list(gnd_ids)[0] if gnd_ids else ""
-                self.search_results_table.setItem(row, 3, QTableWidgetItem(str(gnd_id)))
-                row += 1
-
-        # Resize columns
-        self.search_results_table.resizeColumnsToContents()
+                rows.append({
+                    "search_term": result.search_term,
+                    "keyword": keyword,
+                    "count": data.get("count", 0),
+                    "gnd_id": next(iter(gnd_ids), "") if gnd_ids else "",
+                })
+        GndPoolRenderer().fill_table(self.search_results_table, rows)
 
     def populate_statistics(self):
         """Populate statistics tab - Claude Generated (Refactored)"""

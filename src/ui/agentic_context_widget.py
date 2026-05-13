@@ -415,30 +415,13 @@ class AgenticStepPanel(QFrame):
         )
 
     def _chains(self, val: Any) -> str:
+        """Delegate to KeywordChainsRenderer - Claude Generated (WP10 P-β)."""
         if not isinstance(val, list) or not val:
             return ""
-        # Detect truncation sentinel
-        truncated = 0
-        items = val
-        if items and isinstance(items[-1], dict) and "_truncated" in items[-1]:
-            truncated = items[-1]["_truncated"]
-            items = items[:-1]
-        trunc_text = f" <span style='color:#ff79c6;'>+{truncated} more</span>" if truncated else ""
-        rows: List[str] = [
-            f"<div style='color:#8be9fd; margin-top:4px;'>keyword_chains "
-            f"({len(items)}{trunc_text})</div>"
-        ]
-        for ch in items:
-            if not isinstance(ch, dict):
-                continue
-            chain = ch.get("chain") or []
-            reason = ch.get("reason", "")
-            rows.append(
-                f"<div><span style='color:#f8f8f2'>• "
-                f"{self._esc(' → '.join(str(c) for c in chain))}</span>"
-                f" <span style='color:#6272a4'>{self._esc(reason)}</span></div>"
-            )
-        return "".join(rows)
+        from src.ui.renderers import get_renderer
+
+        cls = get_renderer("slot:keyword_chains")
+        return cls().render_html(val, context={"label_prefix": "keyword_chains"})
 
     def _render_generic(self, label: str, val: Any) -> str:
         if isinstance(val, list):
