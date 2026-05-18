@@ -396,6 +396,88 @@ class TestSharedContextExtra(unittest.TestCase):
         self.assertEqual(ctx2.extra, {"input": {"q": 1}, "other": [1, 2]})
 
 
+class TestWorkflowSeedResolution(unittest.TestCase):
+    """P-η — settings.seed propagation + per-step override via llm.seed."""
+
+    def test_settings_seed_propagates_to_context(self):
+        yaml_src = textwrap.dedent("""
+            name: "SeedProp"
+            version: "4.0"
+            settings:
+              temperature: 0.5
+              seed: 42
+            steps:
+              - id: noop
+                type: deterministic
+                function: "noop_for_seed_test"
+        """)
+        from src.core.agents.registry import register_tool_fn, TOOL_FN_REGISTRY
+
+        @register_tool_fn("noop_for_seed_test")
+        def _noop(config=None):
+            return {"ok": True}
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "wf.yaml"
+                path.write_text(yaml_src, encoding="utf-8")
+                wf = load_workflow(path)
+
+            ctx = SharedContext(abstract="x")  # context.seed = None initially
+            self.assertIsNone(ctx.seed)
+            executor = WorkflowExecutor()
+            executor.run(wf, ctx)
+            self.assertEqual(ctx.seed, 42, "settings.seed must propagate to context.seed when unset")
+        finally:
+            TOOL_FN_REGISTRY.pop("noop_for_seed_test", None)
+
+    def test_explicit_context_seed_overrides_settings(self):
+        """If caller already set context.seed, settings.seed must not override."""
+        yaml_src = textwrap.dedent("""
+            name: "SeedProp2"
+            version: "4.0"
+            settings:
+              seed: 999
+            steps:
+              - id: noop2
+                type: deterministic
+                function: "noop_for_seed_test2"
+        """)
+        from src.core.agents.registry import register_tool_fn, TOOL_FN_REGISTRY
+
+        @register_tool_fn("noop_for_seed_test2")
+        def _noop(config=None):
+            return {"ok": True}
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "wf.yaml"
+                path.write_text(yaml_src, encoding="utf-8")
+                wf = load_workflow(path)
+
+            ctx = SharedContext(abstract="x", seed=7)
+            executor = WorkflowExecutor()
+            executor.run(wf, ctx)
+            self.assertEqual(ctx.seed, 7, "caller-supplied context.seed must win over settings.seed")
+        finally:
+            TOOL_FN_REGISTRY.pop("noop_for_seed_test2", None)
+
+    def test_step_llm_seed_overrides_context_seed(self):
+        """LLMAgentStep._llm_params: step.llm.seed > context.seed."""
+        from src.core.agents.steps.llm_agent_step import LLMAgentStep
+        step = LLMAgentStep.__new__(LLMAgentStep)
+        ctx = SharedContext(abstract="x", seed=10)
+        params = step._llm_params({"llm": {"seed": 77}}, ctx)
+        self.assertEqual(params["seed"], 77)
+
+    def test_step_uses_context_seed_when_llm_seed_missing(self):
+        from src.core.agents.steps.llm_agent_step import LLMAgentStep
+        step = LLMAgentStep.__new__(LLMAgentStep)
+        ctx = SharedContext(abstract="x", seed=10)
+        params = step._llm_params({"llm": {}}, ctx)
+        self.assertEqual(params["seed"], 10)
+
+
 class TestAlimaClassicMigration(unittest.TestCase):
     """Validate workflows/alima_classic.yaml loads + all referenced fns/steps registered."""
 

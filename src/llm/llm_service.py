@@ -2434,6 +2434,7 @@ class LlmService(QObject):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 4096,
+        seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """
@@ -2452,6 +2453,8 @@ class LlmService(QObject):
             temperature: Sampling temperature
             top_p: Top-p sampling
             max_tokens: Max tokens to generate
+            seed: Optional sampling seed for reproducibility (None = non-deterministic).
+                  Anthropic SDK does not accept seed and silently ignores it (P-η scope decision: skip).
             stream_callback: Optional callback for streaming tokens
 
         Returns:
@@ -2478,24 +2481,25 @@ class LlmService(QObject):
 
         if generator_func == self._generate_ollama_native:
             return self._generate_ollama_native_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback
+                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
             )
         elif generator_func == self._generate_openai_compatible:
             return self._generate_openai_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback
+                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
             )
         elif generator_func == self._generate_anthropic:
+            # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
             return self._generate_anthropic_with_tools(
                 model, messages, tools, temperature, top_p, max_tokens, stream_callback
             )
         elif generator_func == self._generate_gemini:
             return self._generate_gemini_with_tools(
-                model, messages, tools, temperature, top_p, max_tokens, stream_callback
+                model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
             )
         else:
             # Fallback: simulate tool-calling via text for unsupported providers
             return self._generate_text_fallback_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback
+                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
             )
 
     def _generate_ollama_native_with_tools(
@@ -2507,6 +2511,7 @@ class LlmService(QObject):
         temperature: float,
         top_p: float,
         max_tokens: int,
+        seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """Tool-calling via Ollama native client - Claude Generated"""
@@ -2528,6 +2533,8 @@ class LlmService(QObject):
         ollama_messages = self._convert_messages_for_ollama(messages)
 
         options = {"temperature": temperature, "top_p": top_p}
+        if seed is not None:
+            options["seed"] = seed
 
         # Stream token-by-token when no tools are active (most agentic steps have tools=[]).
         # Tool-calling requires stream=False because partial tool-call JSON can't be parsed live.
@@ -2590,6 +2597,7 @@ class LlmService(QObject):
         temperature: float,
         top_p: float,
         max_tokens: int,
+        seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """Tool-calling via OpenAI-compatible API - Claude Generated"""
@@ -2622,6 +2630,8 @@ class LlmService(QObject):
                     "max_tokens": max_tokens,
                     "stream": True,
                 }
+                if seed is not None:
+                    params["seed"] = seed
                 response_stream = self.clients[provider].chat.completions.create(**params)
                 content = ""
                 for chunk in response_stream:
@@ -2642,6 +2652,8 @@ class LlmService(QObject):
                     "max_tokens": max_tokens,
                     "stream": False,
                 }
+                if seed is not None:
+                    params["seed"] = seed
                 if openai_tools:
                     params["tools"] = openai_tools
 
@@ -2777,6 +2789,7 @@ class LlmService(QObject):
         temperature: float,
         top_p: float,
         max_tokens: int,
+        seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """Tool-calling via Google Gemini API - Claude Generated"""
@@ -2834,6 +2847,10 @@ class LlmService(QObject):
                 "top_p": top_p,
                 "max_output_tokens": max_tokens,
             }
+            if seed is not None:
+                # Gemini SDK accepts `seed` in generation_config since 2024.
+                # Older SDKs raise on unknown keys; we try and fall back.
+                generation_config["seed"] = seed
 
             response = model_instance.generate_content(
                 gemini_contents,
@@ -2874,6 +2891,7 @@ class LlmService(QObject):
         temperature: float,
         top_p: float,
         max_tokens: int,
+        seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """
@@ -2929,6 +2947,7 @@ class LlmService(QObject):
                 request_id=request_id,
                 temperature=temperature,
                 p_value=top_p,
+                seed=seed,
                 system=full_system,
                 stream=False,
                 output_format="xml",  # Avoid JSON mode to get free-form text

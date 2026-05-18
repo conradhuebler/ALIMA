@@ -6,6 +6,88 @@
 
 ## 2026
 
+### P-η: Provider-Variants + Seed-Retrofit (May 18, 2026)
+
+WP10 Foundation Phase 3/3. Closes the agentic reproducibility blocker
+(WP2 Sek 3) and seeds the family-aware prompt-routing.
+Pre-tag: `wp10-pη-pre`.
+
+**Seed Retrofit** (WP11 Sek 8 — 7+1 sites):
+- `LlmService.generate_with_tools()` gains `seed: Optional[int] = None`.
+  Dispatch forwards seed to all sub-handlers except Anthropic.
+- `_generate_ollama_native_with_tools`, `_generate_openai_with_tools`,
+  `_generate_gemini_with_tools`, `_generate_text_fallback_with_tools`
+  accept seed and propagate to provider API.
+- `_generate_anthropic_with_tools` **deliberately skipped** —
+  Anthropic SDK has no `seed` parameter and operator config is empty.
+  Dispatch omits seed entirely when routing to Anthropic; text-path
+  Anthropic seed setting at `llm_service.py:1851` is unchanged
+  (silently ignored by SDK). See operator decision in P-η plan.
+- `AgentLoop.run()` gains seed param; forwards to both main and
+  force-final `generate_with_tools()` calls.
+- `BaseSharedContext` + `SharedContext` add `seed` field with
+  serde symmetry in `to_dict`/`from_dict`.
+- `LLMAgentStep._llm_params()` resolves
+  `step.llm.seed > context.seed > None` and forwards via
+  `_invoke_loop()` to `AgentLoop.run(seed=...)`.
+- `shared_context.py` 3 hardcoded `seed=None` in `LlmKeywordAnalysis`
+  factories replaced with `seed=self.seed`.
+
+**Workflow YAML seed schema** (Track C):
+- All 6 workflows (`alima_classic`, `alima`, `catalog_search`,
+  `synonym_expansion`, `title_list_search`, `batch_metadata`) gain
+  optional `settings.seed: null` field.
+- `WorkflowExecutor.run()` propagates `settings.seed` to
+  `context.seed` when the latter is unset (caller wins otherwise).
+- Per-step override remains via `steps[].llm.seed`.
+
+**Capability YAML** (WP11 Sek 3, Track A):
+- New file: `config/model_capabilities.yaml` covering 3 providers
+  (openai_compatible, ollama, gemini) × 12 model patterns × 10 flags
+  (json_mode, tool_use, vision, max_context_tokens, seed_support,
+  streaming, thinking_tokens, parallel_tool_calls, system_prompt,
+  family). Anthropic excluded by operator decision.
+- New helpers in `src/utils/model_capabilities.py`:
+  `load_capabilities_yaml(path)`, `get_capability(provider, model, flag,
+  default)`, `reset_capability_cache()`. 3-tier lookup: exact →
+  fnmatch wildcard → caller default. Cached per-path.
+- Existing `KNOWN_CAPABILITIES` regex registry untouched (chunking
+  threshold lookup unaffected).
+
+**Prompt Variants** (WP11 Sek 5, Track D):
+- 9 new family-specific variants added to `prompts.json`:
+  - `keywords` × {thinking, instruct-open, openai-chat} (+3)
+  - `dk_classification` × {thinking, instruct-open, openai-chat} (+3)
+  - `initialisation` × {thinking, instruct-open} (+2)
+  - `dk_list` × instruct-open (+1, on top of existing 2)
+- All existing 5-tuple variants canonicalized to 6-tuple with
+  `seed="0"`. PromptService 3-tier selector unchanged.
+- Backup at `prompts.json.pre-pη.bak`.
+
+**Tests** (Track E, +22 tests):
+- New `tests/test_llm_service_seed.py` (12 tests): handler dispatch,
+  ollama options pass-through, AgentLoop forward, SharedContext
+  roundtrip.
+- New `tests/test_model_capabilities_yaml.py` (10 tests): YAML load,
+  3-tier resolution, default fallback, shipped-YAML smoke.
+- `tests/test_agents_v2.py` +4: settings/context/step seed resolution.
+- Full suite: 188 passed / 6 pre-existing failures in
+  `test_pipeline_utils.py` (unrelated to P-η, verified via stash).
+
+**Verification**:
+- 22 new tests green; 0 regressions.
+- PromptService picks correct family variant for `llama3.1:8b`
+  (instruct-open), `qwen2.5:32b` (thinking), `gpt-4o-mini` (openai-chat),
+  `exotic-model:1b` (default fallback).
+- End-to-end seed reproducibility smoke test deferred to manual run
+  (requires Ollama runtime).
+
+**Out of scope**: Anthropic family + claude variants, test matrix
+(WP11 Sek 9), per-step provider-mix UI (WP11 Sek 10),
+`KNOWN_CAPABILITIES` → YAML migration of existing consumers.
+
+**Next phase**: P-γ — SingleStepDialog (4 PT, first user-visible win).
+
 ### v4 Agent Workflow System (April 22, 2026)
 - **Replaces MetaAgent + SubAgents**: The hardcoded 4-SubAgent pipeline (`KeywordExtractionAgent`, `SearchAgent`, `KeywordSelectionAgent`, `ClassificationAgent`) was deleted. Agent dispatch now runs through the generic v4 `WorkflowExecutor`.
 - **Plan**: Option B from Agent-System-Restructuring plan — Generic LLMAgentStep + DeterministicStep + plugin registry.

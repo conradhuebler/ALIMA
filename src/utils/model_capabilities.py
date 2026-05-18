@@ -15,9 +15,14 @@ Usage:
     threshold = get_chunking_threshold("ollama", "cogito:32b", explicit_override=750)  # Returns 750
 """
 
+import fnmatch
+import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -240,3 +245,114 @@ def describe_model_capabilities(provider: str, model: str) -> str:
     if cap:
         return f"{cap.description}: {cap.keyword_chunking_threshold} keywords, {cap.context_window} tokens context"
     return "Unknown model (using default: 500 keywords)"
+
+
+# ────────────────────────────────────────────────────────────────────
+# P-η / WP11 Sek 3 — Capability YAML registry (Claude Generated)
+# ────────────────────────────────────────────────────────────────────
+
+_DEFAULT_YAML_PATH = Path(__file__).resolve().parents[2] / "config" / "model_capabilities.yaml"
+_CAPABILITY_CACHE: Optional[Dict[str, Any]] = None
+_CACHE_PATH: Optional[Path] = None
+
+
+def load_capabilities_yaml(path: Optional[Path] = None) -> Dict[str, Any]:
+    """Load the capability YAML and return its parsed `providers:` block.
+
+    Cached per-path: re-load only when path changes. Returns empty dict on
+    missing file or YAML/import error so callers can fall back gracefully.
+    """
+    global _CAPABILITY_CACHE, _CACHE_PATH
+    target = path or _DEFAULT_YAML_PATH
+    if _CAPABILITY_CACHE is not None and _CACHE_PATH == target:
+        return _CAPABILITY_CACHE
+
+    if not target.exists():
+        _CAPABILITY_CACHE = {}
+        _CACHE_PATH = target
+        return _CAPABILITY_CACHE
+
+    try:
+        import yaml  # pyyaml — already a project dep via workflow loader
+    except ImportError:
+        logger.warning("pyyaml not installed; model_capabilities YAML disabled")
+        _CAPABILITY_CACHE = {}
+        _CACHE_PATH = target
+        return _CAPABILITY_CACHE
+
+    try:
+        with target.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(f"Failed to parse {target}: {e}")
+        _CAPABILITY_CACHE = {}
+        _CACHE_PATH = target
+        return _CAPABILITY_CACHE
+
+    providers = data.get("providers", {}) if isinstance(data, dict) else {}
+    if not isinstance(providers, dict):
+        providers = {}
+    _CAPABILITY_CACHE = providers
+    _CACHE_PATH = target
+    return _CAPABILITY_CACHE
+
+
+def reset_capability_cache() -> None:
+    """Test helper: clear the YAML cache so subsequent reads re-parse."""
+    global _CAPABILITY_CACHE, _CACHE_PATH
+    _CAPABILITY_CACHE = None
+    _CACHE_PATH = None
+
+
+def get_capability(
+    provider: str,
+    model: str,
+    flag: str,
+    default: Any = None,
+    yaml_path: Optional[Path] = None,
+) -> Any:
+    """Look up a single capability flag for a given provider/model.
+
+    Resolution order:
+      1. Exact match: ``providers.<provider>.<model>.<flag>``
+      2. fnmatch wildcard: first matching key (e.g. ``"gpt-4*"`` matches
+         ``"gpt-4o"``). Order-dependent on YAML insertion order.
+      3. ``default`` (caller-supplied; no fallback to ``KNOWN_CAPABILITIES``
+         for flag lookups — those patterns only cover chunking thresholds).
+
+    Args:
+        provider: Provider name from llm_service supported_providers dispatch.
+        model: Model name as stored in config / sent to API.
+        flag: One of: json_mode, tool_use, vision, max_context_tokens,
+              seed_support, streaming, thinking_tokens, parallel_tool_calls,
+              system_prompt, family.
+        default: Returned when no match found.
+        yaml_path: Override capability YAML path (testing).
+
+    Returns:
+        Flag value (bool / int / str / enum) or ``default``.
+    """
+    if not provider or not model or not flag:
+        return default
+
+    providers = load_capabilities_yaml(yaml_path)
+    provider_block = providers.get(provider) or {}
+    if not isinstance(provider_block, dict):
+        return default
+
+    # Tier 1: exact
+    exact = provider_block.get(model)
+    if isinstance(exact, dict) and flag in exact:
+        return exact[flag]
+
+    # Tier 2: fnmatch wildcard
+    for pattern, flags in provider_block.items():
+        if not isinstance(flags, dict):
+            continue
+        if pattern == model:
+            continue  # already checked
+        if fnmatch.fnmatchcase(model, pattern):
+            if flag in flags:
+                return flags[flag]
+
+    return default

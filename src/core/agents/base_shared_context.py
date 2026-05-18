@@ -24,6 +24,7 @@ class BaseSharedContext:
     model: str = ""
     temperature: float = 0.5
     max_tokens: int = 4096
+    seed: Optional[int] = None
     verbose: bool = False
 
     # Execution tracking
@@ -51,6 +52,7 @@ class BaseSharedContext:
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "seed": self.seed,
             "execution_history": self.execution_history,
             "extra": self.extra,
         }
@@ -62,6 +64,7 @@ class BaseSharedContext:
             model=data.get("model", ""),
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 4096),
+            seed=data.get("seed"),
         )
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})

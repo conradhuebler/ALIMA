@@ -1,0 +1,175 @@
+# Provider/Modell-Capability Registry — Claude Generated (P-η, WP11 Sek 3)
+#
+# Single-Source-of-Truth für Provider-Flags (seed_support, family, tool_use, ...).
+# Operator-pflegbar ohne Code-Deploy.
+#
+# Lookup: src/utils/model_capabilities.py:get_capability(provider, model, flag, default)
+#   1. exakt: providers.<provider>.<model>.<flag>
+#   2. regex-wildcard: erste matching key (z.B. "gpt-4*" matched "gpt-4o")
+#   3. fallback: KNOWN_CAPABILITIES (hardcoded Python-Patterns)
+#
+# Flags (10):
+#   json_mode:               supports response_format={type: json_object}
+#   tool_use:                none | text_fallback | native | parallel_native
+#   vision:                  multimodal image input
+#   max_context_tokens:      context window size
+#   seed_support:            API-Param `seed` available (Anthropic = false)
+#   streaming:               token-by-token stream
+#   thinking_tokens:         emits <|begin_of_thought|>-markup
+#   parallel_tool_calls:     multiple tools per turn
+#   system_prompt:           dedicated system slot
+#   family:                  thinking | instruct-open | openai-chat | default
+#
+# Anthropic is intentionally OUT of scope (operator config-leer; P-η decision).
+
+providers:
+
+  # ── OpenAI-compatible (OpenAI direct, GWDG, vLLM, LM Studio, ...) ──
+  openai_compatible:
+    "gpt-4*":
+      json_mode: true
+      tool_use: parallel_native
+      vision: true
+      max_context_tokens: 128000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: true
+      system_prompt: true
+      family: openai-chat
+
+    "gpt-3.5*":
+      json_mode: true
+      tool_use: native
+      vision: false
+      max_context_tokens: 16000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: openai-chat
+
+    "qwen2.5*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 32000
+      seed_support: true
+      streaming: true
+      thinking_tokens: true
+      parallel_tool_calls: false
+      system_prompt: true
+      family: thinking
+
+    "gemma-3*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 8000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: instruct-open
+
+    "deepseek*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 64000
+      seed_support: true
+      streaming: true
+      thinking_tokens: true
+      parallel_tool_calls: false
+      system_prompt: true
+      family: thinking
+
+  # ── Ollama (local LLM hosting) ──
+  ollama:
+    "cogito:*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 32000
+      seed_support: true
+      streaming: true
+      thinking_tokens: true
+      parallel_tool_calls: false
+      system_prompt: true
+      family: thinking
+
+    "llama3.1:*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 128000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: instruct-open
+
+    "qwen2.5:*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 32000
+      seed_support: true
+      streaming: true
+      thinking_tokens: true
+      parallel_tool_calls: false
+      system_prompt: true
+      family: thinking
+
+    "gemma3:*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 8000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: instruct-open
+
+    "mistral:*":
+      json_mode: false
+      tool_use: native
+      vision: false
+      max_context_tokens: 32000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: instruct-open
+
+  # ── Google Gemini ──
+  gemini:
+    "gemini-2.5*":
+      json_mode: false
+      tool_use: native
+      vision: true
+      max_context_tokens: 1000000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: default
+
+    "gemini-1.5*":
+      json_mode: false
+      tool_use: native
+      vision: true
+      max_context_tokens: 1000000
+      seed_support: true
+      streaming: true
+      thinking_tokens: false
+      parallel_tool_calls: false
+      system_prompt: true
+      family: default

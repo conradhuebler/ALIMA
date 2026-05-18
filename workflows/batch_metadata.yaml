@@ -5,6 +5,7 @@ description: "Bulk-fetch metadata for a list of GND IDs (local DB + optional Lob
 settings:
   temperature: 0.0
   max_tokens: 1024
+  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
 
 # Input contract: ${extra.gnd_ids} — list of GND identifier strings.
 # Pass via `alima workflow batch_metadata --input '{"gnd_ids": ["4037944-9","4053309-8"]}'`.

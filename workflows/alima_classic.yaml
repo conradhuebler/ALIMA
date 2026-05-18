@@ -6,6 +6,7 @@ settings:
   temperature: 0.5
   top_p: 0.9
   max_tokens: 4096
+  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides. null = non-deterministic.
 
 # Optional MetaAgent orchestration (disabled by default for backward compat)
 meta_agent:

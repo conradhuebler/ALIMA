@@ -5,6 +5,7 @@ description: "Single keyword → GND entry → synonyms + LLM expansion → vali
 settings:
   temperature: 0.3
   max_tokens: 2048
+  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
 
 # Input contract: ${extra.keyword} — a single German keyword / subject term.
 # Pass via `alima workflow synonym_expansion --input '{"keyword": "Nachhaltigkeit"}'`.

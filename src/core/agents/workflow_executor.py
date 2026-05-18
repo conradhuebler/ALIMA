@@ -90,6 +90,15 @@ class WorkflowExecutor:
             except Exception:
                 pass
 
+        # P-η: propagate settings.seed → context.seed when caller did not set one.
+        # Per-step `llm.seed` still overrides via LLMAgentStep._llm_params().
+        settings_seed = workflow.settings.get("seed") if isinstance(workflow.settings, dict) else None
+        if settings_seed is not None and getattr(context, "seed", None) is None:
+            try:
+                context.seed = settings_seed
+            except Exception:
+                pass
+
         steps = workflow.steps
         if only_step:
             steps = [s for s in steps if s.id == only_step]

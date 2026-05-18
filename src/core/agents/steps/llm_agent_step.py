@@ -270,6 +270,8 @@ class LLMAgentStep(BaseStep):
 
     def _llm_params(self, raw_cfg: Dict[str, Any], context: Any) -> Dict[str, Any]:
         llm_cfg = raw_cfg.get("llm", {}) or {}
+        # seed resolution: step llm.seed > settings.seed (via context) > None
+        seed_val = llm_cfg.get("seed", getattr(context, "seed", None))
         return {
             "temperature": llm_cfg.get("temperature", getattr(context, "temperature", 0.5)),
             "top_p": llm_cfg.get("top_p", 0.9),
@@ -278,6 +280,7 @@ class LLMAgentStep(BaseStep):
             "timeout_seconds": int(llm_cfg.get("timeout_seconds", 300)),
             "provider": getattr(context, "provider", "") or "",
             "model": getattr(context, "model", "") or "",
+            "seed": seed_val,
         }
 
     def _invoke_loop(
@@ -303,6 +306,7 @@ class LLMAgentStep(BaseStep):
             temperature=params["temperature"],
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
+            seed=params.get("seed"),
         )
 
     # ------------------------------------------------------------------

@@ -51,6 +51,7 @@ class AgentLoop:
         temperature: float = 0.3,
         top_p: float = 0.9,
         max_tokens: int = 4096,
+        seed: Optional[int] = None,
     ) -> AgentResult:
         """
         Execute a full agent run with tool-calling loop.
@@ -64,6 +65,7 @@ class AgentLoop:
             temperature: Sampling temperature (lower = more deterministic)
             top_p: Top-p sampling
             max_tokens: Max tokens per LLM call
+            seed: Optional sampling seed for reproducibility (None = non-deterministic)
 
         Returns:
             AgentResult with final content, tool log, and iteration count
@@ -109,6 +111,7 @@ class AgentLoop:
                     temperature=temperature,
                     top_p=top_p,
                     max_tokens=max_tokens,
+                    seed=seed,
                     stream_callback=self.stream_callback,
                 )
             except Exception as e:
@@ -231,6 +234,7 @@ class AgentLoop:
                         provider=provider, model=model,
                         messages=messages, tools=[],  # No tools = force text response
                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                        seed=seed,
                     )
                     final_content = forced.content
                 except Exception:

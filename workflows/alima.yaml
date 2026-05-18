@@ -15,6 +15,7 @@ settings:
   temperature: 0.5
   top_p: 0.5
   max_tokens: 4096
+  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
 
 # MetaAgent loop disabled by default — pipeline runs sequentially.
 # Set enabled: true to enable PLAN→EXECUTE→REFLECT cycles.

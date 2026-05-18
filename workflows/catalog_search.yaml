@@ -5,6 +5,7 @@ description: "Multi-source catalog lookup (SWB + Lobid + catalog) with optional 
 settings:
   temperature: 0.2
   max_tokens: 2048
+  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
 
 # Input contract: ${extra.queries} — list of search strings.
 # Pass via `alima workflow catalog_search --input '{"queries": ["Kadmium","Toxikologie"]}'`.

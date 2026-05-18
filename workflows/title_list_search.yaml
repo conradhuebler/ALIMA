@@ -5,6 +5,7 @@ description: "LLM extracts rich bibliographic records (title, authors, ISBN, pub
 settings:
   temperature: 0.1
   max_tokens: 2048
+  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
 
 # Input contract: free-form text via ${abstract}. LLM extracts titles *with*
 # available metadata (authors, ISBN, publisher, year); catalog is queried in

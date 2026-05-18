@@ -297,7 +297,7 @@ class SharedContext(BaseSharedContext):
             prompt_template="initialisation",
             filled_prompt="",
             temperature=self.temperature,
-            seed=None,
+            seed=self.seed,
             response_full_text=extraction_result.get("raw_output", ""),
             extracted_gnd_keywords=self.extracted_keywords,
         )
@@ -318,7 +318,7 @@ class SharedContext(BaseSharedContext):
             prompt_template="keywords_chunked",
             filled_prompt="",
             temperature=self.temperature,
-            seed=None,
+            seed=self.seed,
             response_full_text="\n".join(response_parts),
             extracted_gnd_keywords=kw_titles,
             missing_concepts=self.missing_concepts,
@@ -336,7 +336,7 @@ class SharedContext(BaseSharedContext):
             prompt_template="dk_classification",
             filled_prompt="",
             temperature=self.temperature,
-            seed=None,
+            seed=self.seed,
             response_full_text=dk_text,
             extracted_gnd_classes=dk_codes,
         ) if dk_text else None
@@ -391,6 +391,7 @@ class SharedContext(BaseSharedContext):
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "seed": self.seed,
             "working_title": self.working_title,
             "extracted_keywords": self.extracted_keywords,
             "gnd_entries": self.gnd_entries,
@@ -432,6 +433,7 @@ class SharedContext(BaseSharedContext):
             model=data.get("model", ""),
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 4096),
+            seed=data.get("seed"),
         )
         ctx.working_title = data.get("working_title", "")
         ctx.extracted_keywords = data.get("extracted_keywords", [])
