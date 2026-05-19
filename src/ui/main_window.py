@@ -1435,6 +1435,25 @@ class MainWindow(QMainWindow):
             )
             self.logger.error(f"Failed to open batch processing dialog: {e}")
 
+    def show_single_step_dialog(self):
+        """Open the P-γ SingleStepDialog (modal). Claude Generated."""
+        try:
+            from .dialogs.single_step_dialog import SingleStepDialog
+
+            dlg = SingleStepDialog(
+                llm_service=self.llm_service,
+                alima_manager=self.alima_manager,
+                parent=self,
+            )
+            dlg.exec()
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"Fehler beim Öffnen des Single-Step-Dialogs:\n{e}",
+            )
+            self.logger.error(f"Failed to open SingleStepDialog: {e}")
+
     def load_batch_results(self):
         """Load and review batch processing results - Claude Generated"""
         try:
@@ -2338,6 +2357,13 @@ class MainWindow(QMainWindow):
 
         batch_review_action = tools_menu.addAction("📋 Batch-Ergebnisse &laden...")
         batch_review_action.triggered.connect(self.load_batch_results)
+
+        tools_menu.addSeparator()
+
+        # P-γ: Single-step execution dialog
+        single_step_action = tools_menu.addAction("🎯 Run Single &Step…")
+        single_step_action.setShortcut("Ctrl+Shift+S")
+        single_step_action.triggered.connect(self.show_single_step_dialog)
 
         tools_menu.addSeparator()
 
