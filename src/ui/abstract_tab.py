@@ -219,7 +219,17 @@ class AbstractTab(QWidget):
         )
 
         # ======== Control Bar ========
+        # P-θ.2: prominent task switcher (formerly buried in Prompt sub-tab).
         control_bar = QHBoxLayout()
+        task_label = QLabel("📌 Task:")
+        task_label.setStyleSheet("font-weight: bold;")
+        control_bar.addWidget(task_label)
+        self.task_selector_combo = QComboBox()
+        self.task_selector_combo.setMinimumWidth(180)
+        self.task_selector_combo.currentIndexChanged.connect(self.on_task_selected)
+        control_bar.addWidget(self.task_selector_combo)
+        control_bar.addSpacing(20)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(True)
@@ -282,17 +292,15 @@ class AbstractTab(QWidget):
         prompt_layout = QVBoxLayout(prompt_tab)
         prompt_layout.setSpacing(LAYOUT["inner_spacing"])
 
-        prompt_selection_group = QGroupBox("Prompt-Auswahl")
+        # P-θ.2: Task-Selector lives in the tab control-bar above.
+        # Prompt sub-tab keeps the Prompt-variant selector only.
+        prompt_selection_group = QGroupBox("Prompt-Variante")
         prompt_selection_layout = QGridLayout(prompt_selection_group)
         prompt_selection_layout.setSpacing(LAYOUT["inner_spacing"])
-        prompt_selection_layout.addWidget(QLabel("Task:"), 0, 0)
-        self.task_selector_combo = QComboBox()
-        self.task_selector_combo.currentIndexChanged.connect(self.on_task_selected)
-        prompt_selection_layout.addWidget(self.task_selector_combo, 0, 1)
-        prompt_selection_layout.addWidget(QLabel("Prompt:"), 1, 0)
+        prompt_selection_layout.addWidget(QLabel("Prompt:"), 0, 0)
         self.prompt_selector_combo = QComboBox()
         self.prompt_selector_combo.currentIndexChanged.connect(self.on_prompt_selected)
-        prompt_selection_layout.addWidget(self.prompt_selector_combo, 1, 1)
+        prompt_selection_layout.addWidget(self.prompt_selector_combo, 0, 1)
         prompt_layout.addWidget(prompt_selection_group)
 
         prompt_layout.addWidget(QLabel("Prompt-Vorlage:"))

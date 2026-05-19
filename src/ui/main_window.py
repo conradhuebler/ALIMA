@@ -497,34 +497,10 @@ class MainWindow(QMainWindow):
         self.abstract_tab.template_name = "abstract_analysis"  # This might be removed later if task selection is fully dynamic
         self.abstract_tab.set_task("initialisation")  # Set initial task (pipeline step name) - Claude Generated
 
-        # Pass alima_manager and llm_service to AbstractTab
-        self.analyse_keywords = AbstractTab(
-            alima_manager=self.alima_manager,
-            llm_service=self.llm_service,
-            cache_manager=self.cache_manager,
-            pipeline_manager=self.pipeline_manager,
-            main_window=self,
-        )
-        self.analyse_keywords.template_name = (
-            "results_verification"  # This might be removed later
-        )
-        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
-        # self.search_tab.keywords_found.connect(self.analyse_keywords.set_keywords)
-        # self.abstract_tab.abstract_changed.connect(self.analyse_keywords.set_abstract)
-        self.analyse_keywords.need_keywords = True
-        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
-        # self.analyse_keywords.final_list.connect(self.update_gnd_keywords)
-        self.analyse_keywords.set_task("keywords")
-
-        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
-        # self.abstract_tab.final_list.connect(self.search_tab.update_search_field)
-        # self.abstract_tab.gnd_systematic.connect(self.search_tab.set_gnd_systematic)
-
-        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
-        # self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
-
-        # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
-        # self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
+        # P-θ.2: Verifikations-Tab gemergt in abstract_tab via Task-Switcher.
+        # `analyse_keywords` ist Alias für abstract_tab — bestehender
+        # Routing-Code referenziert ihn weiterhin.
+        self.analyse_keywords = self.abstract_tab
 
         # Analysis Review Tab
         self.analysis_review_tab = AnalysisReviewTab()
@@ -623,9 +599,8 @@ class MainWindow(QMainWindow):
 
         # Individual tabs with icons and proper naming
         self.tabs.addTab(self.image_analysis_tab, "📷 Bild")
-        self.tabs.addTab(self.abstract_tab, "📝 Abstract")
+        self.tabs.addTab(self.abstract_tab, "📝 Manuelle Analyse")
         self.tabs.addTab(self.search_tab, "🔍 GND-Suche")
-        self.tabs.addTab(self.analyse_keywords, "✅ Verifikation")
         self.tabs.addTab(self.ub_catalog_tab, "📚 UB-Katalog")        # NEW - Claude Generated
         self.tabs.addTab(self.dk_analysis_unified_tab, "📊 Klassifikationen")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
@@ -785,7 +760,9 @@ class MainWindow(QMainWindow):
                 }
                 self.search_tab.display_search_results(search_results_dict)
 
-        # 3. Verifikation Tab (analyse_keywords): Set abstract + GND keywords + final LLM response
+        # 3. Manuelle Analyse / Verifikation view — P-θ.2: same tab as block 1.
+        # `self.analyse_keywords is self.abstract_tab` (aliased). Calls below
+        # update GND-keyword view + final-LLM-history entry on the merged tab.
         if analysis_state.original_abstract:
             self.analyse_keywords.set_abstract(analysis_state.original_abstract)
 
