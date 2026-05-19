@@ -55,7 +55,6 @@ from ..utils.pipeline_defaults import get_autosave_dir
 
 
 # Legacy config import removed - using unified config system now
-from .crossref_tab import CrossrefTab
 from .analysis_review_tab import AnalysisReviewTab
 from .dk_analysis_unified_tab import DkAnalysisUnifiedTab
 from .ub_catalog_tab import UBCatalogTab
@@ -487,9 +486,6 @@ class MainWindow(QMainWindow):
             pipeline_manager=self.pipeline_manager
         )
 
-        self.crossref_tab = CrossrefTab()
-
-        # Pass alima_manager and llm_service to AbstractTab
         # Pass alima_manager and llm_service to AbstractTab
         self.abstract_tab = AbstractTab(
             alima_manager=self.alima_manager,
@@ -498,8 +494,6 @@ class MainWindow(QMainWindow):
             pipeline_manager=self.pipeline_manager,
             main_window=self,
         )
-        # self.crossref_tab.result_abstract.connect(self.abstract_tab.set_abstract)
-        # self.crossref_tab.result_keywords.connect(self.abstract_tab.set_keywords)
         self.abstract_tab.template_name = "abstract_analysis"  # This might be removed later if task selection is fully dynamic
         self.abstract_tab.set_task("initialisation")  # Set initial task (pipeline step name) - Claude Generated
 
@@ -530,7 +524,6 @@ class MainWindow(QMainWindow):
         # self.analyse_keywords.final_list.connect(self.ub_search_tab.update_keywords)
 
         # OBSOLET: Datenfluss wird jetzt vom PipelineManager gesteuert - Claude Generated
-        # self.crossref_tab.result_abstract.connect(self.ub_search_tab.set_abstract)
         # self.abstract_tab.abstract_changed.connect(self.ub_search_tab.set_abstract)
 
         # Analysis Review Tab
@@ -629,7 +622,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.pipeline_tab, "🚀 Pipeline")
 
         # Individual tabs with icons and proper naming
-        self.tabs.addTab(self.crossref_tab, "🌐 DOI")
         self.tabs.addTab(self.image_analysis_tab, "📷 Bild")
         self.tabs.addTab(self.abstract_tab, "📝 Abstract")
         self.tabs.addTab(self.search_tab, "🔍 GND-Suche")

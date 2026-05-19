@@ -41,7 +41,6 @@ from .pipeline_config_dialog import PipelineConfigDialog
 from ..core.alima_manager import AlimaManager
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..llm.llm_service import LlmService
-from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
 from .unified_input_widget import UnifiedInputWidget
 from .pipeline_stream_widget import PipelineStreamWidget
@@ -229,7 +228,6 @@ class PipelineTab(QWidget):
 
     # Signals for pipeline result emission to other tabs - Claude Generated
     search_results_ready = pyqtSignal(dict)  # For SearchTab.display_search_results()
-    metadata_ready = pyqtSignal(dict)       # For CrossrefTab.display_metadata()
     analysis_results_ready = pyqtSignal(object)  # For AbstractTab analysis results
     pipeline_results_ready = pyqtSignal(object)  # Complete analysis_state for distribution - Claude Generated
 
@@ -2576,14 +2574,6 @@ class PipelineTab(QWidget):
                 search_results = step.output_data["search_results"]
                 self.logger.debug(f"Emitting search results to SearchTab: {len(search_results)} terms")
                 self.search_results_ready.emit(search_results)
-            
-            # Emit DOI resolution results to CrossrefTab
-            elif step.step_id == "input" and step.output_data.get("source_info", "").startswith("DOI"):
-                # If input was from DOI resolution, emit metadata if available
-                if "metadata" in step.output_data:
-                    metadata = step.output_data["metadata"]
-                    self.logger.debug("Emitting DOI metadata to CrossrefTab")
-                    self.metadata_ready.emit(metadata)
             
             # Emit keyword analysis results to AbstractTab (and DkAnalysisTab)
             elif step.step_id in ["initialisation", "keywords", "dk_classification"]:

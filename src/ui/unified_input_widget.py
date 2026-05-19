@@ -37,7 +37,6 @@ import requests
 from datetime import datetime
 
 from ..llm.llm_service import LlmService
-from .crossref_tab import CrossrefTab
 from .image_analysis_tab import ImageAnalysisTab
 from .workers import StoppableWorker
 from ..core.alima_manager import AlimaManager
