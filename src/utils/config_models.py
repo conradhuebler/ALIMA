@@ -674,6 +674,7 @@ class UIConfig:
     """UI-specific configuration - Claude Generated"""
     enable_webcam_input: bool = False  # Enable webcam capture in Pipeline tab
     font_size: int = 10  # Global base font size in pt (8–16) — Claude Generated
+    ptheta_banner_seen: bool = False  # WP10 P-θ.4 one-time banner flag
 
 
 @dataclass

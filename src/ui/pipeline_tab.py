@@ -667,6 +667,34 @@ class PipelineTab(QWidget):
         reset_btn.clicked.connect(self.reset_pipeline)
         tb_layout.addWidget(reset_btn)
 
+        # P-θ.4: prominent workflow picker in toolbar (always visible).
+        workflow_sep = QFrame()
+        workflow_sep.setFrameShape(QFrame.Shape.VLine)
+        workflow_sep.setFixedHeight(24)
+        workflow_sep.setStyleSheet("color: #ccc;")
+        tb_layout.addWidget(workflow_sep)
+
+        workflow_label = QLabel("🧬 Workflow:")
+        workflow_label.setStyleSheet("color: #555; font-weight: bold;")
+        tb_layout.addWidget(workflow_label)
+        self.agentic_workflow_label = workflow_label  # Kept for compat
+
+        self.workflow_combo = QComboBox()
+        self.workflow_combo.setMinimumWidth(180)
+        self.workflow_combo.setMaximumWidth(260)
+        self.workflow_combo.setToolTip(
+            "Workflow für Agent-Modus (v4 YAMLs aus workflows/).\n"
+            "alima_classic: 4-Step ALIMA-Pipeline (default).\n"
+            "catalog_search / synonym_expansion / batch_metadata: PoC-Workflows.\n"
+            "Wird nur ausgeführt, wenn '🤖 Agentic Modus' (Erweitert) aktiv ist."
+        )
+        self.workflow_combo.setStyleSheet(
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; "
+            "border-radius: 3px; font-size: 11px; }"
+        )
+        self._populate_workflow_combo()
+        tb_layout.addWidget(self.workflow_combo)
+
         # Advanced toggle button - Claude Generated
         self.advanced_toggle_button = QPushButton("▼ Erweitert")
         self.advanced_toggle_button.setToolTip("LLM-Modell, Iterative Suche und Agentic-Optionen einblenden")
@@ -797,28 +825,7 @@ class PipelineTab(QWidget):
         self.meta_agent_checkbox.stateChanged.connect(self.on_meta_agent_toggled)
         adv_layout.addWidget(self.meta_agent_checkbox)
 
-        # Workflow selector for Agentic Mode - Claude Generated
-        workflow_label = QLabel("Workflow:")
-        workflow_label.setStyleSheet("color: #666; font-size: 10px;")
-        workflow_label.setVisible(False)
-        adv_layout.addWidget(workflow_label)
-        self.agentic_workflow_label = workflow_label  # Keep reference for visibility toggle
-
-        self.workflow_combo = QComboBox()
-        self.workflow_combo.setMinimumWidth(120)
-        self.workflow_combo.setMaximumWidth(180)
-        self.workflow_combo.setEnabled(False)
-        self.workflow_combo.setVisible(False)
-        self.workflow_combo.setToolTip(
-            "Workflow für Agent-Modus (v4 YAMLs aus workflows/)\n"
-            "alima_classic: 4-Step ALIMA-Pipeline (default)\n"
-            "catalog_search / synonym_expansion / batch_metadata: PoC-Workflows"
-        )
-        self.workflow_combo.setStyleSheet(
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; font-size: 11px; }"
-        )
-        self._populate_workflow_combo()
-        adv_layout.addWidget(self.workflow_combo)
+        # P-θ.4: workflow selector moved to toolbar; only stretch remains.
 
         adv_layout.addStretch()
         main_layout.addWidget(self.advanced_frame)
@@ -1862,10 +1869,8 @@ class PipelineTab(QWidget):
 
         self.logger.info(f"Agentic mode {'enabled' if enabled else 'disabled'}")
 
-        # Enable/disable workflow combo + meta_agent checkbox
-        self.workflow_combo.setEnabled(enabled)
-        self.agentic_workflow_label.setVisible(enabled)
-        self.workflow_combo.setVisible(enabled)
+        # P-θ.4: workflow combo lives in toolbar and is always visible/enabled.
+        # Only meta_agent (advanced) is gated by agentic-mode.
         self.meta_agent_checkbox.setVisible(enabled)
         if not enabled:
             self.meta_agent_checkbox.setChecked(False)

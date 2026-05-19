@@ -641,6 +641,35 @@ class MainWindow(QMainWindow):
             self.agentic_context_widget.build_panels
         )
 
+        # P-θ.4: one-time tab-consolidation banner.
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._maybe_show_ptheta_banner)
+
+    def _maybe_show_ptheta_banner(self) -> None:
+        """Show the WP10 P-θ tab-consolidation banner once per install. Claude Generated."""
+        if not self.config_manager:
+            return
+        try:
+            config = self.config_manager.load_config()
+            if getattr(config.ui_config, "ptheta_banner_seen", False):
+                return
+            QMessageBox.information(
+                self,
+                "GUI konsolidiert (WP10 P-θ)",
+                "Die ALIMA-Tabs wurden auf 7 reduziert:\n\n"
+                "• 🌐 Crossref entfernt — Pipeline-DOI-Input deckt den Bedarf.\n"
+                "• 📝 Abstract + ✅ Verifikation → „Manuelle Analyse"
+                " mit Task-Switcher in der Top-Leiste.\n"
+                "• 🔍 GND-Suche + 📚 UB-Katalog → „Suche"
+                " mit Quellen-Picker (GND/SWB/Lobid oder UB-Katalog/DK).\n"
+                "• 🧬 Workflow-Picker jetzt prominent im Pipeline-Header.\n\n"
+                "Details: docs/migration_roadmap.md — §P-θ.",
+            )
+            config.ui_config.ptheta_banner_seen = True
+            self.config_manager.save_config(config)
+        except Exception as exc:
+            self.logger.debug(f"P-θ banner skipped: {exc}")
+
     def _on_agentic_mode_changed(self, enabled: bool) -> None:
         """Show/hide the agentic context dock when pipeline mode changes - Claude Generated"""
         if enabled:
