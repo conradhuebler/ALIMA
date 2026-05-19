@@ -274,24 +274,11 @@ steps:
           - **Sekundärbeziehungen** einbeziehen,
           - **Bestehende Praxis** im Bibliotheksbestand widerspiegeln.
 
-      **Format für deine Antwort**:
-      ```
-      <|begin_of_thought|>
-      **1. Themenanalyse**:
-      [Liste der identifizierten Kernkonzepte im Abstract + Verknüpfung zu Schlagworten.]
+      **Output**: Genau ein valides JSON-Objekt, direkt mit `{` beginnen.
+      Keine Markdown-Fences, keine Marker-Tokens, keine Erläuterung außerhalb
+      des JSON.
 
-      **2. Klassifikationsvorschläge**:
-      [Tabelle mit Spalten: "Konzept", "Mögliche Klassifikation", "Begründung", "Quelle (Bibliotheksbestand)"]
-
-      **3. Validierungsschritte**:
-      [Beschreibung der Überprüfung auf Präzision, Hierarchie, Redundanz.]
-
-      **4. Finale Auswahl**:
-      [Begründung für die Auswahl der Top-10 Klassifikationen.]
-      <|end_of_thought|>
-
-      <|begin_of_solution|>
-      ```json
+      **Schema**:
       {
         "classifications": [
           {"code": "DK 616.89", "type": "DK"},
@@ -300,33 +287,26 @@ steps:
         ],
         "analyse": "Kurze Zusammenfassung der wichtigsten Klassifikationen und deren Begründung."
       }
-      ```
-      <|end_of_solution|>
-      ```
 
       ---
-      ### **Beispiel für die finale Ausgabe**
+      ### **Beispiel-Eingabe + Ausgabe**
       *Abstract*:
       "Quantenmechanische Studien zur Photokatalytischen Ringöffnung von N-Heterocyclen."
 
       *Bibliotheksbestand* (Ausschnitt):
-      ```
-      DK: 541.14 (Häufigkeit: 3) | Beispieltitel: Photochemistry and photophysics | Molecular orbitals and organic chemical reactions
-      DK: 530.145 (Häufigkeit: 3) | Beispieltitel: Quantum Chemistry | Quantum chemistry
-      DK: 54 (Häufigkeit: 4) | Beispieltitel: Quantum Chemistry | Quantum chemistry | Introduction to computational chemistry
-      ```
+      DK: 541.14 (Häufigkeit: 3) | Beispieltitel: Photochemistry and photophysics
+      DK: 530.145 (Häufigkeit: 3) | Beispieltitel: Quantum Chemistry
+      DK: 54 (Häufigkeit: 4) | Beispieltitel: Introduction to computational chemistry
 
-      **Ausgabe**:
-      ```json
+      **Ausgabe** (plain JSON):
       {
         "classifications": [
           {"code": "DK 541.14", "type": "DK"},
           {"code": "DK 530.145", "type": "DK"},
           {"code": "DK 54", "type": "DK"}
         ],
-        "analyse": "Die Klassifikationen stammen direkt aus dem Bibliotheksbestand: DK 541.14 (Photochemie/Photophysik), DK 530.145 (Quantenchemie) und der übergeordnete Code DK 54 als Oberbegriff."
+        "analyse": "DK 541.14 (Photochemie), DK 530.145 (Quantenchemie), DK 54 (Oberbegriff)."
       }
-      ```
 
       ---
       ### **Jetzt starte mit der Analyse!**

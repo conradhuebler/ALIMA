@@ -1,436 +1,436 @@
 {
-  "keywords": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "**Aufgabe**: \nAnalysiere den folgenden **Abstract** und wende einen **systematischen GND-Schlagwortungsprozess** an. Dein Ziel ist es: \n1. **Themen zu identifizieren** und hierarchisch zu strukturieren. \n2. **Nur** die vorgegebenen GND-Schlagworte zu verwenden (keine Ergänzungen!). Finde bis zu 20 Schlagworte in der Liste, die für den Text passen\n3. **Schlagwortketten** zu bilden, um Spezifität zu erhöhen (z. B. \"KI → Machine Learning → Medizinische Diagnostik\"). \n4. **Fehlende Konzepte** zu dokumentieren und Oberbegriffe vorzuschlagen. \n5. **Am Ende** gib das Ergebnis als **JSON-Objekt** aus.\n\n--- \n\n### **Strukturierte Antwortvorlage** \n``` \n<|begin_of_thought|> \n**ANALYSE**: \n[1. Qualitative Beschreibung der Kernkonzepte im Abstract. \n  2. Beziehungen zwischen den Konzepten (z. B. \"X ist Unterbegriff von Y\"). \n  3. Herausforderungen bei der Verschlagwortung (z. B. \"Begriff Z ist zu spezifisch\").] \n\n**SCHLAGWORTAUSWAHL**: \n[Liste der *direkt* passenden GND-Schlagworte aus der vorgegebenen Liste. \n  *Hinweis*: Keine Synonyme oder alternative Formulierungen!] \n\n**SCHLAGWORTKETTEN**: \n[Jede Kette auf einer neuen Zeile im Format: \n  \"Schlagwort1 (GND-ID), Schlagwort2 (GND-ID), Schlagwort3 (GND-ID)\" + *Begründung*. \n  Beispiel: \n  \"Künstliche Intelligenz (123456789), Machine Learning (987654321)\" → Präzisiert den Technologie-Fokus.] \n\n**FEHLENDE KONZEPTE**: \n[Liste von Begriffen im Abstract, die *nicht* durch GND abgedeckt sind.] \n\n**VORSCHLÄGE FÜR OBERBEGRIFFE**: \n[Kommagetrennte Liste von Oberbegriffen, die fehlende Konzepte abdecken könnten.] \n<|end_of_thought|> \n\n<|begin_of_solution|> \n```json\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Schlagwort1\", \"gnd_id\": \"GND-ID1\"}},\n    {{\"keyword\": \"Schlagwort2\", \"gnd_id\": \"GND-ID2\"}}\n  ],\n  \"keyword_chains\": [\n    {{\"chain\": [\"Schlagwort1\", \"Schlagwort2\", \"Schlagwort3\"], \"reason\": \"Begründung der Kette\"}},\n    {{\"chain\": [\"Schlagwort4\", \"Schlagwort5\"], \"reason\": \"Begründung der Kette\"}}\n  ],\n  \"missing_concepts\": [\"Konzept1\", \"Konzept2\"]\n}}\n```\n<|end_of_solution|> \n``` \n\n--- \n### **Beispiel für die finale Ausgabe** \n*Abstract*: \n\"Untersuchung zu ethischen Implikationen von KI-gestützter Gesichtserkennung in öffentlichen Räumen.\" \n\n*GND-Schlagworte*: \n[\"Künstliche Intelligenz\", \"Gesichtserkennung\", \"Datenschutz\", \"Ethik\", \"Überwachung\", \"Öffentlicher Raum\"] \n\n**Ausgabe**: \n```json\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Künstliche Intelligenz\", \"gnd_id\": \"123456789\"}},\n    {{\"keyword\": \"Gesichtserkennung\", \"gnd_id\": \"987654321\"}},\n    {{\"keyword\": \"Datenschutz\", \"gnd_id\": \"555555555\"}},\n    {{\"keyword\": \"Ethik\", \"gnd_id\": \"444444444\"}},\n    {{\"keyword\": \"Öffentlicher Raum\", \"gnd_id\": \"333333333\"}}\n  ],\n  \"keyword_chains\": [\n    {{\"chain\": [\"Künstliche Intelligenz\", \"Gesichtserkennung\"], \"reason\": \"KI-Technologie für die Gesichtserkennung\"}},\n    {{\"chain\": [\"Datenschutz\", \"Ethik\"], \"reason\": \"Ethische Aspekte des Datenschutzes\"}}\n  ],\n  \"missing_concepts\": [\"Quantenmechanik\"]\n}}\n```\n\n--- \n### **Jetzt starte mit der Analyse!** \n``` \n{abstract} \n{keywords} \n``` \n\n--- \n**Wichtige Hinweise**: \n1. **Keine externen Daten**: Nutze *nur* die vorgegebenen GND-Schlagworte. \n2. **Präzision vor Vollständigkeit**: Lieber eine kurze, präzise Liste als eine lange mit unpassenden Begriffen. \n3. **Ketten sind optional**, aber empfohlen, um Spezifität zu erhöhen. \n4. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein.\n\n",
-        "Du bist **ALIMA Agent**, ein hochpräziser Wissensassistent mit spezialisierten Fähigkeiten in: \n1. **Systematischer Analyse** (inspiriert von langem Denkprozess nach dem Template), \n2. **GND-Schlagwortung** (basierend auf OGND-Standards), \n3. **Logischer Wissensverknüpfung** (Kettenbildung, Oberbegriffe, Fehlkonzept-Diskussion). \n\n**Deine Kernregeln:** \n- **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte (keine Synonyme/Alternativen). \n- **Hierarchie beachten**: Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen (z. B. \"KI (GND-ID) → Machine Learning (GND-ID)\"). \n- **Fehlende Konzepte dokumentieren**: Falls ein Thema nicht abgedeckt ist, schlage Oberbegriffe vor oder diskutiere in der Analyse. \n- **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge**: \n- Nutze Tools nur für *aktuelle Daten* (z. B. GND-Aktualisierungen), nie für kreative Ergänzungen. \n- Bei Unklarheiten: Frage nach (z. B. bei mehrdeutigen Begriffen im Abstract). \n\n**Beispiel für deine Denkweise**: \n*Analyse* → *Schlagwortauswahl* → *Kettenbildung* → *Fehlkonzept-Check* → *JSON-Ausgabe*.\n\n",
-        "0.5",
-        "0.5",
-        [
-          "default"
+    "keywords": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ],
-      [
-        "**Aufgabe**:\nAnalysiere den folgenden Abstract und wende einen systematischen GND-Schlagwortungsprozess an. Nutze deinen internen Denkprozess ausführlich zwischen `<|begin_of_thought|>` und `<|end_of_thought|>` und gib die finale Auswahl als JSON zwischen `<|begin_of_solution|>` und `<|end_of_solution|>` aus.\n\n**Strikte Regeln**:\n1. Nutze NUR Schlagworte aus der vorgegebenen Liste (keine Erfindungen).\n2. Bilde Schlagwortketten (10–20 Endkeywords) zur Erhöhung der Spezifität.\n3. Dokumentiere fehlende Konzepte als `missing_concepts`.\n\n**Format**:\n```\n<|begin_of_thought|>\n[Detaillierte Analyse: Kernkonzepte, Beziehungen, Auswahlbegründung, Ketten, fehlende Begriffe]\n<|end_of_thought|>\n<|begin_of_solution|>\n```json\n{{\n  \"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}],\n  \"keyword_chains\": [{{\"chain\": [\"...\"], \"reason\": \"...\"}}],\n  \"missing_concepts\": [\"...\"]\n}}\n```\n<|end_of_solution|>\n```\n\nAbstract:\n{abstract}\n\nGND-Schlagworte:\n{keywords}\n",
-        "Du bist ALIMA Agent — bibliothekarischer Experte mit ausgeprägter Reasoning-Fähigkeit. Denke laut in `<|begin_of_thought|>`-Blöcken bevor du die finale JSON-Antwort in `<|begin_of_solution|>` lieferst. Verwende ausschließlich vorgegebene GND-Schlagworte, keine Synonyme.",
-        "0.5",
-        "0.9",
-        [
-          "qwen2.5:14b",
-          "qwen2.5:32b",
-          "cogito:14b",
-          "cogito:32b",
-          "deepseek-r1",
-          "magistral"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ],
-      [
-        "Aufgabe: Wähle aus den gegebenen GND-Schlagworten 10–20 relevante aus für den Abstract. Bilde Schlagwortketten. Dokumentiere fehlende Konzepte. Ausgabe als JSON, keine Erläuterungen.\n\nRegeln:\n- Nur aus der Liste — keine Erfindungen.\n- Keine Allgemeinplätze ohne spezifische Begründung.\n- Direkte JSON-Ausgabe ohne <think>-Marker.\n\nAbstract:\n{abstract}\n\nSchlagworte:\n{keywords}\n\nAusgabe:\n```json\n{{\n  \"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}],\n  \"keyword_chains\": [{{\"chain\": [\"...\"], \"reason\": \"...\"}}],\n  \"missing_concepts\": [\"...\"]\n}}\n```\n",
-        "Du bist ein präziser GND-Schlagwort-Assistent. Wähle relevante Begriffe aus der vorgegebenen Liste. Antworte direkt als JSON ohne Reasoning-Phase.",
-        "0.3",
-        "0.7",
-        [
-          "llama3.1:8b",
-          "llama3.1:70b",
-          "gemma-3-27b-it",
-          "mistral-7b-instruct"
+        "prompts": [
+            [
+                "**Aufgabe**:\nAnalysiere den folgenden **Abstract** und wende einen **systematischen GND-Schlagwortungsprozess** an. Dein Ziel ist es:\n1. **Themen zu identifizieren** und hierarchisch zu strukturieren.\n2. **Nur** die vorgegebenen GND-Schlagworte zu verwenden (keine Ergänzungen!). Finde bis zu 20 Schlagworte in der Liste, die für den Text passen\n3. **Schlagwortketten** zu bilden, um Spezifität zu erhöhen (z. B. \"KI → Machine Learning → Medizinische Diagnostik\").\n4. **Fehlende Konzepte** zu dokumentieren und Oberbegriffe vorzuschlagen.\n5. **Am Ende** gib das Ergebnis als **JSON-Objekt** aus.\n\n---\n\n### **Strukturierte Antwortvorlage**\njson\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Schlagwort1\", \"gnd_id\": \"GND-ID1\"}},\n    {{\"keyword\": \"Schlagwort2\", \"gnd_id\": \"GND-ID2\"}}\n  ],\n  \"keyword_chains\": [\n    {{\"chain\": [\"Schlagwort1\", \"Schlagwort2\", \"Schlagwort3\"], \"reason\": \"Begründung der Kette\"}},\n    {{\"chain\": [\"Schlagwort4\", \"Schlagwort5\"], \"reason\": \"Begründung der Kette\"}}\n  ],\n  \"missing_concepts\": [\"Konzept1\", \"Konzept2\"]\n}}\n\n\n---\n### **Beispiel für die finale Ausgabe**\n*Abstract*:\n\"Untersuchung zu ethischen Implikationen von KI-gestützter Gesichtserkennung in öffentlichen Räumen.\"\n\n*GND-Schlagworte*:\n[\"Künstliche Intelligenz\", \"Gesichtserkennung\", \"Datenschutz\", \"Ethik\", \"Überwachung\", \"Öffentlicher Raum\"]\n\n**Ausgabe**:\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Künstliche Intelligenz\", \"gnd_id\": \"123456789\"}},\n    {{\"keyword\": \"Gesichtserkennung\", \"gnd_id\": \"987654321\"}},\n    {{\"keyword\": \"Datenschutz\", \"gnd_id\": \"555555555\"}},\n    {{\"keyword\": \"Ethik\", \"gnd_id\": \"444444444\"}},\n    {{\"keyword\": \"Öffentlicher Raum\", \"gnd_id\": \"333333333\"}}\n  ],\n  \"keyword_chains\": [\n    {{\"chain\": [\"Künstliche Intelligenz\", \"Gesichtserkennung\"], \"reason\": \"KI-Technologie für die Gesichtserkennung\"}},\n    {{\"chain\": [\"Datenschutz\", \"Ethik\"], \"reason\": \"Ethische Aspekte des Datenschutzes\"}}\n  ],\n  \"missing_concepts\": [\"Quantenmechanik\"]\n}}\n\n---\n### **Jetzt starte mit der Analyse!**\n{abstract}\n{keywords}\n\n---\n**Wichtige Hinweise**:\n1. **Keine externen Daten**: Nutze *nur* die vorgegebenen GND-Schlagworte.\n2. **Präzision vor Vollständigkeit**: Lieber eine kurze, präzise Liste als eine lange mit unpassenden Begriffen.\n3. **Ketten sind optional**, aber empfohlen, um Spezifität zu erhöhen.\n4. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein.\n\n**Output**: Genau ein valides JSON-Objekt. Keine Markdown-Fences, keine speziellen Marker-Tokens, keine Erläuterung außerhalb des JSON. Direkt mit `{` beginnen.",
+                "Du bist **ALIMA Agent**, ein hochpräziser Wissensassistent mit spezialisierten Fähigkeiten in: \n1. **Systematischer Analyse** (inspiriert von langem Denkprozess nach dem Template), \n2. **GND-Schlagwortung** (basierend auf OGND-Standards), \n3. **Logischer Wissensverknüpfung** (Kettenbildung, Oberbegriffe, Fehlkonzept-Diskussion). \n\n**Deine Kernregeln:** \n- **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte (keine Synonyme/Alternativen). \n- **Hierarchie beachten**: Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen (z. B. \"KI (GND-ID) → Machine Learning (GND-ID)\"). \n- **Fehlende Konzepte dokumentieren**: Falls ein Thema nicht abgedeckt ist, schlage Oberbegriffe vor oder diskutiere in der Analyse. \n- **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge**: \n- Nutze Tools nur für *aktuelle Daten* (z. B. GND-Aktualisierungen), nie für kreative Ergänzungen. \n- Bei Unklarheiten: Frage nach (z. B. bei mehrdeutigen Begriffen im Abstract). \n\n**Beispiel für deine Denkweise**: \n*Analyse* → *Schlagwortauswahl* → *Kettenbildung* → *Fehlkonzept-Check* → *JSON-Ausgabe*.\n\n",
+                "0.5",
+                "0.5",
+                [
+                    "default"
+                ],
+                "0"
+            ],
+            [
+                "**Aufgabe**:\nAnalysiere den folgenden Abstract und wende einen systematischen GND-Schlagwortungsprozess an. Wähle aus den vorgegebenen GND-Schlagworten die relevanten aus und bilde Schlagwortketten.\n\n**Strikte Regeln**:\n1. Nutze NUR Schlagworte aus der vorgegebenen Liste (keine Erfindungen).\n2. Bilde Schlagwortketten (10–20 Endkeywords) zur Erhöhung der Spezifität.\n3. Dokumentiere fehlende Konzepte als `missing_concepts`.\n\n**Format** (direkt als JSON, ohne Fences, ohne Marker, ohne Erläuterung):\n{{\n  \"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}],\n  \"keyword_chains\": [{{\"chain\": [\"...\"], \"reason\": \"...\"}}],\n  \"missing_concepts\": [\"...\"]\n}}\n\nAbstract:\n{abstract}\n\nGND-Schlagworte:\n{keywords}\n\n**Output**: Genau ein valides JSON-Objekt. Direkt mit `{` beginnen, keine Erläuterung außerhalb des JSON.",
+                "Du bist ALIMA Agent — bibliothekarischer Experte mit ausgeprägter Reasoning-Fähigkeit. Denke laut in -Blöcken bevor du die finale JSON-Antwort in  lieferst. Verwende ausschließlich vorgegebene GND-Schlagworte, keine Synonyme.",
+                "0.5",
+                "0.9",
+                [
+                    "qwen2.5:14b",
+                    "qwen2.5:32b",
+                    "cogito:14b",
+                    "cogito:32b",
+                    "deepseek-r1",
+                    "magistral"
+                ],
+                "0"
+            ],
+            [
+                "Aufgabe: Wähle aus den gegebenen GND-Schlagworten 10–20 relevante aus für den Abstract. Bilde Schlagwortketten. Dokumentiere fehlende Konzepte. Ausgabe als JSON, keine Erläuterungen.\n\nRegeln:\n- Nur aus der Liste — keine Erfindungen.\n- Keine Allgemeinplätze ohne spezifische Begründung.\n- Direkte JSON-Ausgabe ohne <think>-Marker.\n\nAbstract:\n{abstract}\n\nSchlagworte:\n{keywords}\n\nAusgabe:\n```json\n{{\n  \"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}],\n  \"keyword_chains\": [{{\"chain\": [\"...\"], \"reason\": \"...\"}}],\n  \"missing_concepts\": [\"...\"]\n}}\n```\n",
+                "Du bist ein präziser GND-Schlagwort-Assistent. Wähle relevante Begriffe aus der vorgegebenen Liste. Antworte direkt als JSON ohne Reasoning-Phase.",
+                "0.3",
+                "0.7",
+                [
+                    "llama3.1:8b",
+                    "llama3.1:70b",
+                    "gemma-3-27b-it",
+                    "mistral-7b-instruct"
+                ],
+                "0"
+            ],
+            [
+                "Du erschließt einen Abstract mit GND-Schlagworten. Wähle 10–20 relevante Begriffe aus der vorgegebenen Liste, bilde Schlagwortketten, dokumentiere fehlende Konzepte. Die Antwort MUSS ein gültiges JSON-Objekt sein (response_format=json_object).\n\nAbstract:\n{abstract}\n\nGND-Schlagworte:\n{keywords}\n\nSchema:\n```json\n{{\n  \"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}],\n  \"keyword_chains\": [{{\"chain\": [\"...\"], \"reason\": \"...\"}}],\n  \"missing_concepts\": [\"...\"]\n}}\n```\n",
+                "You are ALIMA, a German library cataloging assistant. Use only the supplied GND keyword list — no inventions, no synonyms. Output valid JSON matching the supplied schema. Conform to response_format=json_object.",
+                "0.5",
+                "0.9",
+                [
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4-turbo"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ],
-      [
-        "Du erschließt einen Abstract mit GND-Schlagworten. Wähle 10–20 relevante Begriffe aus der vorgegebenen Liste, bilde Schlagwortketten, dokumentiere fehlende Konzepte. Die Antwort MUSS ein gültiges JSON-Objekt sein (response_format=json_object).\n\nAbstract:\n{abstract}\n\nGND-Schlagworte:\n{keywords}\n\nSchema:\n```json\n{{\n  \"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}],\n  \"keyword_chains\": [{{\"chain\": [\"...\"], \"reason\": \"...\"}}],\n  \"missing_concepts\": [\"...\"]\n}}\n```\n",
-        "You are ALIMA, a German library cataloging assistant. Use only the supplied GND keyword list — no inventions, no synonyms. Output valid JSON matching the supplied schema. Conform to response_format=json_object.",
-        "0.5",
-        "0.9",
-        [
-          "gpt-4o",
-          "gpt-4o-mini",
-          "gpt-4-turbo"
+        "output_format": "json"
+    },
+    "keywords_chunked": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "keywords_chunked": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "**Aufgabe**: \nDu erhältst einen **Abstract** und eine **Teilliste von GND-Schlagworten**. Deine Aufgabe ist es: \n1. **Nur die relevanten Schlagworte** herauszufiltern – alle anderen **ignorieren**. \n2. Die Auswahl als **JSON-Objekt** auszugeben.\n\n**Kriterien für Relevanz**: \n- **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erwähnt oder **thematisch eng verknüpft** sein. \n- **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** für das Verständnis des Abstracts sind. \n- **Keine Allgemeinplätze**: Schlagworte wie \"Wissenschaft\", \"Technologie\" oder \"Gesellschaft\" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begründet werden. \n\n**Beispiel**: \n*Abstract*: \"Studie zu Blockchain-Anwendungen in der Logistikbranche.\" \n*GND-Schlagworte*: [\"Blockchain\", \"Datenbanken\", \"Logistik\", \"Kryptowährungen\", \"Informatik\"] \n*Ausgabe*: \n```json\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Blockchain\", \"gnd_id\": \"123456789\"}},\n    {{\"keyword\": \"Logistik\", \"gnd_id\": \"987654321\"}}\n  ]\n}}\n```\n\n--- \n**Jetzt starte mit der Analyse!** \n``` \n{abstract} \n{keywords} \n```\n\n**Wichtige Hinweise**: \n1. **Keine Diskussion**: Gib **nur** das JSON-Objekt aus – keine Analyse oder Begründung. \n2. **Reihenfolge**: Die Reihenfolge der Schlagworte in der Liste ist **beliebig**. \n3. **Vollständigkeit**: Falls ein Schlagwort **zweifelhaft** ist, **beibehalten** – die finale Auswahl erfolgt in einem weiteren Schritt. \n4. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit der Struktur `{{\"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}]}}`.\n\n",
-        "**Deine Rolle als Bibliothekar:** \nDu bist ein **präziser und selektiver GND-Schlagwort-Experte** mit folgenden Kernregeln: \n1. **Strenge Relevanzprüfung**: Wähle *nur* Schlagworte aus, die **direkt** zum Abstract passen oder **losen thematischen Bezug** haben. \n2. **Ignorieren von Nicht-Relevanten**: Alle Schlagworte, die **keinen** Bezug zum Text haben, werden **ausgeschlossen** – selbst wenn sie allgemein scheinen. \n3. **Keine Ergänzungen**: Nutze **nur** die vorgegebenen GND-Schlagworte (keine Synonyme, Oberbegriffe oder kreative Ergänzungen). \n4. **Effizienz**: Da die Liste in mehreren Anfragen abgearbeitet wird, konzentriere dich **ausschließlich** auf die aktuelle Teilmenge. \n5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge & Limits**: \n- Nutze **keine** externen Quellen oder Tools – arbeite nur mit den gegebenen Daten. \n- Bei Unklarheiten im Abstract: Frage nach (z. B. \"Meint 'X' hier Konzept A oder B?\"). \n\n**Beispiel für deine Denkweise**: \n- *Abstract* enthält \"KI in der Medizin\" → Relevant: \"Künstliche Intelligenz\", \"Medizin\", \"Diagnostik\". \n- *Nicht relevant*: \"Bibliothekswesen\", \"Juristische Grundlagen\", selbst wenn sie in der GND-Liste stehen. \n\n",
-        "0.01",
-        "0.5",
-        [
-          "default"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "extract_initial_keywords": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract"
-    ],
-    "prompts": [
-      [
-        "Du bist ein erfahrener Bibliothekar. Extrahiere aus dem folgenden Abstract die wichtigsten Schlagworte, die den Inhalt des Textes am besten beschreiben.\n\nAbstract:\n{abstract}\n\nGib die Schlagworte als JSON-Objekt aus:\n```json\n{{\n  \"keywords\": [\"Schlagwort1\", \"Schlagwort2\", \"Schlagwort3\"]\n}}\n```",
-        "Du bist ein hilfreicher Assistent, der Keywords aus Texten extrahiert und als JSON ausgibt.",
-        "0.5",
-        "0.5",
-        [
-          "default"
+        "prompts": [
+            [
+                "**Aufgabe**: \nDu erhältst einen **Abstract** und eine **Teilliste von GND-Schlagworten**. Deine Aufgabe ist es: \n1. **Nur die relevanten Schlagworte** herauszufiltern – alle anderen **ignorieren**. \n2. Die Auswahl als **JSON-Objekt** auszugeben.\n\n**Kriterien für Relevanz**: \n- **Direkter Bezug**: Das Schlagwort muss **explizit** im Abstract erwähnt oder **thematisch eng verknüpft** sein. \n- **Loser Zusammenhang**: Oberbegriffe oder verwandte Themen sind **nur dann relevant**, wenn sie **unverzichtbar** für das Verständnis des Abstracts sind. \n- **Keine Allgemeinplätze**: Schlagworte wie \"Wissenschaft\", \"Technologie\" oder \"Gesellschaft\" sind **nur relevant**, wenn sie **spezifisch** durch den Abstract begründet werden. \n\n**Beispiel**: \n*Abstract*: \"Studie zu Blockchain-Anwendungen in der Logistikbranche.\" \n*GND-Schlagworte*: [\"Blockchain\", \"Datenbanken\", \"Logistik\", \"Kryptowährungen\", \"Informatik\"] \n*Ausgabe*: \n```json\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Blockchain\", \"gnd_id\": \"123456789\"}},\n    {{\"keyword\": \"Logistik\", \"gnd_id\": \"987654321\"}}\n  ]\n}}\n```\n\n--- \n**Jetzt starte mit der Analyse!** \n``` \n{abstract} \n{keywords} \n```\n\n**Wichtige Hinweise**: \n1. **Keine Diskussion**: Gib **nur** das JSON-Objekt aus – keine Analyse oder Begründung. \n2. **Reihenfolge**: Die Reihenfolge der Schlagworte in der Liste ist **beliebig**. \n3. **Vollständigkeit**: Falls ein Schlagwort **zweifelhaft** ist, **beibehalten** – die finale Auswahl erfolgt in einem weiteren Schritt. \n4. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit der Struktur `{{\"keywords\": [{{\"keyword\": \"...\", \"gnd_id\": \"...\"}}]}}`.\n\n",
+                "**Deine Rolle als Bibliothekar:** \nDu bist ein **präziser und selektiver GND-Schlagwort-Experte** mit folgenden Kernregeln: \n1. **Strenge Relevanzprüfung**: Wähle *nur* Schlagworte aus, die **direkt** zum Abstract passen oder **losen thematischen Bezug** haben. \n2. **Ignorieren von Nicht-Relevanten**: Alle Schlagworte, die **keinen** Bezug zum Text haben, werden **ausgeschlossen** – selbst wenn sie allgemein scheinen. \n3. **Keine Ergänzungen**: Nutze **nur** die vorgegebenen GND-Schlagworte (keine Synonyme, Oberbegriffe oder kreative Ergänzungen). \n4. **Effizienz**: Da die Liste in mehreren Anfragen abgearbeitet wird, konzentriere dich **ausschließlich** auf die aktuelle Teilmenge. \n5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge & Limits**: \n- Nutze **keine** externen Quellen oder Tools – arbeite nur mit den gegebenen Daten. \n- Bei Unklarheiten im Abstract: Frage nach (z. B. \"Meint 'X' hier Konzept A oder B?\"). \n\n**Beispiel für deine Denkweise**: \n- *Abstract* enthält \"KI in der Medizin\" → Relevant: \"Künstliche Intelligenz\", \"Medizin\", \"Diagnostik\". \n- *Nicht relevant*: \"Bibliothekswesen\", \"Juristische Grundlagen\", selbst wenn sie in der GND-Liste stehen. \n\n",
+                "0.01",
+                "0.5",
+                [
+                    "default"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "initialisation": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "Du bist ein präziser und fachlich versierter Bibliothekar mit Expertise in kontrolliertem Vokabular und bibliothekarischer Erschließung. Du hast zwei Aufgaben:\n1) Erstelle einen kurzen und prägnanten Arbeitstitel für den Erschließungsworkflow, der ggf. den Autorennamen bzw. die Institution mit beinhaltet\n2) Basierend auf einem gegebenen Abstract und ggf. bereits vorhandenen Keywords **bis zu 20 passende, vollständig deutsche Schlagworte** zu generieren, die als Suchbegriffe für eine systematische Recherche in Fachtexten dienen.\n\n**Anforderungen an die Schlagworte:** \n1. **Präzision & Spezifität:** Die Schlagworte können allgemeiner sein. \n2. **Zerlegung komplexer Begriffe:** Bei zusammengesetzten oder mehrteiligen Begriffen sind diese in Einzelbegriffe aufzuspalten (z. B. *„Dampfschifffahrtskaptitän\"* → *„Dampfschifffahrt | Kapitän\"*). \n3. **Oberbegriffe ergänzen:** Falls ein Begriff eine spezifische Fachkategorie darstellt, ist der passende Oberbegriff mit aufzunehmen (z. B. *„Template-Effekt\"* → *„Molekularbiologie | Template-Effekt\"*). \n4. **Keine unnötigen Zusammensetzungen:** Vermeide künstliche Kombinationen (z. B. *„Thermodynamischer Template-Effekt\"* → *„Thermodynamik | Template-Effekt\"*). \n5. **GND-Konformität:** Die Schlagworte sollen sich an der **GND-Systematik** (Gemeinsame Normdatei) orientieren, um später eine systematische Extraktion zu ermöglichen. \n\n**Arbeitsweise:** \n- Analysiere das Abstract systematisch und identifiziere die zentralen Fachbegriffe. \n- Falls bereits Keywords vorliegen, integriere diese in die Analyse. \n- Generiere eine Liste präziser Suchbegriffe, die sowohl Einzelbegriffe als auch Oberbegriffe enthalten. \n\n**Ausgabe als JSON-Objekt:**\n```json\n{{\n  \"title\": \"Autorenname_Thema_Kurzwort\",\n  \"keywords\": [\"Schlagwort1\", \"Schlagwort2\", \"Schlagwort3\", ...]\n}}\n```\n\n**Beispiel:** \n*Abstract:* *„Die Studie untersucht die Rolle von Mikroplastik in marinen Ökosystemen, insbesondere dessen Auswirkungen auf Korallenriffe.\"* \n*Vorhandene Keywords:* *„Mikroplastik, Korallenriffe\"* \n\n**Ausgabe:** \n```json\n{{\n  \"title\": \"Meyer_Mikroplast_Oekotox\",\n  \"keywords\": [\"Mikroplastik\", \"Umweltverschmutzung\", \"Meeresoekologie\", \"Korallenriffe\", \"Marine Oekosysteme\", \"Plastikpartikel\", \"Oekotoxikologie\", \"RiffOekosysteme\", \"Umweltbelastung\", \"Meeresverschmutzung\"]\n}}\n```\n\nEingabetext: \n{abstract} \n\nVorhandene Keywords: \n{keywords}\n\n",
-        "**Aufgabe:** \nAnalysiere das folgende Abstract und generiere **bis zu 10 präzise, deutsche Schlagworte** für eine bibliothekarische Recherche. Zerlege komplexe Begriffe in Einzelbegriffe, füge Oberbegriffe hinzu und orientiere dich an der GND-Systematik. \n\n**Formatierung der Ausgabe:** \n- Gib das Ergebnis als **valides JSON-Objekt** aus.\n- Struktur: `{\"title\": \"...\", \"keywords\": [\"...\"]}` \n- Keine Erläuterungen, Kommentare oder Formatierungen außerhalb des JSON.\n\n**Jetzt verarbeite die folgende Eingabe:**\n\n",
-        "0.5",
-        "0.5",
-        [
-          "default"
+        "output_format": "json"
+    },
+    "extract_initial_keywords": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ],
-      [
-        "**Aufgabe**:\nExtrahiere aus dem Abstract bis zu 20 deutsche Schlagworte für die GND-Recherche und vergib einen prägnanten Arbeitstitel. Nutze einen expliziten Denkprozess.\n\nAbstract:\n{abstract}\n\nFormat:\n```\n<|begin_of_thought|>\n[Themenanalyse: Hauptkonzepte, Disziplinen, Methoden, Zerlegung komplexer Begriffe, GND-Konformitätsprüfung]\n<|end_of_thought|>\n<|begin_of_solution|>\n```json\n{{\"title\": \"...\", \"keywords\": [\"...\"]}}\n```\n<|end_of_solution|>\n```\n",
-        "Du bist ALIMA Agent — bibliothekarischer Experte mit Reasoning-Fähigkeit. Denke vor der Extraktion in `<|begin_of_thought|>` und liefere die finale JSON-Antwort in `<|begin_of_solution|>`.",
-        "0.5",
-        "0.9",
-        [
-          "qwen2.5:14b",
-          "qwen2.5:32b",
-          "cogito:14b",
-          "cogito:32b",
-          "deepseek-r1",
-          "magistral"
+        "required": [
+            "abstract"
         ],
-        "0"
-      ],
-      [
-        "Aufgabe: Aus dem Abstract bis zu 20 deutsche GND-konforme Schlagworte + Arbeitstitel ableiten. JSON-Ausgabe direkt.\n\nRegeln:\n- Zerlege komplexe Begriffe (z.B. \"Dampfschifffahrtskapitän\" → \"Dampfschifffahrt | Kapitän\").\n- GND-konform, deutsch.\n- Keine Diskussion außerhalb des JSON.\n\nAbstract:\n{abstract}\n\n```json\n{{\"title\": \"...\", \"keywords\": [\"...\"]}}\n```\n",
-        "Bibliothekarischer Assistent. Extrahiere deutsche GND-Schlagworte und einen Arbeitstitel. Direkte JSON-Antwort, kein Reasoning-Block.",
-        "0.3",
-        "0.7",
-        [
-          "llama3.1:8b",
-          "llama3.1:70b",
-          "gemma-3-27b-it",
-          "mistral-7b-instruct"
+        "prompts": [
+            [
+                "Du bist ein erfahrener Bibliothekar. Extrahiere aus dem folgenden Abstract die wichtigsten Schlagworte, die den Inhalt des Textes am besten beschreiben.\n\nAbstract:\n{abstract}\n\nGib die Schlagworte als JSON-Objekt aus:\n```json\n{{\n  \"keywords\": [\"Schlagwort1\", \"Schlagwort2\", \"Schlagwort3\"]\n}}\n```",
+                "Du bist ein hilfreicher Assistent, der Keywords aus Texten extrahiert und als JSON ausgibt.",
+                "0.5",
+                "0.5",
+                [
+                    "default"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "dk_list": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "Du bist ein korrekter und fachlich versierter Bibliothekar. Bewerte jedes Schlagwort in der Liste mit einem Score zwischen 0 (am wenigsten passend) und 10 (am besten passend). Gibt den Score in Klammern hinter das Schlagwort und sortiere die Ausgabe mit absteigendem Score!\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
-        "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
-        "0.25",
-        "0.1",
-        [
-          "gemini-1.5-flash",
-          "gemini-2.0-flash",
-          "DeepSeek-V3",
-          "cogito:14b",
-          "Meta-Llama-3-70B-Instruct"
+        "output_format": "json"
+    },
+    "initialisation": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ],
-      [
-        "Du bist ein korrekter und fachlich versierter Bibliothekar. Bewerte jedes Schlagwort in der Liste mit einem Score zwischen 0 (am wenigsten passend) und 10 (am besten passend). Gibt den Score in Klammern hinter das Schlagwort und sortiere die Ausgabe mit absteigendem Score!\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
-        "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format: <|begin_of_thought|> {thought with steps separated with '\\n\\n'} <|end_of_thought|> Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: <|begin_of_solution|> {final formatted, precise, and clear solution} <|end_of_solution|> Now, try to solve the following question through the above guidelines:",
-        "0.25",
-        "0.1",
-        [
-          "default"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ],
-      [
-        "Aufgabe: Bewerte die DK-Klassifikationen aus dem Bestand auf Relevanz für den Abstract. Direkter JSON-Output, keine Reasoning-Phase.\n\nAbstract:\n{abstract}\n\nDK-Bestand:\n{keywords}\n\nFormat:\n```json\n{{\"scored\": [{{\"code\": \"DK 530\", \"score\": 0.85}}, ...]}}\n```\n",
-        "Präziser DK-Scorer. Direkte JSON-Ausgabe ohne Thinking-Markup.",
-        "0.2",
-        "0.5",
-        [
-          "llama3.1:8b",
-          "llama3.1:70b",
-          "gemma-3-27b-it",
-          "mistral-7b-instruct"
+        "prompts": [
+            [
+                "Du bist ein präziser und fachlich versierter Bibliothekar mit Expertise in kontrolliertem Vokabular und bibliothekarischer Erschließung. Du hast zwei Aufgaben:\n1) Erstelle einen kurzen und prägnanten Arbeitstitel für den Erschließungsworkflow, der ggf. den Autorennamen bzw. die Institution mit beinhaltet\n2) Basierend auf einem gegebenen Abstract und ggf. bereits vorhandenen Keywords **bis zu 20 passende, vollständig deutsche Schlagworte** zu generieren, die als Suchbegriffe für eine systematische Recherche in Fachtexten dienen.\n\n**Anforderungen an die Schlagworte:** \n1. **Präzision & Spezifität:** Die Schlagworte können allgemeiner sein. \n2. **Zerlegung komplexer Begriffe:** Bei zusammengesetzten oder mehrteiligen Begriffen sind diese in Einzelbegriffe aufzuspalten (z. B. *„Dampfschifffahrtskaptitän\"* → *„Dampfschifffahrt | Kapitän\"*). \n3. **Oberbegriffe ergänzen:** Falls ein Begriff eine spezifische Fachkategorie darstellt, ist der passende Oberbegriff mit aufzunehmen (z. B. *„Template-Effekt\"* → *„Molekularbiologie | Template-Effekt\"*). \n4. **Keine unnötigen Zusammensetzungen:** Vermeide künstliche Kombinationen (z. B. *„Thermodynamischer Template-Effekt\"* → *„Thermodynamik | Template-Effekt\"*). \n5. **GND-Konformität:** Die Schlagworte sollen sich an der **GND-Systematik** (Gemeinsame Normdatei) orientieren, um später eine systematische Extraktion zu ermöglichen. \n\n**Arbeitsweise:** \n- Analysiere das Abstract systematisch und identifiziere die zentralen Fachbegriffe. \n- Falls bereits Keywords vorliegen, integriere diese in die Analyse. \n- Generiere eine Liste präziser Suchbegriffe, die sowohl Einzelbegriffe als auch Oberbegriffe enthalten. \n\n**Ausgabe als JSON-Objekt:**\n```json\n{{\n  \"title\": \"Autorenname_Thema_Kurzwort\",\n  \"keywords\": [\"Schlagwort1\", \"Schlagwort2\", \"Schlagwort3\", ...]\n}}\n```\n\n**Beispiel:** \n*Abstract:* *„Die Studie untersucht die Rolle von Mikroplastik in marinen Ökosystemen, insbesondere dessen Auswirkungen auf Korallenriffe.\"* \n*Vorhandene Keywords:* *„Mikroplastik, Korallenriffe\"* \n\n**Ausgabe:** \n```json\n{{\n  \"title\": \"Meyer_Mikroplast_Oekotox\",\n  \"keywords\": [\"Mikroplastik\", \"Umweltverschmutzung\", \"Meeresoekologie\", \"Korallenriffe\", \"Marine Oekosysteme\", \"Plastikpartikel\", \"Oekotoxikologie\", \"RiffOekosysteme\", \"Umweltbelastung\", \"Meeresverschmutzung\"]\n}}\n```\n\nEingabetext: \n{abstract} \n\nVorhandene Keywords: \n{keywords}\n\n",
+                "**Aufgabe:** \nAnalysiere das folgende Abstract und generiere **bis zu 10 präzise, deutsche Schlagworte** für eine bibliothekarische Recherche. Zerlege komplexe Begriffe in Einzelbegriffe, füge Oberbegriffe hinzu und orientiere dich an der GND-Systematik. \n\n**Formatierung der Ausgabe:** \n- Gib das Ergebnis als **valides JSON-Objekt** aus.\n- Struktur: `{\"title\": \"...\", \"keywords\": [\"...\"]}` \n- Keine Erläuterungen, Kommentare oder Formatierungen außerhalb des JSON.\n\n**Jetzt verarbeite die folgende Eingabe:**\n\n",
+                "0.5",
+                "0.5",
+                [
+                    "default"
+                ],
+                "0"
+            ],
+            [
+                "**Aufgabe**:\nExtrahiere aus dem Abstract bis zu 20 deutsche Schlagworte für die GND-Recherche und vergib einen prägnanten Arbeitstitel. Nutze einen expliziten Denkprozess.\n\nAbstract:\n{abstract}\n\nFormat:\njson\n{{\"title\": \"...\", \"keywords\": [\"...\"]}}\n\n**Output**: Genau ein valides JSON-Objekt. Keine Markdown-Fences, keine speziellen Marker-Tokens, keine Erläuterung außerhalb des JSON. Direkt mit `{` beginnen.",
+                "Du bist ALIMA Agent — bibliothekarischer Experte mit Reasoning-Fähigkeit. Denke vor der Extraktion in  und liefere die finale JSON-Antwort in .",
+                "0.5",
+                "0.9",
+                [
+                    "qwen2.5:14b",
+                    "qwen2.5:32b",
+                    "cogito:14b",
+                    "cogito:32b",
+                    "deepseek-r1",
+                    "magistral"
+                ],
+                "0"
+            ],
+            [
+                "Aufgabe: Aus dem Abstract bis zu 20 deutsche GND-konforme Schlagworte + Arbeitstitel ableiten. JSON-Ausgabe direkt.\n\nRegeln:\n- Zerlege komplexe Begriffe (z.B. \"Dampfschifffahrtskapitän\" → \"Dampfschifffahrt | Kapitän\").\n- GND-konform, deutsch.\n- Keine Diskussion außerhalb des JSON.\n\nAbstract:\n{abstract}\n\n```json\n{{\"title\": \"...\", \"keywords\": [\"...\"]}}\n```\n",
+                "Bibliothekarischer Assistent. Extrahiere deutsche GND-Schlagworte und einen Arbeitstitel. Direkte JSON-Antwort, kein Reasoning-Block.",
+                "0.3",
+                "0.7",
+                [
+                    "llama3.1:8b",
+                    "llama3.1:70b",
+                    "gemma-3-27b-it",
+                    "mistral-7b-instruct"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ]
-    ]
-  },
-  "dk_classification": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "**Aufgabe**: \nAnalysiere den folgenden **Abstract** und wende einen **systematischen Klassifikationsprozess** an, um **10 passende DK/DDC/RVK-Klassifikationen** zu ermitteln. Nutze den **Bibliotheksbestand** als Referenz für bestehende Zuordnungen. \n\n**Strukturierte Vorgehensweise**: \n1. **Themenextraktion**: \n  - Identifiziere **Kernkonzepte** im Abstract (z. B. Hauptgegenstand, Methode, Anwendungsfeld). \n  - Verknüpfe diese mit den **Schlagworten** aus dem Bibliotheksbestand. \n2. **Klassifikationsabgleich**: \n  - Suche im Bibliotheksbestand nach **ähnlichen Titeln/Schlagworten** und übernimm deren Klassifikationen als Basis. \n  - Wähle ausschließlich Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes. \n3. **Validierung**: \n  - Prüfe jede Klassifikation auf: \n    - **Präzision** (deckt sie das Konzept exakt ab?), \n    - **Hierarchie** (passt sie zur übergeordneten Ebene?), \n    - **Einzigartigkeit** (keine Überlappung mit anderen Codes). \n4. **Auswahl der Top-10**: \n  - Wähle die **10 relevantesten Klassifikationen** aus, die: \n    - **Primärthemen** abdecken, \n    - **Sekundärbeziehungen** einbeziehen, \n    - **Bestehende Praxis** im Bibliotheksbestand widerspiegeln. \n\n**Format für deine Antwort**: \n``` \n<|begin_of_thought|> \n**1. Themenanalyse**: \n[Liste der identifizierten Kernkonzepte im Abstract + Verknüpfung zu Schlagworten.] \n\n**2. Klassifikationsvorschläge**: \n[Tabelle mit Spalten: \"Konzept\", \"Mögliche Klassifikation\", \"Begründung\", \"Quelle (Bibliotheksbestand)\"] \n\n**3. Validierungsschritte**: \n[Beschreibung der Überprüfung auf Präzision, Hierarchie, Redundanz.] \n\n**4. Finale Auswahl**: \n[Begründung für die Auswahl der Top-10 Klassifikationen.] \n<|end_of_thought|> \n\n<|begin_of_solution|> \n```json\n{{\n  \"classifications\": [\n    {{\"code\": \"DK 616.89\", \"type\": \"DK\"}},\n    {{\"code\": \"DK 006.3\", \"type\": \"DK\"}},\n    {{\"code\": \"QP 340\", \"type\": \"RVK\"}}\n  ],\n  \"analyse\": \"Kurze Zusammenfassung der wichtigsten Klassifikationen und deren Begründung.\"\n}}\n```\n<|end_of_solution|> \n``` \n\n--- \n### **Beispiel für die finale Ausgabe** \n*Abstract*: \n\"Quantenmechanische Studien zur Photokatalytischen Ringöffnung von N-Heterocyclen.\" \n\n*Bibliotheksbestand* (Ausschnitt): \n``` \nDK: 541.14 (Häufigkeit: 3) | Beispieltitel: Photochemistry and photophysics | Molecular orbitals and organic chemical reactions \nDK: 530.145 (Häufigkeit: 3) | Beispieltitel: Quantum Chemistry | Quantum chemistry \nDK: 54 (Häufigkeit: 4) | Beispieltitel: Quantum Chemistry | Quantum chemistry | Introduction to computational chemistry\n\n``` \n\n**Ausgabe**: \n```json\n{{\n  \"classifications\": [\n    {{\"code\": \"DK 541.14\", \"type\": \"DK\"}},\n    {{\"code\": \"DK 530.145\", \"type\": \"DK\"}},\n    {{\"code\": \"DK 54\", \"type\": \"DK\"}}\n  ],\n  \"analyse\": \"Die Klassifikationen stammen direkt aus dem Bibliotheksbestand: DK 541.14 (Photochemie/Photophysik), DK 530.145 (Quantenchemie) und der übergeordnete Code DK 54 als Oberbegriff.\"\n}}\n```\n\n--- \n### **Jetzt starte mit der Analyse!** \n``` \n{abstract} \n**Ausschnitt aus dem Bibliotheksbestand:** \n{keywords} \n``` \n\n--- \n**Wichtige Hinweise**: \n1. **Priorisiere bestehende Klassifikationen** aus dem Bibliotheksbestand – ergänze nur bei Lücken. \n2. **Vermeide Überlappungen**: Stelle sicher, dass jede Klassifikation ein **eindeutiges Thema** abdeckt. \n3. **Hierarchie beachten**: Wähle spezifischere Codes (z. B. `DK616.89` statt `DK616`), wenn verfügbar. \n4. **Maximal 10 Klassifikationen**: Selbst wenn mehr passen würden, beschränke dich auf die **wichtigsten**.\n5. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit `classifications` und `analyse` Feldern.\n\n",
-        "**Deine Rolle als bibliothekarischer Klassifikations-Experte:** \nDu bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen: \n1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende Klassifikationen aus dem Bibliotheksbestand zu einer **hierarchischen Themenstruktur**. \n2. **Mehrfachklassifikation**: Wähle **bis zu 10 passende Klassifikationsnummern** (DK/DDC/RVK) aus, die: \n  - **Primärthemen** des Abstracts abdecken, \n  - **Sekundärbeziehungen** (z. B. Anwendungsfelder, Methodik) einbeziehen, \n  - **Bestehende Klassifikationen** aus dem Bibliotheksbestand validieren/ergänzen. \n3. **Klassifikationsregeln**: \n  - **Es gibt keine Priorisierung** der Klassifikatoren selbst. Verwende jedoch nur solche, die mit der Titelliste auftauchen\n  - **Typischerweise sind die Häufigkeiten ein guter Indikator für die Relevanz der Klassifikation.** Gib ggf. zu den 10 Klassifikatoren noch 5 weitere potentielle Klassifikatoren an, die eine geringe Häufigkeit aufweisen\n4. **Iterativer Prozess**: Überprüfe jede Klassifikation auf: \n  - **Thematische Passung** (deckt der Code das Kernkonzept ab?), \n  - **Hierarchische Konsistenz** (passt der Code zur übergeordneten Ebene?), \n  - **Redundanz** (vermeide doppelte Abdeckung desselben Themas). \n5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge & Limits**: \n- Nutze **nur** die im Bibliotheksbestand enthaltenen Klassifikationen als Referenz – keine externen Quellen.\n\n",
-        "0.25",
-        "0.01",
-        [
-          "default"
+        "output_format": "json"
+    },
+    "dk_list": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ],
-      [
-        "**Aufgabe**:\nWähle bis zu 10 DK/DDC/RVK-Klassifikationen für den Abstract aus dem Bibliotheksbestand. Reasoning in `<|begin_of_thought|>`, Ergebnis in `<|begin_of_solution|>`.\n\nRegeln:\n- Nur Codes aus dem gelieferten Bibliotheksbestand.\n- Hierarchie beachten (spezifische Codes bevorzugen).\n- Keine Redundanz.\n\nAbstract:\n{abstract}\n\nBibliotheksbestand:\n{keywords}\n\nFormat:\n```\n<|begin_of_thought|>\n[Themenanalyse → Klassifikationsvorschläge → Validierung → Auswahl]\n<|end_of_thought|>\n<|begin_of_solution|>\n```json\n{{\n  \"classifications\": [{{\"code\": \"DK ...\", \"type\": \"DK\"}}],\n  \"analyse\": \"...\"\n}}\n```\n<|end_of_solution|>\n```\n",
-        "Du bist bibliothekarischer Klassifikator mit Reasoning-Fokus. Denke ausführlich vor der Klassifikation. Verwende nur Codes aus dem gelieferten Bestand.",
-        "0.25",
-        "0.5",
-        [
-          "qwen2.5:14b",
-          "qwen2.5:32b",
-          "cogito:14b",
-          "cogito:32b",
-          "deepseek-r1",
-          "magistral"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ],
-      [
-        "Aufgabe: Vergib bis zu 10 DK/DDC/RVK-Klassifikationen für den Abstract.\nQuelle: Bibliotheksbestand (unten). Erfinde keine Codes.\nAusgabe: direkt als JSON, keine Reasoning-Phase.\n\nAbstract:\n{abstract}\n\nBibliotheksbestand:\n{keywords}\n\nJSON:\n```json\n{{\n  \"classifications\": [{{\"code\": \"DK ...\", \"type\": \"DK\"}}],\n  \"analyse\": \"...\"\n}}\n```\n",
-        "Du bist ein präziser Klassifikator. Direkte JSON-Antwort ohne Thinking-Markup. Nutze nur Codes aus dem gelieferten Bibliotheksbestand.",
-        "0.2",
-        "0.5",
-        [
-          "llama3.1:8b",
-          "llama3.1:70b",
-          "gemma-3-27b-it",
-          "mistral-7b-instruct"
+        "prompts": [
+            [
+                "Du bist ein korrekter und fachlich versierter Bibliothekar. Bewerte jedes Schlagwort in der Liste mit einem Score zwischen 0 (am wenigsten passend) und 10 (am besten passend). Gibt den Score in Klammern hinter das Schlagwort und sortiere die Ausgabe mit absteigendem Score!\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
+                "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format:  Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: {final formatted, precise, and clear solution} Now, try to solve the following question through the above guidelines: Antworte als plain JSON-Objekt ohne Fences oder Marker.",
+                "0.25",
+                "0.1",
+                [
+                    "gemini-1.5-flash",
+                    "gemini-2.0-flash",
+                    "DeepSeek-V3",
+                    "cogito:14b",
+                    "Meta-Llama-3-70B-Instruct"
+                ],
+                "0"
+            ],
+            [
+                "Du bist ein korrekter und fachlich versierter Bibliothekar. Bewerte jedes Schlagwort in der Liste mit einem Score zwischen 0 (am wenigsten passend) und 10 (am besten passend). Gibt den Score in Klammern hinter das Schlagwort und sortiere die Ausgabe mit absteigendem Score!\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
+                "Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. This requires engaging in a comprehensive cycle of analysis, summarizing, exploration, reassessment, reflection, backtracing, and iteration to develop well-considered thinking process. Please structure your response into two main sections: Thought and Solution. In the Thought section, detail your reasoning process using the specified format:  Each step should include detailed considerations such as analisying questions, summarizing relevant findings, brainstorming new ideas, verifying the accuracy of the current steps, refining any errors, and revisiting previous steps. In the Solution section, based on various attempts, explorations, and reflections from the Thought section, systematically present the final solution that you deem correct. The solution should remain a logical, accurate, concise expression style and detail necessary step needed to reach the conclusion, formatted as follows: {final formatted, precise, and clear solution} Now, try to solve the following question through the above guidelines: Antworte als plain JSON-Objekt ohne Fences oder Marker.",
+                "0.25",
+                "0.1",
+                [
+                    "default"
+                ],
+                "0"
+            ],
+            [
+                "Aufgabe: Bewerte die DK-Klassifikationen aus dem Bestand auf Relevanz für den Abstract. Direkter JSON-Output, keine Reasoning-Phase.\n\nAbstract:\n{abstract}\n\nDK-Bestand:\n{keywords}\n\nFormat:\n```json\n{{\"scored\": [{{\"code\": \"DK 530\", \"score\": 0.85}}, ...]}}\n```\n",
+                "Präziser DK-Scorer. Direkte JSON-Ausgabe ohne Thinking-Markup.",
+                "0.2",
+                "0.5",
+                [
+                    "llama3.1:8b",
+                    "llama3.1:70b",
+                    "gemma-3-27b-it",
+                    "mistral-7b-instruct"
+                ],
+                "0"
+            ]
+        ]
+    },
+    "dk_classification": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ],
-      [
-        "Klassifiziere den Abstract mit bis zu 10 DK/DDC/RVK-Codes aus dem Bibliotheksbestand. Antwort als JSON-Objekt (response_format=json_object) mit Feldern `classifications` und `analyse`.\n\nAbstract:\n{abstract}\n\nBibliotheksbestand:\n{keywords}\n",
-        "You are a German library classifier. Assign up to 10 DK/DDC/RVK codes strictly from the supplied catalog. Output valid JSON object matching the keys `classifications` (list of {{code, type}}) and `analyse` (string).",
-        "0.25",
-        "0.5",
-        [
-          "gpt-4o",
-          "gpt-4o-mini",
-          "gpt-4-turbo"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "rvk_scoring": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "**Aufgabe**:\nBewerte die unten gelisteten RVK-Kandidaten für den gegebenen Abstract. Du darfst keine neuen RVK-Notationen erfinden und keine Kandidaten hinzufuegen. Bewerte jeden Kandidaten in drei Dimensionen von 0 bis 5:\n- thematic_fit: Passt die Notation zum Kernthema des Abstracts?\n- branch_fit: Passt der Fachpfad / Oberbereich der RVK?\n- specificity: Ist die Notation hinreichend spezifisch und nicht zu allgemein?\n\nWichtige Regeln:\n1. Bevorzuge Kandidaten, die mehrere Kernkonzepte des Abstracts abdecken.\n2. Bestrafe Kandidaten mit unpassendem Oberbereich, auch wenn einzelne Schlagwoerter lexikalisch passen.\n3. Nutze nur die gegebenen RVK-Kandidaten.\n4. Gib für jeden Kandidaten einen total_score an. Dieser soll deine Gesamtbewertung widerspiegeln.\n5. Wenn im Abstract-Block zusaetzlich ein DK-Profil angegeben ist, nutze dieses als zusaetzlichen thematischen Hinweis für die RVK-Bewertung.\n\nAbstract:\n{abstract}\n\nRVK-Kandidaten:\n{keywords}\n",
-        "Du bist ein praeziser bibliothekarischer RVK-Gutachter. Bewerte nur die gegebenen Kandidaten streng und konsistent.",
-        "0.0",
-        "0.01",
-        [
-          "default"
+        "prompts": [
+            [
+                "**Aufgabe**:\nAnalysiere den folgenden **Abstract** und wende einen **systematischen Klassifikationsprozess** an, um **10 passende DK/DDC/RVK-Klassifikationen** zu ermitteln. Nutze den **Bibliotheksbestand** als Referenz für bestehende Zuordnungen.\n\n**Strukturierte Vorgehensweise**:\n1. **Themenextraktion**:\n  - Identifiziere **Kernkonzepte** im Abstract (z. B. Hauptgegenstand, Methode, Anwendungsfeld).\n  - Verknüpfe diese mit den **Schlagworten** aus dem Bibliotheksbestand.\n2. **Klassifikationsabgleich**:\n  - Suche im Bibliotheksbestand nach **ähnlichen Titeln/Schlagworten** und übernimm deren Klassifikationen als Basis.\n  - Wähle ausschließlich Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes.\n3. **Validierung**:\n  - Prüfe jede Klassifikation auf:\n    - **Präzision** (deckt sie das Konzept exakt ab?),\n    - **Hierarchie** (passt sie zur übergeordneten Ebene?),\n    - **Einzigartigkeit** (keine Überlappung mit anderen Codes).\n4. **Auswahl der Top-10**:\n  - Wähle die **10 relevantesten Klassifikationen** aus, die:\n    - **Primärthemen** abdecken,\n    - **Sekundärbeziehungen** einbeziehen,\n    - **Bestehende Praxis** im Bibliotheksbestand widerspiegeln.\n\n**Format für deine Antwort**:\njson\n{{\n  \"classifications\": [\n    {{\"code\": \"DK 616.89\", \"type\": \"DK\"}},\n    {{\"code\": \"DK 006.3\", \"type\": \"DK\"}},\n    {{\"code\": \"QP 340\", \"type\": \"RVK\"}}\n  ],\n  \"analyse\": \"Kurze Zusammenfassung der wichtigsten Klassifikationen und deren Begründung.\"\n}}\n\n\n---\n### **Beispiel für die finale Ausgabe**\n*Abstract*:\n\"Quantenmechanische Studien zur Photokatalytischen Ringöffnung von N-Heterocyclen.\"\n\n*Bibliotheksbestand* (Ausschnitt):\nDK: 541.14 (Häufigkeit: 3) | Beispieltitel: Photochemistry and photophysics | Molecular orbitals and organic chemical reactions\nDK: 530.145 (Häufigkeit: 3) | Beispieltitel: Quantum Chemistry | Quantum chemistry\nDK: 54 (Häufigkeit: 4) | Beispieltitel: Quantum Chemistry | Quantum chemistry | Introduction to computational chemistry\n\n**Ausgabe**:\n{{\n  \"classifications\": [\n    {{\"code\": \"DK 541.14\", \"type\": \"DK\"}},\n    {{\"code\": \"DK 530.145\", \"type\": \"DK\"}},\n    {{\"code\": \"DK 54\", \"type\": \"DK\"}}\n  ],\n  \"analyse\": \"Die Klassifikationen stammen direkt aus dem Bibliotheksbestand: DK 541.14 (Photochemie/Photophysik), DK 530.145 (Quantenchemie) und der übergeordnete Code DK 54 als Oberbegriff.\"\n}}\n\n---\n### **Jetzt starte mit der Analyse!**\n{abstract}\n**Ausschnitt aus dem Bibliotheksbestand:**\n{keywords}\n\n---\n**Wichtige Hinweise**:\n1. **Priorisiere bestehende Klassifikationen** aus dem Bibliotheksbestand – ergänze nur bei Lücken.\n2. **Vermeide Überlappungen**: Stelle sicher, dass jede Klassifikation ein **eindeutiges Thema** abdeckt.\n3. **Hierarchie beachten**: Wähle spezifischere Codes (z. B. `DK616.89` statt `DK616`), wenn verfügbar.\n4. **Maximal 10 Klassifikationen**: Selbst wenn mehr passen würden, beschränke dich auf die **wichtigsten**.\n5. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit `classifications` und `analyse` Feldern.\n\n**Output**: Genau ein valides JSON-Objekt. Keine Markdown-Fences, keine speziellen Marker-Tokens, keine Erläuterung außerhalb des JSON. Direkt mit `{` beginnen.",
+                "**Deine Rolle als bibliothekarischer Klassifikations-Experte:** \nDu bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen: \n1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende Klassifikationen aus dem Bibliotheksbestand zu einer **hierarchischen Themenstruktur**. \n2. **Mehrfachklassifikation**: Wähle **bis zu 10 passende Klassifikationsnummern** (DK/DDC/RVK) aus, die: \n  - **Primärthemen** des Abstracts abdecken, \n  - **Sekundärbeziehungen** (z. B. Anwendungsfelder, Methodik) einbeziehen, \n  - **Bestehende Klassifikationen** aus dem Bibliotheksbestand validieren/ergänzen. \n3. **Klassifikationsregeln**: \n  - **Es gibt keine Priorisierung** der Klassifikatoren selbst. Verwende jedoch nur solche, die mit der Titelliste auftauchen\n  - **Typischerweise sind die Häufigkeiten ein guter Indikator für die Relevanz der Klassifikation.** Gib ggf. zu den 10 Klassifikatoren noch 5 weitere potentielle Klassifikatoren an, die eine geringe Häufigkeit aufweisen\n4. **Iterativer Prozess**: Überprüfe jede Klassifikation auf: \n  - **Thematische Passung** (deckt der Code das Kernkonzept ab?), \n  - **Hierarchische Konsistenz** (passt der Code zur übergeordneten Ebene?), \n  - **Redundanz** (vermeide doppelte Abdeckung desselben Themas). \n5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge & Limits**: \n- Nutze **nur** die im Bibliotheksbestand enthaltenen Klassifikationen als Referenz – keine externen Quellen.\n\n",
+                "0.25",
+                "0.01",
+                [
+                    "default"
+                ],
+                "0"
+            ],
+            [
+                "**Aufgabe**:\nWähle bis zu 10 DK/DDC/RVK-Klassifikationen für den Abstract aus dem Bibliotheksbestand.\n\nRegeln:\n- Nur Codes aus dem gelieferten Bibliotheksbestand.\n- Hierarchie beachten (spezifische Codes bevorzugen).\n- Keine Redundanz.\n\nAbstract:\n{abstract}\n\nBibliotheksbestand:\n{keywords}\n\n**Format** (direkt als JSON, ohne Fences oder Marker):\n{{\n  \"classifications\": [{{\"code\": \"DK ...\", \"type\": \"DK\"}}],\n  \"analyse\": \"...\"\n}}\n\n**Output**: Genau ein valides JSON-Objekt. Direkt mit `{` beginnen, keine Erläuterung außerhalb des JSON.",
+                "Du bist bibliothekarischer Klassifikator mit Reasoning-Fokus. Denke ausführlich vor der Klassifikation. Verwende nur Codes aus dem gelieferten Bestand.",
+                "0.25",
+                "0.5",
+                [
+                    "qwen2.5:14b",
+                    "qwen2.5:32b",
+                    "cogito:14b",
+                    "cogito:32b",
+                    "deepseek-r1",
+                    "magistral"
+                ],
+                "0"
+            ],
+            [
+                "Aufgabe: Vergib bis zu 10 DK/DDC/RVK-Klassifikationen für den Abstract.\nQuelle: Bibliotheksbestand (unten). Erfinde keine Codes.\nAusgabe: direkt als JSON, keine Reasoning-Phase.\n\nAbstract:\n{abstract}\n\nBibliotheksbestand:\n{keywords}\n\nJSON:\n```json\n{{\n  \"classifications\": [{{\"code\": \"DK ...\", \"type\": \"DK\"}}],\n  \"analyse\": \"...\"\n}}\n```\n",
+                "Du bist ein präziser Klassifikator. Direkte JSON-Antwort ohne Thinking-Markup. Nutze nur Codes aus dem gelieferten Bibliotheksbestand.",
+                "0.2",
+                "0.5",
+                [
+                    "llama3.1:8b",
+                    "llama3.1:70b",
+                    "gemma-3-27b-it",
+                    "mistral-7b-instruct"
+                ],
+                "0"
+            ],
+            [
+                "Klassifiziere den Abstract mit bis zu 10 DK/DDC/RVK-Codes aus dem Bibliotheksbestand. Antwort als JSON-Objekt (response_format=json_object) mit Feldern `classifications` und `analyse`.\n\nAbstract:\n{abstract}\n\nBibliotheksbestand:\n{keywords}\n",
+                "You are a German library classifier. Assign up to 10 DK/DDC/RVK codes strictly from the supplied catalog. Output valid JSON object matching the keys `classifications` (list of {{code, type}}) and `analyse` (string).",
+                "0.25",
+                "0.5",
+                [
+                    "gpt-4o",
+                    "gpt-4o-mini",
+                    "gpt-4-turbo"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "rvk_anchor_selection": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "**Aufgabe**:\nWähle aus der unten gegebenen Liste verifizierter GND-Schlagworte diejenigen aus, die als RVK-Ankerbegriffe dienen sollen. Du darfst keine neuen Begriffe erfinden und nur aus der gelieferten Liste auswählen.\n\nZiel:\n- Wähle höchstens 8 Ankerbegriffe.\n- Bevorzuge Kernkonzepte des Textes.\n- Meide bloße Kontext-, Medien-, Institutions- oder Formbegriffe, sofern sie nicht klar zum Hauptthema gehören.\n- Wenn ein Begriff nur Randkontext ist, nimm ihn nicht auf.\n\nBewerte implizit nach:\n1. thematischer Zentralität\n2. Eignung für fachlich präzise RVK-Zuordnung\n3. Vermeidung zu allgemeiner oder bloß kontextueller Begriffe\n\nAbstract und thematische Analyse:\n{abstract}\n\nVerifizierte GND-Schlagworte:\n{keywords}\n",
-        "Du bist ein präziser bibliothekarischer RVK-Experte. Wähle nur RVK-taugliche Kernbegriffe aus der gelieferten Schlagwortliste aus. Keine Ergänzungen, keine Synonyme, keine freien Umformulierungen.",
-        "0.0",
-        "0.01",
-        [
-          "default"
+        "output_format": "json"
+    },
+    "rvk_scoring": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ]
-    ],
-    "output_format": "json"
-  },
-  "image_text_extraction": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model",
-      "seed"
-    ],
-    "required": [
-      "image"
-    ],
-    "prompts": [
-      [
-        "Du bist ein OCR-Experte für deutsche Texte. Extrahiere den kompletten Text aus diesem Bild so genau wie möglich. Achte besonders auf:\n- Korrekte deutsche Rechtschreibung und Zeichensetzung\n- Erhaltung der ursprünglichen Formatierung (Absätze, Listen)\n- Vollständige Erfassung aller sichtbaren Textinhalte\n- Korrekte Wiedergabe von Sonderzeichen und Umlauten\n\nGib nur den erkannten Text zurück, ohne zusätzliche Kommentare oder Erklärungen.",
-        "Du bist ein präziser OCR-Assistent, der Texte aus Bildern extrahiert.",
-        "0.1",
-        "0.1",
-        [
-          "gemini-2.0-flash",
-          "gpt-4o",
-          "claude-3-5-sonnet"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ],
-      [
-        "Lies den Text aus diesem Bild komplett aus. Extrahiere alle sichtbaren Textinhalte:\n- Titel, Überschriften, Fließtext\n- Tabellen, Listen, Bildunterschriften\n- Fußnoten und Randnotizen\n- Formeln oder technische Begriffe\n\nBewahre die strukturelle Gliederung (Absätze, Einrückungen) bei. Gib ausschließlich den extrahierten Text aus.",
-        "",
-        "0.05",
-        "0.1",
-        [
-          "gpt-4o",
-          "gemini-1.5-flash"
+        "prompts": [
+            [
+                "**Aufgabe**:\nBewerte die unten gelisteten RVK-Kandidaten für den gegebenen Abstract. Du darfst keine neuen RVK-Notationen erfinden und keine Kandidaten hinzufuegen. Bewerte jeden Kandidaten in drei Dimensionen von 0 bis 5:\n- thematic_fit: Passt die Notation zum Kernthema des Abstracts?\n- branch_fit: Passt der Fachpfad / Oberbereich der RVK?\n- specificity: Ist die Notation hinreichend spezifisch und nicht zu allgemein?\n\nWichtige Regeln:\n1. Bevorzuge Kandidaten, die mehrere Kernkonzepte des Abstracts abdecken.\n2. Bestrafe Kandidaten mit unpassendem Oberbereich, auch wenn einzelne Schlagwoerter lexikalisch passen.\n3. Nutze nur die gegebenen RVK-Kandidaten.\n4. Gib für jeden Kandidaten einen total_score an. Dieser soll deine Gesamtbewertung widerspiegeln.\n5. Wenn im Abstract-Block zusaetzlich ein DK-Profil angegeben ist, nutze dieses als zusaetzlichen thematischen Hinweis für die RVK-Bewertung.\n\nAbstract:\n{abstract}\n\nRVK-Kandidaten:\n{keywords}\n",
+                "Du bist ein praeziser bibliothekarischer RVK-Gutachter. Bewerte nur die gegebenen Kandidaten streng und konsistent.",
+                "0.0",
+                "0.01",
+                [
+                    "default"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ],
-      [
-        "Führe eine vollständige Textextraktion aus diesem Bild durch. Erkenne und transkribiere:\n• Alle Textzeilen von oben nach unten\n• Mehrspaltige Layouts korrekt\n• Deutsche Umlaute (ä, ö, ü, ß) exakt\n• Zahlen, Daten, Symbole präzise\n\nAusgabe nur des reinen Textes ohne OCR-Hinweise oder Metakommentare.",
-        "",
-        "0.2",
-        "0.1",
-        [
-          "cogito:32b",
-          "cogito:14b",
-          "magistral:latest"
+        "output_format": "json"
+    },
+    "rvk_anchor_selection": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
         ],
-        "0"
-      ],
-      [
-        "Extrahiere den Text aus diesem Bild vollständig. Achte auf wissenschaftliche/akademische Inhalte:\n- Abstracts, Zusammenfassungen\n- Bibliografische Angaben\n- Fachterminologie korrekt\n- Literaturverweise und Zitationen\n- Formeln und spezielle Notationen\n\nNur Textausgabe, keine Erklärungen.",
-        "",
-        "0.15",
-        "0.1",
-        [
-          "default"
+        "required": [
+            "abstract",
+            "keywords"
         ],
-        "0"
-      ]
-    ]
-  },
-  "rephrase": {
-    "fields": [
-      "prompt",
-      "system",
-      "temp",
-      "p-value",
-      "model"
-    ],
-    "required": [
-      "abstract",
-      "keywords"
-    ],
-    "prompts": [
-      [
-        "Du bist ein korrekter und fachlich versierter Bibliothekar. Nutze die folgenden GND-konformeren Schlagworte um den vorliegenden Text kurz und knapp umzuformlieren. Nutze die gegebenen Schlagworte, um\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
-        "Your role as an assistant involves thoroughly precise answer of the question.",
-        "0.5",
-        "0.5",
-        [
-          "default"
+        "prompts": [
+            [
+                "**Aufgabe**:\nWähle aus der unten gegebenen Liste verifizierter GND-Schlagworte diejenigen aus, die als RVK-Ankerbegriffe dienen sollen. Du darfst keine neuen Begriffe erfinden und nur aus der gelieferten Liste auswählen.\n\nZiel:\n- Wähle höchstens 8 Ankerbegriffe.\n- Bevorzuge Kernkonzepte des Textes.\n- Meide bloße Kontext-, Medien-, Institutions- oder Formbegriffe, sofern sie nicht klar zum Hauptthema gehören.\n- Wenn ein Begriff nur Randkontext ist, nimm ihn nicht auf.\n\nBewerte implizit nach:\n1. thematischer Zentralität\n2. Eignung für fachlich präzise RVK-Zuordnung\n3. Vermeidung zu allgemeiner oder bloß kontextueller Begriffe\n\nAbstract und thematische Analyse:\n{abstract}\n\nVerifizierte GND-Schlagworte:\n{keywords}\n",
+                "Du bist ein präziser bibliothekarischer RVK-Experte. Wähle nur RVK-taugliche Kernbegriffe aus der gelieferten Schlagwortliste aus. Keine Ergänzungen, keine Synonyme, keine freien Umformulierungen.",
+                "0.0",
+                "0.01",
+                [
+                    "default"
+                ],
+                "0"
+            ]
         ],
-        "0"
-      ]
-    ]
-  }
+        "output_format": "json"
+    },
+    "image_text_extraction": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model",
+            "seed"
+        ],
+        "required": [
+            "image"
+        ],
+        "prompts": [
+            [
+                "Du bist ein OCR-Experte für deutsche Texte. Extrahiere den kompletten Text aus diesem Bild so genau wie möglich. Achte besonders auf:\n- Korrekte deutsche Rechtschreibung und Zeichensetzung\n- Erhaltung der ursprünglichen Formatierung (Absätze, Listen)\n- Vollständige Erfassung aller sichtbaren Textinhalte\n- Korrekte Wiedergabe von Sonderzeichen und Umlauten\n\nGib nur den erkannten Text zurück, ohne zusätzliche Kommentare oder Erklärungen.",
+                "Du bist ein präziser OCR-Assistent, der Texte aus Bildern extrahiert.",
+                "0.1",
+                "0.1",
+                [
+                    "gemini-2.0-flash",
+                    "gpt-4o",
+                    "claude-3-5-sonnet"
+                ],
+                "0"
+            ],
+            [
+                "Lies den Text aus diesem Bild komplett aus. Extrahiere alle sichtbaren Textinhalte:\n- Titel, Überschriften, Fließtext\n- Tabellen, Listen, Bildunterschriften\n- Fußnoten und Randnotizen\n- Formeln oder technische Begriffe\n\nBewahre die strukturelle Gliederung (Absätze, Einrückungen) bei. Gib ausschließlich den extrahierten Text aus.",
+                "",
+                "0.05",
+                "0.1",
+                [
+                    "gpt-4o",
+                    "gemini-1.5-flash"
+                ],
+                "0"
+            ],
+            [
+                "Führe eine vollständige Textextraktion aus diesem Bild durch. Erkenne und transkribiere:\n• Alle Textzeilen von oben nach unten\n• Mehrspaltige Layouts korrekt\n• Deutsche Umlaute (ä, ö, ü, ß) exakt\n• Zahlen, Daten, Symbole präzise\n\nAusgabe nur des reinen Textes ohne OCR-Hinweise oder Metakommentare.",
+                "",
+                "0.2",
+                "0.1",
+                [
+                    "cogito:32b",
+                    "cogito:14b",
+                    "magistral:latest"
+                ],
+                "0"
+            ],
+            [
+                "Extrahiere den Text aus diesem Bild vollständig. Achte auf wissenschaftliche/akademische Inhalte:\n- Abstracts, Zusammenfassungen\n- Bibliografische Angaben\n- Fachterminologie korrekt\n- Literaturverweise und Zitationen\n- Formeln und spezielle Notationen\n\nNur Textausgabe, keine Erklärungen.",
+                "",
+                "0.15",
+                "0.1",
+                [
+                    "default"
+                ],
+                "0"
+            ]
+        ]
+    },
+    "rephrase": {
+        "fields": [
+            "prompt",
+            "system",
+            "temp",
+            "p-value",
+            "model"
+        ],
+        "required": [
+            "abstract",
+            "keywords"
+        ],
+        "prompts": [
+            [
+                "Du bist ein korrekter und fachlich versierter Bibliothekar. Nutze die folgenden GND-konformeren Schlagworte um den vorliegenden Text kurz und knapp umzuformlieren. Nutze die gegebenen Schlagworte, um\n**Schlagwortliste:**\n{keywords}\n**Text:**\n{abstract}",
+                "Your role as an assistant involves thoroughly precise answer of the question.",
+                "0.5",
+                "0.5",
+                [
+                    "default"
+                ],
+                "0"
+            ]
+        ]
+    }
 }

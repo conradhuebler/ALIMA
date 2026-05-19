@@ -393,36 +393,93 @@ def _log_response(step_id: str, content: str) -> None:
     logger.info(f"[{step_id}] LLM response:\n{preview}")
 
 
-_JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
+_THOUGHT_RE = re.compile(
+    r"<\|begin_of_thought\|>.*?<\|end_of_thought\|>", re.DOTALL
+)
+_SOLUTION_RE = re.compile(
+    r"<\|begin_of_solution\|>(.*?)<\|end_of_solution\|>", re.DOTALL
+)
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)\s*```", re.DOTALL)
+
+
+def _first_balanced_object(text: str) -> Optional[str]:
+    """Return the first balanced top-level ``{...}`` substring in ``text``.
+
+    Brace-counting parser that respects string literals + backslash escapes.
+    Returns ``None`` if no balanced object is found.
+    """
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if esc:
+            esc = False
+            continue
+        if in_str:
+            if c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
 
 
 def _extract_json(content: str) -> Dict[str, Any]:
     """Best-effort JSON extraction from an LLM response.
 
-    Mirrors the existing BaseSubAgent._extract_json logic so migrated
-    workflows keep working.
+    Pipeline:
+        1. Strip ``<|begin_of_thought|>…<|end_of_thought|>`` blocks.
+        2. If ``<|begin_of_solution|>…<|end_of_solution|>`` present, narrow to
+           that payload.
+        3. If a markdown fence (``` ```json ... ``` ```) is present, narrow to
+           the fence body.
+        4. Balanced-brace extraction of the first top-level ``{...}``.
+
+    Empty input or unparseable content returns ``{}``.
     """
     if not content:
         return {}
 
-    m = _JSON_BLOCK_RE.search(content)
-    if m:
+    text = _THOUGHT_RE.sub("", content)
+
+    sol = _SOLUTION_RE.search(text)
+    if sol:
+        text = sol.group(1)
+
+    fence = _FENCE_RE.search(text)
+    if fence:
+        text = fence.group(1)
+
+    stripped = text.lstrip()
+    if stripped.startswith("["):
         try:
-            obj = json.loads(m.group(1))
+            obj = json.loads(stripped)
+            if isinstance(obj, list):
+                return {"items": obj}
+        except json.JSONDecodeError:
+            pass
+
+    chunk = _first_balanced_object(text)
+    if chunk:
+        try:
+            obj = json.loads(chunk)
             if isinstance(obj, dict):
                 return obj
             if isinstance(obj, list):
                 return {"items": obj}
         except json.JSONDecodeError:
             pass
-
-    # Fallback: last balanced JSON object in the text.
-    for m in reversed(list(re.finditer(r"\{[^{}]*\}", content, re.DOTALL))):
-        try:
-            obj = json.loads(m.group(0))
-            if isinstance(obj, dict) and obj:
-                return obj
-        except json.JSONDecodeError:
-            continue
 
     return {}
