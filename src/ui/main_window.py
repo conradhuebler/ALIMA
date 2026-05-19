@@ -600,8 +600,17 @@ class MainWindow(QMainWindow):
         # Individual tabs with icons and proper naming
         self.tabs.addTab(self.image_analysis_tab, "📷 Bild")
         self.tabs.addTab(self.abstract_tab, "📝 Manuelle Analyse")
-        self.tabs.addTab(self.search_tab, "🔍 GND-Suche")
-        self.tabs.addTab(self.ub_catalog_tab, "📚 UB-Katalog")        # NEW - Claude Generated
+
+        # P-θ.3: GND-Suche + UB-Katalog merged behind a source-picker.
+        # MainWindow continues to reference self.search_tab + self.ub_catalog_tab
+        # directly — they live as panels inside SearchTabUnified.
+        from .search_tab_unified import SearchTabUnified
+        self.search_tab_unified = SearchTabUnified(
+            search_tab=self.search_tab,
+            ub_catalog_tab=self.ub_catalog_tab,
+            parent=self,
+        )
+        self.tabs.addTab(self.search_tab_unified, "🔍 Suche")
         self.tabs.addTab(self.dk_analysis_unified_tab, "📊 Klassifikationen")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
 
