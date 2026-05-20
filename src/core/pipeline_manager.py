@@ -788,20 +788,43 @@ class PipelineManager:
         provider = self.config.global_provider_override or ""
         model = self.config.global_model_override or ""
         if not provider or not model:
-            for step_id in ("initialisation", "keywords", "dk_classification"):
-                cfg = self.config.step_configs.get(step_id)
-                if cfg:
-                    provider = provider or cfg.provider or ""
-                    model = model or cfg.model or ""
-                    if provider and model:
-                        break
+            # Walk all step_configs (legacy CLI ids + workflow-specific ids).
+            # Earlier code looked only at ("initialisation", "keywords",
+            # "dk_classification") which silently produced empty provider/model
+            # for v5-style workflows (alima.yaml step ids: extraction,
+            # search, selection_chunks, ...).
+            for cfg in self.config.step_configs.values():
+                if cfg is None:
+                    continue
+                provider = provider or (cfg.provider or "")
+                model = model or (cfg.model or "")
+                if provider and model:
+                    break
 
         temperature = 0.5
-        for step_id in ("initialisation", "keywords"):
-            cfg = self.config.step_configs.get(step_id)
-            if cfg and cfg.temperature is not None:
+        for cfg in self.config.step_configs.values():
+            if cfg is None:
+                continue
+            if cfg.temperature is not None:
                 temperature = cfg.temperature
                 break
+
+        if not provider or not model:
+            self.logger.warning(
+                "Agentic workflow %r starts with empty provider/model "
+                "(provider=%r, model=%r). Set global_provider/model_override "
+                "or populate step_configs.",
+                getattr(workflow_path, "name", workflow_path),
+                provider,
+                model,
+            )
+            if self.stream_callback:
+                self.stream_callback(
+                    f"\n⚠️  Provider/Model leer (provider={provider!r}, "
+                    f"model={model!r}) — Schritte können stillschweigend "
+                    f"fehlschlagen.\n",
+                    "agentic",
+                )
 
         if self.config.agentic_input_context_path:
             ctx = SharedContext.load_from_file(self.config.agentic_input_context_path)

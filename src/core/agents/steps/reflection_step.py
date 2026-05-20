@@ -15,7 +15,7 @@ from src.core.agent_loop import AgentLoop
 from src.core.agents.prompt_resolver import resolve_prompts
 from src.core.agents.registry import register_step
 from src.core.agents.steps.base_step import BaseStep, StepConfig
-from src.core.agents.steps.llm_agent_step import _emit_prompts, _log_response
+from src.core.agents.steps.llm_agent_step import _emit_header, _emit_prompts, _log_response
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +152,7 @@ class ReflectionStep(BaseStep):
             if llm_override.get("top_p") is not None:
                 params["top_p"] = float(llm_override["top_p"])
 
+        _emit_header(self.step_id, params, self.stream_callback)
         _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
 
         loop = AgentLoop(

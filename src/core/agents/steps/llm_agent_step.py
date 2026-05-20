@@ -104,8 +104,8 @@ class LLMAgentStep(BaseStep):
             raw_cfg, resolved_inputs, context, params
         )
 
-        if getattr(context, 'verbose', False):
-            _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
+        _emit_header(self.step_id, params, self.stream_callback)
+        _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
 
         result = self._invoke_loop(system_prompt, user_prompt, tool_names, params)
         parsed = _extract_json(result.content)
@@ -162,8 +162,12 @@ class LLMAgentStep(BaseStep):
         dedup_field = chunk_cfg.get("dedup_field", "title")
         max_merged = chunk_cfg.get("max_merged")  # optional cap on merged output size
 
+        provider = params.get("provider", "")
+        model = params.get("model", "")
+        temp = params.get("temperature", "?")
         header = (
-            f"\n{'='*50}\n🤖 LLMAgent '{self.step_id}' chunked: "
+            f"\n{'='*50}\n🤖 LLMAgent '{self.step_id}' "
+            f"({provider}/{model}  temp={temp}) chunked: "
             f"{len(items)} items × {total} chunks × {chunk_size}\n{'='*50}\n"
         )
         if self.stream_callback:
@@ -188,11 +192,10 @@ class LLMAgentStep(BaseStep):
             chunk_header = f"\n▶ Chunk {idx}/{total} ({len(chunk)} items)\n"
             if self.stream_callback:
                 self.stream_callback(chunk_header)
-            if getattr(context, 'verbose', False):
-                _emit_prompts(
-                    f"{self.step_id}[chunk {idx}/{total}]",
-                    system_prompt, user_prompt, chunk_params, self.stream_callback,
-                )
+            _emit_prompts(
+                f"{self.step_id}[chunk {idx}/{total}]",
+                system_prompt, user_prompt, chunk_params, self.stream_callback,
+            )
 
             result = self._invoke_loop(system_prompt, user_prompt, tool_names, chunk_params)
             parsed = _extract_json(result.content)
@@ -356,6 +359,32 @@ class LLMAgentStep(BaseStep):
         return []
 
 
+def _format_header(step_id: str, params: Dict[str, Any]) -> str:
+    """Build the one-line `🤖 LLMAgent` header. Used by both _emit_header (always)
+    and _emit_prompts (verbose-only)."""
+    provider = params.get("provider", "") or "?"
+    model = params.get("model", "") or "?"
+    temp = params.get("temperature", "?")
+    top_p = params.get("top_p", "?")
+    return (
+        f"\n{'='*50}\n🤖 LLMAgent '{step_id}' "
+        f"({provider}/{model}  temp={temp}  top_p={top_p})\n{'='*50}\n"
+    )
+
+
+def _emit_header(
+    step_id: str,
+    params: Dict[str, Any],
+    stream_callback: Optional[Any],
+) -> None:
+    """Emit the lightweight `🤖 LLMAgent` header unconditionally so the
+    operator always sees step + provider + model before the LLM call."""
+    header = _format_header(step_id, params)
+    if stream_callback:
+        stream_callback(header)
+    logger.info(header.strip())
+
+
 def _emit_prompts(
     step_id: str,
     system_prompt: str,
@@ -363,20 +392,11 @@ def _emit_prompts(
     params: Dict[str, Any],
     stream_callback: Optional[Any],
 ) -> None:
-    """Stream + log system/user prompts so they appear in the console before the LLM call."""
-    provider = params.get("provider", "")
-    model = params.get("model", "")
-    temp = params.get("temperature", "?")
-    top_p = params.get("top_p", "?")
-
-    header = (
-        f"\n{'='*50}\n🤖 LLMAgent '{step_id}' "
-        f"({provider}/{model}  temp={temp}  top_p={top_p})\n{'='*50}\n"
-    )
+    """Stream + log full SYSTEM/USER prompts (verbose mode only — caller gates)."""
     sys_block = f"--- SYSTEM ---\n{system_prompt}\n"
     usr_block = f"--- USER ---\n{user_prompt}\n{'='*50}\n"
 
-    full = header + sys_block + usr_block
+    full = sys_block + usr_block
     if stream_callback:
         stream_callback(full)
     logger.info(full)
