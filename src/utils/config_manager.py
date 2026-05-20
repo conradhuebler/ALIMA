@@ -18,7 +18,7 @@ import logging
 from enum import Enum
 # Import centralized data models
 from .config_models import (
-    AlimaConfig, DatabaseConfig, CatalogConfig, PromptConfig, UIConfig,
+    AlimaConfig, ChatConfig, DatabaseConfig, CatalogConfig, PromptConfig, UIConfig,
     UnifiedProviderConfig, UnifiedProvider, TaskPreference, PipelineStepConfig,
     OllamaProvider, OpenAICompatibleProvider, GeminiProvider, AnthropicProvider,
     TaskType, PipelineMode
@@ -338,6 +338,10 @@ class ConfigManager:
             ui_config_data = config_data.get("ui_config", {})
             ui_config = UIConfig(**ui_config_data) if ui_config_data else UIConfig()
 
+            # Parse Chat config - Claude Generated (WP10 P-δ.1)
+            chat_config_data = config_data.get("chat_config", {})
+            chat_config = ChatConfig(**chat_config_data) if chat_config_data else ChatConfig()
+
             # Create unified provider config
             if "unified_config" in config_data:
                 # Already in unified format
@@ -374,6 +378,7 @@ class ConfigManager:
                 prompt_config=prompt_config,
                 system_config=system_config,
                 ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
+                chat_config=chat_config,  # Claude Generated (WP10 P-δ.1)
                 unified_config=unified_config,
                 config_version=config_data.get("config_version", "2.0")
             )

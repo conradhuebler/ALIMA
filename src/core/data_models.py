@@ -115,6 +115,120 @@ class KeywordAnalysisState:
     def classifications(self, value: List[str]) -> None:
         self.dk_classifications = list(value or [])
 
+    # ------------------------------------------------------------------
+    # WP10 P-δ.1: Mutations-API (additive — direct field writes elsewhere
+    # in PipelineManager remain in place). Each method emits a state event
+    # via AlimaStateBus so subscribers (Review/Chat/Webapp) can refresh.
+    # ------------------------------------------------------------------
+    def _emit_state_event(self, op: str, **payload) -> None:
+        """Best-effort emit on AlimaStateBus. Silent on import failure."""
+        try:
+            from src.core.state_bus import AlimaStateBus
+            AlimaStateBus().emit_event("state.changed", {"op": op, **payload})
+        except Exception:
+            pass
+
+    def apply_keyword_replacement(
+        self, old: str, new: str, gnd_id: Optional[str] = None
+    ) -> bool:
+        """Replace ``old`` with ``new`` in ``initial_keywords``.
+
+        Returns True if the replacement happened.
+        """
+        if not old or not new:
+            return False
+        replaced = False
+        out: List[str] = []
+        for kw in self.initial_keywords:
+            if kw == old or kw.split(" (GND-ID:")[0].strip() == old:
+                tag = f" (GND-ID: {gnd_id})" if gnd_id else ""
+                out.append(f"{new}{tag}")
+                replaced = True
+            else:
+                out.append(kw)
+        self.initial_keywords = out
+        if replaced:
+            self._emit_state_event(
+                "keyword_replacement", old=old, new=new, gnd_id=gnd_id
+            )
+        return replaced
+
+    def apply_keyword_addition(
+        self, keyword: str, gnd_id: Optional[str] = None
+    ) -> bool:
+        """Append a keyword to ``initial_keywords`` if not already present."""
+        if not keyword:
+            return False
+        tag = f" (GND-ID: {gnd_id})" if gnd_id else ""
+        entry = f"{keyword}{tag}"
+        if entry in self.initial_keywords:
+            return False
+        self.initial_keywords = list(self.initial_keywords) + [entry]
+        self._emit_state_event(
+            "keyword_addition", keyword=keyword, gnd_id=gnd_id
+        )
+        return True
+
+    def apply_keyword_removal(self, keyword: str) -> bool:
+        """Remove the first keyword whose canonical form matches ``keyword``."""
+        if not keyword:
+            return False
+        for i, kw in enumerate(self.initial_keywords):
+            canon = kw.split(" (GND-ID:")[0].strip()
+            if kw == keyword or canon == keyword:
+                self.initial_keywords = (
+                    list(self.initial_keywords[:i])
+                    + list(self.initial_keywords[i + 1:])
+                )
+                self._emit_state_event("keyword_removal", keyword=keyword)
+                return True
+        return False
+
+    def apply_classification_update(
+        self, code: str, action: str = "add"
+    ) -> bool:
+        """Add or remove a classification code in ``dk_classifications``.
+
+        ``action`` ∈ {``"add"``, ``"remove"``}.
+        """
+        if not code or action not in ("add", "remove"):
+            return False
+        codes = list(self.dk_classifications)
+        if action == "add":
+            if code in codes:
+                return False
+            codes.append(code)
+        else:  # remove
+            if code not in codes:
+                return False
+            codes.remove(code)
+        self.dk_classifications = codes
+        self._emit_state_event(
+            "classification_update", code=code, action=action
+        )
+        return True
+
+    def apply_step_result_override(
+        self, step_id: str, key: str, value: object
+    ) -> bool:
+        """Override ``key`` on the ``LlmKeywordAnalysis`` for ``step_id``.
+
+        Currently supports ``step_id="initial"`` (``initial_llm_call_details``)
+        and ``step_id="final"`` (``final_llm_analysis``).
+        """
+        target = None
+        if step_id == "initial":
+            target = self.initial_llm_call_details
+        elif step_id == "final":
+            target = self.final_llm_analysis
+        if target is None or not hasattr(target, key):
+            return False
+        setattr(target, key, value)
+        self._emit_state_event(
+            "step_result_override", step_id=step_id, key=key
+        )
+        return True
+
 
 # ============================================================
 # Agent / Tool-Calling Data Models - Claude Generated

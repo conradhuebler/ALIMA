@@ -714,6 +714,22 @@ class RepetitionDetectionConfig:
 # ============================================================================
 
 @dataclass
+class ChatConfig:
+    """Chat-widget configuration (WP10 P-δ.1). Claude Generated.
+
+    Independent of the pipeline-LLM defaults — chat may use a smaller /
+    cheaper model. ``no_cache_writes=True`` blocks chat tool calls from
+    persisting into the MCP cache (Audit-Finding S5).
+    """
+    default_provider: str = ""
+    default_model: str = ""
+    max_iterations: int = 10
+    no_cache_writes: bool = True
+    temperature: float = 0.5
+    system_prompt_override: str = ""
+
+
+@dataclass
 class AlimaConfig:
     """Main ALIMA configuration with unified provider system - Claude Generated"""
     # Core configuration sections
@@ -723,6 +739,7 @@ class AlimaConfig:
     system_config: SystemConfig = field(default_factory=SystemConfig)
     ui_config: UIConfig = field(default_factory=UIConfig)  # Claude Generated - Webcam Feature
     repetition_config: RepetitionDetectionConfig = field(default_factory=RepetitionDetectionConfig)  # Claude Generated
+    chat_config: ChatConfig = field(default_factory=ChatConfig)  # WP10 P-δ.1
 
     # UNIFIED PROVIDER CONFIGURATION - single source of truth
     unified_config: UnifiedProviderConfig = field(default_factory=UnifiedProviderConfig)
