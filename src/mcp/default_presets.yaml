@@ -10,7 +10,7 @@ library:
   - get_search_cache
 
 # GND-centric lookups
- gnd:
+gnd:
   - search_gnd
   - get_gnd_entry
   - get_gnd_batch

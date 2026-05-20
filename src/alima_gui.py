@@ -3,6 +3,8 @@
 import sys
 import os
 import argparse
+import faulthandler
+faulthandler.enable(all_threads=True)
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -12,6 +14,7 @@ from src.ui.main_window import MainWindow
 from src.ui.first_start_wizard import FirstStartWizard
 from src.utils.logging_utils import setup_logging
 from src.utils.config_manager import ConfigManager
+from src.core.state_bus import AlimaStateBus  # Eager import
 import logging
 
 
@@ -64,6 +67,7 @@ def main():
     # TODO: Read from ~/.config/alima/config.json in future
     setup_logging(level=1, log_file="alima.log")
     app = QApplication(sys.argv)
+    _ = AlimaStateBus()  # Force singleton creation on main thread before workers spawn
     app.setOrganizationName("TU Bergakademie Freiberg")
     app.setApplicationName("AlIma")
     app.setApplicationVersion("0.2")

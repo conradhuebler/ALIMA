@@ -483,6 +483,9 @@ class PipelineManager:
 
         # Current pipeline state
         self.current_analysis_state: Optional[KeywordAnalysisState] = None
+        # WP10 P-δ.1: retain last successful agentic SharedContext for
+        # chat tools / single-step warm-start. Reset at start_pipeline().
+        self.last_shared_context = None
         self.pipeline_steps: List[PipelineStep] = []
         self.current_step_index: int = 0
         
@@ -656,11 +659,24 @@ class PipelineManager:
     def start_pipeline(self, input_text: str, input_type: str = "text", input_source: str = None, force_update: bool = False) -> str:
         """Start a new pipeline execution - Claude Generated"""
         pipeline_id = str(uuid.uuid4())
+        self.logger.info(f"🔵 [DEBUG] start_pipeline: {pipeline_id[:8]} agentic={getattr(self.config, 'enable_agentic_mode', '?')}")
 
         # Store force_update flag for use during pipeline execution - Claude Generated
         self.force_update = force_update
         if force_update:
             self.logger.info("⚠️ Force update enabled: catalog cache will be ignored")
+
+        # WP10 P-δ.1: invalidate retained SharedContext + broadcast start.
+        self.last_shared_context = None
+        self.logger.info("🔵 [DEBUG] start_pipeline: before AlimaStateBus")
+        try:
+            from src.core.state_bus import AlimaStateBus
+            AlimaStateBus().emit_event(
+                "state.pipeline_started", {"pipeline_id": pipeline_id}
+            )
+        except Exception:
+            pass
+        self.logger.info("🔵 [DEBUG] start_pipeline: after AlimaStateBus")
 
         # Agentic mode: use MetaAgent instead of sequential steps - Claude Generated
         if self.config.enable_agentic_mode:
@@ -880,6 +896,16 @@ class PipelineManager:
                 raise RuntimeError(report.error or "v4 workflow failed")
 
             self.current_analysis_state = ctx.to_keyword_analysis_state()
+            # WP10 P-δ.1: retain the raw SharedContext for chat tools.
+            self.last_shared_context = ctx
+            try:
+                from src.core.state_bus import AlimaStateBus
+                AlimaStateBus().emit_event(
+                    "state.pipeline_completed",
+                    {"workflow": workflow.name},
+                )
+            except Exception:
+                pass
             if self.pipeline_completed_callback:
                 self.pipeline_completed_callback(self.current_analysis_state)
 
