@@ -32,6 +32,10 @@ class AgentLoop:
         stream_callback: Optional[Callable[[str], None]] = None,
         repeat_threshold: int = 3,
         tool_labels: Optional[Dict[str, str]] = None,
+        on_tool_call: Optional[Callable[["ToolCall"], None]] = None,
+        on_tool_result: Optional[Callable[[str, str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
+        status_callback: Optional[Callable[[str], None]] = None,
     ):
         self.llm_service = llm_service
         self.tool_registry = tool_registry
@@ -40,6 +44,20 @@ class AgentLoop:
         self.stream_callback = stream_callback
         self.repeat_threshold = repeat_threshold
         self.tool_labels = tool_labels or {}
+        # P-δ.3 hooks: all default None for full backward compat with
+        # LLMAgentStep / ReflectionStep / existing tests.
+        self.on_tool_call = on_tool_call
+        self.on_tool_result = on_tool_result
+        self.should_stop = should_stop
+        # Status channel split: if status_callback is provided, all
+        # progress / error / tool-dispatch status lines go there. Otherwise
+        # they fall through to stream_callback (legacy behaviour for
+        # LLMAgentStep/ReflectionStep which show them in PipelineStreamWidget).
+        self.status_callback = status_callback
+
+    @property
+    def _status_cb(self) -> Optional[Callable[[str], None]]:
+        return self.status_callback or self.stream_callback
 
     def run(
         self,
@@ -89,18 +107,25 @@ class AgentLoop:
         final_content = ""
 
         for iteration in range(1, self.max_iterations + 1):
+            # Cancel check (P-δ.3 hook). Latency = max one iteration.
+            if self.should_stop and self.should_stop():
+                logger.info(f"Agent loop stopped by should_stop callback at iteration {iteration}")
+                if self._status_cb:
+                    self._status_cb(f"\n⏹ Agent-Abbruch durch Operator\n")
+                break
+
             # Timeout check
             elapsed = time.time() - start_time
             if elapsed > self.timeout_seconds:
                 logger.warning(f"Agent timeout after {elapsed:.1f}s at iteration {iteration}")
-                if self.stream_callback:
-                    self.stream_callback(f"\n⏰ Agent-Timeout nach {elapsed:.0f}s\n")
+                if self._status_cb:
+                    self._status_cb(f"\n⏰ Agent-Timeout nach {elapsed:.0f}s\n")
                 break
 
             # Call LLM with tools
             logger.info(f"Agent tool-call {iteration}/{self.max_iterations}")
-            if self.stream_callback and self.max_iterations > 1:
-                self.stream_callback(f"\n🔄 Tool-Call {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
+            if self._status_cb and self.max_iterations > 1:
+                self._status_cb(f"\n🔄 Tool-Call {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
 
             try:
                 response: AgentResponse = self.llm_service.generate_with_tools(
@@ -116,21 +141,21 @@ class AgentLoop:
                 )
             except Exception as e:
                 logger.error(f"LLM call failed at tool-call {iteration}: {e}")
-                if self.stream_callback:
-                    self.stream_callback(f"\n❌ LLM-Fehler: {e}\n")
+                if self._status_cb:
+                    self._status_cb(f"\n❌ LLM-Fehler: {e}\n")
                 final_content = f"Error: {e}"
                 break
 
             # Case 1: LLM wants to call tools
             if response.has_tool_calls:
                 # Show LLM's reasoning before tool calls (transparency)
-                if response.content and self.stream_callback:
+                if response.content and self._status_cb:
                     reasoning = response.content.strip()
                     if reasoning:
                         # Truncate long reasoning to first 200 chars
                         if len(reasoning) > 200:
                             reasoning = reasoning[:200] + "..."
-                        self.stream_callback(f"\n💭 {reasoning}\n")
+                        self._status_cb(f"\n💭 {reasoning}\n")
 
                 # Append assistant message with tool calls to conversation
                 assistant_msg = self._build_assistant_tool_message(response)
@@ -143,8 +168,8 @@ class AgentLoop:
                     tool_call_counter[call_key] += 1
                     if tool_call_counter[call_key] >= self.repeat_threshold:
                         logger.warning(f"Tool '{tc.name}' called {self.repeat_threshold}x with same args - forcing conclusion")
-                        if self.stream_callback:
-                            self.stream_callback(f"\n⚠️ Wiederholte Tool-Aufrufe erkannt, erzwinge Abschluss\n")
+                        if self._status_cb:
+                            self._status_cb(f"\n⚠️ Wiederholte Tool-Aufrufe erkannt, erzwinge Abschluss\n")
                         # Force conclusion by not providing more tool results
                         messages.append({
                             "role": "tool",
@@ -161,14 +186,28 @@ class AgentLoop:
 
                     # Show tool type for better transparency
                     tool_type = self._get_tool_type_label(tc.name)
-                    if self.stream_callback:
+                    if self._status_cb:
                         args_preview = _truncate_args(tc.arguments, 60)
-                        self.stream_callback(f"\n  🔧 {tool_type}: {tc.name}({args_preview})")
+                        self._status_cb(f"\n  🔧 {tool_type}: {tc.name}({args_preview})")
+
+                    # P-δ.3 hook: notify before tool dispatch
+                    if self.on_tool_call:
+                        try:
+                            self.on_tool_call(tc)
+                        except Exception:
+                            logger.exception("on_tool_call hook raised")
 
                     # Execute tool
                     tool_start = time.time()
                     result_str = self.tool_registry.execute(tc.name, tc.arguments)
                     tool_duration = time.time() - tool_start
+
+                    # P-δ.3 hook: notify after tool dispatch
+                    if self.on_tool_result:
+                        try:
+                            self.on_tool_result(tc.name, result_str)
+                        except Exception:
+                            logger.exception("on_tool_result hook raised")
 
                     # Log tool call
                     log_entry = {
@@ -181,7 +220,7 @@ class AgentLoop:
                     tool_log.append(log_entry)
 
                     # Show result summary for transparency
-                    if self.stream_callback:
+                    if self._status_cb:
                         result_preview = result_str[:100] + "..." if len(result_str) > 100 else result_str
                         # Count results if it's a list
                         try:
@@ -192,7 +231,7 @@ class AgentLoop:
                                 result_preview = f"{len(parsed)} Einträge"
                         except:
                             pass
-                        self.stream_callback(f"    ✓ {result_preview} ({tool_duration:.1f}s)")
+                        self._status_cb(f"    ✓ {result_preview} ({tool_duration:.1f}s)")
 
                     # Add tool result to messages
                     messages.append({
@@ -211,8 +250,8 @@ class AgentLoop:
 
             # Case 2: LLM returned final text (no tool calls)
             final_content = response.content
-            if self.stream_callback and final_content and self.max_iterations > 1:
-                self.stream_callback(f"\n✅ Fertig nach {iteration} Tool-Calls\n")
+            if self._status_cb and final_content and self.max_iterations > 1:
+                self._status_cb(f"\n✅ Fertig nach {iteration} Tool-Calls\n")
             logger.info(f"Agent completed after {iteration} tool-calls")
             logger.debug(f"LLM response content:\n{final_content}")
             break
@@ -220,8 +259,8 @@ class AgentLoop:
         else:
             # max_iterations exhausted
             logger.warning(f"Agent hit max tool-calls ({self.max_iterations})")
-            if self.stream_callback:
-                self.stream_callback(f"\n⚠️ Maximum {self.max_iterations} Tool-Calls erreicht\n")
+            if self._status_cb:
+                self._status_cb(f"\n⚠️ Maximum {self.max_iterations} Tool-Calls erreicht\n")
 
             # Force a final response without tools
             if not final_content:
