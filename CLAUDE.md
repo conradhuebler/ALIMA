@@ -117,6 +117,7 @@ When documenting implemented features, the AI must apply these rules:
 - Restructure code: consolidate distributed logic from `utils`, `core`, `suggestors`.
 - Maintain unified pipeline architecture (CLI/GUI/Webapp parity).
 - Extend agentic v4 to cover more workflow types beyond classical pipeline.
+- **Chat-Agent as first-class frontend** — chat-first + headless dual-mode: same `AgentLoop`/toolset drives GUI-Chat, CLI (`alima agent --doi …`), and HTTP endpoint. GUI keeps role for visual inspection / high-risk operator mutations. Details: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
 
 ### Future Tasks
 1. **Code Restructuring**: Consolidate distributed logic.
@@ -124,6 +125,8 @@ When documenting implemented features, the AI must apply these rules:
 3. **Batch Enhancement**: Extended image analysis, URL scraping.
 4. **Performance**: Connection pooling, result pagination, memory optimization.
 5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools.
+6. **Chat-Agent Phases P-δ.4 → P-ι**: Polish + Mutation Tools + Pipeline-Orchestration + Input-Beschaffung (DOI/URL/PDF/Image) + Export + Headless/CLI/API. Permission-Layer via `ChatConfig.autonomous_pipeline` (default explicit, confirmation dialog for destructive ops). Roadmap: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
+7. **Streaming-with-Tools Backend-Fix** (P-δ.4): re-enable token streaming when tools are active (currently disabled in `llm_service.py:2541, 2621`). OpenAI/Anthropic support tool-call deltas in stream; Ollama likely not.
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.
