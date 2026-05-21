@@ -39,13 +39,30 @@ Schalter pro Session umschaltbar (Header-Toggle im Chat-Dock).
 
 ## Phasen-Plan
 
-### P-δ.4 — Polish + UX (1 PT)
-Nicht-funktionale Lücken aus δ.3:
-- Streaming **mit aktiven Tools** (siehe [Known Limitations](#known-limitations)).
-- Auto-Show des Chat-Docks nach Pipeline-Abschluss.
-- Tool-Marker als Collapsible-Widget statt Plain-Text.
-- Provider/Model-Combos im Chat-Header (Live-Switch ohne Settings-Dialog).
-- Cancel-Latenz < 1 Iteration (heute: max 1 Loop-Runde).
+### P-δ.4 — Mini-Polish (~0.3 PT, ✅ Reduziert)
+Nur isolierte, kleine Items. Größere Polish-Items in P-δ.5 verschoben
+(Begründung: gemeinsame Renderer-Refactor lohnt sich mit Pipeline-Logger
+zusammen, statt zweimal).
+- **C** Auto-Show des Chat-Docks nach Pipeline-Abschluss.
+- **E** Combo-Persist-Toggle "💾 Default" im Chat-Header (Default off,
+  schreibt bei Wechsel `ChatConfig.default_provider/model` + save).
+
+### P-δ.5 — UnifiedMessageWidget (~3 PT)
+Gemeinsame Rendering-Schicht für `PipelineStreamWidget` + `ChatWidget`
++ zukünftigen Autonomous-Agent-Monologue. Heute teilen die zwei Widgets
+keinen Code; klassische Pipeline rendert null Tool-Calls.
+- Shared Bubble-Primitives → `src/ui/renderers/message_bubble.py`.
+- `UnifiedMessageWidget` Basisklasse mit API: `add_turn`,
+  `add_streaming_token`, `add_status`, `add_tool_call`,
+  `add_tool_result`, `finalize_turn`.
+- Subclasses: `PipelineMessageView`, `ChatMessageView`.
+- Refactor `PipelineStreamWidget` → `PipelineMessageView` Konsument.
+- Refactor `ChatWidget.history` → `ChatMessageView` Konsument.
+- Tool-Signal-Wiring in `PipelineStreamWidget` (heute null).
+- Folgende δ.4-Defer-Items in derselben Phase umsetzen:
+  - **A** OpenAI Streaming-with-Tools (Stream-Pfad einheitlich).
+  - **B** Tool-Log-Drawer als erster `add_tool_call`/`_result`-Konsument.
+  - **D** Cancel-Latency mid-stream (gleicher Stream-Pfad wie A).
 
 ### P-ε — Mutation Tools (1.5 PT)
 Schreibende Operationen + Proposal-Dialog:

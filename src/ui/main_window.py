@@ -882,6 +882,16 @@ class MainWindow(QMainWindow):
                     self.tabs.setCurrentIndex(i)
                     break
 
+        # Auto-show chat dock with pipeline context loaded (P-δ.4 C). Operator
+        # can still close it manually; reset_toggle inside chat decides whether
+        # to wipe transcript on context refresh.
+        try:
+            self.chat_widget.load_context(analysis_state)
+            self.chat_dock.show()
+            self.chat_dock.raise_()
+        except Exception:
+            self.logger.exception("Auto-show chat dock failed")
+
     @pyqtSlot(object)
     def on_intermediate_analysis_ready(self, analysis_result):
         """Update AbstractTab during live pipeline run - Claude Generated"""

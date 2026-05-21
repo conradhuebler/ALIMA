@@ -125,8 +125,8 @@ When documenting implemented features, the AI must apply these rules:
 3. **Batch Enhancement**: Extended image analysis, URL scraping.
 4. **Performance**: Connection pooling, result pagination, memory optimization.
 5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools.
-6. **Chat-Agent Phases P-δ.4 → P-ι**: Polish + Mutation Tools + Pipeline-Orchestration + Input-Beschaffung (DOI/URL/PDF/Image) + Export + Headless/CLI/API. Permission-Layer via `ChatConfig.autonomous_pipeline` (default explicit, confirmation dialog for destructive ops). Roadmap: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
-7. **Streaming-with-Tools Backend-Fix** (P-δ.4): re-enable token streaming when tools are active (currently disabled in `llm_service.py:2541, 2621`). OpenAI/Anthropic support tool-call deltas in stream; Ollama likely not.
+6. **Chat-Agent Phases P-δ.4 → P-ι**: Mini-Polish + UnifiedMessageWidget (shared renderer for chat + pipeline-logger) + Mutation Tools + Pipeline-Orchestration + Input-Beschaffung (DOI/URL/PDF/Image) + Export + Headless/CLI/API. Permission-Layer via `ChatConfig.autonomous_pipeline` (default explicit, confirmation dialog for destructive ops). Roadmap: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
+7. **Streaming-with-Tools Backend-Fix** (P-δ.5): re-enable token streaming when tools are active (currently disabled in `llm_service.py:2541, 2621`). OpenAI/Anthropic support tool-call deltas in stream; Ollama likely not. Bundled with UnifiedMessageWidget refactor.
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.

@@ -176,8 +176,19 @@ class ChatWidget(QWidget):
             "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
         )
         self._populate_model_combo()
-        self.model_combo.currentIndexChanged.connect(self._refresh_model_status)
+        self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
         header_layout.addWidget(self.model_combo)
+
+        # Persist-toggle: when active, combo changes write through to
+        # ChatConfig.default_provider/model + save_config (P-δ.4 E).
+        self.persist_combo_toggle = QCheckBox("💾 Default")
+        self.persist_combo_toggle.setChecked(False)
+        self.persist_combo_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.persist_combo_toggle.setToolTip(
+            "Bei Combo-Wechsel das gewählte Modell als ChatConfig-Default "
+            "speichern. Default off — Combo wirkt sonst nur als Session-Override."
+        )
+        header_layout.addWidget(self.persist_combo_toggle)
 
         # Live indicator for the *resolved* provider/model (Combo may be
         # "Auto" → show what ChatConfig / fallback actually selects).
@@ -315,6 +326,41 @@ class ChatWidget(QWidget):
             self.model_status_label.setText(f"→ {provider} | {model}")
         else:
             self.model_status_label.setText("→ (kein Modell)")
+
+    @pyqtSlot(int)
+    def _on_model_combo_changed(self, _idx: int) -> None:
+        """Combo selection changed — refresh label, persist if toggle on."""
+        self._refresh_model_status()
+        if self.persist_combo_toggle.isChecked():
+            self._persist_combo_to_chat_config()
+
+    def _persist_combo_to_chat_config(self) -> None:
+        """Write current combo selection to ChatConfig.default_provider/model
+        and save config to disk (P-δ.4 E). Silent no-op when combo is on
+        "-- Auto --" (data=None) or persistence layer is unavailable."""
+        data = self.model_combo.currentData()
+        if not data:
+            return
+        try:
+            provider, model = data.split("|", 1)
+        except ValueError:
+            return
+        try:
+            from ..utils.config_manager import ConfigManager
+            cm = ConfigManager()
+            cfg = cm.get_unified_config()
+            chat_cfg = getattr(cfg, "chat_config", None)
+            if chat_cfg is None:
+                return
+            chat_cfg.default_provider = provider
+            chat_cfg.default_model = model
+            full = cm.load_config()
+            cm.save_config(full, preserve_unified=True)
+            self._append_system_message(
+                f"💾 Chat-Default gespeichert: {provider} | {model}"
+            )
+        except Exception:
+            self.logger.exception("ChatWidget: persist default model failed")
 
     # ------------------------------------------------------------------
     # Context loading
