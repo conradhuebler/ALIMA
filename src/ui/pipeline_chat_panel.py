@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import (
+    QKeyEvent,
     QColor,
     QFont,
     QTextBlockFormat,
@@ -50,9 +51,9 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -113,6 +114,26 @@ class SystemPromptDialog(QDialog):
 
     def get_prompt(self) -> str:
         return self.editor.toPlainText().strip()
+
+
+# ----------------------------------------------------------------------
+# ChatInputEdit — multi-line QTextEdit, Enter sends, Shift+Enter newline.
+# ----------------------------------------------------------------------
+
+
+class ChatInputEdit(QTextEdit):
+    """Multi-line chat input. Enter = submit, Shift+Enter = newline."""
+
+    submit = pyqtSignal()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                super().keyPressEvent(event)
+                return
+            self.submit.emit()
+            return
+        super().keyPressEvent(event)
 
 
 # ----------------------------------------------------------------------
@@ -243,56 +264,18 @@ class PipelineChatPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # --- Header row 1 (pipeline-log controls) ---
-        pipeline_header = QHBoxLayout()
-        pipeline_header.setContentsMargins(6, 3, 6, 3)
-        pipeline_header.setSpacing(6)
-        title_label = QLabel("📝 Pipeline + Chat")
-        title_label.setStyleSheet("font-weight: bold; color: #888;")
-        pipeline_header.addWidget(title_label)
-        pipeline_header.addStretch()
-
-        self.auto_scroll_checkbox = QCheckBox("Auto-scroll")
-        self.auto_scroll_checkbox.setChecked(True)
-        self.auto_scroll_checkbox.setStyleSheet("color: #888;")
-        pipeline_header.addWidget(self.auto_scroll_checkbox)
-
-        self.clear_button = QPushButton("🗑️")
-        self.clear_button.setFixedSize(26, 22)
-        self.clear_button.setToolTip("Log leeren")
-        self.clear_button.setStyleSheet(
-            "QPushButton { background: transparent; border: 1px solid #555; "
-            "border-radius: 3px; }"
-            "QPushButton:hover { background: #333; }"
-        )
-        self.clear_button.clicked.connect(self.clear_stream)
-        pipeline_header.addWidget(self.clear_button)
-
-        self.save_log_button = QPushButton("💾")
-        self.save_log_button.setFixedSize(26, 22)
-        self.save_log_button.setToolTip("Log speichern")
-        self.save_log_button.setStyleSheet(
-            "QPushButton { background: transparent; border: 1px solid #555; "
-            "border-radius: 3px; }"
-            "QPushButton:hover { background: #333; }"
-        )
-        self.save_log_button.clicked.connect(self.save_stream_log)
-        pipeline_header.addWidget(self.save_log_button)
-
-        outer.addLayout(pipeline_header)
-
-        # --- Header row 2 (chat controls: model combo, persist toggle, etc.) ---
-        chat_header = QFrame()
-        chat_header.setStyleSheet(
+        # --- Single consolidated header --------------------------------
+        header = QFrame()
+        header.setStyleSheet(
             "QFrame { background-color: #2d2d2d; border-bottom: 1px solid #444; }"
         )
-        chat_header_layout = QHBoxLayout(chat_header)
-        chat_header_layout.setContentsMargins(8, 4, 8, 4)
-        chat_header_layout.setSpacing(8)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(8, 4, 8, 4)
+        header_layout.setSpacing(6)
 
-        chat_title = QLabel("💬 Chat")
-        chat_title.setStyleSheet("color: #e0e0e0; font-weight: bold;")
-        chat_header_layout.addWidget(chat_title)
+        title_label = QLabel("📝 Pipeline + 💬 Chat")
+        title_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
+        header_layout.addWidget(title_label)
 
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(180)
@@ -303,52 +286,97 @@ class PipelineChatPanel(QWidget):
         )
         self._populate_model_combo()
         self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
-        chat_header_layout.addWidget(self.model_combo)
+        header_layout.addWidget(self.model_combo)
 
-        self.persist_combo_toggle = QCheckBox("💾 Default")
+        self.persist_combo_toggle = QCheckBox("💾")
         self.persist_combo_toggle.setChecked(False)
         self.persist_combo_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
         self.persist_combo_toggle.setToolTip(
-            "Bei Combo-Wechsel das gewählte Modell als ChatConfig-Default "
-            "speichern. Default off — Combo wirkt sonst nur als Session-Override."
+            "Bei Combo-Wechsel als ChatConfig-Default speichern."
         )
-        chat_header_layout.addWidget(self.persist_combo_toggle)
+        header_layout.addWidget(self.persist_combo_toggle)
 
         self.model_status_label = QLabel("")
         self.model_status_label.setStyleSheet(
             "color: #8be9fd; font-size: 10px; padding-left: 4px;"
         )
-        chat_header_layout.addWidget(self.model_status_label)
+        header_layout.addWidget(self.model_status_label)
 
-        chat_header_layout.addStretch()
+        header_layout.addStretch()
 
-        self.system_prompt_btn = QPushButton("⚙️ System-Prompt")
-        self.system_prompt_btn.setStyleSheet(
-            "QPushButton { font-size: 10px; padding: 3px 8px; border: 1px solid #555; "
-            "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
-            "QPushButton:hover { background-color: #4d4d4d; }"
+        # Compact icon-style controls.
+        icon_btn_style = (
+            "QPushButton { background: transparent; border: 1px solid #555; "
+            "border-radius: 3px; color: #ccc; font-size: 10px; padding: 2px 6px; }"
+            "QPushButton:hover { background: #3d3d3d; }"
         )
-        self.system_prompt_btn.setToolTip("System-Prompt für den Assistenten bearbeiten")
-        self.system_prompt_btn.clicked.connect(self.show_system_prompt_dialog)
-        chat_header_layout.addWidget(self.system_prompt_btn)
 
-        self.reset_toggle = QCheckBox("🔄 Bei neuer Pipeline zurücksetzen")
+        self.system_prompt_btn = QPushButton("⚙️")
+        self.system_prompt_btn.setFixedSize(26, 22)
+        self.system_prompt_btn.setStyleSheet(icon_btn_style)
+        self.system_prompt_btn.setToolTip("System-Prompt bearbeiten")
+        self.system_prompt_btn.clicked.connect(self.show_system_prompt_dialog)
+        header_layout.addWidget(self.system_prompt_btn)
+
+        self.reset_toggle = QCheckBox("🔄 Reset")
         self.reset_toggle.setChecked(True)
         self.reset_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
         self.reset_toggle.setToolTip(
-            "Wenn aktiviert, wird Chat-Verlauf bei jedem neuen Pipeline-Lauf geleert."
+            "Chat-Verlauf bei jedem neuen Pipeline-Lauf leeren."
         )
-        chat_header_layout.addWidget(self.reset_toggle)
+        header_layout.addWidget(self.reset_toggle)
 
-        outer.addWidget(chat_header)
+        self.auto_scroll_checkbox = QCheckBox("⬇")
+        self.auto_scroll_checkbox.setChecked(True)
+        self.auto_scroll_checkbox.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.auto_scroll_checkbox.setToolTip("Auto-scroll Log")
+        header_layout.addWidget(self.auto_scroll_checkbox)
+
+        self.clear_button = QPushButton("🗑️")
+        self.clear_button.setFixedSize(26, 22)
+        self.clear_button.setStyleSheet(icon_btn_style)
+        self.clear_button.setToolTip("Log leeren")
+        self.clear_button.clicked.connect(self.clear_stream)
+        header_layout.addWidget(self.clear_button)
+
+        self.save_log_button = QPushButton("💾")
+        self.save_log_button.setFixedSize(26, 22)
+        self.save_log_button.setStyleSheet(icon_btn_style)
+        self.save_log_button.setToolTip("Log speichern")
+        self.save_log_button.clicked.connect(self.save_stream_log)
+        header_layout.addWidget(self.save_log_button)
+
+        self.cancel_btn = QPushButton("⏹ Abbrechen")
+        self.cancel_btn.setStyleSheet(get_button_styles().get("danger", ""))
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.setToolTip("Aktuelle Generierung abbrechen")
+        self.cancel_btn.clicked.connect(self.cancel_generation)
+        header_layout.addWidget(self.cancel_btn)
+
+        outer.addWidget(header)
+
+        # --- Vertical splitter between log + input (user-draggable) ----
+        self.body_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.body_splitter.setChildrenCollapsible(False)
+        self.body_splitter.setHandleWidth(4)
+        self.body_splitter.setStyleSheet(
+            "QSplitter::handle { background-color: #2d2d2d; }"
+            "QSplitter::handle:hover { background-color: #555; }"
+        )
+
+        # Top half = log area container (stream_text + warning + typing).
+        log_container = QWidget()
+        log_layout = QVBoxLayout(log_container)
+        log_layout.setContentsMargins(0, 0, 0, 0)
+        log_layout.setSpacing(0)
 
         # --- Main log area (shared QTextEdit) ---
         self.stream_text = QTextEdit()
         self.stream_text.setReadOnly(True)
-        self.stream_text.setMinimumHeight(200)
+        self.stream_text.setMinimumHeight(80)
         self.stream_text.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Expanding,
         )
         font = get_scaled_font(monospace=True)
         font.setStyleHint(QFont.StyleHint.Monospace)
@@ -378,10 +406,10 @@ class PipelineChatPanel(QWidget):
             }
             """
         )
-        outer.addWidget(self.stream_text)
+        log_layout.addWidget(self.stream_text)
 
         # --- Repetition-warning panel (pipeline-only feature) ---
-        self.create_repetition_warning_panel(outer)
+        self.create_repetition_warning_panel(log_layout)
 
         # --- Typing indicator (chat-only) ---
         self.typing_label = QLabel("")
@@ -391,47 +419,67 @@ class PipelineChatPanel(QWidget):
             "border-top: 1px solid #2a2a2a;"
         )
         self.typing_label.setVisible(False)
-        outer.addWidget(self.typing_label)
+        log_layout.addWidget(self.typing_label)
         self._typing_timer = QTimer(self)
         self._typing_timer.setInterval(400)
         self._typing_timer.timeout.connect(self._tick_typing)
 
-        # --- Chat input frame ---
+        self.body_splitter.addWidget(log_container)
+
+        # --- Chat input frame (expandable QTextEdit) -------------------
         input_frame = QFrame()
         input_frame.setStyleSheet(
             "QFrame { background-color: #2d2d2d; border-top: 1px solid #444; }"
         )
         input_layout = QHBoxLayout(input_frame)
-        input_layout.setContentsMargins(8, 6, 8, 6)
+        input_layout.setContentsMargins(6, 4, 6, 4)
         input_layout.setSpacing(6)
 
-        self.input_field = QLineEdit()
+        self.input_field = ChatInputEdit()
         self.input_field.setPlaceholderText(
-            "Frage zu den Pipeline-Ergebnissen stellen..."
+            "Frage stellen — Enter = senden, Shift+Enter = neue Zeile"
         )
         self.input_field.setStyleSheet(
-            "QLineEdit { background-color: #3d3d3d; color: #e0e0e0; "
-            "border: 1px solid #555; border-radius: 4px; padding: 6px 10px; "
+            "QTextEdit { background-color: #3d3d3d; color: #e0e0e0; "
+            "border: 1px solid #555; border-radius: 4px; padding: 4px 8px; "
             "font-size: 11pt; }"
-            "QLineEdit:focus { border: 1px solid #8be9fd; }"
+            "QTextEdit:focus { border: 1px solid #8be9fd; }"
         )
         self.input_field.setFont(get_scaled_font(size_delta=0))
-        self.input_field.returnPressed.connect(self.send_message)
+        fm = self.input_field.fontMetrics()
+        line_h = fm.lineSpacing()
+        self.input_field.setMinimumHeight(line_h * 3 + 14)
+        self.input_field.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        self.input_field.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.input_field.submit.connect(self.send_message)
         input_layout.addWidget(self.input_field, stretch=1)
 
         self.send_btn = QPushButton("Senden")
         self.send_btn.setStyleSheet(get_button_styles().get("primary", ""))
         self.send_btn.setDefault(True)
+        self.send_btn.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Fixed,
+        )
         self.send_btn.clicked.connect(self.send_message)
-        input_layout.addWidget(self.send_btn)
+        input_layout.addWidget(
+            self.send_btn,
+            alignment=Qt.AlignmentFlag.AlignBottom,
+        )
 
-        self.cancel_btn = QPushButton("Abbrechen")
-        self.cancel_btn.setStyleSheet(get_button_styles().get("danger", ""))
-        self.cancel_btn.setVisible(False)
-        self.cancel_btn.clicked.connect(self.cancel_generation)
-        input_layout.addWidget(self.cancel_btn)
+        self.body_splitter.addWidget(input_frame)
 
-        outer.addWidget(input_frame)
+        # Default ratio: log gets ~80%, input ~20% — both grow with window.
+        self.body_splitter.setStretchFactor(0, 8)
+        self.body_splitter.setStretchFactor(1, 2)
+        self.body_splitter.setSizes([800, 200])
+
+        outer.addWidget(self.body_splitter, stretch=1)
 
         # Initial model-status paint.
         self._refresh_model_status()
@@ -1322,7 +1370,7 @@ class PipelineChatPanel(QWidget):
     # -- Send / cancel / worker callbacks --------------------------------
 
     def send_message(self):
-        text = self.input_field.text().strip()
+        text = self.input_field.toPlainText().strip()
         if not text:
             return
         if self.current_worker and self.current_worker.isRunning():
