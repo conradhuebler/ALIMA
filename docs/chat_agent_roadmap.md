@@ -47,22 +47,23 @@ zusammen, statt zweimal).
 - **E** Combo-Persist-Toggle "💾 Default" im Chat-Header (Default off,
   schreibt bei Wechsel `ChatConfig.default_provider/model` + save).
 
-### P-δ.5 — UnifiedMessageWidget (~3 PT)
-Gemeinsame Rendering-Schicht für `PipelineStreamWidget` + `ChatWidget`
-+ zukünftigen Autonomous-Agent-Monologue. Heute teilen die zwei Widgets
-keinen Code; klassische Pipeline rendert null Tool-Calls.
-- Shared Bubble-Primitives → `src/ui/renderers/message_bubble.py`.
-- `UnifiedMessageWidget` Basisklasse mit API: `add_turn`,
-  `add_streaming_token`, `add_status`, `add_tool_call`,
-  `add_tool_result`, `finalize_turn`.
-- Subclasses: `PipelineMessageView`, `ChatMessageView`.
-- Refactor `PipelineStreamWidget` → `PipelineMessageView` Konsument.
-- Refactor `ChatWidget.history` → `ChatMessageView` Konsument.
-- Tool-Signal-Wiring in `PipelineStreamWidget` (heute null).
-- Folgende δ.4-Defer-Items in derselben Phase umsetzen:
-  - **A** OpenAI Streaming-with-Tools (Stream-Pfad einheitlich).
-  - **B** Tool-Log-Drawer als erster `add_tool_call`/`_result`-Konsument.
-  - **D** Cancel-Latency mid-stream (gleicher Stream-Pfad wie A).
+### P-δ.5a — PipelineChatPanel (✅ done, 2026-05-22)
+`chat_dock` entfernt. `PipelineStreamWidget` + `ChatWidget` zu einem
+einzigen `PipelineChatPanel` vereint (inline im PipelineTab-Right-Splitter).
+- `src/ui/pipeline_chat_panel.py` (~1000 LOC) — portiert Bubble-Rendering,
+  Chat-Input, Typing-Indicator, Combo-Persist, ChatSession + ChatAgentWorker.
+- `src/ui/chat_widget.py` gelöscht (SystemPromptDialog migriert).
+- AlimaStateBus-Plumbing: `LLMAgentStep._invoke_loop` schreibt
+  `tool.called`/`tool.result`; Panel abonniert → erstmals sichtbare
+  Tool-Marker für agentische Pipelines.
+- 12 neue Tests grün (235 passed, 1 skipped gesamt).
+
+### P-δ.5b — Streaming + Cancel (~1 PT)
+Streaming-with-Tools aktivieren und Cancel-Latenz verringern.
+- OpenAI/Anthropic: Tool-Call-Deltas im Stream akkumulieren
+  (`llm_service.py:2591-2691` Refactor).
+- `should_stop` durch LlmService durchleiten → Cancel mid-stream.
+- Ollama: API-Limit, vermutlich nicht möglich (dokumentieren).
 
 ### P-ε — Mutation Tools (1.5 PT)
 Schreibende Operationen + Proposal-Dialog:

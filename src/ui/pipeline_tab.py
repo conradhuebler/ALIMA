@@ -43,7 +43,7 @@ from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..llm.llm_service import LlmService
 from .image_analysis_tab import ImageAnalysisTab
 from .unified_input_widget import UnifiedInputWidget
-from .pipeline_stream_widget import PipelineStreamWidget
+from .pipeline_chat_panel import PipelineChatPanel
 from .workers import PipelineWorker
 
 
@@ -465,8 +465,15 @@ class PipelineTab(QWidget):
         self.create_pipeline_step_tabs()
         self.main_splitter.addWidget(self.pipeline_tabs)
 
-        # Right side: Live streaming widget (agentic context moved to floating QDockWidget) - Claude Generated
-        self.stream_widget = PipelineStreamWidget()
+        # Right side: Unified PipelineChatPanel (P-δ.5a) — pipeline log on
+        # top, chat input on the bottom, both rendered into the same area.
+        self.stream_widget = PipelineChatPanel(
+            llm_service=self.llm_service,
+            prompt_service=getattr(self.alima_manager, "prompt_service", None),
+            pipeline_manager=self.pipeline_manager,
+            mcp_registry=getattr(self, "mcp_registry", None),
+            parent=self,
+        )
 
         # Connect streaming widget signals
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)

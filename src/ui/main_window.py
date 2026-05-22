@@ -71,7 +71,8 @@ from .global_status_bar import GlobalStatusBar
 from .pipeline_tab import PipelineTab
 from .comparison_tab import ComparisonTab
 from .agentic_context_widget import AgenticContextWidget
-from .chat_widget import ChatWidget
+# P-δ.5a: ChatWidget retired — chat lives inside PipelineChatPanel which is
+# embedded in the PipelineTab right-side panel. Imports removed.
 # dk_classification_tab and dk_analysis_tab replaced by dk_analysis_unified_tab
 import logging
 
@@ -447,28 +448,10 @@ class MainWindow(QMainWindow):
         self.agentic_dock.hide()
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.agentic_dock)
 
-        # Chat dock — for discussing agentic pipeline results - Claude Generated
-        self.chat_widget = ChatWidget(
-            llm_service=self.llm_service,
-            prompt_service=self.alima_manager.prompt_service,
-            pipeline_manager=self.pipeline_manager,
-            parent=self,
-        )
-        self.chat_dock = QDockWidget("💬 Chat", self)
-        self.chat_dock.setWidget(self.chat_widget)
-        self.chat_dock.setAllowedAreas(
-            Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.BottomDockWidgetArea
-        )
-        self.chat_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-            | QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        self.chat_dock.hide()
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
-        # Tabify with agentic dock when both visible
-        self.tabifyDockWidget(self.agentic_dock, self.chat_dock)
+        # P-δ.5a: chat_dock retired — chat input + history live inside
+        # PipelineChatPanel which is embedded in PipelineTab's right
+        # splitter. Auto-load of analysis_state happens via
+        # pipeline_tab.stream_widget.load_context (PipelineChatPanel API).
 
         # Menüleiste
         self.create_menu_bar()
@@ -569,8 +552,12 @@ class MainWindow(QMainWindow):
         # Central distribution via on_pipeline_results_ready slot
         self.pipeline_tab.pipeline_results_ready.connect(self.on_pipeline_results_ready)
 
-        # Chat dock receives pipeline results for context - Claude Generated
-        self.pipeline_tab.pipeline_results_ready.connect(self.chat_widget.load_context)
+        # P-δ.5a: PipelineChatPanel (inside PipelineTab) receives the
+        # pipeline analysis state for chat-context loading. No floating
+        # chat_dock anymore — load_context lives on the panel itself.
+        self.pipeline_tab.pipeline_results_ready.connect(
+            self.pipeline_tab.stream_widget.load_context
+        )
 
         # Intermediate step distribution for better live feedback - Claude Generated
         self.pipeline_tab.analysis_results_ready.connect(self.on_intermediate_analysis_ready)
@@ -882,15 +869,10 @@ class MainWindow(QMainWindow):
                     self.tabs.setCurrentIndex(i)
                     break
 
-        # Auto-show chat dock with pipeline context loaded (P-δ.4 C). Operator
-        # can still close it manually; reset_toggle inside chat decides whether
-        # to wipe transcript on context refresh.
-        try:
-            self.chat_widget.load_context(analysis_state)
-            self.chat_dock.show()
-            self.chat_dock.raise_()
-        except Exception:
-            self.logger.exception("Auto-show chat dock failed")
+        # P-δ.5a: chat_dock retired. PipelineChatPanel is always visible
+        # in PipelineTab — load_context is wired via pipeline_results_ready
+        # signal above (and also called from on_pipeline_completed inside
+        # the panel itself).
 
     @pyqtSlot(object)
     def on_intermediate_analysis_ready(self, analysis_result):
@@ -2391,10 +2373,8 @@ class MainWindow(QMainWindow):
         # ========== Ansicht-Menü ==========
         view_menu = menubar.addMenu("&Ansicht")
 
-        # Chat-Dock anzeigen - Claude Generated
-        show_chat_action = view_menu.addAction("💬 &Chat")
-        show_chat_action.triggered.connect(self.chat_dock.show)
-        show_chat_action.setShortcut("Ctrl+Shift+C")
+        # P-δ.5a: chat_dock retired. Chat input lives inside PipelineChatPanel
+        # in the Pipeline tab — no separate menu action needed.
 
         # Agentic-Kontext-Dock anzeigen - Claude Generated
         show_agentic_action = view_menu.addAction("🤖 Agentic &Kontext")

@@ -1,0 +1,1655 @@
+"""PipelineChatPanel — unified pipeline log + chat dock (WP10 P-δ.5a).
+
+Claude Generated.
+
+Replaces the previously separate ``PipelineStreamWidget`` (right-side
+panel in ``PipelineTab``) and the floating ``ChatWidget`` (``chat_dock``).
+Single widget hosting a shared log area that renders:
+
+- Pipeline step events (▶/✅/❌, durations, GND-verification stats, DK
+  catalog results, repetition warnings).
+- LLM streaming tokens (purple) for pipeline LLM calls.
+- User chat turns (WhatsApp-style right-aligned green bubble).
+- Assistant chat turns (left-aligned grey bubble, streaming-capable
+  cell-cursor).
+- Tool-call markers — from both the chat-agent (direct signal) and the
+  agentic-pipeline ``AgentLoop`` (via ``AlimaStateBus`` events).
+- Status messages from the AgentLoop status channel.
+
+The chat input lives at the bottom of the same panel. Operator can chat
+about pipeline state in-place; future P-ζ lets the agent itself drive
+the pipeline and "talk to itself" in the same log.
+
+Public API preserved from ``PipelineStreamWidget`` so existing callers
+in ``pipeline_tab.py`` / ``pipeline_manager.py`` need no signature
+changes.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime
+from html import escape as html_escape
+from typing import Any, Dict, List, Optional
+
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import (
+    QColor,
+    QFont,
+    QTextBlockFormat,
+    QTextCursor,
+    QTextLength,
+    QTextTableCellFormat,
+    QTextTableFormat,
+)
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from ..core.pipeline_manager import PipelineStep
+from ..core.state_bus import AlimaStateBus
+from .chat_agent_worker import ChatAgentWorker
+from .chat_session import ChatSession
+from .chat_tools import build_chat_toolset
+from .styles import (
+    LAYOUT,
+    get_button_styles,
+    get_main_stylesheet,
+    get_scaled_font,
+)
+
+
+# ----------------------------------------------------------------------
+# System-Prompt edit dialog (was previously in chat_widget.py).
+# ----------------------------------------------------------------------
+
+
+class SystemPromptDialog(QDialog):
+    """Small dialog for editing the assistant system prompt."""
+
+    def __init__(self, current_prompt: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("⚙️ System-Prompt bearbeiten")
+        self.setMinimumSize(500, 300)
+        self.setStyleSheet(get_main_stylesheet())
+
+        layout = QVBoxLayout(self)
+        m = LAYOUT.get("margin", 12)
+        layout.setContentsMargins(m, m, m, m)
+        layout.setSpacing(LAYOUT.get("spacing", 8))
+
+        info = QLabel(
+            "Dieser Prompt definiert die Rolle des Assistenten. "
+            "Änderungen wirken sich sofort auf die nächste Nachricht aus."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addWidget(info)
+
+        self.editor = QTextEdit()
+        self.editor.setPlainText(current_prompt)
+        self.editor.setFont(get_scaled_font(size_delta=-1, monospace=False))
+        layout.addWidget(self.editor)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_prompt(self) -> str:
+        return self.editor.toPlainText().strip()
+
+
+# ----------------------------------------------------------------------
+# PipelineChatPanel
+# ----------------------------------------------------------------------
+
+
+class PipelineChatPanel(QWidget):
+    """Unified pipeline-log + chat panel (WP10 P-δ.5a)."""
+
+    # -- Pipeline signals (preserved from PipelineStreamWidget) ---------
+    cancel_pipeline = pyqtSignal()
+    pause_pipeline = pyqtSignal()
+    retry_with_variations = pyqtSignal(dict)
+    abort_generation_requested = pyqtSignal()
+
+    # -- Chat signal ----------------------------------------------------
+    message_sent = pyqtSignal(str)
+
+    # ------------------------------------------------------------------
+    # Default prompts (chat-agent).
+    # ------------------------------------------------------------------
+
+    DEFAULT_SYSTEM_PROMPT = (
+        "Du bist Experte für Bibliothekswissenschaft und Sacherschließung "
+        "(RSWK, GND, DDC/DK) und arbeitest als Assistent in der ALIMA-Pipeline. "
+        "Antworte präzise, fachlich korrekt, auf Deutsch.\n\n"
+        "WICHTIG — Tool-Use-Regeln (zwingend):\n"
+        "- Du hast Tools für ALLE Pipeline-Daten: Keywords, Keyword-Ketten,\n"
+        "  DK-Klassifikationen, GND-Einträge, fehlende Konzepte.\n"
+        "- Rufe IMMER zuerst `list_available_data` auf, um zu sehen welche\n"
+        "  Daten vorliegen — außer der Nutzer stellt nur eine Begrüßung\n"
+        "  oder eine allgemeine Frage ohne Bezug zum konkreten Werk.\n"
+        "- Nenne KEINE GND-ID, KEINEN DK-Code, KEINE Keyword-Anzahl,\n"
+        "  KEINE Schlagwortkette aus dem Gedächtnis. Hole sie mit dem\n"
+        "  passenden Tool (`get_keywords`, `get_keyword_chains`,\n"
+        "  `get_dk_classifications`, `validate_gnd_term`).\n"
+        "- Wenn ein Tool 0 Treffer zurückgibt, sage das ehrlich. Erfinde\n"
+        "  keine Begriffe als 'GND-Vorschläge'. Markiere eigene Vorschläge\n"
+        "  explizit als unverifiziert.\n"
+        "- Halluzinationen kosten Vertrauen. Lieber kurz und korrekt als\n"
+        "  ausführlich und erfunden."
+    )
+
+    USER_PROMPT_TEMPLATE = (
+        "Aktuelles Werk: {context}\n\n"
+        "Die vollständigen Pipeline-Daten (Keywords, GND-Einträge, "
+        "DK-Codes, Schlagwortketten, fehlende Konzepte) hole dir bei "
+        "Bedarf via Tool-Calls. Beginne ggf. mit `list_available_data`.\n\n"
+        "Nutzer-Frage: {user_message}"
+    )
+
+    # Status-message prefixes whose info is already rendered by the
+    # tool-call/tool-result hook handlers — skip duplicates.
+    _STATUS_SKIP_PREFIXES = ("🔧", "✓", "💭")
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
+    def __init__(
+        self,
+        llm_service=None,
+        prompt_service=None,
+        pipeline_manager=None,
+        mcp_registry=None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.logger = logging.getLogger(__name__)
+
+        # Chat-side dependencies
+        self.llm_service = llm_service
+        self.prompt_service = prompt_service
+        self.pipeline_manager = pipeline_manager
+        self.mcp_registry = mcp_registry
+
+        # Pipeline-side state
+        self.current_step_id: Optional[str] = None
+        self.is_streaming: bool = False
+        self.step_start_times: Dict[str, datetime] = {}
+        self.current_working_title: Optional[str] = None
+        self.current_suggestions: List[Dict] = []
+        self._last_scroll_time: float = 0.0
+
+        # Chat-side state
+        self.system_prompt: str = self.DEFAULT_SYSTEM_PROMPT
+        self.session: ChatSession = ChatSession()
+        self.current_worker: Optional[ChatAgentWorker] = None
+        self.current_context: str = ""
+        self.working_title: str = ""
+        self._assistant_block_open: bool = False
+        self._assistant_cell_cursor: Optional[QTextCursor] = None
+        self._current_render_model: str = ""
+        self._typing_dots: int = 0
+        self._typing_model: str = ""
+
+        self.setup_ui()
+
+        # Auto-scroll throttle uses self._last_scroll_time.
+
+        # Size policy: vertical Ignored to prevent sizeHint propagation
+        # to window (multi-monitor safety, inherited from PipelineStreamWidget).
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Ignored,
+        )
+
+        # AlimaStateBus subscriptions:
+        # - state.changed → refresh SharedContext snapshot for chat tools.
+        # - tool.called / tool.result → render markers for agentic pipeline
+        #   (chat-agent uses direct signals, not the bus).
+        try:
+            bus = AlimaStateBus()
+            bus.subscribe("state.changed", self._on_state_changed)
+            bus.subscribe("tool.called", self._on_bus_tool_called)
+            bus.subscribe("tool.result", self._on_bus_tool_result)
+        except Exception:
+            self.logger.exception("PipelineChatPanel: AlimaStateBus subscribe failed")
+
+    # ------------------------------------------------------------------
+    # UI assembly
+    # ------------------------------------------------------------------
+
+    def setup_ui(self):
+        self.setStyleSheet(get_main_stylesheet())
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # --- Header row 1 (pipeline-log controls) ---
+        pipeline_header = QHBoxLayout()
+        pipeline_header.setContentsMargins(6, 3, 6, 3)
+        pipeline_header.setSpacing(6)
+        title_label = QLabel("📝 Pipeline + Chat")
+        title_label.setStyleSheet("font-weight: bold; color: #888;")
+        pipeline_header.addWidget(title_label)
+        pipeline_header.addStretch()
+
+        self.auto_scroll_checkbox = QCheckBox("Auto-scroll")
+        self.auto_scroll_checkbox.setChecked(True)
+        self.auto_scroll_checkbox.setStyleSheet("color: #888;")
+        pipeline_header.addWidget(self.auto_scroll_checkbox)
+
+        self.clear_button = QPushButton("🗑️")
+        self.clear_button.setFixedSize(26, 22)
+        self.clear_button.setToolTip("Log leeren")
+        self.clear_button.setStyleSheet(
+            "QPushButton { background: transparent; border: 1px solid #555; "
+            "border-radius: 3px; }"
+            "QPushButton:hover { background: #333; }"
+        )
+        self.clear_button.clicked.connect(self.clear_stream)
+        pipeline_header.addWidget(self.clear_button)
+
+        self.save_log_button = QPushButton("💾")
+        self.save_log_button.setFixedSize(26, 22)
+        self.save_log_button.setToolTip("Log speichern")
+        self.save_log_button.setStyleSheet(
+            "QPushButton { background: transparent; border: 1px solid #555; "
+            "border-radius: 3px; }"
+            "QPushButton:hover { background: #333; }"
+        )
+        self.save_log_button.clicked.connect(self.save_stream_log)
+        pipeline_header.addWidget(self.save_log_button)
+
+        outer.addLayout(pipeline_header)
+
+        # --- Header row 2 (chat controls: model combo, persist toggle, etc.) ---
+        chat_header = QFrame()
+        chat_header.setStyleSheet(
+            "QFrame { background-color: #2d2d2d; border-bottom: 1px solid #444; }"
+        )
+        chat_header_layout = QHBoxLayout(chat_header)
+        chat_header_layout.setContentsMargins(8, 4, 8, 4)
+        chat_header_layout.setSpacing(8)
+
+        chat_title = QLabel("💬 Chat")
+        chat_title.setStyleSheet("color: #e0e0e0; font-weight: bold;")
+        chat_header_layout.addWidget(chat_title)
+
+        self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(180)
+        self.model_combo.setMaximumWidth(280)
+        self.model_combo.setStyleSheet(
+            "QComboBox { font-size: 10px; padding: 2px 6px; border: 1px solid #555; "
+            "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
+        )
+        self._populate_model_combo()
+        self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
+        chat_header_layout.addWidget(self.model_combo)
+
+        self.persist_combo_toggle = QCheckBox("💾 Default")
+        self.persist_combo_toggle.setChecked(False)
+        self.persist_combo_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.persist_combo_toggle.setToolTip(
+            "Bei Combo-Wechsel das gewählte Modell als ChatConfig-Default "
+            "speichern. Default off — Combo wirkt sonst nur als Session-Override."
+        )
+        chat_header_layout.addWidget(self.persist_combo_toggle)
+
+        self.model_status_label = QLabel("")
+        self.model_status_label.setStyleSheet(
+            "color: #8be9fd; font-size: 10px; padding-left: 4px;"
+        )
+        chat_header_layout.addWidget(self.model_status_label)
+
+        chat_header_layout.addStretch()
+
+        self.system_prompt_btn = QPushButton("⚙️ System-Prompt")
+        self.system_prompt_btn.setStyleSheet(
+            "QPushButton { font-size: 10px; padding: 3px 8px; border: 1px solid #555; "
+            "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
+            "QPushButton:hover { background-color: #4d4d4d; }"
+        )
+        self.system_prompt_btn.setToolTip("System-Prompt für den Assistenten bearbeiten")
+        self.system_prompt_btn.clicked.connect(self.show_system_prompt_dialog)
+        chat_header_layout.addWidget(self.system_prompt_btn)
+
+        self.reset_toggle = QCheckBox("🔄 Bei neuer Pipeline zurücksetzen")
+        self.reset_toggle.setChecked(True)
+        self.reset_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.reset_toggle.setToolTip(
+            "Wenn aktiviert, wird Chat-Verlauf bei jedem neuen Pipeline-Lauf geleert."
+        )
+        chat_header_layout.addWidget(self.reset_toggle)
+
+        outer.addWidget(chat_header)
+
+        # --- Main log area (shared QTextEdit) ---
+        self.stream_text = QTextEdit()
+        self.stream_text.setReadOnly(True)
+        self.stream_text.setMinimumHeight(200)
+        self.stream_text.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Ignored,
+        )
+        font = get_scaled_font(monospace=True)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        self.stream_text.setFont(font)
+        self.stream_text.setStyleSheet(
+            """
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #f8f8f2;
+                border: none;
+                border-top: 1px solid #333;
+                padding: 8px;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
+            QScrollBar:vertical {
+                background: #2d2d2d;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: #555;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #777;
+            }
+            """
+        )
+        outer.addWidget(self.stream_text)
+
+        # --- Repetition-warning panel (pipeline-only feature) ---
+        self.create_repetition_warning_panel(outer)
+
+        # --- Typing indicator (chat-only) ---
+        self.typing_label = QLabel("")
+        self.typing_label.setStyleSheet(
+            "color: #8be9fd; font-size: 9pt; font-style: italic; "
+            "padding: 2px 12px; background-color: #1e1e1e; "
+            "border-top: 1px solid #2a2a2a;"
+        )
+        self.typing_label.setVisible(False)
+        outer.addWidget(self.typing_label)
+        self._typing_timer = QTimer(self)
+        self._typing_timer.setInterval(400)
+        self._typing_timer.timeout.connect(self._tick_typing)
+
+        # --- Chat input frame ---
+        input_frame = QFrame()
+        input_frame.setStyleSheet(
+            "QFrame { background-color: #2d2d2d; border-top: 1px solid #444; }"
+        )
+        input_layout = QHBoxLayout(input_frame)
+        input_layout.setContentsMargins(8, 6, 8, 6)
+        input_layout.setSpacing(6)
+
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText(
+            "Frage zu den Pipeline-Ergebnissen stellen..."
+        )
+        self.input_field.setStyleSheet(
+            "QLineEdit { background-color: #3d3d3d; color: #e0e0e0; "
+            "border: 1px solid #555; border-radius: 4px; padding: 6px 10px; "
+            "font-size: 11pt; }"
+            "QLineEdit:focus { border: 1px solid #8be9fd; }"
+        )
+        self.input_field.setFont(get_scaled_font(size_delta=0))
+        self.input_field.returnPressed.connect(self.send_message)
+        input_layout.addWidget(self.input_field, stretch=1)
+
+        self.send_btn = QPushButton("Senden")
+        self.send_btn.setStyleSheet(get_button_styles().get("primary", ""))
+        self.send_btn.setDefault(True)
+        self.send_btn.clicked.connect(self.send_message)
+        input_layout.addWidget(self.send_btn)
+
+        self.cancel_btn = QPushButton("Abbrechen")
+        self.cancel_btn.setStyleSheet(get_button_styles().get("danger", ""))
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.clicked.connect(self.cancel_generation)
+        input_layout.addWidget(self.cancel_btn)
+
+        outer.addWidget(input_frame)
+
+        # Initial model-status paint.
+        self._refresh_model_status()
+
+    # ==================================================================
+    # Repetition-warning panel (verbatim port from PipelineStreamWidget)
+    # ==================================================================
+
+    _STYLE_WARNING_GREEN = """
+        QFrame {
+            background-color: #1b3a1f;
+            border: 1px solid #4caf50;
+            border-radius: 3px;
+            padding: 1px;
+        }
+        QLabel { color: #a5d6a7; }
+        QPushButton {
+            background-color: #2e7d32;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-weight: bold;
+        }
+        QPushButton:hover { background-color: #43a047; }
+    """
+
+    _STYLE_WARNING_ORANGE = """
+        QFrame {
+            background-color: #3d2a00;
+            border: 1px solid #ff9800;
+            border-radius: 3px;
+            padding: 1px;
+        }
+        QLabel { color: #ffcc80; }
+        QPushButton {
+            background-color: #ff9800;
+            color: #1e1e1e;
+            border: none;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-weight: bold;
+        }
+        QPushButton:hover { background-color: #ffb74d; }
+    """
+
+    _STYLE_WARNING_HIDDEN = """
+        QFrame { background: transparent; border: none; padding: 0; }
+        QLabel { color: transparent; }
+        QPushButton { background: transparent; border: none; color: transparent; }
+    """
+
+    def create_repetition_warning_panel(self, layout):
+        self.repetition_warning_frame = QFrame()
+        self.repetition_warning_frame.setFixedHeight(28)
+        self._warning_style_state = "hidden"
+        self._last_shown_detection_type = ""
+        self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
+
+        bar = QHBoxLayout(self.repetition_warning_frame)
+        bar.setContentsMargins(6, 1, 4, 1)
+        bar.setSpacing(6)
+
+        self.warning_icon_label = QLabel("⚠️")
+        bar.addWidget(self.warning_icon_label)
+
+        self.warning_title_label = QLabel("Wiederholung erkannt")
+        self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
+        bar.addWidget(self.warning_title_label)
+
+        self.warning_details_label = QLabel("")
+        self.warning_details_label.setWordWrap(False)
+        self.warning_details_label.setStyleSheet("color: #ffe0b2;")
+        bar.addWidget(self.warning_details_label, 1)
+
+        self.countdown_label = QLabel("")
+        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold;")
+        self.countdown_label.setVisible(False)
+        bar.addWidget(self.countdown_label)
+
+        self.suggestions_button_layout = QHBoxLayout()
+        self.suggestions_button_layout.setSpacing(3)
+        bar.addLayout(self.suggestions_button_layout)
+
+        self.abort_now_button = QPushButton("🛑 Abbrechen")
+        self.abort_now_button.setStyleSheet(
+            "background-color: #d32f2f; color: white; font-weight: bold;"
+            " border-radius: 3px; padding: 1px 5px;"
+        )
+        self.abort_now_button.clicked.connect(self._on_abort_requested)
+        bar.addWidget(self.abort_now_button)
+
+        self.continue_button = QPushButton("Fortfahren")
+        self.continue_button.setStyleSheet(
+            "background-color: #555; color: #ccc; padding: 1px 5px;"
+        )
+        self.continue_button.clicked.connect(self.hide_repetition_warning)
+        bar.addWidget(self.continue_button)
+
+        self.dismiss_warning_button = QPushButton("✕")
+        self.dismiss_warning_button.setFixedSize(18, 18)
+        self.dismiss_warning_button.setStyleSheet(
+            "background-color: transparent; color: #ff9800; padding: 0;"
+        )
+        self.dismiss_warning_button.clicked.connect(self.hide_repetition_warning)
+        bar.addWidget(self.dismiss_warning_button)
+
+        self.grace_timer = QTimer(self)
+        self.grace_timer.timeout.connect(self._update_countdown)
+        self.grace_period_end = 0.0
+
+        layout.addWidget(self.repetition_warning_frame)
+
+    def show_repetition_warning(
+        self,
+        detection_type: str,
+        details: str,
+        suggestions: List[Dict],
+        grace_period: bool = False,
+        grace_seconds: float = 2.0,
+    ):
+        self.current_suggestions = suggestions
+        already_showing = (
+            self._warning_style_state == "orange"
+            and self._last_shown_detection_type == detection_type
+        )
+        if self._warning_style_state != "orange":
+            self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_ORANGE)
+            self._warning_style_state = "orange"
+        self._last_shown_detection_type = detection_type
+
+        if not already_showing:
+            self.warning_icon_label.setText("⚠️")
+            self.warning_title_label.setStyleSheet(
+                "font-weight: bold; color: #ff9800;"
+            )
+            self.continue_button.setStyleSheet(
+                "background-color: #555; color: #ccc; padding: 1px 5px;"
+            )
+
+            type_labels = {
+                "char_pattern": "Zeichenwiederholung erkannt",
+                "ngram": "Phrasenwiederholung erkannt",
+                "window_similarity": "Textblock-Wiederholung erkannt",
+            }
+            self.warning_title_label.setText(
+                type_labels.get(detection_type, "Wiederholung erkannt")
+            )
+
+            while self.suggestions_button_layout.count():
+                item = self.suggestions_button_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+            for i, suggestion in enumerate(suggestions[:3]):
+                button = QPushButton(suggestion.get("label", f"Option {i+1}"))
+                button.setToolTip(suggestion.get("description", ""))
+                button.setStyleSheet("padding: 1px 4px;")
+                params = suggestion.get("params", {})
+
+                def make_handler(p):
+                    return lambda: self._on_suggestion_clicked(p)
+
+                button.clicked.connect(make_handler(params))
+                self.suggestions_button_layout.addWidget(button)
+
+        self.warning_details_label.setText(details)
+
+        if grace_period and not already_showing:
+            self.grace_period_end = time.time() + grace_seconds
+            self.grace_timer.stop()
+            self.grace_timer.start(200)
+            self.countdown_label.setText(f"⏳ {grace_seconds:.1f}s")
+        elif not grace_period:
+            self.countdown_label.setText("")
+            self.grace_timer.stop()
+
+    def _update_countdown(self):
+        remaining = self.grace_period_end - time.time()
+        if remaining > 0:
+            self.countdown_label.setText(f"⏳ {remaining:.1f}s")
+        else:
+            self.countdown_label.setText("⏳ …")
+            self.grace_timer.stop()
+
+    def hide_repetition_warning(self, resolved: bool = False):
+        self.grace_timer.stop()
+        self.countdown_label.setText("")
+        self._last_shown_detection_type = ""
+
+        if resolved:
+            if self._warning_style_state != "green":
+                self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_GREEN)
+                self._warning_style_state = "green"
+            self.warning_icon_label.setText("✅")
+            self.warning_title_label.setText(
+                "Wiederholung behoben – Generation läuft weiter"
+            )
+            self.warning_title_label.setStyleSheet(
+                "font-weight: bold; color: #4caf50;"
+            )
+            self.warning_details_label.setText("")
+            while self.suggestions_button_layout.count():
+                item = self.suggestions_button_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            self.continue_button.setStyleSheet(
+                "background: transparent; border: none; color: transparent;"
+            )
+        else:
+            if self._warning_style_state != "hidden":
+                self.repetition_warning_frame.setStyleSheet(self._STYLE_WARNING_HIDDEN)
+                self._warning_style_state = "hidden"
+            self.warning_icon_label.setText("")
+            self.warning_title_label.setText("")
+            self.warning_details_label.setText("")
+            self.countdown_label.setText("")
+            self.continue_button.setStyleSheet(
+                "background: transparent; border: none; color: transparent;"
+            )
+            while self.suggestions_button_layout.count():
+                item = self.suggestions_button_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+
+    def _on_abort_requested(self):
+        self.hide_repetition_warning()
+        self.abort_generation_requested.emit()
+
+    def _on_suggestion_clicked(self, params: Dict):
+        self.hide_repetition_warning()
+        self.retry_with_variations.emit(params)
+        self.add_pipeline_message(
+            f"🔄 Retry mit Parametern: {params}",
+            "info",
+            self.current_step_id,
+        )
+
+    # ==================================================================
+    # Pipeline rendering API (preserved from PipelineStreamWidget)
+    # ==================================================================
+
+    def add_pipeline_message(
+        self,
+        message: str,
+        level: str = "info",
+        step_id: Optional[str] = None,
+    ):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        color_map = {
+            "info": "#f8f8f2",
+            "success": "#50fa7b",
+            "warning": "#f1fa8c",
+            "error": "#ff5555",
+            "step": "#8be9fd",
+            "stream": "#bd93f9",
+            "debug": "#6272a4",
+        }
+        color = color_map.get(level, "#f8f8f2")
+
+        if step_id:
+            formatted = (
+                f"<span style='color: #6272a4;'>[{timestamp}]</span> "
+                f"<span style='color: {color}; font-weight: bold;'>[{step_id.upper()}]</span> "
+                f"<span style='color: {color};'>{message}</span>"
+            )
+        else:
+            formatted = (
+                f"<span style='color: #6272a4;'>[{timestamp}]</span> "
+                f"<span style='color: {color};'>{message}</span>"
+            )
+
+        self.stream_text.append(formatted)
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    def add_streaming_token(self, token: str, step_id: str):
+        cursor = self.stream_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        escaped = html_escape(token).replace(" ", "&nbsp;").replace("\n", "<br>")
+        cursor.insertHtml(f"<span style='color: #bd93f9;'>{escaped}</span>")
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    def start_streaming_line(self, step_id: str, prefix: str = ""):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_prefix = (
+            f"<span style='color: #6272a4;'>[{timestamp}]</span> "
+            f"<span style='color: #8be9fd; font-weight: bold;'>[{step_id.upper()}]</span> "
+            f"<span style='color: #bd93f9;'>{prefix}"
+        )
+        self.stream_text.append(formatted_prefix)
+        self.is_streaming = True
+
+    def end_streaming_line(self):
+        if self.is_streaming:
+            cursor = self.stream_text.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.insertHtml("</span>")
+            self.is_streaming = False
+
+    def auto_scroll_to_bottom(self):
+        now = time.time()
+        if now - self._last_scroll_time < 0.05:
+            return
+        self._last_scroll_time = now
+        scrollbar = self.stream_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    @pyqtSlot(object)
+    def on_pipeline_started(self, pipeline_id: str):
+        self.add_pipeline_message("🚀 Pipeline gestartet", "step")
+        self.add_pipeline_message(f"Pipeline ID: {pipeline_id}", "info")
+        self.pipeline_start_time = datetime.now()
+
+    @pyqtSlot(object)
+    def on_step_started(self, step: PipelineStep):
+        self.current_step_id = step.step_id
+        self.step_start_times[step.step_id] = datetime.now()
+        self.add_pipeline_message(
+            f"▶ Starte Schritt: {step.name}", "step", step.step_id
+        )
+        if step.provider and step.model:
+            self.add_pipeline_message(
+                f"✓ Verwende: {step.provider} / {step.model}",
+                "success",
+                step.step_id,
+            )
+
+    @pyqtSlot(object)
+    def on_step_completed(self, step: PipelineStep):
+        duration = "unbekannt"
+        if step.step_id in self.step_start_times:
+            duration_seconds = (
+                datetime.now() - self.step_start_times[step.step_id]
+            ).total_seconds()
+            duration = f"{duration_seconds:.1f}s"
+        self.add_pipeline_message(
+            f"✅ Schritt abgeschlossen in {duration}", "success", step.step_id
+        )
+
+        if step.output_data:
+            if step.step_id == "keywords" and (
+                "keywords" in step.output_data or "final_keywords" in step.output_data
+            ):
+                keywords = step.output_data.get(
+                    "final_keywords", step.output_data.get("keywords", [])
+                )
+                self.add_pipeline_message(
+                    f"Gefunden: {len(keywords)} Keywords", "info", step.step_id
+                )
+                self.add_pipeline_message(
+                    f"Keywords: {', '.join(keywords[:5])}"
+                    + ("..." if len(keywords) > 5 else ""),
+                    "info",
+                    step.step_id,
+                )
+
+                verification = step.output_data.get("verification")
+                if verification and isinstance(verification, dict):
+                    stats = verification.get("stats", {})
+                    verified_count = stats.get("verified_count", 0)
+                    total = stats.get("total_extracted", 0)
+                    rejected = verification.get("rejected", [])
+                    self.add_pipeline_message(
+                        f"✅ {verified_count}/{total} Keywords GND-verifiziert",
+                        "success",
+                        step.step_id,
+                    )
+                    if rejected:
+                        rejected_names = [r.split("(")[0].strip() for r in rejected]
+                        self.add_pipeline_message(
+                            f"⚠️ {len(rejected)} Keywords ohne GND-Pool-Treffer entfernt: "
+                            + ", ".join(rejected_names),
+                            "warning",
+                            step.step_id,
+                        )
+
+            elif step.step_id == "search" and "search_results" in step.output_data:
+                count = step.output_data["search_results"]
+                self.add_pipeline_message(
+                    f"Gefunden: {count} GND-Einträge", "info", step.step_id
+                )
+
+            elif (
+                step.step_id == "verification"
+                and "verified_keywords" in step.output_data
+            ):
+                verified = step.output_data["verified_keywords"]
+                self.add_pipeline_message(
+                    f"Verifiziert: {len(verified)} Keywords", "info", step.step_id
+                )
+
+            elif (
+                step.step_id == "dk_search"
+                and "dk_search_results" in step.output_data
+            ):
+                dk_results = step.output_data["dk_search_results"]
+                self._display_dk_search_results(dk_results, step.step_id)
+
+    def _display_dk_search_results(
+        self, dk_results: List[Dict[str, Any]], step_id: str
+    ):
+        if not dk_results:
+            self.add_pipeline_message(
+                "Keine Klassifikationen (DK/RVK) gefunden", "info", step_id
+            )
+            return
+
+        total_keywords = len(dk_results)
+        total_classifications = sum(
+            len(r.get("classifications", [])) for r in dk_results
+        )
+        cache_count = sum(1 for r in dk_results if r.get("source") == "cache")
+        live_count = total_keywords - cache_count
+        success_count = sum(1 for r in dk_results if r.get("classifications"))
+
+        self.add_pipeline_message(
+            f"🔍 Klassifikationssuche: {total_keywords} Keywords → "
+            f"{success_count} erfolgreich → {total_classifications} Klassifikationen",
+            "info",
+            step_id,
+        )
+        if cache_count > 0 or live_count > 0:
+            self.add_pipeline_message(
+                f"   📦 Cache: {cache_count} | 🔍 Live: {live_count}",
+                "debug",
+                step_id,
+            )
+
+        for keyword_result in dk_results:
+            keyword = keyword_result.get("keyword", "unknown")
+            source = keyword_result.get("source", "unknown")
+            search_time = keyword_result.get("search_time_ms", 0)
+            classifications = keyword_result.get("classifications", [])
+            if classifications:
+                status_icon = "✅"
+                msg_type = "info"
+                status_text = f"{len(classifications)} Klassifikationen"
+            else:
+                status_icon = "⚠️"
+                msg_type = "warning"
+                status_text = "Keine Klassifikationen"
+            source_icon = "📦" if source == "cache" else "🔍"
+            timing_text = f"({search_time:.1f}ms)" if search_time > 0 else ""
+            self.add_pipeline_message(
+                f"{status_icon} {source_icon} {keyword} - {status_text} {timing_text}",
+                msg_type,
+                step_id,
+            )
+            if classifications:
+                self.add_pipeline_message(
+                    f"   ✓ {len(classifications)} Klassifikationen (DK/RVK) gefunden",
+                    "debug",
+                    step_id,
+                )
+
+    @pyqtSlot(object, str)
+    def on_step_error(self, step: PipelineStep, error_message: str):
+        self.add_pipeline_message(
+            f"❌ Fehler in Schritt: {step.name}", "error", step.step_id
+        )
+        self.add_pipeline_message(
+            f"Fehlermeldung: {error_message}", "error", step.step_id
+        )
+
+    @pyqtSlot(object)
+    def on_pipeline_completed(self, analysis_state):
+        total_duration = "unbekannt"
+        if hasattr(self, "pipeline_start_time"):
+            total_seconds = (
+                datetime.now() - self.pipeline_start_time
+            ).total_seconds()
+            total_duration = f"{total_seconds:.1f}s"
+        self.add_pipeline_message(
+            f"\U0001f389 Pipeline vollständig abgeschlossen in {total_duration}!",
+            "success",
+        )
+
+        if (
+            analysis_state
+            and hasattr(analysis_state, "final_llm_analysis")
+            and analysis_state.final_llm_analysis
+        ):
+            kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
+            if kw_list:
+                kw_display = ", ".join(kw_list)
+                self.add_pipeline_message(
+                    f"\U0001f4cc {len(kw_list)} GND-Schlagworte ausgewählt:\n{kw_display}",
+                    "success",
+                )
+            response_text = (
+                analysis_state.final_llm_analysis.response_full_text or ""
+            )
+            if (
+                "Schlagwortketten" in response_text
+                or "schlagwortketten" in response_text.lower()
+            ):
+                chain_lines = [
+                    line
+                    for line in response_text.split("\n")
+                    if "→" in line or "->" in line
+                ]
+                if chain_lines:
+                    self.add_pipeline_message(
+                        "\U0001f517 Schlagwortketten:\n" + "\n".join(chain_lines[:10]),
+                        "success",
+                    )
+
+        if analysis_state and getattr(analysis_state, "dk_classifications", None):
+            dk_codes = analysis_state.dk_classifications
+            dk_display_parts = []
+            flat = getattr(analysis_state, "dk_search_results_flattened", None)
+            if flat:
+                for item in flat[:10]:
+                    dk_code = item.get("dk", "")
+                    title = (
+                        ", ".join(item.get("titles", []))
+                        if item.get("titles")
+                        else ""
+                    )
+                    if dk_code:
+                        dk_display_parts.append(
+                            f"{dk_code} ({title})" if title else dk_code
+                        )
+            if not dk_display_parts:
+                dk_display_parts = dk_codes[:10]
+            self.add_pipeline_message(
+                "\U0001f3f7 DK-Klassifikationen:\n" + ", ".join(dk_display_parts),
+                "success",
+            )
+
+        if (
+            analysis_state
+            and hasattr(analysis_state, "rvk_provenance")
+            and analysis_state.rvk_provenance
+        ):
+            rvk_count = len(analysis_state.rvk_provenance)
+            if rvk_count:
+                self.add_pipeline_message(
+                    f"\U0001f4d6 {rvk_count} RVK-Klassifikationen zugeordnet",
+                    "success",
+                )
+
+        # Auto-load chat context for the just-finished pipeline.
+        try:
+            self.load_context(analysis_state)
+        except Exception:
+            self.logger.exception("PipelineChatPanel: load_context after pipeline failed")
+
+    @pyqtSlot(str)
+    def on_llm_token_received(self, token: str):
+        if self.current_step_id:
+            self.add_streaming_token(token, self.current_step_id)
+
+    def start_llm_streaming(self, step_id: str):
+        self.start_streaming_line(step_id, "LLM Antwort: ")
+
+    def end_llm_streaming(self):
+        self.end_streaming_line()
+
+    def clear_stream(self):
+        self.stream_text.clear()
+        self.add_pipeline_message("Stream geleert", "info")
+
+    def save_stream_log(self):
+        from PyQt6.QtWidgets import QFileDialog
+        from pathlib import Path
+
+        if self.current_working_title:
+            default_filename = f"{self.current_working_title}_log.txt"
+        else:
+            default_filename = (
+                f"pipeline_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            )
+
+        docs_dir = Path.home() / "Documents"
+        if not docs_dir.exists():
+            docs_dir = Path.home()
+        default_path = str(docs_dir / default_filename)
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Pipeline-Log speichern",
+            default_path,
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if filename:
+            try:
+                with open(filename, "w", encoding="utf-8") as f:
+                    plain_text = self.stream_text.toPlainText()
+                    f.write(f"ALIMA Pipeline Log - {datetime.now().isoformat()}\n")
+                    f.write("=" * 50 + "\n\n")
+                    f.write(plain_text)
+                self.add_pipeline_message(
+                    f"Log gespeichert: {filename}", "success"
+                )
+            except Exception as e:
+                self.add_pipeline_message(f"Fehler beim Speichern: {e}", "error")
+
+    def set_working_title(self, working_title: str):
+        self.current_working_title = working_title
+        self.logger.info(
+            f"PipelineChatPanel: working_title set to '{working_title}'"
+        )
+
+    def refresh_styles(self):
+        if hasattr(self, "stream_text"):
+            self.stream_text.setFont(get_scaled_font(monospace=True))
+
+    def reset_for_new_pipeline(self):
+        self.current_step_id = None
+        self.step_start_times.clear()
+        self.is_streaming = False
+        self.current_working_title = None
+        self.clear_stream()
+        self.hide_repetition_warning()
+        if self.reset_toggle.isChecked():
+            self.session.reset()
+            self.current_context = ""
+            self.working_title = ""
+            self._assistant_block_open = False
+            self._assistant_cell_cursor = None
+
+    # ==================================================================
+    # Chat-side rendering & lifecycle (ported from ChatWidget)
+    # ==================================================================
+
+    # -- Typing indicator ------------------------------------------------
+
+    def _show_typing(self, model_label: str) -> None:
+        self._typing_model = model_label or "…"
+        self._typing_dots = 0
+        self._tick_typing()
+        self.typing_label.setVisible(True)
+        self._typing_timer.start()
+
+    def _tick_typing(self) -> None:
+        self._typing_dots = (self._typing_dots % 3) + 1
+        dots = "●" * self._typing_dots + "○" * (3 - self._typing_dots)
+        self.typing_label.setText(f"🤖 {self._typing_model}  {dots}")
+
+    def _hide_typing(self) -> None:
+        self._typing_timer.stop()
+        self.typing_label.setVisible(False)
+        self.typing_label.setText("")
+
+    # -- Model resolution & combo persistence ----------------------------
+
+    def _refresh_model_status(self) -> None:
+        try:
+            provider, model = self._resolve_provider_model()
+        except Exception:
+            provider, model = "", ""
+        if provider and model:
+            self.model_status_label.setText(f"→ {provider} | {model}")
+        else:
+            self.model_status_label.setText("→ (kein Modell)")
+
+    @pyqtSlot(int)
+    def _on_model_combo_changed(self, _idx: int) -> None:
+        self._refresh_model_status()
+        if self.persist_combo_toggle.isChecked():
+            self._persist_combo_to_chat_config()
+
+    def _persist_combo_to_chat_config(self) -> None:
+        data = self.model_combo.currentData()
+        if not data:
+            return
+        try:
+            provider, model = data.split("|", 1)
+        except ValueError:
+            return
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            cm = ConfigManager()
+            cfg = cm.get_unified_config()
+            chat_cfg = getattr(cfg, "chat_config", None)
+            if chat_cfg is None:
+                return
+            chat_cfg.default_provider = provider
+            chat_cfg.default_model = model
+            full = cm.load_config()
+            cm.save_config(full, preserve_unified=True)
+            self._append_system_message(
+                f"💾 Chat-Default gespeichert: {provider} | {model}"
+            )
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: persist default model failed"
+            )
+
+    def _populate_model_combo(self):
+        try:
+            self.model_combo.clear()
+            self.model_combo.addItem("-- Auto --", None)
+            from ..utils.config_manager import ConfigManager
+
+            config_manager = ConfigManager()
+            unified_config = config_manager.get_unified_config()
+            for provider in unified_config.get_enabled_providers():
+                models = getattr(provider, "available_models", []) or []
+                if not models and getattr(provider, "preferred_model", None):
+                    models = [provider.preferred_model]
+                for model in models:
+                    self.model_combo.addItem(
+                        f"{provider.name} | {model}",
+                        f"{provider.name}|{model}",
+                    )
+        except Exception as e:
+            self.logger.error(f"Error populating model combo: {e}")
+
+    def _resolve_provider_model(self) -> tuple[str, str]:
+        override_data = self.model_combo.currentData()
+        if override_data:
+            provider, model = override_data.split("|", 1)
+            if provider and model:
+                return provider, model
+        try:
+            chat_cfg = self._get_chat_config()
+            provider = getattr(chat_cfg, "default_provider", "") or ""
+            model = getattr(chat_cfg, "default_model", "") or ""
+            if provider and model:
+                return provider, model
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: ChatConfig provider lookup failed"
+            )
+        if self.pipeline_manager and hasattr(self.pipeline_manager, "config"):
+            cfg = self.pipeline_manager.config
+            provider = getattr(cfg, "global_provider_override", None)
+            model = getattr(cfg, "global_model_override", None)
+            if provider and model:
+                return provider, model
+        provider = getattr(self.llm_service, "current_provider", None) if self.llm_service else None
+        model = getattr(self.llm_service, "current_model", None) if self.llm_service else None
+        if provider and model:
+            return provider, model
+        try:
+            clients = getattr(self.llm_service, "clients", {}) if self.llm_service else {}
+            if clients:
+                provider = list(clients.keys())[0]
+                sp = getattr(self.llm_service, "supported_providers", {})
+                pinfo = sp.get(provider, {})
+                models = pinfo.get("models", [])
+                if models:
+                    return provider, models[0]
+        except Exception:
+            pass
+        return "", ""
+
+    def _get_chat_config(self):
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            cfg = ConfigManager().get_unified_config()
+            chat_cfg = getattr(cfg, "chat_config", None)
+            if chat_cfg is not None:
+                return chat_cfg
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: ChatConfig lookup failed"
+            )
+        from ..utils.config_models import ChatConfig
+
+        return ChatConfig()
+
+    # -- Context loading -------------------------------------------------
+
+    def load_context(self, analysis_state) -> None:
+        if self.reset_toggle.isChecked():
+            # Don't wipe the pipeline log; only reset chat session state.
+            self.session.reset()
+            self.current_context = ""
+            self.working_title = ""
+            self._assistant_block_open = False
+            self._assistant_cell_cursor = None
+
+        self.session.reset()
+
+        if analysis_state is None:
+            self.current_context = ""
+            self.session.last_shared_context = None
+            self._append_system_message(
+                "ℹ️ Kein Pipeline-Kontext geladen. Chat funktioniert trotzdem — "
+                "stelle einfach eine Frage."
+            )
+            return
+
+        parts = []
+        if hasattr(analysis_state, "working_title") and analysis_state.working_title:
+            self.working_title = analysis_state.working_title
+            parts.append(f"Titel: {analysis_state.working_title}")
+        if (
+            hasattr(analysis_state, "original_abstract")
+            and analysis_state.original_abstract
+        ):
+            abstract = analysis_state.original_abstract
+            if len(abstract) > 500:
+                abstract = abstract[:500] + "..."
+            parts.append(f"Abstract: {abstract}")
+        self.current_context = "\n".join(parts) or "(kein Titel/Abstract)"
+
+        ctx = self._shared_context_from_analysis_state(analysis_state)
+        self.session.last_shared_context = ctx
+
+        kw_count = len(getattr(ctx, "extracted_keywords", []) or []) if ctx else 0
+        if not kw_count and ctx:
+            kw_count = len(getattr(ctx, "initial_keywords", []) or [])
+        dk_count = len(getattr(ctx, "dk_classifications", []) or []) if ctx else 0
+        self._append_system_message(
+            f"✅ Kontext geladen: {self.working_title or 'Unbenannt'}"
+            f" ({kw_count} Keywords, {dk_count} DK-Codes, Tools aktiv)"
+        )
+
+    @staticmethod
+    def _shared_context_from_analysis_state(state) -> Optional[object]:
+        try:
+            from src.core.agents.shared_context import SharedContext
+        except Exception:
+            return None
+
+        ctx = SharedContext()
+        ctx.working_title = getattr(state, "working_title", "") or ""
+        ctx.abstract = getattr(state, "original_abstract", "") or ""
+        ctx.initial_keywords = list(getattr(state, "initial_keywords", []) or [])
+
+        final = getattr(state, "final_llm_analysis", None)
+        if final is not None:
+            ctx.extracted_keywords = list(
+                getattr(final, "extracted_gnd_keywords", []) or []
+            )
+            ctx.keyword_chains = list(getattr(final, "keyword_chains", []) or [])
+            ctx.missing_concepts = list(
+                getattr(final, "missing_concepts", []) or []
+            )
+            verification = getattr(final, "verification", None)
+            if verification:
+                ctx.extra["verification"] = verification
+            extracted_classes = (
+                getattr(final, "extracted_gnd_classes", None) or []
+            )
+            if extracted_classes:
+                ctx.extra["extracted_gnd_classes"] = list(extracted_classes)
+
+        gnd_entries = []
+        gnd_per_kw: dict = {}
+        seen_ids = set()
+        for sr in getattr(state, "search_results", []) or []:
+            term = getattr(sr, "search_term", "") or ""
+            results = getattr(sr, "results", {}) or {}
+            titles: list = []
+            for gnd_id, info in results.items():
+                if not isinstance(info, dict):
+                    info = {"value": info}
+                title = info.get("title") or info.get("label") or ""
+                titles.append(title or gnd_id)
+                if gnd_id in seen_ids:
+                    continue
+                seen_ids.add(gnd_id)
+                gnd_entries.append({"gnd_id": gnd_id, **info})
+            if term and titles:
+                gnd_per_kw[term] = titles
+        ctx.gnd_entries = gnd_entries
+        ctx.gnd_entries_per_keyword = gnd_per_kw
+
+        raw_dk = getattr(state, "dk_classifications", []) or []
+        normalised_dk = []
+        for cls in raw_dk:
+            if isinstance(cls, dict):
+                normalised_dk.append(cls)
+            else:
+                normalised_dk.append({"code": str(cls)})
+        ctx.dk_classifications = normalised_dk
+
+        ctx.dk_search_results = list(getattr(state, "dk_search_results", []) or [])
+        stats = getattr(state, "dk_statistics", None)
+        if stats:
+            ctx.dk_catalog_stats = dict(stats)
+
+        final_keywords = getattr(state, "final_keywords", None)
+        if final_keywords:
+            ctx.extra["final_keywords"] = list(final_keywords)
+
+        return ctx
+
+    # -- Send / cancel / worker callbacks --------------------------------
+
+    def send_message(self):
+        text = self.input_field.text().strip()
+        if not text:
+            return
+        if self.current_worker and self.current_worker.isRunning():
+            return
+
+        self._append_user_message(text)
+        self.input_field.clear()
+        self.session.append("user", text)
+
+        user_prompt = self.USER_PROMPT_TEMPLATE.format(
+            context=self.current_context,
+            user_message=text,
+        )
+
+        provider, model = self._resolve_provider_model()
+        if not provider or not model:
+            self._append_system_message(
+                "⚠️ Kein LLM-Provider konfiguriert. Bitte in Pipeline-Einstellungen "
+                "ein Modell wählen."
+            )
+            return
+
+        self._refresh_shared_context()
+        chat_config = self._get_chat_config()
+        try:
+            tool_registry = build_chat_toolset(
+                session=self.session,
+                chat_config=chat_config,
+                mcp_registry=self.mcp_registry,
+            )
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: build_chat_toolset failed"
+            )
+            self._append_system_message(
+                "❌ Tool-Setup fehlgeschlagen — siehe Log."
+            )
+            return
+
+        self._set_ui_running(True)
+        self.current_worker = ChatAgentWorker(
+            llm_service=self.llm_service,
+            tool_registry=tool_registry,
+            system_prompt=self.system_prompt,
+            user_prompt=user_prompt,
+            provider=provider,
+            model=model,
+            temperature=getattr(chat_config, "temperature", 0.5),
+            max_iterations=getattr(chat_config, "max_iterations", 10),
+        )
+        self.current_worker.token_received.connect(self._on_token)
+        self.current_worker.status_message.connect(self._on_status_message)
+        self.current_worker.tool_called.connect(self._on_tool_called)
+        self.current_worker.tool_result.connect(self._on_tool_result)
+        self.current_worker.generation_finished.connect(self._on_finished)
+        self.current_worker.generation_error.connect(self._on_error)
+        self._current_render_model = f"{provider} | {model}"
+        self._refresh_model_status()
+        self._show_typing(self._current_render_model)
+        self.current_worker.start()
+
+        self.message_sent.emit(text)
+
+    def cancel_generation(self):
+        if self.current_worker and self.current_worker.isRunning():
+            self.current_worker.request_stop()
+            self._append_system_message("⏹ Generation abgebrochen.")
+            self._set_ui_running(False)
+
+    @pyqtSlot(str)
+    def _on_token(self, token: str):
+        if not self._assistant_block_open:
+            self._hide_typing()
+            self._open_assistant_message(self._current_render_model)
+            self._assistant_block_open = True
+        self._append_assistant_token(token)
+
+    @pyqtSlot(str)
+    def _on_status_message(self, line: str):
+        text = (line or "").strip()
+        if not text:
+            return
+        if text.startswith(self._STATUS_SKIP_PREFIXES):
+            return
+        self._append_tool_marker(text)
+
+    @pyqtSlot(str, dict)
+    def _on_tool_called(self, name: str, args: dict):
+        args_preview = self._format_tool_args(args)
+        self._append_tool_marker(f"🔧 {name}({args_preview})")
+
+    @pyqtSlot(str, str)
+    def _on_tool_result(self, name: str, result_str: str):
+        preview = (result_str or "").strip().replace("\n", " ")
+        if len(preview) > 120:
+            preview = preview[:120] + "…"
+        self._append_tool_marker(f"↳ {preview}")
+
+    @pyqtSlot(object)
+    def _on_finished(self, result):
+        try:
+            final = getattr(result, "content", "") or ""
+            if final:
+                self.session.append("assistant", final)
+                if not self._assistant_block_open:
+                    self._hide_typing()
+                    self._open_assistant_message(self._current_render_model)
+                    self._assistant_block_open = True
+                    self._append_assistant_token(final)
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: failed to append assistant turn"
+            )
+        self._hide_typing()
+        self._finalize_assistant_message()
+        self._set_ui_running(False)
+
+    @pyqtSlot(str)
+    def _on_error(self, error: str):
+        self._hide_typing()
+        self._append_system_message(f"❌ Fehler: {error}")
+        self._assistant_block_open = False
+        self._assistant_cell_cursor = None
+        self._set_ui_running(False)
+        self.logger.error(f"PipelineChatPanel: generation error: {error}")
+
+    # -- Bus subscriptions for agentic-pipeline tool events --------------
+
+    def _on_state_changed(self, _diff: dict) -> None:
+        self._refresh_shared_context()
+
+    def _on_bus_tool_called(self, payload: dict) -> None:
+        try:
+            name = payload.get("name", "") or "tool"
+            args = payload.get("arguments", {}) or {}
+            args_preview = self._format_tool_args(args)
+            self._append_tool_marker(f"🔧 {name}({args_preview})")
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: bus tool.called rendering failed"
+            )
+
+    def _on_bus_tool_result(self, payload: dict) -> None:
+        try:
+            result = payload.get("result", "") or ""
+            preview = result.strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            self._append_tool_marker(f"↳ {preview}")
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: bus tool.result rendering failed"
+            )
+
+    def _refresh_shared_context(self) -> None:
+        try:
+            if self.pipeline_manager is None:
+                return
+            ctx = getattr(self.pipeline_manager, "last_shared_context", None)
+            if ctx is not None:
+                self.session.last_shared_context = ctx
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: shared-context refresh failed"
+            )
+
+    # -- UI helpers ------------------------------------------------------
+
+    def _set_ui_running(self, running: bool):
+        self.send_btn.setVisible(not running)
+        self.cancel_btn.setVisible(running)
+        self.input_field.setEnabled(not running)
+        if running:
+            self.input_field.setPlaceholderText("Antwort wird generiert...")
+        else:
+            self.input_field.setPlaceholderText(
+                "Frage zu den Pipeline-Ergebnissen stellen..."
+            )
+            self.input_field.setFocus()
+
+    # -- Chat bubble & marker rendering ---------------------------------
+
+    def _append_user_message(self, text: str):
+        self._insert_bubble(
+            text,
+            align=Qt.AlignmentFlag.AlignRight,
+            width_percent=65,
+            bg_color="#005c4b",
+            fg_color="#e9edef",
+        )
+
+    def _insert_bubble(
+        self,
+        text: str,
+        *,
+        align: Qt.AlignmentFlag,
+        width_percent: int,
+        bg_color: str,
+        fg_color: str,
+    ) -> None:
+        cursor = self.stream_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self.stream_text.document().isEmpty():
+            cursor.insertBlock(QTextBlockFormat())
+        table_fmt = QTextTableFormat()
+        table_fmt.setCellPadding(8)
+        table_fmt.setCellSpacing(0)
+        table_fmt.setBorder(0)
+        table_fmt.setWidth(
+            QTextLength(QTextLength.Type.PercentageLength, width_percent)
+        )
+        table_fmt.setAlignment(align)
+        table = cursor.insertTable(1, 1, table_fmt)
+        cell = table.cellAt(0, 0)
+        cell_fmt = QTextTableCellFormat()
+        cell_fmt.setBackground(QColor(bg_color))
+        cell.setFormat(cell_fmt)
+        body = self._escape_html(text).replace("\n", "<br>")
+        cell.firstCursorPosition().insertHtml(
+            f'<span style="color: {fg_color}; font-size: 10pt;">{body}</span>'
+        )
+        end_cursor = self.stream_text.textCursor()
+        end_cursor.movePosition(QTextCursor.MoveOperation.End)
+        end_cursor.insertBlock(QTextBlockFormat())
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    def _append_tool_marker(self, text: str):
+        html = (
+            f'<div style="margin: 2px 0 2px 8px; '
+            f'font-family: monospace; font-size: 9pt; color: #888;">'
+            f"{self._escape_html(text)}</div>"
+        )
+        self._append_html(html)
+
+    def _append_system_message(self, text: str):
+        html = (
+            f'<div style="text-align: center; margin: 4px 0;">'
+            f'<span style="color: #4caf50; font-size: 9pt; font-style: italic;">'
+            f"{self._escape_html(text)}</span></div>"
+        )
+        self._append_html(html)
+
+    def _open_assistant_message(self, model_label: str):
+        cursor = self.stream_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self.stream_text.document().isEmpty():
+            cursor.insertBlock(QTextBlockFormat())
+        cursor.insertHtml(
+            f'<span style="color: #8be9fd; font-size: 9pt; font-style: italic;">'
+            f'🤖 {self._escape_html(model_label or "Modell")}'
+            f"</span>"
+        )
+        cursor.insertBlock(QTextBlockFormat())
+        table_fmt = QTextTableFormat()
+        table_fmt.setCellPadding(8)
+        table_fmt.setCellSpacing(0)
+        table_fmt.setBorder(0)
+        table_fmt.setWidth(QTextLength(QTextLength.Type.PercentageLength, 75))
+        table_fmt.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        table = cursor.insertTable(1, 1, table_fmt)
+        cell = table.cellAt(0, 0)
+        cell_fmt = QTextTableCellFormat()
+        cell_fmt.setBackground(QColor("#202c33"))
+        cell.setFormat(cell_fmt)
+        self._assistant_cell_cursor = cell.firstCursorPosition()
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    def _append_assistant_token(self, token: str):
+        if self._assistant_cell_cursor is None:
+            return
+        html = self._escape_html(token).replace("\n", "<br>")
+        self._assistant_cell_cursor.insertHtml(
+            f'<span style="color: #e9edef; font-size: 10pt;">{html}</span>'
+        )
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    def _finalize_assistant_message(self):
+        cursor = self.stream_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertBlock(QTextBlockFormat())
+        self._assistant_block_open = False
+        self._assistant_cell_cursor = None
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    def _append_html(self, html: str):
+        cursor = self.stream_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self.stream_text.document().isEmpty():
+            cursor.insertBlock(QTextBlockFormat())
+        cursor.insertHtml(html)
+        if self.auto_scroll_checkbox.isChecked():
+            self.auto_scroll_to_bottom()
+
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    @staticmethod
+    def _format_tool_args(args: dict) -> str:
+        if not args:
+            return ""
+        parts = []
+        for k, v in args.items():
+            sv = repr(v)
+            if len(sv) > 40:
+                sv = sv[:40] + "…"
+            parts.append(f"{k}={sv}")
+        joined = ", ".join(parts)
+        if len(joined) > 80:
+            joined = joined[:80] + "…"
+        return joined
+
+    # -- System-prompt dialog --------------------------------------------
+
+    def show_system_prompt_dialog(self):
+        dialog = SystemPromptDialog(self.system_prompt, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_prompt = dialog.get_prompt()
+            if new_prompt:
+                self.system_prompt = new_prompt
+                self._append_system_message("✅ System-Prompt aktualisiert.")

@@ -25,7 +25,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from src.ui.chat_widget import ChatWidget
+# After P-δ.5a the combo-persist helpers live in PipelineChatPanel; the
+# legacy ChatWidget has been retired. The methods kept their signatures.
+from src.ui.pipeline_chat_panel import PipelineChatPanel as ChatWidget
 from src.utils.config_models import ChatConfig
 
 

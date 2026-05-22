@@ -293,12 +293,47 @@ class LLMAgentStep(BaseStep):
         tool_names: List[str],
         params: Dict[str, Any],
     ) -> Any:
+        # P-δ.5a: route AgentLoop tool events through AlimaStateBus so the
+        # PipelineChatPanel (and any future subscriber) can render them in
+        # the unified log. No signature change on PipelineManager /
+        # WorkflowExecutor required.
+        try:
+            from src.core.state_bus import AlimaStateBus
+            _bus = AlimaStateBus()
+
+            def _emit_tool_called(tc):
+                try:
+                    _bus.emit_event(
+                        "tool.called",
+                        {
+                            "name": getattr(tc, "name", ""),
+                            "arguments": dict(getattr(tc, "arguments", {}) or {}),
+                            "id": getattr(tc, "id", ""),
+                        },
+                    )
+                except Exception:
+                    pass
+
+            def _emit_tool_result(name, result):
+                try:
+                    _bus.emit_event(
+                        "tool.result",
+                        {"name": name, "result": result or ""},
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            _emit_tool_called = None
+            _emit_tool_result = None
+
         loop = AgentLoop(
             llm_service=self.llm_service,
             tool_registry=self.tool_registry,
             max_iterations=params["max_iterations"],
             timeout_seconds=params["timeout_seconds"],
             stream_callback=self.stream_callback,
+            on_tool_call=_emit_tool_called,
+            on_tool_result=_emit_tool_result,
         )
         return loop.run(
             system_prompt=system_prompt,
