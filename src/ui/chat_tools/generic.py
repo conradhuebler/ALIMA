@@ -28,7 +28,7 @@ class ListAvailableDataTool(BaseChatTool):
     parameters_schema = {"type": "object", "properties": {}}
 
     def available_for(self, session: Any) -> bool:
-        return _shared_context(session) is not None
+        return True  # Always available so agent can check pipeline state
 
     def execute(self, session: Any, **_: Any) -> str:
         ctx = _shared_context(session)

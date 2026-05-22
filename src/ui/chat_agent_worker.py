@@ -49,7 +49,7 @@ class ChatAgentWorker(QThread):
         temperature: float = 0.5,
         top_p: float = 0.9,
         max_tokens: int = 4096,
-        max_iterations: int = 10,
+        max_iterations: int = 20,
         seed: Optional[int] = None,
         tools: Optional[list] = None,
         history: Optional[List[Dict[str, Any]]] = None,

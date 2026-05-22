@@ -335,6 +335,45 @@ class ToolRegistry:
             "abstract": abstract or "",
         }, ensure_ascii=False, default=str)
 
+    def _handle_scrape_url(self, url: str, max_chars: int = 10000) -> str:
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+        except ImportError:
+            return json.dumps({"error": "requests + beautifulsoup4 required"})
+        try:
+            resp = requests.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }, timeout=30)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.content, "html.parser")
+            for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+                tag.decompose()
+            title = (soup.find("title") or soup.find("h1"))
+            title_text = title.get_text(strip=True) if title else ""
+            main = soup.find("main") or soup.find("article") or soup.find("div", class_="content")
+            body = soup.find("body")
+            text = ""
+            if main:
+                text = main.get_text(separator="\n", strip=True)
+            elif body:
+                text = body.get_text(separator="\n", strip=True)
+            else:
+                text = soup.get_text(separator="\n", strip=True)
+            import re
+            text = re.sub(r"\n\s*\n+", "\n\n", text)
+            text = re.sub(r" +", " ", text)
+            if len(text) > max_chars > 0:
+                text = text[:max_chars] + "\n[…truncated]"
+            return json.dumps({
+                "url": url, "title": title_text,
+                "text": text, "chars": len(text),
+            }, ensure_ascii=False)
+        except requests.RequestException as e:
+            return json.dumps({"error": f"Fetch failed: {e}"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
     # ============================================================
     # Pipeline Result Tool Handlers
     # ============================================================
@@ -430,6 +469,63 @@ class ToolRegistry:
             return json.dumps({"error": f"Failed to load abstract from {filename}: {e}"})
 
     # ============================================================
+    # Workflow Tool Handlers
+    # ============================================================
+
+    def _handle_list_workflows(self) -> str:
+        try:
+            from src.core.agents.workflow_loader import find_workflow_file
+            workflows = []
+            names = ["alima", "alima_classic", "catalog_search", "synonym_expansion", "batch_metadata", "title_list_search"]
+            for name in names:
+                path = find_workflow_file(name)
+                if path:
+                    try:
+                        import yaml
+                        with open(path, "r", encoding="utf-8") as f:
+                            data = yaml.safe_load(f)
+                        workflows.append({
+                            "name": name,
+                            "title": data.get("name", name),
+                            "version": data.get("version", ""),
+                            "description": data.get("description", ""),
+                        })
+                    except Exception:
+                        workflows.append({"name": name, "title": name, "version": "", "description": ""})
+            return json.dumps({"workflows": workflows}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    def _handle_get_workflow(self, name: str) -> str:
+        try:
+            from src.core.agents.workflow_loader import find_workflow_file
+            path = find_workflow_file(name)
+            if not path:
+                return json.dumps({"error": f"Workflow '{name}' not found"})
+            import yaml
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            steps = []
+            for step in data.get("steps", []):
+                steps.append({
+                    "id": step.get("id", ""),
+                    "type": step.get("type", ""),
+                    "description": step.get("description", ""),
+                    "enabled": step.get("enabled", True),
+                    "depends_on": step.get("depends_on", []),
+                    "inputs": list(step.get("inputs", {}).keys()),
+                    "outputs": list(step.get("outputs", {}).keys()),
+                })
+            return json.dumps({
+                "name": data.get("name", name),
+                "version": data.get("version", ""),
+                "description": data.get("description", ""),
+                "steps": steps,
+            }, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    # ============================================================
     # Registry Setup
     # ============================================================
 
@@ -451,12 +547,17 @@ class ToolRegistry:
         self.register(tool_schemas.SEARCH_CATALOG, self._handle_search_catalog)
         self.register(tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
+        self.register(tool_schemas.SCRAPE_URL, self._handle_scrape_url)
 
         # Pipeline result tools
         self.register(tool_schemas.LIST_PIPELINE_RESULTS, self._handle_list_pipeline_results)
         self.register(tool_schemas.GET_PIPELINE_RESULT, self._handle_get_pipeline_result)
         self.register(tool_schemas.GET_PIPELINE_KEYWORDS, self._handle_get_pipeline_keywords)
         self.register(tool_schemas.GET_PIPELINE_ABSTRACT, self._handle_get_pipeline_abstract)
+
+        # Workflow tools
+        self.register(tool_schemas.LIST_WORKFLOWS, self._handle_list_workflows)
+        self.register(tool_schemas.GET_WORKFLOW, self._handle_get_workflow)
 
         logger.info(f"Registered {len(self._tools)} MCP tools")
 

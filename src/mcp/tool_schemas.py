@@ -244,6 +244,19 @@ RESOLVE_DOI = ToolDefinition(
     },
 )
 
+SCRAPE_URL = ToolDefinition(
+    name="scrape_url",
+    description="Fetch a webpage and extract readable text. Removes scripts, styles, nav. Returns cleaned text and title.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "URL to fetch (e.g. 'https://example.com/article')"},
+            "max_chars": {"type": "integer", "default": 10000, "description": "Max characters to return (truncates if longer)"},
+        },
+        "required": ["url"],
+    },
+)
+
 
 # ============================================================
 # Pipeline Result Tools
@@ -299,6 +312,29 @@ GET_PIPELINE_ABSTRACT = ToolDefinition(
 
 
 # ============================================================
+# Workflow Tools
+# ============================================================
+
+LIST_WORKFLOWS = ToolDefinition(
+    name="list_workflows",
+    description="List available agentic v4 workflows. Returns name, version, description for each.",
+    parameters={"type": "object", "properties": {}},
+)
+
+GET_WORKFLOW = ToolDefinition(
+    name="get_workflow",
+    description="Load a workflow YAML and return its steps, inputs, outputs, and dependencies.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Workflow name (e.g. 'alima_classic', 'catalog_search')"},
+        },
+        "required": ["name"],
+    },
+)
+
+
+# ============================================================
 # Tool Sets (grouped for agent use)
 # ============================================================
 
@@ -309,7 +345,7 @@ KNOWLEDGE_TOOLS = [
 ]
 
 LIBRARY_TOOLS = [
-    SEARCH_LOBID, SEARCH_SWB, SEARCH_CATALOG, SEARCH_CATALOG_TITLES, RESOLVE_DOI,
+    SEARCH_LOBID, SEARCH_SWB, SEARCH_CATALOG, SEARCH_CATALOG_TITLES, RESOLVE_DOI, SCRAPE_URL,
 ]
 
 PIPELINE_RESULT_TOOLS = [
@@ -317,4 +353,6 @@ PIPELINE_RESULT_TOOLS = [
     GET_PIPELINE_KEYWORDS, GET_PIPELINE_ABSTRACT,
 ]
 
-ALL_TOOLS = KNOWLEDGE_TOOLS + LIBRARY_TOOLS + PIPELINE_RESULT_TOOLS
+WORKFLOW_TOOLS = [LIST_WORKFLOWS, GET_WORKFLOW]
+
+ALL_TOOLS = KNOWLEDGE_TOOLS + LIBRARY_TOOLS + PIPELINE_RESULT_TOOLS + WORKFLOW_TOOLS
