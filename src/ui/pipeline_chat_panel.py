@@ -43,6 +43,7 @@ from PyQt6.QtGui import (
     QTextTableCellFormat,
     QTextTableFormat,
 )
+from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -54,6 +55,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QTextBrowser,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -231,6 +233,13 @@ class PipelineChatPanel(QWidget):
         self._typing_dots: int = 0
         self._typing_model: str = ""
 
+        # P-ε: cross-thread bridge for mutation tool confirmations.
+        from src.ui.chat_tools.proposal_gateway import ProposalGateway
+        self.proposal_gateway = ProposalGateway(self)
+        self.proposal_gateway.proposal_requested.connect(
+            self._render_proposal_bubble
+        )
+
         self.setup_ui()
 
         # Auto-scroll throttle uses self._last_scroll_time.
@@ -326,6 +335,25 @@ class PipelineChatPanel(QWidget):
         )
         header_layout.addWidget(self.reset_toggle)
 
+        self.autonomous_toggle = QCheckBox("🤖 Autonom")
+        self.autonomous_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.autonomous_toggle.setToolTip(
+            "Mutationen ohne Rückfrage anwenden (ChatConfig.autonomous_pipeline). "
+            "Default off — Agent fragt vor jeder Änderung."
+        )
+        # Initial state from ChatConfig.
+        try:
+            cfg = self._get_chat_config()
+            self.autonomous_toggle.setChecked(
+                bool(getattr(cfg, "autonomous_pipeline", False))
+            )
+        except Exception:
+            pass
+        self.autonomous_toggle.stateChanged.connect(
+            self._on_autonomous_toggle_changed
+        )
+        header_layout.addWidget(self.autonomous_toggle)
+
         self.auto_scroll_checkbox = QCheckBox("⬇")
         self.auto_scroll_checkbox.setChecked(True)
         self.auto_scroll_checkbox.setStyleSheet("color: #aaa; font-size: 10px;")
@@ -370,9 +398,14 @@ class PipelineChatPanel(QWidget):
         log_layout.setContentsMargins(0, 0, 0, 0)
         log_layout.setSpacing(0)
 
-        # --- Main log area (shared QTextEdit) ---
-        self.stream_text = QTextEdit()
+        # --- Main log area (shared QTextBrowser for clickable bubbles) ---
+        # P-ε: QTextBrowser exposes anchorClicked so inline mutation-proposal
+        # bubbles can have ✓/✗ links the user clicks.
+        self.stream_text = QTextBrowser()
         self.stream_text.setReadOnly(True)
+        self.stream_text.setOpenLinks(False)
+        self.stream_text.setOpenExternalLinks(False)
+        self.stream_text.anchorClicked.connect(self._on_anchor_clicked)
         self.stream_text.setMinimumHeight(80)
         self.stream_text.setSizePolicy(
             QSizePolicy.Policy.Expanding,
@@ -383,7 +416,7 @@ class PipelineChatPanel(QWidget):
         self.stream_text.setFont(font)
         self.stream_text.setStyleSheet(
             """
-            QTextEdit {
+            QTextBrowser {
                 background-color: #1e1e1e;
                 color: #f8f8f2;
                 border: none;
@@ -1145,6 +1178,27 @@ class PipelineChatPanel(QWidget):
         if self.persist_combo_toggle.isChecked():
             self._persist_combo_to_chat_config()
 
+    @pyqtSlot(int)
+    def _on_autonomous_toggle_changed(self, _state: int) -> None:
+        """Persist autonomous-mode toggle to ChatConfig + chat-side state."""
+        new_value = self.autonomous_toggle.isChecked()
+        try:
+            from ..utils.config_manager import ConfigManager
+            cm = ConfigManager()
+            cfg = cm.get_unified_config()
+            chat_cfg = getattr(cfg, "chat_config", None)
+            if chat_cfg is None:
+                return
+            chat_cfg.autonomous_pipeline = new_value
+            full = cm.load_config()
+            cm.save_config(full, preserve_unified=True)
+            msg = "aktiv" if new_value else "aus"
+            self._append_system_message(f"🤖 Autonom-Modus: {msg}")
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: persist autonomous_pipeline failed"
+            )
+
     def _persist_combo_to_chat_config(self) -> None:
         data = self.model_combo.currentData()
         if not data:
@@ -1395,11 +1449,20 @@ class PipelineChatPanel(QWidget):
 
         self._refresh_shared_context()
         chat_config = self._get_chat_config()
+        kb_manager = None
+        if self.pipeline_manager is not None:
+            kb_manager = (
+                getattr(self.pipeline_manager, "unified_knowledge_manager", None)
+                or getattr(self.pipeline_manager, "knowledge_manager", None)
+            )
         try:
             tool_registry = build_chat_toolset(
                 session=self.session,
                 chat_config=chat_config,
                 mcp_registry=self.mcp_registry,
+                pipeline_manager=self.pipeline_manager,
+                kb_manager=kb_manager,
+                proposal_gateway=self.proposal_gateway,
             )
         except Exception:
             self.logger.exception(
@@ -1667,6 +1730,93 @@ class PipelineChatPanel(QWidget):
         cursor.insertHtml(html)
         if self.auto_scroll_checkbox.isChecked():
             self.auto_scroll_to_bottom()
+
+    # -- P-ε: mutation-proposal inline bubble --------------------------
+
+    @pyqtSlot(int, str, dict)
+    def _render_proposal_bubble(
+        self, audit_id: int, tool_name: str, payload: dict
+    ) -> None:
+        """Render a clickable confirmation bubble for a mutation proposal.
+
+        Triggered by ``ProposalGateway.proposal_requested`` (auto-marshalled
+        to the UI thread by Qt). The user clicks one of the embedded links;
+        ``_on_anchor_clicked`` then routes the decision back to the gateway.
+        """
+        title_map = {
+            "propose_keyword_replacement": "🔁 Vorschlag: Keyword ersetzen",
+            "propose_dk_change": "🏷️ Vorschlag: DK-Klassifikation ändern",
+        }
+        title = title_map.get(tool_name, f"⚠️ Mutations-Vorschlag: {tool_name}")
+
+        if tool_name == "propose_keyword_replacement":
+            old = self._escape_html(str(payload.get("old", "")))
+            new = self._escape_html(str(payload.get("new", "")))
+            gnd = payload.get("gnd_id") or ""
+            gnd_str = f" <span style='color: #888;'>(GND-ID: {self._escape_html(gnd)})</span>" if gnd else ""
+            diff_html = f"<b>{old}</b> → <b>{new}</b>{gnd_str}"
+        elif tool_name == "propose_dk_change":
+            code = self._escape_html(str(payload.get("code", "")))
+            action = str(payload.get("action", ""))
+            verb = "hinzufügen" if action == "add" else "entfernen"
+            diff_html = f"<b>{code}</b> ({verb})"
+        else:
+            diff_html = self._escape_html(str(payload))
+
+        reason = self._escape_html(str(payload.get("reason", "") or "—"))
+        accept_href = f"mutation://{audit_id}/accept"
+        reject_href = f"mutation://{audit_id}/reject"
+
+        html = (
+            f'<div style="margin: 6px 12px; padding: 10px; '
+            f'background-color: #2d3142; border-left: 3px solid #ffb86c; '
+            f'border-radius: 4px;">'
+            f'<div style="color: #ffb86c; font-weight: bold; font-size: 10pt;">{title}</div>'
+            f'<div style="color: #f8f8f2; margin-top: 4px;">{diff_html}</div>'
+            f'<div style="color: #888; font-size: 9pt; margin-top: 4px;">'
+            f'Begründung: {reason}</div>'
+            f'<div style="margin-top: 8px;">'
+            f'<a href="{accept_href}" style="color: #50fa7b; '
+            f'text-decoration: none; padding: 4px 10px; '
+            f'border: 1px solid #50fa7b; border-radius: 3px; '
+            f'margin-right: 8px;">✓ Akzeptieren</a>'
+            f'<a href="{reject_href}" style="color: #ff5555; '
+            f'text-decoration: none; padding: 4px 10px; '
+            f'border: 1px solid #ff5555; border-radius: 3px;">✗ Ablehnen</a>'
+            f'<span style="color: #555; font-size: 8pt; margin-left: 8px;">'
+            f'#audit_{audit_id}</span>'
+            f'</div></div>'
+        )
+        self._append_html(html)
+
+    @pyqtSlot(QUrl)
+    def _on_anchor_clicked(self, url: QUrl) -> None:
+        """Route ``mutation://`` link clicks to ProposalGateway."""
+        if url.scheme() != "mutation":
+            return
+        host_part = url.host()
+        path_part = url.path().lstrip("/")
+        try:
+            audit_id = int(host_part)
+        except (TypeError, ValueError):
+            return
+        action = path_part.lower()
+        if action not in ("accept", "reject"):
+            return
+        accepted = action == "accept"
+        try:
+            self.proposal_gateway.resolve_decision(audit_id, accepted)
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: resolve_decision failed"
+            )
+            return
+        status = "✓ Akzeptiert" if accepted else "✗ Abgelehnt"
+        color = "#50fa7b" if accepted else "#ff5555"
+        self._append_html(
+            f'<div style="margin: 2px 24px; color: {color}; font-size: 9pt;">'
+            f'{status} (#audit_{audit_id})</div>'
+        )
 
     @staticmethod
     def _escape_html(text: str) -> str:

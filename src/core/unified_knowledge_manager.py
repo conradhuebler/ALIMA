@@ -221,6 +221,22 @@ class UnifiedKnowledgeManager:
                 )
             """)
 
+            # 5. Chat mutations audit log (P-ε) — Claude Generated
+            # Tri-state `accepted`: TRUE=applied, FALSE=rejected, NULL=pending.
+            self.db_manager.execute_query(f"""
+                CREATE TABLE IF NOT EXISTS chat_mutations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id {dialect.varchar_type(64)} NOT NULL,
+                    tool_name {dialect.varchar_type(128)} NOT NULL,
+                    operation {dialect.varchar_type(64)} NOT NULL,
+                    payload_json {dialect.text_type(db_type)} NOT NULL,
+                    accepted BOOLEAN,
+                    reject_reason {dialect.text_type(db_type)},
+                    created_at {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
+                    applied_at {dialect.timestamp_type(db_type)}
+                )
+            """)
+
             # Create indexes for performance
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_normalized ON search_mappings(normalized_term)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_term ON search_mappings(search_term)")
@@ -229,6 +245,8 @@ class UnifiedKnowledgeManager:
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_type ON classifications(type)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_normalized ON catalog_dk_cache(normalized_term)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_updated ON catalog_dk_cache(last_updated)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_chat_mutations_session ON chat_mutations(session_id)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_chat_mutations_created ON chat_mutations(created_at)")
 
             self.logger.info(f"Unified knowledge database schema initialized ({db_type})")
 
@@ -1450,6 +1468,63 @@ class UnifiedKnowledgeManager:
         except Exception as e:
             self.logger.warning(f"Error searching GND by title '{keyword_text}': {e}")
             return []
+
+    # === CHAT MUTATIONS AUDIT (P-ε) — Claude Generated ===
+
+    def record_mutation_pending(
+        self,
+        session_id: str,
+        tool_name: str,
+        operation: str,
+        payload: Dict[str, Any],
+    ) -> Optional[int]:
+        """Insert a pending mutation audit row. Returns new row id (or None on error)."""
+        try:
+            import json as _json
+            self.db_manager.execute_query(
+                """
+                INSERT INTO chat_mutations
+                    (session_id, tool_name, operation, payload_json,
+                     accepted, reject_reason, created_at, applied_at)
+                VALUES (?, ?, ?, ?, NULL, NULL, CURRENT_TIMESTAMP, NULL)
+                """,
+                [session_id, tool_name, operation, _json.dumps(payload)],
+            )
+            row = self.db_manager.fetch_one(
+                "SELECT id FROM chat_mutations "
+                "WHERE session_id = ? AND tool_name = ? "
+                "ORDER BY id DESC LIMIT 1",
+                [session_id, tool_name],
+            )
+            return int(row["id"]) if row else None
+        except Exception as e:
+            self.logger.error(f"Error recording mutation pending: {e}")
+            return None
+
+    def record_mutation_outcome(
+        self,
+        audit_id: int,
+        accepted: bool,
+        reject_reason: str = "",
+    ) -> None:
+        """Update an existing audit row with the user's decision."""
+        try:
+            if accepted:
+                self.db_manager.execute_query(
+                    "UPDATE chat_mutations "
+                    "SET accepted = ?, applied_at = CURRENT_TIMESTAMP "
+                    "WHERE id = ?",
+                    [True, audit_id],
+                )
+            else:
+                self.db_manager.execute_query(
+                    "UPDATE chat_mutations "
+                    "SET accepted = ?, reject_reason = ? "
+                    "WHERE id = ?",
+                    [False, reject_reason or "", audit_id],
+                )
+        except Exception as e:
+            self.logger.error(f"Error recording mutation outcome {audit_id}: {e}")
 
     def save_to_file(self):
         """CacheManager compatibility - Claude Generated"""

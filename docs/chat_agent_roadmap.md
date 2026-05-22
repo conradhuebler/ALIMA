@@ -84,13 +84,23 @@ einzigen `PipelineChatPanel` vereint (inline im PipelineTab-Right-Splitter).
 - 4 neue Tests in `tests/test_streaming_with_tools.py`
   (`TestOllamaStreamingWithTools`); regression-Test invertiert.
 
-### P-ε — Mutation Tools (1.5 PT)
-Schreibende Operationen + Proposal-Dialog:
-- `propose_keyword_replacement(old, new, reason)`
-- `propose_dk_change(code, action='add'|'remove', reason)`
-- Mutation-Proposal-Dialog (Diff-View, Accept/Reject).
-- Audit-Log in `alima_knowledge.db.chat_mutations` Tabelle.
-- KAS-Mutations API (vorbereitet in δ.1 follow-up `adde1fa`).
+### P-ε — Mutation Tools (✅ done, 2026-05-22)
+Schreibende Operationen + Inline-Proposal-Bubble:
+- `propose_keyword_replacement(old, new, reason)` — ruft
+  `KeywordAnalysisState.apply_keyword_replacement` nach Bestätigung.
+- `propose_dk_change(code, action='add'|'remove', reason)` — ruft
+  `apply_classification_update`.
+- **Inline Chat-Bubble**: `stream_text` von `QTextEdit` auf `QTextBrowser`
+  umgestellt; `mutation://{audit_id}/{accept|reject}` Hyperlinks im Bubble,
+  Anchor-Click routet zur `ProposalGateway`.
+- **ProposalGateway** (`src/ui/chat_tools/proposal_gateway.py`) —
+  cross-thread `QSemaphore`-Bridge: Tool blockt im Worker-Thread, UI-
+  Thread emittiert/rendert/resolved, Tool unblockt mit User-Entscheidung.
+- **Audit-Log**: neue `chat_mutations` Tabelle in `alima_knowledge.db`
+  (tri-state `accepted`: pending/accepted/rejected) + Indizes.
+- **ChatConfig.autonomous_pipeline**: Header-Toggle "🤖 Autonom" schaltet
+  Bestätigung pro Session aus; persistiert via ConfigManager.
+- 17 neue Tests (`tests/test_mutation_tools.py`).
 
 ### P-ζ — Pipeline-Orchestration (2 PT)
 Chat-Agent fährt die Pipeline:
@@ -132,8 +142,8 @@ Agent holt Daten selbst:
 | `get_keywords` / `_chains` / `_dk_*` | ✅ | | | | | read |
 | `search_in_gnd_pool` / `validate_gnd_term` | ✅ | | | | | read |
 | MCP Read-Tools | ✅ | | | | | read |
-| `propose_keyword_replacement` | | ✅ | | | | mutation (Dialog) |
-| `propose_dk_change` | | ✅ | | | | mutation (Dialog) |
+| `propose_keyword_replacement` | | ✅ | | | | mutation (Inline-Bubble) |
+| `propose_dk_change` | | ✅ | | | | mutation (Inline-Bubble) |
 | `run_pipeline` | | | ✅ | | | confirm/auto |
 | `rerun_step` | | | ✅ | | | confirm/auto |
 | `fetch_doi_metadata` | | | | ✅ | | safe |

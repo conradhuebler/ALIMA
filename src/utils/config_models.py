@@ -727,6 +727,10 @@ class ChatConfig:
     no_cache_writes: bool = True
     temperature: float = 0.5
     system_prompt_override: str = ""
+    # P-ε: when True, mutation tools skip the inline confirm bubble and
+    # apply the change immediately. Destructive ops (cache writes, catalog
+    # calls with cost) still require confirmation regardless of this flag.
+    autonomous_pipeline: bool = False
 
 
 @dataclass
