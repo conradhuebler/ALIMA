@@ -394,40 +394,143 @@ class TestAgentLoopPassesShouldStop(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Test class 5: Ollama regression — stream=False preserved when tools present
+# Test class 5: Ollama streaming + tools (P-δ.5c — formerly the regression
+# test that enforced stream=False; lifted now that Ollama SDK 0.6.1 supports
+# stream=True with tools, emitting tool_calls atomically on the final chunk).
 # ---------------------------------------------------------------------------
 
-class TestOllamaStreamingRegressionWithTools(unittest.TestCase):
 
-    def test_ollama_with_tools_keeps_stream_false(self):
-        """When ollama_tools is non-empty and stream_callback is provided,
-        Ollama must still use stream=False (API limitation)."""
-        from src.llm.llm_service import LlmService
+def _make_ollama_chunk(content: str = "", tool_calls=None, done: bool = False):
+    """Build a fake Ollama ChatResponse-shaped chunk via SimpleNamespace."""
+    msg = SimpleNamespace(content=content, tool_calls=tool_calls)
+    return SimpleNamespace(message=msg, done=done)
 
-        svc = LlmService.__new__(LlmService)
-        svc.logger = MagicMock()
-        svc._convert_messages_for_ollama = lambda m: m
 
-        captured: dict = {}
+def _make_ollama_svc(chunks_or_response):
+    """Build a minimal LlmService stub returning fake Ollama chunks (stream)
+    or a fake non-streaming response dict."""
+    from src.llm.llm_service import LlmService
 
-        class _FakeOllamaClient:
-            def chat(self_inner, **kwargs):
-                captured.update(kwargs)
-                return {"message": {"content": "ok", "tool_calls": []}}
+    svc = LlmService.__new__(LlmService)
+    svc.logger = MagicMock()
+    svc._convert_messages_for_ollama = lambda m: m
+    captured: dict = {}
 
-        svc.clients = {"fake": _FakeOllamaClient()}
+    class _FakeOllamaClient:
+        def chat(self_inner, **kwargs):
+            captured.update(kwargs)
+            if kwargs.get("stream"):
+                return iter(chunks_or_response)
+            return chunks_or_response
 
-        svc._generate_ollama_native_with_tools(
+    svc.clients = {"fake": _FakeOllamaClient()}
+    return svc, captured
+
+
+class TestOllamaStreamingWithTools(unittest.TestCase):
+
+    def _call(self, svc, tools, callback=None, should_stop=None):
+        return svc._generate_ollama_native_with_tools(
             provider="fake", model="cogito:14b",
             messages=[{"role": "user", "content": "hi"}],
-            tools=[{"name": "t", "description": "", "parameters": {}}],
+            tools=tools,
             temperature=0.7, top_p=0.9, max_tokens=256,
-            stream_callback=lambda t: None,
+            stream_callback=callback,
+            should_stop=should_stop,
         )
-        self.assertFalse(
-            captured.get("stream", False),
-            "Ollama must use stream=False when tools are present",
+
+    def test_ollama_with_tools_streams_true_and_passes_tools(self):
+        """P-δ.5c: stream_callback set → stream=True even when tools present,
+        tools must be forwarded to the SDK call."""
+        chunks = [
+            _make_ollama_chunk(content="hi", done=False),
+            _make_ollama_chunk(done=True),
+        ]
+        svc, captured = _make_ollama_svc(chunks)
+        self._call(
+            svc,
+            tools=[{"name": "t", "description": "", "parameters": {}}],
+            callback=lambda t: None,
         )
+        self.assertTrue(
+            captured.get("stream"),
+            "Ollama must use stream=True when stream_callback provided",
+        )
+        self.assertIsNotNone(
+            captured.get("tools"),
+            "tools must be forwarded to the SDK call alongside stream=True",
+        )
+
+    def test_ollama_streaming_with_tools_streams_content(self):
+        """Text tokens are delivered via callback while tools are in request."""
+        tokens: list = []
+        chunks = [
+            _make_ollama_chunk(content="Hello"),
+            _make_ollama_chunk(content=" "),
+            _make_ollama_chunk(content="world"),
+            _make_ollama_chunk(done=True),
+        ]
+        svc, _ = _make_ollama_svc(chunks)
+        resp = self._call(
+            svc,
+            tools=[{"name": "t", "description": "", "parameters": {}}],
+            callback=tokens.append,
+        )
+        self.assertEqual(tokens, ["Hello", " ", "world"])
+        self.assertEqual(resp.content, "Hello world")
+        self.assertEqual(resp.tool_calls, [])
+        self.assertEqual(resp.stop_reason, StopReason.END_TURN)
+
+    def test_ollama_streaming_with_tools_captures_final_tool_calls(self):
+        """tool_calls are extracted from the final (done=True) chunk."""
+        chunks = [
+            _make_ollama_chunk(content="searching..."),
+            _make_ollama_chunk(
+                tool_calls=[
+                    SimpleNamespace(function=SimpleNamespace(
+                        name="search_gnd", arguments={"query": "test"}
+                    ))
+                ],
+                done=True,
+            ),
+        ]
+        svc, _ = _make_ollama_svc(chunks)
+        resp = self._call(
+            svc,
+            tools=[{"name": "search_gnd", "description": "", "parameters": {}}],
+            callback=lambda t: None,
+        )
+        self.assertEqual(len(resp.tool_calls), 1)
+        self.assertEqual(resp.tool_calls[0].name, "search_gnd")
+        self.assertEqual(resp.tool_calls[0].arguments, {"query": "test"})
+        self.assertEqual(resp.stop_reason, StopReason.TOOL_USE)
+
+    def test_ollama_should_stop_per_chunk_cancels(self):
+        """should_stop checked per chunk → cancel returns CANCELLED."""
+        chunks = [
+            _make_ollama_chunk(content="part1"),
+            _make_ollama_chunk(content="part2"),
+            _make_ollama_chunk(content="part3"),
+            _make_ollama_chunk(done=True),
+        ]
+        svc, _ = _make_ollama_svc(chunks)
+        call_count = {"n": 0}
+
+        def stopper():
+            call_count["n"] += 1
+            return call_count["n"] >= 2  # cancel after first chunk processed
+
+        tokens: list = []
+        resp = self._call(
+            svc,
+            tools=[{"name": "t", "description": "", "parameters": {}}],
+            callback=tokens.append,
+            should_stop=stopper,
+        )
+        self.assertEqual(resp.stop_reason, StopReason.CANCELLED)
+        # Streamed content collected before cancel must be preserved.
+        self.assertEqual(resp.content, "part1")
+        self.assertLess(len(tokens), 3, "stream should abort before all chunks consumed")
 
 
 if __name__ == "__main__":

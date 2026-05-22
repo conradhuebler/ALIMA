@@ -72,6 +72,18 @@ einzigen `PipelineChatPanel` vereint (inline im PipelineTab-Right-Splitter).
   TODO P-δ.5c: re-evaluate.
 - 17 neue Tests grün (252 passed, 1 skipped gesamt).
 
+### P-δ.5c — Ollama Streaming + Cancel (✅ done, 2026-05-22)
+- **Ollama**: Restriktion aufgehoben — Ollama SDK 0.6.1 unterstützt
+  `Client.chat(stream=True, tools=[...])`. Text-Tokens streamen live via
+  `message.content` pro Chunk; `tool_calls` werden atomar auf dem finalen
+  `done=True`-Chunk eingesammelt (keine Delta-Akkumulation nötig).
+- **Per-Chunk Cancel**: `should_stop` wird in der Stream-Schleife geprüft
+  → Cancel-Latenz Ollama jetzt < 1 Chunk (vorher: 1 LLM-Generation).
+- **Helper `_extract_tool_calls`**: dict/attr-safe ToolCall-Konstruktion
+  für Pydantic-Models *und* dict-Returns (Test-Doubles).
+- 4 neue Tests in `tests/test_streaming_with_tools.py`
+  (`TestOllamaStreamingWithTools`); regression-Test invertiert.
+
 ### P-ε — Mutation Tools (1.5 PT)
 Schreibende Operationen + Proposal-Dialog:
 - `propose_keyword_replacement(old, new, reason)`
@@ -138,16 +150,18 @@ Agent holt Daten selbst:
 Tool-Call-Deltas werden akkumuliert. `_generate_openai_with_tools` verwendet
 jetzt immer `stream=True` wenn `stream_callback` gesetzt ist.
 
-**Ollama**: API-Limit — kein Streaming mit Tools möglich. `stream=False`
-bleibt. TODO P-δ.5c: re-evaluate.
+**Behoben für Ollama in P-δ.5c**: Ollama SDK 0.6.1 unterstützt
+`stream=True` mit `tools=[...]`. Text streamt per Chunk, `tool_calls`
+werden atomar vom finalen `done=True`-Chunk übernommen.
 
 **Anthropic / Gemini**: Deferred. Weiterhin `stream=False` mit Tools.
 
 ### Cancel-Latenz
-**Verbessert in P-δ.5b**: `should_stop` wird jetzt an `generate_with_tools`
-übergeben. OpenAI: per-Chunk-Check → sub-Sekunde. Ollama/Anthropic/Gemini:
-post-blocking-call-Check → 1 LLM-Generation (vorher: 1 volle Iteration).
-Mid-token-Abbruch bei Ollama/Anthropic/Gemini nicht möglich (blocking API).
+**Verbessert in P-δ.5b + P-δ.5c**: `should_stop` wird an
+`generate_with_tools` übergeben. OpenAI + Ollama: per-Chunk-Check →
+sub-Sekunde. Anthropic/Gemini/Fallback: post-blocking-call-Check →
+1 LLM-Generation (vorher: 1 volle Iteration). Mid-token-Abbruch bei
+Anthropic/Gemini nicht möglich (blocking API).
 
 ### Kein Permissions-Audit
 Heute hat Chat-Agent denselben DB-Access wie Pipeline-Worker. Für

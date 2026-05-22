@@ -2560,30 +2560,64 @@ class LlmService(QObject):
         if seed is not None:
             options["seed"] = seed
 
-        # Ollama SDK does not expose tool-call deltas in streamed chunks (API limitation).
-        # Streaming safe only for text-only responses (ollama_tools empty).
-        # TODO P-δ.5c: re-evaluate when Ollama SDK documents streaming + tools.
-        use_streaming = stream_callback is not None and not ollama_tools
+        # P-δ.5c: Ollama SDK 0.6.1 accepts stream=True with tools=[...].
+        # Text content streams per chunk via message.content; tool_calls
+        # arrive as a complete array on the final (done=True) chunk — no
+        # delta-accumulation needed (unlike OpenAI).
+        use_streaming = stream_callback is not None
+
+        def _extract_tool_calls(raw: list) -> List[ToolCall]:
+            out: List[ToolCall] = []
+            for i, tc in enumerate(raw or []):
+                if isinstance(tc, dict):
+                    func = tc.get("function") or {}
+                    name = func.get("name", "") or ""
+                    args = func.get("arguments", {}) or {}
+                else:
+                    func = getattr(tc, "function", None)
+                    name = getattr(func, "name", "") or ""
+                    args = getattr(func, "arguments", {}) or {}
+                out.append(ToolCall(
+                    id=f"ollama_{i}_{name or 'unknown'}",
+                    name=name,
+                    arguments=args,
+                ))
+            return out
 
         try:
             if use_streaming:
                 response_stream = self.clients[provider].chat(
                     model=model,
                     messages=ollama_messages,
+                    tools=ollama_tools if ollama_tools else None,
                     options=options,
                     stream=True,
                 )
                 content = ""
+                tool_calls_raw: list = []
                 for chunk in response_stream:
-                    token = ""
+                    if should_stop and should_stop():
+                        return AgentResponse(
+                            content=content,
+                            tool_calls=[],
+                            stop_reason=StopReason.CANCELLED,
+                        )
                     if isinstance(chunk, dict):
-                        token = (chunk.get("message") or {}).get("content", "") or ""
-                    elif hasattr(chunk, "message"):
-                        token = getattr(chunk.message, "content", "") or ""
-                    if token:
-                        content += token
-                        stream_callback(token)
-                tool_calls = []
+                        msg = chunk.get("message") or {}
+                        text = msg.get("content", "") if isinstance(msg, dict) else ""
+                        tcs = msg.get("tool_calls") if isinstance(msg, dict) else None
+                    else:
+                        msg = getattr(chunk, "message", None)
+                        text = getattr(msg, "content", "") if msg is not None else ""
+                        tcs = getattr(msg, "tool_calls", None) if msg is not None else None
+                    if text:
+                        content += text
+                        stream_callback(text)
+                    if tcs:
+                        # Final chunk overwrites prior captures — Ollama emits
+                        # the complete array once on done=True.
+                        tool_calls_raw = list(tcs)
+                tool_calls = _extract_tool_calls(tool_calls_raw)
             else:
                 response = self.clients[provider].chat(
                     model=model,
@@ -2597,14 +2631,8 @@ class LlmService(QObject):
                 if "message" in response:
                     msg = response["message"]
                     content = msg.get("content", "") or ""
-                    if "tool_calls" in msg and msg["tool_calls"]:
-                        for i, tc in enumerate(msg["tool_calls"]):
-                            func = tc.get("function", {})
-                            tool_calls.append(ToolCall(
-                                id=f"ollama_{i}_{func.get('name', 'unknown')}",
-                                name=func.get("name", ""),
-                                arguments=func.get("arguments", {}),
-                            ))
+                    if msg.get("tool_calls"):
+                        tool_calls = _extract_tool_calls(msg["tool_calls"])
 
             if should_stop and should_stop():
                 return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
