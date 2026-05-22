@@ -177,7 +177,29 @@ class PipelineChatPanel(QWidget):
         "  keine Begriffe als 'GND-Vorschläge'. Markiere eigene Vorschläge\n"
         "  explizit als unverifiziert.\n"
         "- Halluzinationen kosten Vertrauen. Lieber kurz und korrekt als\n"
-        "  ausführlich und erfunden."
+        "  ausführlich und erfunden.\n\n"
+        "Katalog-, GND- und DK-Suchen (zwingend):\n"
+        "- Wenn der Nutzer nach Titeln per Schlagwort oder Stichwort sucht,\n"
+        "  nutze direkt `search_catalog` oder `search_catalog_titles`.\n"
+        "- Wenn der Nutzer GND-Sachbegriffe oder -IDs sucht, nutze direkt\n"
+        "  `search_gnd` oder `search_lobid`.\n"
+        "- Wenn der Nutzer DK-Codes oder Klassifikationen sucht, nutze\n"
+        "  direkt `get_classification` oder `get_dk_cache`.\n"
+        "- Nutze NIEMALS nur `list_pipeline_results` oder `get_keywords`\n"
+        "  als Antwort auf Katalog-/GND-/DK-Anfragen. Greife direkt auf\n"
+        "  die Bibliotheks-Tools zu.\n\n"
+        "Offene Eingaben:\n"
+        "- Wenn der Nutzer nur ein einzelnes Stichwort schreibt (z.B.\n"
+        "  'Quantenchemie') OHNE vorherigen Kontext UND ohne Verb/Frage,\n"
+        "  dann frage zurück, was zu tun ist.\n"
+        "- WENN es einen vorherigen Kontext gibt (z.B. gerade über\n"
+        "  'Quantenchemie' gesprochen) und der Nutzer schreibt dann kurze\n"
+        "  Bezugswörter wie 'Bücher', 'Titel', 'Suchen', 'GND', 'DK',\n"
+        "  dann ist das ein elliptischer Auftrag — führe die passende\n"
+        "  Aktion direkt aus (z.B. search_catalog_titles mit dem vorherigen\n"
+        "  Thema). Frage NICHT nochmal nach.\n"
+        "- Rufe NIEMALS eigenmächtig Tools auf, wenn der Nutzer keinen\n"
+        "  klaren Auftrag gegeben hat UND kein vorheriger Kontext existiert."
     )
 
     USER_PROMPT_TEMPLATE = (
@@ -211,6 +233,10 @@ class PipelineChatPanel(QWidget):
         self.llm_service = llm_service
         self.prompt_service = prompt_service
         self.pipeline_manager = pipeline_manager
+        if mcp_registry is None:
+            from src.mcp.tool_registry import ToolRegistry
+            mcp_registry = ToolRegistry()
+            mcp_registry.register_all_tools()
         self.mcp_registry = mcp_registry
 
         # Pipeline-side state
@@ -1432,7 +1458,6 @@ class PipelineChatPanel(QWidget):
 
         self._append_user_message(text)
         self.input_field.clear()
-        self.session.append("user", text)
 
         user_prompt = self.USER_PROMPT_TEMPLATE.format(
             context=self.current_context,
@@ -1483,6 +1508,7 @@ class PipelineChatPanel(QWidget):
             model=model,
             temperature=getattr(chat_config, "temperature", 0.5),
             max_iterations=getattr(chat_config, "max_iterations", 10),
+            history=list(self.session.messages[-6:]),
         )
         self.current_worker.token_received.connect(self._on_token)
         self.current_worker.status_message.connect(self._on_status_message)
@@ -1535,14 +1561,15 @@ class PipelineChatPanel(QWidget):
     @pyqtSlot(object)
     def _on_finished(self, result):
         try:
+            # Merge full conversation (user + tool calls + tool results + assistant)
+            for msg in getattr(result, "messages", []) or []:
+                self.session.messages.append(dict(msg))
             final = getattr(result, "content", "") or ""
-            if final:
-                self.session.append("assistant", final)
-                if not self._assistant_block_open:
-                    self._hide_typing()
-                    self._open_assistant_message(self._current_render_model)
-                    self._assistant_block_open = True
-                    self._append_assistant_token(final)
+            if final and not self._assistant_block_open:
+                self._hide_typing()
+                self._open_assistant_message(self._current_render_model)
+                self._assistant_block_open = True
+                self._append_assistant_token(final)
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: failed to append assistant turn"

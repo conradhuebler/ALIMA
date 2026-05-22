@@ -34,14 +34,15 @@ class GetKeywordsTool(BaseChatTool):
         "Fetch keywords from the current pipeline run. "
         "`kind` picks the source: 'initial' (user input), "
         "'extracted' (LLM extraction result), 'selected' (curated, "
-        "GND-resolved), 'final' (curated final list from extra.final_keywords)."
+        "GND-resolved), 'gnd' (GND search-result titles from Phase 2), "
+        "'final' (curated final list from extra.final_keywords)."
     )
     parameters_schema = {
         "type": "object",
         "properties": {
             "kind": {
                 "type": "string",
-                "enum": ["initial", "extracted", "selected", "final"],
+                "enum": ["initial", "extracted", "selected", "gnd", "final"],
             },
         },
         "required": ["kind"],
@@ -55,6 +56,7 @@ class GetKeywordsTool(BaseChatTool):
             ctx.initial_keywords
             or ctx.extracted_keywords
             or ctx.selected_keywords
+            or ctx.gnd_entries
             or (ctx.extra or {}).get("final_keywords")
         )
 
@@ -68,13 +70,15 @@ class GetKeywordsTool(BaseChatTool):
             payload = ctx.extracted_keywords
         elif kind == "selected":
             payload = ctx.selected_keywords
+        elif kind == "gnd":
+            payload = [e.get("title", "") for e in ctx.gnd_entries if e.get("title")]
         elif kind == "final":
             payload = (ctx.extra or {}).get("final_keywords") or []
         else:
             return json.dumps(
                 {
                     "error": f"Unknown kind: {kind!r}",
-                    "allowed": ["initial", "extracted", "selected", "final"],
+                    "allowed": ["initial", "extracted", "selected", "gnd", "final"],
                 }
             )
         return json.dumps(
@@ -101,6 +105,53 @@ class GetKeywordChainsTool(BaseChatTool):
         chains = ctx.keyword_chains if ctx else []
         return json.dumps(
             {"count": len(chains), "chains": chains},
+            ensure_ascii=False,
+            default=str,
+        )
+
+
+class GetGndEntriesTool(BaseChatTool):
+    name = "get_gnd_entries"
+    description = (
+        "Return ALL GND entries from the Phase 2 catalog search. "
+        "Each entry has title, gnd_id, gnd_ids, ddc_codes. "
+        "Use this when you need the complete GND result set, not just "
+        "a substring search."
+    )
+    parameters_schema = {"type": "object", "properties": {}}
+
+    def available_for(self, session: Any) -> bool:
+        ctx = _ctx(session)
+        return bool(ctx and ctx.gnd_entries)
+
+    def execute(self, session: Any, **_: Any) -> str:
+        ctx = _ctx(session)
+        entries = ctx.gnd_entries if ctx else []
+        return json.dumps(
+            {"count": len(entries), "entries": entries},
+            ensure_ascii=False,
+            default=str,
+        )
+
+
+class GetGndEntriesPerKeywordTool(BaseChatTool):
+    name = "get_gnd_entries_per_keyword"
+    description = (
+        "Return the mapping of original search terms to GND titles "
+        "from Phase 2 catalog search. Shows which GND results belong "
+        "to which query keyword."
+    )
+    parameters_schema = {"type": "object", "properties": {}}
+
+    def available_for(self, session: Any) -> bool:
+        ctx = _ctx(session)
+        return bool(ctx and ctx.gnd_entries_per_keyword)
+
+    def execute(self, session: Any, **_: Any) -> str:
+        ctx = _ctx(session)
+        mapping = ctx.gnd_entries_per_keyword if ctx else {}
+        return json.dumps(
+            {"count": len(mapping), "mapping": mapping},
             ensure_ascii=False,
             default=str,
         )
@@ -379,6 +430,8 @@ def alima_tools(mcp_registry: Any = None) -> List[BaseChatTool]:
     return [
         GetKeywordsTool(),
         GetKeywordChainsTool(),
+        GetGndEntriesTool(),
+        GetGndEntriesPerKeywordTool(),
         GetDkClassificationsTool(),
         GetDkTitlesForCodeTool(),
         GetChunkResponseTool(),

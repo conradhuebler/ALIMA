@@ -278,3 +278,4 @@ class AgentResult:
     iterations: int = 0
     tokens_used: int = 0
     agent_name: str = ""
+    messages: List[Dict[str, Any]] = field(default_factory=list)  # full conversation including tool calls

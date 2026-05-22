@@ -70,6 +70,7 @@ class AgentLoop:
         top_p: float = 0.9,
         max_tokens: int = 4096,
         seed: Optional[int] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResult:
         """
         Execute a full agent run with tool-calling loop.
@@ -84,6 +85,7 @@ class AgentLoop:
             top_p: Top-p sampling
             max_tokens: Max tokens per LLM call
             seed: Optional sampling seed for reproducibility (None = non-deterministic)
+            conversation_history: Previous user/assistant/tool messages to prepend.
 
         Returns:
             AgentResult with final content, tool log, and iteration count
@@ -95,11 +97,17 @@ class AgentLoop:
         else:
             tool_schemas = self.tool_registry.get_tool_schemas(tools if tools else None)
 
-        # Build initial messages
+        # Build initial messages: system + prior history + current user prompt
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
         ]
+        if conversation_history:
+            for msg in conversation_history:
+                role = msg.get("role", "")
+                if role in ("user", "assistant", "tool"):
+                    messages.append(dict(msg))
+        history_len = len(messages)  # offset before new user prompt
+        messages.append({"role": "user", "content": user_prompt})
 
         tool_log: List[Dict[str, Any]] = []
         tool_call_counter = Counter()  # Track repeated tool calls
@@ -251,6 +259,8 @@ class AgentLoop:
 
             # Case 2: LLM returned final text (no tool calls)
             final_content = response.content
+            if final_content:
+                messages.append({"role": "assistant", "content": final_content})
             if self._status_cb and final_content and self.max_iterations > 1:
                 self._status_cb(f"\n✅ Fertig nach {iteration} Tool-Calls\n")
             logger.info(f"Agent completed after {iteration} tool-calls")
@@ -277,14 +287,19 @@ class AgentLoop:
                         seed=seed,
                     )
                     final_content = forced.content
+                    if final_content:
+                        messages.append({"role": "assistant", "content": final_content})
                 except Exception:
                     final_content = "Agent reached maximum iterations without conclusion."
 
+        # Extract only messages added during this run (new user prompt + tool calls + assistant)
+        conv = [dict(m) for m in messages[history_len:]] if messages else []
         return AgentResult(
             content=final_content,
             tool_log=tool_log,
             iterations=min(iteration, self.max_iterations) if 'iteration' in dir() else 0,
             tokens_used=0,  # TODO: Track from provider responses
+            messages=conv,
         )
 
     def _get_tool_type_label(self, tool_name: str) -> str:

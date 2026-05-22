@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -52,6 +52,7 @@ class ChatAgentWorker(QThread):
         max_iterations: int = 10,
         seed: Optional[int] = None,
         tools: Optional[list] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
         parent: Any = None,
     ) -> None:
         super().__init__(parent)
@@ -70,6 +71,7 @@ class ChatAgentWorker(QThread):
         # tools=[]   ⇒ AgentLoop returns all registered tools.
         # We default to "all", matching the chat-tools registry contract.
         self._tools = tools if tools is not None else []
+        self._history = history
         self._stop_event = threading.Event()
 
     def request_stop(self) -> None:
@@ -129,6 +131,7 @@ class ChatAgentWorker(QThread):
                 top_p=self._top_p,
                 max_tokens=self._max_tokens,
                 seed=self._seed,
+                conversation_history=self._history,
             )
             self.generation_finished.emit(result)
         except Exception as exc:

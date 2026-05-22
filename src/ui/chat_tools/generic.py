@@ -117,7 +117,10 @@ class GetStepResultTool(BaseChatTool):
 
 class GetMessagesHistoryTool(BaseChatTool):
     name = "get_messages_history"
-    description = "Return the last N chat turns from the current session."
+    description = (
+        "Return chat history from the current session. Supports pagination: "
+        "use `last_n` for recent turns, `offset` to skip from the start."
+    )
     parameters_schema = {
         "type": "object",
         "properties": {
@@ -125,7 +128,13 @@ class GetMessagesHistoryTool(BaseChatTool):
                 "type": "integer",
                 "description": "How many recent turns to return (default 5).",
                 "minimum": 1,
-                "maximum": 100,
+                "maximum": 200,
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Skip this many turns from the start of history. Use to paginate older messages.",
+                "default": 0,
+                "minimum": 0,
             },
         },
     }
@@ -133,12 +142,26 @@ class GetMessagesHistoryTool(BaseChatTool):
     def available_for(self, session: Any) -> bool:
         return bool(getattr(session, "messages", None))
 
-    def execute(self, session: Any, last_n: int = 5, **_: Any) -> str:
+    def execute(self, session: Any, last_n: int = 5, offset: int = 0, **_: Any) -> str:
         messages = getattr(session, "messages", []) or []
+        total = len(messages)
         if last_n < 1:
             last_n = 1
-        slice_ = messages[-last_n:]
-        return json.dumps({"count": len(slice_), "messages": slice_}, ensure_ascii=False)
+        if offset < 0:
+            offset = 0
+        start = offset
+        end = min(offset + last_n, total)
+        slice_ = messages[start:end]
+        return json.dumps(
+            {
+                "count": len(slice_),
+                "total": total,
+                "offset": offset,
+                "has_more": end < total,
+                "messages": slice_,
+            },
+            ensure_ascii=False,
+        )
 
 
 def generic_tools() -> List[BaseChatTool]:
