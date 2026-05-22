@@ -624,6 +624,23 @@ class LlmService(QObject):
 
             self.logger.warning(f"🔄 PROVIDER_MAPPING: No available ollama providers found for 'ollama'")
 
+        elif provider == "openai_compatible":
+            # "openai_compatible" is a provider-type string, not a real provider name.
+            # Map to the first initialized provider that uses the OpenAI-compatible generator.
+            for name, info in self.supported_providers.items():
+                if (info.get('generator') == self._generate_openai_compatible
+                        and name in self.clients
+                        and self.clients[name] != "lazy_uninitialized"):
+                    self.logger.debug(f"🔄 PROVIDER_MAPPING: 'openai_compatible' → '{name}'")
+                    return name
+            # Try lazy-init if not yet initialized
+            for name, info in self.supported_providers.items():
+                if (info.get('generator') == self._generate_openai_compatible
+                        and name in self.clients):
+                    self.logger.debug(f"🔄 PROVIDER_MAPPING: 'openai_compatible' → '{name}' (lazy)")
+                    return name
+            self.logger.warning("🔄 PROVIDER_MAPPING: No available openai_compatible providers found")
+
         return provider  # Return original if no mapping needed
 
     def get_preferred_ollama_provider(self) -> Optional[str]:
@@ -2436,6 +2453,7 @@ class LlmService(QObject):
         max_tokens: int = 4096,
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
         """
         Generate a response with tool-calling support - Claude Generated
@@ -2481,25 +2499,30 @@ class LlmService(QObject):
 
         if generator_func == self._generate_ollama_native:
             return self._generate_ollama_native_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
+                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                should_stop=should_stop,
             )
         elif generator_func == self._generate_openai_compatible:
             return self._generate_openai_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
+                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                should_stop=should_stop,
             )
         elif generator_func == self._generate_anthropic:
             # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
             return self._generate_anthropic_with_tools(
-                model, messages, tools, temperature, top_p, max_tokens, stream_callback
+                model, messages, tools, temperature, top_p, max_tokens, stream_callback,
+                should_stop=should_stop,
             )
         elif generator_func == self._generate_gemini:
             return self._generate_gemini_with_tools(
-                model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
+                model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                should_stop=should_stop,
             )
         else:
             # Fallback: simulate tool-calling via text for unsupported providers
             return self._generate_text_fallback_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
+                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                should_stop=should_stop,
             )
 
     def _generate_ollama_native_with_tools(
@@ -2513,6 +2536,7 @@ class LlmService(QObject):
         max_tokens: int,
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
         """Tool-calling via Ollama native client - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2536,8 +2560,9 @@ class LlmService(QObject):
         if seed is not None:
             options["seed"] = seed
 
-        # Stream token-by-token when no tools are active (most agentic steps have tools=[]).
-        # Tool-calling requires stream=False because partial tool-call JSON can't be parsed live.
+        # Ollama SDK does not expose tool-call deltas in streamed chunks (API limitation).
+        # Streaming safe only for text-only responses (ollama_tools empty).
+        # TODO P-δ.5c: re-evaluate when Ollama SDK documents streaming + tools.
         use_streaming = stream_callback is not None and not ollama_tools
 
         try:
@@ -2581,6 +2606,9 @@ class LlmService(QObject):
                                 arguments=func.get("arguments", {}),
                             ))
 
+            if should_stop and should_stop():
+                return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
+
             stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
 
@@ -2599,6 +2627,7 @@ class LlmService(QObject):
         max_tokens: int,
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
         """Tool-calling via OpenAI-compatible API - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2618,7 +2647,10 @@ class LlmService(QObject):
         # Convert messages to OpenAI format
         openai_messages = self._convert_messages_for_openai(messages)
 
-        use_streaming = stream_callback is not None and not openai_tools
+        # P-δ.5b: Stream text tokens even when tools are present. OpenAI API supports
+        # tool-call deltas (delta.tool_calls[i].function.arguments) which we accumulate
+        # across chunks and parse only once the stream ends.
+        use_streaming = stream_callback is not None
 
         try:
             if use_streaming:
@@ -2632,17 +2664,68 @@ class LlmService(QObject):
                 }
                 if seed is not None:
                     params["seed"] = seed
+                if openai_tools:
+                    params["tools"] = openai_tools
                 response_stream = self.clients[provider].chat.completions.create(**params)
+
                 content = ""
+                # index → {"id": str, "name": str, "arguments": str}
+                tool_acc: dict = {}
+                finish_reason = None
+
                 for chunk in response_stream:
-                    token = ""
-                    if chunk.choices and chunk.choices[0].delta:
-                        token = chunk.choices[0].delta.content or ""
-                    if token:
-                        content += token
-                        stream_callback(token)
+                    if should_stop and should_stop():
+                        try:
+                            response_stream.close()
+                        except Exception:
+                            pass
+                        return AgentResponse(
+                            content=content,
+                            tool_calls=[],
+                            stop_reason=StopReason.CANCELLED,
+                        )
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    finish_reason = chunk.choices[0].finish_reason or finish_reason
+
+                    if delta.content:
+                        content += delta.content
+                        stream_callback(delta.content)
+
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            if idx not in tool_acc:
+                                tool_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc_delta.id:
+                                tool_acc[idx]["id"] = tc_delta.id
+                            if tc_delta.function:
+                                if tc_delta.function.name:
+                                    tool_acc[idx]["name"] += tc_delta.function.name
+                                if tc_delta.function.arguments:
+                                    tool_acc[idx]["arguments"] += tc_delta.function.arguments
+
                 tool_calls = []
-                stop_reason = StopReason.END_TURN
+                for idx in sorted(tool_acc.keys()):
+                    acc = tool_acc[idx]
+                    raw = acc["arguments"]
+                    try:
+                        args = json.loads(raw) if raw else {}
+                    except json.JSONDecodeError:
+                        args = {"raw": raw}
+                    tool_calls.append(ToolCall(
+                        id=acc["id"] or f"openai_{idx}",
+                        name=acc["name"],
+                        arguments=args,
+                    ))
+
+                if finish_reason == "length":
+                    stop_reason = StopReason.MAX_TOKENS
+                elif tool_calls:
+                    stop_reason = StopReason.TOOL_USE
+                else:
+                    stop_reason = StopReason.END_TURN
             else:
                 params = {
                     "model": model,
@@ -2658,6 +2741,9 @@ class LlmService(QObject):
                     params["tools"] = openai_tools
 
                 response = self.clients[provider].chat.completions.create(**params)
+
+                if should_stop and should_stop():
+                    return AgentResponse(content="", tool_calls=[], stop_reason=StopReason.CANCELLED)
 
                 content = response.choices[0].message.content or ""
                 tool_calls = []
@@ -2675,7 +2761,6 @@ class LlmService(QObject):
                             name=tc.function.name,
                             arguments=args,
                         ))
-
 
                 stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
                 if response.choices[0].finish_reason == "length":
@@ -2696,6 +2781,7 @@ class LlmService(QObject):
         top_p: float,
         max_tokens: int,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
         """Tool-calling via Anthropic API - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2768,6 +2854,9 @@ class LlmService(QObject):
                     ))
 
 
+            if should_stop and should_stop():
+                return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
+
             if response.stop_reason == "tool_use":
                 stop_reason = StopReason.TOOL_USE
             elif response.stop_reason == "max_tokens":
@@ -2791,6 +2880,7 @@ class LlmService(QObject):
         max_tokens: int,
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
         """Tool-calling via Google Gemini API - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2875,6 +2965,9 @@ class LlmService(QObject):
                         ))
 
 
+            if should_stop and should_stop():
+                return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
+
             stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
 
@@ -2893,6 +2986,7 @@ class LlmService(QObject):
         max_tokens: int,
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
         """
         Fallback for providers without native tool-calling - Claude Generated
@@ -2975,6 +3069,9 @@ class LlmService(QObject):
                         content = content.strip()
             except (json.JSONDecodeError, KeyError):
                 pass
+
+            if should_stop and should_stop():
+                return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
 
             stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
             return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)

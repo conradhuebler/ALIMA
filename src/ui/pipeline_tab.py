@@ -506,18 +506,19 @@ class PipelineTab(QWidget):
                     if hasattr(task_data, 'model_priority') and task_data.model_priority:
                         first_pref = task_data.model_priority[0]
                         if isinstance(first_pref, dict):
-                            provider = first_pref.get('provider_name', 'openai_compatible')
-                            model = first_pref.get('model_name', 'gpt-4')
+                            provider = first_pref.get('provider_name', '')
+                            model = first_pref.get('model_name', '')
                         else:
-                            provider = getattr(first_pref, 'provider_name', 'openai_compatible')
-                            model = getattr(first_pref, 'model_name', 'gpt-4')
+                            provider = getattr(first_pref, 'provider_name', '')
+                            model = getattr(first_pref, 'model_name', '')
                         self.logger.debug(f"Loaded task preference for {task_name}: {provider}/{model}")
                         return provider, model
         except Exception as e:
             self.logger.warning(f"Could not load task preference for {task_name}: {e}")
-        
-        # Default fallback
-        return "openai_compatible", "gpt-4"
+
+        # No task preference found — return empty strings so the pipeline uses
+        # global_provider_override or the first available provider from step_configs.
+        return "", ""
 
     def create_pipeline_step_tabs(self):
         """Create pipeline step tabs - Claude Generated"""

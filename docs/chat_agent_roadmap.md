@@ -58,12 +58,19 @@ einzigen `PipelineChatPanel` vereint (inline im PipelineTab-Right-Splitter).
   Tool-Marker für agentische Pipelines.
 - 12 neue Tests grün (235 passed, 1 skipped gesamt).
 
-### P-δ.5b — Streaming + Cancel (~1 PT)
-Streaming-with-Tools aktivieren und Cancel-Latenz verringern.
-- OpenAI/Anthropic: Tool-Call-Deltas im Stream akkumulieren
-  (`llm_service.py:2591-2691` Refactor).
-- `should_stop` durch LlmService durchleiten → Cancel mid-stream.
-- Ollama: API-Limit, vermutlich nicht möglich (dokumentieren).
+### P-δ.5b — Streaming + Cancel (✅ done, 2026-05-22)
+- **OpenAI-kompatibel**: Token-Streaming auch wenn Tools im Request —
+  Text-Deltas live via `stream_callback`, Tool-Call-Deltas akkumuliert
+  (`delta.tool_calls[i].function.arguments`), nach Stream zu `ToolCall`
+  zusammengesetzt.
+- **`should_stop` durch die gesamte Aufrufkette**: `generate_with_tools` +
+  alle 5 Sub-Handler + `AgentLoop.run` leiten `should_stop` weiter.
+  OpenAI: per-Chunk-Check → Cancel-Latenz < 1 Chunk.
+  Ollama/Anthropic/Gemini/Fallback: post-blocking-call-Check → Cancel-
+  Latenz = 1 LLM-Generation (verbessert von 1 Iteration).
+- **Ollama**: API-Limit dokumentiert — kein Streaming mit Tools möglich.
+  TODO P-δ.5c: re-evaluate.
+- 17 neue Tests grün (252 passed, 1 skipped gesamt).
 
 ### P-ε — Mutation Tools (1.5 PT)
 Schreibende Operationen + Proposal-Dialog:
@@ -127,26 +134,20 @@ Agent holt Daten selbst:
 ## Known Limitations
 
 ### Streaming-with-Tools Backend-Limit
-Ollama (`llm_service.py:2541`) und OpenAI-Compatible (`:2621`)
-deaktivieren Token-Streaming, sobald Tools im Request sind:
-```python
-use_streaming = stream_callback is not None and not ollama_tools
-```
-Chat-Agent übergibt immer ein volles Toolset → Antworten kommen als
-ein Block am Ende, nicht token-weise.
+**Behoben für OpenAI-kompatibel in P-δ.5b**: Text-Tokens streamen live,
+Tool-Call-Deltas werden akkumuliert. `_generate_openai_with_tools` verwendet
+jetzt immer `stream=True` wenn `stream_callback` gesetzt ist.
 
-**Workaround heute**: Typing-Indicator (`●○○ → ●●○ → ●●●`) im
-ChatWidget zeigt Aktivität.
+**Ollama**: API-Limit — kein Streaming mit Tools möglich. `stream=False`
+bleibt. TODO P-δ.5c: re-evaluate.
 
-**Fix für P-δ.4**: Streaming aktivieren auch mit Tools. OpenAI API
-streamt Tool-Call-Deltas korrekt — Parser in
-`_generate_openai_with_tools` muss Deltas akkumulieren. Anthropic
-unterstützt `tool_use` im Stream. Für Ollama vermutlich nicht möglich
-(API-Limit).
+**Anthropic / Gemini**: Deferred. Weiterhin `stream=False` mit Tools.
 
 ### Cancel-Latenz
-`should_stop` wird nur am Iteration-Boundary geprüft. Lange LLM-
-Generierungen lassen sich nicht mid-token abbrechen. P-δ.4 polish.
+**Verbessert in P-δ.5b**: `should_stop` wird jetzt an `generate_with_tools`
+übergeben. OpenAI: per-Chunk-Check → sub-Sekunde. Ollama/Anthropic/Gemini:
+post-blocking-call-Check → 1 LLM-Generation (vorher: 1 volle Iteration).
+Mid-token-Abbruch bei Ollama/Anthropic/Gemini nicht möglich (blocking API).
 
 ### Kein Permissions-Audit
 Heute hat Chat-Agent denselben DB-Access wie Pipeline-Worker. Für

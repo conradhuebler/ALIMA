@@ -138,6 +138,7 @@ class AgentLoop:
                     max_tokens=max_tokens,
                     seed=seed,
                     stream_callback=self.stream_callback,
+                    should_stop=self.should_stop,
                 )
             except Exception as e:
                 logger.error(f"LLM call failed at tool-call {iteration}: {e}")
