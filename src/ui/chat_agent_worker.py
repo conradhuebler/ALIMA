@@ -49,7 +49,8 @@ class ChatAgentWorker(QThread):
         temperature: float = 0.5,
         top_p: float = 0.9,
         max_tokens: int = 4096,
-        max_iterations: int = 20,
+        max_iterations: int = 30,
+        timeout_seconds: int = 600,
         seed: Optional[int] = None,
         tools: Optional[list] = None,
         history: Optional[List[Dict[str, Any]]] = None,
@@ -66,6 +67,7 @@ class ChatAgentWorker(QThread):
         self._top_p = top_p
         self._max_tokens = max_tokens
         self._max_iterations = max_iterations
+        self._timeout_seconds = timeout_seconds
         self._seed = seed
         # tools=None ⇒ AgentLoop treats as "no tools";
         # tools=[]   ⇒ AgentLoop returns all registered tools.
@@ -115,6 +117,7 @@ class ChatAgentWorker(QThread):
                 llm_service=self._llm_service,
                 tool_registry=self._tool_registry,
                 max_iterations=self._max_iterations,
+                timeout_seconds=self._timeout_seconds,
                 stream_callback=self._on_stream,
                 status_callback=self._on_status,
                 on_tool_call=self._on_tool_call,

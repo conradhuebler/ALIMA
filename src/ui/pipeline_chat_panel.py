@@ -1534,7 +1534,8 @@ class PipelineChatPanel(QWidget):
             provider=provider,
             model=model,
             temperature=getattr(chat_config, "temperature", 0.5),
-            max_iterations=getattr(chat_config, "max_iterations", 20),
+            max_iterations=30,
+            timeout_seconds=getattr(chat_config, "timeout_seconds", 600),
             history=list(self.session.messages[-6:]),
         )
         self.current_worker.token_received.connect(self._on_token)
@@ -1732,6 +1733,7 @@ class PipelineChatPanel(QWidget):
         self._append_html(html)
 
     def _open_assistant_message(self, model_label: str):
+        self._current_assistant_text = ""
         cursor = self.stream_text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         if not self.stream_text.document().isEmpty():
@@ -1760,7 +1762,8 @@ class PipelineChatPanel(QWidget):
     def _append_assistant_token(self, token: str):
         if self._assistant_cell_cursor is None:
             return
-        html = self._escape_html(token).replace("\n", "<br>")
+        self._current_assistant_text += token
+        html = self._escape_html(token).replace("\n", "<br>").replace(" ", "&nbsp;")
         self._assistant_cell_cursor.insertHtml(
             f'<span style="color: #e9edef; font-size: 10pt;">{html}</span>'
         )
@@ -1768,11 +1771,28 @@ class PipelineChatPanel(QWidget):
             self.auto_scroll_to_bottom()
 
     def _finalize_assistant_message(self):
+        if self._assistant_cell_cursor is not None and getattr(self, "_current_assistant_text", ""):
+            try:
+                import markdown
+                md_html = markdown.markdown(
+                    self._current_assistant_text,
+                    extensions=["extra", "nl2br"],
+                )
+                cursor = self._assistant_cell_cursor
+                cursor.movePosition(QTextCursor.MoveOperation.Start, QTextCursor.MoveMode.MoveAnchor)
+                cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+                cursor.insertHtml(
+                    f'<span style="color: #e9edef; font-size: 10pt;">{md_html}</span>'
+                )
+            except Exception:
+                pass  # Keep raw text if markdown fails
         cursor = self.stream_text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.insertBlock(QTextBlockFormat())
         self._assistant_block_open = False
         self._assistant_cell_cursor = None
+        self._current_assistant_text = ""
         if self.auto_scroll_checkbox.isChecked():
             self.auto_scroll_to_bottom()
 

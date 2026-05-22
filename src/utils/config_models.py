@@ -723,7 +723,7 @@ class ChatConfig:
     """
     default_provider: str = ""
     default_model: str = ""
-    max_iterations: int = 10
+    max_iterations: int = 30
     no_cache_writes: bool = True
     temperature: float = 0.5
     system_prompt_override: str = ""
