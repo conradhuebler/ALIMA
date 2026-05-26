@@ -1,0 +1,47 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[ngerman]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\title{((( title | tex )))}
+\author{ALIMA -- Automatische Sacherschließung}
+\date{((( exported_at | tex )))}
+
+\begin{document}
+\maketitle
+
+((* if abstract *))
+\section*{Abstract}
+((( abstract | tex )))
+((* endif *))
+
+((* if final_keywords *))
+\section*{GND-Schlagwörter}
+\begin{itemize}[leftmargin=*]
+((* for kw in final_keywords *))
+  \item ((( kw | tex )))
+((* endfor *))
+\end{itemize}
+((* endif *))
+
+((* if classifications *))
+\section*{Klassifikationen}
+\begin{itemize}[leftmargin=*]
+((* for cls in classifications *))
+  \item ((( cls.display | tex )))
+((* endfor *))
+\end{itemize}
+((* endif *))
+
+((* if initial_keywords *))
+\section*{Ursprüngliche Schlagwörter (Pipeline-Input)}
+((( initial_keywords | join(', ') | tex )))
+((* endif *))
+
+\vfill
+\noindent\rule{\linewidth}{0.4pt}\par
+\noindent\small Session: ((( session_id | tex )))\quad Status: ((( status | tex )))
+
+\end{document}

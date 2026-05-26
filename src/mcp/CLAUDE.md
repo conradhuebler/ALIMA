@@ -7,8 +7,19 @@
 
 ## Tool Sets
 - **Knowledge tools**: Wrap `UnifiedKnowledgeManager` (search_gnd, get_gnd_entry, etc.)
-- **Library tools**: Wrap suggesters/resolvers (search_lobid, search_swb, resolve_doi)
+- **Library tools**: Wrap suggesters/resolvers (search_lobid, search_swb, resolve_doi, scrape_url, read_pdf, analyze_image)
 - **Pipeline result tools**: Access saved JSON results (list, load, extract keywords/abstract)
+- **Export tools** (P-θ): `export_results` (json/csv/tex/marc), `generate_report` (Jinja2 TeX, optional pdflatex)
+
+## Input-Beschaffung Tools (P-η)
+- `read_pdf` → `src/utils/pdf_extractor.py` (PyPDF2 + quality heuristic + optional Vision-LLM OCR fallback)
+- `analyze_image` → `src/utils/image_analyzer.py` (sync wrapper over `LlmService.generate_response(image=...)`)
+- `scrape_url` Content-Type auto-detects `application/pdf` → temp download → `read_pdf`
+
+## Export Tools (P-θ)
+- `export_results` → `src/utils/exporters.py` (loads via `load_state('latest'|filename|abspath)`)
+- `generate_report` → `src/utils/report_renderer.py` + `src/utils/report_templates/*.tex.j2`
+- Jinja2 uses custom delimiters `(((  )))` / `((* *))` to avoid LaTeX brace collision
 
 ## Integration
 - `ToolRegistry.register_all_tools()` sets up all handlers with lazy service init

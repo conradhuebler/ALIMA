@@ -246,7 +246,10 @@ RESOLVE_DOI = ToolDefinition(
 
 SCRAPE_URL = ToolDefinition(
     name="scrape_url",
-    description="Fetch a webpage and extract readable text. Removes scripts, styles, nav. Returns cleaned text and title.",
+    description=(
+        "Fetch a webpage and extract readable text. Removes scripts, styles, nav. "
+        "Auto-detects PDF Content-Type and routes to read_pdf. Returns cleaned text and title."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -254,6 +257,96 @@ SCRAPE_URL = ToolDefinition(
             "max_chars": {"type": "integer", "default": 10000, "description": "Max characters to return (truncates if longer)"},
         },
         "required": ["url"],
+    },
+)
+
+
+READ_PDF = ToolDefinition(
+    name="read_pdf",
+    description=(
+        "Extract text from a local PDF file. Reports quality assessment. "
+        "Optional LLM-OCR fallback for scanned/low-quality PDFs (requires llm_service + Vision model)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Absolute or relative path to PDF file"},
+            "max_chars": {"type": "integer", "default": 20000, "description": "Max characters to return (0 = no limit)"},
+            "ocr_fallback": {"type": "boolean", "default": False, "description": "Use Vision-LLM OCR if text-layer quality is poor (expensive)"},
+            "provider": {"type": "string", "description": "Override Vision provider for OCR fallback"},
+            "model": {"type": "string", "description": "Override Vision model for OCR fallback"},
+        },
+        "required": ["path"],
+    },
+)
+
+
+ANALYZE_IMAGE = ToolDefinition(
+    name="analyze_image",
+    description=(
+        "Run Vision LLM on a local image file. Default prompt = OCR (extract readable text). "
+        "Override prompt for book-cover / table-of-contents classification."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Absolute or relative path to image file (PNG/JPG)"},
+            "prompt": {"type": "string", "description": "Custom prompt; default = OCR extraction"},
+            "provider": {"type": "string", "description": "Vision provider (e.g. 'ollama', 'openai')"},
+            "model": {"type": "string", "description": "Vision model (e.g. 'llava', 'gpt-4o')"},
+            "temperature": {"type": "number", "default": 0.7, "description": "Sampling temperature"},
+        },
+        "required": ["path"],
+    },
+)
+
+
+EXPORT_RESULTS = ToolDefinition(
+    name="export_results",
+    description=(
+        "Export pipeline results to disk in the requested format. "
+        "Reads from a saved autosave JSON (source='latest' or filename) or absolute path."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "source": {
+                "type": "string",
+                "description": "Source spec: 'latest' (most-recent autosave), filename in autosave dir, or absolute path",
+                "default": "latest",
+            },
+            "format": {
+                "type": "string",
+                "enum": ["json", "csv", "tex", "marc"],
+                "description": "Output format. 'marc' = K10+/WinIBW catalog tags.",
+            },
+            "output_path": {"type": "string", "description": "Output file path. If omitted: derived from working_title in autosave dir."},
+            "validate_rvk": {"type": "boolean", "default": False, "description": "Live-validate RVK codes via official API (JSON only, slow)"},
+        },
+        "required": ["format"],
+    },
+)
+
+
+GENERATE_REPORT = ToolDefinition(
+    name="generate_report",
+    description=(
+        "Generate a LaTeX report from pipeline results using a Jinja2 template. "
+        "Optional pdflatex build (silent if pdflatex missing)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "default": "latest", "description": "Source spec: 'latest', filename in autosave dir, or absolute path"},
+            "template": {
+                "type": "string",
+                "enum": ["ub_freiberg", "short"],
+                "description": "Report template name",
+            },
+            "output_path": {"type": "string", "description": "Output .tex path. If omitted: derived from working_title."},
+            "build_pdf": {"type": "boolean", "default": False, "description": "Run pdflatex (two passes) after rendering"},
+        },
+        "required": ["template"],
     },
 )
 
@@ -346,6 +439,7 @@ KNOWLEDGE_TOOLS = [
 
 LIBRARY_TOOLS = [
     SEARCH_LOBID, SEARCH_SWB, SEARCH_CATALOG, SEARCH_CATALOG_TITLES, RESOLVE_DOI, SCRAPE_URL,
+    READ_PDF, ANALYZE_IMAGE,
 ]
 
 PIPELINE_RESULT_TOOLS = [
@@ -355,4 +449,6 @@ PIPELINE_RESULT_TOOLS = [
 
 WORKFLOW_TOOLS = [LIST_WORKFLOWS, GET_WORKFLOW]
 
-ALL_TOOLS = KNOWLEDGE_TOOLS + LIBRARY_TOOLS + PIPELINE_RESULT_TOOLS + WORKFLOW_TOOLS
+EXPORT_TOOLS = [EXPORT_RESULTS, GENERATE_REPORT]
+
+ALL_TOOLS = KNOWLEDGE_TOOLS + LIBRARY_TOOLS + PIPELINE_RESULT_TOOLS + WORKFLOW_TOOLS + EXPORT_TOOLS

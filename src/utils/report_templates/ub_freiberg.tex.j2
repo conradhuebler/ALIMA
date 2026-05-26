@@ -1,0 +1,66 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[ngerman]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{array}
+
+\title{ALIMA-Sacherschließungsbericht\\
+\large ((( title | tex )))}
+\author{Universitätsbibliothek -- TU Bergakademie Freiberg}
+\date{((( exported_at | tex )))}
+
+\begin{document}
+\maketitle
+
+\section{Übersicht}
+\begin{tabular}{ll}
+\textbf{Titel:} & ((( title | tex ))) \\
+\textbf{Session:} & ((( session_id | tex ))) \\
+\textbf{Status:} & ((( status | tex ))) \\
+\textbf{Exportiert:} & ((( exported_at | tex ))) \\
+\end{tabular}
+
+((* if abstract *))
+\section{Abstract}
+((( abstract | tex )))
+((* endif *))
+
+((* if initial_keywords *))
+\section{Ursprüngliche Schlagwörter}
+Die initialen Pipeline-Keywords vor der GND-Anreicherung:
+\begin{itemize}[leftmargin=*]
+((* for kw in initial_keywords *))
+  \item ((( kw | tex )))
+((* endfor *))
+\end{itemize}
+((* endif *))
+
+((* if final_keywords *))
+\section{GND-Schlagwörter}
+Nach Pipeline-Verarbeitung gegen Gemeinsame Normdatei (GND):
+\begin{itemize}[leftmargin=*]
+((* for kw in final_keywords_raw *))
+  \item ((( kw | tex )))
+((* endfor *))
+\end{itemize}
+((* endif *))
+
+((* if classifications *))
+\section{Klassifikationen (DK/RVK)}
+\begin{longtable}{p{3cm} p{4cm} p{7cm}}
+\textbf{System} & \textbf{Code} & \textbf{Anzeige} \\
+\hline\endhead
+((* for cls in classifications *))
+((( cls.system | tex ))) & ((( cls.code | tex ))) & ((( cls.display | tex ))) \\
+((* endfor *))
+\end{longtable}
+((* endif *))
+
+\vfill
+\noindent\rule{\linewidth}{0.4pt}\par
+\noindent\small Bericht generiert mit ALIMA -- Automatic Library Indexing and Metadata Analysis.
+
+\end{document}

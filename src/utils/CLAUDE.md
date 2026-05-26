@@ -10,6 +10,10 @@ The `src/utils/` directory provides essential configuration management and utili
 - `TextProcessor`: Advanced text analysis and processing utilities
 - `model_capabilities`: Auto-detection of model-specific chunking thresholds (15+ model patterns)
 - `repetition_detector`: LLM repetition loop detection with parameter variation suggestions
+- `pdf_extractor` (P-η): Pure-Python PDF text extraction (PyPDF2) with quality heuristic + optional Vision-LLM OCR fallback
+- `image_analyzer` (P-η): Sync wrapper over `LlmService.generate_response(image=...)` for Vision-LLM calls
+- `exporters` (P-θ): JSON/CSV/TeX/MARC writers + `load_state` for autosave JSONs
+- `report_renderer` (P-θ): Jinja2 LaTeX report generator with custom delimiters `(((  )))` / `((* *))`, optional pdflatex build
 
 ### Configuration Management System
 **ConfigManager Features:**

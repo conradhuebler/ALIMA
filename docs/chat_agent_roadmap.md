@@ -111,21 +111,30 @@ Chat-Agent fährt die Pipeline:
 - Cancel via existing `should_stop`-Hook.
 - Berechtigungs-Gate (siehe Berechtigungsmodell).
 
-### P-η — Input-Beschaffung (1.5 PT)
-Agent holt Daten selbst:
-- `fetch_doi_metadata(doi)` — Crossref via vorhandenem `CrossrefTab`-Code.
-- `fetch_url(url)` — HTML/PDF-Scraping. Reuse `pdf_processor` + neuer
-  HTML-Reader. PDF-URLs auto-detect.
-- `search_catalog(query)` — K10plus/SWB-Suche, Kandidaten-Liste, User wählt.
-- `read_pdf(path)` — Lokaler PDF-Pfad → Abstract-Extraktion.
-- `analyze_image(path)` — Buchcover/Inhaltsverzeichnis via existing
-  `image_analysis_tab.py` Codepfad. Liefert OCR + LLM-Klassifizierung.
+### P-η — Input-Beschaffung (✅ done, 2026-05-26)
+Agent holt Daten selbst. Helper-Module pure-Python in `src/utils/`,
+MCP-Wrapper in `src/mcp/tool_registry.py`:
+- `resolve_doi(doi)` — Crossref/OpenAlex/DataCite via `UnifiedResolver`
+  (vorhandener `src/utils/doi_resolver.py`; Roadmap-Begriff `fetch_doi_metadata`
+  belassen als `resolve_doi`).
+- `scrape_url(url)` — HTML-Reader + Content-Type-PDF-Auto-Detect: bei
+  `application/pdf` → temp-Download → `pdf_extractor.extract_text`.
+- `search_catalog(query)` / `search_catalog_titles(...)` — K10plus/SWB-Suche.
+- `read_pdf(path, max_chars, ocr_fallback)` — `src/utils/pdf_extractor.py`,
+  PyPDF2 + Quality-Heuristik + optionaler Vision-LLM-OCR-Fallback.
+- `analyze_image(path, prompt, provider, model)` — `src/utils/image_analyzer.py`,
+  synchroner Wrapper über `LlmService.generate_response(image=...)`.
 
-### P-θ — Export & Reporting (1 PT)
-- `export_results(format='json'|'csv'|'tex'|'marc')` — schreibt SharedContext.
-- `generate_report(template='ub_freiberg'|'short')` — TeX/PDF-Report via
-  `paper/`-Templates.
-- E-Mail-Versand (optional, hinter Berechtigung).
+### P-θ — Export & Reporting (✅ done, 2026-05-26)
+- `export_results(source, format, output_path, validate_rvk)` —
+  `src/utils/exporters.py` mit Formaten `json` | `csv` | `tex` | `marc`
+  (K10+/WinIBW-Tags). Reuses `webapp.result_serialization.build_export_payload`
+  als JSON-Schema-Quelle.
+- `generate_report(source, template, output_path, build_pdf)` —
+  `src/utils/report_renderer.py` mit Jinja2-Templates in
+  `src/utils/report_templates/` (`ub_freiberg.tex.j2`, `short.tex.j2`).
+  Optional `pdflatex` (kein Hard-Fail bei fehlendem PATH).
+- E-Mail-Versand bewusst ausgelassen (Operator-Entscheidung).
 
 ### P-ι — Headless / CLI / API (2 PT)
 - `alima agent --doi 10.xxx --workflow=alima_classic --output=results.json`
@@ -146,12 +155,13 @@ Agent holt Daten selbst:
 | `propose_dk_change` | | ✅ | | | | mutation (Inline-Bubble) |
 | `run_pipeline` | | | ✅ | | | confirm/auto |
 | `rerun_step` | | | ✅ | | | confirm/auto |
-| `fetch_doi_metadata` | | | | ✅ | | safe |
-| `fetch_url` / `read_pdf` | | | | ✅ | | safe (sandboxed) |
-| `search_catalog` | | | | ✅ | | safe |
+| `resolve_doi` | | | | ✅ | | safe |
+| `scrape_url` (HTML + PDF auto-detect) | | | | ✅ | | safe |
+| `read_pdf` | | | | ✅ | | safe (FS read) |
+| `search_catalog` / `search_catalog_titles` | | | | ✅ | | safe |
 | `analyze_image` | | | | ✅ | | safe |
-| `export_results` | | | | | ✅ | safe (FS write) |
-| `generate_report` | | | | | ✅ | safe |
+| `export_results` (json/csv/tex/marc) | | | | | ✅ | safe (FS write) |
+| `generate_report` (ub_freiberg/short, opt PDF) | | | | | ✅ | safe |
 
 ## Known Limitations
 

@@ -19,10 +19,11 @@ logger = logging.getLogger(__name__)
 class ToolRegistry:
     """Registry mapping tool names to handler functions - Claude Generated"""
 
-    def __init__(self, config_manager=None):
+    def __init__(self, config_manager=None, llm_service=None):
         self._tools: Dict[str, ToolDefinition] = {}
         self._handlers: Dict[str, Callable] = {}
         self._config_manager = config_manager
+        self._llm_service = llm_service
         self._knowledge_manager = None
         self._suggesters_initialized = False
         self._lobid = None
@@ -167,6 +168,20 @@ class ToolRegistry:
             return str(get_autosave_dir(self._config_manager))
         except ImportError:
             return os.path.expanduser("~/Documents/ALIMA_Results")
+
+    def _get_llm_service(self):
+        """Lazy-init LlmService for image/PDF-OCR tools."""
+        if self._llm_service is None:
+            try:
+                from src.llm.llm_service import LlmService
+                self._llm_service = LlmService(
+                    config_manager=self._config_manager,
+                    lazy_initialization=True,
+                )
+            except Exception as exc:
+                logger.warning(f"LlmService init failed: {exc}")
+                return None
+        return self._llm_service
 
     # ============================================================
     # Knowledge Tool Handlers
@@ -346,6 +361,34 @@ class ToolRegistry:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }, timeout=30)
             resp.raise_for_status()
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            looks_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
+            if looks_pdf:
+                import tempfile
+                from src.utils.pdf_extractor import extract_text as _pdf_extract
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(resp.content)
+                    tmp_path = tmp.name
+                try:
+                    pdf_result = _pdf_extract(tmp_path, max_chars=max_chars or None)
+                    return json.dumps({
+                        "url": url,
+                        "title": os.path.basename(url.split("?")[0]),
+                        "text": pdf_result["text"],
+                        "chars": pdf_result["chars"],
+                        "source": "pdf",
+                        "pdf": {
+                            "pages": pdf_result["pages"],
+                            "quality": pdf_result["quality"],
+                            "extraction_source": pdf_result["source"],
+                            "truncated": pdf_result["truncated"],
+                        },
+                    }, ensure_ascii=False)
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
             soup = BeautifulSoup(resp.content, "html.parser")
             for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
                 tag.decompose()
@@ -373,6 +416,147 @@ class ToolRegistry:
             return json.dumps({"error": f"Fetch failed: {e}"})
         except Exception as e:
             return json.dumps({"error": str(e)})
+
+    # ============================================================
+    # Input-Beschaffung (P-η): PDF + Image
+    # ============================================================
+
+    def _handle_read_pdf(
+        self,
+        path: str,
+        max_chars: int = 20000,
+        ocr_fallback: bool = False,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> str:
+        try:
+            from src.utils.pdf_extractor import extract_text
+        except Exception as exc:
+            return json.dumps({"error": f"pdf_extractor import failed: {exc}"})
+        llm_service = self._get_llm_service() if ocr_fallback else None
+        try:
+            result = extract_text(
+                path,
+                max_chars=max_chars or None,
+                ocr_fallback=ocr_fallback,
+                llm_service=llm_service,
+                provider=provider,
+                model=model,
+            )
+            return json.dumps({"path": path, **result}, ensure_ascii=False)
+        except FileNotFoundError as exc:
+            return json.dumps({"error": str(exc)})
+        except Exception as exc:
+            logger.error(f"read_pdf failed: {exc}")
+            return json.dumps({"error": str(exc)})
+
+    def _handle_analyze_image(
+        self,
+        path: str,
+        prompt: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+    ) -> str:
+        try:
+            from src.utils.image_analyzer import analyze, DEFAULT_PROMPT
+        except Exception as exc:
+            return json.dumps({"error": f"image_analyzer import failed: {exc}"})
+        llm_service = self._get_llm_service()
+        if llm_service is None:
+            return json.dumps({"error": "LlmService unavailable — analyze_image requires Vision provider"})
+        try:
+            result = analyze(
+                path,
+                llm_service=llm_service,
+                provider=provider,
+                model=model,
+                prompt=prompt or DEFAULT_PROMPT,
+                temperature=temperature,
+            )
+            return json.dumps({"path": path, **result}, ensure_ascii=False)
+        except FileNotFoundError as exc:
+            return json.dumps({"error": str(exc)})
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
+        except Exception as exc:
+            logger.error(f"analyze_image failed: {exc}")
+            return json.dumps({"error": str(exc)})
+
+    # ============================================================
+    # Export & Reporting (P-θ)
+    # ============================================================
+
+    def _handle_export_results(
+        self,
+        format: str,
+        source: str = "latest",
+        output_path: Optional[str] = None,
+        validate_rvk: bool = False,
+    ) -> str:
+        try:
+            from src.utils import exporters
+        except Exception as exc:
+            return json.dumps({"error": f"exporters import failed: {exc}"})
+        autosave_dir = self._get_autosave_dir()
+        try:
+            state = exporters.load_state(source, autosave_dir=autosave_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            return json.dumps({"error": str(exc)})
+        out_path = output_path or exporters.default_output_path(
+            state, format, output_dir=autosave_dir
+        )
+        try:
+            if format.lower() == "json":
+                written = exporters.export(state, format, out_path, validate_rvk=validate_rvk)
+            else:
+                written = exporters.export(state, format, out_path)
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
+        except Exception as exc:
+            logger.error(f"export_results failed: {exc}")
+            return json.dumps({"error": str(exc)})
+        return json.dumps({
+            "format": format,
+            "output_path": written,
+            "source_path": state.get("__source_path__"),
+            "bytes": os.path.getsize(written) if os.path.isfile(written) else None,
+        }, ensure_ascii=False)
+
+    def _handle_generate_report(
+        self,
+        template: str,
+        source: str = "latest",
+        output_path: Optional[str] = None,
+        build_pdf: bool = False,
+    ) -> str:
+        try:
+            from src.utils import exporters
+            from src.utils import report_renderer
+        except Exception as exc:
+            return json.dumps({"error": f"renderer import failed: {exc}"})
+        autosave_dir = self._get_autosave_dir()
+        try:
+            state = exporters.load_state(source, autosave_dir=autosave_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            return json.dumps({"error": str(exc)})
+        out_path = output_path or exporters.default_output_path(
+            state, "tex", output_dir=autosave_dir
+        )
+        try:
+            result = report_renderer.render(
+                template, state, out_path, build_pdf=build_pdf
+            )
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
+        except Exception as exc:
+            logger.error(f"generate_report failed: {exc}")
+            return json.dumps({"error": str(exc)})
+        return json.dumps({
+            "template": template,
+            "source_path": state.get("__source_path__"),
+            **result,
+        }, ensure_ascii=False)
 
     # ============================================================
     # Pipeline Result Tool Handlers
@@ -548,6 +732,12 @@ class ToolRegistry:
         self.register(tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
         self.register(tool_schemas.SCRAPE_URL, self._handle_scrape_url)
+        self.register(tool_schemas.READ_PDF, self._handle_read_pdf)
+        self.register(tool_schemas.ANALYZE_IMAGE, self._handle_analyze_image)
+
+        # Export & Reporting tools
+        self.register(tool_schemas.EXPORT_RESULTS, self._handle_export_results)
+        self.register(tool_schemas.GENERATE_REPORT, self._handle_generate_report)
 
         # Pipeline result tools
         self.register(tool_schemas.LIST_PIPELINE_RESULTS, self._handle_list_pipeline_results)
@@ -580,12 +770,19 @@ class ToolRegistry:
                 (tool_schemas.SEARCH_CATALOG, self._handle_search_catalog),
                 (tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles),
                 (tool_schemas.RESOLVE_DOI, self._handle_resolve_doi),
+                (tool_schemas.SCRAPE_URL, self._handle_scrape_url),
+                (tool_schemas.READ_PDF, self._handle_read_pdf),
+                (tool_schemas.ANALYZE_IMAGE, self._handle_analyze_image),
             ],
             "pipeline": [
                 (tool_schemas.LIST_PIPELINE_RESULTS, self._handle_list_pipeline_results),
                 (tool_schemas.GET_PIPELINE_RESULT, self._handle_get_pipeline_result),
                 (tool_schemas.GET_PIPELINE_KEYWORDS, self._handle_get_pipeline_keywords),
                 (tool_schemas.GET_PIPELINE_ABSTRACT, self._handle_get_pipeline_abstract),
+            ],
+            "export": [
+                (tool_schemas.EXPORT_RESULTS, self._handle_export_results),
+                (tool_schemas.GENERATE_REPORT, self._handle_generate_report),
             ],
         }
 

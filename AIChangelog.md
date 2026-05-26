@@ -6,6 +6,50 @@
 
 ## 2026
 
+### Chat-Agent P-η + P-θ: Input-Beschaffung + Export & Reporting (May 26, 2026)
+
+Closes both open chat-agent roadmap phases (`docs/chat_agent_roadmap.md`).
+The agent can now drive the full DOI/URL/PDF/Image → Pipeline → Export/Report
+workflow without operator GUI interaction.
+
+**New helper modules** (`src/utils/`, pure-Python, no Qt):
+- `pdf_extractor.py` — PyPDF2 text extraction + quality heuristic
+  (`_assess_text_quality`) + optional Vision-LLM OCR fallback via pdf2image.
+  Extracted from `unified_input_widget.py:93-158`.
+- `image_analyzer.py` — sync wrapper over `LlmService.generate_response(image=...)`
+  with generator coalescing. Default `DEFAULT_PROMPT` = OCR. Extracted from
+  `ImageAnalysisWorker`.
+- `exporters.py` — `export_json/csv/tex/marc` + `load_state('latest'|file|abspath)`
+  + `default_output_path`. Reuses `webapp.result_serialization.build_export_payload`
+  as JSON schema source. K10+/WinIBW tags (5550/6700) via `generate_k10plus_lines`.
+- `report_renderer.py` + `report_templates/{ub_freiberg,short}.tex.j2` — Jinja2 LaTeX
+  with custom delimiters `(((  )))` / `((* *))` to avoid LaTeX brace collision.
+  Optional pdflatex two-pass build; missing binary is non-fatal.
+
+**New MCP tools** (`src/mcp/`):
+- `read_pdf(path, max_chars, ocr_fallback, provider, model)`
+- `analyze_image(path, prompt, provider, model, temperature)`
+- `export_results(source, format, output_path, validate_rvk)`
+- `generate_report(source, template, output_path, build_pdf)`
+- `scrape_url` extended with Content-Type / .pdf-suffix auto-detect →
+  temp download → `pdf_extractor.extract_text`.
+
+**ToolRegistry**: gains optional `llm_service` constructor arg; `_get_llm_service()`
+lazy-inits from config if not injected. New `export` tool-set + `EXPORT_TOOLS` list
+in `tool_schemas.py`.
+
+**Tests**: `tests/test_input_export_tools.py` (30 tests, all pass) covers
+extractor, analyzer, all 4 exporter formats, both templates, MCP dispatch +
+scrape PDF branch.
+
+**Doku**: `docs/chat_agent_roadmap.md` (P-η/P-θ marked done, tool matrix updated),
+`src/mcp/CLAUDE.md` + `src/utils/CLAUDE.md` mention new modules. Plan file:
+`~/.claude/plans/p-input-beschaffung-immutable-spring.md`.
+
+**Operator decisions** baked in: kept `resolve_doi` name (no rename to
+`fetch_doi_metadata`); Jinja2 + `paper/`-style templates for report; e-mail
+delivery deliberately deferred.
+
 ### P-η: Provider-Variants + Seed-Retrofit (May 18, 2026)
 
 WP10 Foundation Phase 3/3. Closes the agentic reproducibility blocker
