@@ -52,14 +52,17 @@ def build_chat_toolset(
 
     if pipeline_manager is not None and kb_manager is not None and proposal_gateway is not None:
         from src.ui.chat_tools.mutations import mutation_tools
+        from src.ui.chat_tools.pipeline import pipeline_tools
         session_id = getattr(session, "session_id", "")
-        candidates.extend(mutation_tools(
+        common_kwargs = dict(
             pipeline_manager=pipeline_manager,
             kb_manager=kb_manager,
             gateway=proposal_gateway,
             chat_config=chat_config,
             session_id=str(session_id),
-        ))
+        )
+        candidates.extend(mutation_tools(**common_kwargs))
+        candidates.extend(pipeline_tools(**common_kwargs))
 
     for tool in candidates:
         if tool.available_for(session):

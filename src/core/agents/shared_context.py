@@ -374,6 +374,127 @@ class SharedContext(BaseSharedContext):
             state.rvk_provenance = rvk_provenance
         return state
 
+    @classmethod
+    def from_keyword_analysis_state(cls, state) -> "SharedContext":
+        """Build a SharedContext from a KeywordAnalysisState (reverse of to_keyword_analysis_state).
+
+        P-ζ bridge so chat tools can read SharedContext after a classical pipeline
+        run. Promotion of the helper previously living in pipeline_chat_panel.
+
+        Asymmetries (not reconstructible from KAS):
+        - keyword_chains only present if classical pipeline successfully parsed
+          them into ``final_llm_analysis.keyword_chains`` (LLM emitted JSON or
+          XML chain block). Free-text chains in ``response_full_text`` are not
+          back-parsed.
+        - step_results / quality_scores / execution_history empty — agentic-only tools
+          depending on them stay agentic-only.
+        - Raw LLM output blobs dropped.
+
+        Classical-friendly extras:
+        - ``selected_keywords`` and ``extra["final_keywords"]`` are derived
+          from ``final_llm_analysis.extracted_gnd_keywords`` so chat tools
+          (``get_keywords(kind="selected"|"final")``) work on classical runs.
+
+        Args:
+            state: KeywordAnalysisState instance
+
+        Returns:
+            SharedContext mirroring the analysis state's tool-visible fields.
+        """
+        ctx = cls()
+        ctx.working_title = getattr(state, "working_title", "") or ""
+        ctx.abstract = getattr(state, "original_abstract", "") or ""
+        ctx.initial_keywords = list(getattr(state, "initial_keywords", []) or [])
+        ctx.input_type = getattr(state, "input_type", "text") or "text"
+        ctx.source_value = getattr(state, "source_value", None)
+
+        final = getattr(state, "final_llm_analysis", None)
+        if final is not None:
+            curated = list(getattr(final, "extracted_gnd_keywords", []) or [])
+            ctx.extracted_keywords = curated
+            ctx.keyword_chains = list(getattr(final, "keyword_chains", []) or [])
+            ctx.missing_concepts = list(getattr(final, "missing_concepts", []) or [])
+            ctx.provider = getattr(final, "provider_used", "") or ""
+            ctx.model = getattr(final, "model_used", "") or ""
+            ctx.temperature = getattr(final, "temperature", 0.5) or 0.5
+            ctx.seed = getattr(final, "seed", None)
+            verification = getattr(final, "verification", None)
+            if verification:
+                ctx.extra["verification"] = verification
+            extracted_classes = getattr(final, "extracted_gnd_classes", None) or []
+            if extracted_classes:
+                ctx.extra["extracted_gnd_classes"] = list(extracted_classes)
+            # Classical pipeline: Step-4 curated list IS the final keyword set.
+            # Mirror it as selected_keywords (structured dicts) + extra.final_keywords
+            # so chat-tool kind="selected" and kind="final" both work — matches the
+            # semantics chat tools document.
+            import re as _re
+            _gnd_pat = _re.compile(r"\(GND-ID:\s*([^)]+)\)")
+            selected: List[Dict] = []
+            final_kw_dicts: List[Dict] = []
+            for kw in curated:
+                m = _gnd_pat.search(kw)
+                title = _gnd_pat.sub("", kw).strip()
+                gnd_id = (m.group(1).strip() if m else "")
+                entry = {"keyword": title, "title": title, "gnd_id": gnd_id}
+                selected.append(entry)
+                final_kw_dicts.append(entry)
+            if selected and not ctx.selected_keywords:
+                ctx.selected_keywords = selected
+            if final_kw_dicts and "final_keywords" not in ctx.extra:
+                ctx.extra["final_keywords"] = final_kw_dicts
+
+        # Flatten search_results -> gnd_entries (dedup by gnd_id) + per-keyword map
+        gnd_entries: List[Dict] = []
+        gnd_per_kw: Dict[str, List[str]] = {}
+        seen_ids = set()
+        for sr in getattr(state, "search_results", []) or []:
+            term = getattr(sr, "search_term", "") or ""
+            results = getattr(sr, "results", {}) or {}
+            titles: List[str] = []
+            for gnd_id, info in results.items():
+                if not isinstance(info, dict):
+                    info = {"value": info}
+                title = info.get("title") or info.get("label") or ""
+                titles.append(title or gnd_id)
+                if gnd_id in seen_ids:
+                    continue
+                seen_ids.add(gnd_id)
+                gnd_entries.append({"gnd_id": gnd_id, **info})
+            if term and titles:
+                gnd_per_kw[term] = titles
+        ctx.gnd_entries = gnd_entries
+        ctx.gnd_entries_per_keyword = gnd_per_kw
+
+        # KAS.dk_classifications is List[str]; SC expects List[Dict].
+        raw_dk = getattr(state, "dk_classifications", []) or []
+        normalised_dk: List[Dict] = []
+        for cls_ in raw_dk:
+            if isinstance(cls_, dict):
+                normalised_dk.append(cls_)
+            else:
+                normalised_dk.append({"code": str(cls_)})
+        ctx.dk_classifications = normalised_dk
+
+        ctx.dk_search_results = list(getattr(state, "dk_search_results", []) or [])
+        stats = getattr(state, "dk_statistics", None)
+        if stats:
+            ctx.dk_catalog_stats = dict(stats)
+
+        # RVK provenance -> rvk_classifications list (if KAS has it)
+        rvk_prov = getattr(state, "rvk_provenance", None)
+        if rvk_prov:
+            ctx.rvk_classifications = [
+                {"code": code, **(meta if isinstance(meta, dict) else {})}
+                for code, meta in rvk_prov.items()
+            ]
+
+        final_keywords = getattr(state, "final_keywords", None)
+        if final_keywords:
+            ctx.extra["final_keywords"] = list(final_keywords)
+
+        return ctx
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize SharedContext to a JSON-compatible dict for saving intermediate state.
 

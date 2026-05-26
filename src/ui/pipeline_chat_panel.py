@@ -313,6 +313,7 @@ class PipelineChatPanel(QWidget):
             bus.subscribe("state.changed", self._on_state_changed)
             bus.subscribe("tool.called", self._on_bus_tool_called)
             bus.subscribe("tool.result", self._on_bus_tool_result)
+            bus.subscribe("state.pipeline_step", self._on_bus_pipeline_step)
         except Exception:
             self.logger.exception("PipelineChatPanel: AlimaStateBus subscribe failed")
 
@@ -1405,74 +1406,13 @@ class PipelineChatPanel(QWidget):
 
     @staticmethod
     def _shared_context_from_analysis_state(state) -> Optional[object]:
+        # P-ζ: bridge promoted to SharedContext.from_keyword_analysis_state.
+        # Wrapper retained one cycle for any external caller; remove afterwards.
         try:
             from src.core.agents.shared_context import SharedContext
+            return SharedContext.from_keyword_analysis_state(state)
         except Exception:
             return None
-
-        ctx = SharedContext()
-        ctx.working_title = getattr(state, "working_title", "") or ""
-        ctx.abstract = getattr(state, "original_abstract", "") or ""
-        ctx.initial_keywords = list(getattr(state, "initial_keywords", []) or [])
-
-        final = getattr(state, "final_llm_analysis", None)
-        if final is not None:
-            ctx.extracted_keywords = list(
-                getattr(final, "extracted_gnd_keywords", []) or []
-            )
-            ctx.keyword_chains = list(getattr(final, "keyword_chains", []) or [])
-            ctx.missing_concepts = list(
-                getattr(final, "missing_concepts", []) or []
-            )
-            verification = getattr(final, "verification", None)
-            if verification:
-                ctx.extra["verification"] = verification
-            extracted_classes = (
-                getattr(final, "extracted_gnd_classes", None) or []
-            )
-            if extracted_classes:
-                ctx.extra["extracted_gnd_classes"] = list(extracted_classes)
-
-        gnd_entries = []
-        gnd_per_kw: dict = {}
-        seen_ids = set()
-        for sr in getattr(state, "search_results", []) or []:
-            term = getattr(sr, "search_term", "") or ""
-            results = getattr(sr, "results", {}) or {}
-            titles: list = []
-            for gnd_id, info in results.items():
-                if not isinstance(info, dict):
-                    info = {"value": info}
-                title = info.get("title") or info.get("label") or ""
-                titles.append(title or gnd_id)
-                if gnd_id in seen_ids:
-                    continue
-                seen_ids.add(gnd_id)
-                gnd_entries.append({"gnd_id": gnd_id, **info})
-            if term and titles:
-                gnd_per_kw[term] = titles
-        ctx.gnd_entries = gnd_entries
-        ctx.gnd_entries_per_keyword = gnd_per_kw
-
-        raw_dk = getattr(state, "dk_classifications", []) or []
-        normalised_dk = []
-        for cls in raw_dk:
-            if isinstance(cls, dict):
-                normalised_dk.append(cls)
-            else:
-                normalised_dk.append({"code": str(cls)})
-        ctx.dk_classifications = normalised_dk
-
-        ctx.dk_search_results = list(getattr(state, "dk_search_results", []) or [])
-        stats = getattr(state, "dk_statistics", None)
-        if stats:
-            ctx.dk_catalog_stats = dict(stats)
-
-        final_keywords = getattr(state, "final_keywords", None)
-        if final_keywords:
-            ctx.extra["final_keywords"] = list(final_keywords)
-
-        return ctx
 
     # -- Send / cancel / worker callbacks --------------------------------
 
@@ -1641,6 +1581,19 @@ class PipelineChatPanel(QWidget):
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: bus tool.result rendering failed"
+            )
+
+    def _on_bus_pipeline_step(self, payload: dict) -> None:
+        """Render step-progress markers for run_pipeline / rerun_step tools (P-ζ)."""
+        try:
+            status = payload.get("status", "")
+            step_id = payload.get("step_id", "") or "?"
+            name = payload.get("name", "") or step_id
+            icon = "🔄" if status == "running" else ("✅" if status == "completed" else "•")
+            self._append_tool_marker(f"{icon} Step {step_id}: {name}")
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: bus state.pipeline_step rendering failed"
             )
 
     def _refresh_shared_context(self) -> None:

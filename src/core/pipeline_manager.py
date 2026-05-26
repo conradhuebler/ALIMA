@@ -1948,6 +1948,23 @@ class PipelineManager:
             else:
                 # Pipeline completed
                 self.logger.info("Pipeline completed - all steps finished")
+                # P-ζ: bridge classical result into SharedContext so chat tools
+                # can read it. Agentic path already sets last_shared_context at
+                # _finalize_v4_pipeline.
+                if self.current_analysis_state is not None:
+                    try:
+                        from src.core.agents.shared_context import SharedContext
+                        self.last_shared_context = SharedContext.from_keyword_analysis_state(
+                            self.current_analysis_state
+                        )
+                    except Exception:
+                        self.logger.exception("from_keyword_analysis_state failed")
+                        self.last_shared_context = None
+                try:
+                    from src.core.state_bus import AlimaStateBus
+                    AlimaStateBus().emit_event("state.pipeline_completed", {})
+                except Exception:
+                    pass
                 if self.pipeline_completed_callback:
                     self.pipeline_completed_callback(self.current_analysis_state)
 

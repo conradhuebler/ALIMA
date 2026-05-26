@@ -92,6 +92,22 @@ class _MutationToolBase(BaseChatTool):
             return {"accepted": False, "reject_reason": "no_gateway"}
         return self.gateway.request_decision(audit_id, self.name, payload)
 
+    def _sync_shared_context(self) -> None:
+        """P-ζ: re-derive pm.last_shared_context from current_analysis_state
+        so chat tools reading SharedContext don't see stale data after a
+        successful mutation.
+        """
+        pm = self.pipeline_manager
+        if pm is None or getattr(pm, "current_analysis_state", None) is None:
+            return
+        try:
+            from src.core.agents.shared_context import SharedContext
+            pm.last_shared_context = SharedContext.from_keyword_analysis_state(
+                pm.current_analysis_state
+            )
+        except Exception:
+            logger.exception("_sync_shared_context failed")
+
 
 # ----------------------------------------------------------------------
 # Keyword replacement
@@ -158,6 +174,8 @@ class ProposeKeywordReplacementTool(_MutationToolBase):
                     "audit_id": audit_id,
                     "error": str(e),
                 })
+            if applied:
+                self._sync_shared_context()
 
         self._record_outcome(
             audit_id, accepted, decision.get("reject_reason", "")
@@ -252,6 +270,8 @@ class ProposeDkChangeTool(_MutationToolBase):
                     "audit_id": audit_id,
                     "error": str(e),
                 })
+            if applied:
+                self._sync_shared_context()
 
         self._record_outcome(
             audit_id, accepted, decision.get("reject_reason", "")
