@@ -27,22 +27,11 @@ changes.
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime
-from html import escape as html_escape
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import (
-    QKeyEvent,
-    QColor,
-    QFont,
-    QTextBlockFormat,
-    QTextCursor,
-    QTextLength,
-    QTextTableCellFormat,
-    QTextTableFormat,
-)
+from PyQt6.QtGui import QKeyEvent, QFont
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -199,11 +188,9 @@ class PipelineChatPanel(QWidget):
 
         # Pipeline-side state
         self.current_step_id: Optional[str] = None
-        self.is_streaming: bool = False
         self.step_start_times: Dict[str, datetime] = {}
         self.current_working_title: Optional[str] = None
         self.current_suggestions: List[Dict] = []
-        self._last_scroll_time: float = 0.0
 
         # Chat-side state
         self.system_prompt: str = self.DEFAULT_SYSTEM_PROMPT
@@ -211,8 +198,6 @@ class PipelineChatPanel(QWidget):
         self.current_worker: Optional[ChatAgentWorker] = None
         self.current_context: str = ""
         self.working_title: str = ""
-        self._assistant_block_open: bool = False
-        self._assistant_cell_cursor: Optional[QTextCursor] = None
         self._current_render_model: str = ""
         self._typing_dots: int = 0
         self._typing_model: str = ""
@@ -226,7 +211,12 @@ class PipelineChatPanel(QWidget):
 
         self.setup_ui()
 
-        # Auto-scroll throttle uses self._last_scroll_time.
+        # Unified renderer — all QTextBrowser manipulation lives here.
+        from .unified_message_renderer import UnifiedMessageRenderer
+        self._renderer = UnifiedMessageRenderer(
+            self.stream_text,
+            self.auto_scroll_checkbox,
+        )
 
         # Size policy: vertical Ignored to prevent sizeHint propagation
         # to window (multi-monitor safety, inherited from PipelineStreamWidget).
@@ -247,6 +237,15 @@ class PipelineChatPanel(QWidget):
             bus.subscribe("state.pipeline_step", self._on_bus_pipeline_step)
         except Exception:
             self.logger.exception("PipelineChatPanel: AlimaStateBus subscribe failed")
+
+    @property
+    def is_streaming(self) -> bool:
+        """Backward-compat for external callers (pipeline_tab.py)."""
+        return self._renderer._is_streaming
+
+    @property
+    def _last_scroll_time(self) -> float:
+        return self._renderer._last_scroll_time
 
     # ------------------------------------------------------------------
     # UI assembly
@@ -746,66 +745,19 @@ class PipelineChatPanel(QWidget):
         level: str = "info",
         step_id: Optional[str] = None,
     ):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        color_map = {
-            "info": "#f8f8f2",
-            "success": "#50fa7b",
-            "warning": "#f1fa8c",
-            "error": "#ff5555",
-            "step": "#8be9fd",
-            "stream": "#bd93f9",
-            "debug": "#6272a4",
-        }
-        color = color_map.get(level, "#f8f8f2")
-
-        if step_id:
-            formatted = (
-                f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-                f"<span style='color: {color}; font-weight: bold;'>[{step_id.upper()}]</span> "
-                f"<span style='color: {color};'>{message}</span>"
-            )
-        else:
-            formatted = (
-                f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-                f"<span style='color: {color};'>{message}</span>"
-            )
-
-        self.stream_text.append(formatted)
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.render_pipeline_log(message, level, step_id)
 
     def add_streaming_token(self, token: str, step_id: str):
-        cursor = self.stream_text.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        escaped = html_escape(token).replace(" ", "&nbsp;").replace("\n", "<br>")
-        cursor.insertHtml(f"<span style='color: #bd93f9;'>{escaped}</span>")
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.render_streaming_token(token, step_id)
 
     def start_streaming_line(self, step_id: str, prefix: str = ""):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_prefix = (
-            f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-            f"<span style='color: #8be9fd; font-weight: bold;'>[{step_id.upper()}]</span> "
-            f"<span style='color: #bd93f9;'>{prefix}"
-        )
-        self.stream_text.append(formatted_prefix)
-        self.is_streaming = True
+        self._renderer.start_streaming_line(step_id, prefix)
 
     def end_streaming_line(self):
-        if self.is_streaming:
-            cursor = self.stream_text.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            cursor.insertHtml("</span>")
-            self.is_streaming = False
+        self._renderer.end_streaming_line()
 
     def auto_scroll_to_bottom(self):
-        now = time.time()
-        if now - self._last_scroll_time < 0.05:
-            return
-        self._last_scroll_time = now
-        scrollbar = self.stream_text.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        self._renderer.auto_scroll_to_bottom()
 
     @pyqtSlot(object)
     def on_pipeline_started(self, pipeline_id: str):
@@ -1060,7 +1012,7 @@ class PipelineChatPanel(QWidget):
         self.end_streaming_line()
 
     def clear_stream(self):
-        self.stream_text.clear()
+        self._renderer.clear()
         self.add_pipeline_message("Stream geleert", "info")
 
     def save_stream_log(self):
@@ -1111,7 +1063,6 @@ class PipelineChatPanel(QWidget):
     def reset_for_new_pipeline(self):
         self.current_step_id = None
         self.step_start_times.clear()
-        self.is_streaming = False
         self.current_working_title = None
         self.clear_stream()
         self.hide_repetition_warning()
@@ -1119,8 +1070,7 @@ class PipelineChatPanel(QWidget):
             self.session.reset()
             self.current_context = ""
             self.working_title = ""
-            self._assistant_block_open = False
-            self._assistant_cell_cursor = None
+            self._renderer.clear()
 
     # ==================================================================
     # Chat-side rendering & lifecycle (ported from ChatWidget)
@@ -1292,8 +1242,8 @@ class PipelineChatPanel(QWidget):
             self.session.reset()
             self.current_context = ""
             self.working_title = ""
-            self._assistant_block_open = False
-            self._assistant_cell_cursor = None
+            self._renderer._assistant_block_open = False
+            self._renderer._assistant_cell_cursor = None
 
         self.session.reset()
 
@@ -1427,10 +1377,10 @@ class PipelineChatPanel(QWidget):
 
     @pyqtSlot(str)
     def _on_token(self, token: str):
-        if not self._assistant_block_open:
+        if not self._renderer._assistant_block_open:
             self._hide_typing()
             self._open_assistant_message(self._current_render_model)
-            self._assistant_block_open = True
+            self._renderer._assistant_block_open = True
         self._append_assistant_token(token)
 
     @pyqtSlot(str)
@@ -1461,10 +1411,10 @@ class PipelineChatPanel(QWidget):
             for msg in getattr(result, "messages", []) or []:
                 self.session.messages.append(dict(msg))
             final = getattr(result, "content", "") or ""
-            if final and not self._assistant_block_open:
+            if final and not self._renderer._assistant_block_open:
                 self._hide_typing()
                 self._open_assistant_message(self._current_render_model)
-                self._assistant_block_open = True
+                self._renderer._assistant_block_open = True
                 self._append_assistant_token(final)
         except Exception:
             self.logger.exception(
@@ -1478,8 +1428,8 @@ class PipelineChatPanel(QWidget):
     def _on_error(self, error: str):
         self._hide_typing()
         self._append_system_message(f"❌ Fehler: {error}")
-        self._assistant_block_open = False
-        self._assistant_cell_cursor = None
+        self._renderer._assistant_block_open = False
+        self._renderer._assistant_cell_cursor = None
         self._set_ui_running(False)
         self.logger.error(f"PipelineChatPanel: generation error: {error}")
 
@@ -1550,141 +1500,28 @@ class PipelineChatPanel(QWidget):
             )
             self.input_field.setFocus()
 
-    # -- Chat bubble & marker rendering ---------------------------------
+    # -- Chat bubble & marker rendering (delegated to UnifiedMessageRenderer) --
 
     def _append_user_message(self, text: str):
-        self._insert_bubble(
-            text,
-            align=Qt.AlignmentFlag.AlignRight,
-            width_percent=65,
-            bg_color="#005c4b",
-            fg_color="#e9edef",
-        )
-
-    def _insert_bubble(
-        self,
-        text: str,
-        *,
-        align: Qt.AlignmentFlag,
-        width_percent: int,
-        bg_color: str,
-        fg_color: str,
-    ) -> None:
-        cursor = self.stream_text.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self.stream_text.document().isEmpty():
-            cursor.insertBlock(QTextBlockFormat())
-        table_fmt = QTextTableFormat()
-        table_fmt.setCellPadding(8)
-        table_fmt.setCellSpacing(0)
-        table_fmt.setBorder(0)
-        table_fmt.setWidth(
-            QTextLength(QTextLength.Type.PercentageLength, width_percent)
-        )
-        table_fmt.setAlignment(align)
-        table = cursor.insertTable(1, 1, table_fmt)
-        cell = table.cellAt(0, 0)
-        cell_fmt = QTextTableCellFormat()
-        cell_fmt.setBackground(QColor(bg_color))
-        cell.setFormat(cell_fmt)
-        body = self._escape_html(text).replace("\n", "<br>")
-        cell.firstCursorPosition().insertHtml(
-            f'<span style="color: {fg_color}; font-size: 10pt;">{body}</span>'
-        )
-        end_cursor = self.stream_text.textCursor()
-        end_cursor.movePosition(QTextCursor.MoveOperation.End)
-        end_cursor.insertBlock(QTextBlockFormat())
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.render_user_bubble(text)
 
     def _append_tool_marker(self, text: str):
-        html = (
-            f'<div style="margin: 2px 0 2px 8px; '
-            f'font-family: monospace; font-size: 9pt; color: #888;">'
-            f"{self._escape_html(text)}</div>"
-        )
-        self._append_html(html)
+        self._renderer.render_tool_marker(text)
 
     def _append_system_message(self, text: str):
-        html = (
-            f'<div style="text-align: center; margin: 4px 0;">'
-            f'<span style="color: #4caf50; font-size: 9pt; font-style: italic;">'
-            f"{self._escape_html(text)}</span></div>"
-        )
-        self._append_html(html)
+        self._renderer.render_system_message(text)
 
     def _open_assistant_message(self, model_label: str):
-        self._current_assistant_text = ""
-        cursor = self.stream_text.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self.stream_text.document().isEmpty():
-            cursor.insertBlock(QTextBlockFormat())
-        cursor.insertHtml(
-            f'<span style="color: #8be9fd; font-size: 9pt; font-style: italic;">'
-            f'🤖 {self._escape_html(model_label or "Modell")}'
-            f"</span>"
-        )
-        cursor.insertBlock(QTextBlockFormat())
-        table_fmt = QTextTableFormat()
-        table_fmt.setCellPadding(8)
-        table_fmt.setCellSpacing(0)
-        table_fmt.setBorder(0)
-        table_fmt.setWidth(QTextLength(QTextLength.Type.PercentageLength, 75))
-        table_fmt.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        table = cursor.insertTable(1, 1, table_fmt)
-        cell = table.cellAt(0, 0)
-        cell_fmt = QTextTableCellFormat()
-        cell_fmt.setBackground(QColor("#202c33"))
-        cell.setFormat(cell_fmt)
-        self._assistant_cell_cursor = cell.firstCursorPosition()
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.open_assistant_bubble(model_label)
 
     def _append_assistant_token(self, token: str):
-        if self._assistant_cell_cursor is None:
-            return
-        self._current_assistant_text += token
-        html = self._escape_html(token).replace("\n", "<br>").replace(" ", "&nbsp;")
-        self._assistant_cell_cursor.insertHtml(
-            f'<span style="color: #e9edef; font-size: 10pt;">{html}</span>'
-        )
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.append_assistant_token(token)
 
     def _finalize_assistant_message(self):
-        if self._assistant_cell_cursor is not None and getattr(self, "_current_assistant_text", ""):
-            try:
-                import markdown
-                md_html = markdown.markdown(
-                    self._current_assistant_text,
-                    extensions=["extra", "nl2br"],
-                )
-                cursor = self._assistant_cell_cursor
-                cursor.movePosition(QTextCursor.MoveOperation.Start, QTextCursor.MoveMode.MoveAnchor)
-                cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
-                cursor.removeSelectedText()
-                cursor.insertHtml(
-                    f'<span style="color: #e9edef; font-size: 10pt;">{md_html}</span>'
-                )
-            except Exception:
-                pass  # Keep raw text if markdown fails
-        cursor = self.stream_text.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertBlock(QTextBlockFormat())
-        self._assistant_block_open = False
-        self._assistant_cell_cursor = None
-        self._current_assistant_text = ""
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.finalize_assistant_bubble()
 
     def _append_html(self, html: str):
-        cursor = self.stream_text.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self.stream_text.document().isEmpty():
-            cursor.insertBlock(QTextBlockFormat())
-        cursor.insertHtml(html)
-        if self.auto_scroll_checkbox.isChecked():
-            self.auto_scroll_to_bottom()
+        self._renderer.append_raw_html(html)
 
     # -- P-ε: mutation-proposal inline bubble --------------------------
 
@@ -1692,57 +1529,8 @@ class PipelineChatPanel(QWidget):
     def _render_proposal_bubble(
         self, audit_id: int, tool_name: str, payload: dict
     ) -> None:
-        """Render a clickable confirmation bubble for a mutation proposal.
-
-        Triggered by ``ProposalGateway.proposal_requested`` (auto-marshalled
-        to the UI thread by Qt). The user clicks one of the embedded links;
-        ``_on_anchor_clicked`` then routes the decision back to the gateway.
-        """
-        title_map = {
-            "propose_keyword_replacement": "🔁 Vorschlag: Keyword ersetzen",
-            "propose_dk_change": "🏷️ Vorschlag: DK-Klassifikation ändern",
-        }
-        title = title_map.get(tool_name, f"⚠️ Mutations-Vorschlag: {tool_name}")
-
-        if tool_name == "propose_keyword_replacement":
-            old = self._escape_html(str(payload.get("old", "")))
-            new = self._escape_html(str(payload.get("new", "")))
-            gnd = payload.get("gnd_id") or ""
-            gnd_str = f" <span style='color: #888;'>(GND-ID: {self._escape_html(gnd)})</span>" if gnd else ""
-            diff_html = f"<b>{old}</b> → <b>{new}</b>{gnd_str}"
-        elif tool_name == "propose_dk_change":
-            code = self._escape_html(str(payload.get("code", "")))
-            action = str(payload.get("action", ""))
-            verb = "hinzufügen" if action == "add" else "entfernen"
-            diff_html = f"<b>{code}</b> ({verb})"
-        else:
-            diff_html = self._escape_html(str(payload))
-
-        reason = self._escape_html(str(payload.get("reason", "") or "—"))
-        accept_href = f"mutation://{audit_id}/accept"
-        reject_href = f"mutation://{audit_id}/reject"
-
-        html = (
-            f'<div style="margin: 6px 12px; padding: 10px; '
-            f'background-color: #2d3142; border-left: 3px solid #ffb86c; '
-            f'border-radius: 4px;">'
-            f'<div style="color: #ffb86c; font-weight: bold; font-size: 10pt;">{title}</div>'
-            f'<div style="color: #f8f8f2; margin-top: 4px;">{diff_html}</div>'
-            f'<div style="color: #888; font-size: 9pt; margin-top: 4px;">'
-            f'Begründung: {reason}</div>'
-            f'<div style="margin-top: 8px;">'
-            f'<a href="{accept_href}" style="color: #50fa7b; '
-            f'text-decoration: none; padding: 4px 10px; '
-            f'border: 1px solid #50fa7b; border-radius: 3px; '
-            f'margin-right: 8px;">✓ Akzeptieren</a>'
-            f'<a href="{reject_href}" style="color: #ff5555; '
-            f'text-decoration: none; padding: 4px 10px; '
-            f'border: 1px solid #ff5555; border-radius: 3px;">✗ Ablehnen</a>'
-            f'<span style="color: #555; font-size: 8pt; margin-left: 8px;">'
-            f'#audit_{audit_id}</span>'
-            f'</div></div>'
-        )
-        self._append_html(html)
+        """Render a clickable confirmation bubble for a mutation proposal."""
+        self._renderer.render_proposal_bubble(audit_id, tool_name, payload)
 
     @pyqtSlot(QUrl)
     def _on_anchor_clicked(self, url: QUrl) -> None:
@@ -1775,27 +1563,13 @@ class PipelineChatPanel(QWidget):
 
     @staticmethod
     def _escape_html(text: str) -> str:
-        return (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-        )
+        from .unified_message_renderer import UnifiedMessageRenderer
+        return UnifiedMessageRenderer._escape_html(text)
 
     @staticmethod
     def _format_tool_args(args: dict) -> str:
-        if not args:
-            return ""
-        parts = []
-        for k, v in args.items():
-            sv = repr(v)
-            if len(sv) > 40:
-                sv = sv[:40] + "…"
-            parts.append(f"{k}={sv}")
-        joined = ", ".join(parts)
-        if len(joined) > 80:
-            joined = joined[:80] + "…"
-        return joined
+        from .unified_message_renderer import UnifiedMessageRenderer
+        return UnifiedMessageRenderer._format_tool_args(args)
 
     # -- System-prompt dialog --------------------------------------------
 

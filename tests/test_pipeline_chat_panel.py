@@ -23,14 +23,16 @@ from src.core.data_models import (
     SearchResult,
 )
 from src.ui.pipeline_chat_panel import PipelineChatPanel
+from src.ui.unified_message_renderer import UnifiedMessageRenderer
 
 
 def _make_stub_panel() -> SimpleNamespace:
-    """Minimal panel-like object with intercepted marker output."""
+    """Minimal panel-like object with intercepted renderer output."""
     markers: list[str] = []
     stub = SimpleNamespace(
         logger=MagicMock(),
         _append_tool_marker=markers.append,
+        _renderer=SimpleNamespace(render_tool_marker=markers.append),
     )
     stub.markers = markers
     stub._format_tool_args = PipelineChatPanel._format_tool_args
