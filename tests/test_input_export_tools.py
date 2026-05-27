@@ -232,6 +232,70 @@ class TestExporters(unittest.TestCase):
         self.assertTrue(any(line.startswith("6700 DK 504.054") for line in lines))
         self.assertTrue(any(line.startswith("6700 RVK WI 4400") for line in lines))
 
+    def test_generate_k10plus_lines_with_chains(self):
+        state = {
+            "results": {
+                "keyword_chains": [
+                    {"chain": ["Mikroplastik (4127527-9)", "Meeresökologie"]},
+                    {"chain": ["Umweltchemie", "Toxikologie"]},
+                    ["Einzelschlagwort"],
+                ],
+                "final_keywords": ["Fallback"],
+                "classifications": [
+                    {"system": "DK", "code": "504.054", "display": "DK 504.054"},
+                ],
+            }
+        }
+        lines = exporters.generate_k10plus_lines(state)
+        # First chain → 5550, second → 5551, third → 5552
+        self.assertTrue(any(line == "5550 Mikroplastik" for line in lines))
+        self.assertTrue(any(line == "5550 Meeresökologie" for line in lines))
+        self.assertTrue(any(line == "5551 Umweltchemie" for line in lines))
+        self.assertTrue(any(line == "5551 Toxikologie" for line in lines))
+        self.assertTrue(any(line == "5552 Einzelschlagwort" for line in lines))
+        # Classifications still 6700
+        self.assertTrue(any(line.startswith("6700 ") for line in lines))
+
+    def test_generate_k10plus_lines_no_chains_fallback(self):
+        lines = exporters.generate_k10plus_lines(self.state)
+        # No chains → falls back to flat final_keywords under 5550
+        self.assertTrue(any(line == "5550 Mikroplastik" for line in lines))
+        self.assertTrue(any(line == "5550 Meeresökologie" for line in lines))
+
+    def test_extract_chains_normalizes_various_shapes(self):
+        state = {
+            "results": {
+                "keyword_chains": [
+                    {"chain": ["A", "B"]},
+                    ["C", "D"],
+                    "ignored_scalar",
+                ],
+                "final_llm_call_details": {},
+            }
+        }
+        chains = exporters._extract_chains(state)
+        self.assertEqual(chains, [["A", "B"], ["C", "D"]])
+
+    def test_extract_chains_from_final_llm_call_details(self):
+        state = {
+            "results": {
+                "final_llm_call_details": {
+                    "keyword_chains": [["X", "Y"]],
+                },
+            }
+        }
+        chains = exporters._extract_chains(state)
+        self.assertEqual(chains, [["X", "Y"]])
+
+    def test_extract_chains_strips_gnd_ids(self):
+        state = {
+            "results": {
+                "keyword_chains": [{"chain": ["Term (123-4)", "Other"]}],
+            }
+        }
+        chains = exporters._extract_chains(state)
+        self.assertEqual(chains, [["Term", "Other"]])
+
     def test_dispatch_unknown_format(self):
         with self.assertRaises(ValueError):
             exporters.export(self.state, "yaml", "/tmp/x")

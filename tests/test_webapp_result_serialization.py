@@ -80,6 +80,7 @@ class TestWebappResultSerialization(unittest.TestCase):
                 model_used="model-b",
                 extracted_keywords=[],
                 extracted_gnd_keywords=["two"],
+                keyword_chains=[["Chain-A", "Chain-B"]],
                 token_count=34,
                 verification={"stats": {"verified_count": 1}},
             ),
@@ -92,6 +93,7 @@ class TestWebappResultSerialization(unittest.TestCase):
         self.assertEqual(extracted["final_llm_call_details"]["provider"], "provider-b")
         self.assertEqual(extracted["final_llm_call_details"]["model"], "model-b")
         self.assertEqual(extracted["verification"]["stats"]["verified_count"], 1)
+        self.assertEqual(extracted["keyword_chains"], [["Chain-A", "Chain-B"]])
 
     def test_build_export_payload_wraps_results_in_web_schema(self):
         payload = build_export_payload(
