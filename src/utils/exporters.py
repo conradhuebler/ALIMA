@@ -112,19 +112,61 @@ def _split_classification(value: Any) -> tuple[str, str]:
     return ("", text)
 
 
+def _extract_chains(state: Dict[str, Any]) -> List[List[str]]:
+    """Pull keyword_chains from various places in the payload.
+
+    Returns list-of-lists (keywords per chain). Chain entries can live
+    as `{"chain": [...]}` dicts or raw lists. Empty if no chains found.
+    """
+    results = _results(state)
+    raw_chains = results.get("keyword_chains") or []
+    if not raw_chains:
+        details = results.get("final_llm_call_details") or {}
+        if isinstance(details, dict):
+            raw_chains = details.get("keyword_chains") or []
+
+    chains: List[List[str]] = []
+    for entry in raw_chains:
+        if isinstance(entry, dict):
+            kws = entry.get("chain") or []
+        elif isinstance(entry, (list, tuple)):
+            kws = list(entry)
+        else:
+            continue
+        cleaned = [_strip_gnd_id(str(kw)) for kw in kws if str(kw).strip()]
+        if cleaned:
+            chains.append(cleaned)
+    return chains
+
+
 def generate_k10plus_lines(state: Dict[str, Any]) -> List[str]:
-    """K10+/WinIBW tag lines from an export payload dict."""
+    """K10+/WinIBW tag lines from an export payload dict.
+
+    Keyword chains (Schlagwortketten) get per-chain tags 5550, 5551,
+    5552, ... (one tag-line per keyword in the chain). Capped at 5559
+    — chains beyond index 9 share tag 5559 (K10+ defines 5550-5559).
+    If no chains are present, all final keywords fall back under 5550.
+    Classifications always under 6700.
+    """
     lines: List[str] = []
     results = _results(state)
 
-    final_kws = results.get("final_keywords") or []
-    final_details = results.get("final_llm_call_details") or {}
-    if not final_kws and isinstance(final_details, dict):
-        final_kws = final_details.get("extracted_gnd_keywords") or []
-    for kw in final_kws:
-        term = _strip_gnd_id(str(kw))
-        if term:
-            lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
+    chains = _extract_chains(state)
+    if chains:
+        for idx, chain in enumerate(chains):
+            tag_idx = min(idx, 9)
+            tag = f"555{tag_idx}"
+            for kw in chain:
+                lines.append(f"{tag} {kw}")
+    else:
+        final_kws = results.get("final_keywords") or []
+        final_details = results.get("final_llm_call_details") or {}
+        if not final_kws and isinstance(final_details, dict):
+            final_kws = final_details.get("extracted_gnd_keywords") or []
+        for kw in final_kws:
+            term = _strip_gnd_id(str(kw))
+            if term:
+                lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
 
     classifications = results.get("classifications") or results.get(
         "dk_classifications"

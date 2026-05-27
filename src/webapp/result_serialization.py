@@ -49,6 +49,7 @@ def serialize_llm_details(llm_call: Any) -> Optional[Dict[str, Any]]:
         "extracted_keywords": getattr(llm_call, "extracted_keywords", []),
         "extracted_gnd_keywords": getattr(llm_call, "extracted_gnd_keywords", []),
         "extracted_gnd_classes": getattr(llm_call, "extracted_gnd_classes", []),
+        "keyword_chains": ensure_json_serializable(getattr(llm_call, "keyword_chains", []) or []),
         "missing_concepts": ensure_list(getattr(llm_call, "missing_concepts", [])),
         "token_count": getattr(llm_call, "token_count", 0),
     }
@@ -300,11 +301,18 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
         validate_rvk=False,
     )
 
+    keyword_chains = []
+    if hasattr(analysis_state, "final_llm_analysis") and analysis_state.final_llm_analysis:
+        keyword_chains = getattr(analysis_state.final_llm_analysis, "keyword_chains", []) or []
+    if not keyword_chains:
+        keyword_chains = getattr(analysis_state, "keyword_chains", []) or []
+
     return {
         "original_abstract": original_abstract,
         "working_title": working_title,
         "initial_keywords": ensure_json_serializable(initial_keywords),
         "final_keywords": ensure_json_serializable(final_keywords),
+        "keyword_chains": ensure_json_serializable(keyword_chains),
         "search_results": ensure_json_serializable(serialized_search_results),
         "classifications": ensure_json_serializable(structured_classifications),
         "classifications_deprecated_alias": "dk_classifications",
