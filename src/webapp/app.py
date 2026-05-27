@@ -27,8 +27,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Uplo
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 import uvicorn
 
 # Import ALIMA Pipeline components - Claude Generated
@@ -829,6 +830,200 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
         )
 
     raise HTTPException(status_code=400, detail=f"Format not supported: {format}")
+
+
+class AgentRunRequest(BaseModel):
+    """Body for POST /agent/run — Claude Generated (P-ι)."""
+    input: Dict[str, Any] = {}
+    prompt: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = None
+    max_iterations: Optional[int] = None
+    autonomous: bool = False
+    stream: bool = True
+
+
+def _agent_context_from_input(input_data: Dict[str, Any]) -> str:
+    """Resolve a work-context string from the request's ``input`` block.
+
+    Accepts ``{"abstract": "..."}`` / ``{"text": "..."}`` directly, or
+    ``{"doi": "10.x/y"}`` which is resolved to text. Empty ⇒ no work loaded.
+    """
+    text = input_data.get("abstract") or input_data.get("text") or ""
+    if not text and input_data.get("doi"):
+        from src.utils.doi_resolver import resolve_input_to_text
+        success, resolved, error = resolve_input_to_text(input_data["doi"], logger)
+        if not success:
+            raise ValueError(f"DOI resolution failed: {error}")
+        text = resolved or ""
+    return (text[:1500] + "…") if len(text) > 1500 else text
+
+
+def _build_agent_runner(req: AgentRunRequest):
+    """Per-request HeadlessAgentRunner with an isolated PipelineManager.
+
+    A fresh PipelineManager avoids cross-request pipeline-state collisions
+    while still sharing the AlimaManager (LLM concurrency semaphore) and the
+    singleton knowledge DB.
+    """
+    from src.core.headless_agent import HeadlessAgentRunner, resolve_provider_model
+    from src.core.headless_gateway import AutoRejectGateway
+    from src.utils.config_models import ChatConfig
+
+    services = AppContext().get_services()
+    cm = services['config_manager']
+    try:
+        # chat_config lives on AlimaConfig (load_config), not the unified config.
+        chat_config = cm.load_config().chat_config
+    except Exception:
+        chat_config = ChatConfig()
+
+    pm = PipelineManager(
+        alima_manager=services['alima_manager'],
+        cache_manager=services['cache_manager'],
+        logger=logger,
+        config_manager=cm,
+    )
+
+    gateway = None
+    if req.autonomous:
+        chat_config.autonomous_pipeline = True
+    else:
+        gateway = AutoRejectGateway()
+
+    provider, model = resolve_provider_model(
+        req.provider, req.model,
+        chat_config=chat_config, pipeline_manager=pm, llm_service=services['llm_service'],
+    )
+    if not provider or not model:
+        raise ValueError(
+            "No provider/model — set in request body, ChatConfig defaults, "
+            "or pipeline_default_provider/model in config"
+        )
+
+    runner = HeadlessAgentRunner(
+        llm_service=services['llm_service'],
+        pipeline_manager=pm,
+        chat_config=chat_config,
+        gateway=gateway,
+        max_iterations=req.max_iterations,
+    )
+    return runner, pm, provider, model
+
+
+def _agent_done_payload(result, pipeline_manager, provider: str, model: str, autonomous: bool) -> dict:
+    state = getattr(pipeline_manager, "current_analysis_state", None)
+    results = _extract_results_from_analysis_state(state) if state else None
+    payload = _build_export_payload(
+        session_id="http-agent-" + datetime.now().strftime("%Y%m%d_%H%M%S"),
+        created_at=datetime.now().isoformat(),
+        status="completed",
+        current_step=None,
+        input_data=None,
+        results=results,
+    )
+    payload["agent"] = {
+        "final_content": result.content,
+        "iterations": result.iterations,
+        "tool_log": result.tool_log,
+        "provider": provider,
+        "model": model,
+        "autonomous": autonomous,
+    }
+    return payload
+
+
+@app.post("/agent/run")
+async def agent_run(req: AgentRunRequest):
+    """Run the headless chat-agent. SSE stream (default) or single JSON.
+
+    Permission: non-autonomous requests cannot prompt over SSE, so any
+    confirmation-gated op is auto-rejected (AutoRejectGateway). Set
+    ``autonomous: true`` to let the agent apply mutations / start pipelines.
+    """
+    import queue as _queue
+    from src.core.headless_agent import StoppableAgentThread
+
+    try:
+        runner, pm, provider, model = _build_agent_runner(req)
+        context_str = _agent_context_from_input(req.input or {})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    user_message = req.prompt or (
+        "Analysiere das vorliegende Werk und schlage GND-Schlagwörter sowie "
+        "DK-Klassifikationen vor." if context_str else
+        "Was kannst du tun? Liste verfügbare Daten und Werkzeuge."
+    )
+    services = AppContext().get_services()
+
+    def _run(should_stop):
+        return runner.run(
+            user_message,
+            provider=provider,
+            model=model,
+            context_str=context_str,
+            temperature=req.temperature,
+            on_token=lambda t: _q.put(("token", t)),
+            on_status=lambda s: _q.put(("status", s)),
+            on_tool_call=lambda tc: _q.put(("tool_call", {"name": tc.name, "arguments": tc.arguments})),
+            on_tool_result=lambda name, res: _q.put(("tool_result", {"name": name, "result": res[:500]})),
+            should_stop=should_stop,
+        )
+
+    # --- non-streaming: collect synchronously off the event loop ----------
+    if not req.stream:
+        _q = _queue.Queue()  # discarded; callbacks fire but we ignore them
+
+        def _blocking():
+            th = StoppableAgentThread(_run, llm_service=services['llm_service'])
+            th.start()
+            th.join()
+            if th.error:
+                raise th.error
+            return th.result
+
+        result = await asyncio.get_event_loop().run_in_executor(None, _blocking)
+        return JSONResponse(_agent_done_payload(result, pm, provider, model, req.autonomous))
+
+    # --- streaming: SSE -------------------------------------------------
+    _q = _queue.Queue()
+
+    def event_stream():
+        def _sse(etype: str, data: Any) -> str:
+            return f"data: {json.dumps({'type': etype, 'data': data}, ensure_ascii=False, default=str)}\n\n"
+
+        thread = StoppableAgentThread(
+            _wrap_agent_target(_run, _q),
+            llm_service=services['llm_service'],
+        )
+        thread.start()
+        try:
+            while True:
+                etype, data = _q.get()
+                if etype == "__result__":
+                    yield _sse("done", _agent_done_payload(data, pm, provider, model, req.autonomous))
+                    break
+                if etype == "__error__":
+                    yield _sse("error", str(data))
+                    break
+                yield _sse(etype, data)
+        finally:
+            thread.request_stop()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _wrap_agent_target(run_callable, q):
+    """Run the agent, routing the result or any exception onto the queue."""
+    def _target(should_stop):
+        try:
+            result = run_callable(should_stop)
+            q.put(("__result__", result))
+        except BaseException as exc:  # noqa: BLE001
+            q.put(("__error__", exc))
+    return _target
 
 
 @app.get("/api/session/{session_id}/recover")

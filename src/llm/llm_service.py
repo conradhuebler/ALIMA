@@ -3122,11 +3122,29 @@ class LlmService(QObject):
                     "content": msg.get("content", ""),
                 })
             elif role == "assistant" and isinstance(msg.get("tool_calls"), list):
-                # Assistant message with tool calls
+                # Assistant message with tool calls. The Ollama SDK's
+                # Message.ToolCall model requires a nested ``function`` field
+                # ({"function": {"name", "arguments"}}) — our generic format is
+                # flat ({"id", "name", "arguments"}), so wrap it. ``arguments``
+                # must be a dict for Ollama (unlike OpenAI's JSON string).
+                tc_list = []
+                for tc in msg["tool_calls"]:
+                    args = tc.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {}
+                    tc_list.append({
+                        "function": {
+                            "name": tc.get("name", ""),
+                            "arguments": args if isinstance(args, dict) else {},
+                        },
+                    })
                 ollama_msgs.append({
                     "role": "assistant",
                     "content": msg.get("content", ""),
-                    "tool_calls": msg["tool_calls"],
+                    "tool_calls": tc_list,
                 })
             else:
                 ollama_msgs.append({

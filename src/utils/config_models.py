@@ -453,6 +453,8 @@ class UnifiedProviderConfig:
 
     # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog, pipeline_config_dialog
     preferred_provider: str = ""  # Explicit user choice, independent of provider_priority
+    preferred_model: str = ""     # Model for preferred_provider — central general default
+                                  # (baseline for pipeline + chat when no pipeline_default set)
 
     # Per-model chunking thresholds - Claude Generated
     # Format: {"provider_name": {"model_name": threshold_int}}

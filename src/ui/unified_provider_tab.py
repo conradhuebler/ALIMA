@@ -715,13 +715,23 @@ class UnifiedProviderTab(QWidget):
         provider_button_layout.addStretch()
         layout.addLayout(provider_button_layout)
 
-        # Global default provider – separate row, clearly labelled
+        # Global default provider + model – central default for pipeline & chat.
         default_provider_layout = QHBoxLayout()
         default_provider_layout.addWidget(QLabel("Default Provider:"))
         self.preferred_provider_combo = QComboBox(widget)
         self.preferred_provider_combo.setMinimumWidth(180)
-        self.preferred_provider_combo.currentTextChanged.connect(self._update_config_from_ui)
+        self.preferred_provider_combo.currentTextChanged.connect(self._on_preferred_provider_changed)
         default_provider_layout.addWidget(self.preferred_provider_combo)
+
+        default_provider_layout.addWidget(QLabel("Default Model:"))
+        self.preferred_model_combo = QComboBox(widget)
+        self.preferred_model_combo.setMinimumWidth(200)
+        self.preferred_model_combo.setToolTip(
+            "Default model for the default provider. Used as the central default "
+            "for pipeline and chat when no pipeline-specific default is set."
+        )
+        self.preferred_model_combo.currentTextChanged.connect(self._update_config_from_ui)
+        default_provider_layout.addWidget(self.preferred_model_combo)
         default_provider_layout.addStretch()
         layout.addLayout(default_provider_layout)
 
@@ -1078,14 +1088,54 @@ class UnifiedProviderTab(QWidget):
 
     def _populate_global_preferences(self):
         """Populate global preferences - Claude Generated"""
-        # Update preferred provider combo
+        # Update preferred provider combo (block signals so the cascade does not
+        # fire premature saves while we're populating).
+        self.preferred_provider_combo.blockSignals(True)
         self.preferred_provider_combo.clear()
         provider_names = [p.name for p in self.unified_config.providers if p.enabled]
         self.preferred_provider_combo.addItems(provider_names)
-        
-        # Set current selection
         if self.unified_config.preferred_provider in provider_names:
             self.preferred_provider_combo.setCurrentText(self.unified_config.preferred_provider)
+        self.preferred_provider_combo.blockSignals(False)
+        # Populate the default-model combo for the selected provider.
+        self._populate_preferred_model_combo(self.preferred_provider_combo.currentText())
+
+    def _on_preferred_provider_changed(self, provider_name: str):
+        """Default-provider changed → refresh model list, then persist. Claude Generated"""
+        self._populate_preferred_model_combo(provider_name)
+        self._update_config_from_ui()
+
+    def _populate_preferred_model_combo(self, provider_name: str):
+        """Fill the default-model combo from the provider's configured models.
+
+        Uses the provider's available_models + preferred_model from config (not a
+        live fetch) so it works even when the provider is offline. Claude Generated.
+        """
+        combo = getattr(self, "preferred_model_combo", None)
+        if combo is None:
+            return
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("(Auto-select)", "")
+        models = []
+        for p in self.unified_config.providers:
+            if p.name == provider_name:
+                models = list(getattr(p, "available_models", None) or [])
+                pref = getattr(p, "preferred_model", "") or ""
+                if pref and pref not in models:
+                    models.insert(0, pref)
+                break
+        for m in models:
+            combo.addItem(m, m)
+        # Restore the saved preferred_model selection.
+        cur = getattr(self.unified_config, "preferred_model", "") or ""
+        if cur:
+            idx = combo.findData(cur)
+            if idx < 0:
+                combo.addItem(cur, cur)
+                idx = combo.count() - 1
+            combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
 
     def _populate_model_preferences(self):
         """Delegates to _populate_provider_table (tables are now merged) - Claude Generated"""
@@ -1808,6 +1858,9 @@ class UnifiedProviderTab(QWidget):
         """Update configuration object from UI state - Claude Generated"""
         # Update global preferences
         self.unified_config.preferred_provider = self.preferred_provider_combo.currentText()
+        mc = getattr(self, "preferred_model_combo", None)
+        if mc is not None:
+            self.unified_config.preferred_model = mc.currentData() or ""
 
         # CRITICAL FIX: Only save task preferences if we have an explicit task and no UI conflicts - Claude Generated
         if self.current_editing_task and not self.task_ui_dirty:

@@ -66,13 +66,14 @@ class TestComboPersistence(unittest.TestCase):
     def test_toggle_on_persists(self):
         stub = _make_stub("ollama|cogito:32b", toggle_on=True)
 
+        # chat_config must live on the AlimaConfig returned by load_config —
+        # that is the object the helper mutates AND saves (the unified config
+        # has no chat_config; mutating it would be lost).
         chat_cfg = ChatConfig()
-        unified = SimpleNamespace(chat_config=chat_cfg)
-        full_alima = object()  # sentinel for save_config arg-check
+        full_alima = SimpleNamespace(chat_config=chat_cfg)
 
         with patch("src.utils.config_manager.ConfigManager") as cm_class:
             cm_instance = cm_class.return_value
-            cm_instance.get_unified_config.return_value = unified
             cm_instance.load_config.return_value = full_alima
             cm_instance.save_config.return_value = True
 
@@ -82,6 +83,7 @@ class TestComboPersistence(unittest.TestCase):
                 full_alima, preserve_unified=True
             )
 
+        # Mutation landed on the persisted object.
         self.assertEqual(chat_cfg.default_provider, "ollama")
         self.assertEqual(chat_cfg.default_model, "cogito:32b")
         self.assertEqual(len(stub.system_messages), 1)

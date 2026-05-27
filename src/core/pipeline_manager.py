@@ -298,17 +298,48 @@ class PipelineConfig:
             default_provider = unified_config.pipeline_default_provider
             default_model = unified_config.pipeline_default_model
 
-            # Fallback: use first available provider if no default configured
+            def _provider_model(prov) -> str:
+                """Preferred model, else first listed model, else empty."""
+                return (getattr(prov, "preferred_model", "") or
+                        (list(getattr(prov, "available_models", None) or [""]) or [""])[0])
+
+            # Central general default: the "Default Provider"/"Default Model" set
+            # in the general provider settings (unified_config.preferred_provider/
+            # preferred_model). Used when no pipeline-specific default is set, so
+            # one place configures the default for pipeline AND chat.
+            if not default_provider:
+                pref_provider = getattr(unified_config, "preferred_provider", "") or ""
+                if pref_provider:
+                    default_provider = pref_provider
+                    default_model = getattr(unified_config, "preferred_model", "") or ""
+                    logger.debug(f"Using general default provider: {default_provider}")
+
+            # Fallback: use first available provider if still nothing configured
             if not default_provider:
                 enabled_providers = unified_config.get_enabled_providers()
                 if enabled_providers:
                     first_provider = enabled_providers[0]
                     default_provider = first_provider.name
-                    default_model = first_provider.preferred_model or ""
-                    logger.debug(f"No pipeline default set, using first provider: {default_provider}")
+                    default_model = _provider_model(first_provider)
+                    logger.debug(f"No default set, using first provider: {default_provider}")
                 else:
                     logger.warning("No enabled providers found")
                     return cls()
+
+            # Gap-closer: a provider may be set with no model (the settings UI
+            # lets you pick a provider but the model dropdown can be empty when
+            # models aren't fetched). Derive the provider's preferred/first model
+            # so a provider-only default still yields a complete (provider, model).
+            if default_provider and not default_model:
+                for p in unified_config.get_enabled_providers():
+                    if p.name == default_provider:
+                        default_model = _provider_model(p)
+                        if default_model:
+                            logger.info(
+                                f"Pipeline default model empty — filled from provider "
+                                f"'{default_provider}' preferred/first model: {default_model}"
+                            )
+                        break
 
             logger.info(f"Pipeline Default: {default_provider}/{default_model}")
 

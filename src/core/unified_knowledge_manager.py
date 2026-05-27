@@ -150,6 +150,13 @@ class UnifiedKnowledgeManager:
     def _init_database(self):
         """Initialize unified database schema - Claude Generated"""
         try:
+            # Force the connection open BEFORE reading db_type. If the
+            # configured MySQL/MariaDB driver is unavailable, get_connection()
+            # falls back to SQLite and rewrites self.config.db_type. Reading
+            # db_type first would otherwise yield the configured engine while
+            # DDL runs against the fallback engine — a mismatch that only the
+            # AUTO_INCREMENT/AUTOINCREMENT keyword is sensitive to.
+            self.db_manager.get_connection()
             db_type = self.db_manager.get_db_type()
             dialect = self.db_manager.get_dialect()
 
@@ -225,7 +232,7 @@ class UnifiedKnowledgeManager:
             # Tri-state `accepted`: TRUE=applied, FALSE=rejected, NULL=pending.
             self.db_manager.execute_query(f"""
                 CREATE TABLE IF NOT EXISTS chat_mutations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY {dialect.auto_increment(db_type)},
                     session_id {dialect.varchar_type(64)} NOT NULL,
                     tool_name {dialect.varchar_type(128)} NOT NULL,
                     operation {dialect.varchar_type(64)} NOT NULL,

@@ -61,6 +61,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..core.chat_prompts import DEFAULT_SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from ..core.headless_agent import resolve_provider_model
 from ..core.pipeline_manager import PipelineStep
 from ..core.state_bus import AlimaStateBus
 from .chat_agent_worker import ChatAgentWorker
@@ -159,83 +161,12 @@ class PipelineChatPanel(QWidget):
     # Default prompts (chat-agent).
     # ------------------------------------------------------------------
 
-    DEFAULT_SYSTEM_PROMPT = (
-        "Du bist Experte für Bibliothekswissenschaft und Sacherschließung "
-        "(RSWK, GND, DDC/DK) und arbeitest als Assistent in der ALIMA-Pipeline. "
-        "Antworte präzise, fachlich korrekt, auf Deutsch.\n\n"
-        "WICHTIG — Tool-Use-Regeln (zwingend):\n"
-        "- Du hast Tools für ALLE Pipeline-Daten: Keywords, Keyword-Ketten,\n"
-        "  DK-Klassifikationen, GND-Einträge, fehlende Konzepte.\n"
-        "- Rufe IMMER zuerst `list_available_data` auf, um zu sehen welche\n"
-        "  Daten vorliegen — außer der Nutzer stellt nur eine Begrüßung\n"
-        "  oder eine allgemeine Frage ohne Bezug zum konkreten Werk.\n"
-        "- Nenne KEINE GND-ID, KEINEN DK-Code, KEINE Keyword-Anzahl,\n"
-        "  KEINE Schlagwortkette aus dem Gedächtnis. Hole sie mit dem\n"
-        "  passenden Tool (`get_keywords`, `get_keyword_chains`,\n"
-        "  `get_dk_classifications`, `validate_gnd_term`).\n"
-        "- WENN ein Tool 0 Treffer zurückgibt, sage das ehrlich. Gib DANN\n"
-        "  KEINE eigenen 'Vorschläge' aus dem Training. Deine Aufgabe ist\n"
-        "  NICHT, Schlagwörter oder DK-Codes zu erfinden — nur, was die\n"
-        "  Tools liefern, darfst du nennen.\n"
-        "- Halluzinationen kosten Vertrauen. Lieber kurz und korrekt als\n"
-        "  ausführlich und erfunden.\n\n"
-        "Katalog-, GND- und DK-Suchen (zwingend):\n"
-        "- Wenn der Nutzer nach Titeln per Schlagwort oder Stichwort sucht,\n"
-        "  nutze direkt `search_catalog` oder `search_catalog_titles`.\n"
-        "- Wenn der Nutzer GND-Sachbegriffe oder -IDs sucht, nutze direkt\n"
-        "  `search_gnd` oder `search_lobid`.\n"
-        "- Wenn der Nutzer DK-Codes oder Klassifikationen sucht, nutze\n"
-        "  direkt `get_classification` oder `get_dk_cache`.\n"
-        "- Nutze NIEMALS nur `list_pipeline_results` oder `get_keywords`\n"
-        "  als Antwort auf Katalog-/GND-/DK-Anfragen. Greife direkt auf\n"
-        "  die Bibliotheks-Tools zu.\n"
-        "- WENN keine Pipeline-Daten vorliegen UND der Nutzer nach GND/DK\n"
-        "  fragt, dann SUCHE mit den Tools. Gib NIEMALS selbst erfundene\n"
-        "  Codes oder Schlagwörter an.\n\n"
-        "Offene Eingaben:\n"
-        "- Wenn der Nutzer nur ein einzelnes Stichwort schreibt (z.B.\n"
-        "  'Quantenchemie') OHNE vorherigen Kontext UND ohne Verb/Frage,\n"
-        "  dann frage zurück, was zu tun ist.\n"
-        "- WENN es einen vorherigen Kontext gibt (z.B. gerade über\n"
-        "  'Quantenchemie' gesprochen) und der Nutzer schreibt dann kurze\n"
-        "  Bezugswörter wie 'Bücher', 'Titel', 'Suchen', 'GND', 'DK',\n"
-        "  dann ist das ein elliptischer Auftrag — führe die passende\n"
-        "  Aktion direkt aus (z.B. search_catalog_titles mit dem vorherigen\n"
-        "  Thema). Frage NICHT nochmal nach.\n"
-        "- Rufe NIEMALS eigenmächtig Tools auf, wenn der Nutzer keinen\n"
-        "  klaren Auftrag gegeben hat UND kein vorheriger Kontext existiert.\n\n"
-        "Agentic Workflows (YAML-gesteuert):\n"
-        "- ALIMA hat Workflows: `alima` (v5, self-contained, alle Prompts\n"
-        "  inline), `alima_classic` (v4), `catalog_search`,\n"
-        "  `synonym_expansion`, `batch_metadata`.\n"
-        "- Nutze `list_workflows` um verfügbare Workflows zu sehen.\n"
-        "- Nutze `get_workflow` um Schritte, Eingaben und Abhängigkeiten\n"
-        "  eines Workflows anzusehen.\n"
-        "- WENN der Nutzer eine vollständige Pipeline-Analyse will,\n"
-        "  FÜHRE die Schritte SELBST aus:\n"
-        "  1. `list_available_data` — prüfe ob Pipeline-Daten vorliegen.\n"
-        "  2. Falls nein: `resolve_doi` oder Abstract vom Nutzer holen.\n"
-        "  3. `search_gnd` / `search_lobid` für GND-Schlagwörter.\n"
-        "  4. `search_catalog` / `search_catalog_titles` für DK-Daten.\n"
-        "  5. `get_classification` für DK/RVK-Codes.\n"
-        "  6. Ergebnisse zusammenfassen.\n"
-        "  Der Chat-Agent KANN Workflows selbst ausführen — nutze die\n"
-        "  verfügbaren Tools Schritt für Schritt.\n\n"
-        "Wissen aus früheren Nachrichten:\n"
-        "- Wenn du Daten brauchst, die in EARLIEREN Tool-Calls bereits\n"
-        "  gewonnen wurden (z.B. ein DOI-Resolve oder eine Katalogsuche),\n"
-        "  nutze `get_messages_history` mit passendem `offset` und `last_n`,\n"
-        "  um die Ergebnisse zu finden. Du musst nicht nochmal die gleichen\n"
-        "  Tools rufen — hole dir die Daten aus deiner eigenen Historie."
-    )
-
-    USER_PROMPT_TEMPLATE = (
-        "Aktuelles Werk: {context}\n\n"
-        "Die vollständigen Pipeline-Daten (Keywords, GND-Einträge, "
-        "DK-Codes, Schlagwortketten, fehlende Konzepte) hole dir bei "
-        "Bedarf via Tool-Calls. Beginne ggf. mit `list_available_data`.\n\n"
-        "Nutzer-Frage: {user_message}"
-    )
+    # Default chat-agent prompts now live in src/core/chat_prompts.py
+    # (Qt-free, shared with headless CLI/HTTP frontends). Aliased onto the
+    # class so the existing self.DEFAULT_SYSTEM_PROMPT / self.USER_PROMPT_TEMPLATE
+    # references keep working. RHS resolves to the module-level import.
+    DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT
+    USER_PROMPT_TEMPLATE = USER_PROMPT_TEMPLATE
 
     # Status-message prefixes whose info is already rendered by the
     # tool-call/tool-result hook handlers — skip duplicates.
@@ -1239,12 +1170,13 @@ class PipelineChatPanel(QWidget):
         try:
             from ..utils.config_manager import ConfigManager
             cm = ConfigManager()
-            cfg = cm.get_unified_config()
-            chat_cfg = getattr(cfg, "chat_config", None)
+            # chat_config lives on AlimaConfig (load_config), not the unified
+            # config. Mutate the SAME object we then save, or the change is lost.
+            full = cm.load_config()
+            chat_cfg = getattr(full, "chat_config", None)
             if chat_cfg is None:
                 return
             chat_cfg.autonomous_pipeline = new_value
-            full = cm.load_config()
             cm.save_config(full, preserve_unified=True)
             msg = "aktiv" if new_value else "aus"
             self._append_system_message(f"🤖 Autonom-Modus: {msg}")
@@ -1265,13 +1197,14 @@ class PipelineChatPanel(QWidget):
             from ..utils.config_manager import ConfigManager
 
             cm = ConfigManager()
-            cfg = cm.get_unified_config()
-            chat_cfg = getattr(cfg, "chat_config", None)
+            # Mutate the AlimaConfig.chat_config we actually persist (the unified
+            # config has no chat_config — reading it dropped the save silently).
+            full = cm.load_config()
+            chat_cfg = getattr(full, "chat_config", None)
             if chat_cfg is None:
                 return
             chat_cfg.default_provider = provider
             chat_cfg.default_model = model
-            full = cm.load_config()
             cm.save_config(full, preserve_unified=True)
             self._append_system_message(
                 f"💾 Chat-Default gespeichert: {provider} | {model}"
@@ -1302,38 +1235,31 @@ class PipelineChatPanel(QWidget):
             self.logger.error(f"Error populating model combo: {e}")
 
     def _resolve_provider_model(self) -> tuple[str, str]:
+        # Shared chain (CLI/HTTP/GUI): combo override → ChatConfig default →
+        # pipeline global override → pipeline step default (carries the
+        # first-enabled-provider fallback) → llm_service.current.
+        ov_provider = ov_model = None
         override_data = self.model_combo.currentData()
         if override_data:
-            provider, model = override_data.split("|", 1)
-            if provider and model:
-                return provider, model
-        try:
-            chat_cfg = self._get_chat_config()
-            provider = getattr(chat_cfg, "default_provider", "") or ""
-            model = getattr(chat_cfg, "default_model", "") or ""
-            if provider and model:
-                return provider, model
-        except Exception:
-            self.logger.exception(
-                "PipelineChatPanel: ChatConfig provider lookup failed"
-            )
-        if self.pipeline_manager and hasattr(self.pipeline_manager, "config"):
-            cfg = self.pipeline_manager.config
-            provider = getattr(cfg, "global_provider_override", None)
-            model = getattr(cfg, "global_model_override", None)
-            if provider and model:
-                return provider, model
-        provider = getattr(self.llm_service, "current_provider", None) if self.llm_service else None
-        model = getattr(self.llm_service, "current_model", None) if self.llm_service else None
+            try:
+                ov_provider, ov_model = override_data.split("|", 1)
+            except ValueError:
+                ov_provider = ov_model = None
+        provider, model = resolve_provider_model(
+            ov_provider, ov_model,
+            chat_config=self._get_chat_config(),
+            pipeline_manager=self.pipeline_manager,
+            llm_service=self.llm_service,
+        )
         if provider and model:
             return provider, model
+        # Last resort: first initialized LLM client + its first listed model.
         try:
             clients = getattr(self.llm_service, "clients", {}) if self.llm_service else {}
             if clients:
                 provider = list(clients.keys())[0]
                 sp = getattr(self.llm_service, "supported_providers", {})
-                pinfo = sp.get(provider, {})
-                models = pinfo.get("models", [])
+                models = sp.get(provider, {}).get("models", [])
                 if models:
                     return provider, models[0]
         except Exception:
@@ -1344,8 +1270,10 @@ class PipelineChatPanel(QWidget):
         try:
             from ..utils.config_manager import ConfigManager
 
-            cfg = ConfigManager().get_unified_config()
-            chat_cfg = getattr(cfg, "chat_config", None)
+            # chat_config is a field of AlimaConfig (load_config), not the
+            # UnifiedProviderConfig — reading the latter always yielded None and
+            # silently dropped saved chat defaults + autonomous flag.
+            chat_cfg = getattr(ConfigManager().load_config(), "chat_config", None)
             if chat_cfg is not None:
                 return chat_cfg
         except Exception:

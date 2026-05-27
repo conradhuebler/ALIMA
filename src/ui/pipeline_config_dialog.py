@@ -2724,7 +2724,23 @@ class PipelineConfigDialog(QDialog):
         try:
             from ..llm.llm_service import LlmService
             llm_service = LlmService(lazy_initialization=True)
-            models = llm_service.get_available_models(provider_name)
+            models = list(llm_service.get_available_models(provider_name) or [])
+
+            # Live fetch can be empty (provider unreachable / not yet initialized).
+            # Fall back to the provider's configured preferred/available models so
+            # the user can still pick a model instead of seeing only "(Auto-select)".
+            if not models:
+                try:
+                    for p in self.config_manager.get_unified_config().get_enabled_providers():
+                        if p.name == provider_name:
+                            cfg_models = list(getattr(p, "available_models", None) or [])
+                            pref = getattr(p, "preferred_model", "") or ""
+                            if pref and pref not in cfg_models:
+                                cfg_models.insert(0, pref)
+                            models = cfg_models
+                            break
+                except Exception:
+                    self.logger.debug("Config model fallback failed", exc_info=True)
 
             self.default_model_combo.blockSignals(True)
             self.default_model_combo.clear()

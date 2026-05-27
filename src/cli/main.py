@@ -29,6 +29,7 @@ from src.cli.commands import (
     protocol_cmd,
     setup_cmd,
     workflow_cmd,
+    agent_cmd,
 )
 
 
@@ -341,6 +342,27 @@ def create_argument_parser():
     workflows_sub = workflows_parser.add_subparsers(dest="workflows_action")
     workflows_sub.add_parser("list", help="List all discovered workflow YAMLs")
 
+    # Headless chat-agent command (P-ι) - Claude Generated
+    agent_parser = subparsers.add_parser(
+        "agent",
+        help="Run the chat-agent headless (same toolset as the GUI chat)",
+    )
+    agent_input = agent_parser.add_mutually_exclusive_group()
+    agent_input.add_argument("--doi", help="DOI or URL to resolve into the work's text")
+    agent_input.add_argument("--input", help="Inline abstract/text of the work")
+    agent_input.add_argument("--input-file", help="Path to a text file with the work")
+    agent_input.add_argument("--input-image", help="Path to an image to OCR via Vision-LLM")
+    agent_parser.add_argument("--prompt", help="Instruction for the agent (default: analyse the work)")
+    agent_parser.add_argument("--provider", help="LLM provider (falls back to ChatConfig default)")
+    agent_parser.add_argument("--model", help="LLM model (falls back to ChatConfig default)")
+    agent_parser.add_argument("--temperature", type=float, help="Sampling temperature")
+    agent_parser.add_argument("--max-iterations", type=int, dest="max_iterations",
+                              help="Max tool-calling iterations")
+    agent_parser.add_argument("--autonomous", action="store_true",
+                              help="Skip y/N confirmation for mutations/pipeline starts")
+    agent_parser.add_argument("--output", help="Path to write the JSON result (default: stdout)")
+    agent_parser.add_argument("--quiet", action="store_true", help="Suppress streamed tokens on stdout")
+
     # Setup wizard command
     setup_parser = subparsers.add_parser("setup", help="Run ALIMA first-start setup wizard")
     setup_parser.add_argument("--skip-gnd", action="store_true", help="Skip GND database download option")
@@ -389,7 +411,7 @@ def main():
     llm_service = None
     prompt_service = None
 
-    if args.command in ["pipeline", "batch", "workflow"]:
+    if args.command in ["pipeline", "batch", "workflow", "agent"]:
         config_manager = ConfigManager()
         config = config_manager.load_config()
         prompts_path = config.system_config.prompts_path
@@ -437,6 +459,8 @@ def main():
         database_cmd.handle_clear_cache(args, logger)
     elif args.command == "dnb-import":
         database_cmd.handle_dnb_import(args, logger)
+    elif args.command == "agent":
+        sys.exit(agent_cmd.handle_agent(args, config_manager, llm_service, prompt_service, logger))
     elif args.command == "workflow":
         sys.exit(workflow_cmd.handle_workflow(args, config_manager, llm_service, logger))
     elif args.command == "workflows":

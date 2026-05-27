@@ -102,7 +102,7 @@ Schreibende Operationen + Inline-Proposal-Bubble:
   Bestätigung pro Session aus; persistiert via ConfigManager.
 - 17 neue Tests (`tests/test_mutation_tools.py`).
 
-### P-ζ — Pipeline-Orchestration (2 PT)
+### P-ζ — Pipeline-Orchestration (✅ done, 2026-05-26)
 Chat-Agent fährt die Pipeline:
 - Tool `run_pipeline(input_source, mode='classic'|'agentic', workflow=...)`.
 - Tool `rerun_step(step_id, params)` — z.B. nur DK-Klassifikation mit
@@ -136,12 +136,26 @@ MCP-Wrapper in `src/mcp/tool_registry.py`:
   Optional `pdflatex` (kein Hard-Fail bei fehlendem PATH).
 - E-Mail-Versand bewusst ausgelassen (Operator-Entscheidung).
 
-### P-ι — Headless / CLI / API (2 PT)
-- `alima agent --doi 10.xxx --workflow=alima_classic --output=results.json`
-  — CLI-Frontend benutzt denselben `AgentLoop` + Toolset.
-- HTTP-Endpoint: `POST /agent/run` mit JSON-Spec.
-- SSE-Streaming für Token/Tool-Events.
-- Identische Permissions-Logik wie GUI-Chat.
+### P-ι — Headless / CLI / API (✅ done, 2026-05-27)
+Selber `AgentLoop` + Toolset headless, ohne PyQt6.
+- **Shared core** (Qt-frei): `src/core/chat_prompts.py` (Prompt aus
+  `pipeline_chat_panel.py` extrahiert), `src/core/headless_agent.py`
+  (`HeadlessAgentRunner` + `StoppableAgentThread`), `src/core/headless_gateway.py`
+  (`StdinProposalGateway` + `AutoRejectGateway`).
+- **CLI**: `alima agent --doi … | --input … | --input-file … | --input-image …`
+  `[--prompt] [--provider] [--model] [--temperature] [--max-iterations]
+  [--autonomous] [--output] [--quiet]`. Tokens→stdout, Status/Tool-Marker→stderr,
+  Ergebnis-JSON (`build_export_payload` + `agent`-Block) →`--output`/stdout.
+  `src/cli/commands/agent_cmd.py`, verkabelt in `src/cli/main.py`.
+- **HTTP**: `POST /agent/run` (`src/webapp/app.py`). Body: `input` (abstract/text/doi),
+  `prompt`, `provider`, `model`, `temperature`, `max_iterations`, `autonomous`,
+  `stream`. SSE (`text/event-stream`) mit Events `token|status|tool_call|
+  tool_result|done|error`; `stream:false` ⇒ ein JSON. Per-Request isolierter
+  PipelineManager.
+- **Permissions**: CLI Default = stdin y/N (`StdinProposalGateway`), `--autonomous`
+  ⇒ `autonomous_pipeline=True`. HTTP kann nicht prompten ⇒ ohne `autonomous`
+  `AutoRejectGateway` (fail-safe reject). Cancel: `_stop_event` am Thread →
+  greift in P-ζ `_resolve_should_stop` + `AgentLoop(should_stop=…)`.
 
 ## Tool-Matrix
 
