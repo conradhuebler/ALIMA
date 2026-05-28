@@ -201,6 +201,8 @@ class PipelineChatPanel(QWidget):
         self._current_render_model: str = ""
         self._typing_dots: int = 0
         self._typing_model: str = ""
+        self._last_tool_call_id: Optional[str] = None
+        self._bus_tool_call_ids: Dict[str, str] = {}
 
         # P-ε: cross-thread bridge for mutation tool confirmations.
         from src.ui.chat_tools.proposal_gateway import ProposalGateway
@@ -1066,6 +1068,8 @@ class PipelineChatPanel(QWidget):
         self.current_working_title = None
         self.clear_stream()
         self.hide_repetition_warning()
+        self._bus_tool_call_ids.clear()
+        self._last_tool_call_id = None
         if self.reset_toggle.isChecked():
             self.session.reset()
             self.current_context = ""
@@ -1394,15 +1398,21 @@ class PipelineChatPanel(QWidget):
 
     @pyqtSlot(str, dict)
     def _on_tool_called(self, name: str, args: dict):
-        args_preview = self._format_tool_args(args)
-        self._append_tool_marker(f"🔧 {name}({args_preview})")
+        self._last_tool_call_id = self._renderer.render_tool_call(name, args)
 
     @pyqtSlot(str, str)
     def _on_tool_result(self, name: str, result_str: str):
-        preview = (result_str or "").strip().replace("\n", " ")
-        if len(preview) > 120:
-            preview = preview[:120] + "…"
-        self._append_tool_marker(f"↳ {preview}")
+        if self._last_tool_call_id:
+            self._renderer.render_tool_result(
+                self._last_tool_call_id, result_str, status="success"
+            )
+            self._last_tool_call_id = None
+        else:
+            # Fallback if no matching tool_call id (legacy path).
+            preview = (result_str or "").strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            self._append_tool_marker(f"↳ {preview}")
 
     @pyqtSlot(object)
     def _on_finished(self, result):
@@ -1442,8 +1452,10 @@ class PipelineChatPanel(QWidget):
         try:
             name = payload.get("name", "") or "tool"
             args = payload.get("arguments", {}) or {}
-            args_preview = self._format_tool_args(args)
-            self._append_tool_marker(f"🔧 {name}({args_preview})")
+            tool_id = self._renderer.render_tool_call(name, args)
+            bus_id = payload.get("id")
+            if bus_id:
+                self._bus_tool_call_ids[bus_id] = tool_id
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: bus tool.called rendering failed"
@@ -1452,10 +1464,16 @@ class PipelineChatPanel(QWidget):
     def _on_bus_tool_result(self, payload: dict) -> None:
         try:
             result = payload.get("result", "") or ""
-            preview = result.strip().replace("\n", " ")
-            if len(preview) > 120:
-                preview = preview[:120] + "…"
-            self._append_tool_marker(f"↳ {preview}")
+            bus_id = payload.get("id")
+            tool_id = self._bus_tool_call_ids.pop(bus_id, None) if bus_id else None
+            if tool_id:
+                self._renderer.render_tool_result(tool_id, result, status="success")
+            else:
+                # Fallback: plain marker if id unknown.
+                preview = result.strip().replace("\n", " ")
+                if len(preview) > 120:
+                    preview = preview[:120] + "…"
+                self._append_tool_marker(f"↳ {preview}")
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: bus tool.result rendering failed"
@@ -1534,9 +1552,14 @@ class PipelineChatPanel(QWidget):
 
     @pyqtSlot(QUrl)
     def _on_anchor_clicked(self, url: QUrl) -> None:
-        """Route ``mutation://`` link clicks to ProposalGateway."""
-        if url.scheme() != "mutation":
-            return
+        """Route ``mutation://`` and ``tool://`` link clicks."""
+        scheme = url.scheme()
+        if scheme == "mutation":
+            self._handle_mutation_link(url)
+        elif scheme == "tool":
+            self._handle_tool_link(url)
+
+    def _handle_mutation_link(self, url: QUrl) -> None:
         host_part = url.host()
         path_part = url.path().lstrip("/")
         try:
@@ -1560,6 +1583,23 @@ class PipelineChatPanel(QWidget):
             f'<div style="margin: 2px 24px; color: {color}; font-size: 9pt;">'
             f'{status} (#audit_{audit_id})</div>'
         )
+
+    def _handle_tool_link(self, url: QUrl) -> None:
+        """Toggle collapsible tool-call block.
+
+        URL format: ``tool://toggle/<tool_id>``.
+        Host = "toggle", Path = "<tool_id>".
+        """
+        action = url.host()
+        tool_id = url.path().lstrip("/")
+        if action != "toggle" or not tool_id:
+            return
+        try:
+            self._renderer.toggle_tool_call(tool_id)
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: toggle_tool_call failed"
+            )
 
     @staticmethod
     def _escape_html(text: str) -> str:

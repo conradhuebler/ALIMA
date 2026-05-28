@@ -73,6 +73,11 @@ class UnifiedMessageRenderer:
         # Auto-scroll throttle
         self._last_scroll_time = 0.0
 
+        # Tool-call toggle state (id -> expanded bool).
+        self._tool_call_id = 0
+        self._tool_calls: Dict[str, Dict[str, Any]] = {}
+        self._tool_call_blocks: Dict[str, int] = {}  # tool_id -> userState marker
+
     # ------------------------------------------------------------------
     # Pipeline log rendering
     # ------------------------------------------------------------------
@@ -243,11 +248,136 @@ class UnifiedMessageRenderer:
         self.auto_scroll_to_bottom()
 
     # ------------------------------------------------------------------
-    # Markers & system messages
+    # Collapsible tool calls
+    # ------------------------------------------------------------------
+
+    def render_tool_call(
+        self,
+        name: str,
+        args: Optional[Dict[str, Any]] = None,
+        duration_s: Optional[float] = None,
+    ) -> str:
+        """Render a collapsible tool-call block.  Returns the tool_call_id."""
+        self._tool_call_id += 1
+        tool_id = f"tc_{self._tool_call_id}"
+        args_preview = self._format_tool_args(args)
+        duration_str = f"  ({duration_s:.1f}s)" if duration_s else ""
+
+        self._tool_calls[tool_id] = {
+            "name": name,
+            "args": args,
+            "args_preview": args_preview,
+            "duration_s": duration_s,
+            "result": None,
+            "expanded": False,
+            "status": "running",  # running | success | error
+        }
+
+        html = self._tool_call_html(tool_id)
+        self._append_html(html)
+
+        # Mark the last block with userState so we can re-render it later.
+        last_block = self.text_browser.document().lastBlock()
+        if last_block.isValid():
+            last_block.setUserState(self._tool_call_id)
+            self._tool_call_blocks[tool_id] = self._tool_call_id
+
+        self.history.append(
+            MessageEntry(
+                role=MessageRole.TOOL_MARKER,
+                content=f"🔧 {name}({args_preview})",
+                metadata={"tool_name": name, "tool_call_id": tool_id},
+            )
+        )
+        return tool_id
+
+    def render_tool_result(self, tool_id: str, result: str, status: str = "success") -> None:
+        """Attach a result to an existing tool call and re-render the block."""
+        tc = self._tool_calls.get(tool_id)
+        if tc is None:
+            # Fallback: plain marker if id unknown.
+            preview = (result or "").strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            self.render_tool_marker(f"↳ {preview}")
+            return
+        tc["result"] = result
+        tc["status"] = status
+        self._rerender_tool_call_block(tool_id)
+
+    def toggle_tool_call(self, tool_id: str) -> bool:
+        """Toggle expanded state.  Returns new expanded value."""
+        tc = self._tool_calls.get(tool_id)
+        if tc is None:
+            return False
+        tc["expanded"] = not tc["expanded"]
+        self._rerender_tool_call_block(tool_id)
+        return tc["expanded"]
+
+    def _tool_call_html(self, tool_id: str) -> str:
+        """Generate inline HTML for a single tool-call block.
+
+        Must stay inline (no <div> / <pre>) so the entire tool call lives in
+        one QTextBlock and can be replaced in-place via QTextCursor.
+        """
+        tc = self._tool_calls[tool_id]
+        name = self._escape_html(tc["name"])
+        args_preview = self._escape_html(tc["args_preview"])
+        duration_str = f"  ({tc['duration_s']:.1f}s)" if tc.get("duration_s") else ""
+        status_icon = "⏳" if tc["status"] == "running" else ("✓" if tc["status"] == "success" else "✗")
+        arrow = "▼" if tc["expanded"] else "▶"
+        result = tc.get("result") or ""
+
+        header = (
+            f'<a href="tool://toggle/{tool_id}" '
+            f'style="color: #888; text-decoration: none; font-family: monospace; font-size: 9pt;">'
+            f'{arrow} 🔧 {name}({args_preview})  {status_icon}{duration_str}</a>'
+        )
+
+        if tc["expanded"] and result:
+            escaped_result = self._escape_html(result)
+            return (
+                f'{header}<br>'
+                f'<span style="font-family: monospace; font-size: 9pt; color: #a8a8a8; '
+                f'white-space: pre-wrap; word-wrap: break-word;">'
+                f'{escaped_result}</span>'
+            )
+        else:
+            return header
+
+    def _rerender_tool_call_block(self, tool_id: str) -> None:
+        """Re-render a single tool-call block in-place using QTextCursor."""
+        marker_id = self._tool_call_blocks.get(tool_id)
+        if marker_id is None:
+            return
+
+        doc = self.text_browser.document()
+        block = doc.begin()
+        while block.isValid():
+            if block.userState() == marker_id:
+                cursor = self.text_browser.textCursor()
+                cursor.setPosition(block.position())
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.EndOfBlock,
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+                cursor.removeSelectedText()
+                cursor.insertHtml(self._tool_call_html(tool_id))
+                return
+            block = block.next()
+
+        self.logger.warning(f"tool call block {tool_id} not found for re-render")
+
+    # ------------------------------------------------------------------
+    # Legacy marker (plain text, no collapse)
     # ------------------------------------------------------------------
 
     def render_tool_marker(self, text: str, tool_name: Optional[str] = None) -> None:
-        """Monospace grey line for tool calls / results / step progress."""
+        """Monospace grey line for tool calls / results / step progress.
+
+        Kept for callers that do not need collapsible blocks (e.g. bus
+        pipeline-step progress markers).
+        """
         html = (
             f'<div style="margin: 2px 0 2px 8px; '
             f'font-family: monospace; font-size: 9pt; color: #888;">'
@@ -417,6 +547,9 @@ class UnifiedMessageRenderer:
         self._assistant_block_open = False
         self._assistant_cell_cursor = None
         self._current_assistant_text = ""
+        self._tool_call_id = 0
+        self._tool_calls.clear()
+        self._tool_call_blocks.clear()
         # History is intentionally preserved; call sites can clear it
         # explicitly if desired.
 

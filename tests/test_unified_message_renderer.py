@@ -57,12 +57,103 @@ class _MockCursor:
         return _MockTable()
 
 
+class _MockBlock:
+    def __init__(self, user_state=-1, valid=True, position=0):
+        self._user_state = user_state
+        self._valid = valid
+        self._position = position
+        self._next = None
+        self._html = ""
+
+    def isValid(self):
+        return self._valid
+
+    def userState(self):
+        return self._user_state
+
+    def setUserState(self, state):
+        self._user_state = state
+
+    def next(self):
+        return self._next if self._next else _MockBlock(valid=False)
+
+    def position(self):
+        return self._position
+
+
 class _MockDocument:
     def __init__(self, empty=True):
-        self._empty = empty
+        self._blocks: list[_MockBlock] = []
+        self._position_counter = 0
+        # Qt documents always have at least one empty block
+        self.add_block()
 
     def isEmpty(self):
-        return self._empty
+        return all(not b._html for b in self._blocks)
+
+    def begin(self):
+        return self._blocks[0] if self._blocks else _MockBlock(valid=False)
+
+    def lastBlock(self):
+        return self._blocks[-1] if self._blocks else _MockBlock(valid=False)
+
+    def add_block(self):
+        block = _MockBlock(position=self._position_counter)
+        self._position_counter += 100
+        if self._blocks:
+            self._blocks[-1]._next = block
+        self._blocks.append(block)
+        return block
+
+
+class _MockCursor:
+    """Minimal QTextCursor stand-in with block-aware insertHtml."""
+
+    def __init__(self, text_browser=None):
+        self._html_fragments: list[str] = []
+        self._ops: list[str] = []
+        self._block = None
+        self._text_browser = text_browser
+
+    def block(self):
+        return self._block if self._block else _MockBlock(valid=False)
+
+    def movePosition(self, op, mode=None, n=1):
+        self._ops.append(f"move:{op}")
+        return True
+
+    def setPosition(self, pos, mode=None):
+        self._ops.append(f"setPosition:{pos}")
+        if self._text_browser:
+            for b in self._text_browser._doc._blocks:
+                if b._position == pos:
+                    self._block = b
+                    break
+
+    def insertHtml(self, html: str):
+        self._ops.append("insertHtml")
+        if self._block and self._text_browser:
+            self._block._html += html
+        elif self._text_browser and self._text_browser._doc._blocks:
+            # No current block but document has blocks - use last block
+            self._block = self._text_browser._doc._blocks[-1]
+            self._block._html += html
+        else:
+            self._html_fragments.append(html)
+
+    def insertBlock(self, fmt=None):
+        self._ops.append("insertBlock")
+        if self._text_browser:
+            self._block = self._text_browser._doc.add_block()
+
+    def removeSelectedText(self):
+        self._ops.append("removeSelectedText")
+        if self._block:
+            self._block._html = ""
+
+    def insertTable(self, rows, cols, fmt=None):
+        self._ops.append(f"insertTable:{rows}x{cols}")
+        return _MockTable()
 
 
 class _MockTextBrowser:
@@ -70,8 +161,8 @@ class _MockTextBrowser:
 
     def __init__(self):
         self._html_calls: list[str] = []
-        self._cursor = _MockCursor()
         self._doc = _MockDocument(empty=True)
+        self._cursor = _MockCursor(text_browser=self)
 
     def textCursor(self):
         return self._cursor
@@ -83,9 +174,11 @@ class _MockTextBrowser:
         self._html_calls.append(html)
 
     def toHtml(self):
+        block_html = "\n".join(b._html for b in self._doc._blocks)
         cursor_html = "\n".join(self._cursor._html_fragments)
         doc_html = "\n".join(self._html_calls)
-        return cursor_html + "\n" + doc_html if cursor_html else doc_html
+        parts = [p for p in [block_html, cursor_html, doc_html] if p]
+        return "\n".join(parts)
 
     def toPlainText(self):
         return self.toHtml()
@@ -94,6 +187,16 @@ class _MockTextBrowser:
         self._html_calls.clear()
         self._cursor._html_fragments.clear()
         self._cursor._ops.clear()
+        self._doc._blocks.clear()
+        self._cursor._block = None
+
+    def setHtml(self, html: str):
+        # For re-render tests: parse the HTML back into our mock state.
+        self._html_calls = [html]
+        self._cursor._html_fragments.clear()
+        self._cursor._ops.clear()
+        self._doc._blocks.clear()
+        self._cursor._block = None
 
     def verticalScrollBar(self):
         m = MagicMock()
@@ -226,6 +329,56 @@ class TestToolMarker(RendererTestBase):
         self.assertEqual(len(self.renderer.history), 1)
         self.assertEqual(self.renderer.history[0].role.name, "TOOL_MARKER")
         self.assertEqual(self.renderer.history[0].metadata["tool_name"], "search")
+
+
+class TestCollapsibleToolCall(RendererTestBase):
+
+    def test_tool_call_renders_collapsed(self):
+        tid = self.renderer.render_tool_call("search", {"q": "x"})
+        html = self.text_browser.toHtml()
+        self.assertIn("▶", html)
+        self.assertIn("search", html)
+        self.assertIn(f"tool://toggle/{tid}", html)
+
+    def test_tool_call_returns_id(self):
+        tid = self.renderer.render_tool_call("search", {})
+        self.assertTrue(tid.startswith("tc_"))
+
+    def test_tool_result_attaches(self):
+        tid = self.renderer.render_tool_call("search", {"q": "x"})
+        self.renderer.render_tool_result(tid, '{"hits": 5}')
+        html = self.text_browser.toHtml()
+        # After result, status should be success (✓)
+        self.assertIn("✓", html)
+
+    def test_tool_toggle_expands(self):
+        tid = self.renderer.render_tool_call("search", {"q": "x"})
+        self.renderer.render_tool_result(tid, '{"hits": 5}')
+        expanded = self.renderer.toggle_tool_call(tid)
+        self.assertTrue(expanded)
+        html = self.text_browser.toHtml()
+        self.assertIn("▼", html)
+        self.assertIn("hits", html)
+
+    def test_tool_toggle_collapses(self):
+        tid = self.renderer.render_tool_call("search", {"q": "x"})
+        self.renderer.render_tool_result(tid, '{"hits": 5}')
+        self.renderer.toggle_tool_call(tid)  # expand
+        collapsed = self.renderer.toggle_tool_call(tid)  # collapse again
+        self.assertFalse(collapsed)
+        html = self.text_browser.toHtml()
+        self.assertIn("▶", html)
+
+    def test_tool_call_history(self):
+        self.renderer.render_tool_call("search", {"q": "x"})
+        self.assertEqual(len(self.renderer.history), 1)
+        self.assertEqual(self.renderer.history[0].role.name, "TOOL_MARKER")
+        self.assertEqual(self.renderer.history[0].metadata["tool_name"], "search")
+
+    def test_unknown_tool_id_fallback(self):
+        self.renderer.render_tool_result("nonexistent", "result")
+        html = self.text_browser.toHtml()
+        self.assertIn("↳", html)
 
 
 class TestSystemMessage(RendererTestBase):

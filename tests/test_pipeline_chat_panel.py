@@ -29,10 +29,24 @@ from src.ui.unified_message_renderer import UnifiedMessageRenderer
 def _make_stub_panel() -> SimpleNamespace:
     """Minimal panel-like object with intercepted renderer output."""
     markers: list[str] = []
+    tool_calls: dict = {}
+    tool_call_ids: dict = {}
+
+    class FakeRenderer:
+        def render_tool_marker(self, text, tool_name=None):
+            markers.append(text)
+        def render_tool_call(self, name, args):
+            tcid = f"tc_{len(tool_calls) + 1}"
+            tool_calls[tcid] = {"name": name, "args": args}
+            return tcid
+        def render_tool_result(self, tool_id, result, status="success"):
+            pass
+
     stub = SimpleNamespace(
         logger=MagicMock(),
         _append_tool_marker=markers.append,
-        _renderer=SimpleNamespace(render_tool_marker=markers.append),
+        _renderer=FakeRenderer(),
+        _bus_tool_call_ids=tool_call_ids,
     )
     stub.markers = markers
     stub._format_tool_args = PipelineChatPanel._format_tool_args
@@ -101,19 +115,19 @@ class TestFormatToolArgs(unittest.TestCase):
 
 class TestBusToolHandlers(unittest.TestCase):
 
-    def test_bus_tool_called_renders_marker(self):
+    def test_bus_tool_called_renders_tool_call(self):
         stub = _make_stub_panel()
         stub._on_bus_tool_called(
             {"name": "get_keywords", "arguments": {"kind": "initial"}, "id": "t1"}
         )
-        self.assertEqual(len(stub.markers), 1)
-        self.assertIn("get_keywords", stub.markers[0])
-        self.assertIn("🔧", stub.markers[0])
+        self.assertIn("t1", stub._bus_tool_call_ids)
 
     def test_bus_tool_result_renders_preview(self):
         stub = _make_stub_panel()
         stub._on_bus_tool_result({"name": "get_keywords", "result": "ok"})
-        self.assertEqual(stub.markers, ["↳ ok"])
+        # No matching tool_call id → fallback marker
+        self.assertEqual(len(stub.markers), 1)
+        self.assertEqual(stub.markers[0], "↳ ok")
 
     def test_bus_tool_result_truncates_long_payload(self):
         stub = _make_stub_panel()
