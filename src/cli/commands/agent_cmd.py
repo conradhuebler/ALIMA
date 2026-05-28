@@ -153,6 +153,7 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
         pipeline_manager=pipeline_manager,
         chat_config=chat_config,
         gateway=gateway,
+        mode=getattr(args, "mode", None) or "auto",
         max_iterations=getattr(args, "max_iterations", None),
     )
 

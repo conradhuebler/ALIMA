@@ -50,7 +50,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..core.chat_prompts import DEFAULT_SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from ..core.chat_prompts import (
+    DEFAULT_SYSTEM_PROMPT,
+    USER_PROMPT_TEMPLATE,
+    build_system_prompt,
+    get_user_prompt_template,
+    detect_mode,
+)
 from ..core.headless_agent import resolve_provider_model
 from ..core.pipeline_manager import PipelineStep
 from ..core.state_bus import AlimaStateBus
@@ -1308,8 +1314,12 @@ class PipelineChatPanel(QWidget):
         self._append_user_message(text)
         self.input_field.clear()
 
-        user_prompt = self.USER_PROMPT_TEMPLATE.format(
-            context=self.current_context,
+        # Mode-aware prompt assembly
+        mode = detect_mode(text, self.current_context)
+        effective_system_prompt = self.system_prompt or build_system_prompt(mode=mode)
+        effective_user_template = get_user_prompt_template(mode)
+        user_prompt = effective_user_template.format(
+            context=self.current_context or "(kein Werk geladen)",
             user_message=text,
         )
 
@@ -1351,7 +1361,7 @@ class PipelineChatPanel(QWidget):
         self.current_worker = ChatAgentWorker(
             llm_service=self.llm_service,
             tool_registry=tool_registry,
-            system_prompt=self.system_prompt,
+            system_prompt=effective_system_prompt,
             user_prompt=user_prompt,
             provider=provider,
             model=model,

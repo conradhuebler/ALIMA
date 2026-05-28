@@ -362,6 +362,8 @@ def create_argument_parser():
                               help="Skip y/N confirmation for mutations/pipeline starts")
     agent_parser.add_argument("--output", help="Path to write the JSON result (default: stdout)")
     agent_parser.add_argument("--quiet", action="store_true", help="Suppress streamed tokens on stdout")
+    agent_parser.add_argument("--mode", choices=["verschlagwortung", "suche", "general", "auto"],
+                              default="auto", help="Agent mode: verschlagwortung (cataloging), suche (search), general, auto (detect)")
 
     # Setup wizard command
     setup_parser = subparsers.add_parser("setup", help="Run ALIMA first-start setup wizard")

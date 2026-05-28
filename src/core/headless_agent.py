@@ -21,7 +21,12 @@ import threading
 from typing import Any, Callable, List, Dict, Optional
 
 from src.core.agent_loop import AgentLoop
-from src.core.chat_prompts import DEFAULT_SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from src.core.chat_prompts import (
+    build_system_prompt,
+    get_user_prompt_template,
+    detect_mode,
+    DEFAULT_SYSTEM_PROMPT,
+)
 from src.core.data_models import AgentResult
 
 logger = logging.getLogger(__name__)
@@ -115,6 +120,7 @@ class HeadlessAgentRunner:
         chat_config: Any = None,
         gateway: Any = None,
         system_prompt: Optional[str] = None,
+        mode: Optional[str] = None,
         max_iterations: Optional[int] = None,
         timeout_seconds: int = 600,
     ) -> None:
@@ -128,7 +134,8 @@ class HeadlessAgentRunner:
         self.mcp_registry = mcp_registry
         self.chat_config = chat_config
         self.gateway = gateway
-        self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        self.system_prompt = system_prompt
+        self.mode = mode or "auto"
         self.timeout_seconds = timeout_seconds
         cfg_iter = getattr(chat_config, "max_iterations", None)
         self.max_iterations = max_iterations or cfg_iter or 30
@@ -195,13 +202,20 @@ class HeadlessAgentRunner:
             should_stop=should_stop,
         )
 
-        user_prompt = USER_PROMPT_TEMPLATE.format(
+        # Mode-aware prompt assembly
+        effective_mode = self.mode
+        if effective_mode == "auto":
+            effective_mode = detect_mode(user_message, context_str)
+
+        system_prompt = self.system_prompt or build_system_prompt(mode=effective_mode)
+        user_template = get_user_prompt_template(effective_mode)
+        user_prompt = user_template.format(
             context=context_str or "(kein Werk geladen)",
             user_message=user_message,
         )
 
         result = loop.run(
-            system_prompt=self.system_prompt,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             tools=[],  # all registered chat tools
             provider=provider,

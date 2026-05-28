@@ -840,6 +840,7 @@ class AgentRunRequest(BaseModel):
     model: Optional[str] = None
     temperature: Optional[float] = None
     max_iterations: Optional[int] = None
+    mode: Optional[str] = None  # "verschlagwortung" | "suche" | "general" | "auto"
     autonomous: bool = False
     stream: bool = True
 
@@ -907,6 +908,7 @@ def _build_agent_runner(req: AgentRunRequest):
         pipeline_manager=pm,
         chat_config=chat_config,
         gateway=gateway,
+        mode=req.mode or "auto",
         max_iterations=req.max_iterations,
     )
     return runner, pm, provider, model
