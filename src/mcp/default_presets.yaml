@@ -9,11 +9,12 @@ library:
   - search_swb
   - get_search_cache
 
-# GND-centric lookups
+# GND-centric lookups + chunked selection
 gnd:
   - search_gnd
   - get_gnd_entry
   - get_gnd_batch
+  - select_from_gnd_pool
 
 # Classification / DK data collection
 classification:

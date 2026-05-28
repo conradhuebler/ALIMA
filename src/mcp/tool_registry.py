@@ -16,6 +16,34 @@ from src.mcp import tool_schemas
 logger = logging.getLogger(__name__)
 
 
+def _parse_llm_json(text: str) -> dict:
+    """Best-effort JSON extraction from an LLM response. Claude Generated (P-κ)."""
+    import re as _re
+    if not text:
+        return {}
+    # Strip markdown fences
+    fence_match = _re.search(r"```(?:json)?\s*\n?(.*?)```", text, _re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+    # Extract first balanced {…}
+    match = _re.search(r"\{", text)
+    if not match:
+        return {}
+    start = match.start()
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return {}
+    return {}
+
+
 class ToolRegistry:
     """Registry mapping tool names to handler functions - Claude Generated"""
 
@@ -709,6 +737,125 @@ class ToolRegistry:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def _handle_select_from_gnd_pool(
+        self,
+        abstract: str,
+        gnd_entries: list,
+        chunk_size: int = 350,
+        max_merged: int = 80,
+    ) -> str:
+        """Select relevant GND keywords from a large candidate pool via chunked LLM filtering.
+
+        Splits entries into chunks, filters each for relevance against the abstract,
+        merges and deduplicates results. Equivalent to the pipeline's selection_chunks step.
+        Claude Generated (P-κ).
+        """
+        import re as _re
+
+        llm = self._llm_service
+        if llm is None:
+            return json.dumps({"error": "select_from_gnd_pool requires LLM service"})
+
+        if not gnd_entries:
+            return json.dumps({"keywords": [], "count": 0, "chunks_processed": 0})
+
+        # Project entries to minimal fields for token efficiency
+        projected = []
+        for e in gnd_entries:
+            if isinstance(e, dict):
+                projected.append({
+                    "keyword": e.get("keyword", e.get("title", "")),
+                    "gnd_id": e.get("gnd_id", ""),
+                    "count": e.get("count", 1),
+                })
+            elif isinstance(e, str):
+                projected.append({"keyword": e, "gnd_id": "", "count": 1})
+        if not projected:
+            return json.dumps({"keywords": [], "count": 0, "chunks_processed": 0})
+
+        # Sort by count descending (most frequent first)
+        projected.sort(key=lambda x: x.get("count", 1), reverse=True)
+
+        # Split into chunks
+        chunks = [projected[i:i + chunk_size] for i in range(0, len(projected), chunk_size)]
+        merged = []
+        seen_keywords = set()
+        total_iterations = 0
+
+        system_prompt = (
+            "Deine Rolle als Bibliothekar:\n"
+            "Du bist ein präziser und selektiver GND-Schlagwort-Experte mit folgenden Kernregeln:\n"
+            "1. Strenge Relevanzprüfung: Wähle nur Schlagworte aus, die direkt zum Abstract passen.\n"
+            "2. Ignorieren von Nicht-Relevanten: Alle Schlagworte ohne Bezug werden ausgeschlossen.\n"
+            "3. Keine Ergänzungen: Nutze nur die vorgegebenen GND-Schlagworte.\n"
+            "4. Bevorzuge Einträge mit höherer Trefferzahl (count-Feld) — sie sind katalogverifiziert.\n"
+            "5. JSON-Ausgabe: Gib das Ergebnis immer als valides JSON-Objekt aus.\n"
+            "6. Keine externen Quellen oder Tools — arbeite nur mit den gegebenen Daten."
+        )
+
+        user_template = (
+            "Aufgabe: Filtere nur die relevanten Schlagworte aus der Teilliste.\n\n"
+            "Abstract:\n{abstract}\n\n"
+            "GND-Schlagworte (Teilliste {chunk_index}/{chunk_total}):\n{keywords}\n\n"
+            'Ausgabeformat: {{"keywords": [{{"keyword": "...", "gnd_id": "..."}}]}}\n'
+            "Keine Diskussion, nur JSON."
+        )
+
+        for i, chunk in enumerate(chunks):
+            keywords_str = "\n".join(
+                f'- {e["keyword"]}' + (f' (GND: {e["gnd_id"]})' if e.get("gnd_id") else '')
+                + (f' [count: {e["count"]}]' if e.get("count", 1) > 1 else '')
+                for e in chunk
+            )
+            # Truncate abstract for token control
+            abstract_trunc = abstract[:3000] + ("..." if len(abstract) > 3000 else "")
+            user_prompt = user_template.format(
+                abstract=abstract_trunc,
+                keywords=keywords_str,
+                chunk_index=i + 1,
+                chunk_total=len(chunks),
+            )
+
+            try:
+                response = llm.generate_response(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    provider="",
+                    model="",
+                    temperature=0.01,
+                    max_tokens=2048,
+                )
+                total_iterations += 1
+            except Exception as exc:
+                logger.warning(f"select_from_gnd_pool: chunk {i+1} LLM call failed: {exc}")
+                continue
+
+            # Parse JSON response — best-effort extraction
+            parsed = _parse_llm_json(response)
+            if parsed and "keywords" in parsed:
+                for kw in parsed["keywords"]:
+                    keyword = kw.get("keyword", "").strip()
+                    if not keyword:
+                        continue
+                    kw_lower = keyword.lower()
+                    if kw_lower not in seen_keywords:
+                        seen_keywords.add(kw_lower)
+                        merged.append({
+                            "keyword": keyword,
+                            "gnd_id": kw.get("gnd_id", ""),
+                        })
+
+        # Cap at max_merged
+        if len(merged) > max_merged:
+            merged = merged[:max_merged]
+
+        return json.dumps({
+            "keywords": merged,
+            "count": len(merged),
+            "chunks_processed": len(chunks),
+            "total_iterations": total_iterations,
+        }, ensure_ascii=False)
+
     # ============================================================
     # Registry Setup
     # ============================================================
@@ -724,6 +871,7 @@ class ToolRegistry:
         self.register(tool_schemas.STORE_SEARCH_RESULT, self._handle_store_search_result)
         self.register(tool_schemas.GET_CLASSIFICATION, self._handle_get_classification)
         self.register(tool_schemas.GET_DB_STATS, self._handle_get_db_stats)
+        self.register(tool_schemas.SELECT_FROM_GND_POOL, self._handle_select_from_gnd_pool)
 
         # Library tools
         self.register(tool_schemas.SEARCH_LOBID, self._handle_search_lobid)

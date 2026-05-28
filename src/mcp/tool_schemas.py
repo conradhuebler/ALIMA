@@ -414,6 +414,50 @@ LIST_WORKFLOWS = ToolDefinition(
     parameters={"type": "object", "properties": {}},
 )
 
+SELECT_FROM_GND_POOL = ToolDefinition(
+    name="select_from_gnd_pool",
+    description=(
+        "Select relevant GND keywords from a large candidate pool using chunked LLM filtering. "
+        "Given a list of GND entries (title + GND-ID) and an abstract, splits the pool into "
+        "chunks, filters each chunk for relevance via LLM, merges and deduplicates results. "
+        "Equivalent to the pipeline's selection_chunks step. Use when the agent needs to "
+        "filter ~100+ GND candidates down to ~20-30 relevant keywords."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "abstract": {
+                "type": "string",
+                "description": "The work's abstract or description text to filter relevance against.",
+            },
+            "gnd_entries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "keyword": {"type": "string", "description": "GND subject heading text"},
+                        "gnd_id": {"type": "string", "description": "GND identifier"},
+                        "count": {"type": "integer", "description": "Hit count (frequency in catalog)", "default": 1},
+                    },
+                    "required": ["keyword"],
+                },
+                "description": "List of GND entry dicts with at least 'keyword' and optionally 'gnd_id', 'count'.",
+            },
+            "chunk_size": {
+                "type": "integer",
+                "description": "Max entries per LLM call (default: 350). Lower for smaller context windows.",
+                "default": 350,
+            },
+            "max_merged": {
+                "type": "integer",
+                "description": "Cap on total merged keywords returned (default: 80).",
+                "default": 80,
+            },
+        },
+        "required": ["abstract", "gnd_entries"],
+    },
+)
+
 GET_WORKFLOW = ToolDefinition(
     name="get_workflow",
     description="Load a workflow YAML and return its steps, inputs, outputs, and dependencies.",
@@ -434,7 +478,7 @@ GET_WORKFLOW = ToolDefinition(
 KNOWLEDGE_TOOLS = [
     SEARCH_GND, GET_GND_ENTRY, GET_GND_BATCH,
     GET_SEARCH_CACHE, GET_DK_CACHE, STORE_SEARCH_RESULT,
-    GET_CLASSIFICATION, GET_DB_STATS,
+    GET_CLASSIFICATION, GET_DB_STATS, SELECT_FROM_GND_POOL,
 ]
 
 LIBRARY_TOOLS = [
