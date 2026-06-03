@@ -100,7 +100,7 @@ python alima_cli.py list-models \
 
 1. **Input Step**: Use UnifiedInputWidget to provide text (clipboard, files, DOI, images)
 2. **Auto-Pipeline Button**: Click "🚀 Auto-Pipeline" for complete workflow
-3. **Real-time Feedback**: Watch live streaming in the PipelineStreamWidget
+3. **Real-time Feedback**: Watch live streaming in the PipelineChatPanel
 4. **Step Navigation**: Click on pipeline step tabs to view results
 5. **Configuration**: Use "⚙️ Config" button to adjust pipeline settings
 

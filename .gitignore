@@ -292,3 +292,47 @@ prompts.tmp.json
 prompts~.json
 prompt2.jsonn
 *.jpg
+
+# Pipeline run snapshots (per-DOI exports, dated)
+*_text_2026*.json
+*_text_2025*.json
+
+# Ad-hoc analysis output / scratch
+analysis_export_*.json
+analysis_output.json
+output.json
+results.json
+fail.json
+
+# Ad-hoc CLI / one-off scratch
+1stdio*.json
+2stdio*.json
+
+# Local LLM catalog config files (may contain endpoints/tokens)
+cadmium*.json
+AIRobotic*.json
+Cadmium_*.json
+Fachreferat_*.json
+Maschler_*.json
+Sacherschließung_*.json
+Sacherschlie\303\237ung_*.json
+Test_Leer_*.json
+
+# Working drafts (LaTeX pipeline doc source + rendered PDF)
+alima_pipeline.tex
+alima_pipeline.pdf
+
+# Personal notes / scratch directories
+alima_chatbot/
+alima_notes/
+scratch/
+
+# Local config (may contain API keys / endpoints — use alima_presets.json instead)
+config.json
+config.json.backup
+config.json.ui
+config.bak
+localhost_migrated.json
+migrated_llm_config.json
+llmachine.json
+my_backup.json

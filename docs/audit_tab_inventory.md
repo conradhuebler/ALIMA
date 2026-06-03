@@ -130,7 +130,7 @@ Source: `src/webapp/app.py`. 15 FastAPI-Routes.
 | `POST /api/analyze/{id}` | 452 | Pipeline starten | PipelineTab Run | **Nein** |
 | `POST /api/input/{id}` | 498 | Input-Resolve (DOI/PDF/Image) ohne Pipeline | CrossrefTab + ImageAnalysisTab + Pipeline-Input | — |
 | `GET /api/queue/status` | 644 | LLM-Queue-Status | GlobalStatusBar | — |
-| `WS /ws/{id}` | 679 | Live-Stream (status/heartbeat/complete/error) | PipelineStreamWidget | — |
+| `WS /ws/{id}` | 679 | Live-Stream (status/heartbeat/complete/error) | PipelineChatPanel | — |
 | `GET /api/export/{id}` | 776 | JSON-Result-Download | AnalysisReviewTab Export | — |
 | `GET /api/session/{id}/recover` | 834 | Auto-saved State laden | (kein GUI-Pendant) | — |
 | `DELETE /api/session/{id}` | 1323 | Session löschen | (intern) | — |

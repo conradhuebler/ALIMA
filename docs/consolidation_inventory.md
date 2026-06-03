@@ -110,7 +110,7 @@ sind realistisch.
 sind faktische Renderer — extrahieren als Renderer-Klassen, Reuse in
 Pipeline-Tab + Single-Step-Tabs.
 
-### B4 — PipelineStreamWidget für Live-Stream
+### B4 — PipelineChatPanel für Live-Stream
 - 803 Zeilen, Token-für-Token-Anzeige pro Step.
 - Repetition-Warning-UI integriert.
 

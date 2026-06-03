@@ -1,0 +1,5 @@
+{
+  "abstract": "A novel application to determine stability constants from supramolecular titration experiments is presented. The focus lies on NMR titration and ITC experiments for pure 1:1 systems, as well as mixed 2:1/1:1, 1:1/1:2 and 2:1/1:1/1:2 systems. SupraFit provides global and local fitting and a global search tool. Statistical methods are implemented and can be applied to analyse the results of nonlinear regression. Monte Carlo simulations, combined with the percentile methods and F-Test approaches to calculate confidence intervals are supported. The implemented statistical approaches are illustrated and discussed on model functions. All methods are accessible through an intuitive user interface, providing charts for all (kind of) data produced. SupraFit is written in C++, using the Qt Toolkit for the Graphical User Interface (GUI) and the Eigen library for nonlinear regression and is released under the GNU Public License (GPL).",
+  "doi": "10.1002/cmtd.202200006",
+  "title": "SupraFit -- An Open Source Qt Based Fitting Application to Determine Stability Constants from Titration Experiments"
+}

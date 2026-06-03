@@ -438,7 +438,7 @@ Mutations-Modal, Multi-Turn-History, Webapp-API-Vorbereitung.
    (GND-ID 4174277-3)? [Ja / Nein / Bearbeiten]". Editier-Modus
    öffnet Form für Änderung.
 4. **Re-Run-Stream** — `propose_step_rerun` ausgeführt → Pipeline-
-   Worker startet → Stream geht in PipelineStreamWidget (B4) zurück,
+   Worker startet → Stream geht in PipelineChatPanel (B4) zurück,
    nicht in Chat. Chat zeigt Status-Zeile.
 5. **History-Persistenz** — Chat-Sessions speicherbar als JSON
    (Optional). Reset bei neuem Pipeline-Run als Default-On.
@@ -461,7 +461,7 @@ Mutations-Modal, Multi-Turn-History, Webapp-API-Vorbereitung.
   - Webapp-API-Skizze (für WP9 Tier-Mapping).
 
 ### Querverweise
-- **Reuse**: A3 (AgentLoop), B4 (PipelineStreamWidget für Re-Run),
+- **Reuse**: A3 (AgentLoop), B4 (PipelineChatPanel für Re-Run),
   B8 (ChatWidget-Skelett).
 - **Block**: WP10 (Chat-Migration in Roadmap).
 - **Need**: WP6 (Mutations-API), WP7 (Tools), WP11 (Provider-Default).
