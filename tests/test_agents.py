@@ -10,6 +10,12 @@ import json
 import unittest
 from unittest.mock import MagicMock
 
+from PyQt6.QtCore import QCoreApplication
+
+# pyqtSignal needs a QApplication before any bus-based test runs.
+_qapp = QCoreApplication.instance() or QCoreApplication([])
+
+from src.core import state_bus as state_bus_mod
 from src.core.agents.shared_context import SharedContext, ToolResultCache
 from src.core.agents.sub_agents import CachingToolRegistry
 
@@ -149,6 +155,121 @@ class TestCachingToolRegistry(unittest.TestCase):
         caching.execute("search_gnd", {"term": "test"})
 
         self.assertEqual(inner.execute.call_count, 2)
+
+
+class TestCachingToolRegistryBusEmission(unittest.TestCase):
+    """Phase B: deterministic tool calls emit ``tool.called`` + ``tool.result``."""
+
+    def setUp(self):
+        state_bus_mod.reset()
+        self.bus = state_bus_mod.AlimaStateBus()
+
+    def tearDown(self):
+        state_bus_mod.reset()
+
+    def _setup(self, inner_return: str = '{"hits": 2}'):
+        cache = ToolResultCache()
+        inner = make_mock_tool_registry()
+        inner.execute.return_value = inner_return
+        return CachingToolRegistry(inner, cache)
+
+    def test_emits_called_and_result_with_matching_id(self):
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        caching = self._setup()
+        caching.execute("search_gnd", {"term": "Bibliothek"})
+
+        self.assertEqual(len(called), 1)
+        self.assertEqual(called[0]["name"], "search_gnd")
+        self.assertEqual(called[0]["arguments"], {"term": "Bibliothek"})
+        self.assertTrue(called[0]["id"].startswith("tc_"))
+        self.assertEqual(len(results), 1)
+        # Result re-uses the called event's id.
+        self.assertEqual(results[0]["id"], called[0]["id"])
+        self.assertEqual(results[0]["cache_hit"], False)
+        self.assertEqual(results[0]["status"], "ok")
+
+    def test_cache_hit_emits_with_cache_hit_true(self):
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        caching = self._setup()
+        caching.execute("search_gnd", {"term": "Bibliothek"})
+        caching.execute("search_gnd", {"term": "Bibliothek"})
+
+        self.assertEqual(len(called), 2)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["cache_hit"], False)
+        self.assertEqual(results[1]["cache_hit"], True)
+        # Different ids per call (Phase A: each execute gets a new id).
+        self.assertNotEqual(results[0]["id"], results[1]["id"])
+
+    def test_cache_disabled_path_still_emits(self):
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        cache = ToolResultCache()
+        inner = make_mock_tool_registry()
+        inner.execute.return_value = "{}"
+        caching = CachingToolRegistry(inner, cache, cache_enabled=False)
+
+        caching.execute("search_gnd", {"term": "x"})
+
+        self.assertEqual(len(called), 1)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["cache_hit"], False)
+
+    def test_execute_error_emits_with_ok_status_legacy_compat(self):
+        """P-B (documented limitation): legacy ``_execute_tool`` swallows
+        exceptions and returns a JSON error payload, so the bus emission
+        reports ``status='ok'`` (the result string was returned, even
+        though its content is an error). A future polish item could
+        re-raise from ``_execute_tool`` to surface the error status.
+        """
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        cache = ToolResultCache()
+        inner = make_mock_tool_registry()
+        inner.execute.side_effect = RuntimeError("boom")
+        caching = CachingToolRegistry(inner, cache)
+
+        result = caching.execute("search_gnd", {"term": "x"})
+        parsed = json.loads(result)
+        self.assertIn("error", parsed)
+        self.assertIn("boom", parsed["error"])
+
+        # Both events fire.
+        self.assertEqual(len(called), 1)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], called[0]["id"])
+        # Documented limitation: status stays 'ok' because _execute_tool
+        # converts the exception to a JSON result string.
+        self.assertEqual(results[0]["status"], "ok")
+
+    def test_inner_registry_does_not_emit(self):
+        """Regression guard: ToolRegistry.execute (raw) does not emit events."""
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        # The raw inner registry, not CachingToolRegistry.
+        inner = make_mock_tool_registry()
+        inner.execute.return_value = "{}"
+        inner.execute("search_gnd", {"term": "x"})
+
+        self.assertEqual(called, [])
+        self.assertEqual(results, [])
 
 
 class TestSharedContextSerialization(unittest.TestCase):

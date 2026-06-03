@@ -1518,7 +1518,7 @@ class BiblioClient:
 
         Returns:
             Mapping ``{search_term: [record, ...]}``. Each record contains
-            rsn, title, authors, year, dk_codes, rvk_codes, ddc_codes,
+            rsn, web_url, title, authors, year, dk_codes, rvk_codes, ddc_codes,
             subjects, mab_subjects.
         """
         libero_map = {"kw": "ku", "title": "k", "freetext": "ku"}
@@ -1551,8 +1551,26 @@ class BiblioClient:
                     continue
                 dk_codes = list(item.get("decimal_classifications") or [])
                 rvk_codes = list(item.get("rvk_classifications") or [])
+                # Claude Generated - catalog web link for LLM / operator output.
+                # The TU-Freiberg web OPAC expects RSNs prefixed with "0-"
+                # (e.g. "0-364641185"); the SOAP API returns the bare numeric
+                # form, so we reformat here. `sid=` is intentionally omitted
+                # because it is session-specific and the LLM/operator side
+                # cannot mint one — the OPAC redirects gracefully without it.
+                # Empty when WEB_RECORD_BASE_URL is unconfigured or RSN is
+                # missing/non-numeric, so downstream consumers see "" rather
+                # than a fabricated URL.
+                web_url = ""
+                if self.WEB_RECORD_BASE_URL and rsn:
+                    rsn_str = str(rsn).strip()
+                    if rsn_str.isdigit():
+                        web_url = f"{self.WEB_RECORD_BASE_URL}0-{rsn_str}"
+                    else:
+                        # Non-numeric RSN (e.g. web-fallback ID) — use as-is
+                        web_url = f"{self.WEB_RECORD_BASE_URL}{rsn_str}"
                 records.append({
                     "rsn": rsn,
+                    "web_url": web_url,
                     "title": title,
                     "authors": item.get("author", []) or item.get("authors", []),
                     "isbn": item.get("isbn", ""),

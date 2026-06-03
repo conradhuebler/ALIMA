@@ -159,6 +159,14 @@ steps:
            reasoning = "Werk bereits in 3 Auflagen im Bestand; 2026 ist
            angekündigte Neuauflage und damit eigenständige Erwerbung."
 
+      Ausgabeformat: Zu jedem Katalog-Treffer (matches[]) ergänze das Feld
+      `web_url` mit dem Direktlink in den Katalogdatensatz. Übernimm den Wert
+      EXAKT aus dem `web_url`-Feld des Katalog-Treffers, den das Tool
+      `search_catalog_titles` geliefert hat (Schema:
+      `https://katalog.ub.tu-freiberg.de/Record/0-{RSN}`). Den Wert NIEMALS
+      selbst konstruieren, umschreiben oder halluzinieren. Fehlt `web_url`
+      im Tool-Output, gib das Feld als leeren String aus.
+
       Antworte ausschließlich mit gültigem JSON (kein Markdown, keine
       Erklärung außerhalb des JSON).
 
@@ -185,6 +193,7 @@ steps:
             "matches": [
               {
                 "rsn": "",
+                "web_url": "https://katalog.ub.tu-freiberg.de/Record/0-{rsn}",
                 "title": "",
                 "authors": [],
                 "isbn": "",

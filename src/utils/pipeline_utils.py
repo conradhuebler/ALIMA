@@ -39,6 +39,70 @@ from .config_models import TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
 
 
+# ----------------------------------------------------------------------
+# P-C: classic-pipeline tool-call shim — emits one ``tool.called`` /
+# ``tool.result`` pair per PipelineStepExecutor step so the chat log
+# shows classic-pipeline work the same way as agentic-pipeline work.
+# Subscribers can filter by ``tool.name.startswith("classic.")``.
+# ----------------------------------------------------------------------
+
+def _emit_classic_tool_call(step_id: str, args: Dict[str, Any]) -> str:
+    """Emit a ``tool.called`` event for a classic step. Returns the id."""
+    from ..core.agents.sub_agents.caching_tool_registry import make_tool_call_id
+    tc_id = make_tool_call_id()
+    try:
+        from ..core.state_bus import AlimaStateBus
+        AlimaStateBus().emit_event("tool.called", {
+            "name": f"classic.{step_id}",
+            "arguments": args,
+            "id": tc_id,
+        })
+    except Exception:
+        # Bus is a monitoring channel — never break pipeline execution.
+        pass
+    return tc_id
+
+
+def _emit_classic_tool_result(
+    tc_id: str, step_id: str, status: str = "ok"
+) -> None:
+    """Emit a ``tool.result`` event for a classic step."""
+    try:
+        from ..core.state_bus import AlimaStateBus
+        AlimaStateBus().emit_event("tool.result", {
+            "name": f"classic.{step_id}",
+            "result": status,
+            "id": tc_id,
+            "status": status,
+        })
+    except Exception:
+        pass
+
+
+def _run_classic_step(
+    step_id: str, args: Dict[str, Any], fn, *pos, **kwargs
+):
+    """Run a PipelineStepExecutor step with classic-pipeline bus emissions.
+
+    P-C: emits one ``tool.called`` / ``tool.result`` pair around ``fn`` so the
+    chat log shows classic-pipeline work identically to agentic-pipeline
+    tool calls. The result event reports ``status='error'`` automatically
+    if ``fn`` raises; the exception is re-raised unchanged.
+
+    Used by :meth:`PipelineStepExecutor.execute_complete_pipeline` to wrap
+    each of the 5 (or 6) step invocations in one place — keeps the
+    individual ``execute_*`` methods free of try/finally noise.
+    """
+    tc_id = _emit_classic_tool_call(step_id, args)
+    try:
+        result = fn(*pos, **kwargs)
+    except Exception:
+        _emit_classic_tool_result(tc_id, step_id, "error")
+        raise
+    _emit_classic_tool_result(tc_id, step_id, "ok")
+    return result
+
+
 def repair_display_text(text: Any) -> str:
     """Normalize display text and repair common UTF-8/Latin-1 mojibake."""
     if text is None:
@@ -4963,7 +5027,14 @@ class PipelineStepExecutor:
         init_cfg = _step("initialisation")
         if stream_callback:
             stream_callback(f"\n▶ [initialisation]\n", "initialisation")
-        keywords, gnd_classes, init_analysis, llm_title = self.execute_initial_keyword_extraction(
+        keywords, gnd_classes, init_analysis, llm_title = _run_classic_step(
+            "initialisation",
+            {
+                "task": (init_cfg.task or "initialisation") if init_cfg else "initialisation",
+                "provider": init_cfg.provider if init_cfg else None,
+                "model": init_cfg.model if init_cfg else None,
+            },
+            self.execute_initial_keyword_extraction,
             abstract_text=input_text,
             provider=init_cfg.provider if init_cfg else None,
             model=init_cfg.model if init_cfg else None,
@@ -4974,7 +5045,10 @@ class PipelineStepExecutor:
         # ── Step 2: GND search ───────────────────────────────────────────────
         if stream_callback:
             stream_callback(f"\n▶ [search] {len(keywords)} keywords\n", "search")
-        search_results = self.execute_gnd_search(
+        search_results = _run_classic_step(
+            "search",
+            {"keywords_count": len(keywords), "suggesters": config.search_suggesters},
+            self.execute_gnd_search,
             keywords=keywords,
             suggesters=config.search_suggesters,
             stream_callback=_cb("search"),
@@ -4984,7 +5058,14 @@ class PipelineStepExecutor:
         kw_cfg = _step("keywords")
         if stream_callback:
             stream_callback(f"\n▶ [keywords]\n", "keywords")
-        final_keywords, gnd_compliant, kw_analysis = self.execute_final_keyword_analysis(
+        final_keywords, gnd_compliant, kw_analysis = _run_classic_step(
+            "keywords",
+            {
+                "task": (kw_cfg.task or "keywords") if kw_cfg else "keywords",
+                "provider": kw_cfg.provider if kw_cfg else None,
+                "model": kw_cfg.model if kw_cfg else None,
+            },
+            self.execute_final_keyword_analysis,
             original_abstract=input_text,
             search_results=search_results,
             provider=kw_cfg.provider if kw_cfg else None,
@@ -5018,7 +5099,10 @@ class PipelineStepExecutor:
                     search_results=search_results,
                     stream_callback=_cb("dk_classification"),
                 )
-                dk_search = self.execute_dk_search(
+                dk_search = _run_classic_step(
+                    "dk_search",
+                    {"keywords_count": len(final_keywords)},
+                    self.execute_dk_search,
                     keywords=final_keywords,
                     rvk_anchor_keywords=rvk_anchor_keywords,
                     stream_callback=_cb("dk_classification"),
@@ -5026,7 +5110,13 @@ class PipelineStepExecutor:
                 state.dk_search_results = dk_search.get("keyword_results", [])
                 state.dk_search_results_flattened = dk_search.get("classifications", [])
                 state.dk_statistics = dk_search.get("statistics")
-                dk_classes, dk_analysis = self.execute_dk_classification(
+                dk_classes, dk_analysis = _run_classic_step(
+                    "dk_classification",
+                    {
+                        "provider": dk_cfg.provider if dk_cfg else None,
+                        "model": dk_cfg.model if dk_cfg else None,
+                    },
+                    self.execute_dk_classification,
                     original_abstract=input_text,
                     dk_search_results=dk_search.get("classifications", []),
                     provider=dk_cfg.provider if dk_cfg else None,

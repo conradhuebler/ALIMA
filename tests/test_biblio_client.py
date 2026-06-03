@@ -358,6 +358,96 @@ class TestBiblioClientErrorHandling(unittest.TestCase):
         self.assertEqual(results, [], "Should return empty list when no results found")
 
 
+class TestBiblioClientSearchTitlesWebUrl(unittest.TestCase):
+    """
+    Tests for the `web_url` field added to records returned by
+    BiblioClient.search_titles. Verifies that the catalog web link is
+    constructed from WEB_RECORD_BASE_URL + rsn when configured, and is
+    empty string when unconfigured.
+    """
+
+    WEB_BASE = "https://katalog.ub.tu-freiberg.de/Record/"
+
+    # Minimal GetTitleDetails response — must include <Title> so process_search_results
+    # keeps the record (otherwise the `if not title: continue` filter drops it).
+    MOCK_DETAILS_XML = """<?xml version="1.0" encoding="UTF-8"?>
+    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:lib="http://libero.com.au">
+       <soapenv:Body>
+          <lib:GetTitleDetailsResponse>
+             <lib:Title>Test Title</lib:Title>
+          </lib:GetTitleDetailsResponse>
+       </soapenv:Body>
+    </soapenv:Envelope>"""
+
+    def _mock_response(self, xml: str) -> Mock:
+        resp = Mock()
+        resp.status_code = 200
+        resp.content = xml.encode("utf-8")
+        resp.text = xml
+        return resp
+
+    @patch("src.utils.clients.biblio_client.requests.Session.post")
+    def test_search_titles_includes_web_url(self, mock_post):
+        """Each record carries web_url = WEB_RECORD_BASE_URL + '0-' + rsn when configured."""
+        # MOCK_SEARCH_XML_RESPONSE has 2 RSNs (12345, 67890) → 1 search + 2 details calls
+        search_resp = self._mock_response(MOCK_SEARCH_XML_RESPONSE)
+        details_resp = self._mock_response(self.MOCK_DETAILS_XML)
+        mock_post.side_effect = [search_resp, details_resp, details_resp]
+
+        # Disable JSON cache so get_title_details falls through to SOAP
+        client = BiblioClient(
+            use_json_cache=False,
+            web_record_url=self.WEB_BASE,
+            rate_limit_delay_ms=0,  # skip sleep between detail lookups
+        )
+
+        results = client.search_titles(["Quantenchemie"], search_type="title")
+
+        self.assertIn("Quantenchemie", results)
+        records = results["Quantenchemie"]
+        self.assertEqual(len(records), 2, "Both search hits should produce records")
+
+        expected_rsns = {"12345", "67890"}
+        seen_rsns = set()
+        for record in records:
+            self.assertIn("web_url", record, "Record should carry web_url field")
+            rsn = record.get("rsn")
+            seen_rsns.add(rsn)
+            # TU-Freiberg web OPAC expects RSNs prefixed with "0-"
+            expected_url = f"{self.WEB_BASE}0-{rsn}"
+            self.assertEqual(
+                record["web_url"],
+                expected_url,
+                f"web_url should be '{expected_url}' (with '0-' prefix)",
+            )
+        self.assertEqual(seen_rsns, expected_rsns)
+
+    @patch("src.utils.clients.biblio_client.requests.Session.post")
+    def test_search_titles_empty_web_url_when_unconfigured(self, mock_post):
+        """web_url is empty string when WEB_RECORD_BASE_URL is not configured."""
+        search_resp = self._mock_response(MOCK_SEARCH_XML_RESPONSE)
+        details_resp = self._mock_response(self.MOCK_DETAILS_XML)
+        mock_post.side_effect = [search_resp, details_resp, details_resp]
+
+        # No web_record_url → WEB_RECORD_BASE_URL stays empty
+        client = BiblioClient(
+            use_json_cache=False,
+            rate_limit_delay_ms=0,
+        )
+
+        results = client.search_titles(["Quantenchemie"], search_type="title")
+
+        records = results["Quantenchemie"]
+        self.assertEqual(len(records), 2)
+        for record in records:
+            self.assertIn("web_url", record, "Record should still carry web_url key")
+            self.assertEqual(
+                record["web_url"],
+                "",
+                "web_url should be empty string when WEB_RECORD_BASE_URL is unset",
+            )
+
+
 if __name__ == '__main__':
     # Run tests
     unittest.main(verbosity=2)

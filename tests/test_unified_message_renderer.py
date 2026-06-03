@@ -485,5 +485,175 @@ class TestStaticHelpers(unittest.TestCase):
         self.assertIn("…", out)
 
 
+class TestBusSubscription(unittest.TestCase):
+    """Phase E: ``subscribe()`` / ``unsubscribe()`` + bus event bridge."""
+
+    def setUp(self):
+        from PyQt6.QtCore import QCoreApplication
+        QCoreApplication.instance() or QCoreApplication([])
+
+        from src.core import state_bus as state_bus_mod
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+        state_bus_mod.reset()
+        self.bus = state_bus_mod.AlimaStateBus()
+
+        self.text_browser = _MockTextBrowser()
+        self.checkbox = _MockCheckBox(checked=True)
+        self.renderer = UnifiedMessageRenderer(self.text_browser, self.checkbox)
+
+    def tearDown(self):
+        from src.core import state_bus as state_bus_mod
+        state_bus_mod.reset()
+
+    def test_subscribe_unsubscribe_round_trip(self):
+        """``subscribe()`` registers handlers; ``unsubscribe()`` removes them."""
+        self.renderer.subscribe()
+        # Both event types are now subscribed on the bus.
+        called_subs = [s for s in self.bus._subscriptions if s[0] == "tool.called"]
+        result_subs = [s for s in self.bus._subscriptions if s[0] == "tool.result"]
+        self.assertGreater(len(called_subs), 0)
+        self.assertGreater(len(result_subs), 0)
+
+        self.renderer.unsubscribe()
+        # After unsubscribe, our specific handlers are gone.
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+        for event, handler, _slot in self.bus._subscriptions:
+            if event != "tool.called":
+                continue
+            qualname = getattr(handler, "__qualname__", "")
+            self.assertFalse(
+                qualname.startswith("UnifiedMessageRenderer._on_bus_tool_called"),
+                f"renderer should have unsubscribed, found {qualname}",
+            )
+
+    def test_bus_events_forward_to_renderer(self):
+        """``tool.called`` opens a tool block; ``tool.result`` attaches."""
+        self.renderer.subscribe()
+        try:
+            self.bus.emit_event("tool.called", {
+                "name": "search_gnd",
+                "arguments": {"term": "Bibliothek"},
+                "id": "tc_bus1",
+            })
+            # A tool call block was rendered.
+            self.assertEqual(len(self.renderer.history), 1)
+            self.assertEqual(self.renderer.history[0].metadata["tool_name"], "search_gnd")
+            # The id was mapped.
+            self.assertIn("tc_bus1", self.renderer._bus_id_to_tool_id)
+
+            self.bus.emit_event("tool.result", {
+                "name": "search_gnd",
+                "result": '{"hits": 3}',
+                "id": "tc_bus1",
+                "status": "ok",
+            })
+            # Tool block updated: status is "success" (✓ rendered).
+            html = self.text_browser.toHtml()
+            self.assertIn("✓", html)
+            # Mapping consumed.
+            self.assertNotIn("tc_bus1", self.renderer._bus_id_to_tool_id)
+        finally:
+            self.renderer.unsubscribe()
+
+    def test_cache_hit_badge_propagates(self):
+        """A ``cache_hit=True`` result rewrites the result string with 📦."""
+        self.renderer.subscribe()
+        try:
+            self.bus.emit_event("tool.called", {
+                "name": "search_gnd",
+                "arguments": {"term": "x"},
+                "id": "tc_cache",
+            })
+            self.bus.emit_event("tool.result", {
+                "name": "search_gnd",
+                "result": '{"hits": 0}',
+                "id": "tc_cache",
+                "cache_hit": True,
+                "status": "ok",
+            })
+            # Inspect the tool call's stored result — it should carry 📦.
+            tool_id = "tc_1"  # renderer's local id; first call → tc_1
+            tc = self.renderer._tool_calls[tool_id]
+            self.assertIn("📦 cache", tc["result"])
+        finally:
+            self.renderer.unsubscribe()
+
+    def test_orphan_result_renders_marker(self):
+        """A ``tool.result`` without a matching ``tool.called`` falls back
+        to a plain marker (no exception, no crash)."""
+        self.renderer.subscribe()
+        try:
+            self.bus.emit_event("tool.result", {
+                "name": "lone",
+                "result": "lone result",
+                "id": "no-match",
+                "status": "ok",
+            })
+            html = self.text_browser.toHtml()
+            self.assertIn("↳", html)
+        finally:
+            self.renderer.unsubscribe()
+
+
+class TestCatalogMarkerReplacement(RendererTestBase):
+    """Tests for P-δ.5: <<CAT:rsn|display>> → clickable anchor."""
+
+    WEB_BASE = "https://katalog.ub.tu-freiberg.de/Record/"
+
+    def test_marker_replaced_with_anchor(self):
+        """Valid marker is converted to an <a href=…0-{rsn}> with display text."""
+        self.renderer.set_catalog_web_base(self.WEB_BASE)
+        out = self.renderer._replace_cat_markers("Vor <<CAT:12345|Titel>> nach")
+        self.assertIn('href="https://katalog.ub.tu-freiberg.de/Record/0-12345"', out)
+        self.assertIn(">Titel</a>", out)
+        # Marker syntax itself must be gone.
+        self.assertNotIn("<<CAT:", out)
+        # Surrounding text preserved.
+        self.assertTrue(out.startswith("Vor "))
+        self.assertTrue(out.endswith(" nach"))
+
+    def test_invalid_rsn_passes_through_as_text(self):
+        """Non-numeric RSN → marker is reduced to display text (no anchor)."""
+        self.renderer.set_catalog_web_base(self.WEB_BASE)
+        out = self.renderer._replace_cat_markers("Siehe <<CAT:abc|Mein Titel>>")
+        self.assertNotIn("<a ", out, "No anchor should be emitted for invalid RSN")
+        self.assertNotIn("<<CAT:", out)
+        self.assertIn("Mein Titel", out)
+
+    def test_empty_web_base_disables_feature(self):
+        """Without a configured base, markers reduce to display text."""
+        # Do NOT call set_catalog_web_base — default is "".
+        out = self.renderer._replace_cat_markers("X <<CAT:12345|Titel>> Y")
+        self.assertNotIn("<a ", out, "Feature must be off when no base URL set")
+        self.assertNotIn("<<CAT:", out)
+        self.assertIn("Titel", out)
+
+    def test_multiple_markers_all_replaced(self):
+        """Multiple markers in one text are all replaced independently."""
+        self.renderer.set_catalog_web_base(self.WEB_BASE)
+        out = self.renderer._replace_cat_markers(
+            "<<CAT:111|A>> und <<CAT:222|B>>"
+        )
+        self.assertIn("Record/0-111", out)
+        self.assertIn("Record/0-222", out)
+        self.assertIn(">A</a>", out)
+        self.assertIn(">B</a>", out)
+
+    def test_html_in_display_is_escaped(self):
+        """Display text is HTML-escaped to prevent LLM-injected XSS."""
+        self.renderer.set_catalog_web_base(self.WEB_BASE)
+        out = self.renderer._replace_cat_markers('<<CAT:1|<script>x</script>>>')
+        # The raw <script> tag must be escaped, not embedded.
+        self.assertNotIn("<script>", out)
+        self.assertIn("&lt;script&gt;", out)
+
+    def test_no_marker_passthrough(self):
+        """Text without markers is returned unchanged."""
+        self.renderer.set_catalog_web_base(self.WEB_BASE)
+        text = "Just plain text, no marker here."
+        self.assertEqual(self.renderer._replace_cat_markers(text), text)
+
+
 if __name__ == "__main__":
     unittest.main()

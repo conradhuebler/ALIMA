@@ -658,6 +658,33 @@ class PipelineManager:
         self.alima_manager.set_interrupt_callback(combined_check)
         self.logger.debug("Interrupt check function registered with PipelineManager (thread-safe)")
 
+    def _emit_pipeline_step_bus(self, step, status: str) -> None:
+        """Emit a ``state.pipeline_step`` event on the AlimaStateBus.
+
+        Called by ``_execute_next_step`` for both "running" and
+        "completed" transitions so the chat panel can render a
+        collapsible tool-call block for each classic pipeline step.
+        Mirrors what the chat-tool wrapper at
+        ``src/ui/chat_tools/pipeline.py`` does, but at the manager
+        level — that way the auto-pipeline button (which bypasses
+        the wrapper) gets the same treatment.
+
+        Best-effort: any bus failure is swallowed so the pipeline
+        keeps running.
+        """
+        try:
+            from src.core.state_bus import AlimaStateBus
+            AlimaStateBus().emit_event("state.pipeline_step", {
+                "tool": "execute_complete_pipeline",
+                "step_id": getattr(step, "step_id", "") or "",
+                "name": getattr(step, "name", "") or "",
+                "status": status,
+            })
+        except Exception:
+            self.logger.debug(
+                "_emit_pipeline_step_bus failed", exc_info=True
+            )
+
     def _check_interruption(self):
         """Check if pipeline should be interrupted - Claude Generated
 
@@ -1951,6 +1978,17 @@ class PipelineManager:
                     if self.step_started_callback:
                         self.step_started_callback(current_step)
 
+                    # Phase (post-F): emit ``state.pipeline_step`` on the
+                    # bus so PipelineChatPanel renders a collapsible
+                    # tool-call block for this step. The chat-tool
+                    # wrapper at ``src/ui/chat_tools/pipeline.py`` does
+                    # the same thing for the chat-driven classic path —
+                    # moving the emit here means the auto-pipeline button
+                    # (which doesn't go through the wrapper) gets the
+                    # same visual treatment as agentic mode and the
+                    # chat-driven path.
+                    self._emit_pipeline_step_bus(current_step, "running")
+
                     success = self.execute_step(current_step.step_id)
                     self.logger.info(
                         f"Step {current_step.step_id} completed with success: {success}"
@@ -1961,14 +1999,19 @@ class PipelineManager:
                         if self.step_completed_callback:
                             self.step_completed_callback(current_step)
 
-                            # NEW: Allow main thread time to process completion and display messages - Claude Generated
-                            # This prevents output interleaving where next step's output appears before
-                            # previous step's completion summary (especially critical for GUI event queue)
-                            import time
-                            completion_delay_steps = ["initialisation", "keywords", "dk_classification"]
-                            if current_step.step_id in completion_delay_steps:
-                                time.sleep(0.2)  # 200ms for main thread to process completion signals
-                                self.logger.debug(f"✅ Delayed 200ms after {current_step.step_id} completion for UI processing")
+                        # Phase (post-F): mirror the started-event emit
+                        # for the terminal state. Status "completed" is
+                        # recognised by PipelineChatPanel as success.
+                        self._emit_pipeline_step_bus(current_step, "completed")
+
+                        # NEW: Allow main thread time to process completion and display messages - Claude Generated
+                        # This prevents output interleaving where next step's output appears before
+                        # previous step's completion summary (especially critical for GUI event queue)
+                        import time
+                        completion_delay_steps = ["initialisation", "keywords", "dk_classification"]
+                        if current_step.step_id in completion_delay_steps:
+                            time.sleep(0.2)  # 200ms for main thread to process completion signals
+                            self.logger.debug(f"✅ Delayed 200ms after {current_step.step_id} completion for UI processing")
 
                 self.current_step_index += 1
 

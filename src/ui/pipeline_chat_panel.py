@@ -27,11 +27,12 @@ changes.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QKeyEvent, QFont
+from PyQt6.QtGui import QDesktopServices, QKeyEvent, QFont
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -163,9 +164,11 @@ class PipelineChatPanel(QWidget):
     DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT
     USER_PROMPT_TEMPLATE = USER_PROMPT_TEMPLATE
 
-    # Status-message prefixes whose info is already rendered by the
-    # tool-call/tool-result hook handlers — skip duplicates.
-    _STATUS_SKIP_PREFIXES = ("🔧", "✓", "💭")
+    # NB (Phase F): ``_STATUS_SKIP_PREFIXES`` removed. The status-line
+    # duplication in ``agent_loop.py`` is now suppressed at the source
+    # when ``on_tool_call`` is wired (the bus/hook already conveys the
+    # call/result). The filter existed because of that duplication —
+    # no longer needed.
 
     # ------------------------------------------------------------------
     # Construction
@@ -209,6 +212,13 @@ class PipelineChatPanel(QWidget):
         self._typing_model: str = ""
         self._last_tool_call_id: Optional[str] = None
         self._bus_tool_call_ids: Dict[str, str] = {}
+        # Post-(F) polish: status-line accumulator for the open
+        # pipeline-step tool block. While a step is "running", incoming
+        # status messages (per-keyword search progress, etc.) are
+        # captured here and rendered as the block's expanded body when
+        # the step completes — no more duplicate markers under the
+        # collapsed block.
+        self._open_step_status: List[str] = []
 
         # P-ε: cross-thread bridge for mutation tool confirmations.
         from src.ui.chat_tools.proposal_gateway import ProposalGateway
@@ -225,6 +235,16 @@ class PipelineChatPanel(QWidget):
             self.stream_text,
             self.auto_scroll_checkbox,
         )
+        # P-δ.5: wire catalog web-OPAC base URL so the renderer can turn
+        # <<CAT:rsn|text>> markers into clickable links. Degrades cleanly
+        # (markers are reduced to plain text) if config is missing.
+        try:
+            from src.utils.config_manager import ConfigManager
+            cat_cfg = ConfigManager().get_catalog_config()
+            web_base = getattr(cat_cfg, "catalog_web_record_url", "") or ""
+            self._renderer.set_catalog_web_base(web_base)
+        except Exception:
+            pass  # feature disabled silently — see _replace_cat_markers
 
         # Size policy: vertical Ignored to prevent sizeHint propagation
         # to window (multi-monitor safety, inherited from PipelineStreamWidget).
@@ -236,13 +256,24 @@ class PipelineChatPanel(QWidget):
         # AlimaStateBus subscriptions:
         # - state.changed → refresh SharedContext snapshot for chat tools.
         # - tool.called / tool.result → render markers for agentic pipeline
-        #   (chat-agent uses direct signals, not the bus).
+        #   and chat-agent (Phase D unified producer).
+        # - state.pipeline_step → render pipeline-step tool blocks.
+        # - state.pipeline_started / state.pipeline_completed → previously
+        #   dead events; now bound to the panel's slot logic (Phase F).
         try:
             bus = AlimaStateBus()
             bus.subscribe("state.changed", self._on_state_changed)
             bus.subscribe("tool.called", self._on_bus_tool_called)
             bus.subscribe("tool.result", self._on_bus_tool_result)
             bus.subscribe("state.pipeline_step", self._on_bus_pipeline_step)
+            bus.subscribe(
+                "state.pipeline_started",
+                lambda p: self.on_pipeline_started(p.get("pipeline_id", "")),
+            )
+            bus.subscribe(
+                "state.pipeline_completed",
+                lambda p: self._on_bus_pipeline_completed(p),
+            )
         except Exception:
             self.logger.exception("PipelineChatPanel: AlimaStateBus subscribe failed")
 
@@ -1372,8 +1403,7 @@ class PipelineChatPanel(QWidget):
         )
         self.current_worker.token_received.connect(self._on_token)
         self.current_worker.status_message.connect(self._on_status_message)
-        self.current_worker.tool_called.connect(self._on_tool_called)
-        self.current_worker.tool_result.connect(self._on_tool_result)
+        # NB (Phase D): tool calls ride AlimaStateBus, not direct signals.
         self.current_worker.generation_finished.connect(self._on_finished)
         self.current_worker.generation_error.connect(self._on_error)
         self._current_render_model = f"{provider} | {model}"
@@ -1402,27 +1432,18 @@ class PipelineChatPanel(QWidget):
         text = (line or "").strip()
         if not text:
             return
-        if text.startswith(self._STATUS_SKIP_PREFIXES):
+        # Post-(F) polish: if a pipeline-step tool block is currently
+        # open (its "running" bus event fired and we haven't seen its
+        # "completed" yet), accumulate the status line into the block
+        # instead of emitting a separate marker. The accumulated
+        # content becomes the block's expanded body when the step
+        # completes — see ``_on_bus_pipeline_step``.
+        if self._last_tool_call_id is not None:
+            self._open_step_status.append(text)
             return
+        # No open step → fall back to a plain marker (LLM streaming
+        # tokens, chat-agent status lines, etc.).
         self._append_tool_marker(text)
-
-    @pyqtSlot(str, dict)
-    def _on_tool_called(self, name: str, args: dict):
-        self._last_tool_call_id = self._renderer.render_tool_call(name, args)
-
-    @pyqtSlot(str, str)
-    def _on_tool_result(self, name: str, result_str: str):
-        if self._last_tool_call_id:
-            self._renderer.render_tool_result(
-                self._last_tool_call_id, result_str, status="success"
-            )
-            self._last_tool_call_id = None
-        else:
-            # Fallback if no matching tool_call id (legacy path).
-            preview = (result_str or "").strip().replace("\n", " ")
-            if len(preview) > 120:
-                preview = preview[:120] + "…"
-            self._append_tool_marker(f"↳ {preview}")
 
     @pyqtSlot(object)
     def _on_finished(self, result):
@@ -1477,7 +1498,22 @@ class PipelineChatPanel(QWidget):
             bus_id = payload.get("id")
             tool_id = self._bus_tool_call_ids.pop(bus_id, None) if bus_id else None
             if tool_id:
-                self._renderer.render_tool_result(tool_id, result, status="success")
+                # P-B: cache-hit branch appends a 📦 badge to the result
+                # text so users can distinguish fast cache returns from
+                # live calls. Renderer forwards the result verbatim.
+                if payload.get("cache_hit"):
+                    preview = result.strip().replace("\n", " ")
+                    if len(preview) > 80:
+                        preview = preview[:80] + "…"
+                    result = f"📦 cache: {preview}"
+                # Phase E: bus producers emit "ok" (CachingToolRegistry) but
+                # the renderer's internal status enum is "success" / "error".
+                # Normalize here so the ✓/✗ icon picks the right glyph.
+                raw_status = payload.get("status") or "success"
+                status = "success" if raw_status == "ok" else raw_status
+                self._renderer.render_tool_result(
+                    tool_id, result, status=status,
+                )
             else:
                 # Fallback: plain marker if id unknown.
                 preview = result.strip().replace("\n", " ")
@@ -1489,14 +1525,77 @@ class PipelineChatPanel(QWidget):
                 "PipelineChatPanel: bus tool.result rendering failed"
             )
 
+    def _on_bus_pipeline_completed(self, payload: dict) -> None:
+        """Render a system message when ``state.pipeline_completed`` fires.
+
+        Phase F: the legacy ``pipeline_completed_callback`` still runs
+        elsewhere, but the bus event was previously dead (no
+        subscriber). Now the panel reacts to it so the chat log
+        acknowledges the end of a pipeline run consistently.
+        """
+        try:
+            label = "✅ Pipeline abgeschlossen"
+            workflow = (payload or {}).get("workflow")
+            if workflow:
+                label += f" ({workflow})"
+            self._renderer.render_system_message(label)
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: bus state.pipeline_completed render failed"
+            )
+
     def _on_bus_pipeline_step(self, payload: dict) -> None:
-        """Render step-progress markers for run_pipeline / rerun_step tools (P-ζ)."""
+        """Render step-progress as collapsible tool-call block (was: legacy marker).
+
+        Same visual treatment as real ``tool.called``/``tool.result`` events so
+        that steps triggered via ``run_pipeline`` / ``rerun_step`` look
+        identical to native tool calls.
+        """
         try:
             status = payload.get("status", "")
             step_id = payload.get("step_id", "") or "?"
             name = payload.get("name", "") or step_id
-            icon = "🔄" if status == "running" else ("✅" if status == "completed" else "•")
-            self._append_tool_marker(f"{icon} Step {step_id}: {name}")
+            tool_name = f"pipeline.{step_id}"
+            args = {
+                "step": step_id,
+                "name": name,
+                "tool": payload.get("tool", ""),
+            }
+            if status == "running":
+                self._last_tool_call_id = self._renderer.render_tool_call(
+                    tool_name, args
+                )
+                # Post-(F) polish: reset the per-step status accumulator
+                # so subsequent status messages are captured into this
+                # block's body until the matching "completed" event.
+                self._open_step_status = []
+                return
+            # Terminal: success when explicitly "completed", error otherwise.
+            result_status = "success" if status == "completed" else "error"
+            # Prefer the accumulated status lines (per-keyword search
+            # progress, etc.) as the block's body when present. Fall
+            # back to a short summary line if the step emitted no
+            # status messages.
+            # Post-(F) polish: if no status lines accumulated, fall back
+            # to a short summary line. Use ``getattr`` so the handler
+            # is robust against an older stub that doesn't define the
+            # accumulator attribute yet.
+            if getattr(self, "_open_step_status", None):
+                result_text = "\n".join(self._open_step_status)
+            else:
+                result_text = f"{status or 'done'}: {name}"
+            self._open_step_status = []
+            if self._last_tool_call_id:
+                self._renderer.render_tool_result(
+                    self._last_tool_call_id, result_text, status=result_status
+                )
+                self._last_tool_call_id = None
+            else:
+                # Orphan completion (no prior running) → still render a block.
+                tid = self._renderer.render_tool_call(tool_name, args)
+                self._renderer.render_tool_result(
+                    tid, result_text, status=result_status
+                )
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: bus state.pipeline_step rendering failed"
@@ -1534,6 +1633,7 @@ class PipelineChatPanel(QWidget):
         self._renderer.render_user_bubble(text)
 
     def _append_tool_marker(self, text: str):
+        """Backwards-compat shim. Prefer ``renderer.render_tool_call`` for new code."""
         self._renderer.render_tool_marker(text)
 
     def _append_system_message(self, text: str):
@@ -1562,12 +1662,17 @@ class PipelineChatPanel(QWidget):
 
     @pyqtSlot(QUrl)
     def _on_anchor_clicked(self, url: QUrl) -> None:
-        """Route ``mutation://`` and ``tool://`` link clicks."""
+        """Route ``mutation://``, ``tool://`` and external ``http(s)://`` link clicks."""
         scheme = url.scheme()
         if scheme == "mutation":
             self._handle_mutation_link(url)
         elif scheme == "tool":
             self._handle_tool_link(url)
+        elif scheme in ("http", "https"):
+            # P-δ.5: external catalog/web links from <<CAT:rsn|…>> markers.
+            # setOpenExternalLinks(False) is set on the text browser, so we
+            # have to drive the open ourselves via QDesktopServices.
+            QDesktopServices.openUrl(url)
 
     def _handle_mutation_link(self, url: QUrl) -> None:
         host_part = url.host()

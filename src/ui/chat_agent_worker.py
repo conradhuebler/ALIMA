@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from src.core.agent_loop import AgentLoop
+from src.core.agents.sub_agents.caching_tool_registry import make_tool_call_id
 
 
 logger = logging.getLogger(__name__)
@@ -32,8 +33,9 @@ class ChatAgentWorker(QThread):
     # Signals
     token_received = pyqtSignal(str)          # real LLM token (final answer stream)
     status_message = pyqtSignal(str)          # AgentLoop progress line (🔄/✅/⚠️/…)
-    tool_called = pyqtSignal(str, dict)       # (tool_name, arguments)
-    tool_result = pyqtSignal(str, str)        # (tool_name, result_json_str)
+    # NB (Phase D): tool_called / tool_result Qt signals removed.
+    # Tool-call events are emitted on AlimaStateBus ("tool.called" / "tool.result")
+    # using the unified id schema. PipelineChatPanel subscribes to the bus.
     generation_finished = pyqtSignal(object)  # AgentResult
     generation_error = pyqtSignal(str)
 
@@ -75,6 +77,11 @@ class ChatAgentWorker(QThread):
         self._tools = tools if tools is not None else []
         self._history = history
         self._stop_event = threading.Event()
+        # Phase D: bus id for the currently-open tool call. Set by
+        # _on_tool_call, consumed by _on_tool_result so the bus
+        # result event can be matched to the matching call event
+        # (mirrors the LLMAgentStep closure-cell pattern).
+        self._last_tool_call_id: str = ""
 
     def request_stop(self) -> None:
         """Signal the agent loop to stop at the next iteration boundary."""
@@ -99,15 +106,29 @@ class ChatAgentWorker(QThread):
 
     def _on_tool_call(self, tc: Any) -> None:
         try:
-            self.tool_called.emit(tc.name, dict(tc.arguments or {}))
+            from src.core.state_bus import AlimaStateBus
+            tc_id = getattr(tc, "id", "") or make_tool_call_id()
+            self._last_tool_call_id = tc_id
+            AlimaStateBus().emit_event("tool.called", {
+                "name": getattr(tc, "name", ""),
+                "arguments": dict(getattr(tc, "arguments", {}) or {}),
+                "id": tc_id,
+            })
         except Exception:
-            logger.exception("Failed to emit tool_called signal")
+            logger.exception("Failed to emit tool.called on bus")
 
     def _on_tool_result(self, name: str, result_str: str) -> None:
         try:
-            self.tool_result.emit(name, result_str)
+            from src.core.state_bus import AlimaStateBus
+            AlimaStateBus().emit_event("tool.result", {
+                "name": name,
+                "result": result_str or "",
+                "id": self._last_tool_call_id or "",
+            })
         except Exception:
-            logger.exception("Failed to emit tool_result signal")
+            logger.exception("Failed to emit tool.result on bus")
+        finally:
+            self._last_tool_call_id = ""
 
     # ------------------------------------------------------------------
 

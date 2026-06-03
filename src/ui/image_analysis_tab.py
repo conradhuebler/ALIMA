@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QCheckBox,
+    QTextBrowser,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from typing import List
@@ -337,12 +338,52 @@ class ImageAnalysisTab(QWidget):
 
         main_layout.addWidget(main_splitter)
 
+        # Phase E: small "Recent Tool Calls" mini-log.
+        # Mirrors AnalysisReviewTab: opt-in bus consumer so the user sees
+        # live tool activity without leaving the image analysis view.
+        self._init_tool_log_widget()
+        main_layout.addWidget(self.tool_log_group)
+
+    def _init_tool_log_widget(self) -> None:
+        """Build the read-only tool-log mini widget (Phase E)."""
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+        self.tool_log_group = QGroupBox("🛠 Letzte Tool-Aufrufe")
+        self.tool_log_group.setMaximumHeight(180)
+        layout = QVBoxLayout(self.tool_log_group)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        self.tool_log_browser = QTextBrowser()
+        self.tool_log_browser.setOpenLinks(False)
+        self.tool_log_browser.setMaximumHeight(140)
+        self.tool_log_autoscroll = QCheckBox("Auto-Scroll")
+        self.tool_log_autoscroll.setChecked(True)
+        layout.addWidget(self.tool_log_browser)
+        layout.addWidget(self.tool_log_autoscroll)
+
+        self.tool_log_renderer = UnifiedMessageRenderer(
+            self.tool_log_browser, self.tool_log_autoscroll
+        )
+        self.tool_log_renderer.subscribe()
+
     def refresh_styles(self):
         """Re-apply styles after theme change — Claude Generated"""
         from .styles import get_main_stylesheet, get_status_label_styles
         self.setStyleSheet(get_main_stylesheet())
         if hasattr(self, 'status_label'):
             self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
+    def closeEvent(self, event) -> None:  # Claude Generated (Phase E)
+        """Unsubscribe the mini-log renderer when the tab is closed."""
+        try:
+            renderer = getattr(self, "tool_log_renderer", None)
+            if renderer is not None:
+                renderer.unsubscribe()
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "ImageAnalysisTab.closeEvent: unsubscribe failed"
+            )
+        super().closeEvent(event)
 
     def load_providers_and_models(self):
         """Load available providers and models"""

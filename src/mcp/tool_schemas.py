@@ -203,7 +203,9 @@ SEARCH_CATALOG_TITLES = ToolDefinition(
         "Search bibliographic catalog for book records by title or keyword. "
         "Returns per-query lists of records (rsn, title, authors, year, "
         "dk_codes, rvk_codes, subjects). No GND/SWB/Lobid enrichment — "
-        "pure catalog hits intended for title-list workflows."
+        "pure catalog hits intended for title-list workflows. Each record "
+        "includes `web_url` (catalog web link for that RSN) when a web "
+        "record URL is configured."
     ),
     parameters={
         "type": "object",

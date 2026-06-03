@@ -52,7 +52,7 @@ class AgentLoop:
         # Status channel split: if status_callback is provided, all
         # progress / error / tool-dispatch status lines go there. Otherwise
         # they fall through to stream_callback (legacy behaviour for
-        # LLMAgentStep/ReflectionStep which show them in PipelineStreamWidget).
+        # LLMAgentStep/ReflectionStep which show them in PipelineChatPanel).
         self.status_callback = status_callback
 
     @property
@@ -193,9 +193,13 @@ class AgentLoop:
 
                     logger.info(f"  🔧 Executing tool: {tc.name}({_truncate_args(tc.arguments)})")
 
-                    # Show tool type for better transparency
+                    # Show tool type for better transparency.
+                    # Phase F: when ``on_tool_call`` is wired the bus/hook
+                    # already conveys the call; suppress the duplicate
+                    # status line so the chat log doesn't show the same
+                    # info twice.
                     tool_type = self._get_tool_type_label(tc.name)
-                    if self._status_cb:
+                    if self._status_cb and not self.on_tool_call:
                         args_preview = _truncate_args(tc.arguments, 60)
                         self._status_cb(f"\n  🔧 {tool_type}: {tc.name}({args_preview})")
 
@@ -228,8 +232,11 @@ class AgentLoop:
                     }
                     tool_log.append(log_entry)
 
-                    # Show result summary for transparency
-                    if self._status_cb:
+                    # Show result summary for transparency.
+                    # Phase F: same as the call-line above — when
+                    # ``on_tool_call`` is set, the hook/bus already carries
+                    # the result; skip the duplicate.
+                    if self._status_cb and not self.on_tool_call:
                         result_preview = result_str[:100] + "..." if len(result_str) > 100 else result_str
                         # Count results if it's a list
                         try:

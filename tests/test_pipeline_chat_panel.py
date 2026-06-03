@@ -30,28 +30,34 @@ def _make_stub_panel() -> SimpleNamespace:
     """Minimal panel-like object with intercepted renderer output."""
     markers: list[str] = []
     tool_calls: dict = {}
-    tool_call_ids: dict = {}
+    tool_results: list[tuple] = []
+    tool_call_counter = {"n": 0}
 
     class FakeRenderer:
         def render_tool_marker(self, text, tool_name=None):
             markers.append(text)
         def render_tool_call(self, name, args):
-            tcid = f"tc_{len(tool_calls) + 1}"
+            tool_call_counter["n"] += 1
+            tcid = f"tc_{tool_call_counter['n']}"
             tool_calls[tcid] = {"name": name, "args": args}
             return tcid
         def render_tool_result(self, tool_id, result, status="success"):
-            pass
+            tool_results.append((tool_id, result, status))
 
     stub = SimpleNamespace(
         logger=MagicMock(),
         _append_tool_marker=markers.append,
         _renderer=FakeRenderer(),
-        _bus_tool_call_ids=tool_call_ids,
+        _bus_tool_call_ids={},
+        _last_tool_call_id=None,
     )
     stub.markers = markers
+    stub.tool_calls = tool_calls
+    stub.tool_results = tool_results
     stub._format_tool_args = PipelineChatPanel._format_tool_args
     stub._on_bus_tool_called = PipelineChatPanel._on_bus_tool_called.__get__(stub)
     stub._on_bus_tool_result = PipelineChatPanel._on_bus_tool_result.__get__(stub)
+    stub._on_bus_pipeline_step = PipelineChatPanel._on_bus_pipeline_step.__get__(stub)
     return stub
 
 
@@ -134,6 +140,246 @@ class TestBusToolHandlers(unittest.TestCase):
         stub._on_bus_tool_result({"name": "x", "result": "y" * 200})
         self.assertEqual(len(stub.markers), 1)
         self.assertTrue(stub.markers[0].endswith("…"))
+
+
+class TestPipelineStepBusAsToolBlock(unittest.TestCase):
+    """``state.pipeline_step`` renders as collapsible tool-call block."""
+
+    def test_running_step_renders_tool_call(self):
+        stub = _make_stub_panel()
+        stub._on_bus_pipeline_step(
+            {"status": "running", "step_id": "search", "name": "Search", "tool": "run_pipeline"}
+        )
+        # No legacy marker, exactly one tool call opened.
+        self.assertEqual(stub.markers, [])
+        self.assertEqual(len(stub.tool_calls), 1)
+        tc = next(iter(stub.tool_calls.values()))
+        self.assertEqual(tc["name"], "pipeline.search")
+        self.assertEqual(tc["args"]["step"], "search")
+        self.assertEqual(tc["args"]["tool"], "run_pipeline")
+        # Panel tracks the open id for the upcoming completion event.
+        self.assertIsNotNone(stub._last_tool_call_id)
+
+    def test_completed_step_attaches_success_result(self):
+        stub = _make_stub_panel()
+        stub._on_bus_pipeline_step(
+            {"status": "running", "step_id": "search", "name": "Search"}
+        )
+        running_id = stub._last_tool_call_id
+        stub._on_bus_pipeline_step(
+            {"status": "completed", "step_id": "search", "name": "Search"}
+        )
+        self.assertEqual(len(stub.tool_results), 1)
+        tool_id, result_text, status = stub.tool_results[0]
+        self.assertEqual(tool_id, running_id)
+        self.assertEqual(status, "success")
+        self.assertIn("completed", result_text)
+        # Id is cleared after attach.
+        self.assertIsNone(stub._last_tool_call_id)
+
+    def test_error_step_attaches_error_result(self):
+        stub = _make_stub_panel()
+        stub._on_bus_pipeline_step(
+            {"status": "running", "step_id": "search", "name": "Search"}
+        )
+        running_id = stub._last_tool_call_id
+        stub._on_bus_pipeline_step(
+            {"status": "error", "step_id": "search", "name": "Search"}
+        )
+        self.assertEqual(len(stub.tool_results), 1)
+        tool_id, result_text, status = stub.tool_results[0]
+        self.assertEqual(tool_id, running_id)
+        self.assertEqual(status, "error")
+        self.assertIn("error", result_text)
+
+    def test_orphan_completion_renders_block(self):
+        stub = _make_stub_panel()
+        # No prior running event.
+        stub._on_bus_pipeline_step(
+            {"status": "completed", "step_id": "verify", "name": "Verify"}
+        )
+        # Should still render a complete tool-call + result pair.
+        self.assertEqual(len(stub.tool_calls), 1)
+        self.assertEqual(len(stub.tool_results), 1)
+        tool_id, result_text, status = stub.tool_results[0]
+        self.assertIn(tool_id, stub.tool_calls)
+        self.assertEqual(status, "success")
+        self.assertIn("completed", result_text)
+
+    def test_deterministic_tool_call_renders_with_cache_badge(self):
+        """Phase B: ``cache_hit`` payload triggers 📦 badge in result text."""
+        stub = _make_stub_panel()
+        # 1) Open a tool-call block via the bus.
+        stub._on_bus_tool_called(
+            {"name": "search_gnd", "arguments": {"term": "x"}, "id": "abc"}
+        )
+        # 2) Result event with cache_hit=True.
+        stub._on_bus_tool_result(
+            {"name": "search_gnd", "result": '[{"id": 1}]', "id": "abc", "cache_hit": True}
+        )
+        # The result_text captured by FakeRenderer carries the badge.
+        self.assertEqual(len(stub.tool_results), 1)
+        _, result_text, _ = stub.tool_results[0]
+        self.assertIn("📦 cache", result_text)
+        # And the id-keyed map is consumed.
+        self.assertNotIn("abc", stub._bus_tool_call_ids)
+
+    def test_classic_pipeline_renders_as_tool_block(self):
+        """Phase C: classic.* tool events render as collapsible blocks."""
+        stub = _make_stub_panel()
+        # Simulate the two events a classic step emits.
+        stub._on_bus_tool_called({
+            "name": "classic.keywords", "arguments": {"task": "keywords"}, "id": "k1",
+        })
+        stub._on_bus_tool_result({
+            "name": "classic.keywords", "result": "ok", "id": "k1", "status": "ok",
+        })
+        self.assertEqual(len(stub.tool_calls), 1)
+        tc = next(iter(stub.tool_calls.values()))
+        self.assertEqual(tc["name"], "classic.keywords")
+        self.assertEqual(tc["args"]["task"], "keywords")
+        # Result event matched the id and attached a status.
+        # Phase E normalization: bus "ok" → renderer-internal "success"
+        # so the ✓ icon picks the right glyph.
+        self.assertEqual(len(stub.tool_results), 1)
+        _, _, status = stub.tool_results[0]
+        self.assertEqual(status, "success")
+
+
+class TestStepStatusAccumulator(unittest.TestCase):
+    """Post-(F) polish: status messages emitted while a pipeline-step
+    tool block is open are absorbed into the block's body instead of
+    rendered as separate markers after the collapsed block.
+    """
+
+    def _make_stub(self) -> SimpleNamespace:
+        markers: list[str] = []
+        tool_calls: dict = {}
+        tool_results: list[tuple] = []
+        tool_call_counter = {"n": 0}
+
+        class FakeRenderer:
+            def render_tool_marker(self, text, tool_name=None):
+                markers.append(text)
+            def render_tool_call(self, name, args):
+                tool_call_counter["n"] += 1
+                tcid = f"tc_{tool_call_counter['n']}"
+                tool_calls[tcid] = {"name": name, "args": args}
+                return tcid
+            def render_tool_result(self, tool_id, result, status="success"):
+                tool_results.append((tool_id, result, status))
+
+        stub = SimpleNamespace(
+            logger=MagicMock(),
+            _renderer=FakeRenderer(),
+            _bus_tool_call_ids={},
+            _last_tool_call_id=None,
+            _open_step_status=[],
+            markers=markers,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            _append_tool_marker=markers.append,
+        )
+        # Bind real panel methods.
+        stub._on_status_message = PipelineChatPanel._on_status_message.__get__(stub)
+        stub._on_bus_pipeline_step = PipelineChatPanel._on_bus_pipeline_step.__get__(stub)
+        return stub
+
+    def test_status_lines_during_step_become_block_body(self):
+        """``🔍 Suche 'Cadmium'…`` etc. accumulate into the open block."""
+        stub = self._make_stub()
+        # 1) Step starts → opens a tool block.
+        stub._on_bus_pipeline_step({
+            "status": "running", "step_id": "search", "name": "GND Search",
+        })
+        self.assertIsNotNone(stub._last_tool_call_id)
+        # 2) Three search status lines arrive while the step is open.
+        stub._on_status_message("🔍 Suche 'Cadmium'...")
+        stub._on_status_message("    ✓ 'Cadmium': 115 Treffer")
+        stub._on_status_message("🔍 Suche 'Phytoremediation'...")
+        # 3) Step completes → the accumulator becomes the block body.
+        stub._on_bus_pipeline_step({
+            "status": "completed", "step_id": "search", "name": "GND Search",
+        })
+        # No extra markers were emitted.
+        self.assertEqual(stub.markers, [])
+        # Exactly one tool-call / one tool-result, body = joined status.
+        self.assertEqual(len(stub.tool_calls), 1)
+        self.assertEqual(len(stub.tool_results), 1)
+        block_id = list(stub.tool_calls.keys())[0]
+        tool_id, result_text, status = stub.tool_results[0]
+        self.assertEqual(tool_id, block_id)
+        self.assertIn("Cadmium", result_text)
+        self.assertIn("115 Treffer", result_text)
+        self.assertIn("Phytoremediation", result_text)
+        self.assertEqual(status, "success")
+        # Accumulator reset for the next step.
+        self.assertEqual(stub._open_step_status, [])
+
+    def test_status_outside_step_still_emits_marker(self):
+        """Status lines without an open step fall back to plain markers
+        (LLM streaming tokens, chat-agent status, etc.)."""
+        stub = self._make_stub()
+        stub._on_status_message("🔄 Tool-Call 1/30")
+        self.assertEqual(stub.markers, ["🔄 Tool-Call 1/30"])
+
+    def test_step_with_no_status_uses_fallback_summary(self):
+        """If a step emits no status lines, the old summary text is used."""
+        stub = self._make_stub()
+        stub._on_bus_pipeline_step({
+            "status": "running", "step_id": "initialisation", "name": "Init",
+        })
+        # No status messages arrive.
+        stub._on_bus_pipeline_step({
+            "status": "completed", "step_id": "initialisation", "name": "Init",
+        })
+        self.assertEqual(len(stub.tool_results), 1)
+        _, result_text, _ = stub.tool_results[0]
+        # Fallback: short "completed: <name>" line.
+        self.assertIn("completed", result_text)
+        self.assertIn("Init", result_text)
+
+
+class TestPipelineLifecycleEvents(unittest.TestCase):
+    """Phase F: ``state.pipeline_started`` / ``state.pipeline_completed``
+    events now have real consumers in PipelineChatPanel (previously dead).
+
+    The handler implementations live on the real panel, but to avoid
+    instantiating the full widget we exercise the *handler functions*
+    directly: the panel wires them as bus subscribers in ``__init__``.
+    """
+
+    def test_on_bus_pipeline_completed_renders_system_message(self):
+        """The handler appends a system message via the renderer."""
+        from src.ui.pipeline_chat_panel import PipelineChatPanel
+
+        # Minimal stand-in with a renderer that records system messages.
+        messages: list[str] = []
+        stub = SimpleNamespace(
+            _renderer=SimpleNamespace(
+                render_system_message=lambda text: messages.append(text)
+            )
+        )
+        handler = PipelineChatPanel._on_bus_pipeline_completed.__get__(stub)
+        handler({"workflow": "alima_classic"})
+        self.assertEqual(len(messages), 1)
+        self.assertIn("abgeschlossen", messages[0])
+        self.assertIn("alima_classic", messages[0])
+
+    def test_on_bus_pipeline_completed_handles_empty_payload(self):
+        """Empty payload (legacy emitter) must not raise."""
+        from src.ui.pipeline_chat_panel import PipelineChatPanel
+
+        messages: list[str] = []
+        stub = SimpleNamespace(
+            _renderer=SimpleNamespace(
+                render_system_message=lambda text: messages.append(text)
+            )
+        )
+        handler = PipelineChatPanel._on_bus_pipeline_completed.__get__(stub)
+        # Must not raise.
+        handler({})
+        self.assertEqual(len(messages), 1)
 
 
 if __name__ == "__main__":

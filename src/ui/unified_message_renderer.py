@@ -12,6 +12,7 @@ tokens are renderer state until the line / bubble is finalised.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime
 from html import escape as html_escape
@@ -77,6 +78,31 @@ class UnifiedMessageRenderer:
         self._tool_call_id = 0
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
         self._tool_call_blocks: Dict[str, int] = {}  # tool_id -> userState marker
+
+        # Phase E: bus id → renderer tool_id bridge (for subscribe/unsubscribe).
+        self._bus_id_to_tool_id: Dict[str, str] = {}
+
+        # P-δ.5: <<CAT:rsn|text>> marker → clickable catalog link. The web
+        # base is set by the panel from CatalogConfig.catalog_web_record_url;
+        # empty default disables the feature (markers are stripped, leaving
+        # only the display text — see _replace_cat_marker in finalize).
+        self._catalog_web_base: str = ""
+
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
+
+    def set_catalog_web_base(self, url: str) -> None:
+        """Set the catalog web-OPAC base URL used to render <<CAT:rsn|…>> markers.
+
+        Example: ``set_catalog_web_base("https://katalog.ub.tu-freiberg.de/Record/")``
+        makes ``<<CAT:364641185|Chemoinformatics>>`` render as a link to
+        ``https://katalog.ub.tu-freiberg.de/Record/0-364641185``.
+
+        Pass an empty string to disable the feature (markers are reduced to
+        their display text only — no broken links).
+        """
+        self._catalog_web_base = (url or "").rstrip("/")
 
     # ------------------------------------------------------------------
     # Pipeline log rendering
@@ -210,8 +236,18 @@ class UnifiedMessageRenderer:
             try:
                 import markdown
 
+                # P-δ.5: replace <<CAT:rsn|display>> markers with clickable
+                # anchors BEFORE the markdown pass. Run on the raw text (not
+                # HTML-escaped) so the marker regex stays readable. Markdown
+                # then leaves the inserted <a> tags alone (they're already
+                # valid HTML, and python-markdown passes inline HTML through
+                # by default). If catalog_web_base is empty or the RSN is
+                # non-numeric, the marker is reduced to the display text so
+                # the user sees a clean message instead of a broken link.
+                render_text = self._replace_cat_markers(self._current_assistant_text)
+
                 md_html = markdown.markdown(
-                    self._current_assistant_text,
+                    render_text,
                     extensions=["extra", "nl2br"],
                 )
                 cursor = self._assistant_cell_cursor
@@ -246,6 +282,37 @@ class UnifiedMessageRenderer:
         self._assistant_cell_cursor = None
         self._current_assistant_text = ""
         self.auto_scroll_to_bottom()
+
+    def _replace_cat_markers(self, text: str) -> str:
+        """Replace ``<<CAT:rsn|display>>`` with an HTML anchor.
+
+        Claude Generated (P-δ.5). The regex matches the literal angle-bracket
+        marker (no leading/trailing whitespace inside the brackets). When
+        ``self._catalog_web_base`` is empty or the RSN is non-numeric the
+        marker is reduced to the display text so users never see a broken
+        anchor — the worst case is "no link", not "404 link".
+
+        Display text is HTML-escaped to avoid injection of arbitrary HTML
+        by the LLM (a prompt-injection mitigation — never trust LLM output
+        as raw HTML).
+        """
+        if not text or "<<CAT:" not in text:
+            return text
+
+        def _sub(match: "re.Match[str]") -> str:
+            rsn = match.group(1).strip()
+            display = html_escape(match.group(2).strip(), quote=True)
+            if not rsn.isdigit() or not self._catalog_web_base:
+                return display  # feature disabled or malformed → display only
+            url = f"{self._catalog_web_base}/0-{rsn}"
+            return (
+                f'<a href="{url}" style="color: #5af; text-decoration: underline;">'
+                f"{display}</a>"
+            )
+
+        # `|` is the separator; `[^|]+?` is non-greedy on display text.
+        # Allow multi-digit RSNs and most display chars; disallow newlines.
+        return re.sub(r"<<CAT:([^|\n]+)\|([^|\n]+)>>", _sub, text)
 
     # ------------------------------------------------------------------
     # Collapsible tool calls
@@ -375,8 +442,12 @@ class UnifiedMessageRenderer:
     def render_tool_marker(self, text: str, tool_name: Optional[str] = None) -> None:
         """Monospace grey line for tool calls / results / step progress.
 
-        Kept for callers that do not need collapsible blocks (e.g. bus
-        pipeline-step progress markers).
+        .. deprecated::
+            Prefer :meth:`render_tool_call` / :meth:`render_tool_result` for
+            new code — they give collapsible blocks, status icons, and
+            history entries consistent with the agentic tool-call pathway.
+            ``render_tool_marker`` remains only for status echoes that are
+            not tool-driven and for the ``PipelineChatPanel`` shim.
         """
         html = (
             f'<div style="margin: 2px 0 2px 8px; '
@@ -556,6 +627,103 @@ class UnifiedMessageRenderer:
     def clear_history(self) -> None:
         """Reset the message history list."""
         self.history.clear()
+
+    # ------------------------------------------------------------------
+    # Phase E: bus subscription (opt-in consumer)
+    # ------------------------------------------------------------------
+
+    def subscribe(self) -> None:
+        """Subscribe to ``tool.called`` / ``tool.result`` on AlimaStateBus.
+
+        Phase E: lets a renderer instance (e.g. a mini-log in
+        AnalysisReviewTab / ImageAnalysisTab) participate in the same
+        event flow as PipelineChatPanel without manual Qt-signal wiring.
+        Each renderer keeps its own ``tool_id`` counter and id mapping
+        — renderers do not share state.
+
+        Bound methods are stored on ``self`` so ``unsubscribe`` can find
+        the *same* object — bare ``self._on_bus_tool_called`` access on
+        a second call yields a *new* bound-method object that the bus
+        cannot match (it compares by identity). Storing once is the
+        only way to ensure subscribe/unsubscribe pair up.
+        """
+        try:
+            from src.core.state_bus import AlimaStateBus
+            bus = AlimaStateBus()
+            # Bind once, reuse the same object on unsubscribe.
+            self._bus_handler_tool_called = self._on_bus_tool_called
+            self._bus_handler_tool_result = self._on_bus_tool_result
+            bus.subscribe("tool.called", self._bus_handler_tool_called)
+            bus.subscribe("tool.result", self._bus_handler_tool_result)
+        except Exception:
+            self.logger.exception("UnifiedMessageRenderer.subscribe failed")
+
+    def unsubscribe(self) -> None:
+        """Reverse of :meth:`subscribe`. Idempotent and exception-safe."""
+        try:
+            from src.core.state_bus import AlimaStateBus
+            bus = AlimaStateBus()
+            # Must use the same object stored in ``subscribe`` —
+            # re-binding ``self._on_bus_tool_called`` here would yield
+            # a different object identity.
+            tool_called = getattr(self, "_bus_handler_tool_called", None)
+            tool_result = getattr(self, "_bus_handler_tool_result", None)
+            if tool_called is not None:
+                bus.unsubscribe("tool.called", tool_called)
+            if tool_result is not None:
+                bus.unsubscribe("tool.result", tool_result)
+        except Exception:
+            self.logger.exception("UnifiedMessageRenderer.unsubscribe failed")
+        finally:
+            # Drop any pending open-call mapping so stale ids don't leak.
+            self._bus_id_to_tool_id.clear()
+
+    def _on_bus_tool_called(self, payload: Dict[str, Any]) -> None:
+        """Bridge bus ``tool.called`` → ``render_tool_call``.
+
+        Maps the bus ``id`` (UUID-string from any producer) to a
+        renderer-local ``tool_id`` so the matching ``tool.result`` can
+        attach to the same block.
+        """
+        bus_id = (payload or {}).get("id") or ""
+        name = (payload or {}).get("name") or ""
+        args = (payload or {}).get("arguments") or {}
+        tool_id = self.render_tool_call(name, args)
+        if bus_id:
+            self._bus_id_to_tool_id[bus_id] = tool_id
+
+    def _on_bus_tool_result(self, payload: Dict[str, Any]) -> None:
+        """Bridge bus ``tool.result`` → ``render_tool_result``.
+
+        Mirrors the panel's bus handler: cache hits get the 📦 badge,
+        and the status field is propagated. Falls back to a plain
+        marker when no matching open call exists.
+
+        Bus producers use ``"ok"`` / ``"error"`` (CachingToolRegistry,
+        classic shim). The renderer internally uses ``"success"`` /
+        ``"error"`` for the icon. Normalize ``"ok"`` → ``"success"``.
+        """
+        if not hasattr(self, "_bus_id_to_tool_id"):
+            self._bus_id_to_tool_id = {}
+        bus_id = (payload or {}).get("id") or ""
+        result = (payload or {}).get("result") or ""
+        raw_status = (payload or {}).get("status") or "success"
+        status = "success" if raw_status == "ok" else raw_status
+        tool_id = self._bus_id_to_tool_id.pop(bus_id, None) if bus_id else None
+
+        if (payload or {}).get("cache_hit"):
+            preview = (result or "").strip().replace("\n", " ")
+            if len(preview) > 80:
+                preview = preview[:80] + "…"
+            result = f"📦 cache: {preview}"
+
+        if tool_id:
+            self.render_tool_result(tool_id, result, status=status or "success")
+        else:
+            preview = (result or "").strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            self.render_tool_marker(f"↳ {preview}")
 
     # ------------------------------------------------------------------
     # Static helpers

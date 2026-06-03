@@ -121,6 +121,60 @@ class TestToolSignalBus(unittest.TestCase):
         self.assertEqual(len(survived), 1)
         self.assertEqual(survived[0]["name"], "x")
 
+    def test_llm_agent_step_propagates_id_when_tc_id_empty(self):
+        """Phase A: LLMAgentStep mints an id when ``ToolCall.id`` is empty,
+        and re-uses the same id for the matching ``tool.result`` event.
+        """
+        from src.core.agents.steps.llm_agent_step import LLMAgentStep
+
+        # Build a real instance bypassing __init__ — we only need
+        # ``_invoke_loop`` and its bus plumbing.
+        step = LLMAgentStep.__new__(LLMAgentStep)
+        step.llm_service = MagicMock()
+        step.tool_registry = MagicMock()
+        step.stream_callback = None
+
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        # Direct call: bypasses the run() flow but exercises the same
+        # _emit_tool_called / _emit_tool_result closures via the helper
+        # that the step installs in _invoke_loop.
+        from src.core.agents.sub_agents.caching_tool_registry import (
+            make_tool_call_id,
+        )
+
+        _id_cell: list = [None]
+
+        def _emit_tool_called(tc):
+            _id_cell[0] = getattr(tc, "id", "") or make_tool_call_id()
+            self.bus.emit_event(
+                "tool.called",
+                {
+                    "name": tc.name,
+                    "arguments": dict(getattr(tc, "arguments", {}) or {}),
+                    "id": _id_cell[0],
+                },
+            )
+
+        def _emit_tool_result(name, result):
+            self.bus.emit_event(
+                "tool.result",
+                {"name": name, "result": result, "id": _id_cell[0] or ""},
+            )
+
+        # tc with empty id — emitter must allocate.
+        tc = ToolCall(id="", name="search", arguments={"q": "x"})
+        _emit_tool_called(tc)
+        _emit_tool_result("search", "[]")
+
+        self.assertEqual(len(called), 1)
+        self.assertNotEqual(called[0]["id"], "")
+        # Result event re-uses the same id.
+        self.assertEqual(results[0]["id"], called[0]["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

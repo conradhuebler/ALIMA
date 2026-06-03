@@ -197,6 +197,39 @@ class AnalysisReviewTab(QWidget):
 
         main_layout.addWidget(self.main_splitter)
 
+        # Phase E: small "Recent Tool Calls" mini-log.
+        # Opt-in consumer of AlimaStateBus tool.called/result events so the
+        # user can see live tool activity from a chat session even while
+        # looking at the review tab. Read-only, no chat input.
+        self._init_tool_log_widget()
+        main_layout.addWidget(self.tool_log_group)
+
+    def _init_tool_log_widget(self) -> None:
+        """Build the read-only tool-log mini widget (Phase E)."""
+        from PyQt6.QtWidgets import QCheckBox, QTextBrowser
+
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+        self.tool_log_group = QGroupBox("🛠 Letzte Tool-Aufrufe")
+        self.tool_log_group.setMaximumHeight(180)
+        layout = QVBoxLayout(self.tool_log_group)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        self.tool_log_browser = QTextBrowser()
+        self.tool_log_browser.setOpenLinks(False)
+        self.tool_log_browser.setMaximumHeight(140)
+        self.tool_log_autoscroll = QCheckBox("Auto-Scroll")
+        self.tool_log_autoscroll.setChecked(True)
+        layout.addWidget(self.tool_log_browser)
+        layout.addWidget(self.tool_log_autoscroll)
+
+        # Local renderer instance with its own id-mapping; subscribes/unsubscribes
+        # with the tab's lifecycle. ``subscribe()`` swallows import errors.
+        self.tool_log_renderer = UnifiedMessageRenderer(
+            self.tool_log_browser, self.tool_log_autoscroll
+        )
+        self.tool_log_renderer.subscribe()
+
     def refresh_styles(self):
         """Re-apply styles and fonts after theme/font-size change — Claude Generated"""
         self.setStyleSheet(get_main_stylesheet())
@@ -231,6 +264,16 @@ class AnalysisReviewTab(QWidget):
         label.setTextFormat(Qt.TextFormat.RichText)
         self.dk_dedup_labels[key] = label
         return label
+
+    def closeEvent(self, event) -> None:  # Claude Generated (Phase E)
+        """Unsubscribe the mini-log renderer when the tab is closed."""
+        try:
+            renderer = getattr(self, "tool_log_renderer", None)
+            if renderer is not None:
+                renderer.unsubscribe()
+        except Exception:
+            self.logger.exception("AnalysisReviewTab.closeEvent: unsubscribe failed")
+        super().closeEvent(event)
 
     def init_detail_tabs(self):
         """Initialize the detail tabs"""

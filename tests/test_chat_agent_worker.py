@@ -1,17 +1,26 @@
-"""Tests for ChatAgentWorker (WP10 P-δ.3). Claude Generated.
+"""Tests for ChatAgentWorker (P-δ.3 + Phase D). Claude Generated.
 
-Three cases:
-1. ``test_tool_call_roundtrip_emits_signals`` — tool_called / tool_result /
-   token_received / generation_finished all fire correctly.
+Phase D removed the ``tool_called`` / ``tool_result`` Qt signals.
+Tool-call events are now emitted on ``AlimaStateBus`` with the same
+``id`` schema as the agentic and classic producers.
+
+Cases:
+1. ``test_tool_call_roundtrip_emits_bus_events`` — single tool call/result
+   pair on the bus, ids match.
 2. ``test_error_propagates_to_signal`` — AgentLoop.run raising propagates
-   to ``generation_error`` (no ``generation_finished``).
+   to ``generation_error`` (no ``generation_finished``). Unchanged from
+   the Qt-signal era.
 3. ``test_request_stop_sets_event`` — ``request_stop()`` sets the internal
    threading.Event so AgentLoop's ``should_stop`` callback returns True.
+4. ``test_no_qt_tool_signals`` — regression guard: the legacy Qt signals
+   do not exist any more.
+5. ``test_emits_when_no_panel_subscribed`` — bus emissions are
+   best-effort and do not raise when no consumer is connected.
 
 Strategy: monkeypatch ``src.ui.chat_agent_worker.AgentLoop`` with a fake
 class. Worker.run() is invoked directly on the main thread (no
 QThread.start()) — this exercises all wiring without needing a Qt event
-loop or pytest-qt. Signals are captured via direct slot-connect.
+loop or pytest-qt. Bus events captured via ``state_bus.subscribe``.
 """
 from __future__ import annotations
 
@@ -23,6 +32,7 @@ from PyQt6.QtCore import QCoreApplication
 # pyqtSignal needs a QApplication before any QObject is instantiated.
 _qapp = QCoreApplication.instance() or QCoreApplication([])
 
+from src.core import state_bus as state_bus_mod
 from src.core.data_models import AgentResult, ToolCall
 from src.ui import chat_agent_worker as caw_mod
 from src.ui.chat_agent_worker import ChatAgentWorker
@@ -64,9 +74,14 @@ def _install_fake_loop(test_case):
 class TestChatAgentWorker(unittest.TestCase):
 
     def setUp(self):
+        state_bus_mod.reset()
+        self.bus = state_bus_mod.AlimaStateBus()
         _install_fake_loop(self)
         self.llm_service = MagicMock()
         self.tool_registry = MagicMock()
+
+    def tearDown(self):
+        state_bus_mod.reset()
 
     def _make_worker(self, **overrides) -> ChatAgentWorker:
         defaults = dict(
@@ -80,33 +95,8 @@ class TestChatAgentWorker(unittest.TestCase):
         defaults.update(overrides)
         return ChatAgentWorker(**defaults)
 
-    # ------------------------------------------------------------------
-
-    def test_tool_call_roundtrip_emits_signals(self):
-        worker = self._make_worker()
-
-        tokens: list[str] = []
-        tool_calls: list[tuple[str, dict]] = []
-        tool_results: list[tuple[str, str]] = []
-        finished: list[AgentResult] = []
-        errors: list[str] = []
-
-        worker.token_received.connect(lambda t: tokens.append(t))
-        worker.tool_called.connect(lambda n, a: tool_calls.append((n, a)))
-        worker.tool_result.connect(lambda n, r: tool_results.append((n, r)))
-        worker.generation_finished.connect(lambda r: finished.append(r))
-        worker.generation_error.connect(lambda e: errors.append(e))
-
-        def behavior(loop: _FakeAgentLoop) -> AgentResult:
-            loop.on_tool_call(ToolCall(id="t1", name="get_keywords", arguments={"kind": "initial"}))
-            loop.on_tool_result("get_keywords", '{"count":3}')
-            loop.stream_callback("Antwort")
-            return AgentResult(content="Antwort", iterations=2)
-
-        _FakeAgentLoop.instances  # populated when worker.run() constructs the loop
-        # Pre-set behavior on the next instance via a closure trick:
-        # we capture the instance lazily inside `_run_behavior` of the first
-        # instance created during worker.run().
+    def _drive_with_behavior(self, worker: ChatAgentWorker, behavior) -> None:
+        """Install a behavior on the next _FakeAgentLoop instance and run."""
         original_init = _FakeAgentLoop.__init__
 
         def init_with_behavior(self, **kw):
@@ -115,23 +105,93 @@ class TestChatAgentWorker(unittest.TestCase):
 
         _FakeAgentLoop.__init__ = init_with_behavior
         try:
-            worker.run()  # direct call — no QThread.start()
+            worker.run()
         finally:
             _FakeAgentLoop.__init__ = original_init
-
         QCoreApplication.processEvents()
 
-        self.assertEqual(len(tool_calls), 1)
-        self.assertEqual(tool_calls[0][0], "get_keywords")
-        self.assertEqual(tool_calls[0][1], {"kind": "initial"})
+    # ------------------------------------------------------------------
+    # Phase D: bus emissions (replaces Qt-signal roundtrip test).
+    # ------------------------------------------------------------------
 
-        self.assertEqual(len(tool_results), 1)
-        self.assertEqual(tool_results[0], ("get_keywords", '{"count":3}'))
+    def test_tool_call_roundtrip_emits_bus_events(self):
+        worker = self._make_worker()
 
-        self.assertEqual(tokens, ["Antwort"])
-        self.assertEqual(len(finished), 1)
-        self.assertEqual(finished[0].content, "Antwort")
-        self.assertEqual(errors, [])
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        def behavior(loop: _FakeAgentLoop) -> AgentResult:
+            loop.on_tool_call(ToolCall(id="t1", name="get_keywords", arguments={"kind": "initial"}))
+            loop.on_tool_result("get_keywords", '{"count":3}')
+            loop.stream_callback("Antwort")
+            return AgentResult(content="Antwort", iterations=2)
+
+        self._drive_with_behavior(worker, behavior)
+
+        self.assertEqual(len(called), 1)
+        self.assertEqual(called[0]["name"], "get_keywords")
+        self.assertEqual(called[0]["arguments"], {"kind": "initial"})
+        self.assertEqual(called[0]["id"], "t1")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["name"], "get_keywords")
+        self.assertEqual(results[0]["result"], '{"count":3}')
+        # Result re-uses the call's id.
+        self.assertEqual(results[0]["id"], "t1")
+        # _last_tool_call_id cleared so the next pair starts fresh.
+        self.assertEqual(worker._last_tool_call_id, "")
+
+    def test_emits_with_unified_id_when_tc_id_empty(self):
+        """Phase A contract: when ToolCall.id is empty, worker fills via
+        ``make_tool_call_id`` and the result event reuses the same id."""
+        worker = self._make_worker()
+        called: list[dict] = []
+        results: list[dict] = []
+        self.bus.subscribe("tool.called", called.append)
+        self.bus.subscribe("tool.result", results.append)
+
+        def behavior(loop: _FakeAgentLoop) -> AgentResult:
+            loop.on_tool_call(ToolCall(id="", name="search_gnd", arguments={"term": "x"}))
+            loop.on_tool_result("search_gnd", "[]")
+            return AgentResult(content="")
+
+        self._drive_with_behavior(worker, behavior)
+
+        self.assertEqual(len(called), 1)
+        self.assertTrue(called[0]["id"].startswith("tc_"))
+        self.assertNotEqual(called[0]["id"], "")
+        self.assertEqual(results[0]["id"], called[0]["id"])
+
+    def test_emits_when_no_panel_subscribed(self):
+        """Bus emissions are best-effort: do not raise when nobody listens."""
+        worker = self._make_worker()
+        # After setUp().reset() the bus has no subscribers.
+
+        def behavior(loop: _FakeAgentLoop) -> AgentResult:
+            loop.on_tool_call(ToolCall(id="abc", name="t", arguments={}))
+            loop.on_tool_result("t", "ok")
+            return AgentResult(content="")
+
+        # Must not raise.
+        self._drive_with_behavior(worker, behavior)
+
+    def test_no_qt_tool_signals(self):
+        """Regression guard (Phase D): the legacy Qt signals must NOT
+        exist on ChatAgentWorker any more — they were replaced by bus
+        emissions to consolidate producers."""
+        self.assertFalse(
+            hasattr(ChatAgentWorker, "tool_called"),
+            "ChatAgentWorker.tool_called was removed in Phase D; bus is the producer",
+        )
+        self.assertFalse(
+            hasattr(ChatAgentWorker, "tool_result"),
+            "ChatAgentWorker.tool_result was removed in Phase D; bus is the producer",
+        )
+
+    # ------------------------------------------------------------------
+    # Unchanged: token / error / request_stop tests.
+    # ------------------------------------------------------------------
 
     def test_error_propagates_to_signal(self):
         worker = self._make_worker()
@@ -143,19 +203,7 @@ class TestChatAgentWorker(unittest.TestCase):
         def boom(loop: _FakeAgentLoop) -> AgentResult:
             raise RuntimeError("LLM down")
 
-        original_init = _FakeAgentLoop.__init__
-
-        def init_with_behavior(self, **kw):
-            original_init(self, **kw)
-            self.set_behavior(boom)
-
-        _FakeAgentLoop.__init__ = init_with_behavior
-        try:
-            worker.run()
-        finally:
-            _FakeAgentLoop.__init__ = original_init
-
-        QCoreApplication.processEvents()
+        self._drive_with_behavior(worker, boom)
 
         self.assertEqual(len(errors), 1)
         self.assertIn("LLM down", errors[0])
@@ -164,8 +212,6 @@ class TestChatAgentWorker(unittest.TestCase):
     def test_request_stop_sets_event(self):
         worker = self._make_worker()
 
-        # request_stop should also try to call llm_service.cancel_generation;
-        # confirm both side-effects.
         worker.request_stop()
 
         self.assertTrue(worker._stop_event.is_set())
@@ -173,25 +219,13 @@ class TestChatAgentWorker(unittest.TestCase):
             reason="user_requested"
         )
 
-        # When the worker hands `self._stop_event.is_set` to AgentLoop as
-        # `should_stop`, it must return True after request_stop() was called.
         captured: dict = {}
 
         def behavior(loop: _FakeAgentLoop) -> AgentResult:
             captured["should_stop_value"] = loop.should_stop()
             return AgentResult(content="")
 
-        original_init = _FakeAgentLoop.__init__
-
-        def init_with_behavior(self, **kw):
-            original_init(self, **kw)
-            self.set_behavior(behavior)
-
-        _FakeAgentLoop.__init__ = init_with_behavior
-        try:
-            worker.run()
-        finally:
-            _FakeAgentLoop.__init__ = original_init
+        self._drive_with_behavior(worker, behavior)
 
         self.assertTrue(captured["should_stop_value"])
 

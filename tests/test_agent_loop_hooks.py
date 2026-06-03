@@ -111,6 +111,50 @@ class TestAgentLoopHooks(unittest.TestCase):
         # Only one LLM call should have happened before should_stop returned True.
         self.assertEqual(llm.generate_with_tools.call_count, 1)
 
+    def test_status_callback_suppressed_when_on_tool_call_set(self):
+        """Phase F: when ``on_tool_call`` is wired, status lines for the
+        call/result are suppressed — the bus/hook already carries the
+        same info, so the chat log no longer shows duplicates."""
+        tool_call = ToolCall(id="t1", name="get_keywords", arguments={"kind": "initial"})
+
+        # Case 1: ``on_tool_call`` set ⇒ status callback is silent.
+        responses1 = [
+            AgentResponse(content="", tool_calls=[tool_call]),
+            AgentResponse(content="Done.", tool_calls=[]),
+        ]
+        llm1 = _make_llm_service(responses1)
+        registry1 = _make_registry()
+        status_log: list[str] = []
+        loop = AgentLoop(
+            llm_service=llm1,
+            tool_registry=registry1,
+            status_callback=status_log.append,
+            on_tool_call=lambda tc: None,
+        )
+        loop.run(system_prompt="sys", user_prompt="ask", tools=["get_keywords"], provider="p", model="m")
+        # The legacy "  🔧 …" / "    ✓ …" lines are gone.
+        self.assertEqual([s for s in status_log if s.lstrip().startswith("🔧")], [])
+        self.assertEqual([s for s in status_log if s.lstrip().startswith("✓")], [])
+
+        # Case 2: ``on_tool_call`` NOT set ⇒ status callback still
+        # receives the legacy lines (backwards-compat for headless CLI).
+        # Fresh response list — case 1 already consumed the iterator.
+        responses2 = [
+            AgentResponse(content="", tool_calls=[tool_call]),
+            AgentResponse(content="Done.", tool_calls=[]),
+        ]
+        llm2 = _make_llm_service(responses2)
+        registry2 = _make_registry()
+        status_log2: list[str] = []
+        loop2 = AgentLoop(
+            llm_service=llm2,
+            tool_registry=registry2,
+            status_callback=status_log2.append,
+        )
+        loop2.run(system_prompt="sys", user_prompt="ask", tools=["get_keywords"], provider="p", model="m")
+        self.assertTrue(any(s.lstrip().startswith("🔧") for s in status_log2))
+        self.assertTrue(any(s.lstrip().startswith("✓") for s in status_log2))
+
 
 if __name__ == "__main__":
     unittest.main()

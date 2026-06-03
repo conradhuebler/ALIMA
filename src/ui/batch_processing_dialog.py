@@ -1261,7 +1261,7 @@ class BatchProcessingDialog(QDialog):
         self.worker.error_occurred.connect(self._on_error_occurred)
         self.worker.pipeline_token.connect(self._on_pipeline_token)
 
-        # Route tokens to PipelineStreamWidget if available - Claude Generated
+        # Route tokens to PipelineChatPanel (stream_widget) if available - Claude Generated
         if self.pipeline_tab and hasattr(self.pipeline_tab, 'on_llm_stream_token'):
             self.worker.pipeline_token.connect(self.pipeline_tab.on_llm_stream_token)
             self.worker.source_started.connect(self._notify_pipeline_tab_source_started)
@@ -1358,7 +1358,7 @@ class BatchProcessingDialog(QDialog):
 
     @pyqtSlot(str, int, int)
     def _notify_pipeline_tab_source_started(self, source_name: str, current: int, total: int):
-        """Forward source-start event to PipelineStreamWidget - Claude Generated"""
+        """Forward source-start event to PipelineChatPanel - Claude Generated"""
         if not self.pipeline_tab:
             return
         sw = getattr(self.pipeline_tab, 'stream_widget', None)
@@ -1371,7 +1371,7 @@ class BatchProcessingDialog(QDialog):
 
     @pyqtSlot(str, bool, str)
     def _notify_pipeline_tab_source_completed(self, source_name: str, success: bool, message: str):
-        """Forward source-complete event to PipelineStreamWidget - Claude Generated"""
+        """Forward source-complete event to PipelineChatPanel - Claude Generated"""
         if not self.pipeline_tab:
             return
         sw = getattr(self.pipeline_tab, 'stream_widget', None)
@@ -1384,7 +1384,7 @@ class BatchProcessingDialog(QDialog):
 
     @pyqtSlot(dict)
     def _notify_pipeline_tab_batch_completed(self, summary: dict):
-        """Forward batch-complete event to PipelineStreamWidget - Claude Generated"""
+        """Forward batch-complete event to PipelineChatPanel - Claude Generated"""
         if not self.pipeline_tab:
             return
         sw = getattr(self.pipeline_tab, 'stream_widget', None)

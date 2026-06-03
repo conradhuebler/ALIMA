@@ -299,16 +299,27 @@ class LLMAgentStep(BaseStep):
         # WorkflowExecutor required.
         try:
             from src.core.state_bus import AlimaStateBus
+            from src.core.agents.sub_agents.caching_tool_registry import (
+                make_tool_call_id,
+            )
             _bus = AlimaStateBus()
+
+            # P-A: closure cell carries the id of the in-flight tool call so
+            # the result event can re-use the same id even though
+            # ``on_tool_result(name, result_str)`` does not pass it explicitly.
+            _id_cell: list = [None]
 
             def _emit_tool_called(tc):
                 try:
+                    _id_cell[0] = (
+                        getattr(tc, "id", "") or make_tool_call_id()
+                    )
                     _bus.emit_event(
                         "tool.called",
                         {
                             "name": getattr(tc, "name", ""),
                             "arguments": dict(getattr(tc, "arguments", {}) or {}),
-                            "id": getattr(tc, "id", ""),
+                            "id": _id_cell[0],
                         },
                     )
                 except Exception:
@@ -318,7 +329,11 @@ class LLMAgentStep(BaseStep):
                 try:
                     _bus.emit_event(
                         "tool.result",
-                        {"name": name, "result": result or ""},
+                        {
+                            "name": name,
+                            "result": result or "",
+                            "id": _id_cell[0] or "",
+                        },
                     )
                 except Exception:
                     pass

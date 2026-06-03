@@ -173,9 +173,11 @@ class TestAvailableForFilter(unittest.TestCase):
         self.assertTrue(GetDkClassificationsTool().available_for(full))
         self.assertFalse(GetDkClassificationsTool().available_for(empty))
 
-        # ListAvailableDataTool requires only a SharedContext, not data
+        # ListAvailableDataTool is always available so the agent can probe
+        # pipeline state (see commit 1eec641 — "always available" replaced
+        # the previous "gated on shared_context" check).
         self.assertTrue(ListAvailableDataTool().available_for(full))
-        self.assertFalse(ListAvailableDataTool().available_for(empty))
+        self.assertTrue(ListAvailableDataTool().available_for(empty))
 
 
 class TestListAvailableData(unittest.TestCase):
