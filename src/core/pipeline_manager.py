@@ -191,7 +191,6 @@ class PipelineConfig:
 
     # Agentic mode: LLM-driven agents with MCP tools instead of sequential steps - Claude Generated
     enable_agentic_mode: bool = False
-    meta_agent_enabled: bool = False  # Enable MetaAgent planning/reflection loop
     agentic_max_iterations: int = 20
     agentic_quality_threshold: float = 0.6
 
@@ -923,20 +922,18 @@ class PipelineManager:
             elif self.stream_callback:
                 self.stream_callback(msg, "agentic")
 
-        # Check for MetaAgent config in workflow YAML or UI override
-        meta_cfg = workflow.raw.get("meta_agent", {}) or {}
-        use_meta = bool(meta_cfg.get("enabled", False)) or getattr(self.config, "meta_agent_enabled", False)
-        if getattr(self.config, "meta_agent_enabled", False):
-            meta_cfg = dict(meta_cfg)
-            meta_cfg["enabled"] = True
+        # MetaAgent always active in agentic mode — merge YAML meta_agent block with enabled=True
+        meta_cfg = dict(workflow.raw.get("meta_agent", {}) or {})
+        meta_cfg["enabled"] = True
+        use_meta = True
 
         if use_meta:
             from src.core.agents.meta_agent import MetaAgent
             if self.stream_callback:
+                # Compact one-liner (tagged "agentic") instead of a ===== banner. - Claude Generated
                 self.stream_callback(
-                    f"\n{'='*60}\n"
-                    f"🤖 MetaAgent mode enabled (max_cycles={meta_cfg.get('max_cycles', 10)})\n"
-                    f"{'='*60}\n"
+                    f"🤖 MetaAgent aktiv (max. {meta_cfg.get('max_cycles', 10)} Zyklen)\n",
+                    "agentic",
                 )
             self.logger.info(f"MetaAgent mode enabled for {workflow.name}")
 

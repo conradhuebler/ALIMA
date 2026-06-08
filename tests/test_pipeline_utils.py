@@ -383,5 +383,203 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertEqual(analysis_state.search_results[0].search_term, "term1")
         self.assertEqual(analysis_state.search_results[1].search_term, "term2")
 
+
+class TestPipelineResultFormatterDisplay(unittest.TestCase):
+    """Shared DK/RVK display formatters consumed by Pipeline-Tab + Agentic-Chat."""
+
+    def setUp(self):
+        from src.utils.pipeline_utils import PipelineResultFormatter
+        self.fmt = PipelineResultFormatter
+        # Flattened catalog-search structure (DK-centric, deduplicated).
+        self.flattened = [
+            {
+                "dk": "614.7",
+                "classification_type": "DK",
+                "count": 42,
+                "titles": [f"Titel {i}" for i in range(1, 9)],  # 8 titles
+                "keywords": ["Hygiene", "Praevention"],
+            },
+            {
+                "dk": "QZ 123",
+                "classification_type": "RVK",
+                "count": 14,
+                "titles": ["RVK-Titel A", "RVK-Titel B"],
+                "keywords": ["Medizin"],
+            },
+        ]
+
+    # --- split_classification_code -------------------------------------
+    def test_split_dk_prefix(self):
+        self.assertEqual(self.fmt.split_classification_code("DK 614.7"), ("DK", "614.7"))
+
+    def test_split_rvk_prefix(self):
+        self.assertEqual(self.fmt.split_classification_code("RVK QZ 123"), ("RVK", "QZ 123"))
+
+    def test_split_no_prefix(self):
+        self.assertEqual(self.fmt.split_classification_code("614.7"), ("", "614.7"))
+
+    # --- get_titles_for_dk_code ----------------------------------------
+    def test_titles_lookup_matches_type(self):
+        titles, total = self.fmt.get_titles_for_dk_code("DK 614.7", self.flattened)
+        self.assertEqual(total, 8)
+        self.assertEqual(titles[0], "Titel 1")
+
+    def test_titles_lookup_type_mismatch_returns_empty(self):
+        # RVK prefix must not pick up the DK entry with the same notation
+        titles, total = self.fmt.get_titles_for_dk_code("RVK 614.7", self.flattened)
+        self.assertEqual((titles, total), ([], 0))
+
+    def test_titles_lookup_empty_results(self):
+        self.assertEqual(self.fmt.get_titles_for_dk_code("DK 1", []), ([], 0))
+
+    # --- flatten_gnd_hits ----------------------------------------------
+    def test_flatten_gnd_hits_dict_form(self):
+        search_results = {
+            "Halbleiter": {
+                "Halbleiter": {"gndid": {"4129772-7"}, "count": 42},
+                "Halbleitertechnik": {"gndid": {"4023744-8"}, "count": 12},
+            }
+        }
+        rows = self.fmt.flatten_gnd_hits(search_results)
+        self.assertEqual(len(rows), 2)
+        # sorted by descending count
+        self.assertEqual(rows[0]["gnd_id"], "4129772-7")
+        self.assertEqual(rows[0]["count"], 42)
+        self.assertEqual(rows[0]["begriff"], "Halbleiter")
+
+    def test_flatten_gnd_hits_dedups_by_gnd_id(self):
+        search_results = {
+            "A": {"Begriff": {"gndid": {"111-1"}, "count": 5}},
+            "B": {"Begriff": {"gndid": {"111-1"}, "count": 9}},
+        }
+        rows = self.fmt.flatten_gnd_hits(search_results)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["count"], 9)  # max
+        self.assertEqual(sorted(rows[0]["search_terms"]), ["A", "B"])
+
+    def test_flatten_gnd_hits_flat_entries(self):
+        entries = [
+            {"keyword": "Halbleiter", "gnd_id": "4129772-7", "count": 3},
+            {"title": "Physik", "gnd_id": "4045956-1"},
+        ]
+        rows = self.fmt.flatten_gnd_hits(entries)
+        ids = {r["gnd_id"] for r in rows}
+        self.assertEqual(ids, {"4129772-7", "4045956-1"})
+
+    def test_flatten_gnd_hits_searchresult_objects(self):
+        class _SR:
+            def __init__(self, term, results):
+                self.search_term = term
+                self.results = results
+        srs = [_SR("Kw", {"Label": {"gndid": ["999-9"], "count": 1}})]
+        rows = self.fmt.flatten_gnd_hits(srs)
+        self.assertEqual(rows[0]["gnd_id"], "999-9")
+        self.assertEqual(rows[0]["search_terms"], ["Kw"])
+
+    def test_flatten_gnd_hits_skips_missing_ids(self):
+        rows = self.fmt.flatten_gnd_hits({"A": {"X": {"gndid": set(), "count": 0}}})
+        self.assertEqual(rows, [])
+
+    # --- extract_selected_gnd_keys -------------------------------------
+    def test_extract_selected_from_strings(self):
+        ids, labels = self.fmt.extract_selected_gnd_keys(
+            ["Halbleiter (GND-ID: 4129772-7)", "Physik (GND: 4045956-1)"]
+        )
+        self.assertEqual(ids, {"4129772-7", "4045956-1"})
+        self.assertIn("halbleiter", labels)
+        self.assertIn("physik", labels)
+
+    def test_extract_selected_from_dicts(self):
+        ids, labels = self.fmt.extract_selected_gnd_keys(
+            [{"title": "Halbleiter", "gnd_id": "4129772-7"}]
+        )
+        self.assertIn("4129772-7", ids)
+        self.assertIn("halbleiter", labels)
+
+    def test_extract_selected_empty(self):
+        self.assertEqual(self.fmt.extract_selected_gnd_keys(None), (set(), set()))
+
+    # --- select_dk_title_source ----------------------------------------
+    def test_select_source_classic_prefers_flattened(self):
+        # Classic: keyword-centric dk_search_results (no top-level dk),
+        # rich data in flattened.
+        keyword_centric = [{"keyword": "Hygiene", "classifications": [{"dk": "614.7"}]}]
+        chosen = self.fmt.select_dk_title_source(keyword_centric, self.flattened)
+        self.assertIs(chosen, self.flattened)
+
+    def test_select_source_agentic_prefers_dk_search_results(self):
+        # Agentic: rich titles in dk_search_results, thin (no titles) flattened.
+        thin_flattened = [
+            {"dk": "614.7", "classification_type": "DK", "titles": [], "count": 80},
+        ]
+        chosen = self.fmt.select_dk_title_source(self.flattened, thin_flattened)
+        self.assertIs(chosen, self.flattened)
+
+    def test_select_source_both_empty(self):
+        self.assertEqual(self.fmt.select_dk_title_source(None, None), [])
+
+    def test_select_source_no_titles_falls_back_to_dk_keyed(self):
+        thin = [{"dk": "1", "classification_type": "DK", "titles": [], "count": 5}]
+        keyword_centric = [{"keyword": "x", "classifications": []}]
+        chosen = self.fmt.select_dk_title_source(keyword_centric, thin)
+        self.assertIs(chosen, thin)
+
+    # --- format_dk_search_results_text ---------------------------------
+    def test_search_text_contains_code_and_count(self):
+        text = self.fmt.format_dk_search_results_text(self.flattened)
+        self.assertIn("DK: 614.7 (Häufigkeit: 42)", text)
+        self.assertIn("RVK: QZ 123 (Häufigkeit: 14)", text)
+        self.assertIn("Beispieltitel:", text)
+        self.assertIn("... (und 5 weitere)", text)  # 8 titles, 3 shown
+
+    def test_search_text_skips_entries_without_titles(self):
+        text = self.fmt.format_dk_search_results_text(
+            [{"dk": "1", "count": 0, "titles": []}]
+        )
+        self.assertEqual(text, "")
+
+    def test_search_text_empty_input(self):
+        self.assertEqual(self.fmt.format_dk_search_results_text([]), "")
+
+    # --- format_dk_classifications_html --------------------------------
+    def test_html_card_contains_codes_and_hits(self):
+        html = self.fmt.format_dk_classifications_html(
+            ["DK 614.7", "RVK QZ 123"], self.flattened
+        )
+        self.assertIn("#1 DK 614.7", html)
+        self.assertIn("#2 RVK QZ 123", html)
+        # "Katalog-Treffer" reflects the number of catalog titles found for the
+        # code (len(titles) == 8), matching the original Pipeline-Tab behavior.
+        self.assertIn("8 Katalog-Treffer", html)
+        self.assertIn("🟩", html)  # confidence bar
+        self.assertIn("<ol", html)  # title list
+
+    def test_html_card_overflow_note(self):
+        html = self.fmt.format_dk_classifications_html(["DK 614.7"], self.flattened)
+        # 8 titles, max 5 shown → 3 more
+        self.assertIn("... und 3 weitere Titel", html)
+
+    def test_html_card_escapes_titles(self):
+        flattened = [
+            {"dk": "1", "classification_type": "DK", "count": 1,
+             "titles": ["<script>&bad"], "keywords": []},
+        ]
+        html = self.fmt.format_dk_classifications_html(["DK 1"], flattened)
+        self.assertIn("&lt;script&gt;&amp;bad", html)
+        self.assertNotIn("<script>", html)
+
+    def test_html_card_no_html_body_wrapper(self):
+        # Must be a fragment so it renders via both setHtml and insertHtml
+        html = self.fmt.format_dk_classifications_html(["DK 614.7"], self.flattened)
+        self.assertNotIn("<html>", html)
+        self.assertNotIn("<body", html)
+
+    def test_html_card_empty_classifications(self):
+        self.assertEqual(
+            self.fmt.format_dk_classifications_html([], self.flattened),
+            "Keine DK/RVK-Klassifikationen generiert",
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

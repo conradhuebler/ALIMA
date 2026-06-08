@@ -421,7 +421,11 @@ class HybridStepConfigWidget(QWidget):
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self._on_manual_config_changed)
         manual_layout.addWidget(self.model_combo, 1, 1)
-        
+        self.model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+
         # Task/Prompt Selection
         manual_layout.addWidget(QLabel("Prompt Task:"), 2, 0)
         self.task_combo = QComboBox()
@@ -647,6 +651,9 @@ class HybridStepConfigWidget(QWidget):
         if not models:
             return None
 
+        # Sort models alphabetically (case-insensitive)
+        models = sorted(models, key=lambda s: s.lower())
+
         # Get baseline information for this provider
         try:
             task_pref_provider, task_pref_model, task_reason = self._load_task_preferences_direct()
@@ -727,7 +734,7 @@ class HybridStepConfigWidget(QWidget):
             if self.config_manager:
                 from ..utils.config_manager import ProviderDetectionService
                 detection_service = ProviderDetectionService(self.config_manager)
-                models = detection_service.get_available_models(provider)
+                models = detection_service.get_available_models(provider, force_check=True)
 
                 if models:
                     # 🔍 DEBUG: Log available models - Claude Generated
@@ -794,7 +801,7 @@ class HybridStepConfigWidget(QWidget):
                         self.model_combo.setItemData(self.model_combo.count() - 1, model, Qt.ItemDataRole.UserRole)
         except Exception as e:
             self.logger.warning(f"Could not load models for {provider}: {e}")
-        
+
         self._on_manual_config_changed()
     
     def _get_preferred_model_for_provider(self, provider: str) -> Optional[str]:

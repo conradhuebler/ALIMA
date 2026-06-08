@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from copy import deepcopy
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig
+from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig, ProviderDetectionService
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
 from ..utils.config_models import TaskPreference, TaskType
@@ -1488,6 +1488,10 @@ class ModelSelectionDialog(QDialog):
         
         self.model_combo = QComboBox()
         layout.addWidget(self.model_combo)
+        self.model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
         
         # Custom model input
         custom_label = QLabel("Oder eigenen Modellnamen eingeben:")
@@ -1538,23 +1542,16 @@ class ModelSelectionDialog(QDialog):
             return
         
         try:
-            # Add common models based on provider
-            if provider_name == "ollama":
-                models = ["cogito:14b", "cogito:32b", "llama3.2:latest", "mistral:latest"]
-            elif provider_name == "gemini":
-                models = ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
-            elif provider_name == "openai":
-                models = ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"]
-            elif provider_name == "anthropic":
-                models = ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
-            else:
+            detection_service = ProviderDetectionService(self.config_manager)
+            models = detection_service.get_available_models(provider_name)
+            if not models:
                 models = ["default"]
-            
-            self.model_combo.addItems(models)
-            
+            else:
+                # Sort models alphabetically (case-insensitive)
+                models = sorted(models, key=lambda s: s.lower())
         except Exception:
-            # Fallback
-            self.model_combo.addItems(["default"])
+            models = ["default"]
+        self.model_combo.addItems(models)
     
     def get_selected_model(self):
         """Get selected provider and model - Claude Generated"""

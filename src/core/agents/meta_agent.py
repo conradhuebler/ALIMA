@@ -82,11 +82,8 @@ class MetaAgent:
         while cycle < max_cycles:
             cycle += 1
             if self.stream_callback:
-                self.stream_callback(
-                    f"\n{'='*60}\n"
-                    f"🤖 MetaAgent Cycle {cycle}/{max_cycles}\n"
-                    f"{'='*60}\n"
-                )
+                # Compact one-liner instead of a ===== banner. - Claude Generated
+                self.stream_callback(f"\n🔄 Zyklus {cycle}/{max_cycles}\n")
             logger.info(f"MetaAgent cycle {cycle}/{max_cycles}")
 
             # ── PLAN ──

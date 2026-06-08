@@ -77,11 +77,11 @@ class ProviderDetectionService:
             self.logger.warning(f"Error testing reachability for {provider}: {e}")
             return False
 
-    def get_available_models(self, provider: str) -> List[str]:
+    def get_available_models(self, provider: str, force_check: bool = False) -> List[str]:
         """Get available models for a specific provider - Claude Generated"""
         try:
             llm_service = self._get_llm_service()
-            models = llm_service.get_available_models(provider)
+            models = llm_service.get_available_models(provider, force_check=force_check)
             return models if models else []
         except Exception as e:
             self.logger.warning(f"Error getting models for {provider}: {e}")

@@ -61,6 +61,7 @@ from ..core.chat_prompts import (
 from ..core.headless_agent import resolve_provider_model
 from ..core.pipeline_manager import PipelineStep
 from ..core.state_bus import AlimaStateBus
+from ..utils.pipeline_utils import PipelineResultFormatter
 from .chat_agent_worker import ChatAgentWorker
 from .chat_session import ChatSession
 from .chat_tools import build_chat_toolset
@@ -200,6 +201,9 @@ class PipelineChatPanel(QWidget):
         self.step_start_times: Dict[str, datetime] = {}
         self.current_working_title: Optional[str] = None
         self.current_suggestions: List[Dict] = []
+        # Agentic input/prompt collapsible blocks: prompt_id → (tool_id, base_meta)
+        self._prompt_blocks: Dict[str, str] = {}
+        self._prompt_meta: Dict[str, str] = {}
 
         # Chat-side state
         self.system_prompt: str = self.DEFAULT_SYSTEM_PROMPT
@@ -212,6 +216,11 @@ class PipelineChatPanel(QWidget):
         self._typing_model: str = ""
         self._last_tool_call_id: Optional[str] = None
         self._bus_tool_call_ids: Dict[str, str] = {}
+        # Classic-pipeline step → tool-block bridge (step_id → renderer tool_id).
+        self._step_tool_call_ids: Dict[str, str] = {}
+        # True while a bus pipeline-step block is open ("running" received,
+        # no terminal event yet). Used to route status messages correctly.
+        self._pipeline_step_open: bool = False
         # Post-(F) polish: status-line accumulator for the open
         # pipeline-step tool block. While a step is "running", incoming
         # status messages (per-keyword search progress, etc.) are
@@ -266,6 +275,10 @@ class PipelineChatPanel(QWidget):
             bus.subscribe("tool.called", self._on_bus_tool_called)
             bus.subscribe("tool.result", self._on_bus_tool_result)
             bus.subscribe("state.pipeline_step", self._on_bus_pipeline_step)
+            bus.subscribe("state.pipeline_prompt", self._on_bus_pipeline_prompt)
+            bus.subscribe(
+                "state.pipeline_prompt_done", self._on_bus_pipeline_prompt_done
+            )
             bus.subscribe(
                 "state.pipeline_started",
                 lambda p: self.on_pipeline_started(p.get("pipeline_id", "")),
@@ -315,10 +328,16 @@ class PipelineChatPanel(QWidget):
         self.model_combo.setStyleSheet(
             "QComboBox { font-size: 10px; padding: 2px 6px; border: 1px solid #555; "
             "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
+            "QComboBox QAbstractItemView { background-color: #2b2b2b; color: #ccc; "
+            "selection-background-color: #005fcc; selection-color: white; border: 1px solid #555; }"
         )
         self._populate_model_combo()
         self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
         header_layout.addWidget(self.model_combo)
+        self.model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
 
         self.persist_combo_toggle = QCheckBox("💾")
         self.persist_combo_toggle.setChecked(False)
@@ -787,6 +806,11 @@ class PipelineChatPanel(QWidget):
         self._renderer.render_pipeline_log(message, level, step_id)
 
     def add_streaming_token(self, token: str, step_id: str):
+        # The SYSTEM/USER prompt dump is rendered as a collapsible 📥 Input
+        # block via the state.pipeline_prompt bus event — drop the inline
+        # duplicate so it isn't shown twice. - Claude Generated
+        if token.lstrip().startswith("--- SYSTEM ---"):
+            return
         self._renderer.render_streaming_token(token, step_id)
 
     def start_streaming_line(self, step_id: str, prefix: str = ""):
@@ -808,15 +832,54 @@ class PipelineChatPanel(QWidget):
     def on_step_started(self, step: PipelineStep):
         self.current_step_id = step.step_id
         self.step_start_times[step.step_id] = datetime.now()
-        self.add_pipeline_message(
-            f"▶ Starte Schritt: {step.name}", "step", step.step_id
-        )
+        args: Dict[str, Any] = {"name": step.name}
         if step.provider and step.model:
-            self.add_pipeline_message(
-                f"✓ Verwende: {step.provider} / {step.model}",
-                "success",
-                step.step_id,
+            args["provider"] = f"{step.provider}/{step.model}"
+        tool_id = self._renderer.render_tool_call(f"pipeline.{step.step_id}", args)
+        self._step_tool_call_ids[step.step_id] = tool_id
+
+    def _build_step_summary(self, step: "PipelineStep", duration: str) -> str:
+        """Return a multiline summary string for a completed pipeline step."""
+        lines = [f"✅ Abgeschlossen in {duration}"]
+        if not step.output_data:
+            return "\n".join(lines)
+
+        if step.step_id == "keywords" and (
+            "keywords" in step.output_data or "final_keywords" in step.output_data
+        ):
+            keywords = step.output_data.get(
+                "final_keywords", step.output_data.get("keywords", [])
             )
+            lines.append(f"Gefunden: {len(keywords)} Keywords")
+            if keywords:
+                preview = ", ".join(keywords[:5]) + ("..." if len(keywords) > 5 else "")
+                lines.append(f"Keywords: {preview}")
+            verification = step.output_data.get("verification")
+            if verification and isinstance(verification, dict):
+                stats = verification.get("stats", {})
+                verified_count = stats.get("verified_count", 0)
+                total = stats.get("total_extracted", 0)
+                rejected = verification.get("rejected", [])
+                lines.append(f"✅ {verified_count}/{total} Keywords GND-verifiziert")
+                if rejected:
+                    rejected_names = [r.split("(")[0].strip() for r in rejected]
+                    lines.append(
+                        f"⚠️ {len(rejected)} Keywords ohne GND-Pool-Treffer entfernt: "
+                        + ", ".join(rejected_names)
+                    )
+
+        elif step.step_id == "search" and "search_results" in step.output_data:
+            count = step.output_data["search_results"]
+            lines.append(f"Gefunden: {count} GND-Einträge")
+
+        elif step.step_id == "verification" and "verified_keywords" in step.output_data:
+            verified = step.output_data["verified_keywords"]
+            lines.append(f"Verifiziert: {len(verified)} Keywords")
+
+        elif step.step_id == "dk_search" and "dk_search_results" in step.output_data:
+            lines.append(self._format_dk_search_results(step.output_data["dk_search_results"]))
+
+        return "\n".join(lines)
 
     @pyqtSlot(object)
     def on_step_completed(self, step: PipelineStep):
@@ -826,77 +889,45 @@ class PipelineChatPanel(QWidget):
                 datetime.now() - self.step_start_times[step.step_id]
             ).total_seconds()
             duration = f"{duration_seconds:.1f}s"
-        self.add_pipeline_message(
-            f"✅ Schritt abgeschlossen in {duration}", "success", step.step_id
-        )
 
-        if step.output_data:
-            if step.step_id == "keywords" and (
-                "keywords" in step.output_data or "final_keywords" in step.output_data
-            ):
-                keywords = step.output_data.get(
-                    "final_keywords", step.output_data.get("keywords", [])
-                )
-                self.add_pipeline_message(
-                    f"Gefunden: {len(keywords)} Keywords", "info", step.step_id
-                )
-                self.add_pipeline_message(
-                    f"Keywords: {', '.join(keywords[:5])}"
-                    + ("..." if len(keywords) > 5 else ""),
-                    "info",
-                    step.step_id,
-                )
-
-                verification = step.output_data.get("verification")
-                if verification and isinstance(verification, dict):
-                    stats = verification.get("stats", {})
-                    verified_count = stats.get("verified_count", 0)
-                    total = stats.get("total_extracted", 0)
-                    rejected = verification.get("rejected", [])
-                    self.add_pipeline_message(
-                        f"✅ {verified_count}/{total} Keywords GND-verifiziert",
-                        "success",
-                        step.step_id,
-                    )
-                    if rejected:
-                        rejected_names = [r.split("(")[0].strip() for r in rejected]
-                        self.add_pipeline_message(
-                            f"⚠️ {len(rejected)} Keywords ohne GND-Pool-Treffer entfernt: "
-                            + ", ".join(rejected_names),
-                            "warning",
-                            step.step_id,
-                        )
-
-            elif step.step_id == "search" and "search_results" in step.output_data:
-                count = step.output_data["search_results"]
-                self.add_pipeline_message(
-                    f"Gefunden: {count} GND-Einträge", "info", step.step_id
-                )
-
-            elif (
-                step.step_id == "verification"
-                and "verified_keywords" in step.output_data
-            ):
-                verified = step.output_data["verified_keywords"]
-                self.add_pipeline_message(
-                    f"Verifiziert: {len(verified)} Keywords", "info", step.step_id
-                )
-
-            elif (
-                step.step_id == "dk_search"
-                and "dk_search_results" in step.output_data
-            ):
-                dk_results = step.output_data["dk_search_results"]
-                self._display_dk_search_results(dk_results, step.step_id)
-
-    def _display_dk_search_results(
-        self, dk_results: List[Dict[str, Any]], step_id: str
-    ):
-        if not dk_results:
+        summary = self._build_step_summary(step, duration)
+        tool_id = self._step_tool_call_ids.pop(step.step_id, None)
+        if tool_id:
+            self._renderer.render_tool_result(tool_id, summary, status="success")
+        else:
+            # Fallback: no tool block was opened for this step (e.g. step fired
+            # before the panel was ready), emit as flat log lines.
             self.add_pipeline_message(
-                "Keine Klassifikationen (DK/RVK) gefunden", "info", step_id
+                f"✅ Schritt abgeschlossen in {duration}", "success", step.step_id
             )
+
+        # Render the per-DK-code catalog-research result identically to the
+        # Pipeline-Tab (shared formatter), in addition to the keyword-timing
+        # summary kept in the collapsible tool block above. - Claude Generated
+        if step.step_id == "dk_search" and step.output_data:
+            self._render_dk_search_card(step.output_data)
+
+    def _render_dk_search_card(self, output_data: Dict[str, Any]) -> None:
+        """Render per-DK-code catalog-research results as a card (shared formatter)."""
+        flattened = output_data.get(
+            "dk_search_results_flattened", output_data.get("dk_search_results", [])
+        )
+        text = PipelineResultFormatter.format_dk_search_results_text(flattened)
+        if not text.strip():
             return
+        body = self._renderer._escape_html(text).replace("\n", "<br>")
+        html = (
+            "<div style='font-family: monospace; font-size: 9pt; color: #a8a8a8; "
+            "white-space: pre-wrap; margin: 4px 0 4px 8px;'>"
+            "<span style='color: #8be9fd;'>📚 Katalog-Recherche (DK/RVK):</span><br>"
+            f"{body}</div>"
+        )
+        self._renderer.render_html_block(html, kind="dk_search", plain_text=text)
+
+    def _format_dk_search_results(self, dk_results: List[Dict[str, Any]]) -> str:
+        """Build a summary string for DK search results (tool-block body)."""
+        if not dk_results:
+            return "Keine Klassifikationen (DK/RVK) gefunden"
 
         total_keywords = len(dk_results)
         total_classifications = sum(
@@ -906,54 +937,36 @@ class PipelineChatPanel(QWidget):
         live_count = total_keywords - cache_count
         success_count = sum(1 for r in dk_results if r.get("classifications"))
 
-        self.add_pipeline_message(
+        lines = [
             f"🔍 Klassifikationssuche: {total_keywords} Keywords → "
             f"{success_count} erfolgreich → {total_classifications} Klassifikationen",
-            "info",
-            step_id,
-        )
+        ]
         if cache_count > 0 or live_count > 0:
-            self.add_pipeline_message(
-                f"   📦 Cache: {cache_count} | 🔍 Live: {live_count}",
-                "debug",
-                step_id,
-            )
+            lines.append(f"   📦 Cache: {cache_count} | 🔍 Live: {live_count}")
 
         for keyword_result in dk_results:
             keyword = keyword_result.get("keyword", "unknown")
             source = keyword_result.get("source", "unknown")
             search_time = keyword_result.get("search_time_ms", 0)
             classifications = keyword_result.get("classifications", [])
-            if classifications:
-                status_icon = "✅"
-                msg_type = "info"
-                status_text = f"{len(classifications)} Klassifikationen"
-            else:
-                status_icon = "⚠️"
-                msg_type = "warning"
-                status_text = "Keine Klassifikationen"
+            status_icon = "✅" if classifications else "⚠️"
+            status_text = f"{len(classifications)} Klassifikationen" if classifications else "Keine Klassifikationen"
             source_icon = "📦" if source == "cache" else "🔍"
             timing_text = f"({search_time:.1f}ms)" if search_time > 0 else ""
-            self.add_pipeline_message(
-                f"{status_icon} {source_icon} {keyword} - {status_text} {timing_text}",
-                msg_type,
-                step_id,
-            )
-            if classifications:
-                self.add_pipeline_message(
-                    f"   ✓ {len(classifications)} Klassifikationen (DK/RVK) gefunden",
-                    "debug",
-                    step_id,
-                )
+            lines.append(f"{status_icon} {source_icon} {keyword} - {status_text} {timing_text}")
+
+        return "\n".join(lines)
 
     @pyqtSlot(object, str)
     def on_step_error(self, step: PipelineStep, error_message: str):
-        self.add_pipeline_message(
-            f"❌ Fehler in Schritt: {step.name}", "error", step.step_id
-        )
-        self.add_pipeline_message(
-            f"Fehlermeldung: {error_message}", "error", step.step_id
-        )
+        tool_id = self._step_tool_call_ids.pop(step.step_id, None)
+        if tool_id:
+            self._renderer.render_tool_result(tool_id, error_message, status="error")
+        else:
+            self.add_pipeline_message(
+                f"❌ Fehler in Schritt: {step.name}", "error", step.step_id
+            )
+            self.add_pipeline_message(error_message, "error", step.step_id)
 
     @pyqtSlot(object)
     def on_pipeline_completed(self, analysis_state):
@@ -999,26 +1012,26 @@ class PipelineChatPanel(QWidget):
                     )
 
         if analysis_state and getattr(analysis_state, "dk_classifications", None):
-            dk_codes = analysis_state.dk_classifications
-            dk_display_parts = []
-            flat = getattr(analysis_state, "dk_search_results_flattened", None)
-            if flat:
-                for item in flat[:10]:
-                    dk_code = item.get("dk", "")
-                    title = (
-                        ", ".join(item.get("titles", []))
-                        if item.get("titles")
-                        else ""
-                    )
-                    if dk_code:
-                        dk_display_parts.append(
-                            f"{dk_code} ({title})" if title else dk_code
-                        )
-            if not dk_display_parts:
-                dk_display_parts = dk_codes[:10]
-            self.add_pipeline_message(
-                "\U0001f3f7 DK-Klassifikationen:\n" + ", ".join(dk_display_parts),
-                "success",
+            # dk_classifications may be List[str] or List[Dict] — normalise to codes.
+            dk_codes = [
+                c.get("code", str(c)) if isinstance(c, dict) else str(c)
+                for c in analysis_state.dk_classifications
+            ]
+            # Pick the title-carrying source regardless of mode: agentic stores
+            # rich catalog titles in dk_search_results, classic in
+            # dk_search_results_flattened. - Claude Generated
+            flat = PipelineResultFormatter.select_dk_title_source(
+                getattr(analysis_state, "dk_search_results", None),
+                getattr(analysis_state, "dk_search_results_flattened", None),
+            )
+            # Render the same rich card as the Pipeline-Tab (shared formatter):
+            # colour-coded confidence + per-code title lists.
+            card_html = PipelineResultFormatter.format_dk_classifications_html(
+                dk_codes, flat
+            )
+            self.add_pipeline_message("\U0001f3f7 DK-Klassifikationen:", "success")
+            self._renderer.render_html_block(
+                card_html, kind="dk_classifications", plain_text=", ".join(dk_codes)
             )
 
         if (
@@ -1106,6 +1119,8 @@ class PipelineChatPanel(QWidget):
         self.clear_stream()
         self.hide_repetition_warning()
         self._bus_tool_call_ids.clear()
+        self._prompt_blocks.clear()
+        self._prompt_meta.clear()
         self._last_tool_call_id = None
         if self.reset_toggle.isChecked():
             self.session.reset()
@@ -1217,6 +1232,8 @@ class PipelineChatPanel(QWidget):
                 models = getattr(provider, "available_models", []) or []
                 if not models and getattr(provider, "preferred_model", None):
                     models = [provider.preferred_model]
+                # Sort models alphabetically by model name (case-insensitive)
+                models = sorted(models, key=lambda s: s.lower())
                 for model in models:
                     self.model_combo.addItem(
                         f"{provider.name} | {model}",
@@ -1432,18 +1449,13 @@ class PipelineChatPanel(QWidget):
         text = (line or "").strip()
         if not text:
             return
-        # Post-(F) polish: if a pipeline-step tool block is currently
-        # open (its "running" bus event fired and we haven't seen its
-        # "completed" yet), accumulate the status line into the block
-        # instead of emitting a separate marker. The accumulated
-        # content becomes the block's expanded body when the step
-        # completes — see ``_on_bus_pipeline_step``.
-        if self._last_tool_call_id is not None:
+        # While a bus pipeline-step block is open, accumulate status lines
+        # into the block body instead of emitting separate messages.
+        if self._pipeline_step_open:
             self._open_step_status.append(text)
             return
-        # No open step → fall back to a plain marker (LLM streaming
-        # tokens, chat-agent status lines, etc.).
-        self._append_tool_marker(text)
+        # No open step → dim log line (chat-agent status, LLM progress, etc.).
+        self._renderer.render_pipeline_log(text, "debug")
 
     @pyqtSlot(object)
     def _on_finished(self, result):
@@ -1492,6 +1504,67 @@ class PipelineChatPanel(QWidget):
                 "PipelineChatPanel: bus tool.called rendering failed"
             )
 
+    def _on_bus_pipeline_prompt(self, payload: dict) -> None:
+        """Render the agentic step input (SYSTEM+USER prompt) as a collapsed,
+        timestamped block instead of inline streamed text. - Claude Generated"""
+        try:
+            prompt_id = str(payload.get("prompt_id", "") or "")
+            step_id = payload.get("step_id", "") or "?"
+            kind = payload.get("kind", "input") or "input"
+            system = payload.get("system", "") or ""
+            user = payload.get("user", "") or ""
+            ts = str(payload.get("timestamp", "") or "")
+            ts_hms = ts.split("T")[-1] if "T" in ts else ts
+            provider = payload.get("provider", "") or ""
+            model = payload.get("model", "") or ""
+
+            meta_parts = []
+            if ts_hms:
+                meta_parts.append(ts_hms)
+            pm = "/".join(p for p in (provider, model) if p)
+            if pm:
+                meta_parts.append(pm)
+            if hasattr(self, "pipeline_start_time"):
+                elapsed = (datetime.now() - self.pipeline_start_time).total_seconds()
+                meta_parts.append(f"(+{elapsed:.1f}s)")
+            meta = "  ".join(meta_parts)
+
+            if kind == "reflection":
+                icon, title = "🔍", f"Reflexion '{step_id}'"
+            else:
+                icon, title = "📥", f"Input '{step_id}'"
+
+            body = f"--- SYSTEM ---\n{system}\n\n--- USER ---\n{user}"
+            # Close any open streaming line so the collapsible sits on its own.
+            if self._renderer._is_streaming:
+                self._renderer.end_streaming_line()
+            tool_id = self._renderer.render_collapsible(
+                title, body, collapsed=True, icon=icon, meta=meta,
+            )
+            if prompt_id:
+                self._prompt_blocks[prompt_id] = tool_id
+                self._prompt_meta[prompt_id] = meta
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: _on_bus_pipeline_prompt failed"
+            )
+
+    def _on_bus_pipeline_prompt_done(self, payload: dict) -> None:
+        """Append the LLM-call duration (⏱ Ys) to a rendered input block. - Claude Generated"""
+        try:
+            prompt_id = str(payload.get("prompt_id", "") or "")
+            dur = payload.get("duration_s")
+            tool_id = self._prompt_blocks.get(prompt_id)
+            if tool_id is None or dur is None:
+                return
+            base = self._prompt_meta.get(prompt_id, "")
+            meta = f"{base}  ⏱ {float(dur):.1f}s" if base else f"⏱ {float(dur):.1f}s"
+            self._renderer.update_collapsible_meta(tool_id, meta)
+        except Exception:
+            self.logger.exception(
+                "PipelineChatPanel: _on_bus_pipeline_prompt_done failed"
+            )
+
     def _on_bus_tool_result(self, payload: dict) -> None:
         try:
             result = payload.get("result", "") or ""
@@ -1515,11 +1588,11 @@ class PipelineChatPanel(QWidget):
                     tool_id, result, status=status,
                 )
             else:
-                # Fallback: plain marker if id unknown.
+                # Fallback: orphan result (bus id unknown — late or dropped call).
                 preview = result.strip().replace("\n", " ")
                 if len(preview) > 120:
                     preview = preview[:120] + "…"
-                self._append_tool_marker(f"↳ {preview}")
+                self._append_system_message(f"↳ {preview}")
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: bus tool.result rendering failed"
@@ -1565,10 +1638,8 @@ class PipelineChatPanel(QWidget):
                 self._last_tool_call_id = self._renderer.render_tool_call(
                     tool_name, args
                 )
-                # Post-(F) polish: reset the per-step status accumulator
-                # so subsequent status messages are captured into this
-                # block's body until the matching "completed" event.
                 self._open_step_status = []
+                self._pipeline_step_open = True
                 return
             # Terminal: success when explicitly "completed", error otherwise.
             result_status = "success" if status == "completed" else "error"
@@ -1585,6 +1656,7 @@ class PipelineChatPanel(QWidget):
             else:
                 result_text = f"{status or 'done'}: {name}"
             self._open_step_status = []
+            self._pipeline_step_open = False
             if self._last_tool_call_id:
                 self._renderer.render_tool_result(
                     self._last_tool_call_id, result_text, status=result_status

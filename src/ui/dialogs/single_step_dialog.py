@@ -194,6 +194,10 @@ class SingleStepDialog(QDialog):
         prov_row.addWidget(QLabel("Model:"))
         self.model_combo = QComboBox()
         self.model_combo.setMinimumWidth(240)
+        self.model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
         prov_row.addWidget(self.model_combo)
         prov_row.addStretch(1)
         outer.addLayout(prov_row)
@@ -285,6 +289,8 @@ class SingleStepDialog(QDialog):
             return
         try:
             models = list(self.llm_service.get_available_models(provider) or [])
+            # Sort models alphabetically (case-insensitive)
+            models = sorted(models, key=lambda s: s.lower())
         except Exception as exc:
             self.logger.warning(f"Could not list models for {provider}: {exc}")
             models = []

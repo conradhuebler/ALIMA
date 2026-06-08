@@ -436,6 +436,17 @@ class RerunStepTool(_MutationToolBase):
             })
 
         summary = _summarise_state(pm)
+        # Konvergenz Pipeline/Agent: notify the result tabs (MainWindow) to
+        # re-render from the updated current_analysis_state. run_pipeline emits
+        # state.pipeline_completed via PipelineManager; a single-step rerun has
+        # no such event, so emit state.changed here. - Claude Generated
+        try:
+            from src.core.state_bus import AlimaStateBus
+            AlimaStateBus().emit_event(
+                "state.changed", {"op": "rerun_step", "step_id": step_id}
+            )
+        except Exception:
+            logger.exception("rerun_step: state.changed emit failed")
         self._record_outcome(audit_id, True, "cancelled" if cancelled else "")
         return json.dumps({
             "status": "cancelled" if cancelled else "completed",

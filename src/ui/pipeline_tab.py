@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot, QThread
-from PyQt6.QtGui import QFont, QPalette, QPixmap
+from PyQt6.QtGui import QFont, QPalette, QPixmap, QColor
 from typing import Optional, Dict, Any, List
 import logging
 from datetime import datetime
@@ -37,6 +37,7 @@ import json
 from pathlib import Path
 
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
+from ..utils.pipeline_utils import PipelineResultFormatter
 from .pipeline_config_dialog import PipelineConfigDialog
 from ..core.alima_manager import AlimaManager
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
@@ -301,41 +302,11 @@ class PipelineTab(QWidget):
         self.step_widgets: Dict[str, PipelineStepWidget] = {}
         self.unified_input: Optional[UnifiedInputWidget] = None
 
-        # Working title label - Claude Generated
-        self.title_label: Optional[QLabel] = None
-
         # Input state
         self.current_input_text: str = ""
         self.current_source_info: str = ""
 
         self.setup_ui()
-
-        # Synchronize iterative search checkbox with config - Claude Generated
-        self._sync_iterative_search_checkbox()
-
-    def _sync_iterative_search_checkbox(self):
-        """Sync checkbox and spinbox state with pipeline config - Claude Generated"""
-        try:
-            if self.pipeline_manager and self.pipeline_manager.config:
-                keywords_config = self.pipeline_manager.config.get_step_config("keywords")
-                if keywords_config:
-                    # Sync checkbox
-                    if hasattr(self, 'iterative_search_checkbox'):
-                        enabled = getattr(keywords_config, 'enable_iterative_refinement', False)
-                        self.iterative_search_checkbox.blockSignals(True)
-                        self.iterative_search_checkbox.setChecked(enabled)
-                        self.iterative_search_checkbox.blockSignals(False)
-                        self.logger.debug(f"Synced iterative search checkbox: {enabled}")
-
-                    # Sync max iterations spinbox
-                    if hasattr(self, 'max_iterations_spin'):
-                        max_iter = getattr(keywords_config, 'max_refinement_iterations', 2)
-                        self.max_iterations_spin.blockSignals(True)
-                        self.max_iterations_spin.setValue(max_iter)
-                        self.max_iterations_spin.blockSignals(False)
-                        self.logger.debug(f"Synced max iterations: {max_iter}")
-        except Exception as e:
-            self.logger.error(f"Error syncing iterative search controls: {e}")
 
 
     def update_current_step_duration(self):
@@ -371,37 +342,6 @@ class PipelineTab(QWidget):
 
         # Compact toolbar with primary actions - Claude Generated
         self.create_toolbar(main_layout)
-
-        # Collapsible advanced panel (model override + iterative search) - Claude Generated
-        self.create_advanced_panel(main_layout)
-
-        # Working title display and override field - Claude Generated
-        title_widget = QWidget()
-        title_layout = QVBoxLayout(title_widget)
-        title_layout.setContentsMargins(5, 5, 5, 5)
-        title_layout.setSpacing(3)
-
-        # Title label (always visible, empty until title generated) - Claude Generated
-        self.title_label = QLabel()
-        self.title_label.setStyleSheet("color: #555555; padding: 2px;")
-        title_layout.addWidget(self.title_label)
-
-        # Title override field - Claude Generated
-        from PyQt6.QtWidgets import QLineEdit
-        self.title_override_field = QLineEdit()
-        self.title_override_field.setPlaceholderText("Optional: Arbeitstitel überschreiben")
-        self.title_override_field.setStyleSheet("padding: 6px; border: 1px solid #ddd; border-radius: 3px;")
-        self.title_override_field.returnPressed.connect(self.on_title_override_changed)
-        self.title_override_field.editingFinished.connect(self.on_title_override_changed)
-        title_layout.addWidget(self.title_override_field)
-
-        # Reserve enough space for both widgets to prevent window resize - Claude Generated
-        # Use fixed size policy to prevent dynamic height changes that would resize the main window
-        title_widget.setFixedHeight(70)  # Tight fit: label (11px font + 2px padding) + field (10px font + 6px padding*2) + margins (5+5) + spacing (3)
-        title_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        # Widget visible from start (label hidden until title generated) - Claude Generated
-        self.title_widget = title_widget
-        main_layout.addWidget(title_widget)
 
         # Main pipeline area (control header moved to compact widget)
         self.setup_pipeline_area(main_layout)
@@ -632,7 +572,7 @@ class PipelineTab(QWidget):
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
         tb_layout.addWidget(self.auto_pipeline_button)
 
-        # Stop button (initially hidden, shown only when pipeline is running) - Claude Generated
+        # Stop button (initially hidden, shown only when pipeline is running)
         self.stop_pipeline_button = QPushButton("⏹️ Stop")
         self.stop_pipeline_button.setStyleSheet(
             """
@@ -659,14 +599,14 @@ class PipelineTab(QWidget):
         sep.setStyleSheet("color: #ccc;")
         tb_layout.addWidget(sep)
 
-        # Secondary actions (compact) - Claude Generated
+        # Secondary actions
         self.load_json_button = QPushButton("📁 JSON laden")
         self.load_json_button.setToolTip("Pipeline-State aus JSON-Datei laden")
         self.load_json_button.clicked.connect(self.load_json_state)
         tb_layout.addWidget(self.load_json_button)
 
         config_btn = QPushButton("⚙️ Config")
-        config_btn.setToolTip("Pipeline-Konfiguration öffnen")
+        config_btn.setToolTip("Pipeline-Konfiguration öffnen (per-Step Modell/Prompt/Parameter)")
         config_btn.clicked.connect(self.show_pipeline_config)
         tb_layout.addWidget(config_btn)
 
@@ -675,7 +615,15 @@ class PipelineTab(QWidget):
         reset_btn.clicked.connect(self.reset_pipeline)
         tb_layout.addWidget(reset_btn)
 
-        # P-θ.4: prominent workflow picker in toolbar (always visible).
+        # Shared combobox stylesheet — light background, blue selection
+        _combo_css = (
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; "
+            "border-radius: 3px; font-size: 11px; }"
+            "QComboBox QAbstractItemView { background-color: #ffffff; color: #333333; "
+            "selection-background-color: #1976d2; selection-color: white; border: 1px solid #ccc; }"
+        )
+
+        # Workflow picker
         workflow_sep = QFrame()
         workflow_sep.setFrameShape(QFrame.Shape.VLine)
         workflow_sep.setFixedHeight(24)
@@ -685,7 +633,7 @@ class PipelineTab(QWidget):
         workflow_label = QLabel("🧬 Workflow:")
         workflow_label.setStyleSheet("color: #555; font-weight: bold;")
         tb_layout.addWidget(workflow_label)
-        self.agentic_workflow_label = workflow_label  # Kept for compat
+        self.agentic_workflow_label = workflow_label  # kept for compat
 
         self.workflow_combo = QComboBox()
         self.workflow_combo.setMinimumWidth(180)
@@ -693,150 +641,58 @@ class PipelineTab(QWidget):
         self.workflow_combo.setToolTip(
             "Workflow für Agent-Modus (v4 YAMLs aus workflows/).\n"
             "alima_classic: 4-Step ALIMA-Pipeline (default).\n"
-            "catalog_search / synonym_expansion / batch_metadata: PoC-Workflows.\n"
-            "Wird nur ausgeführt, wenn '🤖 Agentic Modus' (Erweitert) aktiv ist."
+            "Wird nur ausgeführt, wenn '🤖 Agentic' aktiv ist."
         )
-        self.workflow_combo.setStyleSheet(
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; "
-            "border-radius: 3px; font-size: 11px; }"
-        )
+        self.workflow_combo.setStyleSheet(_combo_css)
         self._populate_workflow_combo()
         tb_layout.addWidget(self.workflow_combo)
 
-        # Advanced toggle button - Claude Generated
-        self.advanced_toggle_button = QPushButton("▼ Erweitert")
-        self.advanced_toggle_button.setToolTip("LLM-Modell, Iterative Suche und Agentic-Optionen einblenden")
-        self.advanced_toggle_button.setCheckable(True)
-        self.advanced_toggle_button.setStyleSheet(
-            """
-            QPushButton { background: transparent; border: 1px solid #ccc;
-                          padding: 3px 8px; border-radius: 3px; color: #555; }
-            QPushButton:hover { background: #e9ecef; }
-            QPushButton:checked { background: #e3f2fd; border-color: #90caf9; color: #1976d2; }
-            """
-        )
-        self.advanced_toggle_button.clicked.connect(self.toggle_advanced_panel)
-        tb_layout.addWidget(self.advanced_toggle_button)
+        # LLM override — always visible in toolbar
+        llm_sep = QFrame()
+        llm_sep.setFrameShape(QFrame.Shape.VLine)
+        llm_sep.setFixedHeight(24)
+        llm_sep.setStyleSheet("color: #ccc;")
+        tb_layout.addWidget(llm_sep)
 
-        tb_layout.addStretch()
-
-        # Pipeline status label - Claude Generated
-        self.pipeline_status_label = QLabel("Bereit")
-        self.pipeline_status_label.setStyleSheet("color: #666; padding-left: 8px;")
-        tb_layout.addWidget(self.pipeline_status_label)
-
-        main_layout.addWidget(self.toolbar_frame)
-
-    def create_advanced_panel(self, main_layout):
-        """Create collapsible advanced options panel (hidden by default) - Claude Generated"""
-        self.advanced_frame = QFrame()
-        self.advanced_frame.setFixedHeight(38)
-        self.advanced_frame.setStyleSheet(
-            "QFrame { background: #f0f4f8; border-bottom: 1px solid #dee2e6; }"
-        )
-        self.advanced_frame.setVisible(False)
-
-        adv_layout = QHBoxLayout(self.advanced_frame)
-        adv_layout.setContentsMargins(8, 4, 8, 4)
-        adv_layout.setSpacing(10)
-
-        # LLM model selector – used by agentic pipeline (global_provider/model_override) - Claude Generated
-        llm_label = QLabel("🤖 LLM-Modell:")
+        llm_label = QLabel("🤖 LLM:")
         llm_label.setStyleSheet("color: #555;")
-        adv_layout.addWidget(llm_label)
+        tb_layout.addWidget(llm_label)
 
         self.global_override_combo = QComboBox()
         self.global_override_combo.setMinimumWidth(180)
         self.global_override_combo.setMaximumWidth(300)
         self.global_override_combo.setToolTip(
-            "Provider/Modell für LLM-Schritte.\n"
-            "Wird vom agentischen Workflow als primäres Modell verwendet.\n"
+            "Provider/Modell für alle LLM-Schritte.\n"
             "\"-- Standard --\" = Aus Konfiguration/Task-Präferenzen"
         )
-        self.global_override_combo.setStyleSheet(
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }"
-        )
+        self.global_override_combo.setStyleSheet(_combo_css)
         self._populate_global_override_combo()
-        adv_layout.addWidget(self.global_override_combo)
+        tb_layout.addWidget(self.global_override_combo)
 
-        # Separator
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.Shape.VLine)
-        sep2.setFixedHeight(20)
-        sep2.setStyleSheet("color: #ccc;")
-        adv_layout.addWidget(sep2)
+        # Agentic mode controls
+        agentic_sep = QFrame()
+        agentic_sep.setFrameShape(QFrame.Shape.VLine)
+        agentic_sep.setFixedHeight(24)
+        agentic_sep.setStyleSheet("color: #ccc;")
+        tb_layout.addWidget(agentic_sep)
 
-        # Iterative Search Controls - Claude Generated
-        self.iterative_search_checkbox = QCheckBox("🔄 Iterative GND-Suche")
-        self.iterative_search_checkbox.setToolTip(
-            "Wenn aktiviert: Automatische Suche nach fehlenden Konzepten\n"
-            "mit GND-Pool-Erweiterung über mehrere Iterationen.\n\n"
-            "⚠️ Erhöht Token-Nutzung um ca. 2-3x\n"
-            "⏱️ Verlängert Analysezeit um 30-70 Sekunden"
-        )
-        self.iterative_search_checkbox.setStyleSheet(
-            "QCheckBox { font-weight: bold; color: #0066cc; }"
-            "QCheckBox::indicator { width: 16px; height: 16px; }"
-        )
-        adv_layout.addWidget(self.iterative_search_checkbox)
-
-        iterations_label = QLabel("Max:")
-        iterations_label.setStyleSheet("color: #666;")
-        adv_layout.addWidget(iterations_label)
-
-        self.max_iterations_spin = QSpinBox()
-        self.max_iterations_spin.setRange(1, 5)
-        self.max_iterations_spin.setValue(2)
-        self.max_iterations_spin.setFixedWidth(48)
-        self.max_iterations_spin.setEnabled(False)
-        self.max_iterations_spin.setToolTip("Max. Iterationen (1-5)")
-        adv_layout.addWidget(self.max_iterations_spin)
-
-        # Connect signals
-        self.iterative_search_checkbox.stateChanged.connect(self.on_iterative_search_toggled)
-        self.iterative_search_checkbox.toggled.connect(self.max_iterations_spin.setEnabled)
-        self.max_iterations_spin.valueChanged.connect(self.on_max_iterations_changed)
-
-        # Separator before Agentic Mode - Claude Generated
-        sep3 = QFrame()
-        sep3.setFrameShape(QFrame.Shape.VLine)
-        sep3.setFixedHeight(20)
-        sep3.setStyleSheet("color: #ccc;")
-        adv_layout.addWidget(sep3)
-
-        # Agentic Mode Checkbox - Claude Generated
-        self.agentic_mode_checkbox = QCheckBox("🤖 Agentic Modus")
+        self.agentic_mode_checkbox = QCheckBox("🤖 Agentic")
         self.agentic_mode_checkbox.setToolTip(
             "Verwendet LLM-gesteuerte Agenten mit MCP-Tools statt sequenzieller Pipeline.\n"
-            "Die Agenten entscheiden autonom, welche Such-Tools sie verwenden.\n\n"
             "⚠️ Experimentell: Erhöht Token-Nutzung um ca. 3x"
-        )
-        self.agentic_mode_checkbox.setStyleSheet(
-            "QCheckBox { font-weight: bold; color: #d32f2f; font-size: 11px; }"
-            "QCheckBox::indicator { width: 16px; height: 16px; }"
         )
         self.agentic_mode_checkbox.setChecked(False)
         self.agentic_mode_checkbox.stateChanged.connect(self.on_agentic_mode_toggled)
-        adv_layout.addWidget(self.agentic_mode_checkbox)
+        tb_layout.addWidget(self.agentic_mode_checkbox)
 
-        # MetaAgent feedback-loop checkbox (sub-option of Agentic) - Claude Generated
-        self.meta_agent_checkbox = QCheckBox("🔁 MetaAgent (Qualitäts-Loop)")
-        self.meta_agent_checkbox.setToolTip(
-            "Aktiviert den MetaAgent mit Plan/Reflektions-Schleife.\n"
-            "Erkennt fehlende Konzepte und flache DK-Codes, startet Steps neu."
-        )
-        self.meta_agent_checkbox.setStyleSheet(
-            "QCheckBox { font-size: 10px; color: #555; }"
-        )
-        self.meta_agent_checkbox.setChecked(False)
-        self.meta_agent_checkbox.setVisible(False)
-        self.meta_agent_checkbox.stateChanged.connect(self.on_meta_agent_toggled)
-        adv_layout.addWidget(self.meta_agent_checkbox)
+        tb_layout.addStretch()
 
-        # P-θ.4: workflow selector moved to toolbar; only stretch remains.
+        # Pipeline status label
+        self.pipeline_status_label = QLabel("Bereit")
+        self.pipeline_status_label.setStyleSheet("color: #666; padding-left: 8px;")
+        tb_layout.addWidget(self.pipeline_status_label)
 
-        adv_layout.addStretch()
-        main_layout.addWidget(self.advanced_frame)
+        main_layout.addWidget(self.toolbar_frame)
 
     def _populate_global_override_combo(self):
         """Populate LLM model selector with available provider/model pairs - Claude Generated"""
@@ -854,12 +710,6 @@ class PipelineTab(QWidget):
                     self.global_override_combo.addItem(f"{provider.name} | {model}", f"{provider.name}|{model}")
         except Exception as e:
             self.logger.error(f"Error populating LLM combo: {e}")
-
-    def toggle_advanced_panel(self):
-        """Toggle visibility of the advanced options panel - Claude Generated"""
-        visible = not self.advanced_frame.isVisible()
-        self.advanced_frame.setVisible(visible)
-        self.advanced_toggle_button.setText("▲ Erweitert" if visible else "▼ Erweitert")
 
     def jump_to_step(self, step_id: str):
         """Jump to specific pipeline step - Claude Generated"""
@@ -978,13 +828,145 @@ class PipelineTab(QWidget):
         return widget
 
     def create_search_step_widget(self) -> QWidget:
-        """Create search step widget - Claude Generated"""
-        # TODO - erweitern um Tabelle mit Ergebnissen (Freies Schlagwort für Suche, GND-Schlagworte, Häufigkeiten) und Filtermöglichkeiten; vergleichbar mit standalone-tab für GND-Suche
-        widget, self.search_result = self._create_text_result_widget(
-            label_text="GND-Suchergebnisse:",
-            placeholder="Suchergebnisse werden hier angezeigt..."
+        """Create search step widget — sortable GND-hit table with selection filter - Claude Generated
+
+        Shows every catalog hit with a GND-ID (Begriff / GND-ID / Häufigkeit /
+        Auswahl). A checkbox hides the entries that were deselected during the
+        keyword chunking/selection step.
+        """
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        header = QHBoxLayout()
+        label = QLabel("GND-Suchergebnisse:")
+        label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        label.setMaximumHeight(18)
+        header.addWidget(label, 0)
+        header.addStretch(1)
+        self.search_show_selected_only = QCheckBox("Nur ausgewählte anzeigen")
+        self.search_show_selected_only.setToolTip(
+            "Im Chunking abgewählte GND-Treffer ausblenden"
         )
+        self.search_show_selected_only.stateChanged.connect(self._filter_gnd_hits)
+        header.addWidget(self.search_show_selected_only, 0)
+        layout.addLayout(header, 0)
+
+        self.search_results_table = QTableWidget()
+        self.search_results_table.setColumnCount(4)
+        self.search_results_table.setHorizontalHeaderLabels(
+            ["Begriff", "GND-ID", "Häufigkeit", "Auswahl"]
+        )
+        self.search_results_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.search_results_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.search_results_table.setSortingEnabled(True)
+        self.search_results_table.verticalHeader().setVisible(False)
+        hh = self.search_results_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.search_results_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        layout.addWidget(self.search_results_table, 1)
+
+        # Raw state for re-filtering / re-marking selection - Claude Generated
+        self.search_raw_rows = []
+        self.search_selected_ids = set()
+        self.search_selected_labels = set()
         return widget
+
+    def _populate_gnd_hits(self, search_results, selected=None) -> None:
+        """Fill the GND-Recherche table from search_results (+ optional selection).
+
+        ``search_results`` may be the classic dict form, a List[SearchResult], or
+        agentic ``gnd_entries`` — PipelineResultFormatter.flatten_gnd_hits handles
+        all three. ``selected`` (final keyword list) marks which hits survived the
+        chunking step; pass None to leave the current selection untouched. - Claude Generated
+        """
+        if not hasattr(self, "search_results_table"):
+            return
+        self.search_raw_rows = PipelineResultFormatter.flatten_gnd_hits(search_results)
+        if selected is not None:
+            self.search_selected_ids, self.search_selected_labels = (
+                PipelineResultFormatter.extract_selected_gnd_keys(selected)
+            )
+        self._render_gnd_hits_table()
+
+    def _mark_gnd_selection(self, selected) -> None:
+        """Re-mark which existing GND rows are selected (final keywords known) - Claude Generated"""
+        if not hasattr(self, "search_results_table") or not self.search_raw_rows:
+            return
+        self.search_selected_ids, self.search_selected_labels = (
+            PipelineResultFormatter.extract_selected_gnd_keys(selected)
+        )
+        self._render_gnd_hits_table()
+
+    def _render_gnd_hits_table(self) -> None:
+        """Render search_raw_rows into the table, highlighting selected hits - Claude Generated"""
+        table = getattr(self, "search_results_table", None)
+        if table is None:
+            return
+        table.setSortingEnabled(False)
+        table.setRowCount(0)
+        ids = self.search_selected_ids
+        labels = self.search_selected_labels
+        have_selection = bool(ids or labels)
+
+        for row in self.search_raw_rows:
+            is_selected = (row["gnd_id"] in ids) or (
+                row["begriff"].lower() in labels
+            )
+            r = table.rowCount()
+            table.insertRow(r)
+
+            begriff_item = QTableWidgetItem(row["begriff"])
+            gnd_item = QTableWidgetItem(row["gnd_id"])
+            count_item = QTableWidgetItem()
+            count_item.setData(Qt.ItemDataRole.DisplayRole, int(row.get("count", 0)))
+            count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            sel_item = QTableWidgetItem(
+                "✅" if is_selected else ("" if have_selection else "—")
+            )
+            sel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            if is_selected:
+                for it in (begriff_item, gnd_item, count_item, sel_item):
+                    it.setForeground(QColor("#2e7d32"))
+                    f = it.font()
+                    f.setBold(True)
+                    it.setFont(f)
+            if row.get("search_terms"):
+                begriff_item.setToolTip(
+                    "Gefunden über: " + ", ".join(row["search_terms"])
+                )
+            # Stash selection flag for the visibility filter.
+            begriff_item.setData(Qt.ItemDataRole.UserRole, is_selected)
+
+            table.setItem(r, 0, begriff_item)
+            table.setItem(r, 1, gnd_item)
+            table.setItem(r, 2, count_item)
+            table.setItem(r, 3, sel_item)
+
+        table.setSortingEnabled(True)
+        self._filter_gnd_hits()
+
+    def _filter_gnd_hits(self) -> None:
+        """Hide deselected rows when 'Nur ausgewählte anzeigen' is checked - Claude Generated"""
+        table = getattr(self, "search_results_table", None)
+        if table is None or not hasattr(self, "search_show_selected_only"):
+            return
+        only_selected = self.search_show_selected_only.isChecked()
+        for r in range(table.rowCount()):
+            item = table.item(r, 0)
+            is_sel = bool(item.data(Qt.ItemDataRole.UserRole)) if item else False
+            table.setRowHidden(r, only_selected and not is_sel)
 
     def create_keywords_step_widget(self) -> QWidget:
         """Create keywords step widget (Verbale Erschließung) - Claude Generated"""
@@ -1097,6 +1079,11 @@ class PipelineTab(QWidget):
         filter_grid.addWidget(QLabel("Modus:"), 0, 4)
         self.dk_filter_mode = QComboBox()
         self.dk_filter_mode.addItems(["Alle", "Titel", "Klassifikationscodes", "Keywords"])
+        self.dk_filter_mode.setStyleSheet(
+            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }"
+            "QComboBox QAbstractItemView { background-color: #2b2b2b; color: #ccc; "
+            "selection-background-color: #005fcc; selection-color: white; border: 1px solid #ccc; }"
+        )
         self.dk_filter_mode.currentTextChanged.connect(self._filter_dk_search_results)
         filter_grid.addWidget(self.dk_filter_mode, 0, 5)
 
@@ -1270,7 +1257,12 @@ class PipelineTab(QWidget):
         )
 
     def _display_dk_search_results(self, results: List[Dict[str, Any]]):
-        """Display DK search results with formatting - Claude Generated"""
+        """Display DK search results with formatting - Claude Generated
+
+        Formatting delegates to ``PipelineResultFormatter.format_dk_search_results_text``
+        (shared with the Agentic-Chat); this method keeps only the widget-side
+        empty-state handling.
+        """
         if not results:
             self.dk_search_results.setPlainText(
                 "Keine Ergebnisse gefunden" if hasattr(self, 'dk_search_filter_input')
@@ -1279,30 +1271,9 @@ class PipelineTab(QWidget):
             )
             return
 
-        result_lines = []
-        for result in results:
-            dk_code = result.get("dk", "")
-            count = result.get("count", 0)
-            titles = result.get("titles", [])
-            keywords = result.get("keywords", [])
-            classification_type = result.get("classification_type", "DK")
-
-            if not titles or count == 0:
-                continue
-
-            sample_titles = titles[:3]
-            titles_text = " | ".join(sample_titles)
-            if len(titles) > 3:
-                titles_text += f" | ... (und {len(titles) - 3} weitere)"
-
-            result_line = (
-                f"{classification_type}: {dk_code} (Häufigkeit: {count})\n"
-                f"Beispieltitel: {titles_text}\n"
-                f"Keywords: {', '.join(keywords)}\n"
-            )
-            result_lines.append(result_line)
-
-        self.dk_search_results.setPlainText("\n".join(result_lines))
+        self.dk_search_results.setPlainText(
+            PipelineResultFormatter.format_dk_search_results_text(results)
+        )
 
     def _format_dk_classifications_with_titles(
         self,
@@ -1310,66 +1281,27 @@ class PipelineTab(QWidget):
         dk_search_results: List[Dict[str, Any]],
         max_titles_per_code: int = 5
     ) -> str:
-        """Format final classifications with catalog titles using HTML - Claude Generated"""
+        """Format final classifications with catalog titles using HTML - Claude Generated
+
+        Delegates to the shared ``PipelineResultFormatter`` (single source of
+        truth, also used by the Agentic-Chat). The shared formatter returns an
+        HTML fragment; the Pipeline-Tab wraps it in a body with the Arial base
+        font for ``QTextEdit.setHtml``.
+        """
+        fragment = PipelineResultFormatter.format_dk_classifications_html(
+            dk_classifications, dk_search_results, max_titles_per_code
+        )
         if not dk_classifications:
-            return "Keine DK/RVK-Klassifikationen generiert"
-
-        html_parts = []
-        html_parts.append("<html><body style='font-family: Arial, sans-serif;'>")
-
-        for idx, dk_code in enumerate(dk_classifications, 1):
-            titles, total_count = self._get_titles_for_dk_code(dk_code, dk_search_results)
-
-            # Color-coding based on frequency (confidence)
-            if total_count > 50:
-                color, bg_color = "#2d5016", "#d4edda"  # Dark green
-            elif total_count > 20:
-                color, bg_color = "#0c5460", "#d1ecf1"  # Teal
-            else:
-                color, bg_color = "#664d03", "#fff3cd"  # Brown/Orange
-
-            # Header with confidence indicator
-            html_parts.append(
-                f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
-                f"border-left: 4px solid {color}; border-radius: 4px;'>"
-                f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
-            )
-
-            if total_count > 0:
-                confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
-                html_parts.append(
-                    f"<p style='color: {color}; font-weight: bold; margin: 5px 0 2px 0;'>"
-                    f"{confidence_bar} {total_count} Katalog-Treffer</p>"
-                    f"<p style='color: {color}; font-size: 9pt; opacity: 0.8; margin: 0 0 10px 0;'>"
-                    f"📚 Diese Klassifikation wurde in {total_count} Titel{'n' if total_count != 1 else ''} gefunden.</p>"
-                )
-            html_parts.append("</div>")
-
-            # Title list
-            if titles:
-                html_parts.append("<ol style='font-size: 9pt; padding-left: 30px;'>")
-                for title in titles[:max_titles_per_code]:
-                    safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    html_parts.append(f"<li>{safe_title}</li>")
-                html_parts.append("</ol>")
-
-                if total_count > max_titles_per_code:
-                    html_parts.append(f"<p style='color: #888; font-style: italic; padding-left: 20px;'>... und {total_count - max_titles_per_code} weitere Titel</p>")
-
-        html_parts.append("</body></html>")
-        return "".join(html_parts)
+            return fragment
+        return (
+            "<html><body style='font-family: Arial, sans-serif;'>"
+            f"{fragment}</body></html>"
+        )
 
     @staticmethod
     def _split_classification_code(classification: str) -> tuple[str, str]:
         """Split a prefixed classification string into (system, code)."""
-        value = str(classification or "").strip()
-        upper = value.upper()
-
-        if upper.startswith("DK "):
-            return ("DK", value[3:].strip())
-        if upper.startswith("RVK "):
-            return ("RVK", value[4:].strip())
-        return ("", value)
+        return PipelineResultFormatter.split_classification_code(classification)
 
     def _get_titles_for_dk_code(
         self,
@@ -1377,19 +1309,7 @@ class PipelineTab(QWidget):
         dk_search_results: List[Dict[str, Any]]
     ) -> tuple[list, int]:
         """Extract titles for a specific classification code - Claude Generated"""
-        if not dk_search_results:
-            return ([], 0)
-
-        expected_type, normalized_code = self._split_classification_code(dk_code)
-
-        for result in dk_search_results:
-            result_code = str(result.get("dk", "")).strip()
-            result_type = str(result.get("classification_type", "")).strip().upper()
-            if result_code == normalized_code and (not expected_type or result_type == expected_type):
-                titles = result.get("titles", [])
-                return (titles[:50], len(titles))  # Max 50 for display
-
-        return ([], 0)
+        return PipelineResultFormatter.get_titles_for_dk_code(dk_code, dk_search_results)
 
     def start_auto_pipeline(self):
         """Start the automatic pipeline in background thread - Claude Generated"""
@@ -1479,9 +1399,10 @@ class PipelineTab(QWidget):
         # Emit pipeline started signal
         self.pipeline_started.emit("pipeline_thread")
 
-        # Notify streaming widget
-        if hasattr(self, "stream_widget"):
-            self.stream_widget.on_pipeline_started("pipeline_thread")
+        # NOTE: the chat panel's "🚀 Pipeline gestartet" line is driven by the
+        # state.pipeline_started bus event (with the real pipeline UUID). The
+        # previous explicit stream_widget.on_pipeline_started("pipeline_thread")
+        # call here produced a duplicate started-banner with a placeholder ID. - Claude Generated
 
     def _apply_global_override_from_gui(self):
         """Apply LLM model selection to pipeline config (global_provider/model_override) - Claude Generated"""
@@ -1678,8 +1599,11 @@ class PipelineTab(QWidget):
         # Clear results
         if hasattr(self, "initialisation_result"):
             self.initialisation_result.clear()
-        if hasattr(self, "search_result"):
-            self.search_result.clear()
+        if hasattr(self, "search_results_table"):
+            self.search_results_table.setRowCount(0)
+            self.search_raw_rows = []
+            self.search_selected_ids = set()
+            self.search_selected_labels = set()
         if hasattr(self, "keywords_result"):
             self.keywords_result.clear()
         # DK-related widgets - Claude Generated (Fixed widget names)
@@ -1689,13 +1613,6 @@ class PipelineTab(QWidget):
             self.dk_search_results.clear()
         if hasattr(self, "dk_input_summary"):
             self.dk_input_summary.clear()
-
-        # Reset title display - Claude Generated
-        if hasattr(self, "title_label"):
-            self.title_label.clear()
-        if hasattr(self, "title_override_field"):
-            self.title_override_field.clear()
-            self.title_override_field.setPlaceholderText("Optional: Arbeitstitel überschreiben")
 
         # Reset DK filter controls - Claude Generated
         if hasattr(self, "dk_search_filter_input"):
@@ -1720,56 +1637,6 @@ class PipelineTab(QWidget):
     def on_config_changed(self):
         """Handle configuration changes - Claude Generated (Webcam Feature)"""
         self.logger.debug("Pipeline tab: Handling config change")
-
-    def on_iterative_search_toggled(self, state):
-        """Handle iterative search checkbox toggle - Claude Generated"""
-        enabled = state == Qt.CheckState.Checked.value
-
-        self.logger.debug(f"Iterative search toggled: {enabled}")
-
-        # Update pipeline configuration
-        if self.pipeline_manager and self.pipeline_manager.config:
-            keywords_config = self.pipeline_manager.config.get_step_config("keywords")
-            if keywords_config:
-                keywords_config.enable_iterative_refinement = enabled
-
-                # Show visual feedback
-                if enabled:
-                    max_iter = self.max_iterations_spin.value() if hasattr(self, 'max_iterations_spin') else 2
-                    self.logger.info(f"✅ Iterative GND-Suche aktiviert (max. {max_iter} Iterationen)")
-                    # Show info in status bar if available
-                    if self.main_window and hasattr(self.main_window, "global_status_bar"):
-                        self.main_window.global_status_bar.show_temporary_message(
-                            f"🔄 Iterative GND-Suche aktiviert (max. {max_iter})", 3000
-                        )
-                else:
-                    self.logger.info("❌ Iterative GND-Suche deaktiviert")
-                    if self.main_window and hasattr(self.main_window, "global_status_bar"):
-                        self.main_window.global_status_bar.show_temporary_message(
-                            "Iterative GND-Suche deaktiviert", 3000
-                        )
-
-    def on_max_iterations_changed(self, value):
-        """Handle max iterations spinbox change - Claude Generated"""
-        self.logger.debug(f"Max iterations changed: {value}")
-
-        # Update pipeline configuration
-        if self.pipeline_manager and self.pipeline_manager.config:
-            keywords_config = self.pipeline_manager.config.get_step_config("keywords")
-            if keywords_config:
-                keywords_config.max_refinement_iterations = value
-
-                # Show visual feedback if enabled
-                if getattr(keywords_config, 'enable_iterative_refinement', False):
-                    if self.main_window and hasattr(self.main_window, "global_status_bar"):
-                        self.main_window.global_status_bar.show_temporary_message(
-                            f"Max. Iterationen: {value}", 2000
-                        )
-
-        # Update webcam frame visibility in unified input widget
-        if hasattr(self, 'unified_input') and self.unified_input:
-            self.unified_input._update_webcam_frame_visibility()
-            self.logger.debug("Webcam frame visibility updated")
 
     def _populate_workflow_combo(self):
         """Populate workflow combo from discovered v4 YAMLs - Claude Generated.
@@ -1877,11 +1744,6 @@ class PipelineTab(QWidget):
 
         self.logger.info(f"Agentic mode {'enabled' if enabled else 'disabled'}")
 
-        # P-θ.4: workflow combo lives in toolbar and is always visible/enabled.
-        # Only meta_agent (advanced) is gated by agentic-mode.
-        self.meta_agent_checkbox.setVisible(enabled)
-        if not enabled:
-            self.meta_agent_checkbox.setChecked(False)
         # Notify MainWindow dock, adjust splitter - Claude Generated
         self.agentic_mode_changed.emit(enabled)
         w = self.main_splitter.width() or 1000
@@ -1896,9 +1758,6 @@ class PipelineTab(QWidget):
         # Update pipeline configuration
         if self.pipeline_manager and self.pipeline_manager.config:
             self.pipeline_manager.config.enable_agentic_mode = enabled
-            if not enabled:
-                self.pipeline_manager.config.meta_agent_enabled = False
-
             if enabled:
                 # Set workflow if selected
                 workflow_name = self.workflow_combo.currentData()
@@ -1916,17 +1775,6 @@ class PipelineTab(QWidget):
                     self.main_window.global_status_bar.show_temporary_message(
                         "Agentic Modus deaktiviert", 2000
                     )
-
-    def on_meta_agent_toggled(self, state):
-        """Handle MetaAgent checkbox toggle - Claude Generated"""
-        enabled = state == Qt.CheckState.Checked.value
-        self.logger.info(f"MetaAgent {'enabled' if enabled else 'disabled'}")
-        if self.pipeline_manager and self.pipeline_manager.config:
-            self.pipeline_manager.config.meta_agent_enabled = enabled
-            if enabled and self.main_window and hasattr(self.main_window, "global_status_bar"):
-                self.main_window.global_status_bar.show_temporary_message(
-                    "🔁 MetaAgent-Loop aktiviert", 2000
-                )
 
     @pyqtSlot(object)
     def on_step_started(self, step: PipelineStep):
@@ -2002,25 +1850,23 @@ class PipelineTab(QWidget):
                 self.pipeline_manager.current_analysis_state.working_title):
                 working_title = self.pipeline_manager.current_analysis_state.working_title
 
-                # Update title label text
-                self.title_label.setText(f"📋 {working_title}")
-
-                # Always update override field with current title - Claude Generated
-                self.title_override_field.clear()
-                self.title_override_field.setPlaceholderText(f"Current: {working_title}")
-
                 # Set working title in stream widget for log filename - Claude Generated
                 if hasattr(self, 'stream_widget') and self.stream_widget:
                     self.stream_widget.set_working_title(working_title)
 
                 self.logger.info(f"Displaying working title: {working_title}")
         elif step.step_id == "search" and step.output_data:
-            gnd_treffer = step.output_data.get("gnd_treffer", [])
-            # if hasattr(self, 'search_result'):
-            if gnd_treffer:
-                self.search_result.setPlainText("\n".join(gnd_treffer))
-            else:
-                self.search_result.setPlainText("Keine GND-Treffer gefunden")
+            # Populate the GND-hit table from the full search_results (not the
+            # text-reduced gnd_treffer). Selection is marked later when the
+            # keywords step finishes. - Claude Generated
+            state = (
+                self.pipeline_manager.current_analysis_state
+                if self.pipeline_manager
+                else None
+            )
+            search_results = getattr(state, "search_results", None) if state else None
+            if search_results:
+                self._populate_gnd_hits(search_results)
 
         elif step.step_id == "keywords" and step.output_data:
             final_keywords = step.output_data.get("final_keywords", "")
@@ -2044,6 +1890,9 @@ class PipelineTab(QWidget):
                 llm_analysis = step.output_data.get("llm_analysis")
                 chains = llm_analysis.keyword_chains if llm_analysis else []
                 self._render_keyword_chains(chains, final_keywords_list)
+
+            # Mark which GND-Recherche hits survived the selection step - Claude Generated
+            self._mark_gnd_selection(final_keywords_list)
 
         elif step.step_id == "dk_search" and step.output_data:
             # Display DK search results with counts and titles - Claude Generated (Enhanced with filtering)
@@ -2176,10 +2025,6 @@ class PipelineTab(QWidget):
         # Propagate working_title to stream widget (agentic: no on_step_completed fires)
         if analysis_state and hasattr(analysis_state, 'working_title') and analysis_state.working_title:
             working_title = analysis_state.working_title
-            if hasattr(self, 'title_label'):
-                self.title_label.setText(f"📋 {working_title}")
-            if hasattr(self, 'title_override_field'):
-                self.title_override_field.setPlaceholderText(f"Current: {working_title}")
             if hasattr(self, 'stream_widget'):
                 self.stream_widget.set_working_title(working_title)
 
@@ -2297,26 +2142,13 @@ class PipelineTab(QWidget):
                     self.initialisation_result.setPlainText(text)
                 working_title = snapshot.get("working_title", "")
                 if working_title:
-                    if hasattr(self, "title_label"):
-                        self.title_label.setText(f"📋 {working_title}")
-                    if hasattr(self, "title_override_field"):
-                        self.title_override_field.setPlaceholderText(f"Current: {working_title}")
                     if hasattr(self, "stream_widget"):
                         self.stream_widget.set_working_title(working_title)
 
             elif step_id == "search":
                 gnd_entries = snapshot.get("gnd_entries", [])
-                if hasattr(self, "search_result"):
-                    if gnd_entries:
-                        lines = []
-                        for entry in gnd_entries:
-                            if isinstance(entry, dict):
-                                kw = entry.get("keyword") or entry.get("title", "")
-                                gnd_id = entry.get("gnd_id", "")
-                                lines.append(f"{kw} ({gnd_id})" if gnd_id else kw)
-                        self.search_result.setPlainText("\n".join(lines))
-                    else:
-                        self.search_result.setPlainText("Keine GND-Treffer gefunden")
+                if gnd_entries and hasattr(self, "search_results_table"):
+                    self._populate_gnd_hits(gnd_entries)
 
             elif step_id == "selection":
                 final_kws = snapshot.get("extra", {}).get("final_keywords", [])
@@ -2331,6 +2163,9 @@ class PipelineTab(QWidget):
                 chains = snapshot.get("keyword_chains", [])
                 if chains:
                     self._render_keyword_chains(chains, final_kws)
+                # Mark which GND-Recherche hits survived selection - Claude Generated
+                if final_kws:
+                    self._mark_gnd_selection(final_kws)
 
             elif step_id == "classification":
                 # classification step produces dk_classifications before dk_postprocess - Claude Generated
@@ -2376,10 +2211,15 @@ class PipelineTab(QWidget):
             if state.initial_keywords and hasattr(self, "initialisation_result"):
                 self.initialisation_result.setPlainText("\n".join(state.initial_keywords))
 
-            # Search tab: show search terms from search_results
-            if state.search_results and hasattr(self, "search_result"):
-                terms = [sr.search_term for sr in state.search_results if sr.search_term]
-                self.search_result.setPlainText("\n".join(terms) if terms else "Keine GND-Treffer gefunden")
+            # Search tab: show ALL GND hits (not just search terms), with the
+            # final selection marked so deselected hits can be filtered. - Claude Generated
+            if state.search_results and hasattr(self, "search_results_table"):
+                selected = (
+                    state.final_llm_analysis.extracted_gnd_keywords
+                    if state.final_llm_analysis
+                    else None
+                )
+                self._populate_gnd_hits(state.search_results, selected=selected)
 
             # Keywords tab: final GND keywords
             if hasattr(self, "keywords_result"):
@@ -2392,17 +2232,30 @@ class PipelineTab(QWidget):
                     text = "\n".join(final_kws) if isinstance(final_kws, list) else str(final_kws)
                     self.keywords_result.setPlainText(text)
 
-            # DK search tab
-            if state.dk_search_results_flattened and hasattr(self, "dk_search_results"):
-                self.dk_search_raw_data = state.dk_search_results_flattened
-                self._display_dk_search_results(state.dk_search_results_flattened)
+            # DK search + classification tabs.
+            # In agentic mode the rich DK-centric catalog data (real titles +
+            # counts) lives in state.dk_search_results — written by
+            # build_dk_search_results / dk_postprocess and identical to what the
+            # per-step snapshot shows during the run. state.dk_search_results_flattened
+            # is only a thin structure derived from the final classifications
+            # (titles = DK label, count = confidence×100), which clears the
+            # Katalog-Recherche view and drops the title list. Prefer the rich
+            # source; fall back to flattened only if it is empty. - Claude Generated
+            dk_rich = PipelineResultFormatter.select_dk_title_source(
+                getattr(state, "dk_search_results", None),
+                getattr(state, "dk_search_results_flattened", None),
+            )
+
+            if dk_rich and hasattr(self, "dk_search_results"):
+                self.dk_search_raw_data = dk_rich
+                self._display_dk_search_results(dk_rich)
 
             # DK classification tab — state.dk_classifications may be List[Dict]
             if state.dk_classifications and hasattr(self, "dk_classification_results"):
                 codes = self._dk_class_codes(state.dk_classifications)
                 html_display = self._format_dk_classifications_with_titles(
                     codes,
-                    state.dk_search_results_flattened or []
+                    dk_rich,
                 )
                 self.dk_classification_results.setHtml(html_display)
 
@@ -2462,21 +2315,6 @@ class PipelineTab(QWidget):
             self.stream_widget.end_llm_streaming()
 
         # Note: Removed QMessageBox - status label provides sufficient feedback - Claude Generated
-
-    def on_title_override_changed(self):
-        """Handle title override field changes - Claude Generated"""
-        override_text = self.title_override_field.text().strip()
-
-        if override_text and self.pipeline_manager.current_analysis_state:
-            # Update working_title in analysis state with override
-            self.pipeline_manager.current_analysis_state.working_title = override_text
-            self.title_label.setText(f"📋 {override_text}")
-
-            # Update MainWindow title if available
-            if self.main_window and hasattr(self.main_window, 'update_window_title'):
-                self.main_window.update_window_title(override_text)
-
-            self.logger.info(f"Title override applied: {override_text}")
 
     @pyqtSlot(str, str)
     def on_llm_stream_token(self, token: str, step_id: str):
@@ -2640,18 +2478,13 @@ class PipelineTab(QWidget):
                                      else str(state.initial_keywords))
                     self.initialisation_result.setPlainText(f"📁 Geladene Keywords:\n{keywords_text}")
 
-                if state.search_results and hasattr(self, 'search_result'):
-                    search_count = len(state.search_results)
-                    total_results = sum(len(sr.results) for sr in state.search_results)
-                    # Also list the GND terms found (same as gnd_treffer during live runs)
-                    gnd_terms = []
-                    for sr in state.search_results:
-                        gnd_terms.extend(sr.results.keys())
-                    gnd_terms_text = "\n".join(sorted(set(gnd_terms)))
-                    self.search_result.setPlainText(
-                        f"📁 Geladene Suchergebnisse:\n{search_count} Suchvorgänge mit {total_results} Ergebnissen\n\n"
-                        f"{gnd_terms_text}"
+                if state.search_results and hasattr(self, 'search_results_table'):
+                    selected = (
+                        state.final_llm_analysis.extracted_gnd_keywords
+                        if state.final_llm_analysis
+                        else None
                     )
+                    self._populate_gnd_hits(state.search_results, selected=selected)
 
                 if state.final_llm_analysis and hasattr(self, 'keywords_result'):
                     # Type-safe join - Claude Generated (Fix for string parsing bug)

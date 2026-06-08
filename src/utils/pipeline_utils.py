@@ -10,7 +10,8 @@ import re
 import time
 import html
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Set
+import dataclasses
 from dataclasses import asdict
 from datetime import datetime
 from urllib.parse import urlparse  # For URL parsing in title builder - Claude Generated
@@ -5754,20 +5755,19 @@ class PipelineJsonManager:
                 if isinstance(data.get("final_llm_analysis"), dict):
                     data["final_llm_analysis"] = fix_llm_field_names(data["final_llm_analysis"])
 
-                # Remove webapp-specific fields not in KeywordAnalysisState
-                removed_fields = []
-                if "pipeline_metadata" in data:
-                    data.pop("pipeline_metadata")
-                    removed_fields.append("pipeline_metadata")
-                if "final_keywords" in data:
-                    data.pop("final_keywords")  # Redundant - extracted from final_llm_analysis
-                    removed_fields.append("final_keywords")
-                if "verification" in data:
-                    data.pop("verification")  # Already nested inside final_llm_analysis
-                    removed_fields.append("verification")
+                # Remap property aliases before filtering — Claude Generated
+                if "classifications" in data and "dk_classifications" not in data:
+                    data["dk_classifications"] = data.pop("classifications")
 
-                if removed_fields:
-                    logger.info(f"Removed webapp-specific fields: {', '.join(removed_fields)}")
+                # Whitelist filter: keep only KeywordAnalysisState fields — Claude Generated
+                # GUI/webapp exports add extra keys (keyword_chains, classifications_deprecated_alias,
+                # pipeline_metadata, etc.) that KeywordAnalysisState.__init__() doesn't accept.
+                valid_fields = {f.name for f in dataclasses.fields(KeywordAnalysisState)}
+                unknown = [k for k in list(data.keys()) if k not in valid_fields]
+                if unknown:
+                    for k in unknown:
+                        data.pop(k)
+                    logger.info(f"Removed non-KeywordAnalysisState fields: {', '.join(unknown)}")
 
                 # Fill in missing required fields from webapp format - Claude Generated
                 data.setdefault("search_suggesters_used", [])
@@ -6013,6 +6013,299 @@ class PipelineResultFormatter:
                     catalog_results.append(entry)
 
         return "\n---\n".join(catalog_results)
+
+    # ------------------------------------------------------------------
+    # Shared display formatters (single source of truth for Pipeline-Tab
+    # and Agentic-Chat). Moved here so both GUI surfaces render identical
+    # catalog-research and final-notation output. - Claude Generated
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def split_classification_code(classification: str) -> Tuple[str, str]:
+        """Split a prefixed classification string into (system, code) - Claude Generated
+
+        ``"DK 666.76"`` -> ``("DK", "666.76")``; ``"RVK Q12"`` -> ``("RVK", "Q12")``;
+        unprefixed values return ``("", value)``.
+        """
+        value = str(classification or "").strip()
+        upper = value.upper()
+        if upper.startswith("DK "):
+            return ("DK", value[3:].strip())
+        if upper.startswith("RVK "):
+            return ("RVK", value[4:].strip())
+        return ("", value)
+
+    @staticmethod
+    def get_titles_for_dk_code(
+        dk_code: str, dk_search_results: List[Dict[str, Any]]
+    ) -> Tuple[List[str], int]:
+        """Return ``(titles[:50], total_count)`` for a classification code - Claude Generated
+
+        Matches the flattened catalog-search structure (``{dk, classification_type,
+        titles, ...}``). The type prefix (DK/RVK) is honoured when present so a DK
+        code does not pick up an RVK entry with the same notation.
+        """
+        if not dk_search_results:
+            return ([], 0)
+
+        expected_type, normalized_code = PipelineResultFormatter.split_classification_code(
+            dk_code
+        )
+
+        for result in dk_search_results:
+            result_code = str(result.get("dk", "")).strip()
+            result_type = str(result.get("classification_type", "")).strip().upper()
+            if result_code == normalized_code and (
+                not expected_type or result_type == expected_type
+            ):
+                titles = result.get("titles", [])
+                return (titles[:50], len(titles))
+
+        return ([], 0)
+
+    @staticmethod
+    def flatten_gnd_hits(search_results: Any) -> List[Dict[str, Any]]:
+        """Flatten GND search results into deduplicated per-GND-ID display rows - Claude Generated
+
+        Accepts any of the shapes the pipeline produces:
+        * dict ``{search_term: {label: {gndid: set|list, count, ...}}}`` (classic);
+        * ``List[SearchResult]`` (``.search_term`` + ``.results`` dict);
+        * a flat ``List[Dict]`` of GND entries with a top-level ``gnd_id`` (agentic
+          snapshots' ``gnd_entries``).
+
+        Returns rows ``[{"begriff", "gnd_id", "count", "search_terms": [..]}]``
+        deduplicated by GND-ID (counts maxed, search terms merged), sorted by
+        descending count then label.
+        """
+        by_id: Dict[str, Dict[str, Any]] = {}
+
+        def _add(label: str, gnd_id: str, count: Any, term: str) -> None:
+            gnd_id = str(gnd_id or "").strip()
+            if not gnd_id:
+                return
+            cnt = int(count) if isinstance(count, (int, float)) else 0
+            row = by_id.get(gnd_id)
+            if row is None:
+                by_id[gnd_id] = {
+                    "begriff": repair_display_text(label) or gnd_id,
+                    "gnd_id": gnd_id,
+                    "count": cnt,
+                    "search_terms": [term] if term else [],
+                }
+            else:
+                row["count"] = max(row["count"], cnt)
+                if term and term not in row["search_terms"]:
+                    row["search_terms"].append(term)
+
+        # --- flat list of GND entries (agentic gnd_entries) ---
+        if (
+            isinstance(search_results, list)
+            and search_results
+            and isinstance(search_results[0], dict)
+            and "gnd_id" in search_results[0]
+        ):
+            for entry in search_results:
+                if not isinstance(entry, dict):
+                    continue
+                label = entry.get("keyword") or entry.get("title", "")
+                _add(label, entry.get("gnd_id", ""), entry.get("count", 0),
+                     entry.get("search_term", ""))
+        else:
+            # --- dict form or List[SearchResult] ---
+            items: List[Tuple[str, Any]] = []
+            if isinstance(search_results, dict):
+                items = list(search_results.items())
+            elif isinstance(search_results, list):
+                for sr in search_results:
+                    if isinstance(sr, dict):
+                        items.append((sr.get("search_term", ""), sr.get("results", {})))
+                    else:
+                        items.append(
+                            (getattr(sr, "search_term", "") or "",
+                             getattr(sr, "results", {}) or {})
+                        )
+
+            for term, results in items:
+                if not isinstance(results, dict):
+                    continue
+                for label, data in results.items():
+                    if not isinstance(data, dict):
+                        continue
+                    count = data.get("count", 0)
+                    for gnd_id in (data.get("gndid", []) or []):
+                        _add(label, gnd_id, count, term)
+
+        rows = list(by_id.values())
+        rows.sort(key=lambda r: (-r["count"], r["begriff"].lower()))
+        return rows
+
+    @staticmethod
+    def extract_selected_gnd_keys(selected: Any) -> Tuple[Set[str], Set[str]]:
+        """Derive ``(gnd_id set, normalized-label set)`` from a final keyword list - Claude Generated
+
+        Handles the inconsistent representations of final/selected keywords:
+        dicts with ``gnd_id``/``title``, or strings like ``"Halbleiter (GND-ID: 4129772-7)"``.
+        Used to mark which GND hits survived the chunking/selection step.
+        """
+        import re
+
+        ids: Set[str] = set()
+        labels: Set[str] = set()
+        for item in (selected or []):
+            if isinstance(item, dict):
+                gid = str(item.get("gnd_id", "") or "")
+                if gid:
+                    ids.add(gid)
+                text = str(item.get("title", item.get("keyword", "")))
+            else:
+                text = str(item)
+            # GND-IDs embedded in "(GND-ID: x)" / "(GND: x)"
+            for match in re.findall(r"GND[^:)]*:\s*([0-9Xx][0-9Xx\-/]*)", text):
+                ids.add(match)
+            # Normalised label = text without the "(GND…)" suffix
+            label = re.sub(r"\s*\(GND[^)]*\)", "", text).strip().lower()
+            if label:
+                labels.add(label)
+        return ids, labels
+
+    @staticmethod
+    def select_dk_title_source(
+        dk_search_results: Optional[List[Dict[str, Any]]],
+        dk_search_results_flattened: Optional[List[Dict[str, Any]]],
+    ) -> List[Dict[str, Any]]:
+        """Pick the DK-centric result list that actually carries catalog titles - Claude Generated
+
+        The two GUI modes store the rich list (per-DK-code, with real catalog
+        titles + counts) under *different* fields:
+
+        * classic pipeline → ``dk_search_results_flattened`` (``dk_search_results``
+          is keyword-centric, no top-level ``dk``);
+        * agentic pipeline → ``dk_search_results`` (``dk_search_results_flattened``
+          is a thin structure derived from the final classifications — titles are
+          the DK label only, count is confidence×100).
+
+        Returns whichever candidate has the most catalog titles among DK-keyed
+        items, so callers (Pipeline-Tab + Agentic-Chat) get a consistent source
+        regardless of mode.
+        """
+        candidates = [
+            dk_search_results or [],
+            dk_search_results_flattened or [],
+        ]
+
+        def _title_score(lst: List[Dict[str, Any]]) -> int:
+            return sum(
+                len(item.get("titles", []))
+                for item in lst
+                if isinstance(item, dict) and item.get("dk")
+            )
+
+        best = max(candidates, key=_title_score)
+        if _title_score(best) > 0:
+            return best
+        # No titles anywhere — return the first DK-keyed list so codes still resolve.
+        for lst in candidates:
+            if any(isinstance(item, dict) and item.get("dk") for item in lst):
+                return lst
+        return best
+
+    @staticmethod
+    def format_dk_search_results_text(results: List[Dict[str, Any]]) -> str:
+        """Format flattened DK/RVK search results as per-code plain text - Claude Generated
+
+        Mirrors the Pipeline-Tab catalog-research view: one block per DK/RVK code
+        with sample titles and frequency. Returns an empty string when nothing has
+        titles/count (caller decides on the empty-state placeholder).
+        """
+        if not results:
+            return ""
+
+        result_lines = []
+        for result in results:
+            dk_code = result.get("dk", "")
+            count = result.get("count", 0)
+            titles = result.get("titles", [])
+            keywords = result.get("keywords", [])
+            classification_type = result.get("classification_type", "DK")
+
+            if not titles or count == 0:
+                continue
+
+            sample_titles = titles[:3]
+            titles_text = " | ".join(sample_titles)
+            if len(titles) > 3:
+                titles_text += f" | ... (und {len(titles) - 3} weitere)"
+
+            result_lines.append(
+                f"{classification_type}: {dk_code} (Häufigkeit: {count})\n"
+                f"Beispieltitel: {titles_text}\n"
+                f"Keywords: {', '.join(keywords)}\n"
+            )
+
+        return "\n".join(result_lines)
+
+    @staticmethod
+    def format_dk_classifications_html(
+        dk_classifications: List[str],
+        dk_search_results: List[Dict[str, Any]],
+        max_titles_per_code: int = 5,
+    ) -> str:
+        """Format final DK/RVK notations with catalog titles as an HTML fragment - Claude Generated
+
+        Returns a self-contained HTML fragment (no ``<html>/<body>`` wrapper) so it
+        renders identically via ``QTextEdit.setHtml`` (Pipeline-Tab) and
+        ``QTextCursor.insertHtml`` (Agentic-Chat). Confidence is colour-coded by the
+        number of catalog hits.
+        """
+        if not dk_classifications:
+            return "Keine DK/RVK-Klassifikationen generiert"
+
+        html_parts: List[str] = []
+        for idx, dk_code in enumerate(dk_classifications, 1):
+            titles, total_count = PipelineResultFormatter.get_titles_for_dk_code(
+                dk_code, dk_search_results
+            )
+
+            # Color-coding based on frequency (confidence)
+            if total_count > 50:
+                color, bg_color = "#2d5016", "#d4edda"  # Dark green
+            elif total_count > 20:
+                color, bg_color = "#0c5460", "#d1ecf1"  # Teal
+            else:
+                color, bg_color = "#664d03", "#fff3cd"  # Brown/Orange
+
+            html_parts.append(
+                f"<div style='background-color: {bg_color}; padding: 12px; margin-bottom: 8px; "
+                f"border-left: 4px solid {color}; border-radius: 4px;'>"
+                f"<h2 style='color: {color}; margin: 0; font-size: 14pt;'>#{idx} {dk_code}</h2>"
+            )
+
+            if total_count > 0:
+                confidence_bar = "🟩" * min(5, (total_count // 10) + 1)
+                html_parts.append(
+                    f"<p style='color: {color}; font-weight: bold; margin: 5px 0 2px 0;'>"
+                    f"{confidence_bar} {total_count} Katalog-Treffer</p>"
+                    f"<p style='color: {color}; font-size: 9pt; opacity: 0.8; margin: 0 0 10px 0;'>"
+                    f"📚 Diese Klassifikation wurde in {total_count} Titel{'n' if total_count != 1 else ''} gefunden.</p>"
+                )
+            html_parts.append("</div>")
+
+            if titles:
+                html_parts.append("<ol style='font-size: 9pt; padding-left: 30px;'>")
+                for title in titles[:max_titles_per_code]:
+                    safe_title = (
+                        title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    )
+                    html_parts.append(f"<li>{safe_title}</li>")
+                html_parts.append("</ol>")
+
+                if total_count > max_titles_per_code:
+                    html_parts.append(
+                        f"<p style='color: #888; font-style: italic; padding-left: 20px;'>"
+                        f"... und {total_count - max_titles_per_code} weitere Titel</p>"
+                    )
+
+        return "".join(html_parts)
 
     @staticmethod
     def parse_dk_results_from_text(text: str) -> List[Dict[str, Any]]:

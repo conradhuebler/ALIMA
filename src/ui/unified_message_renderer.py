@@ -150,11 +150,18 @@ class UnifiedMessageRenderer:
         self.auto_scroll_to_bottom()
 
     def start_streaming_line(self, step_id: str, prefix: str = "") -> None:
-        """Open a streaming line with timestamp + step tag."""
+        """Open a streaming line with timestamp + (optional) step tag."""
         timestamp = datetime.now().strftime("%H:%M:%S")
+        # Omit the [TAG] bracket when step_id is empty — orchestration messages
+        # without a step id previously rendered an ugly empty "[]". - Claude Generated
+        tag = (
+            f"<span style='color: #8be9fd; font-weight: bold;'>[{step_id.upper()}]</span> "
+            if step_id
+            else ""
+        )
         formatted_prefix = (
             f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-            f"<span style='color: #8be9fd; font-weight: bold;'>[{step_id.upper()}]</span> "
+            f"{tag}"
             f"<span style='color: #bd93f9;'>{self._escape_html(prefix)}"
         )
         self.text_browser.append(formatted_prefix)
@@ -362,11 +369,11 @@ class UnifiedMessageRenderer:
         """Attach a result to an existing tool call and re-render the block."""
         tc = self._tool_calls.get(tool_id)
         if tc is None:
-            # Fallback: plain marker if id unknown.
+            # Fallback: orphan result (no matching open call).
             preview = (result or "").strip().replace("\n", " ")
             if len(preview) > 120:
                 preview = preview[:120] + "…"
-            self.render_tool_marker(f"↳ {preview}")
+            self.render_system_message(f"⚠ orphan result: {preview}")
             return
         tc["result"] = result
         tc["status"] = status
@@ -381,6 +388,87 @@ class UnifiedMessageRenderer:
         self._rerender_tool_call_block(tool_id)
         return tc["expanded"]
 
+    def render_collapsible(
+        self,
+        title: str,
+        body: str,
+        *,
+        collapsed: bool = True,
+        icon: str = "📄",
+        meta: str = "",
+    ) -> str:
+        """Render a generic collapsible block (e.g. the agentic input prompt).
+
+        Reuses the tool-call toggle/re-render machinery (anchor
+        ``tool://toggle/<id>``), so ``PipelineChatPanel._handle_tool_link``
+        toggles it without changes. ``meta`` is shown next to the header (e.g.
+        timestamp / duration) and can be updated later via
+        :meth:`update_collapsible_meta`. Returns the block id. - Claude Generated
+        """
+        self._tool_call_id += 1
+        tool_id = f"tc_{self._tool_call_id}"
+        self._tool_calls[tool_id] = {
+            "name": title,
+            "args": None,
+            "args_preview": "",
+            "duration_s": None,
+            "result": body,
+            "expanded": not collapsed,
+            "status": "success",
+            "kind": "collapsible",
+            "icon": icon,
+            "meta": meta,
+        }
+        self._append_html(self._collapsible_html(tool_id))
+        last_block = self.text_browser.document().lastBlock()
+        if last_block.isValid():
+            last_block.setUserState(self._tool_call_id)
+            self._tool_call_blocks[tool_id] = self._tool_call_id
+        self.history.append(
+            MessageEntry(
+                role=MessageRole.TOOL_MARKER,
+                content=f"{icon} {title}",
+                metadata={"kind": "collapsible"},
+            )
+        )
+        return tool_id
+
+    def update_collapsible_meta(self, tool_id: str, meta: str) -> None:
+        """Update the header meta (timestamp/duration) of a collapsible block."""
+        tc = self._tool_calls.get(tool_id)
+        if tc is None or tc.get("kind") != "collapsible":
+            return
+        tc["meta"] = meta
+        self._rerender_tool_call_block(tool_id)
+
+    def _collapsible_html(self, tool_id: str) -> str:
+        """Inline HTML for a generic collapsible block (single QTextBlock)."""
+        tc = self._tool_calls[tool_id]
+        title = self._escape_html(tc.get("name", ""))
+        icon = tc.get("icon", "📄")
+        meta = tc.get("meta", "")
+        result = tc.get("result") or ""
+        arrow = "▼" if tc["expanded"] else "▶"
+        meta_html = (
+            f' <span style="color: #6272a4; font-size: 9pt;">'
+            f'{self._escape_html(meta)}</span>'
+            if meta
+            else ""
+        )
+        header = (
+            f'<a href="tool://toggle/{tool_id}" '
+            f'style="color: #8be9fd; text-decoration: none; font-family: monospace; font-size: 9pt;">'
+            f'{arrow} {icon} {title}</a>{meta_html}'
+        )
+        if tc["expanded"] and result:
+            escaped = self._escape_html(result)
+            return (
+                f'{header}<br>'
+                f'<span style="font-family: monospace; font-size: 9pt; color: #a8a8a8; '
+                f'white-space: pre-wrap; word-wrap: break-word;">{escaped}</span>'
+            )
+        return header
+
     def _tool_call_html(self, tool_id: str) -> str:
         """Generate inline HTML for a single tool-call block.
 
@@ -388,6 +476,8 @@ class UnifiedMessageRenderer:
         one QTextBlock and can be replaced in-place via QTextCursor.
         """
         tc = self._tool_calls[tool_id]
+        if tc.get("kind") == "collapsible":
+            return self._collapsible_html(tool_id)
         name = self._escape_html(tc["name"])
         args_preview = self._escape_html(tc["args_preview"])
         duration_str = f"  ({tc['duration_s']:.1f}s)" if tc.get("duration_s") else ""
@@ -475,6 +565,31 @@ class UnifiedMessageRenderer:
             MessageEntry(
                 role=MessageRole.SYSTEM_MESSAGE,
                 content=text,
+            )
+        )
+
+    def render_html_block(
+        self, html: str, *, kind: Optional[str] = None, plain_text: str = ""
+    ) -> None:
+        """Append a pre-formatted, trusted HTML block (e.g. a DK/RVK result card).
+
+        Unlike the inline tool-result block (:meth:`_tool_call_html`, which is
+        HTML-escaped and re-rendered in place), this block is appended once and
+        never re-rendered, so block-level HTML (``<div>``, ``<ol>``, ``<h2>``) is
+        allowed. The caller must pass already-sanitised HTML — the shared
+        ``PipelineResultFormatter`` escapes catalog titles.
+
+        ``plain_text`` is recorded in history for export; ``kind`` tags the card
+        (e.g. ``"dk_classifications"``, ``"dk_search"``).
+        """
+        if not html:
+            return
+        self._append_html(html)
+        self.history.append(
+            MessageEntry(
+                role=MessageRole.RESULT_CARD,
+                content=plain_text or html,
+                metadata={"kind": kind},
             )
         )
 
@@ -723,7 +838,7 @@ class UnifiedMessageRenderer:
             preview = (result or "").strip().replace("\n", " ")
             if len(preview) > 120:
                 preview = preview[:120] + "…"
-            self.render_tool_marker(f"↳ {preview}")
+            self.render_system_message(f"↳ {preview}")
 
     # ------------------------------------------------------------------
     # Static helpers

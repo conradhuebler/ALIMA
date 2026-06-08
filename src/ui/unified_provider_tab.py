@@ -191,7 +191,9 @@ class TaskModelSelectionDialog(QDialog):
         # TIER 1: Try live detection
         try:
             detection_service = ProviderDetectionService(self.config_manager)
-            detected_models = detection_service.get_available_models(provider_name)
+            detected_models = detection_service.get_available_models(provider_name, force_check=True)
+            if detected_models:
+                detected_models = sorted(detected_models, key=lambda s: s.lower())
 
             if detected_models:
                 models_to_display = detected_models
@@ -205,6 +207,8 @@ class TaskModelSelectionDialog(QDialog):
         # TIER 2: Use cached models from config (if TIER 1 failed)
         if not models_to_display and self.config_manager:
             cached_models = self._get_cached_models_from_config(provider_name)
+            if cached_models:
+                cached_models = sorted(cached_models, key=lambda s: s.lower())
 
             if cached_models:
                 models_to_display = cached_models
@@ -732,6 +736,10 @@ class UnifiedProviderTab(QWidget):
         )
         self.preferred_model_combo.currentTextChanged.connect(self._update_config_from_ui)
         default_provider_layout.addWidget(self.preferred_model_combo)
+        self.preferred_model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.preferred_model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.preferred_model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
         default_provider_layout.addStretch()
         layout.addLayout(default_provider_layout)
 
@@ -1123,8 +1131,10 @@ class UnifiedProviderTab(QWidget):
                 models = list(getattr(p, "available_models", None) or [])
                 pref = getattr(p, "preferred_model", "") or ""
                 if pref and pref not in models:
-                    models.insert(0, pref)
+                    models.append(pref)
                 break
+        # Sort models alphabetically (case-insensitive)
+        models = sorted(models, key=lambda s: s.lower())
         for m in models:
             combo.addItem(m, m)
         # Restore the saved preferred_model selection.

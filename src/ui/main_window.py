@@ -29,7 +29,7 @@ import gzip
 import os
 import tempfile
 from pathlib import Path
-from PyQt6.QtCore import Qt, QSettings, pyqtSlot, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSlot, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QCursor, QFont
 import re
 import os
@@ -49,6 +49,7 @@ from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
 from ..core.alima_manager import AlimaManager
 from ..core.pipeline_manager import PipelineManager
+from ..core.state_bus import AlimaStateBus
 from ..utils.config_manager import ConfigManager
 from ..utils.pipeline_utils import PipelineResultFormatter
 from ..utils.pipeline_defaults import get_autosave_dir
@@ -342,6 +343,15 @@ class MainWindow(QMainWindow):
         self.search_engine = SearchEngine(self.cache_manager)
         self.logger = logging.getLogger(__name__)
 
+        # Bus-driven result-tab refresh (Konvergenz Pipeline/Agent) - Claude Generated
+        # True while a classical GUI pipeline run owns tab distribution via the
+        # pipeline_results_ready signal; the AlimaStateBus completion handler
+        # then skips to avoid double-distribution. Agent-driven runs leave this
+        # False, so the bus handler distributes for them.
+        self._classical_active = False
+        # op-tags collected from coalesced state.changed events before a refresh.
+        self._pending_ops: set = set()
+
         # === DIAGNOSTIC: DB-Status nach Wizard-Start ===
         # Problem: Nach Wizard findet Schlagwortsuche keine Treffer
         try:
@@ -542,6 +552,9 @@ class MainWindow(QMainWindow):
         self.pipeline_tab.pipeline_started.connect(
             lambda: self.global_status_bar.update_pipeline_status("Pipeline", "running")
         )
+        # Mark classical-pipeline distribution active so the bus completion
+        # handler defers to the pipeline_results_ready signal path - Claude Generated
+        self.pipeline_tab.pipeline_started.connect(self._on_classical_pipeline_started)
         self.pipeline_tab.pipeline_completed.connect(
             lambda: self.global_status_bar.update_pipeline_status(
                 "Pipeline", "completed"
@@ -606,6 +619,20 @@ class MainWindow(QMainWindow):
         self.tabs.setTabVisible(self._comparison_tab_idx, False)
         self.comparison_tab.comparison_loaded.connect(self._show_comparison_tab)
 
+        # Konvergenz Pipeline/Agent: result tabs become bus-driven so they also
+        # refresh when the chat agent (not just the classical pipeline) produces
+        # results. Coalesce bursts of state.changed into one re-render. - Claude Generated
+        self._rerender_timer = QTimer(self)
+        self._rerender_timer.setSingleShot(True)
+        self._rerender_timer.setInterval(150)
+        self._rerender_timer.timeout.connect(self._flush_rerender)
+        try:
+            bus = AlimaStateBus()
+            bus.subscribe("state.pipeline_completed", self._on_bus_pipeline_completed)
+            bus.subscribe("state.changed", self._on_bus_state_changed)
+        except Exception:
+            self.logger.exception("MainWindow: AlimaStateBus subscribe failed")
+
         # Globale Statusleiste
         self.global_status_bar = GlobalStatusBar()
         self.setStatusBar(self.global_status_bar)
@@ -629,7 +656,6 @@ class MainWindow(QMainWindow):
         )
 
         # P-θ.4: one-time tab-consolidation banner.
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, self._maybe_show_ptheta_banner)
 
     def _maybe_show_ptheta_banner(self) -> None:
@@ -869,10 +895,114 @@ class MainWindow(QMainWindow):
                     self.tabs.setCurrentIndex(i)
                     break
 
+        # Classical distribution finished — release the guard so subsequent
+        # agent-driven bus completions are distributed by the bus handler. The
+        # bus state.pipeline_completed event for this run was already delivered
+        # (and skipped) before this signal handler ran. - Claude Generated
+        self._classical_active = False
+
         # P-δ.5a: chat_dock retired. PipelineChatPanel is always visible
         # in PipelineTab — load_context is wired via pipeline_results_ready
         # signal above (and also called from on_pipeline_completed inside
         # the panel itself).
+
+    # ------------------------------------------------------------------
+    # Konvergenz Pipeline/Agent: bus-driven result-tab refresh
+    # ------------------------------------------------------------------
+    def _on_classical_pipeline_started(self, *args) -> None:
+        """Mark that a classical GUI run owns tab distribution. - Claude Generated
+
+        While active, ``_on_bus_pipeline_completed`` defers to the
+        ``pipeline_results_ready`` signal path (which appends analysis history
+        and auto-navigates). Agent-driven runs never emit this signal, so the
+        flag stays False and the bus handler distributes for them.
+        """
+        self._classical_active = True
+
+    def _on_bus_pipeline_completed(self, payload: dict) -> None:
+        """Distribute agent-driven pipeline completions to the result tabs. - Claude Generated
+
+        For classical GUI runs (``_classical_active``) the
+        ``pipeline_results_ready`` signal already handles distribution, so we
+        skip here to avoid double-rendering and duplicate history entries.
+        """
+        if self._classical_active:
+            return
+        state = getattr(self.pipeline_manager, "current_analysis_state", None)
+        if not state:
+            return
+        try:
+            # Mirror the full classical distribution (incl. analysis history)
+            # so an agent `run_pipeline` looks identical to a manual run.
+            self.on_pipeline_results_ready(state)
+            # The direct pipeline_results_ready→slot connections only fire on
+            # the signal path; replicate them here for the agent path.
+            self.dk_classification_tab.update_data(state)
+            self.ub_catalog_tab.update_from_pipeline(state)
+            self.search_tab.update_data(state)
+            self.on_pipeline_title_update(state)
+            self.comparison_tab.load_from_current(state)
+        except Exception:
+            self.logger.exception(
+                "MainWindow: bus pipeline-completed distribution failed"
+            )
+
+    def _on_bus_state_changed(self, payload: dict) -> None:
+        """Coalesce incremental state.changed events into one tab re-render. - Claude Generated
+
+        Fired by KeywordAnalysisState mutation methods (agent keyword/DK
+        proposals, rerun_step). Unlike a completion these must NOT append a new
+        analysis-history entry, so a separate idempotent re-render is used.
+        """
+        try:
+            op = (payload or {}).get("op")
+            if op:
+                self._pending_ops.add(op)
+            self._rerender_timer.start()
+        except Exception:
+            self.logger.exception("MainWindow: bus state-changed handling failed")
+
+    def _flush_rerender(self) -> None:
+        """Run the coalesced idempotent re-render after the debounce window. - Claude Generated"""
+        ops = self._pending_ops
+        self._pending_ops = set()
+        state = getattr(self.pipeline_manager, "current_analysis_state", None)
+        if not state:
+            return
+        self._rerender_result_tabs(state, ops=ops or None)
+
+    def _rerender_result_tabs(self, state, ops=None) -> None:
+        """Idempotent re-render of the result tabs WITHOUT appending history. - Claude Generated
+
+        Used for incremental agent updates so the GND-search, DK and review tabs
+        reflect the current ``KeywordAnalysisState`` regardless of whether the
+        pipeline or the chat agent produced it. ``ops`` (mutation op-tags) is
+        advisory; a full refresh is harmless because every call below replaces —
+        never appends — the displayed data.
+        """
+        if not state:
+            return
+        try:
+            # GND search-results transparency view (replaces stored state).
+            self.search_tab.update_data(state)
+            # UB-catalog keyword auto-fill (sets keywords; no network search).
+            self.ub_catalog_tab.update_from_pipeline(state)
+            # DK table + last LLM response WITHOUT add_external_analysis_to_history
+            # (which dk_classification_tab.update_data would trigger).
+            flat = (getattr(state, "dk_search_results_flattened", None)
+                    or getattr(state, "dk_search_results", None))
+            if flat:
+                self.dk_analysis_tab.set_keywords(flat)
+            dk_llm = getattr(state, "dk_llm_analysis", None)
+            if dk_llm and getattr(dk_llm, "response_full_text", None):
+                self.dk_analysis_tab.display_llm_response(dk_llm.response_full_text)
+            # Lossless review view (replaces current state).
+            self.analysis_review_tab.receive_full_state(state)
+            # Keep comparison "current" slot and window title in sync.
+            self.comparison_tab.load_from_current(state)
+            self.on_pipeline_title_update(state)
+        except Exception:
+            self.logger.exception("MainWindow: _rerender_result_tabs failed")
 
     @pyqtSlot(object)
     def on_intermediate_analysis_ready(self, analysis_result):

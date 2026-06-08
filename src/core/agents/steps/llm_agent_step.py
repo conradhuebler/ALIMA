@@ -40,6 +40,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from src.core.agent_loop import AgentLoop
@@ -105,9 +107,15 @@ class LLMAgentStep(BaseStep):
         )
 
         _emit_header(self.step_id, params, self.stream_callback)
-        _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
+        _prompt_id = uuid.uuid4().hex[:8]
+        _emit_prompts(
+            self.step_id, system_prompt, user_prompt, params,
+            self.stream_callback, prompt_id=_prompt_id,
+        )
 
+        _t0 = time.monotonic()
         result = self._invoke_loop(system_prompt, user_prompt, tool_names, params)
+        _emit_prompt_done(_prompt_id, self.step_id, time.monotonic() - _t0)
         parsed = _extract_json(result.content)
 
         _log_response(self.step_id, result.content)
@@ -171,7 +179,11 @@ class LLMAgentStep(BaseStep):
             f"{len(items)} items × {total} chunks × {chunk_size}\n{'='*50}\n"
         )
         if self.stream_callback:
-            self.stream_callback(header)
+            # Compact one-liner (full banner stays in the log). - Claude Generated
+            self.stream_callback(
+                f"🤖 {self.step_id} · {provider}/{model} · "
+                f"{len(items)} Items in {total} Chunks\n"
+            )
         logger.info(header.strip())
 
         merged: List[Dict[str, Any]] = []
@@ -192,12 +204,19 @@ class LLMAgentStep(BaseStep):
             chunk_header = f"\n▶ Chunk {idx}/{total} ({len(chunk)} items)\n"
             if self.stream_callback:
                 self.stream_callback(chunk_header)
+            _chunk_prompt_id = uuid.uuid4().hex[:8]
             _emit_prompts(
                 f"{self.step_id}[chunk {idx}/{total}]",
                 system_prompt, user_prompt, chunk_params, self.stream_callback,
+                prompt_id=_chunk_prompt_id,
             )
 
+            _t0 = time.monotonic()
             result = self._invoke_loop(system_prompt, user_prompt, tool_names, chunk_params)
+            _emit_prompt_done(
+                _chunk_prompt_id, f"{self.step_id}[chunk {idx}/{total}]",
+                time.monotonic() - _t0,
+            )
             parsed = _extract_json(result.content)
             total_iterations += getattr(result, "iterations", 1)
             per_chunk.append({"index": idx, "response": parsed})
@@ -427,12 +446,21 @@ def _emit_header(
     params: Dict[str, Any],
     stream_callback: Optional[Any],
 ) -> None:
-    """Emit the lightweight `🤖 LLMAgent` header unconditionally so the
-    operator always sees step + provider + model before the LLM call."""
-    header = _format_header(step_id, params)
+    """Emit a compact one-line step marker before the LLM call.
+
+    The provider/model/params also appear in the collapsible 📥 Input block, so
+    the old multi-line ``====`` banner was redundant noise in the GUI log. The
+    full banner is still written to the logger for CLI/file diagnostics. - Claude Generated
+    """
+    provider = params.get("provider", "") or "?"
+    model = params.get("model", "") or "?"
+    one_liner = (
+        f"\n🤖 {step_id} · {provider}/{model} "
+        f"(temp={params.get('temperature', '?')}, top_p={params.get('top_p', '?')})\n"
+    )
     if stream_callback:
-        stream_callback(header)
-    logger.info(header.strip())
+        stream_callback(one_liner)
+    logger.info(_format_header(step_id, params).strip())
 
 
 def _emit_prompts(
@@ -441,15 +469,58 @@ def _emit_prompts(
     user_prompt: str,
     params: Dict[str, Any],
     stream_callback: Optional[Any],
+    prompt_id: Optional[str] = None,
+    kind: str = "input",
 ) -> None:
-    """Stream + log full SYSTEM/USER prompts (verbose mode only — caller gates)."""
+    """Log the full SYSTEM/USER prompt + publish it as a structured event.
+
+    The prompt is intentionally NOT streamed to ``stream_callback`` anymore: in
+    the GUI it duplicated (and spammed the log next to) the collapsible 📥 Input
+    block, and in non-verbose mode the line-buffering filter fragmented it so it
+    could not be suppressed reliably. CLI/file diagnostics keep it via
+    ``logger.info``; the GUI renders it as a collapsible via the bus event. - Claude Generated
+    """
     sys_block = f"--- SYSTEM ---\n{system_prompt}\n"
     usr_block = f"--- USER ---\n{user_prompt}\n{'='*50}\n"
+    logger.info(sys_block + usr_block)
 
-    full = sys_block + usr_block
-    if stream_callback:
-        stream_callback(full)
-    logger.info(full)
+    # Publish the prompt as a structured event so the GUI can render it as a
+    # collapsible, timestamped block. No-op without bus subscribers.
+    if prompt_id:
+        try:
+            from datetime import datetime as _dt
+            from src.core.state_bus import AlimaStateBus
+
+            AlimaStateBus().emit_event(
+                "state.pipeline_prompt",
+                {
+                    "prompt_id": prompt_id,
+                    "step_id": step_id,
+                    "kind": kind,
+                    "system": system_prompt,
+                    "user": user_prompt,
+                    "provider": params.get("provider", ""),
+                    "model": params.get("model", ""),
+                    "timestamp": _dt.now().isoformat(timespec="seconds"),
+                },
+            )
+        except Exception:
+            pass
+
+
+def _emit_prompt_done(prompt_id: Optional[str], step_id: str, duration_s: float) -> None:
+    """Publish the LLM-call duration for a prompt block (paired with _emit_prompts). - Claude Generated"""
+    if not prompt_id:
+        return
+    try:
+        from src.core.state_bus import AlimaStateBus
+
+        AlimaStateBus().emit_event(
+            "state.pipeline_prompt_done",
+            {"prompt_id": prompt_id, "step_id": step_id, "duration_s": float(duration_s)},
+        )
+    except Exception:
+        pass
 
 
 def _log_response(step_id: str, content: str) -> None:

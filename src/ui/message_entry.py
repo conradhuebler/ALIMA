@@ -22,6 +22,7 @@ class MessageRole(Enum):
     TOOL_MARKER = auto()        # Monospace tool call / result
     SYSTEM_MESSAGE = auto()     # Centered italic status
     PROPOSAL_BUBBLE = auto()    # Mutation proposal with clickable anchors
+    RESULT_CARD = auto()        # Pre-formatted rich HTML result block (DK/RVK card)
 
 
 @dataclass
@@ -50,6 +51,8 @@ class MessageEntry:
         ``tool_name`` (Optional[str])
     PROPOSAL_BUBBLE:
         ``audit_id`` (int), ``tool_name`` (str)
+    RESULT_CARD:
+        ``kind`` (Optional[str]) — e.g. "dk_classifications", "dk_search"
     """
     role: MessageRole
     content: str

@@ -378,7 +378,8 @@ class TestCollapsibleToolCall(RendererTestBase):
     def test_unknown_tool_id_fallback(self):
         self.renderer.render_tool_result("nonexistent", "result")
         html = self.text_browser.toHtml()
-        self.assertIn("↳", html)
+        # Orphan result renders as system message, not legacy marker.
+        self.assertIn("orphan result", html)
 
 
 class TestSystemMessage(RendererTestBase):
@@ -413,6 +414,61 @@ class TestProposalBubble(RendererTestBase):
         self.assertEqual(len(self.renderer.history), 1)
         self.assertEqual(self.renderer.history[0].role.name, "PROPOSAL_BUBBLE")
         self.assertEqual(self.renderer.history[0].metadata["audit_id"], 2)
+
+
+class TestHtmlBlock(RendererTestBase):
+
+    def test_html_block_appended(self):
+        self.renderer.render_html_block("<div>#1 DK 614.7</div>", kind="dk_classifications")
+        self.assertIn("#1 DK 614.7", self.text_browser.toHtml())
+
+    def test_html_block_history(self):
+        self.renderer.render_html_block(
+            "<div>card</div>", kind="dk_search", plain_text="DK 614.7"
+        )
+        self.assertEqual(len(self.renderer.history), 1)
+        entry = self.renderer.history[0]
+        self.assertEqual(entry.role.name, "RESULT_CARD")
+        self.assertEqual(entry.metadata["kind"], "dk_search")
+        self.assertEqual(entry.content, "DK 614.7")
+
+    def test_empty_html_block_is_noop(self):
+        self.renderer.render_html_block("")
+        self.assertEqual(len(self.renderer.history), 0)
+
+
+class TestCollapsible(RendererTestBase):
+
+    def test_collapsible_collapsed_hides_body(self):
+        self.renderer.render_collapsible(
+            "Input 'classification'", "SECRET BODY", collapsed=True, meta="14:23:01"
+        )
+        html = self.text_browser.toHtml()
+        self.assertIn("Input 'classification'", html)
+        self.assertIn("14:23:01", html)
+        self.assertIn("tool://toggle/", html)  # reuses tool toggle anchor
+        self.assertNotIn("SECRET BODY", html)  # body hidden when collapsed
+
+    def test_collapsible_expanded_shows_body(self):
+        self.renderer.render_collapsible(
+            "Input 'x'", "VISIBLE BODY", collapsed=False
+        )
+        self.assertIn("VISIBLE BODY", self.text_browser.toHtml())
+
+    def test_collapsible_toggle(self):
+        tid = self.renderer.render_collapsible("t", "BODY", collapsed=True)
+        self.assertNotIn("BODY", self.text_browser.toHtml())
+        self.renderer.toggle_tool_call(tid)  # shared toggle machinery
+        self.assertIn("BODY", self.text_browser.toHtml())
+
+    def test_update_collapsible_meta(self):
+        tid = self.renderer.render_collapsible("t", "b", collapsed=True, meta="14:00:00")
+        self.renderer.update_collapsible_meta(tid, "14:00:00  ⏱ 3.4s")
+        self.assertIn("⏱ 3.4s", self.text_browser.toHtml())
+
+    def test_collapsible_history_entry(self):
+        self.renderer.render_collapsible("Title", "body")
+        self.assertEqual(self.renderer.history[-1].metadata.get("kind"), "collapsible")
 
 
 class TestClearAndReset(RendererTestBase):

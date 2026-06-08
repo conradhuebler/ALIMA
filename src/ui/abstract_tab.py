@@ -191,7 +191,10 @@ class AbstractTab(QWidget):
         self.model_combo.clear()
 
         if provider in self.available_models:
-            self.model_combo.addItems(self.available_models[provider])
+            models = self.available_models[provider]
+            # Sort models alphabetically (case-insensitive)
+            models = sorted(models, key=lambda s: s.lower())
+            self.model_combo.addItems(models)
 
             # Try to restore previous selection if it exists in new provider
             if current_model and self.explicit_model_selection:
@@ -402,6 +405,10 @@ class AbstractTab(QWidget):
         self.model_combo = QComboBox()
         self.model_combo.currentTextChanged.connect(self.on_model_manually_changed)
         provider_model_layout.addWidget(self.model_combo, 1, 1)
+        self.model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
 
         # Add reset button for explicit selections
         reset_selection_btn = QPushButton("🔄")

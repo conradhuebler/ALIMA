@@ -666,18 +666,19 @@ class LlmService(QObject):
         
         return None
 
-    def get_available_models(self, provider: str) -> List[str]:
+    def get_available_models(self, provider: str, force_check: bool = False) -> List[str]:
         """
         Get available models for specified provider with direct approach - Claude Generated
 
         Args:
             provider: The provider name.
+            force_check: If True, bypass reachability cache and perform fresh check.
 
         Returns:
             List of model names.
         """
         # Simple approach: ping check → direct model loading
-        if not self.is_provider_reachable(provider):
+        if not self.is_provider_reachable(provider, force_check=force_check):
             return []
 
         # Direct access - no lazy loading complications with case-insensitive lookup - Claude Generated
@@ -1090,7 +1091,15 @@ class LlmService(QObject):
         try:
             # Get provider configuration from unified config (provider data is in provider_info['config'])
             provider_config = provider_info.get('config', {})
-            base_url = provider_config.base_url if hasattr(provider_config, 'base_url') else "http://localhost:11434"
+            raw_url = provider_config.base_url if hasattr(provider_config, 'base_url') else ""
+            if raw_url:
+                base_url = raw_url
+            elif hasattr(provider_config, 'host') and provider_config.host:
+                protocol = 'https' if getattr(provider_config, 'use_ssl', False) else 'http'
+                port = getattr(provider_config, 'port', 11434)
+                base_url = f"{protocol}://{provider_config.host}:{port}"
+            else:
+                base_url = "http://localhost:11434"
             provider_api_key = provider_config.api_key if hasattr(provider_config, 'api_key') else ""
             provider_enabled = provider_config.enabled if hasattr(provider_config, 'enabled') else True
             provider_name = provider

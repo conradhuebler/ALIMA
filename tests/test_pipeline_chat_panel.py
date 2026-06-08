@@ -44,14 +44,20 @@ def _make_stub_panel() -> SimpleNamespace:
         def render_tool_result(self, tool_id, result, status="success"):
             tool_results.append((tool_id, result, status))
 
+    system_messages: list[str] = []
+
     stub = SimpleNamespace(
         logger=MagicMock(),
         _append_tool_marker=markers.append,
+        _append_system_message=system_messages.append,
         _renderer=FakeRenderer(),
         _bus_tool_call_ids={},
         _last_tool_call_id=None,
+        _pipeline_step_open=False,
+        _open_step_status=[],
     )
     stub.markers = markers
+    stub.system_messages = system_messages
     stub.tool_calls = tool_calls
     stub.tool_results = tool_results
     stub._format_tool_args = PipelineChatPanel._format_tool_args
@@ -131,15 +137,17 @@ class TestBusToolHandlers(unittest.TestCase):
     def test_bus_tool_result_renders_preview(self):
         stub = _make_stub_panel()
         stub._on_bus_tool_result({"name": "get_keywords", "result": "ok"})
-        # No matching tool_call id → fallback marker
-        self.assertEqual(len(stub.markers), 1)
-        self.assertEqual(stub.markers[0], "↳ ok")
+        # No matching tool_call id → fallback system message (not a legacy marker)
+        self.assertEqual(len(stub.markers), 0)
+        self.assertEqual(len(stub.system_messages), 1)
+        self.assertIn("ok", stub.system_messages[0])
 
     def test_bus_tool_result_truncates_long_payload(self):
         stub = _make_stub_panel()
         stub._on_bus_tool_result({"name": "x", "result": "y" * 200})
-        self.assertEqual(len(stub.markers), 1)
-        self.assertTrue(stub.markers[0].endswith("…"))
+        self.assertEqual(len(stub.markers), 0)
+        self.assertEqual(len(stub.system_messages), 1)
+        self.assertTrue(stub.system_messages[0].endswith("…"))
 
 
 class TestPipelineStepBusAsToolBlock(unittest.TestCase):
@@ -258,9 +266,13 @@ class TestStepStatusAccumulator(unittest.TestCase):
         tool_results: list[tuple] = []
         tool_call_counter = {"n": 0}
 
+        pipeline_logs: list[tuple] = []
+
         class FakeRenderer:
             def render_tool_marker(self, text, tool_name=None):
                 markers.append(text)
+            def render_pipeline_log(self, text, level="info", step_id=None):
+                pipeline_logs.append((text, level))
             def render_tool_call(self, name, args):
                 tool_call_counter["n"] += 1
                 tcid = f"tc_{tool_call_counter['n']}"
@@ -274,8 +286,10 @@ class TestStepStatusAccumulator(unittest.TestCase):
             _renderer=FakeRenderer(),
             _bus_tool_call_ids={},
             _last_tool_call_id=None,
+            _pipeline_step_open=False,
             _open_step_status=[],
             markers=markers,
+            pipeline_logs=pipeline_logs,
             tool_calls=tool_calls,
             tool_results=tool_results,
             _append_tool_marker=markers.append,
@@ -316,12 +330,15 @@ class TestStepStatusAccumulator(unittest.TestCase):
         # Accumulator reset for the next step.
         self.assertEqual(stub._open_step_status, [])
 
-    def test_status_outside_step_still_emits_marker(self):
-        """Status lines without an open step fall back to plain markers
-        (LLM streaming tokens, chat-agent status, etc.)."""
+    def test_status_outside_step_still_emits_log(self):
+        """Status lines without an open step go to dim pipeline log
+        (LLM streaming tokens, chat-agent status, etc.) — not legacy markers."""
         stub = self._make_stub()
         stub._on_status_message("🔄 Tool-Call 1/30")
-        self.assertEqual(stub.markers, ["🔄 Tool-Call 1/30"])
+        self.assertEqual(stub.markers, [])
+        self.assertEqual(len(stub.pipeline_logs), 1)
+        self.assertEqual(stub.pipeline_logs[0][0], "🔄 Tool-Call 1/30")
+        self.assertEqual(stub.pipeline_logs[0][1], "debug")
 
     def test_step_with_no_status_uses_fallback_summary(self):
         """If a step emits no status lines, the old summary text is used."""

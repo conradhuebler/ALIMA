@@ -9,13 +9,20 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from src.core.agent_loop import AgentLoop
 from src.core.agents.prompt_resolver import resolve_prompts
 from src.core.agents.registry import register_step
 from src.core.agents.steps.base_step import BaseStep, StepConfig
-from src.core.agents.steps.llm_agent_step import _emit_header, _emit_prompts, _log_response
+from src.core.agents.steps.llm_agent_step import (
+    _emit_header,
+    _emit_prompt_done,
+    _emit_prompts,
+    _log_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +160,11 @@ class ReflectionStep(BaseStep):
                 params["top_p"] = float(llm_override["top_p"])
 
         _emit_header(self.step_id, params, self.stream_callback)
-        _emit_prompts(self.step_id, system_prompt, user_prompt, params, self.stream_callback)
+        _prompt_id = uuid.uuid4().hex[:8]
+        _emit_prompts(
+            self.step_id, system_prompt, user_prompt, params,
+            self.stream_callback, prompt_id=_prompt_id, kind="reflection",
+        )
 
         loop = AgentLoop(
             llm_service=self.llm_service,
@@ -162,6 +173,7 @@ class ReflectionStep(BaseStep):
             timeout_seconds=120,
             stream_callback=self.stream_callback,
         )
+        _t0 = time.monotonic()
         result = loop.run(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -172,6 +184,7 @@ class ReflectionStep(BaseStep):
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
         )
+        _emit_prompt_done(_prompt_id, self.step_id, time.monotonic() - _t0)
 
         _log_response(self.step_id, result.content)
         parsed = self._extract_json(result.content)

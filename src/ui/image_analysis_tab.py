@@ -239,6 +239,10 @@ class ImageAnalysisTab(QWidget):
         provider_grid.addWidget(QLabel("Modell:"), 1, 0)
         self.model_combo = QComboBox()
         provider_grid.addWidget(self.model_combo, 1, 1)
+        self.model_combo.setEditable(True)
+        from PyQt6.QtWidgets import QCompleter
+        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
 
         provider_layout.addLayout(provider_grid)
 
@@ -412,6 +416,8 @@ class ImageAnalysisTab(QWidget):
 
         try:
             models = self.llm_service.get_available_models(provider)
+            # Sort models alphabetically (case-insensitive)
+            models = sorted(models, key=lambda s: s.lower())
             self.model_combo.addItems(models)
 
             if models:

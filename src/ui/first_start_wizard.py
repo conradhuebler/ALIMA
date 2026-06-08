@@ -8,7 +8,8 @@ Claude Generated
 from PyQt6.QtWidgets import (
     QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QRadioButton, QButtonGroup, QComboBox, QPushButton, QProgressDialog,
-    QMessageBox, QGroupBox, QSpinBox, QCheckBox, QFileDialog, QTextEdit, QDialog
+    QMessageBox, QGroupBox, QSpinBox, QCheckBox, QFileDialog, QTextEdit, QDialog,
+    QCompleter
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap
@@ -672,6 +673,11 @@ class ModelSelectionPage(QWizardPage):
             combo = QComboBox()
             combo.setMinimumWidth(300)
             combo.setToolTip(task_desc)
+            combo.setEditable(True)
+            completer = QCompleter()
+            completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+            completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            combo.setCompleter(completer)
 
             label = QLabel(f"{task_label}:")
             label.setToolTip(task_desc)
@@ -727,13 +733,8 @@ class ModelSelectionPage(QWizardPage):
 
     def _get_default_models(self, provider_type: str) -> list:
         """Get default models for provider type - Claude Generated"""
-        defaults = {
-            'ollama': ['mistral', 'llama3', 'llama2'],
-            'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'],
-            'anthropic': ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'],
-            'openai_compatible': ['gpt-4', 'gpt-3.5-turbo'],
-        }
-        return defaults.get(provider_type, [])
+        # Return empty list to avoid hardcoded models; will show placeholder if no models available
+        return []
 
     def _apply_presets(self, presets) -> None:
         """Pre-select model combos from institution preset values - Claude Generated"""
