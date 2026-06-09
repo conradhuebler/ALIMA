@@ -6,6 +6,118 @@
 
 ## 2026
 
+### Chat/log rendering moved to QWebEngineView — reliable collapse + live streaming (June 9, 2026)
+
+The chat/pipeline log rendered everything into a single `QTextBrowser` via
+`QTextCursor` surgery (`UnifiedMessageRenderer`). Two regressions followed the
+June 8 "declutter" change: (1) collapsible blocks were unreliable — "once
+expanded, won't close" — because `_rerender_tool_call_block` re-rendered a block
+in place by `setUserState` marker, which broke when the expanded body spanned
+more than one `QTextBlock` or when concurrent streaming shifted block positions;
+(2) intermediate LLM reasoning no longer streamed live.
+
+**Redesign** (operator chose QWebEngineView; collapse-first):
+- New `src/ui/web_log_view.py` — `WebLogView(QWidget)` wrapping a `QWebEngineView`.
+  Collapsible blocks are native `<details>/<summary>` (toggle is 100% browser-side
+  → no Python re-render, reliable even mid-stream). Streaming appends text nodes to
+  an isolated `<div>`; markdown is rendered once on finalize. JS calls are queued
+  until `loadFinished`; link clicks (`mutation://`, `http(s)://`) route back via
+  `acceptNavigationRequest` → `link_clicked` (replaces `QTextBrowser.anchorClicked`).
+- `UnifiedMessageRenderer` keeps its public API + `history` contract; internals now
+  emit HTML strings into the `WebLogView` instead of cursor surgery. Deleted the
+  cursor machinery (`_rerender_tool_call_block`, `_tool_call_blocks`, `setUserState`);
+  `toggle_tool_call` is now a server-side mirror only.
+- Panel + both mini-logs (`pipeline_chat_panel.py`, `analysis_review_tab.py`,
+  `image_analysis_tab.py`) construct `WebLogView` instead of `QTextBrowser`.
+- **Import-order constraint:** `QtWebEngineWidgets` must be imported before the
+  `QApplication` — explicit early import added to `alima_gui.py`.
+
+**Backend streaming-with-tools** (`llm_service.py`, partial P-δ.5/#7): Anthropic
+`_generate_anthropic_with_tools` now uses `messages.stream()` + `get_final_message()`
+to stream text deltas when a `stream_callback` is set (Ollama/OpenAI already did);
+Gemini still completes-then-delivers (noted in-code).
+
+**Live LLM stream → collapsible block** (follow-up): the flat inline streaming
+line is replaced by an expanded `<details>` block. `start_streaming_line` opens it
+open, `render_streaming_token` appends to its body live, `end_streaming_line`
+collapses it and writes a one-line text preview into the summary. Both classic
+(`step_id=""`) and agentic (`step_id="agentic"`) LLM output already route through
+these three methods (`workers.py` → `on_llm_stream_token` → panel), so streamed
+content — including the agent's initial keywords — is now visible live and then
+folded away with a preview, consistent with the deterministic step summaries.
+Caveat: agentic prose still passes `_AgenticStreamFilter` (raw-JSON suppression,
+off when `ChatConfig.agentic_verbose`); content emitted as tool-call JSON rather
+than prose is still filtered.
+
+**Dependency:** `PyQt6-WebEngine==6.10.0` (+ `PyQt6-WebEngine-Qt6==6.10.2`) added to
+`requirements.txt` — pulls in a Chromium runtime.
+
+**Tests:** `test_unified_message_renderer.py` rewritten against a mock `WebLogView`
+(captured HTML strings) — native collapse means the body is always in the DOM and
+toggling is a mirror. Suite bootstrap (`tests/__init__.py` + `tests/conftest.py`)
+imports WebEngine before any `QApplication`, creates the app with a non-empty argv,
+and swaps a lightweight `WebLogView` stub so headless Chromium isn't constructed in
+unit tests. **531 passed, 5 skipped.**
+
+**Caveat (per self-assessment rules):** verified that native `<details>` toggling is
+reliable while streaming (expand → re-close → re-expand, stream intact) and that the
+suite is green — this does not prove correctness across all providers/inputs. Markdown
+is still rendered post-stream (unchanged). The QWebEngine route adds a heavyweight
+Chromium dependency and three render processes in the running app.
+
+### Unified DK/GND result rendering + agentic-log declutter (June 8, 2026)
+
+Commit `0cfba1a`. Pipeline-Tab and the agentic chat panel rendered the same
+pipeline data differently (catalog research, final DK/RVK notations, GND hits).
+Root cause: divergent ad-hoc formatters per surface. Consolidated into shared
+formatters and fixed several agentic-mode display bugs.
+
+**Shared formatters** (`src/utils/pipeline_utils.py` → `PipelineResultFormatter`,
+single source of truth, pure-Python, unit-tested):
+- `format_dk_classifications_html` (HTML fragment, confidence colours + title list),
+  `format_dk_search_results_text`, `split_classification_code`,
+  `get_titles_for_dk_code`.
+- `select_dk_title_source` — picks the title-carrying source regardless of mode
+  (classic stores the rich list in `dk_search_results_flattened`, agentic in
+  `dk_search_results`; the other field is keyword-centric / thin). **This field
+  inversion between modes is the recurring trap behind the agentic display bugs.**
+- `flatten_gnd_hits` (dict / List[SearchResult] / flat `gnd_entries` → dedup rows),
+  `extract_selected_gnd_keys` (final keywords → gnd-id + label sets).
+
+**Fixes**:
+- Agentic completion (`pipeline_tab._sync_classical_tabs_from_state`) cleared the
+  Katalog-Recherche view and dropped titles on final notations — now uses
+  `select_dk_title_source`.
+- GND-Recherche tab: flat text → sortable `QTableWidget` (Begriff / GND-ID /
+  Häufigkeit / Auswahl) + "nur ausgewählte" filter; completion no longer collapses
+  to bare search terms (`_populate_gnd_hits` / `_render_gnd_hits_table` / `_filter_gnd_hits`).
+
+**Agentic GUI polish**:
+- Input prompt → collapsible, timestamped 📥 block via
+  `UnifiedMessageRenderer.render_collapsible` + `state.pipeline_prompt` /
+  `state.pipeline_prompt_done` bus events (emitted in `llm_agent_step._emit_prompts`
+  / `_emit_prompt_done`, reflection tagged `kind="reflection"` → 🔍). Prompt no
+  longer streamed inline (killed the duplicate dump). Added `render_html_block`.
+- Decluttered the agentic log: compact MetaAgent/LLMAgent banners, hidden empty
+  `[]` stream tag, dropped duplicate "Pipeline gestartet".
+
+**Open follow-ups / findings** (not yet done):
+1. **Agentic GND `Häufigkeit` column = 0** — the agentic `search_results` structure
+   (`SharedContext.to_analysis_state`) carries no per-entry count; thread it through
+   `gnd_entries` to populate the column.
+2. **GND "only free keywords" — cache-vs-live hypothesis unverified**: the display
+   fix is done, but whether the mapping-first cache narrows results to the exact
+   GND mapping (vs the broad live Lobid aggregation) needs a runtime check.
+3. **"LLM Antwort:" prefix on agentic orchestration**: orchestration text and the
+   real LLM response share one streaming line / step_id `agentic`, so orchestration
+   inherits the misleading prefix. Clean separation (orchestration as discrete log
+   lines) needs a small stream-routing refactor.
+4. **Duplicate selection logic** in `analysis_review_tab.py:~595-639`
+   (`_split_classification_code` + title lookup) — consolidate onto the shared
+   `PipelineResultFormatter` helpers.
+5. **GUI runtime verification** — all changes are unit-tested (499 green) but not
+   GUI-verified end-to-end; confirm in the running app.
+
 ### Chat-Agent P-η + P-θ: Input-Beschaffung + Export & Reporting (May 26, 2026)
 
 Closes both open chat-agent roadmap phases (`docs/chat_agent_roadmap.md`).

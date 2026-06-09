@@ -2,9 +2,15 @@
 
 Claude Generated.
 
-Encapsulates every QTextBrowser manipulation that was previously scattered
-across PipelineChatPanel.  All rendering methods must be called from the UI
-thread (guaranteed today via Qt signals).
+Builds HTML for every message role and pushes it into a :class:`WebLogView`
+(QWebEngineView). Collapsible blocks are native ``<details>/<summary>`` — the
+toggle is browser-side, so it never re-renders a block and never desyncs while
+tokens stream in elsewhere (the regression the previous QTextCursor approach
+suffered). Streaming appends text nodes into an isolated node; markdown is
+rendered once on finalize.
+
+All rendering methods must be called from the UI thread (guaranteed today via
+Qt signals).
 
 Uses MessageEntry for history tracking of *completed* messages only; streaming
 tokens are renderer state until the line / bubble is finalised.
@@ -16,21 +22,18 @@ import re
 import time
 from datetime import datetime
 from html import escape as html_escape
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import (
-    QColor,
-    QFont,
-    QTextBlockFormat,
-    QTextCursor,
-    QTextLength,
-    QTextTableCellFormat,
-    QTextTableFormat,
-)
-from PyQt6.QtWidgets import QCheckBox, QTextBrowser
+from PyQt6.QtWidgets import QCheckBox
 
 from .message_entry import MessageEntry, MessageRole
+
+if TYPE_CHECKING:
+    # Type-only import. WebLogView pulls in QWebEngineView, which must be
+    # imported before QApplication; the runtime import happens in alima_gui.py
+    # and PipelineChatPanel (module level). The renderer only receives a
+    # WebLogView instance, so it needs the name for annotations only.
+    from .web_log_view import WebLogView
 
 
 # ----------------------------------------------------------------------
@@ -49,43 +52,59 @@ _PIPELINE_COLOR_MAP = {
 
 
 class UnifiedMessageRenderer:
-    """Render messages of all roles into a shared QTextBrowser."""
+    """Render messages of all roles into a shared :class:`WebLogView`."""
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
 
-    def __init__(self, text_browser: QTextBrowser, auto_scroll_checkbox: QCheckBox):
-        self.text_browser = text_browser
+    def __init__(self, web_view: "WebLogView", auto_scroll_checkbox: QCheckBox):
+        self.web_view = web_view
         self.auto_scroll_checkbox = auto_scroll_checkbox
         self.logger = logging.getLogger(__name__)
+
+        # Mirror the checkbox into the page so JS auto-scroll honours it.
+        try:
+            self.web_view.set_autoscroll(auto_scroll_checkbox.isChecked())
+            auto_scroll_checkbox.toggled.connect(self.web_view.set_autoscroll)
+        except Exception:
+            self.logger.debug("auto-scroll checkbox wiring skipped", exc_info=True)
 
         # History of completed messages (streaming tokens excluded).
         self.history: List[MessageEntry] = []
 
-        # Pipeline streaming state
+        # Pipeline streaming state. The live LLM stream is rendered as an
+        # expanded <details> block (replaces the old flat inline line) that
+        # collapses to a one-line preview when the step ends — so everything
+        # streamed is visible live, then folded away.
         self._is_streaming = False
+        self._stream_block_id: Optional[str] = None
+        self._stream_text = ""
+        self._stream_title = ""
 
-        # Assistant bubble streaming state
+        # Assistant bubble streaming state. ``_assistant_cell_cursor`` is kept
+        # only as an "open" sentinel (truthy while a bubble is open, None when
+        # closed) for backward-compat with PipelineChatPanel, which sets it to
+        # None to force-close a bubble. It no longer holds a QTextCursor.
         self._assistant_block_open = False
-        self._assistant_cell_cursor: Optional[QTextCursor] = None
+        self._assistant_cell_cursor: Optional[bool] = None
         self._current_assistant_text = ""
 
-        # Auto-scroll throttle
+        # Auto-scroll throttle (kept for PipelineChatPanel introspection).
         self._last_scroll_time = 0.0
 
-        # Tool-call toggle state (id -> expanded bool).
+        # Collapsible block state (id -> dict). ``expanded`` is a server-side
+        # mirror only; the real open/closed state lives in the native
+        # <details> element and is owned by the user.
         self._tool_call_id = 0
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
-        self._tool_call_blocks: Dict[str, int] = {}  # tool_id -> userState marker
 
         # Phase E: bus id → renderer tool_id bridge (for subscribe/unsubscribe).
         self._bus_id_to_tool_id: Dict[str, str] = {}
 
         # P-δ.5: <<CAT:rsn|text>> marker → clickable catalog link. The web
         # base is set by the panel from CatalogConfig.catalog_web_record_url;
-        # empty default disables the feature (markers are stripped, leaving
-        # only the display text — see _replace_cat_marker in finalize).
+        # empty default disables the feature (markers reduced to display text).
         self._catalog_web_base: str = ""
 
     # ------------------------------------------------------------------
@@ -130,8 +149,8 @@ class UnifiedMessageRenderer:
                 f"<span style='color: {color};'>{self._escape_html(message)}</span>"
             )
 
-        self.text_browser.append(formatted)
-        self.auto_scroll_to_bottom()
+        self.web_view.append_block(formatted)
+        self._touch_scroll()
 
         self.history.append(
             MessageEntry(
@@ -142,38 +161,64 @@ class UnifiedMessageRenderer:
         )
 
     def render_streaming_token(self, token: str, step_id: str) -> None:
-        """Insert a single purple streaming token inline."""
-        cursor = self.text_browser.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        escaped = html_escape(token).replace(" ", "&nbsp;").replace("\n", "<br>")
-        cursor.insertHtml(f"<span style='color: #bd93f9;'>{escaped}</span>")
-        self.auto_scroll_to_bottom()
+        """Append a streamed LLM token to the open (expanded) stream block."""
+        if not self._is_streaming:
+            return
+        self._stream_text += token
+        self.web_view.append_stream_block(token)
+        self._touch_scroll()
 
     def start_streaming_line(self, step_id: str, prefix: str = "") -> None:
-        """Open a streaming line with timestamp + (optional) step tag."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        # Omit the [TAG] bracket when step_id is empty — orchestration messages
-        # without a step id previously rendered an ugly empty "[]". - Claude Generated
-        tag = (
-            f"<span style='color: #8be9fd; font-weight: bold;'>[{step_id.upper()}]</span> "
-            if step_id
-            else ""
+        """Open an expanded ``<details>`` stream block for live LLM output.
+
+        It stays open while tokens stream in and is collapsed (with a short text
+        preview) by :meth:`end_streaming_line` — so everything streamed is
+        visible live and then folded away. - Claude Generated
+        """
+        self._tool_call_id += 1
+        self._stream_block_id = f"sl_{self._tool_call_id}"
+        self._stream_text = ""
+        # Omit the [TAG] bracket when step_id is empty.
+        tag = f"[{step_id.upper()}] " if step_id else ""
+        self._stream_title = f"💬 {tag}{prefix}".strip()
+        summary = self._stream_summary_html(
+            self._stream_title, datetime.now().strftime("%H:%M:%S"), preview=""
         )
-        formatted_prefix = (
-            f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-            f"{tag}"
-            f"<span style='color: #bd93f9;'>{self._escape_html(prefix)}"
-        )
-        self.text_browser.append(formatted_prefix)
+        self.web_view.open_stream_block(self._stream_block_id, summary)
         self._is_streaming = True
 
     def end_streaming_line(self) -> None:
-        """Close the currently open streaming span."""
-        if self._is_streaming:
-            cursor = self.text_browser.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            cursor.insertHtml("</span>")
-            self._is_streaming = False
+        """Collapse the open stream block, keeping a one-line text preview."""
+        if not self._is_streaming:
+            return
+        preview = " ".join((self._stream_text or "").split())
+        if len(preview) > 90:
+            preview = preview[:90] + "…"
+        summary = self._stream_summary_html(
+            self._stream_title, datetime.now().strftime("%H:%M:%S"), preview
+        )
+        self.web_view.close_stream_block(
+            self._stream_block_id, summary, collapse=True
+        )
+        self._is_streaming = False
+        self._stream_block_id = None
+        self._stream_text = ""
+        self._stream_title = ""
+
+    def _stream_summary_html(self, title: str, timestamp: str, preview: str) -> str:
+        """Header for the live/collapsed stream block (no arrow — native marker)."""
+        prev = (
+            f' <span style="color: #8a8a8a; font-size: 9pt;">— '
+            f'{self._escape_html(preview)}</span>'
+            if preview
+            else ""
+        )
+        return (
+            f'<span style="color: #bd93f9; font-family: monospace; font-size: 9pt;">'
+            f"{self._escape_html(title)}</span>"
+            f' <span style="color: #6272a4; font-size: 9pt;">[{timestamp}]</span>'
+            f"{prev}"
+        )
 
     # ------------------------------------------------------------------
     # Chat bubble rendering
@@ -181,13 +226,15 @@ class UnifiedMessageRenderer:
 
     def render_user_bubble(self, text: str) -> None:
         """Right-aligned green WhatsApp-style bubble."""
-        self._insert_bubble(
-            text,
-            align=Qt.AlignmentFlag.AlignRight,
-            width_percent=65,
-            bg_color="#005c4b",
-            fg_color="#e9edef",
+        body = self._escape_html(text)
+        html = (
+            '<div style="text-align: right; margin: 6px 0;">'
+            '<span style="display: inline-block; max-width: 65%; text-align: left; '
+            'background: #005c4b; color: #e9edef; font-size: 10pt; padding: 8px; '
+            'border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;">'
+            f"{body}</span></div>"
         )
+        self.web_view.append_block(html)
         self.history.append(
             MessageEntry(
                 role=MessageRole.USER_BUBBLE,
@@ -198,84 +245,46 @@ class UnifiedMessageRenderer:
     def open_assistant_bubble(self, model_label: str) -> None:
         """Open a left-aligned grey assistant bubble with model label."""
         self._current_assistant_text = ""
-        cursor = self.text_browser.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self.text_browser.document().isEmpty():
-            cursor.insertBlock(QTextBlockFormat())
-        cursor.insertHtml(
-            f'<span style="color: #8be9fd; font-size: 9pt; font-style: italic;">'
-            f'🤖 {self._escape_html(model_label or "Modell")}'
-            f"</span>"
-        )
-        cursor.insertBlock(QTextBlockFormat())
-        table_fmt = QTextTableFormat()
-        table_fmt.setCellPadding(8)
-        table_fmt.setCellSpacing(0)
-        table_fmt.setBorder(0)
-        table_fmt.setWidth(QTextLength(QTextLength.Type.PercentageLength, 75))
-        table_fmt.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        table = cursor.insertTable(1, 1, table_fmt)
-        cell = table.cellAt(0, 0)
-        cell_fmt = QTextTableCellFormat()
-        cell_fmt.setBackground(QColor("#202c33"))
-        cell.setFormat(cell_fmt)
-        self._assistant_cell_cursor = cell.firstCursorPosition()
+        header = f'🤖 {self._escape_html(model_label or "Modell")}'
+        self.web_view.open_assistant(header)
         self._assistant_block_open = True
-        self.auto_scroll_to_bottom()
+        self._assistant_cell_cursor = True  # "open" sentinel (back-compat)
+        self._touch_scroll()
 
     def append_assistant_token(self, token: str) -> None:
         """Stream a token into the open assistant bubble."""
-        if self._assistant_cell_cursor is None:
+        if not self._assistant_block_open:
             return
         self._current_assistant_text += token
-        html = self._escape_html(token).replace("\n", "<br>").replace(" ", "&nbsp;")
-        self._assistant_cell_cursor.insertHtml(
-            f'<span style="color: #e9edef; font-size: 10pt;">{html}</span>'
-        )
-        self.auto_scroll_to_bottom()
+        self.web_view.append_token(token)
+        self._touch_scroll()
 
     def finalize_assistant_bubble(self) -> None:
         """Post-render Markdown and close the assistant bubble."""
-        if (
-            self._assistant_cell_cursor is not None
-            and self._current_assistant_text
-        ):
+        md_html = ""
+        if self._current_assistant_text:
             try:
                 import markdown
 
                 # P-δ.5: replace <<CAT:rsn|display>> markers with clickable
-                # anchors BEFORE the markdown pass. Run on the raw text (not
-                # HTML-escaped) so the marker regex stays readable. Markdown
-                # then leaves the inserted <a> tags alone (they're already
-                # valid HTML, and python-markdown passes inline HTML through
-                # by default). If catalog_web_base is empty or the RSN is
-                # non-numeric, the marker is reduced to the display text so
-                # the user sees a clean message instead of a broken link.
+                # anchors BEFORE the markdown pass (see _replace_cat_markers).
                 render_text = self._replace_cat_markers(self._current_assistant_text)
-
                 md_html = markdown.markdown(
                     render_text,
                     extensions=["extra", "nl2br"],
                 )
-                cursor = self._assistant_cell_cursor
-                cursor.movePosition(
-                    QTextCursor.MoveOperation.Start,
-                    QTextCursor.MoveMode.MoveAnchor,
-                )
-                cursor.movePosition(
-                    QTextCursor.MoveOperation.End,
-                    QTextCursor.MoveMode.KeepAnchor,
-                )
-                cursor.removeSelectedText()
-                cursor.insertHtml(
+                md_html = (
                     f'<span style="color: #e9edef; font-size: 10pt;">{md_html}</span>'
                 )
             except Exception:
-                pass  # Keep raw text if markdown fails
+                # Keep raw text if markdown fails.
+                md_html = (
+                    '<span style="color: #e9edef; font-size: 10pt; '
+                    'white-space: pre-wrap;">'
+                    f"{self._escape_html(self._current_assistant_text)}</span>"
+                )
 
-        cursor = self.text_browser.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertBlock(QTextBlockFormat())
+        self.web_view.finalize_assistant(md_html)
 
         self.history.append(
             MessageEntry(
@@ -288,20 +297,15 @@ class UnifiedMessageRenderer:
         self._assistant_block_open = False
         self._assistant_cell_cursor = None
         self._current_assistant_text = ""
-        self.auto_scroll_to_bottom()
+        self._touch_scroll()
 
     def _replace_cat_markers(self, text: str) -> str:
         """Replace ``<<CAT:rsn|display>>`` with an HTML anchor.
 
-        Claude Generated (P-δ.5). The regex matches the literal angle-bracket
-        marker (no leading/trailing whitespace inside the brackets). When
-        ``self._catalog_web_base`` is empty or the RSN is non-numeric the
-        marker is reduced to the display text so users never see a broken
-        anchor — the worst case is "no link", not "404 link".
-
-        Display text is HTML-escaped to avoid injection of arbitrary HTML
-        by the LLM (a prompt-injection mitigation — never trust LLM output
-        as raw HTML).
+        Claude Generated (P-δ.5). When ``self._catalog_web_base`` is empty or
+        the RSN is non-numeric the marker is reduced to the display text so
+        users never see a broken anchor. Display text is HTML-escaped to avoid
+        injection of arbitrary HTML by the LLM (prompt-injection mitigation).
         """
         if not text or "<<CAT:" not in text:
             return text
@@ -318,11 +322,10 @@ class UnifiedMessageRenderer:
             )
 
         # `|` is the separator; `[^|]+?` is non-greedy on display text.
-        # Allow multi-digit RSNs and most display chars; disallow newlines.
         return re.sub(r"<<CAT:([^|\n]+)\|([^|\n]+)>>", _sub, text)
 
     # ------------------------------------------------------------------
-    # Collapsible tool calls
+    # Collapsible tool calls (native <details>)
     # ------------------------------------------------------------------
 
     def render_tool_call(
@@ -331,11 +334,10 @@ class UnifiedMessageRenderer:
         args: Optional[Dict[str, Any]] = None,
         duration_s: Optional[float] = None,
     ) -> str:
-        """Render a collapsible tool-call block.  Returns the tool_call_id."""
+        """Render a collapsible tool-call block. Returns the tool_call_id."""
         self._tool_call_id += 1
         tool_id = f"tc_{self._tool_call_id}"
         args_preview = self._format_tool_args(args)
-        duration_str = f"  ({duration_s:.1f}s)" if duration_s else ""
 
         self._tool_calls[tool_id] = {
             "name": name,
@@ -347,14 +349,13 @@ class UnifiedMessageRenderer:
             "status": "running",  # running | success | error
         }
 
-        html = self._tool_call_html(tool_id)
-        self._append_html(html)
-
-        # Mark the last block with userState so we can re-render it later.
-        last_block = self.text_browser.document().lastBlock()
-        if last_block.isValid():
-            last_block.setUserState(self._tool_call_id)
-            self._tool_call_blocks[tool_id] = self._tool_call_id
+        self.web_view.append_collapsible(
+            tool_id,
+            self._tool_summary_html(tool_id),
+            self._tool_body_html(tool_id),
+            False,
+        )
+        self._touch_scroll()
 
         self.history.append(
             MessageEntry(
@@ -366,7 +367,7 @@ class UnifiedMessageRenderer:
         return tool_id
 
     def render_tool_result(self, tool_id: str, result: str, status: str = "success") -> None:
-        """Attach a result to an existing tool call and re-render the block."""
+        """Attach a result to an existing tool call and update the block."""
         tc = self._tool_calls.get(tool_id)
         if tc is None:
             # Fallback: orphan result (no matching open call).
@@ -377,15 +378,25 @@ class UnifiedMessageRenderer:
             return
         tc["result"] = result
         tc["status"] = status
-        self._rerender_tool_call_block(tool_id)
+        self.web_view.update_collapsible(
+            tool_id,
+            self._tool_summary_html(tool_id),
+            self._tool_body_html(tool_id),
+        )
+        self._touch_scroll()
 
     def toggle_tool_call(self, tool_id: str) -> bool:
-        """Toggle expanded state.  Returns new expanded value."""
+        """Flip the server-side ``expanded`` mirror and return the new value.
+
+        The real expand/collapse is handled natively by ``<details>``; this
+        method only keeps the mirrored state for API compatibility (no caller
+        in the panel invokes it anymore — link clicks no longer carry a
+        ``tool://toggle`` anchor).
+        """
         tc = self._tool_calls.get(tool_id)
         if tc is None:
             return False
         tc["expanded"] = not tc["expanded"]
-        self._rerender_tool_call_block(tool_id)
         return tc["expanded"]
 
     def render_collapsible(
@@ -399,11 +410,9 @@ class UnifiedMessageRenderer:
     ) -> str:
         """Render a generic collapsible block (e.g. the agentic input prompt).
 
-        Reuses the tool-call toggle/re-render machinery (anchor
-        ``tool://toggle/<id>``), so ``PipelineChatPanel._handle_tool_link``
-        toggles it without changes. ``meta`` is shown next to the header (e.g.
-        timestamp / duration) and can be updated later via
-        :meth:`update_collapsible_meta`. Returns the block id. - Claude Generated
+        ``meta`` is shown next to the header (e.g. timestamp / duration) and
+        can be updated later via :meth:`update_collapsible_meta`. Returns the
+        block id. - Claude Generated
         """
         self._tool_call_id += 1
         tool_id = f"tc_{self._tool_call_id}"
@@ -419,11 +428,13 @@ class UnifiedMessageRenderer:
             "icon": icon,
             "meta": meta,
         }
-        self._append_html(self._collapsible_html(tool_id))
-        last_block = self.text_browser.document().lastBlock()
-        if last_block.isValid():
-            last_block.setUserState(self._tool_call_id)
-            self._tool_call_blocks[tool_id] = self._tool_call_id
+        self.web_view.append_collapsible(
+            tool_id,
+            self._tool_summary_html(tool_id),
+            self._tool_body_html(tool_id),
+            not collapsed,
+        )
+        self._touch_scroll()
         self.history.append(
             MessageEntry(
                 role=MessageRole.TOOL_MARKER,
@@ -439,91 +450,50 @@ class UnifiedMessageRenderer:
         if tc is None or tc.get("kind") != "collapsible":
             return
         tc["meta"] = meta
-        self._rerender_tool_call_block(tool_id)
-
-    def _collapsible_html(self, tool_id: str) -> str:
-        """Inline HTML for a generic collapsible block (single QTextBlock)."""
-        tc = self._tool_calls[tool_id]
-        title = self._escape_html(tc.get("name", ""))
-        icon = tc.get("icon", "📄")
-        meta = tc.get("meta", "")
-        result = tc.get("result") or ""
-        arrow = "▼" if tc["expanded"] else "▶"
-        meta_html = (
-            f' <span style="color: #6272a4; font-size: 9pt;">'
-            f'{self._escape_html(meta)}</span>'
-            if meta
-            else ""
+        self.web_view.update_collapsible(
+            tool_id,
+            self._tool_summary_html(tool_id),
+            self._tool_body_html(tool_id),
         )
-        header = (
-            f'<a href="tool://toggle/{tool_id}" '
-            f'style="color: #8be9fd; text-decoration: none; font-family: monospace; font-size: 9pt;">'
-            f'{arrow} {icon} {title}</a>{meta_html}'
-        )
-        if tc["expanded"] and result:
-            escaped = self._escape_html(result)
-            return (
-                f'{header}<br>'
-                f'<span style="font-family: monospace; font-size: 9pt; color: #a8a8a8; '
-                f'white-space: pre-wrap; word-wrap: break-word;">{escaped}</span>'
-            )
-        return header
 
-    def _tool_call_html(self, tool_id: str) -> str:
-        """Generate inline HTML for a single tool-call block.
-
-        Must stay inline (no <div> / <pre>) so the entire tool call lives in
-        one QTextBlock and can be replaced in-place via QTextCursor.
-        """
+    def _tool_summary_html(self, tool_id: str) -> str:
+        """Summary (header) HTML for a collapsible block. No arrow — the native
+        ``<details>`` marker provides it (styled via CSS)."""
         tc = self._tool_calls[tool_id]
         if tc.get("kind") == "collapsible":
-            return self._collapsible_html(tool_id)
+            title = self._escape_html(tc.get("name", ""))
+            icon = tc.get("icon", "📄")
+            meta = tc.get("meta", "")
+            meta_html = (
+                f' <span style="color: #6272a4; font-size: 9pt;">'
+                f"{self._escape_html(meta)}</span>"
+                if meta
+                else ""
+            )
+            return (
+                f'<span style="color: #8be9fd; font-family: monospace; '
+                f'font-size: 9pt;">{icon} {title}</span>{meta_html}'
+            )
+
         name = self._escape_html(tc["name"])
         args_preview = self._escape_html(tc["args_preview"])
         duration_str = f"  ({tc['duration_s']:.1f}s)" if tc.get("duration_s") else ""
-        status_icon = "⏳" if tc["status"] == "running" else ("✓" if tc["status"] == "success" else "✗")
-        arrow = "▼" if tc["expanded"] else "▶"
-        result = tc.get("result") or ""
-
-        header = (
-            f'<a href="tool://toggle/{tool_id}" '
-            f'style="color: #888; text-decoration: none; font-family: monospace; font-size: 9pt;">'
-            f'{arrow} 🔧 {name}({args_preview})  {status_icon}{duration_str}</a>'
+        status_icon = (
+            "⏳" if tc["status"] == "running"
+            else ("✓" if tc["status"] == "success" else "✗")
+        )
+        return (
+            f'<span style="color: #888; font-family: monospace; font-size: 9pt;">'
+            f"🔧 {name}({args_preview})  {status_icon}{duration_str}</span>"
         )
 
-        if tc["expanded"] and result:
-            escaped_result = self._escape_html(result)
-            return (
-                f'{header}<br>'
-                f'<span style="font-family: monospace; font-size: 9pt; color: #a8a8a8; '
-                f'white-space: pre-wrap; word-wrap: break-word;">'
-                f'{escaped_result}</span>'
-            )
-        else:
-            return header
-
-    def _rerender_tool_call_block(self, tool_id: str) -> None:
-        """Re-render a single tool-call block in-place using QTextCursor."""
-        marker_id = self._tool_call_blocks.get(tool_id)
-        if marker_id is None:
-            return
-
-        doc = self.text_browser.document()
-        block = doc.begin()
-        while block.isValid():
-            if block.userState() == marker_id:
-                cursor = self.text_browser.textCursor()
-                cursor.setPosition(block.position())
-                cursor.movePosition(
-                    QTextCursor.MoveOperation.EndOfBlock,
-                    QTextCursor.MoveMode.KeepAnchor,
-                )
-                cursor.removeSelectedText()
-                cursor.insertHtml(self._tool_call_html(tool_id))
-                return
-            block = block.next()
-
-        self.logger.warning(f"tool call block {tool_id} not found for re-render")
+    def _tool_body_html(self, tool_id: str) -> str:
+        """Body HTML for a collapsible block (escaped, pre-wrapped by .tc-body)."""
+        tc = self._tool_calls[tool_id]
+        result = tc.get("result") or ""
+        if not result:
+            return ""
+        return self._escape_html(result)
 
     # ------------------------------------------------------------------
     # Legacy marker (plain text, no collapse)
@@ -535,16 +505,16 @@ class UnifiedMessageRenderer:
         .. deprecated::
             Prefer :meth:`render_tool_call` / :meth:`render_tool_result` for
             new code — they give collapsible blocks, status icons, and
-            history entries consistent with the agentic tool-call pathway.
-            ``render_tool_marker`` remains only for status echoes that are
-            not tool-driven and for the ``PipelineChatPanel`` shim.
+            history entries. ``render_tool_marker`` remains only for status
+            echoes that are not tool-driven and for the ``PipelineChatPanel``
+            shim.
         """
         html = (
             f'<div style="margin: 2px 0 2px 8px; '
             f'font-family: monospace; font-size: 9pt; color: #888;">'
             f"{self._escape_html(text)}</div>"
         )
-        self._append_html(html)
+        self.web_view.append_block(html)
         self.history.append(
             MessageEntry(
                 role=MessageRole.TOOL_MARKER,
@@ -560,7 +530,7 @@ class UnifiedMessageRenderer:
             f'<span style="color: #4caf50; font-size: 9pt; font-style: italic;">'
             f"{self._escape_html(text)}</span></div>"
         )
-        self._append_html(html)
+        self.web_view.append_block(html)
         self.history.append(
             MessageEntry(
                 role=MessageRole.SYSTEM_MESSAGE,
@@ -573,18 +543,14 @@ class UnifiedMessageRenderer:
     ) -> None:
         """Append a pre-formatted, trusted HTML block (e.g. a DK/RVK result card).
 
-        Unlike the inline tool-result block (:meth:`_tool_call_html`, which is
-        HTML-escaped and re-rendered in place), this block is appended once and
-        never re-rendered, so block-level HTML (``<div>``, ``<ol>``, ``<h2>``) is
-        allowed. The caller must pass already-sanitised HTML — the shared
-        ``PipelineResultFormatter`` escapes catalog titles.
-
-        ``plain_text`` is recorded in history for export; ``kind`` tags the card
-        (e.g. ``"dk_classifications"``, ``"dk_search"``).
+        The caller must pass already-sanitised HTML — the shared
+        ``PipelineResultFormatter`` escapes catalog titles. ``plain_text`` is
+        recorded in history for export; ``kind`` tags the card (e.g.
+        ``"dk_classifications"``, ``"dk_search"``).
         """
         if not html:
             return
-        self._append_html(html)
+        self.web_view.append_block(html)
         self.history.append(
             MessageEntry(
                 role=MessageRole.RESULT_CARD,
@@ -596,7 +562,11 @@ class UnifiedMessageRenderer:
     def render_proposal_bubble(
         self, audit_id: int, tool_name: str, payload: Dict[str, Any]
     ) -> None:
-        """Clickable mutation-proposal block with accept / reject anchors."""
+        """Clickable mutation-proposal block with accept / reject anchors.
+
+        ``mutation://`` anchors are intercepted by ``WebLogView`` navigation
+        handling and routed back to the panel.
+        """
         title_map = {
             "propose_keyword_replacement": "🔁 Vorschlag: Keyword ersetzen",
             "propose_dk_change": "🏷️ Vorschlag: DK-Klassifikation ändern",
@@ -632,7 +602,7 @@ class UnifiedMessageRenderer:
             f'<div style="color: #ffb86c; font-weight: bold; font-size: 10pt;">{title}</div>'
             f'<div style="color: #f8f8f2; margin-top: 4px;">{diff_html}</div>'
             f'<div style="color: #888; font-size: 9pt; margin-top: 4px;">'
-            f'Begründung: {reason}</div>'
+            f"Begründung: {reason}</div>"
             f'<div style="margin-top: 8px;">'
             f'<a href="{accept_href}" style="color: #50fa7b; '
             f'text-decoration: none; padding: 4px 10px; '
@@ -642,10 +612,10 @@ class UnifiedMessageRenderer:
             f'text-decoration: none; padding: 4px 10px; '
             f'border: 1px solid #ff5555; border-radius: 3px;">✗ Ablehnen</a>'
             f'<span style="color: #555; font-size: 8pt; margin-left: 8px;">'
-            f'#audit_{audit_id}</span>'
+            f"#audit_{audit_id}</span>"
             f"</div></div>"
         )
-        self._append_html(html)
+        self.web_view.append_block(html)
         self.history.append(
             MessageEntry(
                 role=MessageRole.PROPOSAL_BUBBLE,
@@ -658,50 +628,10 @@ class UnifiedMessageRenderer:
     # Generic helpers
     # ------------------------------------------------------------------
 
-    def _insert_bubble(
-        self,
-        text: str,
-        *,
-        align: Qt.AlignmentFlag,
-        width_percent: int,
-        bg_color: str,
-        fg_color: str,
-    ) -> None:
-        """Insert a QTextTable bubble with the given alignment and colours."""
-        cursor = self.text_browser.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self.text_browser.document().isEmpty():
-            cursor.insertBlock(QTextBlockFormat())
-        table_fmt = QTextTableFormat()
-        table_fmt.setCellPadding(8)
-        table_fmt.setCellSpacing(0)
-        table_fmt.setBorder(0)
-        table_fmt.setWidth(
-            QTextLength(QTextLength.Type.PercentageLength, width_percent)
-        )
-        table_fmt.setAlignment(align)
-        table = cursor.insertTable(1, 1, table_fmt)
-        cell = table.cellAt(0, 0)
-        cell_fmt = QTextTableCellFormat()
-        cell_fmt.setBackground(QColor(bg_color))
-        cell.setFormat(cell_fmt)
-        body = self._escape_html(text).replace("\n", "<br>")
-        cell.firstCursorPosition().insertHtml(
-            f'<span style="color: {fg_color}; font-size: 10pt;">{body}</span>'
-        )
-        end_cursor = self.text_browser.textCursor()
-        end_cursor.movePosition(QTextCursor.MoveOperation.End)
-        end_cursor.insertBlock(QTextBlockFormat())
-        self.auto_scroll_to_bottom()
-
     def _append_html(self, html: str) -> None:
-        """Insert raw HTML at the end of the document."""
-        cursor = self.text_browser.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self.text_browser.document().isEmpty():
-            cursor.insertBlock(QTextBlockFormat())
-        cursor.insertHtml(html)
-        self.auto_scroll_to_bottom()
+        """Append a trusted HTML block at the end of the log."""
+        self.web_view.append_block(html)
+        self._touch_scroll()
 
     def append_raw_html(self, html: str) -> None:
         """Public escape-hatch for external callers."""
@@ -712,30 +642,30 @@ class UnifiedMessageRenderer:
     # ------------------------------------------------------------------
 
     def auto_scroll_to_bottom(self) -> None:
-        """Throttled scroll-to-bottom (max 20 Hz)."""
-        if not self.auto_scroll_checkbox.isChecked():
-            return
-        now = time.time()
-        if now - self._last_scroll_time < 0.05:
-            return
-        self._last_scroll_time = now
-        scrollbar = self.text_browser.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        """Scroll to bottom (JS honours the auto-scroll checkbox)."""
+        self._touch_scroll()
+
+    def _touch_scroll(self) -> None:
+        self._last_scroll_time = time.time()
+        if self.auto_scroll_checkbox.isChecked():
+            self.web_view.scroll_to_bottom()
 
     # ------------------------------------------------------------------
     # Clear / reset
     # ------------------------------------------------------------------
 
     def clear(self) -> None:
-        """Clear the document and reset all open streaming / bubble state."""
-        self.text_browser.clear()
+        """Clear the log and reset all open streaming / bubble state."""
+        self.web_view.clear_log()
         self._is_streaming = False
+        self._stream_block_id = None
+        self._stream_text = ""
+        self._stream_title = ""
         self._assistant_block_open = False
         self._assistant_cell_cursor = None
         self._current_assistant_text = ""
         self._tool_call_id = 0
         self._tool_calls.clear()
-        self._tool_call_blocks.clear()
         # History is intentionally preserved; call sites can clear it
         # explicitly if desired.
 
@@ -750,22 +680,14 @@ class UnifiedMessageRenderer:
     def subscribe(self) -> None:
         """Subscribe to ``tool.called`` / ``tool.result`` on AlimaStateBus.
 
-        Phase E: lets a renderer instance (e.g. a mini-log in
-        AnalysisReviewTab / ImageAnalysisTab) participate in the same
-        event flow as PipelineChatPanel without manual Qt-signal wiring.
-        Each renderer keeps its own ``tool_id`` counter and id mapping
-        — renderers do not share state.
-
-        Bound methods are stored on ``self`` so ``unsubscribe`` can find
-        the *same* object — bare ``self._on_bus_tool_called`` access on
-        a second call yields a *new* bound-method object that the bus
-        cannot match (it compares by identity). Storing once is the
-        only way to ensure subscribe/unsubscribe pair up.
+        Lets a renderer instance participate in the same event flow as
+        PipelineChatPanel without manual Qt-signal wiring. Bound methods are
+        stored on ``self`` so ``unsubscribe`` can find the *same* object — the
+        bus compares handlers by identity.
         """
         try:
             from src.core.state_bus import AlimaStateBus
             bus = AlimaStateBus()
-            # Bind once, reuse the same object on unsubscribe.
             self._bus_handler_tool_called = self._on_bus_tool_called
             self._bus_handler_tool_result = self._on_bus_tool_result
             bus.subscribe("tool.called", self._bus_handler_tool_called)
@@ -778,9 +700,6 @@ class UnifiedMessageRenderer:
         try:
             from src.core.state_bus import AlimaStateBus
             bus = AlimaStateBus()
-            # Must use the same object stored in ``subscribe`` —
-            # re-binding ``self._on_bus_tool_called`` here would yield
-            # a different object identity.
             tool_called = getattr(self, "_bus_handler_tool_called", None)
             tool_result = getattr(self, "_bus_handler_tool_result", None)
             if tool_called is not None:
@@ -790,16 +709,10 @@ class UnifiedMessageRenderer:
         except Exception:
             self.logger.exception("UnifiedMessageRenderer.unsubscribe failed")
         finally:
-            # Drop any pending open-call mapping so stale ids don't leak.
             self._bus_id_to_tool_id.clear()
 
     def _on_bus_tool_called(self, payload: Dict[str, Any]) -> None:
-        """Bridge bus ``tool.called`` → ``render_tool_call``.
-
-        Maps the bus ``id`` (UUID-string from any producer) to a
-        renderer-local ``tool_id`` so the matching ``tool.result`` can
-        attach to the same block.
-        """
+        """Bridge bus ``tool.called`` → ``render_tool_call``."""
         bus_id = (payload or {}).get("id") or ""
         name = (payload or {}).get("name") or ""
         args = (payload or {}).get("arguments") or {}
@@ -810,13 +723,9 @@ class UnifiedMessageRenderer:
     def _on_bus_tool_result(self, payload: Dict[str, Any]) -> None:
         """Bridge bus ``tool.result`` → ``render_tool_result``.
 
-        Mirrors the panel's bus handler: cache hits get the 📦 badge,
-        and the status field is propagated. Falls back to a plain
-        marker when no matching open call exists.
-
-        Bus producers use ``"ok"`` / ``"error"`` (CachingToolRegistry,
-        classic shim). The renderer internally uses ``"success"`` /
-        ``"error"`` for the icon. Normalize ``"ok"`` → ``"success"``.
+        Bus producers use ``"ok"`` / ``"error"``; the renderer uses
+        ``"success"`` / ``"error"`` for the icon. Normalize ``"ok"`` →
+        ``"success"``.
         """
         if not hasattr(self, "_bus_id_to_tool_id"):
             self._bus_id_to_tool_id = {}

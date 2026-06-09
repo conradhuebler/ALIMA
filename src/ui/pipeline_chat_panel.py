@@ -32,7 +32,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QDesktopServices, QKeyEvent, QFont
+from PyQt6.QtGui import QDesktopServices, QKeyEvent
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -45,11 +45,16 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
-    QTextBrowser,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+
+# NB: WebLogView (which imports QWebEngineView) is imported lazily where the
+# log widget is built, not at module level. QWebEngineView MUST be imported
+# before the QApplication is created — that ordering is guaranteed by the
+# explicit early import in alima_gui.py. Keeping this import lazy also lets the
+# test suite swap in a lightweight stub. - Claude Generated
 
 from ..core.chat_prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -440,46 +445,19 @@ class PipelineChatPanel(QWidget):
         log_layout.setContentsMargins(0, 0, 0, 0)
         log_layout.setSpacing(0)
 
-        # --- Main log area (shared QTextBrowser for clickable bubbles) ---
-        # P-ε: QTextBrowser exposes anchorClicked so inline mutation-proposal
-        # bubbles can have ✓/✗ links the user clicks.
-        self.stream_text = QTextBrowser()
-        self.stream_text.setReadOnly(True)
-        self.stream_text.setOpenLinks(False)
-        self.stream_text.setOpenExternalLinks(False)
-        self.stream_text.anchorClicked.connect(self._on_anchor_clicked)
+        # --- Main log area (QWebEngineView-backed unified renderer) ---
+        # Collapsible blocks are native <details>; mutation:// and http(s)://
+        # link clicks are routed back here via link_clicked (replaces the old
+        # QTextBrowser.anchorClicked). - Claude Generated
+        from .styles import get_font_size
+        from .web_log_view import WebLogView
+
+        self.stream_text = WebLogView(base_font_pt=get_font_size())
+        self.stream_text.link_clicked.connect(self._on_anchor_clicked)
         self.stream_text.setMinimumHeight(80)
         self.stream_text.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
-        )
-        font = get_scaled_font(monospace=True)
-        font.setStyleHint(QFont.StyleHint.Monospace)
-        self.stream_text.setFont(font)
-        self.stream_text.setStyleSheet(
-            """
-            QTextBrowser {
-                background-color: #1e1e1e;
-                color: #f8f8f2;
-                border: none;
-                border-top: 1px solid #333;
-                padding: 8px;
-                font-family: 'Consolas', 'Monaco', monospace;
-            }
-            QScrollBar:vertical {
-                background: #2d2d2d;
-                width: 12px;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background: #555;
-                border-radius: 6px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #777;
-            }
-            """
         )
         log_layout.addWidget(self.stream_text)
 
@@ -1092,7 +1070,11 @@ class PipelineChatPanel(QWidget):
         if filename:
             try:
                 with open(filename, "w", encoding="utf-8") as f:
-                    plain_text = self.stream_text.toPlainText()
+                    # WebLogView has no toPlainText(); reconstruct the log from
+                    # the renderer's message history (completed messages).
+                    plain_text = "\n".join(
+                        entry.content for entry in self._renderer.history
+                    )
                     f.write(f"ALIMA Pipeline Log - {datetime.now().isoformat()}\n")
                     f.write("=" * 50 + "\n\n")
                     f.write(plain_text)
@@ -1110,7 +1092,8 @@ class PipelineChatPanel(QWidget):
 
     def refresh_styles(self):
         if hasattr(self, "stream_text"):
-            self.stream_text.setFont(get_scaled_font(monospace=True))
+            from .styles import get_font_size
+            self.stream_text.set_font_pt(get_font_size())
 
     def reset_for_new_pipeline(self):
         self.current_step_id = None

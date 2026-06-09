@@ -2868,14 +2868,35 @@ class LlmService(QObject):
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "top_p": top_p,
-                "stream": False,
             }
             if system_text:
                 params["system"] = system_text
             if anthropic_tools:
                 params["tools"] = anthropic_tools
 
-            response = self.clients["anthropic"].messages.create(**params)
+            # P-δ.5: stream text deltas when a stream_callback is provided so the
+            # model's intermediate reasoning (the text it emits alongside tool
+            # calls) shows live in the chat, instead of only appearing at the end.
+            # messages.stream() supports tool-call deltas; get_final_message()
+            # returns the complete Message (text + tool_use blocks + stop_reason),
+            # which we treat as authoritative. - Claude Generated
+            use_streaming = stream_callback is not None
+            if use_streaming:
+                partial = ""
+                with self.clients["anthropic"].messages.stream(**params) as stream:
+                    for text in stream.text_stream:
+                        if should_stop and should_stop():
+                            return AgentResponse(
+                                content=partial, tool_calls=[],
+                                stop_reason=StopReason.CANCELLED,
+                            )
+                        if text:
+                            partial += text
+                            stream_callback(text)
+                    response = stream.get_final_message()
+            else:
+                params["stream"] = False
+                response = self.clients["anthropic"].messages.create(**params)
 
             content = ""
             tool_calls = []
@@ -2919,7 +2940,13 @@ class LlmService(QObject):
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
     ) -> "AgentResponse":
-        """Tool-calling via Google Gemini API - Claude Generated"""
+        """Tool-calling via Google Gemini API - Claude Generated
+
+        Note: token streaming with tools is not wired here (``stream_callback``
+        is accepted for signature parity but not invoked). Ollama, OpenAI, and
+        Anthropic stream intermediate text live; Gemini still delivers its text
+        only on completion. - Claude Generated
+        """
         from src.core.data_models import AgentResponse, ToolCall, StopReason
 
         if "gemini" not in self.clients:

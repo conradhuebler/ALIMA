@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QCheckBox,
-    QTextBrowser,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from typing import List
@@ -351,14 +350,14 @@ class ImageAnalysisTab(QWidget):
     def _init_tool_log_widget(self) -> None:
         """Build the read-only tool-log mini widget (Phase E)."""
         from src.ui.unified_message_renderer import UnifiedMessageRenderer
+        from src.ui.web_log_view import WebLogView
 
         self.tool_log_group = QGroupBox("🛠 Letzte Tool-Aufrufe")
         self.tool_log_group.setMaximumHeight(180)
         layout = QVBoxLayout(self.tool_log_group)
         layout.setContentsMargins(6, 6, 6, 6)
 
-        self.tool_log_browser = QTextBrowser()
-        self.tool_log_browser.setOpenLinks(False)
+        self.tool_log_browser = WebLogView()
         self.tool_log_browser.setMaximumHeight(140)
         self.tool_log_autoscroll = QCheckBox("Auto-Scroll")
         self.tool_log_autoscroll.setChecked(True)

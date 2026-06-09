@@ -126,7 +126,7 @@ When documenting implemented features, the AI must apply these rules:
 4. **Performance**: Connection pooling, result pagination, memory optimization.
 5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools.
 6. **Chat-Agent Phases P-δ.4 → P-ι**: Mini-Polish + UnifiedMessageWidget (shared renderer for chat + pipeline-logger) + Mutation Tools + Pipeline-Orchestration + Input-Beschaffung (DOI/URL/PDF/Image) + Export + Headless/CLI/API. Permission-Layer via `ChatConfig.autonomous_pipeline` (default explicit, confirmation dialog for destructive ops). Roadmap: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
-7. **Streaming-with-Tools Backend-Fix** (P-δ.5): re-enable token streaming when tools are active (currently disabled in `llm_service.py:2541, 2621`). OpenAI/Anthropic support tool-call deltas in stream; Ollama likely not. Bundled with UnifiedMessageWidget refactor.
+7. **Streaming-with-Tools Backend** (P-δ.5): ✅ Ollama, OpenAI, Anthropic stream text deltas when tools are active (`_generate_*_with_tools` in `llm_service.py`). Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers). Renderer is now QWebEngineView-based (`src/ui/web_log_view.py` `WebLogView`) — native `<details>` collapse, live token append; see `AIChangelog.md` (June 9, 2026).
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.

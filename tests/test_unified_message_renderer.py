@@ -1,250 +1,149 @@
 """Tests for UnifiedMessageRenderer. Claude Generated.
 
-Tests all rendering paths using mocked QTextBrowser / QCheckBox to avoid
-Qt GUI singleton conflicts.
+The renderer now drives a :class:`WebLogView` (QWebEngineView) instead of a
+QTextBrowser. These tests use a lightweight ``_MockWebLogView`` that records the
+HTML strings the renderer emits, so assertions target the emitted markup
+(colours, text, history) without needing a browser engine. Collapsibles are
+native ``<details>`` — the body is always present in the DOM; the ``open`` flag
+controls initial expansion, and toggling is a server-side mirror only.
 """
 from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QTextCursor
 
+class _MockWebLogView:
+    """Records every HTML fragment the renderer pushes into the page."""
 
-class _MockCell:
     def __init__(self):
-        self._cursor = _MockCursor()
+        self.blocks: list[str] = []
+        self.collapsibles: dict[str, dict] = {}
+        self.assistant_header: str | None = None
+        self.assistant_tokens: list[str] = []
+        self.assistant_final: str | None = None
+        self.stream_blocks: dict[str, dict] = {}
+        self._cur_stream: str | None = None
+        self.autoscroll = True
 
-    def firstCursorPosition(self):
-        return self._cursor
+    # -- append / stream API mirrored from WebLogView --------------------
+    def append_block(self, html: str) -> None:
+        self.blocks.append(html)
 
-    def setFormat(self, fmt):
+    def append_collapsible(self, block_id, summary, body, open_) -> None:
+        self.collapsibles[block_id] = {
+            "summary": summary, "body": body or "", "open": bool(open_)
+        }
+
+    def update_collapsible(self, block_id, summary, body) -> None:
+        prev = self.collapsibles.get(block_id, {})
+        self.collapsibles[block_id] = {
+            "summary": summary, "body": body or "", "open": prev.get("open", False)
+        }
+
+    def open_assistant(self, header: str) -> None:
+        self.assistant_header = header
+        self.assistant_tokens = []
+        self.assistant_final = None
+
+    def append_token(self, text: str) -> None:
+        self.assistant_tokens.append(text)
+
+    def finalize_assistant(self, html: str) -> None:
+        self.assistant_final = html
+
+    def open_stream_block(self, block_id, summary) -> None:
+        self.stream_blocks[block_id] = {
+            "summary": summary, "tokens": [], "collapsed": False
+        }
+        self._cur_stream = block_id
+
+    def append_stream_block(self, text) -> None:
+        if self._cur_stream is not None:
+            self.stream_blocks[self._cur_stream]["tokens"].append(text)
+
+    def close_stream_block(self, block_id, summary, collapse=True) -> None:
+        b = self.stream_blocks.setdefault(
+            block_id, {"summary": summary, "tokens": [], "collapsed": False}
+        )
+        b["summary"] = summary
+        b["collapsed"] = bool(collapse)
+        self._cur_stream = None
+
+    def clear_log(self) -> None:
+        self.blocks.clear()
+        self.collapsibles.clear()
+        self.assistant_header = None
+        self.assistant_tokens = []
+        self.assistant_final = None
+        self.stream_blocks.clear()
+        self._cur_stream = None
+
+    def set_autoscroll(self, enabled: bool) -> None:
+        self.autoscroll = enabled
+
+    def scroll_to_bottom(self) -> None:
         pass
 
+    def set_font_pt(self, pt: int) -> None:
+        pass
 
-class _MockTable:
-    def __init__(self):
-        self._cell = _MockCell()
-
-    def cellAt(self, row, col):
-        return self._cell
-
-
-class _MockCursor:
-    """Minimal QTextCursor stand-in."""
-
-    def __init__(self):
-        self._html_fragments: list[str] = []
-        self._ops: list[str] = []
-
-    def movePosition(self, op, mode=None, n=1):
-        self._ops.append(f"move:{op}")
-        return True
-
-    def insertHtml(self, html: str):
-        self._html_fragments.append(html)
-        self._ops.append("insertHtml")
-
-    def insertBlock(self, fmt=None):
-        self._ops.append("insertBlock")
-
-    def removeSelectedText(self):
-        self._ops.append("removeSelectedText")
-
-    def insertTable(self, rows, cols, fmt=None):
-        self._ops.append(f"insertTable:{rows}x{cols}")
-        return _MockTable()
-
-
-class _MockBlock:
-    def __init__(self, user_state=-1, valid=True, position=0):
-        self._user_state = user_state
-        self._valid = valid
-        self._position = position
-        self._next = None
-        self._html = ""
-
-    def isValid(self):
-        return self._valid
-
-    def userState(self):
-        return self._user_state
-
-    def setUserState(self, state):
-        self._user_state = state
-
-    def next(self):
-        return self._next if self._next else _MockBlock(valid=False)
-
-    def position(self):
-        return self._position
-
-
-class _MockDocument:
-    def __init__(self, empty=True):
-        self._blocks: list[_MockBlock] = []
-        self._position_counter = 0
-        # Qt documents always have at least one empty block
-        self.add_block()
-
-    def isEmpty(self):
-        return all(not b._html for b in self._blocks)
-
-    def begin(self):
-        return self._blocks[0] if self._blocks else _MockBlock(valid=False)
-
-    def lastBlock(self):
-        return self._blocks[-1] if self._blocks else _MockBlock(valid=False)
-
-    def add_block(self):
-        block = _MockBlock(position=self._position_counter)
-        self._position_counter += 100
-        if self._blocks:
-            self._blocks[-1]._next = block
-        self._blocks.append(block)
-        return block
-
-
-class _MockCursor:
-    """Minimal QTextCursor stand-in with block-aware insertHtml."""
-
-    def __init__(self, text_browser=None):
-        self._html_fragments: list[str] = []
-        self._ops: list[str] = []
-        self._block = None
-        self._text_browser = text_browser
-
-    def block(self):
-        return self._block if self._block else _MockBlock(valid=False)
-
-    def movePosition(self, op, mode=None, n=1):
-        self._ops.append(f"move:{op}")
-        return True
-
-    def setPosition(self, pos, mode=None):
-        self._ops.append(f"setPosition:{pos}")
-        if self._text_browser:
-            for b in self._text_browser._doc._blocks:
-                if b._position == pos:
-                    self._block = b
-                    break
-
-    def insertHtml(self, html: str):
-        self._ops.append("insertHtml")
-        if self._block and self._text_browser:
-            self._block._html += html
-        elif self._text_browser and self._text_browser._doc._blocks:
-            # No current block but document has blocks - use last block
-            self._block = self._text_browser._doc._blocks[-1]
-            self._block._html += html
-        else:
-            self._html_fragments.append(html)
-
-    def insertBlock(self, fmt=None):
-        self._ops.append("insertBlock")
-        if self._text_browser:
-            self._block = self._text_browser._doc.add_block()
-
-    def removeSelectedText(self):
-        self._ops.append("removeSelectedText")
-        if self._block:
-            self._block._html = ""
-
-    def insertTable(self, rows, cols, fmt=None):
-        self._ops.append(f"insertTable:{rows}x{cols}")
-        return _MockTable()
-
-
-class _MockTextBrowser:
-    """Stand-in for QTextBrowser that records HTML insertions."""
-
-    def __init__(self):
-        self._html_calls: list[str] = []
-        self._doc = _MockDocument(empty=True)
-        self._cursor = _MockCursor(text_browser=self)
-
-    def textCursor(self):
-        return self._cursor
-
-    def document(self):
-        return self._doc
-
-    def append(self, html: str):
-        self._html_calls.append(html)
-
-    def toHtml(self):
-        block_html = "\n".join(b._html for b in self._doc._blocks)
-        cursor_html = "\n".join(self._cursor._html_fragments)
-        doc_html = "\n".join(self._html_calls)
-        parts = [p for p in [block_html, cursor_html, doc_html] if p]
-        return "\n".join(parts)
-
-    def toPlainText(self):
-        return self.toHtml()
-
-    def clear(self):
-        self._html_calls.clear()
-        self._cursor._html_fragments.clear()
-        self._cursor._ops.clear()
-        self._doc._blocks.clear()
-        self._cursor._block = None
-
-    def setHtml(self, html: str):
-        # For re-render tests: parse the HTML back into our mock state.
-        self._html_calls = [html]
-        self._cursor._html_fragments.clear()
-        self._cursor._ops.clear()
-        self._doc._blocks.clear()
-        self._cursor._block = None
-
-    def verticalScrollBar(self):
-        m = MagicMock()
-        m.maximum.return_value = 100
-        return m
+    # -- test helper -----------------------------------------------------
+    def to_html(self) -> str:
+        parts: list[str] = list(self.blocks)
+        for tc in self.collapsibles.values():
+            parts.append(tc["summary"])
+            parts.append(tc["body"])  # native <details>: body always in DOM
+        if self.assistant_header:
+            parts.append(self.assistant_header)
+        parts.extend(self.assistant_tokens)
+        if self.assistant_final:
+            parts.append(self.assistant_final)
+        for blk in self.stream_blocks.values():
+            parts.append(blk["summary"])
+            parts.extend(blk["tokens"])
+        return "\n".join(p for p in parts if p)
 
 
 class _MockCheckBox:
     def __init__(self, checked=True):
         self._checked = checked
+        self.toggled = MagicMock()  # .connect() used by the renderer ctor
 
     def isChecked(self):
         return self._checked
 
 
 class RendererTestBase(unittest.TestCase):
-    """Set up a mock QTextBrowser + mock checkbox."""
+    """Set up a mock WebLogView + mock checkbox."""
 
     def setUp(self):
         from src.ui.unified_message_renderer import UnifiedMessageRenderer
 
-        self.text_browser = _MockTextBrowser()
+        self.view = _MockWebLogView()
         self.checkbox = _MockCheckBox(checked=True)
-        self.renderer = UnifiedMessageRenderer(self.text_browser, self.checkbox)
+        self.renderer = UnifiedMessageRenderer(self.view, self.checkbox)
 
 
 class TestPipelineLogRendering(RendererTestBase):
 
     def test_info_log_contains_timestamp(self):
         self.renderer.render_pipeline_log("test msg", "info", "step1")
-        html = self.text_browser.toHtml()
+        html = self.view.to_html()
         self.assertIn("STEP1", html.upper())
         self.assertIn("test msg", html)
 
     def test_error_log_red_color(self):
         self.renderer.render_pipeline_log("err", "error")
-        html = self.text_browser.toHtml()
-        self.assertIn("#ff5555", html)
+        self.assertIn("#ff5555", self.view.to_html())
 
     def test_success_log_green_color(self):
         self.renderer.render_pipeline_log("ok", "success")
-        html = self.text_browser.toHtml()
-        self.assertIn("#50fa7b", html)
+        self.assertIn("#50fa7b", self.view.to_html())
 
     def test_step_tag_bold(self):
         self.renderer.render_pipeline_log("start", "step", "init")
-        html = self.text_browser.toHtml()
-        self.assertIn("font-weight: bold", html)
+        self.assertIn("font-weight: bold", self.view.to_html())
 
     def test_history_appended(self):
         self.renderer.render_pipeline_log("msg", "info", "s1")
@@ -262,18 +161,36 @@ class TestStreamingTokens(RendererTestBase):
         self.renderer.end_streaming_line()
         self.assertFalse(self.renderer._is_streaming)
 
-    def test_streaming_token_purple(self):
-        self.renderer.start_streaming_line("step1")
-        self.renderer.render_streaming_token("hello", "step1")
+    def test_streaming_block_opens_expanded(self):
+        """While streaming the block is open (expanded); tokens go to its body."""
+        self.renderer.start_streaming_line("step1", "LLM: ")
+        self.renderer.render_streaming_token("hello keywords", "step1")
+        blk = next(iter(self.view.stream_blocks.values()))
+        self.assertFalse(blk["collapsed"])                  # open during stream
+        self.assertIn("hello keywords", "".join(blk["tokens"]))
+        self.assertIn("#bd93f9", self.view.to_html())       # purple title
+
+    def test_streaming_block_collapses_with_preview(self):
+        """On end the block collapses and the summary keeps a text preview."""
+        self.renderer.start_streaming_line("step1", "LLM: ")
+        self.renderer.render_streaming_token("erste keywords hier", "step1")
         self.renderer.end_streaming_line()
-        self.assertIn("#bd93f9", self.text_browser.toHtml())
+        blk = next(iter(self.view.stream_blocks.values()))
+        self.assertTrue(blk["collapsed"])                   # folded away
+        self.assertIn("erste keywords hier", blk["summary"])  # preview retained
+
+    def test_token_ignored_without_open_block(self):
+        """A stray token with no open stream block is a no-op (no crash)."""
+        self.renderer.render_streaming_token("orphan", "step1")
+        self.assertEqual(self.view.stream_blocks, {})
 
 
 class TestUserBubble(RendererTestBase):
 
     def test_user_bubble_appended(self):
         self.renderer.render_user_bubble("hi")
-        self.assertTrue(len(self.text_browser._cursor._ops) > 0)
+        self.assertEqual(len(self.view.blocks), 1)
+        self.assertIn("hi", self.view.to_html())
 
     def test_user_bubble_history(self):
         self.renderer.render_user_bubble("hello")
@@ -288,12 +205,14 @@ class TestAssistantBubble(RendererTestBase):
         self.renderer.open_assistant_bubble("gpt-4")
         self.assertTrue(self.renderer._assistant_block_open)
         self.assertIsNotNone(self.renderer._assistant_cell_cursor)
+        self.assertIn("gpt-4", self.view.assistant_header)
 
     def test_assistant_token_appended(self):
         self.renderer.open_assistant_bubble("model")
         self.renderer.append_assistant_token("token1")
         self.renderer.append_assistant_token(" token2")
         self.assertEqual(self.renderer._current_assistant_text, "token1 token2")
+        self.assertEqual(self.view.assistant_tokens, ["token1", " token2"])
 
     def test_assistant_finalize_calls_markdown(self):
         fake_md = MagicMock()
@@ -303,6 +222,7 @@ class TestAssistantBubble(RendererTestBase):
             self.renderer.append_assistant_token("**bold**")
             self.renderer.finalize_assistant_bubble()
         fake_md.markdown.assert_called_once()
+        self.assertIn("bold", self.view.assistant_final or "")
         self.assertFalse(self.renderer._assistant_block_open)
         self.assertIsNone(self.renderer._assistant_cell_cursor)
 
@@ -321,8 +241,7 @@ class TestToolMarker(RendererTestBase):
 
     def test_tool_marker_monospace(self):
         self.renderer.render_tool_marker("🔧 search(query='x')")
-        html = self.text_browser.toHtml()
-        self.assertIn("monospace", html)
+        self.assertIn("monospace", self.view.to_html())
 
     def test_tool_marker_history(self):
         self.renderer.render_tool_marker("marker", tool_name="search")
@@ -332,13 +251,16 @@ class TestToolMarker(RendererTestBase):
 
 
 class TestCollapsibleToolCall(RendererTestBase):
+    """Native <details>: no toggle anchor, no arrow glyph; the body is always
+    in the DOM and the ``open`` flag controls initial expansion."""
 
     def test_tool_call_renders_collapsed(self):
         tid = self.renderer.render_tool_call("search", {"q": "x"})
-        html = self.text_browser.toHtml()
-        self.assertIn("▶", html)
-        self.assertIn("search", html)
-        self.assertIn(f"tool://toggle/{tid}", html)
+        tc = self.view.collapsibles[tid]
+        self.assertIn("search", tc["summary"])
+        self.assertFalse(tc["open"])
+        # No legacy toggle anchor / arrow — collapse is native.
+        self.assertNotIn("tool://toggle", self.view.to_html())
 
     def test_tool_call_returns_id(self):
         tid = self.renderer.render_tool_call("search", {})
@@ -347,27 +269,18 @@ class TestCollapsibleToolCall(RendererTestBase):
     def test_tool_result_attaches(self):
         tid = self.renderer.render_tool_call("search", {"q": "x"})
         self.renderer.render_tool_result(tid, '{"hits": 5}')
-        html = self.text_browser.toHtml()
-        # After result, status should be success (✓)
-        self.assertIn("✓", html)
+        # After result the summary carries the success icon and the body holds
+        # the result text.
+        self.assertIn("✓", self.view.collapsibles[tid]["summary"])
+        self.assertIn("hits", self.view.collapsibles[tid]["body"])
 
-    def test_tool_toggle_expands(self):
+    def test_tool_toggle_mirror(self):
+        """toggle_tool_call flips the server-side mirror and returns it
+        (native <details> owns the real open/closed state)."""
         tid = self.renderer.render_tool_call("search", {"q": "x"})
         self.renderer.render_tool_result(tid, '{"hits": 5}')
-        expanded = self.renderer.toggle_tool_call(tid)
-        self.assertTrue(expanded)
-        html = self.text_browser.toHtml()
-        self.assertIn("▼", html)
-        self.assertIn("hits", html)
-
-    def test_tool_toggle_collapses(self):
-        tid = self.renderer.render_tool_call("search", {"q": "x"})
-        self.renderer.render_tool_result(tid, '{"hits": 5}')
-        self.renderer.toggle_tool_call(tid)  # expand
-        collapsed = self.renderer.toggle_tool_call(tid)  # collapse again
-        self.assertFalse(collapsed)
-        html = self.text_browser.toHtml()
-        self.assertIn("▶", html)
+        self.assertTrue(self.renderer.toggle_tool_call(tid))   # expand
+        self.assertFalse(self.renderer.toggle_tool_call(tid))  # collapse
 
     def test_tool_call_history(self):
         self.renderer.render_tool_call("search", {"q": "x"})
@@ -377,17 +290,15 @@ class TestCollapsibleToolCall(RendererTestBase):
 
     def test_unknown_tool_id_fallback(self):
         self.renderer.render_tool_result("nonexistent", "result")
-        html = self.text_browser.toHtml()
-        # Orphan result renders as system message, not legacy marker.
-        self.assertIn("orphan result", html)
+        # Orphan result renders as a system message block.
+        self.assertIn("orphan result", self.view.to_html())
 
 
 class TestSystemMessage(RendererTestBase):
 
     def test_system_message_centered(self):
         self.renderer.render_system_message("status")
-        html = self.text_browser.toHtml()
-        self.assertIn("text-align: center", html)
+        self.assertIn("text-align: center", self.view.to_html())
 
     def test_system_history(self):
         self.renderer.render_system_message("ok")
@@ -402,7 +313,7 @@ class TestProposalBubble(RendererTestBase):
             1, "propose_keyword_replacement",
             {"old": "A", "new": "B", "reason": "test"}
         )
-        html = self.text_browser.toHtml()
+        html = self.view.to_html()
         self.assertIn("mutation://1/accept", html)
         self.assertIn("mutation://1/reject", html)
         self.assertIn("Akzeptieren", html)
@@ -420,7 +331,7 @@ class TestHtmlBlock(RendererTestBase):
 
     def test_html_block_appended(self):
         self.renderer.render_html_block("<div>#1 DK 614.7</div>", kind="dk_classifications")
-        self.assertIn("#1 DK 614.7", self.text_browser.toHtml())
+        self.assertIn("#1 DK 614.7", self.view.to_html())
 
     def test_html_block_history(self):
         self.renderer.render_html_block(
@@ -439,32 +350,32 @@ class TestHtmlBlock(RendererTestBase):
 
 class TestCollapsible(RendererTestBase):
 
-    def test_collapsible_collapsed_hides_body(self):
-        self.renderer.render_collapsible(
+    def test_collapsible_collapsed_state(self):
+        tid = self.renderer.render_collapsible(
             "Input 'classification'", "SECRET BODY", collapsed=True, meta="14:23:01"
         )
-        html = self.text_browser.toHtml()
-        self.assertIn("Input 'classification'", html)
-        self.assertIn("14:23:01", html)
-        self.assertIn("tool://toggle/", html)  # reuses tool toggle anchor
-        self.assertNotIn("SECRET BODY", html)  # body hidden when collapsed
+        tc = self.view.collapsibles[tid]
+        self.assertIn("Input 'classification'", tc["summary"])
+        self.assertIn("14:23:01", tc["summary"])
+        self.assertFalse(tc["open"])           # starts collapsed
+        self.assertIn("SECRET BODY", tc["body"])  # body present, just collapsed
 
     def test_collapsible_expanded_shows_body(self):
-        self.renderer.render_collapsible(
+        tid = self.renderer.render_collapsible(
             "Input 'x'", "VISIBLE BODY", collapsed=False
         )
-        self.assertIn("VISIBLE BODY", self.text_browser.toHtml())
+        self.assertTrue(self.view.collapsibles[tid]["open"])
+        self.assertIn("VISIBLE BODY", self.view.collapsibles[tid]["body"])
 
-    def test_collapsible_toggle(self):
+    def test_collapsible_toggle_mirror(self):
         tid = self.renderer.render_collapsible("t", "BODY", collapsed=True)
-        self.assertNotIn("BODY", self.text_browser.toHtml())
-        self.renderer.toggle_tool_call(tid)  # shared toggle machinery
-        self.assertIn("BODY", self.text_browser.toHtml())
+        self.assertTrue(self.renderer.toggle_tool_call(tid))   # mirror → expanded
+        self.assertFalse(self.renderer.toggle_tool_call(tid))  # mirror → collapsed
 
     def test_update_collapsible_meta(self):
         tid = self.renderer.render_collapsible("t", "b", collapsed=True, meta="14:00:00")
         self.renderer.update_collapsible_meta(tid, "14:00:00  ⏱ 3.4s")
-        self.assertIn("⏱ 3.4s", self.text_browser.toHtml())
+        self.assertIn("⏱ 3.4s", self.view.collapsibles[tid]["summary"])
 
     def test_collapsible_history_entry(self):
         self.renderer.render_collapsible("Title", "body")
@@ -493,21 +404,17 @@ class TestClearAndReset(RendererTestBase):
     def test_clear_clears_document(self):
         self.renderer.render_system_message("msg")
         self.renderer.clear()
-        self.assertEqual(len(self.text_browser._html_calls), 0)
+        self.assertEqual(len(self.view.blocks), 0)
 
 
 class TestAutoScroll(RendererTestBase):
 
-    def test_throttle_ignores_second_call(self):
-        import time
+    def test_does_not_crash(self):
         self.renderer.auto_scroll_to_bottom()
-        t0 = time.time()
-        self.renderer.auto_scroll_to_bottom()
-        self.assertLess(time.time() - t0, 0.05)
 
     def test_respects_checkbox(self):
         self.checkbox._checked = False
-        # Should not crash and should return early
+        # Should not crash and should not scroll.
         self.renderer.auto_scroll_to_bottom()
 
 
@@ -554,26 +461,22 @@ class TestBusSubscription(unittest.TestCase):
         state_bus_mod.reset()
         self.bus = state_bus_mod.AlimaStateBus()
 
-        self.text_browser = _MockTextBrowser()
+        self.view = _MockWebLogView()
         self.checkbox = _MockCheckBox(checked=True)
-        self.renderer = UnifiedMessageRenderer(self.text_browser, self.checkbox)
+        self.renderer = UnifiedMessageRenderer(self.view, self.checkbox)
 
     def tearDown(self):
         from src.core import state_bus as state_bus_mod
         state_bus_mod.reset()
 
     def test_subscribe_unsubscribe_round_trip(self):
-        """``subscribe()`` registers handlers; ``unsubscribe()`` removes them."""
         self.renderer.subscribe()
-        # Both event types are now subscribed on the bus.
         called_subs = [s for s in self.bus._subscriptions if s[0] == "tool.called"]
         result_subs = [s for s in self.bus._subscriptions if s[0] == "tool.result"]
         self.assertGreater(len(called_subs), 0)
         self.assertGreater(len(result_subs), 0)
 
         self.renderer.unsubscribe()
-        # After unsubscribe, our specific handlers are gone.
-        from src.ui.unified_message_renderer import UnifiedMessageRenderer
         for event, handler, _slot in self.bus._subscriptions:
             if event != "tool.called":
                 continue
@@ -584,7 +487,6 @@ class TestBusSubscription(unittest.TestCase):
             )
 
     def test_bus_events_forward_to_renderer(self):
-        """``tool.called`` opens a tool block; ``tool.result`` attaches."""
         self.renderer.subscribe()
         try:
             self.bus.emit_event("tool.called", {
@@ -592,10 +494,8 @@ class TestBusSubscription(unittest.TestCase):
                 "arguments": {"term": "Bibliothek"},
                 "id": "tc_bus1",
             })
-            # A tool call block was rendered.
             self.assertEqual(len(self.renderer.history), 1)
             self.assertEqual(self.renderer.history[0].metadata["tool_name"], "search_gnd")
-            # The id was mapped.
             self.assertIn("tc_bus1", self.renderer._bus_id_to_tool_id)
 
             self.bus.emit_event("tool.result", {
@@ -604,16 +504,12 @@ class TestBusSubscription(unittest.TestCase):
                 "id": "tc_bus1",
                 "status": "ok",
             })
-            # Tool block updated: status is "success" (✓ rendered).
-            html = self.text_browser.toHtml()
-            self.assertIn("✓", html)
-            # Mapping consumed.
+            self.assertIn("✓", self.view.to_html())
             self.assertNotIn("tc_bus1", self.renderer._bus_id_to_tool_id)
         finally:
             self.renderer.unsubscribe()
 
     def test_cache_hit_badge_propagates(self):
-        """A ``cache_hit=True`` result rewrites the result string with 📦."""
         self.renderer.subscribe()
         try:
             self.bus.emit_event("tool.called", {
@@ -628,7 +524,6 @@ class TestBusSubscription(unittest.TestCase):
                 "cache_hit": True,
                 "status": "ok",
             })
-            # Inspect the tool call's stored result — it should carry 📦.
             tool_id = "tc_1"  # renderer's local id; first call → tc_1
             tc = self.renderer._tool_calls[tool_id]
             self.assertIn("📦 cache", tc["result"])
@@ -636,8 +531,6 @@ class TestBusSubscription(unittest.TestCase):
             self.renderer.unsubscribe()
 
     def test_orphan_result_renders_marker(self):
-        """A ``tool.result`` without a matching ``tool.called`` falls back
-        to a plain marker (no exception, no crash)."""
         self.renderer.subscribe()
         try:
             self.bus.emit_event("tool.result", {
@@ -646,8 +539,7 @@ class TestBusSubscription(unittest.TestCase):
                 "id": "no-match",
                 "status": "ok",
             })
-            html = self.text_browser.toHtml()
-            self.assertIn("↳", html)
+            self.assertIn("↳", self.view.to_html())
         finally:
             self.renderer.unsubscribe()
 
@@ -658,19 +550,15 @@ class TestCatalogMarkerReplacement(RendererTestBase):
     WEB_BASE = "https://katalog.ub.tu-freiberg.de/Record/"
 
     def test_marker_replaced_with_anchor(self):
-        """Valid marker is converted to an <a href=…0-{rsn}> with display text."""
         self.renderer.set_catalog_web_base(self.WEB_BASE)
         out = self.renderer._replace_cat_markers("Vor <<CAT:12345|Titel>> nach")
         self.assertIn('href="https://katalog.ub.tu-freiberg.de/Record/0-12345"', out)
         self.assertIn(">Titel</a>", out)
-        # Marker syntax itself must be gone.
         self.assertNotIn("<<CAT:", out)
-        # Surrounding text preserved.
         self.assertTrue(out.startswith("Vor "))
         self.assertTrue(out.endswith(" nach"))
 
     def test_invalid_rsn_passes_through_as_text(self):
-        """Non-numeric RSN → marker is reduced to display text (no anchor)."""
         self.renderer.set_catalog_web_base(self.WEB_BASE)
         out = self.renderer._replace_cat_markers("Siehe <<CAT:abc|Mein Titel>>")
         self.assertNotIn("<a ", out, "No anchor should be emitted for invalid RSN")
@@ -678,15 +566,12 @@ class TestCatalogMarkerReplacement(RendererTestBase):
         self.assertIn("Mein Titel", out)
 
     def test_empty_web_base_disables_feature(self):
-        """Without a configured base, markers reduce to display text."""
-        # Do NOT call set_catalog_web_base — default is "".
         out = self.renderer._replace_cat_markers("X <<CAT:12345|Titel>> Y")
         self.assertNotIn("<a ", out, "Feature must be off when no base URL set")
         self.assertNotIn("<<CAT:", out)
         self.assertIn("Titel", out)
 
     def test_multiple_markers_all_replaced(self):
-        """Multiple markers in one text are all replaced independently."""
         self.renderer.set_catalog_web_base(self.WEB_BASE)
         out = self.renderer._replace_cat_markers(
             "<<CAT:111|A>> und <<CAT:222|B>>"
@@ -697,15 +582,12 @@ class TestCatalogMarkerReplacement(RendererTestBase):
         self.assertIn(">B</a>", out)
 
     def test_html_in_display_is_escaped(self):
-        """Display text is HTML-escaped to prevent LLM-injected XSS."""
         self.renderer.set_catalog_web_base(self.WEB_BASE)
         out = self.renderer._replace_cat_markers('<<CAT:1|<script>x</script>>>')
-        # The raw <script> tag must be escaped, not embedded.
         self.assertNotIn("<script>", out)
         self.assertIn("&lt;script&gt;", out)
 
     def test_no_marker_passthrough(self):
-        """Text without markers is returned unchanged."""
         self.renderer.set_catalog_web_base(self.WEB_BASE)
         text = "Just plain text, no marker here."
         self.assertEqual(self.renderer._replace_cat_markers(text), text)

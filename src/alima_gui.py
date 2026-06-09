@@ -8,6 +8,11 @@ faulthandler.enable(all_threads=True)
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# QtWebEngineWidgets (used by the chat/log WebLogView) MUST be imported before
+# the QApplication is created, otherwise QWebEngineView import fails at runtime.
+# Import it here, as early as possible. - Claude Generated
+from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401  (import-order side effect)
+
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QDialog
 from PyQt6.QtGui import QPixmap, QPalette, QColor
 from src.ui.main_window import MainWindow
