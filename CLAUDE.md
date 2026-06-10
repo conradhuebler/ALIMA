@@ -109,7 +109,7 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-*(Empty. Move active work here as bullets; move completed → `AIChangelog.md`.)*
+- **ADDED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Wartet auf Operator-Vergleichslauf (→ TESTED).
 
 ## [Instructions Block — Operator-Defined Tasks]
 
@@ -127,8 +127,8 @@ When documenting implemented features, the AI must apply these rules:
 5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools.
 6. **Chat-Agent Phases P-δ.4 → P-ι**: Mini-Polish + UnifiedMessageWidget (shared renderer for chat + pipeline-logger) + Mutation Tools + Pipeline-Orchestration + Input-Beschaffung (DOI/URL/PDF/Image) + Export + Headless/CLI/API. Permission-Layer via `ChatConfig.autonomous_pipeline` (default explicit, confirmation dialog for destructive ops). Roadmap: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
 7. **Streaming-with-Tools Backend** (P-δ.5): ✅ Ollama, OpenAI, Anthropic stream text deltas when tools are active (`_generate_*_with_tools` in `llm_service.py`). Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers). Renderer is now QWebEngineView-based (`src/ui/web_log_view.py` `WebLogView`) — native `<details>` collapse, live token append; see `AIChangelog.md` (June 9, 2026).
-8. **WP12 — Unified Render Layer (GUI ↔ Webapp)**: shared CSS+JS render layer + JSON render-event protocol; WP12.1–.4 implemented (uncommitted). Remaining work tracked as **WP12.5** (commit, visual verification, error-event rendering, 2 operator decisions). Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md) §9.
-9. **WP13 — Cleanup**: verified dead code (`search_engine.py`, `lobid_subjects.py`, `katalog_subject.py`, `tablewidget_new/_original.py`), 4 tracked `.bak`/`.backup` files, `workflows/legacy/` decision, sub-CLAUDE.md hygiene, one-time SWB cache purge. Depends on WP12 commit. Spec: [`docs/wp13_cleanup.md`](docs/wp13_cleanup.md).
+8. **WP12 — Unified Render Layer (GUI ↔ Webapp)**: shared CSS+JS render layer + JSON render-event protocol; WP12.1–.4 committed in `9552d93`. Remaining work tracked as **WP12.5** §9.2–.5 (visual verification, error-event rendering, 2 operator decisions on webapp double-display & agentic tier). Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md).
+9. **WP13 — Cleanup**: verified dead code (`search_engine.py`, `lobid_subjects.py`, `katalog_subject.py`, `tablewidget_new/_original.py`), 4 tracked `.bak`/`.backup` files, `workflows/legacy/` decision, sub-CLAUDE.md hygiene, one-time SWB cache purge. WP12 dependency satisfied (commit `9552d93`); WP13 has its own spec. Spec: [`docs/wp13_cleanup.md`](docs/wp13_cleanup.md).
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.

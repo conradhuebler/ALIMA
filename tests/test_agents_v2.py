@@ -492,8 +492,8 @@ class TestAlimaClassicMigration(unittest.TestCase):
         self.assertEqual(
             step_ids,
             [
-                "extraction", "search", "selection_chunks",
-                "selection", "dk_collect", "classification", "dk_postprocess",
+                "extraction", "search", "selection_chunks", "selection",
+                "verify_keywords", "dk_collect", "classification", "dk_postprocess",
             ],
         )
         # Every step type resolves
@@ -501,7 +501,7 @@ class TestAlimaClassicMigration(unittest.TestCase):
             get_step_class(s.type)
         # Deterministic fns referenced in YAML must be registered
         det_fns = {s.raw.get("function") for s in wf.steps if s.type == "deterministic"}
-        self.assertEqual(det_fns, {"gnd_batch_search", "dk_search_agentic", "build_dk_search_results"})
+        self.assertEqual(det_fns, {"gnd_batch_search", "verify_final_keywords", "dk_search_agentic", "build_dk_search_results"})
         for fn in det_fns:
             self.assertIsNotNone(get_tool_fn(fn))
 

@@ -191,6 +191,14 @@ class TestAgenticWorkflowEndToEnd(unittest.TestCase):
                  "gnd_id": "4035769-7", "count": 3},
             ]}
 
+        def verify_final_keywords(config=None, tool_registry=None, context=None,
+                                  stream_callback=None, **kw):
+            return {
+                "verified_keywords": [{"keyword": "Limnologie", "gnd_id": "4035769-7"}],
+                "rejected": [],
+                "stats": {"total_extracted": 1, "verified_count": 1},
+            }
+
         def dk_search_agentic(config=None, tool_registry=None, context=None,
                               stream_callback=None, **kw):
             return {
@@ -206,6 +214,7 @@ class TestAgenticWorkflowEndToEnd(unittest.TestCase):
 
         fns = {
             "gnd_batch_search": gnd_batch_search,
+            "verify_final_keywords": verify_final_keywords,
             "dk_search_agentic": dk_search_agentic,
             "build_dk_search_results": build_dk_search_results,
         }
@@ -242,7 +251,7 @@ class TestAgenticWorkflowEndToEnd(unittest.TestCase):
 
         failed = [r.step_id for r in report.step_results if not r.success]
         self.assertTrue(report.success, f"failed steps: {failed}; error: {report.error}")
-        self.assertEqual(len(report.step_results), 7)
+        self.assertEqual(len(report.step_results), 8)
         # Context carries results through the whole chain
         self.assertEqual(context.working_title, "Alpen_Limnologie")
         self.assertIn("Limnologie", context.extracted_keywords)

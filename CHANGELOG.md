@@ -8,6 +8,14 @@ This file summarizes notable changes in this branch since the last upstream rele
 
 ## [Unreleased]
 
+### Agentic ↔ Classic Core Convergence
+
+- Agentic GND search (`search_swb`/`search_lobid` MCP tools) now uses the same mapping-first cache as the classic pipeline (MetaSuggester with read + write-back), instead of always-live HTTP against raw suggesters.
+- Source failures in the agentic GND search are now surfaced (stream warnings, `source_errors` in the result) and abort the step when all sources fail or the pool is empty after a partial outage — no more silently empty keyword context.
+- New `verify_keywords` workflow step (alima_v51, alima_classic): LLM-selected keywords are verified against the GND search pool with DB fallback, correcting or attaching authoritative GND-IDs before the strict-validated DK catalog search.
+- Agentic DK classification now uses the exact classic pre-filtering (frequency threshold, title filter, institution-library RVK filter, RVK guardrail) via a shared `prepare_dk_classification_context`, derives RVK anchor keywords, and is skipped when the DK search produced no usable catalog context.
+- GND search results now carry `sources`/`source_count` and are ranked multi-source-first, matching what the selection prompts assume.
+
 ### Agentic Workflow System (v4)
 
 - Replaced the hardcoded MetaAgent + 4 SubAgents architecture with a YAML-driven workflow system: every pipeline step is now defined declaratively and dispatched through a generic `WorkflowExecutor`.
@@ -77,3 +85,10 @@ This file summarizes notable changes in this branch since the last upstream rele
 
 - Refreshed the Python dependency set for the current runtime.
 - Added `pdf2image` support and documented the Poppler requirement for PDF OCR.
+
+### Unified Render Layer (GUI ↔ Webapp)
+
+- GUI and web app now render the same pipeline log and result cards from a single shared event stream, so a run started in one frontend shows the same collapsible blocks, badges, and summary layout in the other.
+- Collapsible panels (DK/GND results, tool output, source notes) behave consistently across both frontends: native expand/collapse, state preserved while streaming, and consistent dark-theme styling.
+- Browser sessions resume cleanly after a websocket reconnect (no duplicate events, no missed steps), and the log stays in sync when you switch tabs or come back to a running run.
+- Pipeline status and step outcomes are reported the same way in both frontends, including failed steps surfacing as a clearly marked error block.

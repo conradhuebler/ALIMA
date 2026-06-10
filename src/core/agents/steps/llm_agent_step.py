@@ -63,6 +63,37 @@ _TOOL_PRESETS_FALLBACK: Dict[str, List[str]] = {
 }
 
 
+def _split_chunks_classic(items: List[Any], threshold: int) -> List[List[Any]]:
+    """Split items with classic-pipeline semantics - Claude Generated
+
+    Mirrors ``_execute_chunked_keyword_analysis`` in pipeline_utils:
+    at or below the threshold everything goes into ONE call; above it,
+    items are distributed into EQUAL chunks (2 chunks up to 1.5×threshold,
+    otherwise ceil(total/threshold)) instead of fixed-size slices with a
+    small tail chunk.
+    """
+    total = len(items)
+    if total == 0:
+        return []
+    if threshold <= 0 or total <= threshold:
+        return [list(items)]
+
+    if total <= threshold * 1.5:
+        num_chunks = 2
+    else:
+        num_chunks = max(2, (total + threshold - 1) // threshold)
+
+    base_size = total // num_chunks
+    remainder = total % num_chunks
+    chunks: List[List[Any]] = []
+    start = 0
+    for i in range(num_chunks):
+        size = base_size + (1 if i < remainder else 0)
+        chunks.append(list(items[start:start + size]))
+        start += size
+    return chunks
+
+
 @register_step("llm_agent")
 class LLMAgentStep(BaseStep):
     """Configurable LLM step, YAML-driven.
@@ -146,7 +177,16 @@ class LLMAgentStep(BaseStep):
             )
             return self._run_single(raw_cfg, resolved_inputs, context)
 
-        chunk_size = int(chunk_cfg.get("chunk_size", 350))
+        tool_names = self._resolve_tools(raw_cfg.get("tools"))
+        params = self._llm_params(raw_cfg, context)
+
+        # Classic-pipeline parity: chunk_size <= 0 / missing → auto-detect per
+        # model via model_capabilities (same source as the rigid pipeline's
+        # keyword_chunking_threshold; default 500) - Claude Generated
+        chunk_size = int(chunk_cfg.get("chunk_size", 0) or 0)
+        if chunk_size <= 0:
+            chunk_size = self._auto_chunk_size(params)
+
         sort_by = chunk_cfg.get("sort_by")
         if sort_by:
             items = sorted(
@@ -165,11 +205,8 @@ class LLMAgentStep(BaseStep):
                 for item in items
             ]
 
-        chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+        chunks = _split_chunks_classic(items, chunk_size)
         total = len(chunks)
-
-        tool_names = self._resolve_tools(raw_cfg.get("tools"))
-        params = self._llm_params(raw_cfg, context)
         merge_key = chunk_cfg.get("merge_key", "keywords")
         dedup_field = chunk_cfg.get("dedup_field", "title")
         max_merged = chunk_cfg.get("max_merged")  # optional cap on merged output size
@@ -299,6 +336,34 @@ class LLMAgentStep(BaseStep):
             return system, user, updated
 
         return system, user, params
+
+    def _auto_chunk_size(self, params: Dict[str, Any]) -> int:
+        """Resolve the chunk size like the classic pipeline - Claude Generated
+
+        Delegates to ``model_capabilities.get_chunking_threshold`` (per-model
+        config > pattern match > default 500) so the same model chunks
+        identically in both pipeline modes.
+        """
+        provider = params.get("provider", "") or ""
+        model = params.get("model", "") or ""
+        config_manager = None
+        try:
+            from src.utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+        except Exception:
+            pass
+        try:
+            from src.utils.model_capabilities import get_chunking_threshold
+            size = int(get_chunking_threshold(provider, model, config_manager=config_manager) or 500)
+        except Exception as exc:
+            logger.warning(
+                f"LLMAgentStep '{self.step_id}': chunk-size auto-detect failed: {exc} — using 500"
+            )
+            return 500
+        logger.info(
+            f"LLMAgentStep '{self.step_id}': auto chunk size {size} for {provider}:{model}"
+        )
+        return size
 
     def _llm_params(self, raw_cfg: Dict[str, Any], context: Any) -> Dict[str, Any]:
         llm_cfg = raw_cfg.get("llm", {}) or {}

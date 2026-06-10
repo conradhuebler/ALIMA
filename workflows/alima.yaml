@@ -157,7 +157,7 @@ steps:
       enabled: true
       chunk_field: keywords
       chunk_fields: [title, gnd_id]
-      chunk_size: 350
+      chunk_size: 0   # 0 = auto via model_capabilities (classic parity: per-model, default 500)
       sort_by: count
       sort_desc: true
       merge_key: keywords

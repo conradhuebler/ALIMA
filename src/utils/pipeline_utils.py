@@ -279,6 +279,102 @@ def export_analysis_state_to_file(
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
+def flatten_keyword_centric_results(
+    keyword_results: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Flatten keyword-centric format to DK-centric with deduplication - Claude Generated
+
+    The BiblioClient.extract_dk_classifications_for_keywords() returns keyword-centric format:
+    [{"keyword": "Cadmium", "source": "cache", "classifications": [{"dk": "681.3", ...}]},
+     {"keyword": "Halbleiter", "source": "...", "classifications": [{"dk": "681.3", ...}]}]
+
+    This function DEDUPLICATES and merges classifications across keywords:
+    - Merges identical DK codes from multiple keywords
+    - Deduplicates titles across keywords
+    - Sums frequency counts
+    - Tracks which keywords led to each classification
+
+    Args:
+        keyword_results: List of keyword-centric results from BiblioClient
+
+    Returns:
+        Flattened and deduplicated list of DK-centric classification results
+    """
+    # Group classifications by "{type}:{code}" to detect and merge duplicates
+    grouped = {}  # Key: "DK:681.3", Value: merged classification data
+
+    for kw_result in keyword_results:
+        keyword = kw_result.get("keyword", "unknown")
+        classifications = kw_result.get("classifications", [])
+
+        for cls in classifications:
+            cls_type = cls.get("type") or cls.get("classification_type", "DK")
+            cls_code = cls.get("dk", "")
+            key = f"{cls_type}:{cls_code}"
+
+            # Initialize group if first time seeing this classification
+            if key not in grouped:
+                grouped[key] = {
+                    "dk": cls_code,
+                    "type": cls_type,
+                    "classification_type": cls.get("classification_type", cls_type),
+                    "titles": [],
+                    "count": 0,
+                    "matched_keywords": [],
+                    "keyword_counts": {},
+                    "source": cls.get("source"),
+                    "label": cls.get("label"),
+                    "ancestor_path": cls.get("ancestor_path"),
+                    "register": list(cls.get("register", [])) if cls.get("register") else [],
+                    "score": cls.get("score", 0),
+                    "branch_family": cls.get("branch_family"),
+                    "rvk_validation_status": cls.get("rvk_validation_status"),
+                    "validation_message": cls.get("validation_message"),
+                }
+
+            # Merge titles (deduplicate using set) - Claude Generated
+            # Filter out placeholder titles from cache that should not be displayed
+            title_set = set(grouped[key]["titles"])
+            for title in cls.get("titles", []):
+                # Skip placeholder titles from classification cache - Claude Generated
+                if title.startswith("Cached Catalog Entry for RSN"):
+                    continue
+                if title == "Cached Author":
+                    continue
+                if title not in title_set:
+                    grouped[key]["titles"].append(title)
+                    title_set.add(title)
+
+            # Sum counts from this keyword
+            grouped[key]["count"] += cls.get("count", 0)
+            grouped[key]["score"] = max(grouped[key].get("score", 0), cls.get("score", 0))
+
+            # Track which keywords contributed to this classification
+            if keyword not in grouped[key]["matched_keywords"]:
+                grouped[key]["matched_keywords"].append(keyword)
+            grouped[key]["keyword_counts"][keyword] = cls.get("count", 0)
+            for register_entry in cls.get("register", []) or []:
+                if register_entry not in grouped[key]["register"]:
+                    grouped[key]["register"].append(register_entry)
+            if cls.get("rvk_validation_status") and not grouped[key].get("rvk_validation_status"):
+                grouped[key]["rvk_validation_status"] = cls.get("rvk_validation_status")
+            if cls.get("validation_message") and not grouped[key].get("validation_message"):
+                grouped[key]["validation_message"] = cls.get("validation_message")
+
+    # Convert to list and sort by count (most frequent first)
+    flattened = sorted(grouped.values(), key=lambda x: x["count"], reverse=True)
+
+    # Log deduplication metrics
+    original_count = sum(len(kr.get("classifications", [])) for kr in keyword_results)
+    deduplicated_count = len(flattened)
+    if original_count > deduplicated_count:
+        logger.info(f"🔧 DK Deduplication: {original_count} → {deduplicated_count} (-{original_count - deduplicated_count} Duplikate entfernt)")
+
+    return flattened
+
+
+
 class PipelineStepExecutor:
     """Shared pipeline step execution logic - Claude Generated"""
 
@@ -1979,62 +2075,26 @@ class PipelineStepExecutor:
             final_llm_analysis=final_llm_analysis,
         )
 
-    def execute_dk_classification(
+    def prepare_dk_classification_context(
         self,
-        original_abstract: str,
         dk_search_results: List[Dict[str, Any]],
-        model: str = None,
-        provider: str = None,
-        stream_callback: Optional[callable] = None,
-        dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,  # Claude Generated - Only pass classifications with >= N occurrences
+        original_abstract: str,
+        dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,
         rvk_anchor_keywords: Optional[List[str]] = None,
-        mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
-        **kwargs,
-    ) -> Tuple[List[str], Optional["LlmKeywordAnalysis"]]:
-        """
-        Execute LLM-based DK classification using pre-fetched catalog search results with intelligent provider selection - Claude Generated
+        stream_callback=None,
+    ) -> Dict[str, Any]:
+        """Filter and format DK search results for the classification prompt - Claude Generated
 
-        Args:
-            original_abstract: The original abstract text for analysis
-            dk_search_results: List of DK classification results from catalog search
-            model: LLM model to use for classification (optional - SmartProvider selection if None)
-            provider: LLM provider (optional - SmartProvider selection if None)
-            stream_callback: Optional callback for streaming progress updates
-            dk_frequency_threshold: Minimum occurrence count for DK classifications to be included.
-                                  Only classifications that appear >= this many times in the catalog
-                                  will be passed to the LLM for analysis. Default: 10.
-                                  This reduces prompt size and focuses on most relevant classifications.
-            **kwargs: Additional parameters for LLM (temperature, top_p, etc.)
+        Shared by the classic pipeline (execute_dk_classification) and the
+        agentic pipeline (dk_search_agentic) so both build the classification
+        context identically: frequency threshold (DK only, RVK exempt),
+        institution-library RVK filter, title filter, RVK candidate maps and
+        RVK guardrail text prepended to the formatted catalog excerpt.
 
         Returns:
-            Tuple containing:
-            - List of selected DK classification codes
-            - LlmKeywordAnalysis object with details of the LLM call
-
-        Note:
-            The frequency threshold helps manage large result sets by filtering out
-            classifications that occur infrequently in the catalog, which are typically
-            less relevant for the given abstract.
+            Dict with results_with_titles, catalog_text, allowed_standard_rvk_map,
+            allowed_nonstandard_rvk_map, rvk_source_map, selected_rvk_meta.
         """
-
-        # Intelligent provider selection using centralized method - Claude Generated
-        provider, model = self._resolve_provider_smart(
-            provider=provider,
-            model=model,
-            task_type="classification",
-            prefer_fast=False,  # Classification should prioritize accuracy
-            task_name="classification",
-            step_id="dk_classification"
-        )
-
-        if not dk_search_results:
-            if stream_callback:
-                stream_callback("Keine DK-Suchergebnisse vorhanden - DK-Klassifikation übersprungen\n", "dk_classification")
-            return [], None
-
-        if stream_callback:
-            stream_callback(f"Starte DK-Klassifikation mit {len(dk_search_results)} Katalog-Einträgen\n", "dk_classification")
-
         # Filter results by frequency threshold - Claude Generated
         filtered_results = []
         low_frequency_count = 0
@@ -2188,6 +2248,86 @@ class PipelineStepExecutor:
                 "- Achte auf den Fachpfad und verwerfe Kandidaten mit unpassendem Oberbereich.\n\n"
             )
             catalog_text = rvk_guardrail + catalog_text
+
+        return {
+            "results_with_titles": results_with_titles,
+            "catalog_text": catalog_text,
+            "allowed_standard_rvk_map": allowed_standard_rvk_map,
+            "allowed_nonstandard_rvk_map": allowed_nonstandard_rvk_map,
+            "rvk_source_map": rvk_source_map,
+            "selected_rvk_meta": selected_rvk_meta,
+        }
+
+    def execute_dk_classification(
+        self,
+        original_abstract: str,
+        dk_search_results: List[Dict[str, Any]],
+        model: str = None,
+        provider: str = None,
+        stream_callback: Optional[callable] = None,
+        dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,  # Claude Generated - Only pass classifications with >= N occurrences
+        rvk_anchor_keywords: Optional[List[str]] = None,
+        mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
+        **kwargs,
+    ) -> Tuple[List[str], Optional["LlmKeywordAnalysis"]]:
+        """
+        Execute LLM-based DK classification using pre-fetched catalog search results with intelligent provider selection - Claude Generated
+
+        Args:
+            original_abstract: The original abstract text for analysis
+            dk_search_results: List of DK classification results from catalog search
+            model: LLM model to use for classification (optional - SmartProvider selection if None)
+            provider: LLM provider (optional - SmartProvider selection if None)
+            stream_callback: Optional callback for streaming progress updates
+            dk_frequency_threshold: Minimum occurrence count for DK classifications to be included.
+                                  Only classifications that appear >= this many times in the catalog
+                                  will be passed to the LLM for analysis. Default: 10.
+                                  This reduces prompt size and focuses on most relevant classifications.
+            **kwargs: Additional parameters for LLM (temperature, top_p, etc.)
+
+        Returns:
+            Tuple containing:
+            - List of selected DK classification codes
+            - LlmKeywordAnalysis object with details of the LLM call
+
+        Note:
+            The frequency threshold helps manage large result sets by filtering out
+            classifications that occur infrequently in the catalog, which are typically
+            less relevant for the given abstract.
+        """
+
+        # Intelligent provider selection using centralized method - Claude Generated
+        provider, model = self._resolve_provider_smart(
+            provider=provider,
+            model=model,
+            task_type="classification",
+            prefer_fast=False,  # Classification should prioritize accuracy
+            task_name="classification",
+            step_id="dk_classification"
+        )
+
+        if not dk_search_results:
+            if stream_callback:
+                stream_callback("Keine DK-Suchergebnisse vorhanden - DK-Klassifikation übersprungen\n", "dk_classification")
+            return [], None
+
+        if stream_callback:
+            stream_callback(f"Starte DK-Klassifikation mit {len(dk_search_results)} Katalog-Einträgen\n", "dk_classification")
+
+        # Shared filtering/formatting with the agentic pipeline - Claude Generated
+        prep = self.prepare_dk_classification_context(
+            dk_search_results,
+            original_abstract,
+            dk_frequency_threshold=dk_frequency_threshold,
+            rvk_anchor_keywords=rvk_anchor_keywords,
+            stream_callback=stream_callback,
+        )
+        results_with_titles = prep["results_with_titles"]
+        catalog_text = prep["catalog_text"]
+        allowed_standard_rvk_map = prep["allowed_standard_rvk_map"]
+        allowed_nonstandard_rvk_map = prep["allowed_nonstandard_rvk_map"]
+        rvk_source_map = prep["rvk_source_map"]
+        selected_rvk_meta = prep["selected_rvk_meta"]
 
         # Create AbstractData for LLM call
         from ..core.data_models import AbstractData
@@ -4381,96 +4521,8 @@ class PipelineStepExecutor:
     def _flatten_keyword_centric_results(
         self, keyword_results: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        Flatten keyword-centric format to DK-centric with deduplication - Claude Generated
-
-        The BiblioClient.extract_dk_classifications_for_keywords() returns keyword-centric format:
-        [{"keyword": "Cadmium", "source": "cache", "classifications": [{"dk": "681.3", ...}]},
-         {"keyword": "Halbleiter", "source": "...", "classifications": [{"dk": "681.3", ...}]}]
-
-        This function DEDUPLICATES and merges classifications across keywords:
-        - Merges identical DK codes from multiple keywords
-        - Deduplicates titles across keywords
-        - Sums frequency counts
-        - Tracks which keywords led to each classification
-
-        Args:
-            keyword_results: List of keyword-centric results from BiblioClient
-
-        Returns:
-            Flattened and deduplicated list of DK-centric classification results
-        """
-        # Group classifications by "{type}:{code}" to detect and merge duplicates
-        grouped = {}  # Key: "DK:681.3", Value: merged classification data
-
-        for kw_result in keyword_results:
-            keyword = kw_result.get("keyword", "unknown")
-            classifications = kw_result.get("classifications", [])
-
-            for cls in classifications:
-                cls_type = cls.get("type") or cls.get("classification_type", "DK")
-                cls_code = cls.get("dk", "")
-                key = f"{cls_type}:{cls_code}"
-
-                # Initialize group if first time seeing this classification
-                if key not in grouped:
-                    grouped[key] = {
-                        "dk": cls_code,
-                        "type": cls_type,
-                        "classification_type": cls.get("classification_type", cls_type),
-                        "titles": [],
-                        "count": 0,
-                        "matched_keywords": [],
-                        "keyword_counts": {},
-                        "source": cls.get("source"),
-                        "label": cls.get("label"),
-                        "ancestor_path": cls.get("ancestor_path"),
-                        "register": list(cls.get("register", [])) if cls.get("register") else [],
-                        "score": cls.get("score", 0),
-                        "branch_family": cls.get("branch_family"),
-                        "rvk_validation_status": cls.get("rvk_validation_status"),
-                        "validation_message": cls.get("validation_message"),
-                    }
-
-                # Merge titles (deduplicate using set) - Claude Generated
-                # Filter out placeholder titles from cache that should not be displayed
-                title_set = set(grouped[key]["titles"])
-                for title in cls.get("titles", []):
-                    # Skip placeholder titles from classification cache - Claude Generated
-                    if title.startswith("Cached Catalog Entry for RSN"):
-                        continue
-                    if title == "Cached Author":
-                        continue
-                    if title not in title_set:
-                        grouped[key]["titles"].append(title)
-                        title_set.add(title)
-
-                # Sum counts from this keyword
-                grouped[key]["count"] += cls.get("count", 0)
-                grouped[key]["score"] = max(grouped[key].get("score", 0), cls.get("score", 0))
-
-                # Track which keywords contributed to this classification
-                if keyword not in grouped[key]["matched_keywords"]:
-                    grouped[key]["matched_keywords"].append(keyword)
-                grouped[key]["keyword_counts"][keyword] = cls.get("count", 0)
-                for register_entry in cls.get("register", []) or []:
-                    if register_entry not in grouped[key]["register"]:
-                        grouped[key]["register"].append(register_entry)
-                if cls.get("rvk_validation_status") and not grouped[key].get("rvk_validation_status"):
-                    grouped[key]["rvk_validation_status"] = cls.get("rvk_validation_status")
-                if cls.get("validation_message") and not grouped[key].get("validation_message"):
-                    grouped[key]["validation_message"] = cls.get("validation_message")
-
-        # Convert to list and sort by count (most frequent first)
-        flattened = sorted(grouped.values(), key=lambda x: x["count"], reverse=True)
-
-        # Log deduplication metrics
-        original_count = sum(len(kr.get("classifications", [])) for kr in keyword_results)
-        deduplicated_count = len(flattened)
-        if original_count > deduplicated_count:
-            logger.info(f"🔧 DK Deduplication: {original_count} → {deduplicated_count} (-{original_count - deduplicated_count} Duplikate entfernt)")
-
-        return flattened
+        """Thin wrapper — logic lives module-level for reuse by formatters - Claude Generated"""
+        return flatten_keyword_centric_results(keyword_results)
 
     def _calculate_dk_statistics(
         self,
@@ -6110,6 +6162,14 @@ class PipelineResultFormatter:
         if not dk_search_results:
             return ([], 0)
 
+        # Keyword-centric input (nested classifications) → flatten first,
+        # same tolerance as format_dk_search_results_text - Claude Generated
+        if any(
+            isinstance(r, dict) and "classifications" in r and not r.get("dk")
+            for r in dk_search_results
+        ):
+            dk_search_results = flatten_keyword_centric_results(dk_search_results)
+
         expected_type, normalized_code = PipelineResultFormatter.split_classification_code(
             dk_code
         )
@@ -6278,16 +6338,30 @@ class PipelineResultFormatter:
         Mirrors the Pipeline-Tab catalog-research view: one block per DK/RVK code
         with sample titles and frequency. Returns an empty string when nothing has
         titles/count (caller decides on the empty-state placeholder).
+
+        Accepts BOTH formats: DK-centric ({dk, titles, count, ...}) and
+        keyword-centric ({keyword, classifications: [...]}) as produced by
+        dk_collect — the latter previously fell through silently and the
+        Katalog-Recherche view showed nothing.
         """
         if not results:
             return ""
+
+        # Keyword-centric entries (nested classifications, no top-level dk)
+        # → flatten with the same dedup logic the pipeline uses
+        if any(
+            isinstance(r, dict) and "classifications" in r and not r.get("dk")
+            for r in results
+        ):
+            results = flatten_keyword_centric_results(results)
 
         result_lines = []
         for result in results:
             dk_code = result.get("dk", "")
             count = result.get("count", 0)
             titles = result.get("titles", [])
-            keywords = result.get("keywords", [])
+            # Flattened entries carry "matched_keywords", legacy ones "keywords"
+            keywords = result.get("keywords") or result.get("matched_keywords") or []
             classification_type = result.get("classification_type", "DK")
 
             if not titles or count == 0:

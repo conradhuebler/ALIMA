@@ -242,23 +242,34 @@ class WorkflowExecutor:
         if status == "running":
             return
 
-        MAX_LEN = 50  # cap large lists to keep serialization + render fast
         try:
             snap = context.to_dict() if hasattr(context, "to_dict") else {}
         except Exception as e:  # noqa: BLE001
             logger.debug(f"context snapshot serialization failed: {e}")
             snap = {}
 
-        # Cap large list fields to prevent UI slowdown with big datasets
-        for key in ("gnd_entries", "selected_keywords", "keyword_chains",
-                    "dk_classifications", "rvk_classifications",
-                    "dk_search_results", "extracted_keywords",
-                    "missing_concepts", "execution_history"):
+        # Per-field caps. The user-facing data tables (GND pool ~1000+,
+        # DK catalog results) must arrive COMPLETE — a hard 50-entry cap made
+        # the Pipeline-Tab silently show partial pools/title lists. Only
+        # genuinely unbounded bookkeeping lists stay tightly capped.
+        # - Claude Generated
+        FIELD_CAPS = {
+            "gnd_entries": 5000,
+            "dk_search_results": 2000,
+            "selected_keywords": 1000,
+            "extracted_keywords": 500,
+            "keyword_chains": 200,
+            "dk_classifications": 200,
+            "rvk_classifications": 200,
+            "missing_concepts": 200,
+            "execution_history": 50,
+        }
+        for key, cap in FIELD_CAPS.items():
             val = snap.get(key)
-            if isinstance(val, list) and len(val) > MAX_LEN:
-                snap[key] = val[:MAX_LEN]
+            if isinstance(val, list) and len(val) > cap:
+                snap[key] = val[:cap]
                 # add a sentinel so the widget knows data was truncated
-                snap[key].append({"_truncated": len(val) - MAX_LEN})
+                snap[key].append({"_truncated": len(val) - cap})
 
         snap["_step_id"] = cfg.id
         snap["_step_type"] = cfg.type

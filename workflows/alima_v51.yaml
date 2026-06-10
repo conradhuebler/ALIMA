@@ -156,12 +156,13 @@ steps:
     function: gnd_batch_search
     description: >
       Multi-source GND search — ALL sources are MANDATORY:
-      (1) local GND DB for exact matches,
-      (2) Lobid for associative keyword expansion (critical for
+      (1) Lobid for associative keyword expansion (critical for
           smaller models — finds co-occurring subject headings),
-      (3) SWB for catalog-anchored subject headings.
-      Results are merged by GND-ID, deduplicated, and ranked
-      (entries found in multiple sources rank higher).
+      (2) SWB for catalog-anchored subject headings,
+      (3) local GND DB enrichment (description/synonyms) + mapping-first
+          cache via MetaSuggester (classic-pipeline parity).
+      Results are merged by title, deduplicated, and ranked by
+      (source_count, count) — entries found in multiple sources rank higher.
     enabled: true
     depends_on: [extraction]
 
@@ -210,7 +211,7 @@ steps:
       enabled: true
       chunk_field: keywords
       chunk_fields: [title, gnd_id]
-      chunk_size: 350
+      chunk_size: 0   # 0 = auto via model_capabilities (classic parity: per-model, default 500)
       sort_by: count
       sort_desc: true
       merge_key: keywords
@@ -389,6 +390,24 @@ steps:
       {keywords}
 
   # ──────────────────────────────────────────────────────────────────
+  # Step 4b: Verify keywords — classic GND-pool verification
+  # Re-attaches authoritative GND-IDs from the search pool / local DB,
+  # so strict GND validation in dk_collect doesn't silently drop
+  # keywords whose gnd_id the LLM mangled or omitted.
+  # ──────────────────────────────────────────────────────────────────
+  - id: verify_keywords
+    type: deterministic
+    function: verify_final_keywords
+    description: "Verify selection output against GND pool (classic parity); re-attach GND-IDs"
+    enabled: true
+    depends_on: [selection]
+
+    inputs: {}
+
+    outputs:
+      extra.final_keywords: "result.verified_keywords"
+
+  # ──────────────────────────────────────────────────────────────────
   # Step 5: DK collect — per-keyword catalog DK search
   # Mirrors classic execute_dk_search via PipelineStepExecutor.
   # ──────────────────────────────────────────────────────────────────
@@ -397,7 +416,7 @@ steps:
     function: dk_search_agentic
     description: "Per-keyword catalog DK search — mirrors classic execute_dk_search"
     enabled: true
-    depends_on: [selection]
+    depends_on: [verify_keywords]
 
     inputs: {}
 
@@ -408,16 +427,21 @@ steps:
 
     config:
       max_keywords: 30
+      # Classic-pipeline parity: same default as DEFAULT_DK_FREQUENCY_THRESHOLD
+      dk_frequency_threshold: 1
 
   # ──────────────────────────────────────────────────────────────────
   # Step 6: Classification — DK/DDC/RVK assignment
   # Uses formatted DK prompt text from step 5 as keyword context.
+  # Skipped when the DK search produced no usable context (classic
+  # pipeline also skips classification then).
   # ──────────────────────────────────────────────────────────────────
   - id: classification
     type: llm_agent
     description: "Assign DK/DDC/RVK classifications from catalog data"
     enabled: true
     depends_on: [dk_collect]
+    when: "${extra.dk_prompt_text} != ''"
 
     inputs:
       abstract: "${abstract}"

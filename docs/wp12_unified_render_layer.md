@@ -1,7 +1,7 @@
 # WP12 — Unified Render Layer (GUI ↔ Webapp)
 
-**Status (2026-06-10)**: WP12.1–WP12.4 **implementiert, aber (a) uncommitted
-und (b) nur headless verifiziert** — Abschluss-Definition siehe
+**Status (2026-06-10)**: WP12.1–WP12.4 **implementiert und committed
+(`9552d93`)**, (b) nur headless verifiziert — Abschluss-Definition siehe
 [§9 „WP12.5 — Restarbeiten / Definition of Done"](#9-wp125--restarbeiten--definition-of-done).
 Implementierungsdetails: [`../AIChangelog.md`](../AIChangelog.md) (2026-06-09,
 „WP12 — Unified Render Layer"). Dieses Dokument ist Architektur-/Protokoll-
@@ -170,10 +170,10 @@ Tabs/Widgets, **Auth des HTTP-Endpoints** (separates WP — siehe
 
 ## 7. Akzeptanzkriterien (Ist-Stand 2026-06-10)
 
-1. ⬜ Ein Pipeline-Lauf erzeugt in GUI **und** Webapp visuell identische
+1. 🟨 Ein Pipeline-Lauf erzeugt in GUI **und** Webapp visuell identische
    Log-/Result-Blöcke aus **demselben** Event-Strom.
    *Headless belegt (Tests vergleichen Event-Strom), visuell **nicht**
-   verifiziert — siehe §9.2.*
+   verifiziert — siehe §9.2 (open).*
 2. ✅ `UnifiedMessageRenderer` enthält keine GUI- oder Webapp-spezifische
    Render-Logik mehr — nur Event-Emission (Beleg: `MockTransport`-Tests in
    `tests/test_unified_message_renderer.py`).
@@ -183,7 +183,8 @@ Tabs/Widgets, **Auth des HTTP-Endpoints** (separates WP — siehe
    `#log`-Karten — bewusst (komplementär), aber UX-ungeprüft, siehe §9.4.*
 4. ✅ Bestehende GUI-Tests grün; Protokoll-Tests (Mock-Transport) und
    Webapp-Tests (`tests/test_webapp_render_events.py`: Session-Puffer,
-   Cursors, WS-Broadcast + Reconnect-Replay) grün.
+   Cursors, WS-Broadcast + Reconnect-Replay) grün. *Beleg: WP12-Commit
+   `9552d93` mit 579 grünen / 5 übersprungenen Tests (headless).*
 
 ---
 
@@ -204,13 +205,11 @@ Tabs/Widgets, **Auth des HTTP-Endpoints** (separates WP — siehe
 WP12 gilt erst als **abgeschlossen**, wenn alle fünf Punkte erledigt sind.
 Reihenfolge = empfohlene Abarbeitung; 9.1 blockiert alles Weitere.
 
-### 9.1 Commit der WP12-Arbeit ⬜
-Der gesamte Stand (13 modifizierte + 7 neue Dateien, u. a.
-`src/core/render_events.py`, `src/ui/render_transport.py`,
-`src/webapp/static/alima_render.{css,js}`) liegt **nur im Worktree**.
-Erst nach dem Commit können abhängige Arbeiten (9.3, WP13) sauber aufsetzen.
-*Hinweis: `AIChangelog.md` und `src/webapp/app.py` enthalten bereits
-committete WP-A/B-Hunks — der verbleibende Diff ist rein WP12.*
+### 9.1 Commit der WP12-Arbeit ✅
+Erledigt in Commit `9552d93` (2026-06-10, „WP12 WIP: unified render layer
+12.1-12.4 + WP12.5 rest-work spec + WP13 cleanup workpackage") auf
+Branch `agent`. Der Worktree-Stand ist eingefroren; abhängige Arbeiten
+(§9.3, WP13) können sauber aufsetzen.
 
 ### 9.2 Visuelle Verifikation (GUI + Browser) ⬜
 Bisher nur headless belegt (`QT_QPA_PLATFORM=offscreen`, `TestClient`,

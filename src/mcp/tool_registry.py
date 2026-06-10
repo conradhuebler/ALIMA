@@ -133,19 +133,24 @@ class ToolRegistry:
         return self._knowledge_manager
 
     def _init_suggesters(self):
-        """Lazy-init suggester instances."""
+        """Lazy-init suggester instances.
+
+        Lobid/SWB are wrapped in MetaSuggester so the mapping-first cache
+        (UnifiedKnowledgeManager.search_with_mappings_first, incl. write-back)
+        applies exactly as in the classic pipeline path - Claude Generated
+        """
         if self._suggesters_initialized:
             return
         try:
-            from src.utils.suggesters.lobid_suggester import LobidSuggester
-            self._lobid = LobidSuggester()
+            from src.utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
+            self._lobid = MetaSuggester(suggester_type=SuggesterType.LOBID)
         except Exception as e:
-            logger.warning(f"LobidSuggester init failed: {e}")
+            logger.warning(f"Lobid MetaSuggester init failed: {e}")
         try:
-            from src.utils.suggesters.swb_suggester import SWBSuggester
-            self._swb = SWBSuggester()
+            from src.utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
+            self._swb = MetaSuggester(suggester_type=SuggesterType.SWB)
         except Exception as e:
-            logger.warning(f"SWBSuggester init failed: {e}")
+            logger.warning(f"SWB MetaSuggester init failed: {e}")
         try:
             from src.utils.suggesters.biblio_suggester import BiblioSuggester
             cat_cfg = None
@@ -304,12 +309,9 @@ class ToolRegistry:
     # Library Tool Handlers
     # ============================================================
 
-    def _handle_search_lobid(self, terms: List[str], search_type: str = "kw") -> str:
-        self._init_suggesters()
-        if self._lobid is None:
-            return json.dumps({"error": "LobidSuggester not available"})
-        results = self._lobid.search(terms, search_type=search_type)
-        # Convert sets to lists for JSON
+    @staticmethod
+    def _serialize_suggester_results(results: Dict) -> Dict:
+        """Convert per-term suggester results (with sets) to JSON-safe dicts - Claude Generated"""
         serializable = {}
         for term, keywords in results.items():
             serializable[term] = {}
@@ -318,22 +320,46 @@ class ToolRegistry:
                     k: list(v) if isinstance(v, set) else v
                     for k, v in data.items()
                 }
-        return json.dumps({"source": "lobid", "results": serializable}, ensure_ascii=False)
+        return serializable
+
+    def _handle_search_lobid(self, terms: List[str], search_type: str = "kw") -> str:
+        self._init_suggesters()
+        if self._lobid is None:
+            return json.dumps({"error": "LobidSuggester not available"})
+        if search_type == "kw":
+            # Mapping-first via MetaSuggester (classic-pipeline parity) - Claude Generated
+            results = self._lobid.search(terms)
+        else:
+            # MetaSuggester has no search_type support — use raw child suggester
+            from src.utils.suggesters.meta_suggester import SuggesterType
+            results = self._lobid.suggesters[SuggesterType.LOBID].search(
+                terms, search_type=search_type
+            )
+        return json.dumps({
+            "source": "lobid",
+            "results": self._serialize_suggester_results(results),
+            "errors": dict(getattr(self._lobid, "last_errors", {}) or {}),
+        }, ensure_ascii=False)
 
     def _handle_search_swb(self, terms: List[str], max_pages: int = 5, search_type: str = "kw") -> str:
         self._init_suggesters()
         if self._swb is None:
             return json.dumps({"error": "SWBSuggester not available"})
-        results = self._swb.search(terms, max_pages=max_pages, search_type=search_type)
-        serializable = {}
-        for term, keywords in results.items():
-            serializable[term] = {}
-            for kw, data in keywords.items():
-                serializable[term][kw] = {
-                    k: list(v) if isinstance(v, set) else v
-                    for k, v in data.items()
-                }
-        return json.dumps({"source": "swb", "results": serializable}, ensure_ascii=False)
+        if search_type == "kw" and max_pages == 5:
+            # Mapping-first via MetaSuggester (classic-pipeline parity).
+            # Live fallback inside MetaSuggester uses the suggester default
+            # max_pages=5, so this branch only covers the default - Claude Generated
+            results = self._swb.search(terms)
+        else:
+            from src.utils.suggesters.meta_suggester import SuggesterType
+            results = self._swb.suggesters[SuggesterType.SWB].search(
+                terms, max_pages=max_pages, search_type=search_type
+            )
+        return json.dumps({
+            "source": "swb",
+            "results": self._serialize_suggester_results(results),
+            "errors": dict(getattr(self._swb, "last_errors", {}) or {}),
+        }, ensure_ascii=False)
 
     def _handle_search_catalog(self, terms: List[str], search_type: str = "kw") -> str:
         self._init_suggesters()

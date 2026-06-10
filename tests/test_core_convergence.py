@@ -1,0 +1,421 @@
+"""Tests for classic↔agentic core convergence - Claude Generated
+
+Covers the WP-K1..K4 changes:
+  * gnd_batch_search: source_count ranking + source-error propagation
+  * verify_final_keywords: GND-pool verification of selection output
+  * prepare_dk_classification_context: shared DK filtering/formatting
+"""
+
+import json
+import logging
+import unittest
+from unittest.mock import MagicMock, patch
+
+from src.core.agents.shared_context import SharedContext
+from src.core.agents.deterministic_functions import (
+    gnd_batch_search,
+    verify_final_keywords,
+)
+from src.utils.pipeline_utils import PipelineStepExecutor
+
+
+class _FakeRegistry:
+    """Tool registry stub returning canned suggester JSON per source."""
+
+    def __init__(self, swb=None, lobid=None, swb_error=None, lobid_error=None):
+        self._swb = swb or {}
+        self._lobid = lobid or {}
+        self._swb_error = swb_error
+        self._lobid_error = lobid_error
+
+    def execute(self, tool, args):
+        if tool == "search_swb":
+            if self._swb_error:
+                return json.dumps({"error": self._swb_error})
+            return json.dumps({"results": self._swb, "errors": {}})
+        if tool == "search_lobid":
+            if self._lobid_error:
+                return json.dumps({"error": self._lobid_error})
+            return json.dumps({"results": self._lobid, "errors": {}})
+        if tool == "get_gnd_batch":
+            return json.dumps({"entries": {}})
+        raise RuntimeError(f"unexpected tool: {tool}")
+
+
+def _hit(gnd_id, count):
+    return {"gndid": [gnd_id], "count": count, "ddc": [], "dk": []}
+
+
+class TestGndBatchSearchConvergence(unittest.TestCase):
+
+    def test_source_count_ranking(self):
+        """Entries confirmed by multiple sources rank first."""
+        reg = _FakeRegistry(
+            swb={"Cadmium": {"Cadmium": _hit("1", 5), "Schwermetall": _hit("2", 9)}},
+            lobid={"Cadmium": {"Cadmium": _hit("1", 2)}},
+        )
+        out = gnd_batch_search(["Cadmium"], tool_registry=reg)
+        self.assertEqual(out["entries"][0]["title"], "Cadmium")
+        self.assertEqual(out["entries"][0]["source_count"], 2)
+        self.assertEqual(out["entries"][0]["sources"], ["lobid", "swb"])
+        self.assertEqual(out["entries"][1]["source_count"], 1)
+        self.assertEqual(out["source_errors"], {})
+
+    def test_partial_source_failure_is_surfaced_not_silent(self):
+        """One failing source → warning + source_errors, other results kept."""
+        reg = _FakeRegistry(
+            swb={"Cadmium": {"Cadmium": _hit("1", 5)}},
+            lobid_error="timeout",
+        )
+        msgs = []
+        out = gnd_batch_search(
+            ["Cadmium"], tool_registry=reg, stream_callback=msgs.append
+        )
+        self.assertEqual(len(out["entries"]), 1)
+        self.assertEqual(out["source_errors"], {"lobid": "timeout"})
+        self.assertTrue(any("lobid" in m and "fehlgeschlagen" in m for m in msgs))
+
+    def test_all_sources_failed_raises(self):
+        reg = _FakeRegistry(swb_error="boom", lobid_error="boom")
+        with self.assertRaises(RuntimeError):
+            gnd_batch_search(["Cadmium"], tool_registry=reg)
+
+    def test_empty_pool_with_partial_failure_raises(self):
+        """No hits + at least one source error → result is unreliable → fail."""
+        reg = _FakeRegistry(swb={}, lobid_error="timeout")
+        with self.assertRaises(RuntimeError):
+            gnd_batch_search(["Cadmium"], tool_registry=reg)
+
+    def test_empty_pool_without_errors_is_legitimate(self):
+        """Genuine zero hits (no source errors) must not raise."""
+        reg = _FakeRegistry(swb={}, lobid={})
+        msgs = []
+        out = gnd_batch_search(
+            ["Xyzzy123"], tool_registry=reg, stream_callback=msgs.append
+        )
+        self.assertEqual(out["entries"], [])
+        self.assertTrue(any("0 Treffer" in m for m in msgs))
+
+
+class TestVerifyFinalKeywords(unittest.TestCase):
+
+    def _context(self):
+        ctx = SharedContext(abstract="x")
+        ctx.gnd_entries = [
+            {"title": "Blockchain", "gnd_id": "111", "gnd_ids": ["111"]},
+            {"title": "Logistik", "gnd_id": "222", "gnd_ids": ["222"]},
+        ]
+        return ctx
+
+    def _run(self, ctx, db_results=None):
+        km = MagicMock()
+        km.search_gnd_by_title.return_value = db_results or []
+        with patch(
+            "src.core.unified_knowledge_manager.UnifiedKnowledgeManager",
+            return_value=km,
+        ):
+            return verify_final_keywords(context=ctx)
+
+    def test_pool_match_and_gnd_id_correction(self):
+        """Wrong LLM gnd_id is corrected via title match against the pool."""
+        ctx = self._context()
+        ctx.extra["final_keywords"] = [
+            {"keyword": "Blockchain", "gnd_id": "111"},
+            {"keyword": "Logistik", "gnd_id": "999"},  # falsche ID
+        ]
+        out = self._run(ctx)
+        self.assertEqual(
+            out["verified_keywords"],
+            [
+                {"keyword": "Blockchain", "gnd_id": "111"},
+                {"keyword": "Logistik", "gnd_id": "222"},
+            ],
+        )
+        self.assertEqual(ctx.extra["final_keywords"], out["verified_keywords"])
+
+    def test_unknown_keyword_rejected(self):
+        ctx = self._context()
+        ctx.extra["final_keywords"] = [{"keyword": "Quantenphysik", "gnd_id": ""}]
+        out = self._run(ctx)
+        self.assertEqual(out["verified_keywords"], [])
+        self.assertEqual(out["rejected"], ["Quantenphysik"])
+
+    def test_db_fallback_attaches_authoritative_id(self):
+        ctx = self._context()
+        ctx.extra["final_keywords"] = [{"keyword": "Photochemie", "gnd_id": ""}]
+        out = self._run(
+            ctx, db_results=[{"gnd_id": "333", "title": "Photochemie"}]
+        )
+        self.assertEqual(
+            out["verified_keywords"], [{"keyword": "Photochemie", "gnd_id": "333"}]
+        )
+
+    def test_falls_back_to_selected_keywords(self):
+        """No extra.final_keywords → selected_keywords are verified instead."""
+        ctx = self._context()
+        ctx.selected_keywords = [{"keyword": "Blockchain", "gnd_id": ""}]
+        out = self._run(ctx)
+        self.assertEqual(
+            out["verified_keywords"], [{"keyword": "Blockchain", "gnd_id": "111"}]
+        )
+
+
+class TestPrepareDkClassificationContext(unittest.TestCase):
+
+    def setUp(self):
+        self.executor = PipelineStepExecutor(
+            alima_manager=None,
+            cache_manager=None,
+            logger=logging.getLogger("test_core_convergence"),
+        )
+
+    def test_frequency_and_title_filter(self):
+        classifications = [
+            {"dk": "541.14", "classification_type": "DK", "count": 5,
+             "titles": ["Photochemie Grundlagen"], "matched_keywords": ["Photochemie"]},
+            {"dk": "530.145", "classification_type": "DK", "count": 1,
+             "titles": [], "matched_keywords": []},      # titellos → raus
+            {"dk": "999.9", "classification_type": "DK", "count": 0,
+             "titles": ["x"], "matched_keywords": []},   # unter Schwellwert → raus
+        ]
+        prep = self.executor.prepare_dk_classification_context(
+            classifications, "Abstract", dk_frequency_threshold=1
+        )
+        codes = [r["dk"] for r in prep["results_with_titles"]]
+        self.assertEqual(codes, ["541.14"])
+        self.assertIn("DK: 541.14", prep["catalog_text"])
+        self.assertNotIn("530.145", prep["catalog_text"])
+
+    def test_rvk_exempt_from_frequency_filter_and_guardrail(self):
+        classifications = [
+            {"dk": "WC 4150", "classification_type": "RVK", "count": 0,
+             "titles": ["RVK Titel"], "matched_keywords": [],
+             "source": "rvk_api", "label": "Biochemie",
+             "rvk_validation_status": "standard"},
+        ]
+        prep = self.executor.prepare_dk_classification_context(
+            classifications, "Abstract", dk_frequency_threshold=5
+        )
+        self.assertEqual(len(prep["results_with_titles"]), 1)
+        self.assertTrue(prep["allowed_standard_rvk_map"])
+        self.assertTrue(prep["catalog_text"].startswith("WICHTIG FÜR RVK:"))
+
+    def test_empty_input_yields_empty_context(self):
+        prep = self.executor.prepare_dk_classification_context(
+            [], "Abstract", dk_frequency_threshold=1
+        )
+        self.assertEqual(prep["results_with_titles"], [])
+        self.assertEqual(prep["catalog_text"], "")
+
+
+class TestDkDisplayFormatTolerance(unittest.TestCase):
+    """Katalog-Recherche display: keyword-centric input must not vanish."""
+
+    KW_CENTRIC = [
+        {"keyword": "Titandioxid", "source": "catalog", "classifications": [
+            {"dk": "546.824", "count": 7,
+             "titles": ["TiO2-Schichten", "Photokatalyse"],
+             "classification_type": "DK"},
+        ]},
+        {"keyword": "Adsorption", "source": "catalog", "classifications": [
+            {"dk": "546.824", "count": 3, "titles": ["Oberflächenchemie"],
+             "classification_type": "DK"},
+        ]},
+    ]
+
+    def test_format_text_accepts_keyword_centric(self):
+        from src.utils.pipeline_utils import PipelineResultFormatter
+        text = PipelineResultFormatter.format_dk_search_results_text(self.KW_CENTRIC)
+        self.assertIn("DK: 546.824", text)
+        self.assertIn("TiO2-Schichten", text)
+        self.assertIn("Titandioxid", text)  # matched keywords shown
+
+    def test_get_titles_accepts_keyword_centric(self):
+        from src.utils.pipeline_utils import PipelineResultFormatter
+        titles, count = PipelineResultFormatter.get_titles_for_dk_code(
+            "DK 546.824", self.KW_CENTRIC
+        )
+        self.assertEqual(count, 3)
+        self.assertIn("Oberflächenchemie", titles)
+
+    def test_truncation_sentinel_is_ignored(self):
+        from src.utils.pipeline_utils import PipelineResultFormatter
+        results = [
+            {"dk": "546.824", "count": 7, "titles": ["TiO2"],
+             "classification_type": "DK"},
+            {"_truncated": 342},
+        ]
+        text = PipelineResultFormatter.format_dk_search_results_text(results)
+        self.assertIn("DK: 546.824", text)
+
+
+class TestDkClassificationTitleFallback(unittest.TestCase):
+    """End-of-pipeline sync: DK notation title lookup must degrade gracefully
+    when ``dk_search_results`` (the rich DK-centric source) has no titles —
+    e.g. when ``dk_postprocess`` was skipped (v5.1 ``when``-condition) or the
+    rich list was built from a thin source. Without a fallback the final
+    Klassifikations-Tab shows bare code headings. - Claude Generated
+    """
+
+    def test_format_classifications_html_finds_titles_from_rich_source(self):
+        """Happy path: rich source has catalog titles, classifications get them."""
+        from src.utils.pipeline_utils import PipelineResultFormatter
+
+        rich = [
+            {"dk": "666.76", "classification_type": "DK", "titles": ["Halbleiter I", "Halbleiter II"]},
+        ]
+        html = PipelineResultFormatter.format_dk_classifications_html(
+            ["666.76"], rich
+        )
+        self.assertIn("Halbleiter I", html)
+        self.assertIn("Halbleiter II", html)
+
+    def test_format_classifications_html_empty_rich_produces_code_headings(self):
+        """No rich data: formatter shows codes but no titles (acceptable empty state)."""
+        from src.utils.pipeline_utils import PipelineResultFormatter
+
+        html = PipelineResultFormatter.format_dk_classifications_html(
+            ["666.76"], []
+        )
+        self.assertIn("666.76", html)  # code heading is present
+        self.assertNotIn("<li>", html)  # no titles — no <ol> rendered
+
+    def test_select_dk_title_source_picks_rich_over_thin(self):
+        """select_dk_title_source must return the rich list when both have titles."""
+        from src.utils.pipeline_utils import PipelineResultFormatter
+
+        rich = [{"dk": "666.76", "titles": ["A", "B", "C"]}]
+        thin = [{"dk": "666.76", "titles": ["Label"]}]  # only LLM label, 1 title
+        chosen = PipelineResultFormatter.select_dk_title_source(rich, thin)
+        self.assertIs(chosen, rich)
+
+    def test_fallback_when_rich_has_no_titles(self):
+        """Reproduces the user-reported bug: rich list is empty/keyword-centric
+        and thin list has catalog titles → sync must use the thin list for
+        title lookup. - Claude Generated
+        """
+        from src.utils.pipeline_utils import PipelineResultFormatter
+
+        # Simulate state.dk_search_results (keyword-centric, no top-level dk)
+        # AFTER dk_collect but BEFORE dk_postprocess:
+        keyword_centric = [
+            {"keyword": "Halbleiter", "classifications": [
+                {"dk": "666.76", "titles": ["Titel 1", "Titel 2"]}
+            ]}
+        ]
+        # state.dk_search_results_flattened from shared_context (thin, has labels)
+        thin = [
+            {"dk": "666.76", "classification_type": "DK", "titles": ["Halbleitertechnologie"]},
+        ]
+        chosen = PipelineResultFormatter.select_dk_title_source(keyword_centric, thin)
+        # The keyword-centric list has no top-level dk entries → score = 0
+        # The thin list has 1 title → score = 1 > 0 → chosen
+        self.assertIs(chosen, thin)
+        # The classifier code can now find a title
+        titles, count = PipelineResultFormatter.get_titles_for_dk_code("666.76", chosen)
+        self.assertIn("Halbleitertechnologie", titles)
+        self.assertEqual(count, 1)
+
+
+class TestGndTierFilterResilience(unittest.TestCase):
+    """The 3-tier GND-Hit table (pool → chunk-selected → final-verified) must
+    preserve both the user-set filter (combo + free text) and the per-tier
+    counts when tier marks are added incrementally. Tested at the formatter
+    level — the GUI layer (pipeline_tab._render_gnd_hits_table) consumes these
+    helpers. - Claude Generated
+    """
+
+    def test_extract_selected_gnd_keys_for_dicts_and_strings(self):
+        from src.utils.pipeline_utils import PipelineResultFormatter
+
+        selected = [
+            {"keyword": "Halbleiter", "gnd_id": "4129772-7"},
+            "Quantenchemie (GND-ID: 4047610-0)",
+            "Molekül",  # no GND ID — label-only fallback
+        ]
+        ids, labels = PipelineResultFormatter.extract_selected_gnd_keys(selected)
+        self.assertIn("4129772-7", ids)
+        self.assertIn("4047610-0", ids)
+        self.assertIn("halbleiter", labels)
+        self.assertIn("quantenchemie", labels)
+        self.assertIn("molekül", labels)
+
+    def test_flatten_gnd_hits_merges_by_id_and_keeps_max_count(self):
+        """flatten_gnd_hits: same GND-ID from two search terms → one row, max count."""
+        from src.utils.pipeline_utils import PipelineResultFormatter
+
+        # Agentic gnd_entries shape — uses "search_term" (not "keyword") for the
+        # source term; the function maps both labels under the hood.
+        entries = [
+            {"gnd_id": "4129772-7", "search_term": "Halbleiter", "title": "Halbleiter", "count": 3},
+            {"gnd_id": "4129772-7", "search_term": "Chip", "title": "Halbleiter", "count": 7},
+        ]
+        rows = PipelineResultFormatter.flatten_gnd_hits(entries)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["gnd_id"], "4129772-7")
+        self.assertEqual(rows[0]["count"], 7)  # max
+        # Both search terms captured for the tooltip
+        self.assertIn("Halbleiter", rows[0]["search_terms"])
+        self.assertIn("Chip", rows[0]["search_terms"])
+
+
+class TestClassicChunkSplitting(unittest.TestCase):
+    """Chunking parity: classic threshold semantics in LLMAgentStep."""
+
+    def test_split_semantics_match_classic(self):
+        from src.core.agents.steps.llm_agent_step import _split_chunks_classic
+
+        # ≤ threshold → single call
+        self.assertEqual(len(_split_chunks_classic(list(range(500)), 500)), 1)
+        # ≤ 1.5×threshold → 2 equal chunks
+        self.assertEqual(
+            [len(c) for c in _split_chunks_classic(list(range(600)), 500)],
+            [300, 300],
+        )
+        # > 1.5×threshold → ceil(total/threshold) equal chunks
+        self.assertEqual(
+            [len(c) for c in _split_chunks_classic(list(range(1700)), 500)],
+            [425, 425, 425, 425],
+        )
+        # No items lost or reordered
+        flat = [x for c in _split_chunks_classic(list(range(1700)), 500) for x in c]
+        self.assertEqual(flat, list(range(1700)))
+        self.assertEqual(_split_chunks_classic([], 500), [])
+
+    def test_auto_chunk_size_uses_model_capabilities(self):
+        from src.core.agents.steps.llm_agent_step import LLMAgentStep
+        from src.core.agents.steps.base_step import StepConfig
+
+        step = LLMAgentStep(
+            StepConfig(id="t", type="llm_agent", raw={}),
+            llm_service=MagicMock(),
+            tool_registry=None,
+        )
+        with patch(
+            "src.utils.model_capabilities.get_chunking_threshold",
+            return_value=1000,
+        ) as gct:
+            size = step._auto_chunk_size({"provider": "ollama", "model": "cogito:32b"})
+        self.assertEqual(size, 1000)
+        self.assertEqual(gct.call_args.args[:2], ("ollama", "cogito:32b"))
+
+    def test_auto_chunk_size_fallback_500(self):
+        from src.core.agents.steps.llm_agent_step import LLMAgentStep
+        from src.core.agents.steps.base_step import StepConfig
+
+        step = LLMAgentStep(
+            StepConfig(id="t", type="llm_agent", raw={}),
+            llm_service=MagicMock(),
+            tool_registry=None,
+        )
+        with patch(
+            "src.utils.model_capabilities.get_chunking_threshold",
+            side_effect=RuntimeError("boom"),
+        ):
+            self.assertEqual(
+                step._auto_chunk_size({"provider": "x", "model": "y"}), 500
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

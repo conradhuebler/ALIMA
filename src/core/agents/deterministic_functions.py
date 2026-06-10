@@ -167,7 +167,7 @@ def gnd_batch_search(
     coerced = [_coerce(k) for k in (keywords or [])]
     keywords = list(dict.fromkeys(k for k in coerced if k))
     if not keywords:
-        return {"entries": [], "search_terms": [], "tool_calls": 0}
+        return {"entries": [], "search_terms": [], "tool_calls": 0, "source_errors": {}}
 
     if stream_callback:
         kw_preview = ", ".join(keywords[:8])
@@ -181,16 +181,41 @@ def gnd_batch_search(
     tool_calls = 0
     # Track which search term found which titles (for per-keyword GUI display)
     entries_per_keyword: Dict[str, List[str]] = {}
+    # Per-source hard failures (whole source unusable) - Claude Generated
+    source_errors: Dict[str, str] = {}
+    attempted_sources: List[str] = []
+    # Which sources confirmed each title — drives source_count ranking - Claude Generated
+    src_index: Dict[str, Set[str]] = {}
 
     for src in sources:
         tool_name = source_tools.get(src)
         if not tool_name:
             logger.warning(f"gnd_batch_search: unknown source '{src}'")
             continue
+        attempted_sources.append(src)
         try:
             raw = tool_registry.execute(tool_name, {"terms": keywords})
             tool_calls += 1
-            data, terms_map = _parse_batch_response_with_terms(raw)
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(payload, dict) and payload.get("error"):
+                # Whole-source failure (tool error / suggester unavailable) - Claude Generated
+                source_errors[src] = str(payload["error"])
+                logger.warning(f"gnd_batch_search: {tool_name} failed: {payload['error']}")
+                if stream_callback:
+                    stream_callback(f"  ❌ {src}: Quelle fehlgeschlagen — {payload['error']}\n")
+                continue
+            # Per-term failures recorded by the suggester (partial outage) - Claude Generated
+            term_errors = (payload.get("errors") or {}) if isinstance(payload, dict) else {}
+            if term_errors and stream_callback:
+                failed_terms = ", ".join(sorted(term_errors)[:5])
+                more = f" … +{len(term_errors)-5}" if len(term_errors) > 5 else ""
+                stream_callback(
+                    f"  ⚠️ {src}: {len(term_errors)} Teilfehler ({failed_terms}{more}) — "
+                    f"leere Treffer dafür sind NICHT bestätigt\n"
+                )
+            data, terms_map = _parse_batch_response_with_terms(payload)
+            for key in data:
+                src_index.setdefault(key.lower(), set()).add(src)
             _merge_into_pool(pool, data)
             # Track term-to-title mapping for per-keyword display
             for title, terms in terms_map.items():
@@ -210,7 +235,26 @@ def gnd_batch_search(
                             f"    [{idx}/{len(keywords)}] '{kw}': ∅\n"
                         )
         except Exception as e:
+            source_errors[src] = str(e)
             logger.warning(f"gnd_batch_search: {tool_name} failed: {e}")
+            if stream_callback:
+                stream_callback(f"  ❌ {src}: Quelle fehlgeschlagen — {e}\n")
+
+    # Fail loudly instead of continuing with a silently empty pool - Claude Generated
+    if attempted_sources and len(source_errors) == len(attempted_sources):
+        raise RuntimeError(
+            f"gnd_batch_search: alle Quellen fehlgeschlagen: {source_errors}"
+        )
+    if not pool and source_errors:
+        raise RuntimeError(
+            f"gnd_batch_search: keine GND-Treffer und Quellfehler aufgetreten "
+            f"(Ergebnis unvollständig): {source_errors}"
+        )
+    if not pool and stream_callback:
+        stream_callback(
+            f"⚠️ gnd_batch_search: 0 Treffer für {len(keywords)} Keywords "
+            f"(keine Quellfehler — echte Nulltreffer)\n"
+        )
 
     if enrich_from_local_db and pool:
         all_ids: Set[str] = set()
@@ -241,7 +285,17 @@ def gnd_batch_search(
             except Exception as e:
                 logger.warning(f"gnd_batch_search: get_gnd_batch enrichment failed: {e}")
 
-    entries: List[Dict[str, Any]] = list(pool.values())
+    # Attach source provenance and rank: entries confirmed by multiple
+    # sources first, then by hit count — realizes the multi-source ranking
+    # the selection prompt relies on - Claude Generated
+    for key, entry in pool.items():
+        entry["sources"] = sorted(src_index.get(key, set()))
+        entry["source_count"] = len(entry["sources"])
+    entries: List[Dict[str, Any]] = sorted(
+        pool.values(),
+        key=lambda e: (e.get("source_count", 0), e.get("count", 0)),
+        reverse=True,
+    )
 
     if context is not None and hasattr(context, "gnd_entries"):
         existing_titles = {e.get("title", "").lower() for e in context.gnd_entries}
@@ -270,6 +324,7 @@ def gnd_batch_search(
         "entries": entries,
         "search_terms": keywords,
         "tool_calls": tool_calls,
+        "source_errors": source_errors,
     }
 
 
@@ -329,6 +384,113 @@ def _parse_keyword_string(kw: str) -> Tuple[str, str]:
 
 
 # ============================================================
+# verify_final_keywords — classic GND-pool verification wrapper
+# ============================================================
+
+@register_tool_fn("verify_final_keywords")
+def verify_final_keywords(
+    *,
+    context: Any = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Verify selection-LLM keywords against the GND search pool - Claude Generated
+
+    Classic-pipeline parity: the rigid pipeline verifies LLM-selected keywords
+    against the pool from the search step (GND-ID match → text match → DB
+    fallback via ``search_gnd_by_title``) and re-attaches authoritative
+    GND-IDs. The agentic pipeline previously trusted the LLM output verbatim,
+    so dropped/hallucinated GND-IDs silently shrank the strict-validated DK
+    search. Reuses ``verify_keywords_against_gnd_pool`` from pipeline_utils.
+
+    Reads ``extra.final_keywords`` (fallback: ``selected_keywords``) and
+    ``context.gnd_entries``; writes the verified list back to
+    ``extra.final_keywords``. Unverifiable keywords are logged, not silent.
+
+    Returns:
+        ``{"verified_keywords": [{"keyword","gnd_id"}], "rejected": [...],
+           "stats": {...}}``
+    """
+    if context is None:
+        raise RuntimeError("verify_final_keywords requires context")
+
+    def _to_string(kw: Any) -> Optional[str]:
+        if isinstance(kw, dict):
+            term = (kw.get("keyword") or kw.get("title") or "").strip()
+            gid = (kw.get("gnd_id") or "").strip()
+            if not term:
+                return None
+            return f"{term} (GND-ID: {gid})" if gid else term
+        if isinstance(kw, str) and kw.strip():
+            return kw.strip()
+        return None
+
+    extra = getattr(context, "extra", None) or {}
+    raw_keywords = extra.get("final_keywords") or getattr(context, "selected_keywords", None) or []
+    extracted = [s for s in (_to_string(kw) for kw in raw_keywords) if s]
+
+    if not extracted:
+        if stream_callback:
+            stream_callback("⚠️ verify_final_keywords: keine Keywords zu verifizieren\n")
+        return {"verified_keywords": [], "rejected": [], "stats": {"total_extracted": 0}}
+
+    # Build pool strings "Title (GND-ID: id)" from the search step entries
+    pool: List[str] = []
+    for entry in getattr(context, "gnd_entries", None) or []:
+        if not isinstance(entry, dict):
+            continue
+        title = (entry.get("title") or "").strip()
+        if not title:
+            continue
+        gnd_ids = entry.get("gnd_ids") or ([entry.get("gnd_id")] if entry.get("gnd_id") else [])
+        for gid in gnd_ids:
+            if gid:
+                pool.append(f"{title} (GND-ID: {gid})")
+
+    # Classic callback signature is (msg, step_id) — adapt the agentic one
+    def _cb(msg: str, step_id: str = None) -> None:
+        if stream_callback:
+            stream_callback(msg)
+
+    knowledge_manager = None
+    try:
+        from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+        knowledge_manager = UnifiedKnowledgeManager()
+    except Exception as exc:
+        logger.warning(f"verify_final_keywords: UnifiedKnowledgeManager unavailable: {exc}")
+
+    from src.utils.pipeline_utils import verify_keywords_against_gnd_pool
+    result = verify_keywords_against_gnd_pool(
+        extracted_keywords=extracted,
+        gnd_pool_keywords=pool,
+        stream_callback=_cb,
+        step_id="verify_keywords",
+        knowledge_manager=knowledge_manager,
+    )
+
+    # Back to the dict shape the selection step produces ({keyword, gnd_id})
+    verified_keywords: List[Dict[str, str]] = []
+    seen: set = set()
+    for kw in result.get("verified", []):
+        term, gid = _parse_keyword_string(kw)
+        key = (gid or term).lower()
+        if not term or key in seen:
+            continue
+        seen.add(key)
+        verified_keywords.append({"keyword": term, "gnd_id": gid})
+
+    if hasattr(context, "extra"):
+        context.extra["final_keywords"] = verified_keywords
+
+    return {
+        "verified_keywords": verified_keywords,
+        "rejected": result.get("rejected", []),
+        "stats": result.get("stats", {}),
+    }
+
+
+# ============================================================
 # dk_search_agentic — classic execute_dk_search wrapper
 # ============================================================
 
@@ -379,6 +541,7 @@ def dk_search_agentic(
     context: Any = None,
     stream_callback: Optional[Callable[[str], None]] = None,
     max_keywords: int = 30,
+    dk_frequency_threshold: Optional[int] = None,
     config: Optional[Dict[str, Any]] = None,
     **_: Any,
 ) -> Dict[str, Any]:
@@ -386,7 +549,11 @@ def dk_search_agentic(
 
     Wraps ``PipelineStepExecutor.execute_dk_search`` so the agentic pipeline
     uses identical catalog search logic (per-keyword BiblioClient/MarcXmlClient,
-    RVK validation, deduplication) as the classic rigid pipeline.
+    RVK validation, deduplication) as the classic rigid pipeline. The
+    classification prompt text is built via the shared
+    ``prepare_dk_classification_context`` (frequency filter, title filter,
+    RVK guardrail) and RVK anchors are derived like in the classic pipeline
+    (heuristic path — no LLM available here) - Claude Generated
 
     Returns:
         ``{"dk_entries": [...], "dk_search_results": [...], "statistics": {...},
@@ -399,6 +566,7 @@ def dk_search_agentic(
 
     if config:
         max_keywords = config.get("max_keywords", max_keywords)
+        dk_frequency_threshold = config.get("dk_frequency_threshold", dk_frequency_threshold)
 
     keywords = _build_dk_keywords(context, max_keywords)
     if not keywords:
@@ -426,7 +594,7 @@ def dk_search_agentic(
             stream_callback(msg)
 
     try:
-        from src.utils.pipeline_utils import PipelineStepExecutor, PipelineResultFormatter
+        from src.utils.pipeline_utils import PipelineStepExecutor
         from src.utils.config_manager import ConfigManager
 
         config_manager = ConfigManager()
@@ -436,8 +604,20 @@ def dk_search_agentic(
             logger=logger,
             config_manager=config_manager,
         )
+        # Classic-parity: derive RVK anchors from the same keywords.
+        # alima_manager is None → heuristic fallback inside - Claude Generated
+        try:
+            rvk_anchor_keywords = executor._derive_rvk_anchor_keywords(
+                keywords,
+                original_abstract=getattr(context, "abstract", "") or "",
+                stream_callback=_dk_cb,
+            )
+        except Exception as exc:
+            logger.warning(f"dk_search_agentic: RVK anchor derivation failed: {exc}")
+            rvk_anchor_keywords = None
         dk_result = executor.execute_dk_search(
             keywords=keywords,
+            rvk_anchor_keywords=rvk_anchor_keywords,
             stream_callback=_dk_cb,
             strict_gnd_validation=True,  # keywords formatted as "Term (GND-ID: id)" — validated
         )
@@ -485,11 +665,30 @@ def dk_search_agentic(
     if hasattr(context, "dk_search_results"):
         context.dk_search_results = keyword_results
 
+    # Build the classification prompt via the SHARED classic preparation:
+    # frequency threshold (DK only), title filter, institution-library RVK
+    # filter, RVK guardrail — identical context in both pipeline modes - Claude Generated
     try:
-        from src.utils.pipeline_utils import PipelineResultFormatter
-        formatted_prompt = PipelineResultFormatter.format_dk_results_for_prompt(classifications)
+        from src.utils.pipeline_defaults import DEFAULT_DK_FREQUENCY_THRESHOLD
+        threshold = (
+            dk_frequency_threshold
+            if dk_frequency_threshold is not None
+            else DEFAULT_DK_FREQUENCY_THRESHOLD
+        )
+        prep = executor.prepare_dk_classification_context(
+            classifications,
+            original_abstract=getattr(context, "abstract", "") or "",
+            dk_frequency_threshold=threshold,
+            rvk_anchor_keywords=rvk_anchor_keywords,
+            stream_callback=_dk_cb,
+        )
+        formatted_prompt = prep["catalog_text"] if prep["results_with_titles"] else ""
+        if hasattr(context, "extra"):
+            # RVK candidate maps for potential downstream post-processing
+            context.extra["rvk_allowed_standard"] = prep["allowed_standard_rvk_map"]
+            context.extra["rvk_allowed_nonstandard"] = prep["allowed_nonstandard_rvk_map"]
     except Exception as exc:
-        logger.warning(f"dk_search_agentic: format_dk_results_for_prompt failed: {exc}")
+        logger.warning(f"dk_search_agentic: prepare_dk_classification_context failed: {exc}")
         formatted_prompt = ""
 
     if stream_callback:
@@ -504,7 +703,9 @@ def dk_search_agentic(
         "dk_search_results": keyword_results,
         "statistics": statistics,
         "formatted_prompt": formatted_prompt,
-        "has_data": bool(classifications),
+        # has_data gates the classification step (condition in YAML):
+        # only True if the prompt actually carries catalog context - Claude Generated
+        "has_data": bool(formatted_prompt),
     }
 
 

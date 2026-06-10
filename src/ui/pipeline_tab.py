@@ -241,7 +241,9 @@ class PipelineTab(QWidget):
     _AGENTIC_STEP_MAP = {
         "extraction": ("initialisation", 1),
         "search": ("search", 2),
+        "selection_chunks": ("search", 2),
         "selection": ("keywords", 3),
+        "verify_keywords": ("keywords", 3),
         "classification": ("dk_classification", 5),
         "dk_collect": ("dk_search", 4),
         "dk_postprocess": ("dk_classification", 5),
@@ -828,11 +830,12 @@ class PipelineTab(QWidget):
         return widget
 
     def create_search_step_widget(self) -> QWidget:
-        """Create search step widget — sortable GND-hit table with selection filter - Claude Generated
+        """Create search step widget — sortable GND-hit table, 3-tier view - Claude Generated
 
         Shows every catalog hit with a GND-ID (Begriff / GND-ID / Häufigkeit /
-        Auswahl). A checkbox hides the entries that were deselected during the
-        keyword chunking/selection step.
+        Auswahl). Three tiers: full pool (~1000 hits) → chunk-selected
+        (selection_chunks survivors, ☑) → final verified keywords (✅).
+        Filterable by free text and by tier.
         """
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -844,13 +847,28 @@ class PipelineTab(QWidget):
         label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
         label.setMaximumHeight(18)
         header.addWidget(label, 0)
+        self.search_tier_stats = QLabel("")
+        self.search_tier_stats.setStyleSheet("color: #777; padding: 2px;")
+        self.search_tier_stats.setMaximumHeight(18)
+        header.addWidget(self.search_tier_stats, 0)
         header.addStretch(1)
-        self.search_show_selected_only = QCheckBox("Nur ausgewählte anzeigen")
-        self.search_show_selected_only.setToolTip(
-            "Im Chunking abgewählte GND-Treffer ausblenden"
+        self.search_filter_input = QLineEdit()
+        self.search_filter_input.setPlaceholderText("Filter: Begriff / GND-ID…")
+        self.search_filter_input.setClearButtonEnabled(True)
+        self.search_filter_input.setMaximumWidth(220)
+        self.search_filter_input.textChanged.connect(self._filter_gnd_hits)
+        header.addWidget(self.search_filter_input, 0)
+        self.search_tier_filter = QComboBox()
+        self.search_tier_filter.addItems(
+            ["Alle (Pool)", "Chunk-Auswahl", "Finale Auswahl"]
         )
-        self.search_show_selected_only.stateChanged.connect(self._filter_gnd_hits)
-        header.addWidget(self.search_show_selected_only, 0)
+        self.search_tier_filter.setToolTip(
+            "Pool = alle GND-Treffer der Suche;\n"
+            "Chunk-Auswahl = vom LLM im Chunking als relevant gefiltert;\n"
+            "Finale Auswahl = verifizierte finale Schlagwörter"
+        )
+        self.search_tier_filter.currentIndexChanged.connect(self._filter_gnd_hits)
+        header.addWidget(self.search_tier_filter, 0)
         layout.addLayout(header, 0)
 
         self.search_results_table = QTableWidget()
@@ -878,95 +896,171 @@ class PipelineTab(QWidget):
 
         # Raw state for re-filtering / re-marking selection - Claude Generated
         self.search_raw_rows = []
-        self.search_selected_ids = set()
-        self.search_selected_labels = set()
+        self.search_chunk_ids = set()
+        self.search_chunk_labels = set()
+        self.search_final_ids = set()
+        self.search_final_labels = set()
         return widget
 
-    def _populate_gnd_hits(self, search_results, selected=None) -> None:
+    def _populate_gnd_hits(self, search_results, selected=None, reset_marks=False) -> None:
         """Fill the GND-Recherche table from search_results (+ optional selection).
 
         ``search_results`` may be the classic dict form, a List[SearchResult], or
         agentic ``gnd_entries`` — PipelineResultFormatter.flatten_gnd_hits handles
-        all three. ``selected`` (final keyword list) marks which hits survived the
-        chunking step; pass None to leave the current selection untouched. - Claude Generated
+        all three. ``selected`` marks the FINAL keyword tier; pass None to leave
+        the current marks untouched. ``reset_marks=True`` clears both tiers
+        (new pipeline run, fresh pool). - Claude Generated
         """
         if not hasattr(self, "search_results_table"):
             return
         self.search_raw_rows = PipelineResultFormatter.flatten_gnd_hits(search_results)
+        if reset_marks:
+            self.search_chunk_ids = set()
+            self.search_chunk_labels = set()
+            self.search_final_ids = set()
+            self.search_final_labels = set()
         if selected is not None:
-            self.search_selected_ids, self.search_selected_labels = (
+            self.search_final_ids, self.search_final_labels = (
                 PipelineResultFormatter.extract_selected_gnd_keys(selected)
             )
         self._render_gnd_hits_table()
 
-    def _mark_gnd_selection(self, selected) -> None:
-        """Re-mark which existing GND rows are selected (final keywords known) - Claude Generated"""
+    def _mark_gnd_selection(self, selected, tier: str = "final") -> None:
+        """Mark GND rows for a selection tier - Claude Generated
+
+        tier="chunk": survivors of the chunked relevance filter
+        (selection_chunks → selected_keywords); tier="final": final/verified
+        keywords. Both tiers stay marked independently for the 3-tier view.
+        """
         if not hasattr(self, "search_results_table") or not self.search_raw_rows:
             return
-        self.search_selected_ids, self.search_selected_labels = (
-            PipelineResultFormatter.extract_selected_gnd_keys(selected)
-        )
+        ids, labels = PipelineResultFormatter.extract_selected_gnd_keys(selected)
+        if tier == "chunk":
+            self.search_chunk_ids, self.search_chunk_labels = ids, labels
+        else:
+            self.search_final_ids, self.search_final_labels = ids, labels
         self._render_gnd_hits_table()
 
+    def _gnd_row_tier(self, row) -> int:
+        """Tier of a pool row: 2=final, 1=chunk-selected, 0=pool-only - Claude Generated"""
+        gid = row["gnd_id"]
+        label = row["begriff"].lower()
+        if gid in self.search_final_ids or label in self.search_final_labels:
+            return 2
+        if gid in self.search_chunk_ids or label in self.search_chunk_labels:
+            return 1
+        return 0
+
     def _render_gnd_hits_table(self) -> None:
-        """Render search_raw_rows into the table, highlighting selected hits - Claude Generated"""
+        """Render search_raw_rows into the table with 3-tier highlighting - Claude Generated
+
+        Render order is critical for the user-set filter (combo + free-text) to
+        survive tier re-renders triggered by ``selection`` /
+        ``verify_keywords`` in the agentic pipeline. ``setRowCount(0)`` and
+        ``setSortingEnabled(True)`` both implicitly drop the per-row
+        ``setRowHidden`` state, so the filter must be applied ATOMICALLY at the
+        very end (after sorting is on) — anything earlier produces a brief
+        flash where the pool rows appear unfiltered. - Claude Generated
+        """
         table = getattr(self, "search_results_table", None)
         if table is None:
             return
-        table.setSortingEnabled(False)
-        table.setRowCount(0)
-        ids = self.search_selected_ids
-        labels = self.search_selected_labels
-        have_selection = bool(ids or labels)
-
-        for row in self.search_raw_rows:
-            is_selected = (row["gnd_id"] in ids) or (
-                row["begriff"].lower() in labels
+        # Block the tier combo while we rebuild — otherwise a spurious
+        # ``currentIndexChanged`` from a transient row-rebuild can re-enter
+        # ``_filter_gnd_hits`` and clobber the just-applied state. - Claude Generated
+        if hasattr(self, "search_tier_filter"):
+            self.search_tier_filter.blockSignals(True)
+        try:
+            table.setSortingEnabled(False)
+            table.setRowCount(0)
+            have_marks = bool(
+                self.search_chunk_ids or self.search_chunk_labels
+                or self.search_final_ids or self.search_final_labels
             )
-            r = table.rowCount()
-            table.insertRow(r)
+            n_chunk = 0
+            n_final = 0
 
-            begriff_item = QTableWidgetItem(row["begriff"])
-            gnd_item = QTableWidgetItem(row["gnd_id"])
-            count_item = QTableWidgetItem()
-            count_item.setData(Qt.ItemDataRole.DisplayRole, int(row.get("count", 0)))
-            count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            sel_item = QTableWidgetItem(
-                "✅" if is_selected else ("" if have_selection else "—")
-            )
-            sel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            for row in self.search_raw_rows:
+                tier = self._gnd_row_tier(row)
+                if tier == 2:
+                    n_final += 1
+                    n_chunk += 1  # final keywords passed the chunk filter too
+                elif tier == 1:
+                    n_chunk += 1
+                r = table.rowCount()
+                table.insertRow(r)
 
-            if is_selected:
-                for it in (begriff_item, gnd_item, count_item, sel_item):
-                    it.setForeground(QColor("#2e7d32"))
-                    f = it.font()
-                    f.setBold(True)
-                    it.setFont(f)
-            if row.get("search_terms"):
-                begriff_item.setToolTip(
-                    "Gefunden über: " + ", ".join(row["search_terms"])
+                begriff_item = QTableWidgetItem(row["begriff"])
+                gnd_item = QTableWidgetItem(row["gnd_id"])
+                count_item = QTableWidgetItem()
+                count_item.setData(Qt.ItemDataRole.DisplayRole, int(row.get("count", 0)))
+                count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if tier == 2:
+                    sel_text = "✅ Final"
+                elif tier == 1:
+                    sel_text = "☑ Chunk"
+                else:
+                    sel_text = "" if have_marks else "—"
+                sel_item = QTableWidgetItem(sel_text)
+                sel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                if tier == 2:
+                    for it in (begriff_item, gnd_item, count_item, sel_item):
+                        it.setForeground(QColor("#2e7d32"))
+                        f = it.font()
+                        f.setBold(True)
+                        it.setFont(f)
+                elif tier == 1:
+                    for it in (begriff_item, gnd_item, count_item, sel_item):
+                        it.setForeground(QColor("#1565c0"))
+                if row.get("search_terms"):
+                    begriff_item.setToolTip(
+                        "Gefunden über: " + ", ".join(row["search_terms"])
+                    )
+                # Stash the tier for the visibility filter.
+                begriff_item.setData(Qt.ItemDataRole.UserRole, tier)
+
+                table.setItem(r, 0, begriff_item)
+                table.setItem(r, 1, gnd_item)
+                table.setItem(r, 2, count_item)
+                table.setItem(r, 3, sel_item)
+
+            table.setSortingEnabled(True)
+            if hasattr(self, "search_tier_stats"):
+                self.search_tier_stats.setText(
+                    f"· Pool: {len(self.search_raw_rows)} · Chunk: {n_chunk} · Final: {n_final}"
                 )
-            # Stash selection flag for the visibility filter.
-            begriff_item.setData(Qt.ItemDataRole.UserRole, is_selected)
-
-            table.setItem(r, 0, begriff_item)
-            table.setItem(r, 1, gnd_item)
-            table.setItem(r, 2, count_item)
-            table.setItem(r, 3, sel_item)
-
-        table.setSortingEnabled(True)
-        self._filter_gnd_hits()
+            # _filter_gnd_hits MUST be the very last action — it applies the
+            # user-set tier + free-text filter atomically over the freshly
+            # inserted rows. Calling it earlier (e.g. before
+            # setSortingEnabled) leaves a window where the pool appears
+            # unfiltered between snapshot bursts. - Claude Generated
+            self._filter_gnd_hits()
+        finally:
+            if hasattr(self, "search_tier_filter"):
+                self.search_tier_filter.blockSignals(False)
 
     def _filter_gnd_hits(self) -> None:
-        """Hide deselected rows when 'Nur ausgewählte anzeigen' is checked - Claude Generated"""
+        """Apply tier filter (Alle/Chunk/Final) + free-text filter - Claude Generated"""
         table = getattr(self, "search_results_table", None)
-        if table is None or not hasattr(self, "search_show_selected_only"):
+        if table is None:
             return
-        only_selected = self.search_show_selected_only.isChecked()
+        min_tier = 0
+        if hasattr(self, "search_tier_filter"):
+            min_tier = self.search_tier_filter.currentIndex()  # 0/1/2
+        needle = ""
+        if hasattr(self, "search_filter_input"):
+            needle = self.search_filter_input.text().strip().lower()
         for r in range(table.rowCount()):
             item = table.item(r, 0)
-            is_sel = bool(item.data(Qt.ItemDataRole.UserRole)) if item else False
-            table.setRowHidden(r, only_selected and not is_sel)
+            gnd_item = table.item(r, 1)
+            tier = int(item.data(Qt.ItemDataRole.UserRole) or 0) if item else 0
+            hide = tier < min_tier
+            if not hide and needle:
+                begriff = item.text().lower() if item else ""
+                gid = gnd_item.text().lower() if gnd_item else ""
+                hide = needle not in begriff and needle not in gid
+            table.setRowHidden(r, hide)
 
     def create_keywords_step_widget(self) -> QWidget:
         """Create keywords step widget (Verbale Erschließung) - Claude Generated"""
@@ -1271,9 +1365,19 @@ class PipelineTab(QWidget):
             )
             return
 
-        self.dk_search_results.setPlainText(
-            PipelineResultFormatter.format_dk_search_results_text(results)
-        )
+        text = PipelineResultFormatter.format_dk_search_results_text(results)
+        if not text:
+            # Non-empty input but nothing displayable (no titles/counts) —
+            # never blank the widget silently - Claude Generated
+            self.logger.warning(
+                f"_display_dk_search_results: {len(results)} Einträge, aber keine "
+                "darstellbaren Titel/Häufigkeiten — Anzeige nicht geleert"
+            )
+            self.dk_search_results.setPlainText(
+                f"({len(results)} Katalog-Einträge ohne darstellbare Titel/Häufigkeit)"
+            )
+            return
+        self.dk_search_results.setPlainText(text)
 
     def _format_dk_classifications_with_titles(
         self,
@@ -1603,8 +1707,16 @@ class PipelineTab(QWidget):
         if hasattr(self, "search_results_table"):
             self.search_results_table.setRowCount(0)
             self.search_raw_rows = []
-            self.search_selected_ids = set()
-            self.search_selected_labels = set()
+            self.search_chunk_ids = set()
+            self.search_chunk_labels = set()
+            self.search_final_ids = set()
+            self.search_final_labels = set()
+            if hasattr(self, "search_tier_stats"):
+                self.search_tier_stats.setText("")
+            if hasattr(self, "search_filter_input"):
+                self.search_filter_input.clear()
+            if hasattr(self, "search_tier_filter"):
+                self.search_tier_filter.setCurrentIndex(0)
         if hasattr(self, "keywords_result"):
             self.keywords_result.clear()
         # DK-related widgets - Claude Generated (Fixed widget names)
@@ -2169,7 +2281,11 @@ class PipelineTab(QWidget):
             if step_id == "extraction":
                 keywords = snapshot.get("extracted_keywords", [])
                 if keywords and hasattr(self, "initialisation_result"):
-                    text = "\n".join(keywords) if isinstance(keywords, list) else str(keywords)
+                    if isinstance(keywords, list):
+                        # Tolerate the {"_truncated": N} sentinel in capped lists
+                        text = "\n".join(k for k in keywords if isinstance(k, str))
+                    else:
+                        text = str(keywords)
                     self.initialisation_result.setPlainText(text)
                 working_title = snapshot.get("working_title", "")
                 if working_title:
@@ -2179,7 +2295,31 @@ class PipelineTab(QWidget):
             elif step_id == "search":
                 gnd_entries = snapshot.get("gnd_entries", [])
                 if gnd_entries and hasattr(self, "search_results_table"):
-                    self._populate_gnd_hits(gnd_entries)
+                    # Fresh pool → clear chunk/final marks from a previous run
+                    self._populate_gnd_hits(gnd_entries, reset_marks=True)
+
+            elif step_id == "selection_chunks":
+                # Tier 2 of 3: chunk-filter survivors (☑) - Claude Generated
+                chunk_kws = snapshot.get("selected_keywords", [])
+                if chunk_kws:
+                    self._mark_gnd_selection(chunk_kws, tier="chunk")
+
+            elif step_id == "verify_keywords":
+                # Tier 3 of 3: verified final keywords (✅), GND-IDs may have
+                # been corrected against the pool/DB - Claude Generated
+                verified = snapshot.get("extra", {}).get("final_keywords", [])
+                if verified:
+                    self._mark_gnd_selection(verified, tier="final")
+                    if hasattr(self, "keywords_result"):
+                        lines = []
+                        for kw in verified:
+                            if isinstance(kw, dict):
+                                lines.append(
+                                    f"{kw.get('keyword', '')} (GND-ID: {kw.get('gnd_id', '')})"
+                                )
+                            else:
+                                lines.append(str(kw))
+                        self.keywords_result.setPlainText("\n".join(lines))
 
             elif step_id == "selection":
                 final_kws = snapshot.get("extra", {}).get("final_keywords", [])
@@ -2199,15 +2339,15 @@ class PipelineTab(QWidget):
                     self._mark_gnd_selection(final_kws)
 
             elif step_id == "classification":
-                # classification step produces dk_classifications before dk_postprocess - Claude Generated
-                dk_class = snapshot.get("dk_classifications", [])
-                dk_results = snapshot.get("dk_search_results", [])
-                if dk_class and hasattr(self, "dk_classification_results"):
-                    codes = self._dk_class_codes(dk_class)
-                    html_display = self._format_dk_classifications_with_titles(
-                        codes, dk_results
-                    )
-                    self.dk_classification_results.setHtml(html_display)
+                # classification step produces dk_classifications BEFORE
+                # dk_postprocess — at this point context.dk_search_results
+                # still holds the keyword-centric list from dk_collect, which
+                # has no top-level ``dk`` keys. ``get_titles_for_dk_code``
+                # would return empty for every code, producing a "notations
+                # without title assignments" view that is then immediately
+                # overwritten by the dk_postprocess per-step. Skip the
+                # render here and let dk_postprocess own the display. - Claude Generated
+                pass
 
             elif step_id == "dk_collect":
                 dk_results = snapshot.get("dk_search_results", [])
@@ -2216,12 +2356,19 @@ class PipelineTab(QWidget):
                     self._display_dk_search_results(dk_results)
 
             elif step_id == "dk_postprocess":
+                # dk_postprocess writes the DK-centric rich list to
+                # context.dk_search_results (via build_dk_search_results)
+                # BEFORE this snapshot is emitted, so the per-step sees
+                # the rich source. Defensive: if for some reason
+                # snapshot["dk_search_results"] is empty/missing, skip the
+                # render rather than blank the widget — the end-of-pipeline
+                # _sync_classical_tabs_from_state owns the final state. - Claude Generated
                 dk_results = snapshot.get("dk_search_results", [])
                 dk_class = snapshot.get("dk_classifications", [])
                 if dk_results and hasattr(self, "dk_search_results"):
                     self.dk_search_raw_data = dk_results
                     self._display_dk_search_results(dk_results)
-                if dk_class and hasattr(self, "dk_classification_results"):
+                if dk_class and dk_results and hasattr(self, "dk_classification_results"):
                     codes = self._dk_class_codes(dk_class)
                     html_display = self._format_dk_classifications_with_titles(
                         codes, dk_results
@@ -2235,7 +2382,9 @@ class PipelineTab(QWidget):
         """Populate classical step-tab widgets from analysis_state after agentic run.
 
         In agentic mode step_completed never fires, so this fills the same widgets
-        that on_step_completed() would normally update. - Claude Generated
+        that on_step_completed() would normally update. Each section is guarded
+        independently — a failure in the GND part must not silently skip the
+        DK displays (previously one broad try aborted the whole sync). - Claude Generated
         """
         try:
             # Init tab: extracted keywords
@@ -2262,7 +2411,10 @@ class PipelineTab(QWidget):
                 if final_kws:
                     text = "\n".join(final_kws) if isinstance(final_kws, list) else str(final_kws)
                     self.keywords_result.setPlainText(text)
+        except Exception as e:
+            self.logger.warning(f"_sync_classical_tabs_from_state (GND/keywords part) failed: {e}")
 
+        try:
             # DK search + classification tabs.
             # In agentic mode the rich DK-centric catalog data (real titles +
             # counts) lives in state.dk_search_results — written by
@@ -2277,9 +2429,41 @@ class PipelineTab(QWidget):
                 getattr(state, "dk_search_results_flattened", None),
             )
 
+            # If ``dk_rich`` has no displayable titles (e.g. dk_postprocess
+            # was skipped in v5.1 because ``when: ${extra.dk_prompt_text}
+            # != ''`` evaluated false, leaving only the thin flattened
+            # source) fall back to the flattened list so the final DK/RVK
+            # notations still get a title column rather than bare code
+            # headings. ``select_dk_title_source`` already prefers the rich
+            # source, so reaching this branch means the rich source was
+            # either empty or had no titles. - Claude Generated
+            if dk_rich and state.dk_classifications and not any(
+                r.get("titles") for r in dk_rich if isinstance(r, dict)
+            ):
+                flattened_fallback = getattr(state, "dk_search_results_flattened", None) or []
+                if any(
+                    r.get("titles") for r in flattened_fallback if isinstance(r, dict)
+                ):
+                    self.logger.warning(
+                        "_sync_classical_tabs_from_state: rich dk_search_results has "
+                        "no titles, falling back to dk_search_results_flattened for "
+                        "DK classification title lookup"
+                    )
+                    dk_rich = flattened_fallback
+
             if dk_rich and hasattr(self, "dk_search_results"):
-                self.dk_search_raw_data = dk_rich
-                self._display_dk_search_results(dk_rich)
+                # Final sync must never CLEAR what the per-step snapshots
+                # already rendered: only overwrite when the end-of-run data
+                # actually formats to displayable text - Claude Generated
+                if PipelineResultFormatter.format_dk_search_results_text(dk_rich):
+                    self.dk_search_raw_data = dk_rich
+                    self._display_dk_search_results(dk_rich)
+                else:
+                    self.logger.warning(
+                        "_sync_classical_tabs_from_state: end-of-run DK data has no "
+                        "displayable titles — keeping snapshot content in "
+                        "Katalog-Recherche view"
+                    )
 
             # DK classification tab — state.dk_classifications may be List[Dict]
             if state.dk_classifications and hasattr(self, "dk_classification_results"):
@@ -2302,7 +2486,7 @@ class PipelineTab(QWidget):
                     f"<b>{total}</b> unikale Klassifikationen (Deduplizierungsrate: {rate})"
                 )
         except Exception as e:
-            self.logger.warning(f"_sync_classical_tabs_from_state failed: {e}")
+            self.logger.warning(f"_sync_classical_tabs_from_state (DK part) failed: {e}")
 
     def on_abort_current_step_requested(self):
         """Abort only the current LLM generation; pipeline continues - Claude Generated"""

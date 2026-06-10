@@ -84,7 +84,7 @@ class TestFindMissingPrerequisites(unittest.TestCase):
         ctx = SharedContext(abstract="Cadmium toxicology in aquatic systems.")
         chain = find_missing_prerequisites(self.workflow, "classification", ctx)
         # Expected order from alima_classic.yaml: extraction → search →
-        # selection_chunks → selection → dk_collect → classification
+        # selection_chunks → selection → verify_keywords → dk_collect → classification
         self.assertEqual(
             chain,
             [
@@ -92,6 +92,7 @@ class TestFindMissingPrerequisites(unittest.TestCase):
                 "search",
                 "selection_chunks",
                 "selection",
+                "verify_keywords",
                 "dk_collect",
                 "classification",
             ],

@@ -122,7 +122,7 @@ steps:
       enabled: true
       chunk_field: keywords
       chunk_fields: [title, gnd_id]   # project to keyword text + GND-ID only before LLM
-      chunk_size: 350
+      chunk_size: 0   # 0 = auto via model_capabilities (classic parity: per-model, default 500)
       sort_by: count
       sort_desc: true
       merge_key: keywords
@@ -188,6 +188,24 @@ steps:
       Format: {"keyword_chains":[{"chain":["A","B"],"reason":"..."}],"missing_concepts":[],"final_keywords":[{"keyword":"A","gnd_id":"123"}]}
 
   # ──────────────────────────────────────────────────────────────────
+  # Step 4b: Verify keywords — classic GND-pool verification
+  # Re-attaches authoritative GND-IDs from the search pool / local DB,
+  # so strict GND validation in dk_collect doesn't silently drop
+  # keywords whose gnd_id the LLM mangled or omitted.
+  # ──────────────────────────────────────────────────────────────────
+  - id: verify_keywords
+    type: deterministic
+    function: verify_final_keywords
+    description: "Verify selection output against GND pool (classic parity); re-attach GND-IDs"
+    enabled: true
+    depends_on: [selection]
+
+    inputs: {}
+
+    outputs:
+      extra.final_keywords: "result.verified_keywords"
+
+  # ──────────────────────────────────────────────────────────────────
   # Step 5a: DK catalog search — classic per-keyword BiblioClient logic
   # ──────────────────────────────────────────────────────────────────
   - id: dk_collect
@@ -195,7 +213,7 @@ steps:
     function: dk_search_agentic
     description: "Per-keyword catalog DK search — mirrors classic execute_dk_search"
     enabled: true
-    depends_on: [selection]
+    depends_on: [verify_keywords]
 
     inputs: {}
 
@@ -206,15 +224,20 @@ steps:
 
     config:
       max_keywords: 30
+      # Classic-pipeline parity: same default as DEFAULT_DK_FREQUENCY_THRESHOLD
+      dk_frequency_threshold: 1
 
   # ──────────────────────────────────────────────────────────────────
   # Step 5b: Classification — prompts loaded from prompts.json (dk_classification)
+  # Skipped when the DK search produced no usable context (classic
+  # pipeline also skips classification then).
   # ──────────────────────────────────────────────────────────────────
   - id: classification
     type: llm_agent
     description: "Assign DK/DDC/RVK classifications (prompts from prompts.json / dk_classification)"
     enabled: true
     depends_on: [dk_collect]
+    when: "${extra.dk_prompt_text} != ''"
 
     inputs:
       abstract: "${abstract}"

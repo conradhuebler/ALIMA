@@ -6,6 +6,105 @@
 
 ## 2026
 
+### Kern-Konvergenz klassisch ↔ agentisch (WP-K1–K4) (June 10, 2026)
+
+Befund: der agentische v5x-Workflow füllte den Klassifikations-/Keyword-Kontext
+unzuverlässiger als die klassische Pipeline — 5 strukturelle Divergenzen im
+Kern, kein Prompt-/UX-Thema. Suite: 591 passed / 5 skipped.
+
+**WP-K1 — GND-Suche mapping-first** (`src/mcp/tool_registry.py`,
+`deterministic_functions.py`):
+- MCP `search_swb`/`search_lobid` instanziieren jetzt `MetaSuggester` statt
+  roher Suggester → mapping-first-Cache (Read + Write-back via
+  `UKM.search_with_mappings_first`) identisch zum klassischen Pfad. Non-kw
+  `search_type`/abweichende `max_pages` gehen weiter an den rohen
+  Kind-Suggester (Mapping-Cache ist nach Term+Suggester gekeyt, nicht nach
+  Suchtyp). Handler-Antworten tragen jetzt `errors` (per-Term-Fehler).
+- `gnd_batch_search`: Quellausfälle werden gestreamt + als `source_errors`
+  zurückgegeben; **alle Quellen tot → RuntimeError**; leerer Pool + Teilausfall
+  → RuntimeError (Ergebnis nicht vertrauenswürdig); leerer Pool ohne Fehler →
+  laute Warnung, kein Abbruch (echte Nulltreffer).
+
+**WP-K2 — Selection-Verifikation** (`verify_final_keywords` in
+`deterministic_functions.py`, neuer Step `verify_keywords` in
+`alima_v51.yaml` + `alima_classic.yaml`):
+- LLM-Auswahl wird gegen `gnd_entries`-Pool verifiziert (GND-ID-Match →
+  Titel-Match → DB-Fallback `search_gnd_by_title`), falsche/fehlende GND-IDs
+  werden korrigiert/ergänzt, Unverifizierbares geloggt statt still von der
+  strict-Validation der DK-Suche verworfen. Wiederverwendet
+  `verify_keywords_against_gnd_pool` aus pipeline_utils (klassischer Code).
+
+**WP-K3 — DK-Klassifikations-Parität** (`pipeline_utils.py`,
+`deterministic_functions.py`, beide YAMLs):
+- Frequenz-Filter + Titel-losen-Filter + Institution-RVK-Filter +
+  RVK-Guardrail aus `execute_dk_classification` in
+  `PipelineStepExecutor.prepare_dk_classification_context()` extrahiert;
+  klassischer Pfad ruft sie unverändert, `dk_search_agentic` baut
+  `formatted_prompt` jetzt darüber (vorher: rohe Top-60 ohne Filter).
+- `dk_search_agentic` übergibt `rvk_anchor_keywords`
+  (`_derive_rvk_anchor_keywords`, heuristischer Pfad ohne LLM).
+- Klassifikations-Step beider Workflows: `when: "${extra.dk_prompt_text} != ''"`
+  — läuft nicht mehr mit leerem Katalog-Kontext (klassische Pipeline
+  überspringt dann ebenfalls). `dk_frequency_threshold` als
+  `dk_collect`-Config (Default 1 = `DEFAULT_DK_FREQUENCY_THRESHOLD`;
+  Plan-Annahme „Default 10" war falsch).
+
+**WP-K4 — Prompt↔Daten-Mismatch**: `gnd_batch_search` berechnet jetzt
+`sources`/`source_count` pro Entry und sortiert nach `(source_count, count)`
+— das im selection_chunks-Step beschriebene Multi-Source-Ranking existiert
+damit wirklich; YAML-Beschreibung des search-Steps korrigiert.
+
+**Tests**: `tests/test_core_convergence.py` (12 neue Tests: Quellfehler-
+Propagation, Ranking, Verifikation inkl. ID-Korrektur/DB-Fallback,
+geteilte DK-Filter); Step-Listen-Erwartungen in `test_agents_v2.py`,
+`test_e2e_smoke.py`, `test_step_form_builder.py` aktualisiert.
+
+**WP-K5 — Chunking angeglichen** (Nachtrag, Operator-Anweisung):
+- `LLMAgentStep._run_chunked`: `chunk_size: 0`/fehlend → Auto-Detection via
+  `model_capabilities.get_chunking_threshold` (per-model Config > Pattern >
+  Default 500) — dieselbe Quelle wie der klassische
+  `keyword_chunking_threshold`; `_auto_chunk_size()` neu.
+- Split-Semantik klassisch (`_split_chunks_classic`): ≤ Threshold = EIN Call;
+  darüber gleichmäßige Chunks (2 bis 1,5×, sonst ⌈n/Threshold⌉) statt fester
+  Slices mit Mini-Restchunk.
+- Alle 4 Workflow-YAMLs: `chunk_size: 350` → `0` (auto).
+
+**WP-K6 — Pipeline-Tab: fehlende/geleerte Anzeigen** (Operator-Befund:
+„DK-Inhalte im Katalog-Recherche-Tab werden beim Beenden der agentischen
+Pipeline geleert", „manchmal fehlen Infos"; drei Mechanismen gefunden):
+- **Snapshot-Cap 50**: `WorkflowExecutor._emit`-Snapshots kappten ALLE Listen
+  auf 50 Einträge — GUI sah nur 50 von ~1200 Pool-/392 DK-Einträgen; der
+  `{"_truncated": N}`-Sentinel crashte zudem `"\n".join()` bei String-Listen
+  (still geschluckt → leeres Widget). Jetzt feldspezifische Caps
+  (gnd_entries 5000, dk_search_results 2000, …; execution_history bleibt 50)
+  + sentinel-toleranter Join im Extraction-Handler.
+- **Blank-Overwrite**: `_display_dk_search_results` setzte bei nicht-leerer
+  Eingabe kommentarlos den Formatter-Output — war der leer (keyword-zentrisches
+  Format, titel-lose Einträge), wurde das Widget beim Abschluss-Sync geleert.
+  Formatter (`format_dk_search_results_text`, `get_titles_for_dk_code`)
+  flatten jetzt keyword-zentrische Eingaben (via neuem modulglobalem
+  `flatten_keyword_centric_results`), zeigen `matched_keywords`, und die
+  Anzeige wird nie mehr stumm geblankt (Placeholder + Warning statt "").
+  End-of-run-Sync überschreibt nur noch, wenn die neuen Daten darstellbar sind.
+- **Sync-Kaskade**: ein Fehler im GND-Teil von `_sync_classical_tabs_from_state`
+  brach per breitem try/except den ganzen Sync ab → DK-Teil nie befüllt.
+  Blöcke jetzt unabhängig geguarded.
+
+**WP-K7 — GND-Recherche 3-stufig** (`pipeline_tab.py`): Pool (alle Treffer)
+→ ☑ Chunk-Auswahl (selection_chunks-Überlebende, blau) → ✅ Final
+(verifizierte Keywords, grün/fett); Textfilter (Begriff/GND-ID) +
+Stufen-Combo ersetzen die alte Checkbox; Zähler-Label
+(`Pool: N · Chunk: M · Final: K`); Snapshot-Handler für `selection_chunks`
+und `verify_keywords` (zeigt verifizierte Liste inkl. korrigierter GND-IDs).
+Offscreen-Smoke-Test: 1200 Zeilen, Tier-/Textfilter korrekt.
+
+**Bewusst NICHT angefasst** (Operator-Entscheidung bzw. Folge-Items):
+v5.1-Prompts bleiben inline (nur Mechanik konvergiert),
+Konsolidierungslauf nach Chunk-Merge, RVK-Nachselektion im agentischen Pfad
+(braucht LLM in `dk_search_agentic`). Gemma-Befund „nur rudimentäre
+DK-Auswahl trotz vollem Kontext": modellsensitiv — v5.1-Prompts haben (anders
+als prompts.json) keine modellspezifischen Varianten; ggf. Folge-Item.
+
 ### WP B+C — Debugbarkeit + E2E-Sicherheitsnetz (June 10, 2026)
 
 Fortsetzung des Maßnahmenplans (nach WP A). Suite: 579 passed / 5 skipped.
