@@ -886,21 +886,15 @@ class PipelineChatPanel(QWidget):
             self._render_dk_search_card(step.output_data)
 
     def _render_dk_search_card(self, output_data: Dict[str, Any]) -> None:
-        """Render per-DK-code catalog-research results as a card (shared formatter)."""
-        flattened = output_data.get(
-            "dk_search_results_flattened", output_data.get("dk_search_results", [])
-        )
-        text = PipelineResultFormatter.format_dk_search_results_text(flattened)
-        if not text.strip():
-            return
-        body = self._renderer._escape_html(text).replace("\n", "<br>")
-        html = (
-            "<div style='font-family: monospace; font-size: 9pt; color: #a8a8a8; "
-            "white-space: pre-wrap; margin: 4px 0 4px 8px;'>"
-            "<span style='color: #8be9fd;'>📚 Katalog-Recherche (DK/RVK):</span><br>"
-            f"{body}</div>"
-        )
-        self._renderer.render_html_block(html, kind="dk_search", plain_text=text)
+        """Render per-DK-code catalog-research results as a card (shared formatter).
+
+        WP12: the card HTML is produced by the shared
+        ``PipelineResultFormatter.format_dk_search_card_html`` so the GUI and the
+        webapp emit byte-identical chrome from one source.
+        """
+        html, text = PipelineResultFormatter.format_dk_search_card_html(output_data)
+        if html:
+            self._renderer.render_html_block(html, kind="dk_search", plain_text=text)
 
     def _format_dk_search_results(self, dk_results: List[Dict[str, Any]]) -> str:
         """Build a summary string for DK search results (tool-block body)."""
@@ -990,27 +984,17 @@ class PipelineChatPanel(QWidget):
                     )
 
         if analysis_state and getattr(analysis_state, "dk_classifications", None):
-            # dk_classifications may be List[str] or List[Dict] — normalise to codes.
-            dk_codes = [
-                c.get("code", str(c)) if isinstance(c, dict) else str(c)
-                for c in analysis_state.dk_classifications
-            ]
-            # Pick the title-carrying source regardless of mode: agentic stores
-            # rich catalog titles in dk_search_results, classic in
-            # dk_search_results_flattened. - Claude Generated
-            flat = PipelineResultFormatter.select_dk_title_source(
-                getattr(analysis_state, "dk_search_results", None),
-                getattr(analysis_state, "dk_search_results_flattened", None),
+            # WP12: the rich colour-coded card (confidence + per-code titles) is
+            # built by the shared formatter so the GUI and webapp render the
+            # identical chrome from one source.
+            card_html, dk_codes_text = (
+                PipelineResultFormatter.format_dk_classifications_card_html(analysis_state)
             )
-            # Render the same rich card as the Pipeline-Tab (shared formatter):
-            # colour-coded confidence + per-code title lists.
-            card_html = PipelineResultFormatter.format_dk_classifications_html(
-                dk_codes, flat
-            )
-            self.add_pipeline_message("\U0001f3f7 DK-Klassifikationen:", "success")
-            self._renderer.render_html_block(
-                card_html, kind="dk_classifications", plain_text=", ".join(dk_codes)
-            )
+            if card_html:
+                self.add_pipeline_message("\U0001f3f7 DK-Klassifikationen:", "success")
+                self._renderer.render_html_block(
+                    card_html, kind="dk_classifications", plain_text=dk_codes_text
+                )
 
         if (
             analysis_state

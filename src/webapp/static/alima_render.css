@@ -1,0 +1,68 @@
+/* alima_render.css — shared render-layer theme (WP12).
+ *
+ * Single source of truth for the log/chat/result chrome rendered by BOTH the
+ * GUI (WebLogView, QWebEngineView, inlined at construction) and the webapp
+ * (served as a static asset). Colours ported from the former QTextBrowser
+ * stylesheet (#1e1e1e / #f8f8f2) and the bubble palette (#202c33 / #005c4b).
+ *
+ * IMPORTANT: every rule is scoped under the #log container so the file can be
+ * loaded into the multi-element webapp page without clobbering its theme or
+ * the page's own <details>/<a>/<table> elements. The GUI keeps document-level
+ * chrome (page background, scrollbars) in its own scaffold. Font size is driven
+ * by the --alima-fs custom property (default 10pt), inherited from <body>; the
+ * GUI updates it via WebLogView.set_font_pt. - Claude Generated
+ */
+#log {
+  display: flex; flex-direction: column;
+  box-sizing: border-box; padding: 8px;
+  background: #1e1e1e; color: #f8f8f2;
+  font-family: 'Consolas', 'Monaco', monospace; font-size: var(--alima-fs, 10pt);
+  word-wrap: break-word;
+}
+#log .block { margin: 1px 0; word-wrap: break-word; }
+#log details { margin: 2px 0; }
+#log summary {
+  cursor: pointer; color: #888; font-family: monospace; font-size: 9pt;
+  list-style: none; outline: none;
+}
+#log summary::-webkit-details-marker { display: none; }
+#log summary::before { content: '\25B6 '; color: #8be9fd; }
+#log details[open] > summary::before { content: '\25BC '; color: #8be9fd; }
+#log .tc-body {
+  margin: 2px 0 6px 14px; font-family: monospace; font-size: 9pt;
+  color: #a8a8a8; white-space: pre-wrap; word-wrap: break-word;
+}
+#log .sl-body { color: #cdc6f0; font-size: 9.5pt; }  /* live LLM stream text */
+#log .assistant { margin: 6px 0; }
+#log .ahdr { color: #8be9fd; font-size: 9pt; font-style: italic; margin-bottom: 2px; }
+#log .stream, #log .rendered {
+  background: #202c33; border-radius: 6px; padding: 8px; color: #e9edef;
+  max-width: 75%; word-wrap: break-word;
+}
+#log .stream { white-space: pre-wrap; }
+#log .rendered table { border-collapse: collapse; margin: 4px 0; }
+#log .rendered td, #log .rendered th { border: 1px solid #444; padding: 2px 6px; }
+#log .rendered pre { background: #1a2228; padding: 6px; border-radius: 4px; overflow-x: auto; }
+#log .rendered code { font-family: monospace; }
+#log a { color: #5af; }
+
+/* Classification badge cards — shared GUI ↔ webapp render of DK/RVK results.
+ * Ported from the webapp's structured cards (WP12), recoloured for the dark
+ * #log surface using the GUI's existing palette. */
+#log .classification-card-title { color: #8be9fd; font-weight: bold; font-size: 10pt; margin: 6px 0 2px; }
+#log .classification-validation-summary { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+#log .classification-entry-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+#log .classification-entry { padding: 8px 10px; border-radius: 6px; background: #202c33; border: 1px solid #33414a; }
+#log .classification-entry__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#log .classification-entry__code { font-family: monospace; font-size: 10pt; color: #e9edef; }
+#log .classification-entry__meta { margin-top: 4px; font-size: 9pt; color: #8a8a8a; }
+#log .classification-entry__titles { margin: 4px 0 0; padding-left: 18px; font-size: 9pt; color: #a8a8a8; }
+#log .classification-badge {
+  display: inline-flex; align-items: center; border-radius: 999px;
+  padding: 2px 8px; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.01em;
+}
+#log .classification-badge--dk { background: rgba(139, 233, 253, 0.15); color: #8be9fd; }
+#log .classification-badge--rvk { background: rgba(189, 147, 249, 0.18); color: #bd93f9; }
+#log .classification-badge--standard { background: rgba(80, 250, 123, 0.15); color: #50fa7b; }
+#log .classification-badge--non-standard { background: rgba(241, 250, 140, 0.15); color: #f1fa8c; }
+#log .classification-badge--unknown { background: rgba(255, 85, 85, 0.15); color: #ff5555; }

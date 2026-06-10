@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from PyQt6.QtWidgets import QCheckBox
 
+from src.core import render_events as ev
 from .message_entry import MessageEntry, MessageRole
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     # and PipelineChatPanel (module level). The renderer only receives a
     # WebLogView instance, so it needs the name for annotations only.
     from .web_log_view import WebLogView
+    from src.core.render_events import RenderTransport
 
 
 # ----------------------------------------------------------------------
@@ -58,15 +60,27 @@ class UnifiedMessageRenderer:
     # Construction
     # ------------------------------------------------------------------
 
-    def __init__(self, web_view: "WebLogView", auto_scroll_checkbox: QCheckBox):
-        self.web_view = web_view
+    def __init__(
+        self,
+        transport: "RenderTransport | WebLogView",
+        auto_scroll_checkbox: QCheckBox,
+    ):
+        # WP12: the renderer emits JSON render events to a transport instead of
+        # calling a WebLogView directly. For back-compat the historical callers
+        # pass a WebLogView — auto-wrap it in a WebLogViewTransport. A caller may
+        # also pass a transport directly (webapp / tests).
+        if hasattr(transport, "send"):
+            self.transport = transport
+        else:
+            from .render_transport import WebLogViewTransport
+            self.transport = WebLogViewTransport(transport)
         self.auto_scroll_checkbox = auto_scroll_checkbox
         self.logger = logging.getLogger(__name__)
 
-        # Mirror the checkbox into the page so JS auto-scroll honours it.
+        # Mirror the checkbox into the transport so JS auto-scroll honours it.
         try:
-            self.web_view.set_autoscroll(auto_scroll_checkbox.isChecked())
-            auto_scroll_checkbox.toggled.connect(self.web_view.set_autoscroll)
+            self.transport.set_autoscroll(auto_scroll_checkbox.isChecked())
+            auto_scroll_checkbox.toggled.connect(self.transport.set_autoscroll)
         except Exception:
             self.logger.debug("auto-scroll checkbox wiring skipped", exc_info=True)
 
@@ -149,7 +163,7 @@ class UnifiedMessageRenderer:
                 f"<span style='color: {color};'>{self._escape_html(message)}</span>"
             )
 
-        self.web_view.append_block(formatted)
+        self.transport.send(ev.block(formatted, kind=ev.KIND_PIPELINE_LOG))
         self._touch_scroll()
 
         self.history.append(
@@ -165,7 +179,7 @@ class UnifiedMessageRenderer:
         if not self._is_streaming:
             return
         self._stream_text += token
-        self.web_view.append_stream_block(token)
+        self.transport.send(ev.stream_token(token))
         self._touch_scroll()
 
     def start_streaming_line(self, step_id: str, prefix: str = "") -> None:
@@ -184,7 +198,7 @@ class UnifiedMessageRenderer:
         summary = self._stream_summary_html(
             self._stream_title, datetime.now().strftime("%H:%M:%S"), preview=""
         )
-        self.web_view.open_stream_block(self._stream_block_id, summary)
+        self.transport.send(ev.stream_open(self._stream_block_id, summary))
         self._is_streaming = True
 
     def end_streaming_line(self) -> None:
@@ -197,8 +211,8 @@ class UnifiedMessageRenderer:
         summary = self._stream_summary_html(
             self._stream_title, datetime.now().strftime("%H:%M:%S"), preview
         )
-        self.web_view.close_stream_block(
-            self._stream_block_id, summary, collapse=True
+        self.transport.send(
+            ev.stream_close(self._stream_block_id, summary, collapse=True)
         )
         self._is_streaming = False
         self._stream_block_id = None
@@ -234,7 +248,7 @@ class UnifiedMessageRenderer:
             'border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;">'
             f"{body}</span></div>"
         )
-        self.web_view.append_block(html)
+        self.transport.send(ev.block(html, kind=ev.KIND_USER_BUBBLE))
         self.history.append(
             MessageEntry(
                 role=MessageRole.USER_BUBBLE,
@@ -246,7 +260,7 @@ class UnifiedMessageRenderer:
         """Open a left-aligned grey assistant bubble with model label."""
         self._current_assistant_text = ""
         header = f'🤖 {self._escape_html(model_label or "Modell")}'
-        self.web_view.open_assistant(header)
+        self.transport.send(ev.assistant_open(header))
         self._assistant_block_open = True
         self._assistant_cell_cursor = True  # "open" sentinel (back-compat)
         self._touch_scroll()
@@ -256,7 +270,7 @@ class UnifiedMessageRenderer:
         if not self._assistant_block_open:
             return
         self._current_assistant_text += token
-        self.web_view.append_token(token)
+        self.transport.send(ev.assistant_token(token))
         self._touch_scroll()
 
     def finalize_assistant_bubble(self) -> None:
@@ -284,7 +298,7 @@ class UnifiedMessageRenderer:
                     f"{self._escape_html(self._current_assistant_text)}</span>"
                 )
 
-        self.web_view.finalize_assistant(md_html)
+        self.transport.send(ev.assistant_finalize(md_html))
 
         self.history.append(
             MessageEntry(
@@ -349,11 +363,13 @@ class UnifiedMessageRenderer:
             "status": "running",  # running | success | error
         }
 
-        self.web_view.append_collapsible(
-            tool_id,
-            self._tool_summary_html(tool_id),
-            self._tool_body_html(tool_id),
-            False,
+        self.transport.send(
+            ev.collapsible(
+                tool_id,
+                self._tool_summary_html(tool_id),
+                self._tool_body_html(tool_id),
+                False,
+            )
         )
         self._touch_scroll()
 
@@ -378,10 +394,12 @@ class UnifiedMessageRenderer:
             return
         tc["result"] = result
         tc["status"] = status
-        self.web_view.update_collapsible(
-            tool_id,
-            self._tool_summary_html(tool_id),
-            self._tool_body_html(tool_id),
+        self.transport.send(
+            ev.collapsible_update(
+                tool_id,
+                self._tool_summary_html(tool_id),
+                self._tool_body_html(tool_id),
+            )
         )
         self._touch_scroll()
 
@@ -428,11 +446,13 @@ class UnifiedMessageRenderer:
             "icon": icon,
             "meta": meta,
         }
-        self.web_view.append_collapsible(
-            tool_id,
-            self._tool_summary_html(tool_id),
-            self._tool_body_html(tool_id),
-            not collapsed,
+        self.transport.send(
+            ev.collapsible(
+                tool_id,
+                self._tool_summary_html(tool_id),
+                self._tool_body_html(tool_id),
+                not collapsed,
+            )
         )
         self._touch_scroll()
         self.history.append(
@@ -450,10 +470,12 @@ class UnifiedMessageRenderer:
         if tc is None or tc.get("kind") != "collapsible":
             return
         tc["meta"] = meta
-        self.web_view.update_collapsible(
-            tool_id,
-            self._tool_summary_html(tool_id),
-            self._tool_body_html(tool_id),
+        self.transport.send(
+            ev.collapsible_update(
+                tool_id,
+                self._tool_summary_html(tool_id),
+                self._tool_body_html(tool_id),
+            )
         )
 
     def _tool_summary_html(self, tool_id: str) -> str:
@@ -514,7 +536,7 @@ class UnifiedMessageRenderer:
             f'font-family: monospace; font-size: 9pt; color: #888;">'
             f"{self._escape_html(text)}</div>"
         )
-        self.web_view.append_block(html)
+        self.transport.send(ev.block(html, kind=ev.KIND_TOOL_MARKER))
         self.history.append(
             MessageEntry(
                 role=MessageRole.TOOL_MARKER,
@@ -530,7 +552,7 @@ class UnifiedMessageRenderer:
             f'<span style="color: #4caf50; font-size: 9pt; font-style: italic;">'
             f"{self._escape_html(text)}</span></div>"
         )
-        self.web_view.append_block(html)
+        self.transport.send(ev.block(html, kind=ev.KIND_SYSTEM))
         self.history.append(
             MessageEntry(
                 role=MessageRole.SYSTEM_MESSAGE,
@@ -550,7 +572,7 @@ class UnifiedMessageRenderer:
         """
         if not html:
             return
-        self.web_view.append_block(html)
+        self.transport.send(ev.block(html, kind=ev.KIND_HTML_BLOCK))
         self.history.append(
             MessageEntry(
                 role=MessageRole.RESULT_CARD,
@@ -615,7 +637,7 @@ class UnifiedMessageRenderer:
             f"#audit_{audit_id}</span>"
             f"</div></div>"
         )
-        self.web_view.append_block(html)
+        self.transport.send(ev.block(html, kind=ev.KIND_PROPOSAL))
         self.history.append(
             MessageEntry(
                 role=MessageRole.PROPOSAL_BUBBLE,
@@ -630,7 +652,7 @@ class UnifiedMessageRenderer:
 
     def _append_html(self, html: str) -> None:
         """Append a trusted HTML block at the end of the log."""
-        self.web_view.append_block(html)
+        self.transport.send(ev.block(html, kind=ev.KIND_HTML_BLOCK))
         self._touch_scroll()
 
     def append_raw_html(self, html: str) -> None:
@@ -648,7 +670,7 @@ class UnifiedMessageRenderer:
     def _touch_scroll(self) -> None:
         self._last_scroll_time = time.time()
         if self.auto_scroll_checkbox.isChecked():
-            self.web_view.scroll_to_bottom()
+            self.transport.scroll_to_bottom()
 
     # ------------------------------------------------------------------
     # Clear / reset
@@ -656,7 +678,7 @@ class UnifiedMessageRenderer:
 
     def clear(self) -> None:
         """Clear the log and reset all open streaming / bubble state."""
-        self.web_view.clear_log()
+        self.transport.send(ev.clear())
         self._is_streaming = False
         self._stream_block_id = None
         self._stream_text = ""

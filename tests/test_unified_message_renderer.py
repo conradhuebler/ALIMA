@@ -593,5 +593,146 @@ class TestCatalogMarkerReplacement(RendererTestBase):
         self.assertEqual(self.renderer._replace_cat_markers(text), text)
 
 
+class TestRenderEventEmission(unittest.TestCase):
+    """WP12: the renderer emits a versioned JSON render-event stream to an
+    injected transport (instead of calling WebLogView directly). These tests
+    drive a Qt-free ``MockTransport`` and assert the event shapes that
+    ``alima_render.js`` consumes."""
+
+    def setUp(self):
+        import json
+        from src.core.render_events import MockTransport
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+        self.json = json
+        self.transport = MockTransport()
+        self.checkbox = _MockCheckBox(checked=True)
+        # Passing a transport (has .send) must be used as-is, not re-wrapped.
+        self.renderer = UnifiedMessageRenderer(self.transport, self.checkbox)
+        self.assertIs(self.renderer.transport, self.transport)
+
+    def _last(self, type_):
+        evs = self.transport.of_type(type_)
+        self.assertTrue(evs, f"no {type_} event emitted; got {self.transport.types()}")
+        return evs[-1]
+
+    def test_pipeline_log_emits_block_with_kind(self):
+        self.renderer.render_pipeline_log("hello world", "info", "init")
+        ev = self._last("block")
+        self.assertEqual(ev["kind"], "pipeline_log")
+        self.assertIn("hello world", ev["html"])
+
+    def test_user_bubble_kind(self):
+        self.renderer.render_user_bubble("hi there")
+        self.assertEqual(self._last("block")["kind"], "user_bubble")
+
+    def test_proposal_is_gui_only_kind(self):
+        from src.core import render_events as re_mod
+        self.renderer.render_proposal_bubble(
+            7, "propose_dk_change", {"code": "614.7", "action": "add"}
+        )
+        ev = self._last("block")
+        self.assertEqual(ev["kind"], re_mod.KIND_PROPOSAL)
+        self.assertIn(ev["kind"], re_mod.GUI_ONLY_KINDS)  # webapp may drop it
+
+    def test_tool_call_emits_collapsible(self):
+        tid = self.renderer.render_tool_call("search_gnd", {"term": "x"})
+        ev = self._last("collapsible")
+        self.assertEqual(ev["id"], tid)
+        self.assertFalse(ev["open"])
+        self.assertIn("search_gnd", ev["summary"])
+
+    def test_tool_result_emits_collapsible_update(self):
+        tid = self.renderer.render_tool_call("search_gnd", {"term": "x"})
+        self.renderer.render_tool_result(tid, '{"hits": 3}', status="success")
+        ev = self._last("collapsible_update")
+        self.assertEqual(ev["id"], tid)
+        self.assertIn("hits", ev["body"])
+
+    def test_stream_block_lifecycle(self):
+        self.renderer.start_streaming_line("keywords", "LLM: ")
+        self.renderer.render_streaming_token("alpha beta", "keywords")
+        self.renderer.end_streaming_line()
+        opened = self._last("stream_open")
+        token = self._last("stream_token")
+        closed = self._last("stream_close")
+        self.assertEqual(token["text"], "alpha beta")
+        self.assertEqual(opened["id"], closed["id"])
+        self.assertTrue(closed["collapse"])
+        self.assertIn("alpha beta", closed["summary"])  # preview retained
+
+    def test_assistant_bubble_lifecycle(self):
+        from unittest.mock import MagicMock, patch
+        fake_md = MagicMock()
+        fake_md.markdown.return_value = "<p><strong>b</strong></p>"
+        self.renderer.open_assistant_bubble("gpt-4")
+        self.renderer.append_assistant_token("**b**")
+        with patch.dict("sys.modules", {"markdown": fake_md}):
+            self.renderer.finalize_assistant_bubble()
+        self.assertIn("gpt-4", self._last("assistant_open")["header"])
+        self.assertEqual(self._last("assistant_token")["text"], "**b**")
+        self.assertIn("b", self._last("assistant_finalize")["html"])
+
+    def test_clear_emits_clear_event(self):
+        self.renderer.render_system_message("x")
+        self.renderer.clear()
+        self.assertEqual(self.transport.types()[-1], "clear")
+
+    def test_all_events_are_json_serializable(self):
+        self.renderer.render_pipeline_log("msg", "step", "init")
+        self.renderer.render_user_bubble("u")
+        self.renderer.render_tool_call("t", {"a": 1})
+        self.renderer.render_html_block("<div>card</div>", kind="dk_search")
+        self.renderer.start_streaming_line("keywords")
+        self.renderer.render_streaming_token("tok", "keywords")
+        self.renderer.end_streaming_line()
+        # Round-trips without error and stays a flat list of dicts.
+        dumped = self.json.dumps(self.transport.events)
+        self.assertIsInstance(self.json.loads(dumped), list)
+        for ev in self.transport.events:
+            self.assertIn("type", ev)
+
+
+class TestWebLogViewTransportMapping(unittest.TestCase):
+    """The GUI transport maps each render event onto the WebLogView API."""
+
+    def setUp(self):
+        from src.ui.render_transport import WebLogViewTransport
+        self.view = _MockWebLogView()
+        self.transport = WebLogViewTransport(self.view)
+
+    def test_block_maps_to_append_block(self):
+        from src.core import render_events as ev
+        self.transport.send(ev.block("<b>x</b>", kind=ev.KIND_SYSTEM))
+        self.assertEqual(self.view.blocks, ["<b>x</b>"])
+
+    def test_collapsible_round_trip(self):
+        from src.core import render_events as ev
+        self.transport.send(ev.collapsible("tc_1", "sum", "body", True))
+        self.assertIn("tc_1", self.view.collapsibles)
+        self.assertTrue(self.view.collapsibles["tc_1"]["open"])
+        self.transport.send(ev.collapsible_update("tc_1", "sum2", "body2"))
+        self.assertEqual(self.view.collapsibles["tc_1"]["summary"], "sum2")
+
+    def test_stream_events_round_trip(self):
+        from src.core import render_events as ev
+        self.transport.send(ev.stream_open("sl_1", "header"))
+        self.transport.send(ev.stream_token("abc"))
+        self.transport.send(ev.stream_close("sl_1", "header — abc", collapse=True))
+        blk = self.view.stream_blocks["sl_1"]
+        self.assertIn("abc", "".join(blk["tokens"]))
+        self.assertTrue(blk["collapsed"])
+
+    def test_clear_maps_to_clear_log(self):
+        from src.core import render_events as ev
+        self.transport.send(ev.block("x"))
+        self.transport.send(ev.clear())
+        self.assertEqual(self.view.blocks, [])
+
+    def test_unknown_event_type_is_ignored(self):
+        # Forward-compat: an unknown type must not raise.
+        self.transport.send({"type": "future_event", "foo": "bar"})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -62,6 +62,14 @@ class AlimaWebapp {
         this.streamRawBuffer = '';
         this.streamRenderPending = false;
 
+        // WP12: the shared alima_render.js auto-scrolls its host window; in the
+        // webapp the render region is embedded, so disable it to avoid hijacking
+        // the page scroll. _lastRenderSeq dedups render events by their monotonic
+        // server seq, so a WS reconnect replay / polling re-delivery never
+        // double-appends an append-only block.
+        if (typeof window !== 'undefined') window.__autoscroll = false;
+        this._lastRenderSeq = -1;
+
         this.setupPipelineSteps();
         this.setupEventListeners();
         this.initializeSession();
@@ -702,7 +710,8 @@ class AlimaWebapp {
                     status: data.status,
                     current_step: data.current_step,
                     results: data.results,
-                    streaming_tokens: data.streaming_tokens || {}  // Include tokens from polling
+                    streaming_tokens: data.streaming_tokens || {},  // Include tokens from polling
+                    render_events: data.render_events || []  // WP12: shared chrome events
                 };
 
                 if (data.status === 'running') {
@@ -727,7 +736,8 @@ class AlimaWebapp {
                         status: data.status,
                         results: data.results,
                         error: data.error_message,
-                        current_step: data.current_step
+                        current_step: data.current_step,
+                        render_events: data.render_events || []  // WP12
                     });
                     clearInterval(this.pollInterval);
                     this.pollInterval = null;
@@ -832,8 +842,62 @@ class AlimaWebapp {
         };
     }
 
+    // WP12: dispatch shared chrome render events to the alima_render.js
+    // dispatcher (the same funcs the GUI drives). Dedup by monotonic seq so a
+    // WS-reconnect replay / poll re-delivery never double-appends a block.
+    dispatchRenderEvents(events) {
+        if (!Array.isArray(events) || events.length === 0) return;
+        if (typeof appendBlock !== 'function') {
+            // alima_render.js failed to load (cache? wrong path?) — make it loud
+            // once instead of silently dropping the shared chrome.
+            if (!this._renderWarned) {
+                console.error('WP12: alima_render.js not loaded — render events dropped. '
+                    + 'Hard-refresh (Ctrl+Shift+R) to clear a cached page.');
+                this._renderWarned = true;
+            }
+            return;
+        }
+        console.debug(`WP12: dispatching ${events.length} render event(s)`);
+        // Reveal the results panel so the embedded #log region is visible.
+        const panel = document.getElementById('results-panel');
+        if (panel) panel.style.display = '';
+        for (const ev of events) {
+            if (typeof ev.seq === 'number') {
+                if (ev.seq <= this._lastRenderSeq) continue;  // already applied
+                this._lastRenderSeq = ev.seq;
+            }
+            try {
+                this.dispatchRenderEvent(ev);
+            } catch (e) {
+                console.error('WP12 render event failed:', ev, e);
+            }
+        }
+    }
+
+    dispatchRenderEvent(ev) {
+        switch (ev.type) {
+            case 'block':
+                if (ev.kind === 'proposal') return;  // GUI-only — Tier-3 webapp ignores
+                appendBlock(ev.html);
+                break;
+            case 'collapsible': appendCollapsible(ev.id, ev.summary, ev.body, ev.open); break;
+            case 'collapsible_update': updateCollapsible(ev.id, ev.summary, ev.body); break;
+            case 'assistant_open': openAssistant(ev.header); break;
+            case 'assistant_token': appendToken(ev.text); break;
+            case 'assistant_finalize': finalizeAssistant(ev.html); break;
+            case 'stream_open': openStreamBlock(ev.id, ev.summary); break;
+            case 'stream_token': appendStreamBlock(ev.text); break;
+            case 'stream_close': closeStreamBlock(ev.id, ev.summary, ev.collapse); break;
+            case 'clear': clearLog(); this._lastRenderSeq = -1; break;
+            default: break;  // unknown/ignorable type — forward-compatible
+        }
+    }
+
     // Update pipeline status from WebSocket - Claude Generated
     updatePipelineStatus(msg) {
+        // WP12: render shared chrome events (DK/GND cards) if present.
+        this.dispatchRenderEvents(msg.render_events);
+
         // Display working title if available - Claude Generated
         if (msg.results && msg.results.working_title) {
             this.displayWorkingTitle(msg.results.working_title);
@@ -925,6 +989,9 @@ class AlimaWebapp {
     // Handle analysis completion
     handleAnalysisComplete(msg) {
         console.log('Analysis complete:', msg);
+
+        // WP12: flush any final shared chrome events (e.g. the DK card).
+        this.dispatchRenderEvents(msg.render_events);
 
         if (msg.status === 'completed') {
             this.setResultsPanelState('completed');
@@ -1456,6 +1523,7 @@ class AlimaWebapp {
         this.clearStreamText();
         this.resetSteps();
         this.hideResultsPanel();
+        this.resetSharedRender();  // WP12: empty the shared render region
 
         // Hide extracted text section - Claude Generated
         const extractedSection = document.getElementById('extracted-text-section');
@@ -1790,6 +1858,14 @@ class AlimaWebapp {
         if (summaryDiv) {
             summaryDiv.innerHTML = '';
         }
+        this.resetSharedRender();
+    }
+
+    // WP12: clear the shared render region and the seq cursor so the next run
+    // (server buffer restarts at seq 0) renders from a clean slate.
+    resetSharedRender() {
+        this._lastRenderSeq = -1;
+        if (typeof clearLog === 'function') clearLog();
     }
 
     // Results panel

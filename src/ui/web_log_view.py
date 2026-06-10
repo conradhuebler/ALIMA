@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import List
 
 from PyQt6.QtCore import QUrl, pyqtSignal
@@ -42,145 +43,52 @@ def _js_str(value: str) -> str:
     return json.dumps(value if value is not None else "")
 
 
-# Dark-theme scaffold. Colours ported from the former QTextBrowser stylesheet
-# (#1e1e1e / #f8f8f2) and the bubble palette (#202c33 / #005c4b).
-_HTML_TEMPLATE = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>
-html, body {{
-  margin: 0; padding: 8px;
-  background: #1e1e1e; color: #f8f8f2;
-  font-family: 'Consolas', 'Monaco', monospace; font-size: {fs}pt;
-}}
-#log {{ display: flex; flex-direction: column; }}
-.block {{ margin: 1px 0; word-wrap: break-word; }}
-details {{ margin: 2px 0; }}
-summary {{
-  cursor: pointer; color: #888; font-family: monospace; font-size: 9pt;
-  list-style: none; outline: none;
-}}
-summary::-webkit-details-marker {{ display: none; }}
-summary::before {{ content: '\\25B6 '; color: #8be9fd; }}
-details[open] > summary::before {{ content: '\\25BC '; color: #8be9fd; }}
-.tc-body {{
-  margin: 2px 0 6px 14px; font-family: monospace; font-size: 9pt;
-  color: #a8a8a8; white-space: pre-wrap; word-wrap: break-word;
-}}
-.sl-body {{ color: #cdc6f0; font-size: 9.5pt; }}  /* live LLM stream text */
-.assistant {{ margin: 6px 0; }}
-.ahdr {{ color: #8be9fd; font-size: 9pt; font-style: italic; margin-bottom: 2px; }}
-.stream, .rendered {{
-  background: #202c33; border-radius: 6px; padding: 8px; color: #e9edef;
-  max-width: 75%; word-wrap: break-word;
-}}
-.stream {{ white-space: pre-wrap; }}
-.rendered table {{ border-collapse: collapse; margin: 4px 0; }}
-.rendered td, .rendered th {{ border: 1px solid #444; padding: 2px 6px; }}
-.rendered pre {{ background: #1a2228; padding: 6px; border-radius: 4px; overflow-x: auto; }}
-.rendered code {{ font-family: monospace; }}
-a {{ color: #5af; }}
+# WP12: the render chrome (theme CSS + DOM dispatcher JS) lives in the shared
+# static assets so the GUI and the webapp render identically from one source.
+# The GUI inlines them at construction (lowest-risk load path in QWebEngine —
+# no file:///baseUrl/CORS concerns); the webapp serves the same files. Font
+# size is driven by the --alima-fs CSS custom property. - Claude Generated
+_RENDER_ASSET_DIR = Path(__file__).resolve().parent.parent / "webapp" / "static"
+
+
+def _load_render_asset(name: str) -> str:
+    """Read a shared render asset (alima_render.{css,js}) as text."""
+    try:
+        return (_RENDER_ASSET_DIR / name).read_text(encoding="utf-8")
+    except OSError:
+        logger.error("WebLogView: could not load render asset %s", name, exc_info=True)
+        return ""
+
+
+# Document-level chrome that is GUI-only (the whole WebLogView document is the
+# render surface). The shared alima_render.css is scoped under #log so it can be
+# safely loaded into the multi-element webapp page; these page-level rules are
+# not, so they live here. - Claude Generated
+_DOC_CHROME_CSS = """
+html, body {{ margin: 0; padding: 0; background: #1e1e1e; --alima-fs: {fs}pt; }}
 ::-webkit-scrollbar {{ width: 12px; }}
 ::-webkit-scrollbar-track {{ background: #2d2d2d; }}
 ::-webkit-scrollbar-thumb {{ background: #555; border-radius: 6px; }}
 ::-webkit-scrollbar-thumb:hover {{ background: #777; }}
-</style></head>
-<body><div id="log"></div>
-<script>
-window.__autoscroll = true;
-var curStream = null;       // live assistant bubble target
-var curStreamBlock = null;  // live <details> stream-block body target
+"""
 
-function maybeScroll() {{
-  if (window.__autoscroll) {{ window.scrollTo(0, document.body.scrollHeight); }}
-}}
-function _log() {{ return document.getElementById('log'); }}
+_SCAFFOLD_TEMPLATE = (
+    "<!DOCTYPE html>\n"
+    '<html><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
+    '<body><div id="log"></div>\n'
+    "<script>\n{js}\n</script></body></html>"
+)
 
-function appendBlock(html) {{
-  var d = document.createElement('div');
-  d.className = 'block';
-  d.innerHTML = html;
-  _log().appendChild(d);
-  maybeScroll();
-}}
-function appendCollapsible(id, summary, body, open) {{
-  var det = document.createElement('details');
-  det.id = id;
-  if (open) det.open = true;
-  var s = document.createElement('summary');
-  s.innerHTML = summary;
-  var b = document.createElement('div');
-  b.className = 'tc-body';
-  b.innerHTML = body || '';
-  det.appendChild(s);
-  det.appendChild(b);
-  _log().appendChild(det);
-  maybeScroll();
-}}
-function updateCollapsible(id, summary, body) {{
-  var det = document.getElementById(id);
-  if (!det) return;
-  var s = det.querySelector('summary');
-  if (s) s.innerHTML = summary;
-  var b = det.querySelector('.tc-body');
-  if (b) b.innerHTML = body || '';
-  maybeScroll();
-}}
-function openAssistant(header) {{
-  var wrap = document.createElement('div');
-  wrap.className = 'assistant';
-  var h = document.createElement('div');
-  h.className = 'ahdr';
-  h.innerHTML = header;
-  var s = document.createElement('div');
-  s.className = 'stream';
-  wrap.appendChild(h);
-  wrap.appendChild(s);
-  _log().appendChild(wrap);
-  curStream = s;
-  maybeScroll();
-}}
-function appendToken(text) {{
-  if (!curStream) return;
-  curStream.appendChild(document.createTextNode(text));
-  maybeScroll();
-}}
-function finalizeAssistant(html) {{
-  if (!curStream) return;
-  curStream.className = 'rendered';
-  curStream.innerHTML = html;
-  curStream = null;
-  maybeScroll();
-}}
-function openStreamBlock(id, summary) {{
-  // A <details>, OPEN while the LLM streams, that collapses on close.
-  var det = document.createElement('details');
-  det.id = id;
-  det.open = true;
-  var s = document.createElement('summary');
-  s.innerHTML = summary;
-  var b = document.createElement('div');
-  b.className = 'tc-body sl-body';
-  det.appendChild(s);
-  det.appendChild(b);
-  _log().appendChild(det);
-  curStreamBlock = b;
-  maybeScroll();
-}}
-function appendStreamBlock(text) {{
-  if (!curStreamBlock) return;
-  curStreamBlock.appendChild(document.createTextNode(text));
-  maybeScroll();
-}}
-function closeStreamBlock(id, summary, collapse) {{
-  var det = document.getElementById(id);
-  if (det) {{
-    if (summary) {{ var s = det.querySelector('summary'); if (s) s.innerHTML = summary; }}
-    det.open = !collapse;
-  }}
-  curStreamBlock = null;
-  maybeScroll();
-}}
-function clearLog() {{ _log().innerHTML = ''; curStream = null; curStreamBlock = null; }}
-</script></body></html>"""
+
+def _build_scaffold_html(base_font_pt: int) -> str:
+    """Assemble the WebLogView document from the shared CSS + JS assets."""
+    fs = max(8, int(base_font_pt))
+    return _SCAFFOLD_TEMPLATE.format(
+        doc_css=_DOC_CHROME_CSS.format(fs=fs),
+        css=_load_render_asset("alima_render.css"),
+        js=_load_render_asset("alima_render.js"),
+        fs=fs,
+    )
 
 
 class _LogPage(QWebEnginePage):
@@ -226,7 +134,7 @@ class WebLogView(QWidget):
         self._view.loadFinished.connect(self._on_load_finished)
 
         self._view.setHtml(
-            _HTML_TEMPLATE.format(fs=max(8, int(base_font_pt))),
+            _build_scaffold_html(base_font_pt),
             QUrl("about:blank"),
         )
 
@@ -303,8 +211,10 @@ class WebLogView(QWidget):
         self._run_js(f"window.__autoscroll = {str(bool(enabled)).lower()};")
 
     def set_font_pt(self, pt: int) -> None:
-        """Update the base font size (pt) of the log document."""
-        self._run_js(f"document.body.style.fontSize = '{max(8, int(pt))}pt';")
+        """Update the base font size (pt) of the log document (--alima-fs var)."""
+        self._run_js(
+            f"document.body.style.setProperty('--alima-fs', '{max(8, int(pt))}pt');"
+        )
 
     def scroll_to_bottom(self) -> None:
         """Throttled scroll (max 20 Hz) to limit runJavaScript churn."""

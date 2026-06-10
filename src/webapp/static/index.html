@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ALIMA - Intelligente Sacherschließung mit KI</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <!-- WP12: shared render-layer theme (scoped under #log) -->
+    <link rel="stylesheet" href="/static/alima_render.css">
 </head>
 <body>
     <div class="container">
@@ -124,6 +126,8 @@
                         <div id="results-panel" class="results-panel" style="display: none;">
                             <h3>Zusammenfassung</h3>
                             <div id="results-summary" class="results-summary"></div>
+                            <!-- WP12: shared render region — DK/GND cards via alima_render.js -->
+                            <div id="log" class="alima-render-region"></div>
                             <div class="results-buttons">
                                 <button id="export-btn" class="btn btn-secondary">
                                     📥 JSON Exportieren
@@ -187,6 +191,8 @@
         </main>
     </div>
 
+    <!-- WP12: shared render-layer DOM dispatcher (must load before app.js) -->
+    <script src="/static/alima_render.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

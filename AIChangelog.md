@@ -90,6 +90,72 @@ Suite 575 passed / 5 skipped.
 - **Zurückgestellt** (WP12-Dateien, Vermischung vermeiden): Rendering des
   `status="error"`-Bus-Events im Chat-Panel/Webapp.
 
+### WP12 — Unified Render Layer (GUI ↔ Webapp) (June 9, 2026)
+
+GUI and webapp rendered the same pipeline data with separately-maintained
+chrome (the WP2 DK/GND divergence). Now both render from **one** CSS + JS
+render layer driven by a versioned JSON render-event protocol over two
+transports. Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md).
+
+- **WP12.1 — Asset extraction**: the theme CSS + DOM-dispatcher JS were lifted
+  out of the inline `_HTML_TEMPLATE` in `src/ui/web_log_view.py` into
+  `src/webapp/static/alima_render.{css,js}` (single source). `WebLogView`
+  inlines them at construction (lowest-risk QWebEngine load path); the webapp
+  serves them as static assets. All content CSS is **scoped under `#log`** so it
+  can load into the multi-element webapp page without clobbering its theme or
+  page-level `<details>`/`<a>`/`<table>`. Font size moved to the `--alima-fs`
+  custom property. GUI document chrome (page bg, scrollbars) stays in the
+  scaffold.
+- **WP12.2 — Event protocol + producer abstraction**: new Qt-free
+  `src/core/render_events.py` (event builders 1:1 with the JS funcs +
+  `RenderTransport` protocol + `MockTransport`); new `src/ui/render_transport.py`
+  (`WebLogViewTransport`). `UnifiedMessageRenderer` now emits JSON render events
+  to an injected transport instead of calling `WebLogView` directly; historical
+  callers passing a `WebLogView` are auto-wrapped (back-compat, no call-site
+  change). Events are append-only + idempotent per id; `block` events carry a
+  semantic `kind` so Tier-3 frontends can drop GUI-only chrome (`proposal`).
+- **WP12.3 — Webapp consumes shared chrome**: the webapp drives the *same*
+  `UnifiedMessageRenderer` producer headless via a per-session
+  `WebSocketRenderTransport`; events are buffered on the `Session` (monotonic
+  `seq`) and broadcast over the WS (`render_events` field on `status`/`complete`,
+  full replay on reconnect via a per-connection cursor; polling cursor for the
+  fallback). `app.js` dispatches them into a `#log` region in the results panel
+  via the shared funcs, deduping by `seq`. The webapp **keeps its 5-step widget**
+  (WP9 Tier-3) and only adopts the DK/GND result-card chrome.
+- **WP12.4 — Consolidation**: DK/GND card HTML is now produced by shared
+  `PipelineResultFormatter.format_dk_search_card_html` /
+  `format_dk_classifications_card_html`, called by **both** the GUI panel
+  (`pipeline_chat_panel.py`) and the webapp — one maintenance location. No
+  duplicate chrome CSS to remove (the `#log` scoping is non-overlapping with the
+  webapp's `.classification-*` summary cards, which are kept).
+- **Follow-up (reverse port)**: the webapp's nicer **structured DK/RVK badge
+  cards** were lifted into the shared layer — new
+  `PipelineResultFormatter.normalize_classifications` +
+  `format_classification_badge_card_html`, with the `.classification-*` CSS
+  ported into `alima_render.css` (scoped `#log`, recoloured for the dark
+  surface). `format_dk_classifications_card_html` (GUI agentic-chat log + webapp
+  `#log`) now renders the badge card with system badges (DK/RVK), RVK
+  validation badges (standard / nicht standard / API-Fehler), a hit-count
+  confidence badge, and per-code catalog titles. The Pipeline-Tab keeps its own
+  `format_dk_classifications_html` confidence card (untouched; `test_pipeline_utils`
+  green). This is the symmetry payoff of WP12: the GUI being a QWebEngineView
+  means webapp render components flow back into it through the same shared layer.
+
+Tests: `tests/test_unified_message_renderer.py` gains `MockTransport`
+event-emission + `WebLogViewTransport`-mapping classes; new
+`tests/test_webapp_render_events.py` covers the session buffer, cursors,
+headless producer, and an end-to-end WS broadcast + reconnect-replay
+(`fastapi.testclient`). Full suite: 556 passed, 5 skipped.
+
+**Caveats (conservative self-assessment).** Verified via headless tests
+(`QT_QPA_PLATFORM=offscreen`, `TestClient`) and JS `node --check` — **not**
+visually confirmed in a running GUI or browser. The webapp now shows DK/GND
+classifications in both its compact summary panel **and** the new shared `#log`
+cards (complementary, like the GUI, but not yet de-duplicated by an operator UX
+review). Streaming/assistant/collapsible events are wired on the webapp client
+but only exercised in the classic pipeline's DK/GND path server-side; the
+agentic tool-bus chrome is not emitted to the webapp.
+
 ### Chat/log rendering moved to QWebEngineView — reliable collapse + live streaming (June 9, 2026)
 
 The chat/pipeline log rendered everything into a single `QTextBrowser` via

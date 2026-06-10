@@ -40,7 +40,7 @@ from src.llm.llm_service import LlmService
 from src.llm.prompt_service import PromptService
 from src.utils.config_manager import ConfigManager
 from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
-from src.utils.pipeline_utils import PipelineJsonManager
+from src.utils.pipeline_utils import PipelineJsonManager, PipelineResultFormatter
 from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
 from src.webapp.result_serialization import (
     build_export_payload as _build_export_payload,
@@ -226,6 +226,11 @@ class Session:
         self.streaming_buffer = {}  # Buffer for streaming tokens by step_id - Claude Generated
         self.streaming_buffer_sent_count = {}  # Track how many tokens sent per step - Claude Generated
         self._streaming_lock = threading.Lock()  # Thread-safe access to streaming buffers - Claude Generated
+        # WP12: append-only render-event log for the shared chrome (DK/GND
+        # cards). Broadcast over the WS (per-connection replay on reconnect) and
+        # surfaced to polling clients via render_buffer_sent_count. - Claude Generated
+        self.render_buffer = []
+        self.render_buffer_sent_count = 0  # cursor for polling clients
         self.abort_requested = False  # Flag to signal pipeline abort - Claude Generated
         # Auto-save support - Claude Generated
         self.autosave_path = AUTOSAVE_DIR / f"session_{session_id}.json"
@@ -268,6 +273,28 @@ class Session:
                     self.streaming_buffer_sent_count[step_id] = len(tokens)
             return result
 
+    def append_render_event(self, event: dict):
+        """Append a WP12 render event to the per-session log - Thread-safe.
+
+        Stamps each event with a monotonic ``seq`` (its buffer index) so a
+        client can dedup across WS-reconnect replay / polling re-delivery.
+        """
+        with self._streaming_lock:
+            event = {**event, "seq": len(self.render_buffer)}
+            self.render_buffer.append(event)
+
+    def get_render_events_since(self, index: int):
+        """Return (events_since_index, new_length) - for WS replay/incremental."""
+        with self._streaming_lock:
+            return list(self.render_buffer[index:]), len(self.render_buffer)
+
+    def get_new_render_events(self) -> list:
+        """Return render events not yet sent to a polling client - Thread-safe."""
+        with self._streaming_lock:
+            new = list(self.render_buffer[self.render_buffer_sent_count:])
+            self.render_buffer_sent_count = len(self.render_buffer)
+            return new
+
     def clear(self):
         """Complete session reset - clear all data - Claude Generated"""
         self.status = "idle"
@@ -279,6 +306,8 @@ class Session:
         with self._streaming_lock:  # Thread-safe buffer clearing - Claude Generated
             self.streaming_buffer.clear()
             self.streaming_buffer_sent_count.clear()  # Reset token tracking - Claude Generated
+            self.render_buffer.clear()  # WP12: reset render-event log - Claude Generated
+            self.render_buffer_sent_count = 0
         self.abort_requested = False
         self.cleanup()
         logger.info(f"Session {self.session_id} cleared")
@@ -292,6 +321,58 @@ class Session:
             except Exception as e:
                 logger.warning(f"Could not cleanup {temp_file}: {e}")
         self.temp_files.clear()
+
+
+class _HeadlessAutoScroll:
+    """Minimal QCheckBox stand-in for the headless UnifiedMessageRenderer (WP12).
+
+    The renderer's only use of the checkbox is ``isChecked()`` plus a
+    ``toggled.connect(...)`` wire-up; neither matters server-side.
+    """
+
+    class _Signal:
+        def connect(self, *_args, **_kwargs):  # noqa: D401
+            pass
+
+    def __init__(self):
+        self.toggled = self._Signal()
+
+    def isChecked(self) -> bool:  # noqa: N802 (Qt-style name)
+        return False
+
+
+class WebSocketRenderTransport:
+    """RenderTransport that appends render events to a Session buffer (WP12).
+
+    The WebSocket handler broadcasts the buffer to connected clients with replay
+    on reconnect. Control ops (autoscroll/scroll) are server-side no-ops.
+    """
+
+    def __init__(self, session: "Session"):
+        self._session = session
+
+    def send(self, event: dict) -> None:
+        self._session.append_render_event(event)
+
+    def set_autoscroll(self, enabled: bool) -> None:
+        pass
+
+    def scroll_to_bottom(self) -> None:
+        pass
+
+
+def _build_session_renderer(session: "Session"):
+    """Per-session UnifiedMessageRenderer wired to a WebSocket render transport.
+
+    WP12: the webapp drives the *same* producer as the GUI (single source of the
+    chrome), but the events flow over the WebSocket instead of runJavaScript.
+    The import is lazy so QtWidgets is only pulled in when a pipeline runs.
+    """
+    from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+    return UnifiedMessageRenderer(
+        WebSocketRenderTransport(session), _HeadlessAutoScroll()
+    )
 
 
 @app.get("/")
@@ -367,6 +448,7 @@ async def get_session(session_id: str) -> dict:
         "results": _prepare_results_for_export(session.results, validate_rvk=False),
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
+        "render_events": session.get_new_render_events(),  # WP12: shared chrome
     }
 
 
@@ -695,6 +777,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     try:
         last_step = None
         idle_count = 0
+        render_sent = 0  # WP12: per-connection cursor → full replay on (re)connect
         # Use configurable timeout (count in 0.5s intervals)
         max_idle = WEBSOCKET_TIMEOUT_SECONDS * 2  # Claude Generated (config-based)
 
@@ -707,6 +790,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # Check if analysis is complete
             if session.status not in ["running", "idle"]:
                 logger.info(f"Session {session_id} status changed to {session.status}")
+                # Flush any remaining render events (e.g. the final DK card). - WP12
+                final_render, render_sent = session.get_render_events_since(render_sent)
                 # Send final update with JSON-serializable results
                 await websocket.send_json({
                     "type": "complete",
@@ -716,6 +801,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     ),
                     "error": session.error_message,
                     "current_step": session.current_step,
+                    "render_events": final_render,
                 })
                 break
 
@@ -738,6 +824,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             else:
                 streaming_tokens = session.get_and_clear_streaming_buffer()
 
+            # WP12: new render events since this connection last saw them.
+            new_render, render_sent = session.get_render_events_since(render_sent)
+
             await websocket.send_json({
                 "type": "status",
                 "status": session.status,
@@ -747,6 +836,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     _prepare_results_for_export(session.results, validate_rvk=False)
                 ),
                 "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
+                "render_events": new_render,  # WP12: shared chrome events
                 "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
                 "dk_search_progress": session.dk_search_progress,  # DK search progress info - Claude Generated
             })
@@ -1109,6 +1199,10 @@ async def run_analysis(
     session = sessions[session_id]
     session.status = "running"
 
+    # WP12: single shared producer for the DK/GND chrome (same renderer the GUI
+    # uses); events are buffered on the session and broadcast over the WebSocket.
+    session_renderer = _build_session_renderer(session)
+
     try:
         # Resolve input to text - Claude Generated
         input_text = None
@@ -1215,6 +1309,20 @@ async def run_analysis(
             session.current_step_status = 'completed'  # Claude Generated
             logger.info(f"Step completed: {step.step_id}")
 
+            # WP12: emit the DK/RVK catalog-research card as a render event so
+            # the webapp shows the identical chrome the GUI does.
+            if step.step_id == "dk_search" and step.output_data:
+                try:
+                    html, plain = PipelineResultFormatter.format_dk_search_card_html(
+                        step.output_data
+                    )
+                    if html:
+                        session_renderer.render_html_block(
+                            html, kind="dk_search", plain_text=plain
+                        )
+                except Exception:
+                    logger.exception("WP12: dk_search card emission failed")
+
             # Sync analysis state reference so autosave has access - Claude Generated
             # Must be set here because start_pipeline() hasn't returned yet when callbacks fire
             session.current_analysis_state = pipeline_manager.current_analysis_state
@@ -1256,6 +1364,20 @@ async def run_analysis(
 
             # Sync analysis state reference so autosave has access - Claude Generated
             session.current_analysis_state = analysis_state
+
+            # WP12: emit the final DK-classifications card as a render event
+            # (buffered before status flips to "completed", so the WS picks it
+            # up in the final message).
+            try:
+                html, plain = PipelineResultFormatter.format_dk_classifications_card_html(
+                    analysis_state
+                )
+                if html:
+                    session_renderer.render_html_block(
+                        html, kind="dk_classifications", plain_text=plain
+                    )
+            except Exception:
+                logger.exception("WP12: dk_classifications card emission failed")
 
             # Use shared extraction helper (DRY principle) - Claude Generated
             session.results = _prepare_results_for_export(

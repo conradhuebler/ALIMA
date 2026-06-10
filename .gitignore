@@ -335,4 +335,4 @@ config.bak
 localhost_migrated.json
 migrated_llm_config.json
 llmachine.json
-my_backup.json
+my_backup.json.claude/

@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Manrope:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/styles.css">
+    <!-- WP12: shared render-layer theme (scoped under #log) -->
+    <link rel="stylesheet" href="/static/alima_render.css">
 </head>
 <body>
 
@@ -181,6 +183,9 @@
                     <h2 id="results-panel-title" class="card-label">Analyse</h2>
                 </div>
                 <div id="results-summary" class="results-list"></div>
+                <!-- WP12: shared render region — DK/GND cards rendered via the
+                     same alima_render.js dispatcher the GUI uses. -->
+                <div id="log" class="alima-render-region"></div>
                 <div class="results-actions">
                     <button id="export-btn" class="btn btn-outline btn-sm">📥 JSON exportieren</button>
                     <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;">
@@ -268,6 +273,8 @@
         window.sessionId = "{{ session_id }}";
         console.log(`Session ID injected BEFORE app.js: ${window.sessionId}`);
     </script>
+    <!-- WP12: shared render-layer DOM dispatcher (must load before app.js) -->
+    <script src="/static/alima_render.js"></script>
     <script src="/static/app.js"></script>
 
     <!-- Stream collapse toggle (mobile UX, cosmetic only) -->

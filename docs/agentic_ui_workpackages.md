@@ -1,4 +1,4 @@
-# Agentic + UI — 11 Arbeitspakete
+# Agentic + UI — 13 Arbeitspakete
 
 > **Update**: WP11 (Provider-Portabilität) hinzugefügt nach Operator-Hinweis
 > "Pipeline/Agent getestet, optimiert für eines [Modell], muss aber mit
@@ -510,6 +510,49 @@ Roll-Back, Risiken, Smoke-Tests.
 **Parallel mit**: nichts.
 
 **Fälligkeit**: T4 (vor jeder Tab-Implementation-Änderung).
+
+---
+
+### WP12 — Unified Render Layer (GUI ↔ Webapp) (NEU)
+**Ziel**: Gemeinsamer Render-Layer für GUI und Webapp — geteiltes CSS + JS-
+Render-Funktionen + JSON-Render-Event-Protokoll, getrieben von zwei Transports
+(GUI `runJavaScript`, Webapp WebSocket). `UnifiedMessageRenderer` wird einziger
+Event-Producer → pixelgleiches Rendering, eine Pflegestelle.
+
+**Erst jetzt möglich**: seit der QWebEngineView-Umstellung (`WebLogView`, commit
+`7c68f67`) rendern beide Frontends HTML im Browser; vorher (QTextBrowser) war die
+Chrome nicht teilbar. Macht den Frontend-/Transport-Teil von WP4 + WP9 konkret.
+
+**Dependency**: WP4 (Render-Slots), WP9 (Tier-Modell — welche Events spiegelt die
+Webapp?), WP3 (Output-Schema).
+
+**Output**: [`wp12_unified_render_layer.md`](wp12_unified_render_layer.md) —
+3-Schichten-Architektur, Event-Protokoll, Teil-Pakete WP12.1–.4, Risiken,
+Akzeptanzkriterien (~5–7 PT). **Stand 2026-06-10**: WP12.1–.4 implementiert
+(uncommitted, headless verifiziert); Restarbeiten als WP12.5 in der Spec
+(Commit, visuelle Verifikation, Fehler-Event-Rendering, zwei
+Operator-Entscheidungen).
+
+---
+
+### WP13 — Aufräumen: toter Code, Backups, CLAUDE.md-Hygiene (NEU)
+**Ziel**: Hygiene-Paket aus der Basis-Bewertung (Juni 2026, dort „WP E"):
+verifizierten toten Code löschen (`search_engine.py` — instanziiert, nie
+benutzt; `lobid_subjects.py`, `katalog_subject.py`, `tablewidget_new/
+_original.py` — von nichts importiert), 4 getrackte `.bak`/`.backup`-Dateien
+aus dem Repo, `workflows/legacy/`-Entscheidung, Sub-CLAUDE.mds nach eigenen
+Regeln eindampfen (stale: CrossrefTab-Erwähnung, „Recently ADDED"-Friedhöfe),
+einmalige SWB-Cache-Bereinigung (Altlast des in WP A behobenen
+Outage-Caching-Bugs).
+
+**Kein** Verhaltenswechsel, keine Restrukturierung, keine Tab-Merges
+(Letztere → WP1/WP10-Linie).
+
+**Dependency**: WP12 committet (§9.1 der WP12-Spec) — sonst kollidieren
+Löschungen mit dem offenen Worktree.
+
+**Output**: [`wp13_cleanup.md`](wp13_cleanup.md) — verifizierte Arbeitsliste
+mit grep-Belegen, Akzeptanzkriterien, ~1–2 PT.
 
 ---
 

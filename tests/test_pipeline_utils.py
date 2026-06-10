@@ -580,6 +580,67 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
             "Keine DK/RVK-Klassifikationen generiert",
         )
 
+    # --- normalize_classifications (WP12 badge card) -------------------
+    def test_normalize_infers_system_from_notation(self):
+        entries = self.fmt.normalize_classifications(["614.7", "WD 5000"])
+        self.assertEqual(entries[0]["system"], "DK")    # digit start
+        self.assertEqual(entries[1]["system"], "RVK")   # letter start
+
+    def test_normalize_honours_prefix_and_dict_fields(self):
+        entries = self.fmt.normalize_classifications([
+            "DK 614.7",
+            {"system": "RVK", "code": "QZ 123", "display": "QZ 123",
+             "validation_status": "non_standard", "label": "Med", "validation_message": "lokal"},
+        ])
+        self.assertEqual(entries[0]["system"], "DK")
+        self.assertEqual(entries[1]["system"], "RVK")
+        self.assertEqual(entries[1]["validation_status"], "non_standard")
+        self.assertEqual(entries[1]["label"], "Med")
+
+    def test_normalize_attaches_titles(self):
+        entries = self.fmt.normalize_classifications(["DK 614.7"], self.flattened)
+        self.assertEqual(entries[0]["total_count"], 8)
+        self.assertTrue(entries[0]["titles"])
+
+    # --- format_classification_badge_card_html (WP12 badge card) ------
+    def test_badge_card_renders_system_and_code(self):
+        entries = self.fmt.normalize_classifications(["DK 614.7", "RVK QZ 123"], self.flattened)
+        html = self.fmt.format_classification_badge_card_html(entries)
+        self.assertIn("classification-badge--dk", html)
+        self.assertIn("classification-badge--rvk", html)
+        self.assertIn("614.7", html)
+        self.assertIn("classification-entry-list", html)
+
+    def test_badge_card_validation_summary_and_badge(self):
+        entries = self.fmt.normalize_classifications([
+            {"system": "RVK", "display": "QZ 123", "validation_status": "non_standard"},
+        ])
+        html = self.fmt.format_classification_badge_card_html(entries)
+        self.assertIn("classification-validation-summary", html)
+        self.assertIn("nicht standard", html)
+
+    def test_badge_card_escapes_label(self):
+        entries = self.fmt.normalize_classifications([
+            {"system": "RVK", "display": "QZ 1", "validation_status": "non_standard",
+             "label": "<script>x"},
+        ])
+        html = self.fmt.format_classification_badge_card_html(entries)
+        self.assertIn("&lt;script&gt;x", html)
+        self.assertNotIn("<script>", html)
+
+    def test_badge_card_empty_is_blank(self):
+        self.assertEqual(self.fmt.format_classification_badge_card_html([]), "")
+
+    def test_card_from_state_uses_badges(self):
+        class _State:
+            dk_classifications = ["DK 614.7"]
+            dk_search_results = None
+            dk_search_results_flattened = None
+        html, plain = self.fmt.format_dk_classifications_card_html(_State())
+        self.assertIn("classification-entry", html)
+        self.assertIn("614.7", html)
+        self.assertEqual(plain, "DK 614.7")
+
 
 if __name__ == '__main__':
     unittest.main()
