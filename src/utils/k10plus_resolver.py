@@ -486,7 +486,7 @@ def fetch_records_for_siegel(
             try:
                 progress_callback(page_index, total_pages, msg)
             except Exception:
-                pass
+                logger.debug("progress_callback raised; continuing", exc_info=True)
 
         try:
             page_xml = _get_cached_or_fetch(page_url, page_cache, logger)

@@ -535,7 +535,7 @@ class AlimaManager:
                             try:
                                 response_generator.close()
                             except Exception:
-                                pass
+                                pass  # best-effort generator close on user abort - Claude Generated
                         break
 
                     # Check for repetition patterns - Claude Generated

@@ -1958,7 +1958,7 @@ class PipelineStepConfigWidget(QWidget):
                         if prompt_config and hasattr(prompt_config, "prompt"):
                             config["prompt_template"] = prompt_config.prompt
                 except Exception as e:
-                    pass  # Fall back to default prompt
+                    self.logger.debug(f"Prompt lookup failed, using default prompt: {e}")
 
         # Add system prompt if available - this overrides defaults from prompts.json
         if hasattr(self, "system_prompt"):
@@ -1977,7 +1977,7 @@ class PipelineStepConfigWidget(QWidget):
                         if prompt_config and hasattr(prompt_config, "system"):
                             config["system_prompt"] = prompt_config.system
                 except Exception as e:
-                    pass  # Fall back to default system prompt
+                    self.logger.debug(f"Prompt lookup failed, using default system prompt: {e}")
 
         # Repetition penalty — only store if != 1.0 (1.0 means "off")
         rep_val = self.rep_penalty_spinbox.value()

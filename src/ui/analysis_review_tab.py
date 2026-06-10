@@ -1191,8 +1191,8 @@ class AnalysisReviewTab(QWidget):
                     from datetime import datetime
                     dt = datetime.fromisoformat(date_str)
                     date_str = dt.strftime("%Y-%m-%d %H:%M")
-                except:
-                    pass
+                except (ValueError, TypeError):
+                    pass  # keep raw string if not ISO-formatted - Claude Generated
             date_item = QTableWidgetItem(date_str)
             date_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.batch_table.setItem(row, 4, date_item)

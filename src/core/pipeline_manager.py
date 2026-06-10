@@ -735,7 +735,7 @@ class PipelineManager:
                 "state.pipeline_started", {"pipeline_id": pipeline_id}
             )
         except Exception:
-            pass
+            self.logger.warning("state.pipeline_started emit failed", exc_info=True)
         self.logger.info("🔵 [DEBUG] start_pipeline: after AlimaStateBus")
 
         # Agentic mode: use MetaAgent instead of sequential steps - Claude Generated
@@ -986,7 +986,7 @@ class PipelineManager:
                     {"workflow": workflow.name},
                 )
             except Exception:
-                pass
+                self.logger.warning("state.pipeline_completed emit failed", exc_info=True)
             if self.pipeline_completed_callback:
                 self.pipeline_completed_callback(self.current_analysis_state)
 

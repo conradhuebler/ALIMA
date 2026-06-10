@@ -235,7 +235,7 @@ class SWBSuggester(BaseSuggester):
 
         # Debug output
         if self.debug:
-            print(
+            self.logger.debug(
                 f"Single result extraction - Subject name: '{subject_name}', GND ID: '{gnd_id}'"
             )
 
@@ -243,11 +243,12 @@ class SWBSuggester(BaseSuggester):
         if subject_name and gnd_id:
             return {subject_name: gnd_id}
 
-        # If something is missing, return an empty dictionary
-        if not subject_name and self.debug:
-            print("Warning: Could not extract subject name from single result page")
-        if not gnd_id and self.debug:
-            print("Warning: Could not extract GND ID from single result page")
+        # If something is missing, return an empty dictionary.
+        # Real data loss (term will yield nothing) — log unconditionally - Claude Generated
+        if not subject_name:
+            self.logger.warning("Could not extract subject name from single result page")
+        if not gnd_id:
+            self.logger.warning("Could not extract GND ID from single result page")
 
         return {}
 
@@ -264,7 +265,7 @@ class SWBSuggester(BaseSuggester):
         # First check if it's a single result page
         if self._is_single_result_page(content):
             if self.debug:
-                print("Detected single result page, extracting details...")
+                self.logger.debug("Detected single result page, extracting details...")
             return self._extract_details_from_single_result(content)
 
         # Standard extraction for result lists
@@ -284,7 +285,7 @@ class SWBSuggester(BaseSuggester):
             if subject_name and gnd_id:
                 subjects[subject_name] = gnd_id
                 if self.debug:
-                    print(f"Found subject: {subject_name} (GND: {gnd_id})")
+                    self.logger.debug(f"Found subject: {subject_name} (GND: {gnd_id})")
 
         # If nothing found, try an alternative approach using BeautifulSoup
         if not subjects:
@@ -328,7 +329,7 @@ class SWBSuggester(BaseSuggester):
                         subject_name = link.text.strip()
                         subjects[subject_name] = gnd_id
                         if self.debug:
-                            print(
+                            self.logger.debug(
                                 f"Found subject via BS4: {subject_name} (GND: {gnd_id})"
                             )
 
@@ -345,7 +346,7 @@ class SWBSuggester(BaseSuggester):
                 if subject_name and gnd_id:
                     subjects[subject_name] = gnd_id
                     if self.debug:
-                        print(
+                        self.logger.debug(
                             f"Found subject via JS pattern: {subject_name} (GND: {gnd_id})"
                         )
 
@@ -447,7 +448,7 @@ class SWBSuggester(BaseSuggester):
         cache_key = f"{search_type}:{search_term}" if search_type != "kw" else search_term
         if cache_key in self.cache:
             if self.debug:
-                print(f"Using cached results for '{cache_key}'")
+                self.logger.debug(f"Using cached results for '{cache_key}'")
             return self.cache[cache_key]
 
         # IKT codes: 2074=Sachbegriff (GND subject), 2058=Titel, 2072=Allgemeinstichwort
@@ -475,8 +476,8 @@ class SWBSuggester(BaseSuggester):
         url = f"{base_url}?{urllib.parse.urlencode(params)}"
 
         if self.debug:
-            print(f"Searching SWB for subject term: {search_term}")
-            print(f"URL: {url}")
+            self.logger.debug(f"Searching SWB for subject term: {search_term}")
+            self.logger.debug(f"URL: {url}")
 
         all_subjects = {}
         current_url = url
@@ -486,7 +487,7 @@ class SWBSuggester(BaseSuggester):
         while current_url and page_count < max_pages:
             page_count += 1
             if self.debug:
-                print(f"\nProcessing page {page_count}: {current_url}")
+                self.logger.debug(f"\nProcessing page {page_count}: {current_url}")
 
             try:
                 response = requests.get(current_url)
@@ -498,14 +499,14 @@ class SWBSuggester(BaseSuggester):
                 # Check if it's a single result page
                 is_single_result = self._is_single_result_page(content)
                 if self.debug and is_single_result:
-                    print(
+                    self.logger.debug(
                         "Detected single result page - direct match for the search term"
                     )
 
                 # Extract subjects from this page
                 page_subjects = self._extract_subjects_from_page(content)
                 if self.debug:
-                    print(f"Found {len(page_subjects)} subjects on page {page_count}")
+                    self.logger.debug(f"Found {len(page_subjects)} subjects on page {page_count}")
 
                 # Add to overall results
                 all_subjects.update(page_subjects)
@@ -518,13 +519,13 @@ class SWBSuggester(BaseSuggester):
                 next_url = self._get_next_page_url(content, current_url)
                 if next_url:
                     if self.debug:
-                        print(f"Found next page URL: {next_url}")
+                        self.logger.debug(f"Found next page URL: {next_url}")
                     current_url = next_url
                     # Small pause to not overload the server
                     time.sleep(0.5)
                 else:
                     if self.debug:
-                        print(f"No more result pages found after page {page_count}")
+                        self.logger.debug(f"No more result pages found after page {page_count}")
                     break
 
             except Exception as e:
@@ -605,17 +606,17 @@ class SWBSuggester(BaseSuggester):
             self.currentTerm.emit(search_term)
 
             if self.debug:
-                print(
+                self.logger.debug(
                     f"\nFound {len(results[search_term])} total subjects for '{search_term}'"
                 )
 
                 # Show some sample results
                 if self.debug and results[search_term]:
-                    print("Sample results:")
+                    self.logger.debug("Sample results:")
                     sample_count = min(5, len(results[search_term]))
                     for i, (subject, data) in enumerate(
                         list(results[search_term].items())[:sample_count]
                     ):
-                        print(f"{i+1}. '{subject}': {data}")
+                        self.logger.debug(f"{i+1}. '{subject}': {data}")
 
         return results

@@ -260,7 +260,7 @@ class TextExtractionWorker(StoppableWorker):
                 if cleanup_temp:
                     try:
                         os.unlink(image_path)
-                    except:
+                    except OSError:
                         pass
 
                 if extracted_text.strip():
@@ -277,7 +277,7 @@ class TextExtractionWorker(StoppableWorker):
             if cleanup_temp:
                 try:
                     os.unlink(image_path)
-                except:
+                except OSError:
                     pass
             self.aborted.emit()
         except Exception as e:
@@ -285,7 +285,7 @@ class TextExtractionWorker(StoppableWorker):
             if cleanup_temp:
                 try:
                     os.unlink(image_path)
-                except:
+                except OSError:
                     pass
             self.logger.error(f"Image LLM extraction error: {e}")
             self.error_occurred.emit(f"LLM-Bilderkennung fehlgeschlagen: {str(e)}")
@@ -372,7 +372,7 @@ class TextExtractionWorker(StoppableWorker):
             if cleanup_temp:
                 try:
                     os.unlink(image_path)
-                except:
+                except OSError:
                     pass
             
             if extracted_text.strip():
@@ -385,7 +385,7 @@ class TextExtractionWorker(StoppableWorker):
             if cleanup_temp:
                 try:
                     os.unlink(image_path)
-                except:
+                except OSError:
                     pass
             self.logger.error(f"Legacy image LLM extraction error: {e}")
             self.error_occurred.emit(f"Legacy LLM-Bilderkennung fehlgeschlagen: {str(e)}")

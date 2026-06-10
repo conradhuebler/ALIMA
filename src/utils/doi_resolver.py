@@ -800,7 +800,7 @@ def _get_doi_config() -> dict:
         defaults['use_openalex'] = getattr(sc, 'doi_use_openalex', True)
         defaults['use_datacite'] = getattr(sc, 'doi_use_datacite', True)
     except Exception:
-        pass
+        pass  # config not loadable (e.g. tests) — built-in defaults apply - Claude Generated
     return defaults
 
 

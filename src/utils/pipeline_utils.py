@@ -77,7 +77,8 @@ def _emit_classic_tool_result(
             "status": status,
         })
     except Exception:
-        pass
+        # Bus is a monitoring channel — never break pipeline execution - Claude Generated
+        logging.getLogger(__name__).debug("tool.result bus emit failed", exc_info=True)
 
 
 def _run_classic_step(
@@ -179,7 +180,7 @@ def build_working_title(
         try:
             dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
             timestamp = dt.strftime('%Y%m%d_%H%M%S')
-        except:
+        except (ValueError, TypeError):
             # If parsing fails, use as-is (might already be compact)
             pass
 
@@ -6859,7 +6860,7 @@ def _extract_pdf_with_llm_pipeline(
             # Cleanup temporäre Datei
             try:
                 os.unlink(temp_image_path)
-            except:
+            except OSError:
                 pass
                 
     except Exception as e:

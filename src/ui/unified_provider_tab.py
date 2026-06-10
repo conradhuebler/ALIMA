@@ -246,8 +246,8 @@ class TaskModelSelectionDialog(QDialog):
                     # Fallback to preferred_model if set
                     if provider.preferred_model:
                         return [provider.preferred_model]
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Could not read cached models for provider: {e}")
 
         return []
 
@@ -266,8 +266,8 @@ class TaskModelSelectionDialog(QDialog):
                     provider.available_models = models
                     self.config_manager.save_config(config)
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Could not persist models for provider '{provider_name}': {e}")
 
     def _preselect_current_model(self) -> None:
         """Pre-select the currently configured model in dropdown - Claude Generated"""

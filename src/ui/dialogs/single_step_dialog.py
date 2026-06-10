@@ -118,7 +118,7 @@ class SingleStepRunWorker(QThread):
         try:
             self.stream.emit(token)
         except Exception:
-            pass
+            pass  # emit during dialog teardown — token loss is acceptable - Claude Generated
 
 
 class SingleStepDialog(QDialog):

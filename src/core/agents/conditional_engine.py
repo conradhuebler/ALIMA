@@ -154,7 +154,7 @@ class ConditionalEngine:
             val = resolve_path(raw, context)
             return val
         except Exception:
-            pass
+            pass  # not a resolvable path — fall through to string literal - Claude Generated
 
         # Unknown — return as-is
         return raw

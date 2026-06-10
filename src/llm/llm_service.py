@@ -2715,7 +2715,7 @@ class LlmService(QObject):
                         try:
                             response_stream.close()
                         except Exception:
-                            pass
+                            pass  # best-effort close on user abort - Claude Generated
                         return AgentResponse(
                             content=content,
                             tool_calls=[],

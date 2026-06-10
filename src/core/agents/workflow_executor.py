@@ -88,7 +88,7 @@ class WorkflowExecutor:
             try:
                 context._workflow_prompts = workflow.prompts
             except Exception:
-                pass
+                pass  # context without attribute support — prompts resolved from YAML defaults - Claude Generated
 
         # P-η: propagate settings.seed → context.seed when caller did not set one.
         # Per-step `llm.seed` still overrides via LLMAgentStep._llm_params().
@@ -97,7 +97,7 @@ class WorkflowExecutor:
             try:
                 context.seed = settings_seed
             except Exception:
-                pass
+                pass  # context without attribute support — per-step llm.seed still applies - Claude Generated
 
         steps = workflow.steps
         if only_step:

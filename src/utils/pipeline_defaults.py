@@ -17,7 +17,7 @@ def get_autosave_dir(config_manager=None) -> Path:
             cfg = config_manager.load_config()
             return Path(cfg.system_config.autosave_dir)
         except Exception:
-            pass
+            pass  # config unreadable — fall back to DEFAULT_AUTOSAVE_DIR - Claude Generated
     return DEFAULT_AUTOSAVE_DIR
 
 # DK Pipeline Search Configuration

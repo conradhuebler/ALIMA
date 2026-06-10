@@ -141,7 +141,7 @@ class CLISetupWizard:
                 preset_host = parsed.hostname or preset_host
                 preset_port = parsed.port or preset_port
             except Exception:
-                pass
+                pass  # malformed preset URL — keep interactive defaults - Claude Generated
 
         host = input(f"Ollama Host (Standard: {preset_host}): ").strip() or preset_host
         port_str = input(f"Ollama Port (Standard: {preset_port}): ").strip() or str(preset_port)

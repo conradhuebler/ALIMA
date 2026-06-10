@@ -168,7 +168,7 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
         try:
             llm_service.cancel_generation(reason="cli_sigint")
         except Exception:
-            pass
+            pass  # best-effort cancel inside signal handler — no safe logging here - Claude Generated
 
     prev_handler = signal.signal(signal.SIGINT, _on_sigint)
     try:

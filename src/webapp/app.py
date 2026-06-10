@@ -49,9 +49,12 @@ from src.webapp.result_serialization import (
     prepare_results_for_export as _prepare_results_for_export,
 )
 
-# Setup logging - Claude Generated: configurable via LOG_LEVEL env var
-_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
-logging.basicConfig(level=_log_level)
+# Setup logging - Claude Generated: shared setup (console + alima_webapp.log),
+# verbosity still configurable via LOG_LEVEL env var (DEBUG → level 2)
+from src.utils.logging_utils import setup_logging
+
+_env_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+setup_logging(level=2 if _env_level == "DEBUG" else 1, log_file="alima_webapp.log")
 logger = logging.getLogger(__name__)
 
 

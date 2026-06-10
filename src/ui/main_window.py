@@ -1319,7 +1319,7 @@ class MainWindow(QMainWindow):
                 try:
                     action.setChecked(action.text() == f"{pt} pt")
                 except Exception:
-                    pass
+                    pass  # menu action already deleted — cosmetic only - Claude Generated
 
     def _on_config_changed(self):
         """Handle configuration changes from comprehensive settings dialog - Claude Generated"""
@@ -1330,7 +1330,7 @@ class MainWindow(QMainWindow):
             if new_fs != get_font_size():
                 self.apply_font_size(new_fs)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("font-size refresh failed", exc_info=True)
         self._refresh_components()
 
     def _refresh_components(self):

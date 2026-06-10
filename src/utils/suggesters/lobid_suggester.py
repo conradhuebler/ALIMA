@@ -105,7 +105,7 @@ class LobidSuggester(BaseSuggester):
         gnd_subjects = dict()
 
         if self.debug:
-            print(f"Downloading {self.subjects_file_gz}")
+            self.logger.debug(f"Downloading {self.subjects_file_gz}")
 
         try:
             # Create SSL context for cross-platform certificate handling - Claude Generated
@@ -123,7 +123,7 @@ class LobidSuggester(BaseSuggester):
             raise LobidSuggesterError(ex_to_str(ex))
 
         if self.debug:
-            print(f"Extracting subjects from {self.subjects_file_gz}")
+            self.logger.debug(f"Extracting subjects from {self.subjects_file_gz}")
 
         try:
             with open(self.subjects_file_gz, "rb") as fh:
@@ -147,7 +147,7 @@ class LobidSuggester(BaseSuggester):
                     raise LobidSuggesterError(ex_to_str(ex))
 
         if self.debug:
-            print(f"Writing subjects to {self.subjects_file_json}")
+            self.logger.debug(f"Writing subjects to {self.subjects_file_json}")
 
         try:
             with open(self.subjects_file_json, "w", encoding="utf-8") as fh:
@@ -226,7 +226,7 @@ class LobidSuggester(BaseSuggester):
                     subject = self.gnd_subjects[key]
                 except KeyError:
                     if self.debug:
-                        print(
+                        self.logger.debug(
                             f"No subject found for GND ID '{key}', will use '{entry['key']}'"
                         )
                     subject = entry["key"].removeprefix("https://d-nb.info/gnd/")
