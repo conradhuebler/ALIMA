@@ -117,7 +117,23 @@ class WorkflowExecutor:
 
             # Evaluate conditional expression
             if cfg.condition:
-                should_run = ConditionalEngine.evaluate(cfg.condition, context)
+                try:
+                    should_run = ConditionalEngine.evaluate(cfg.condition, context)
+                except Exception as exc:
+                    # A broken condition must not silently skip or run the step:
+                    # treat it as a step failure so it shows up in the report - Claude Generated
+                    overall_success = False
+                    error = f"Condition '{cfg.condition}' of step '{cfg.id}' failed to evaluate: {exc}"
+                    logger.error(error, exc_info=True)
+                    results.append(StepResult(
+                        step_id=cfg.id,
+                        success=False,
+                        error=error,
+                        duration_seconds=0.0,
+                    ))
+                    if stop_on_error:
+                        break
+                    continue
                 if not should_run:
                     logger.info(f"Skipping '{cfg.id}' (condition '{cfg.condition}' is False)")
                     if self.stream_callback:
@@ -139,19 +155,47 @@ class WorkflowExecutor:
                     break
                 continue
 
-            step: BaseStep = step_cls(
-                config=cfg,
-                llm_service=self.llm_service,
-                tool_registry=self.tool_registry,
-                stream_callback=self.stream_callback,
-            )
+            try:
+                step: BaseStep = step_cls(
+                    config=cfg,
+                    llm_service=self.llm_service,
+                    tool_registry=self.tool_registry,
+                    stream_callback=self.stream_callback,
+                )
+            except Exception as exc:
+                # Constructor failures (bad config, missing service) must be
+                # reported per step, not crash the workflow thread - Claude Generated
+                logger.error(f"Step '{cfg.id}' could not be instantiated: {exc}", exc_info=True)
+                overall_success = False
+                error = f"{type(exc).__name__}: {exc}"
+                results.append(StepResult(
+                    step_id=cfg.id,
+                    success=False,
+                    error=error,
+                    duration_seconds=0.0,
+                ))
+                if stop_on_error:
+                    break
+                continue
 
             if self.stream_callback:
                 self.stream_callback(f"\n📍 Step: {cfg.id} ({cfg.type})\n")
 
             self._emit_snapshot(context, cfg, status="running")
 
-            result = step.execute(context)
+            try:
+                result = step.execute(context)
+            except Exception as exc:
+                # Step implementations should return StepResult(success=False),
+                # but an escaping exception must not kill the whole workflow
+                # thread unreported - Claude Generated
+                logger.error(f"Step '{cfg.id}' raised: {exc}", exc_info=True)
+                result = StepResult(
+                    step_id=cfg.id,
+                    success=False,
+                    error=f"{type(exc).__name__}: {exc}",
+                    duration_seconds=0.0,
+                )
             results.append(result)
 
             self._emit_snapshot(

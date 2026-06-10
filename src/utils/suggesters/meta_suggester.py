@@ -135,6 +135,8 @@ class MetaSuggester(BaseSuggester):
             }
         """
         combined_results = {}
+        # Fresh error state; keys are "<suggester>:<term>" - Claude Generated
+        self.last_errors = {}
 
         # Initialize empty results for each term
         for term in terms:
@@ -177,6 +179,7 @@ class MetaSuggester(BaseSuggester):
                             self._merge_suggester_results(combined_results, {term: live_results.get(term, {})}, term)
                         except Exception as e:
                             self.logger.error(f"Live search fallback failed for {term}: {e}")
+                            self.last_errors[f"{suggester_type.value}:{term}"] = str(e)
                 
                 if self.debug_mapping:
                     self.logger.info(f"📊 {suggester_type.value}: {mapping_hits} mapping hits, {live_searches} live searches")
@@ -189,6 +192,19 @@ class MetaSuggester(BaseSuggester):
                             self._merge_suggester_results(combined_results, suggester_results, term)
                 except Exception as e:
                     self.logger.error(f"Error searching with {suggester_type.value} suggester: {e}")
+                    for term in terms:
+                        self.last_errors[f"{suggester_type.value}:{term}"] = str(e)
+
+            # Collect per-term failures recorded inside the child suggester
+            # (e.g. network errors that resulted in empty per-term results) - Claude Generated
+            for term, message in getattr(suggester, "last_errors", {}).items():
+                self.last_errors.setdefault(f"{suggester_type.value}:{term}", message)
+
+        if self.last_errors:
+            self.logger.warning(
+                f"Search completed with {len(self.last_errors)} source failure(s): "
+                f"{sorted(self.last_errors)} — empty results for these are NOT confirmed misses"
+            )
 
         return combined_results
     

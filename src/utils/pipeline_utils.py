@@ -536,6 +536,27 @@ class PipelineStepExecutor:
             task_state.analysis_result.full_text, output_format=_output_format
         )
 
+        # An unparseable LLM response must fail the step instead of silently
+        # continuing the pipeline with 0 keywords ("success" with empty result
+        # leads to wrong cataloguing decisions) - Claude Generated
+        response_text = (task_state.analysis_result.full_text or "").strip()
+        if not keywords and response_text:
+            preview = response_text[:300]
+            error_msg = (
+                "Initial keyword extraction: LLM response could not be parsed "
+                "(no JSON keywords and no <final_list> found). "
+                f"Response preview: {preview!r}"
+            )
+            if self.logger:
+                self.logger.error(f"💥 PIPELINE_FAILURE: {error_msg}")
+            if stream_callback:
+                stream_callback(
+                    "\n❌ LLM-Antwort konnte nicht geparst werden – Schritt abgebrochen "
+                    "(keine Schlagwörter extrahierbar)\n",
+                    kwargs.get("step_id", "initialisation"),
+                )
+            raise ValueError(error_msg)
+
         # Extract title from response - Claude Generated
         llm_title = extract_title_from_response(task_state.analysis_result.full_text, output_format=_output_format)
 
@@ -613,6 +634,7 @@ class PipelineStepExecutor:
 
         # Execute search per keyword for live progress updates - Claude Generated
         search_results = {}
+        source_failures: Dict[str, str] = {}  # "<suggester>:<term>" → message - Claude Generated
         with SearchCLI(
             self.cache_manager,
             catalog_token=catalog_token or "",
@@ -633,6 +655,20 @@ class PipelineStepExecutor:
                         search_results[term] = {}
                     search_results[term].update(term_data)
 
+                # Surface source failures: 0 hits after a failed source is
+                # NOT a confirmed miss - Claude Generated
+                if search_cli.last_errors:
+                    source_failures.update(search_cli.last_errors)
+                    failed_sources = sorted(
+                        {key.split(":", 1)[0] for key in search_cli.last_errors}
+                    )
+                    if stream_callback:
+                        stream_callback(
+                            f"    ⚠️ Quelle(n) fehlgeschlagen für '{keyword}': "
+                            f"{', '.join(failed_sources)}\n",
+                            "search",
+                        )
+
                 if stream_callback:
                     total_hits = sum(
                         details.get('count', 0)
@@ -646,7 +682,19 @@ class PipelineStepExecutor:
                 search_results, stream_callback
             )
 
-        if stream_callback:
+        if source_failures:
+            if self.logger:
+                self.logger.warning(
+                    f"GND search finished with {len(source_failures)} source failure(s): "
+                    f"{sorted(source_failures)}"
+                )
+            if stream_callback:
+                stream_callback(
+                    f"⚠️ Suche abgeschlossen, aber {len(source_failures)} Quellen-Fehler "
+                    "(leere Treffer ggf. nicht aussagekräftig).\n",
+                    "search",
+                )
+        elif stream_callback:
             stream_callback("--> Suche abgeschlossen.\n", "search")
 
         return search_results

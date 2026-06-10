@@ -97,7 +97,13 @@ def extract_keywords_from_response(text: str, output_format: Optional[str] = Non
         result = ", ".join([keyword.strip().replace("_", " ") for keyword in keywords if keyword.strip()])
         logger.debug(f"Extracted keywords: {result}")
         return result
-    logger.debug("No <final_list> tag found.")
+    # Empty return on a non-empty response means the LLM output was unparseable,
+    # not that there are no keywords — callers must be able to see this - Claude Generated
+    if text and text.strip():
+        logger.warning(
+            f"Keyword extraction failed: neither JSON keywords nor <final_list> found "
+            f"in non-empty LLM response (length {len(text)}). Preview: {text.strip()[:200]!r}"
+        )
     return ""
 
 

@@ -202,6 +202,7 @@ class LobidSuggester(BaseSuggester):
             }
         """
         result_subjects = dict()
+        self.last_errors = {}  # fresh error state per search call - Claude Generated
 
         for search in searches:
             query = urllib.parse.quote(search)
@@ -211,8 +212,8 @@ class LobidSuggester(BaseSuggester):
                 with urllib.request.urlopen(url) as response:
                     result = json.load(response)
             except Exception as ex:
-                if self.debug:
-                    print(f"Error searching for '{search}': {ex}")
+                # Missing term in the result dict = source failure, not "no match" - Claude Generated
+                self._record_search_error(search, ex)
                 continue
 
             result_subjects[search] = dict()

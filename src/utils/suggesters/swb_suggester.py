@@ -91,8 +91,7 @@ class SWBSuggester(BaseSuggester):
 
                 return result
         except Exception as e:
-            if self.debug:
-                print(f"Warning: Could not load cache: {e}")
+            self.logger.warning(f"Could not load SWB cache: {e}")
             return {}
 
     def _save_cache(self):
@@ -116,8 +115,7 @@ class SWBSuggester(BaseSuggester):
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(serializable_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            if self.debug:
-                print(f"Warning: Could not save cache: {e}")
+            self.logger.warning(f"Could not save SWB cache: {e}")
 
     def _is_single_result_page(self, content: str) -> bool:
         """
@@ -483,6 +481,7 @@ class SWBSuggester(BaseSuggester):
         all_subjects = {}
         current_url = url
         page_count = 0
+        had_error = False  # network/parse failure — result must not be cached - Claude Generated
 
         while current_url and page_count < max_pages:
             page_count += 1
@@ -529,8 +528,10 @@ class SWBSuggester(BaseSuggester):
                     break
 
             except Exception as e:
-                if self.debug:
-                    print(f"Error processing page {page_count}: {e}")
+                had_error = True
+                self._record_search_error(
+                    search_term, f"page {page_count} of SWB request failed: {e}"
+                )
                 break
 
         # Prepare results in the desired format
@@ -544,9 +545,17 @@ class SWBSuggester(BaseSuggester):
                 "dk": set(),  # Empty set for DK
             }
 
-        # Cache results under the search_type-aware key
-        self.cache[cache_key] = results
-        self._save_cache()
+        # Cache results under the search_type-aware key.
+        # Never cache after a network/parse failure: an outage would otherwise
+        # be persisted as "no results" for this term - Claude Generated
+        if not had_error:
+            self.cache[cache_key] = results
+            self._save_cache()
+        else:
+            self.logger.warning(
+                f"SWB results for '{search_term}' NOT cached (search failed; "
+                f"{len(results)} partial subjects returned)"
+            )
 
         return results
 
@@ -585,6 +594,7 @@ class SWBSuggester(BaseSuggester):
             }
         """
         results = {}
+        self.last_errors = {}  # fresh error state per search call - Claude Generated
 
         for search_term in searches:
             results[search_term] = self.extract_gnd_from_swb(

@@ -120,6 +120,7 @@ class PipelineWorker(StoppableWorker):
     step_started = pyqtSignal(object)  # PipelineStep
     step_completed = pyqtSignal(object)  # PipelineStep
     step_error = pyqtSignal(object, str)  # PipelineStep, error_message
+    pipeline_error = pyqtSignal(str)  # error_message — pipeline-level failure outside step handling - Claude Generated
     pipeline_completed = pyqtSignal(object)  # analysis_state
     stream_token = pyqtSignal(str, str)  # token, step_id
     repetition_detected = pyqtSignal(object, list, bool, bool, float)  # result, suggestions, grace_period, resolved, grace_seconds - Claude Generated (2026-02-17)
@@ -182,8 +183,8 @@ class PipelineWorker(StoppableWorker):
             self.logger.info("Pipeline interrupted by user")
             self.aborted.emit()
         except Exception as e:
-            self.logger.error(f"Pipeline worker error: {e}")
-            # Emit error signal if needed
+            self.logger.error(f"Pipeline worker error: {e}", exc_info=True)
+            self.pipeline_error.emit(str(e))
 
 
 class DNBSyncWorker(QThread):

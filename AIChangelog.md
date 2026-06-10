@@ -6,6 +6,48 @@
 
 ## 2026
 
+### WP A — Fehler sichtbar machen / Silent-Fail-Härtung (June 10, 2026)
+
+Erste Stufe des Maßnahmenplans aus der Basis-Bewertung (Plan-Datei
+`ich-h-tte-gerne-eine-snappy-backus.md`): Fehler, die bisher geschluckt
+wurden und leere Ergebnisse als Erfolg erscheinen ließen, werden jetzt
+gemeldet. Tests: `tests/test_error_visibility.py` (10 Negativ-/Positiv-Tests);
+Suite 575 passed / 5 skipped.
+
+- **Worker**: `PipelineWorker` hat neues Signal `pipeline_error(str)` und
+  emittiert es im bisher stummen `except`-Block (`src/ui/workers.py`);
+  `PipelineTab.on_pipeline_error` zeigt Dialog, setzt Status, reaktiviert
+  den Start-Button (`src/ui/pipeline_tab.py`).
+- **Klassische Pipeline stoppt bei Schritt-Fehlschlag**: `_execute_next_step`
+  hatte keinen `else`-Zweig für `success=False` — die Pipeline lief nach
+  einem fehlgeschlagenen Schritt weiter (auto_advance), und Schritte, die
+  „sauber" `False` zurückgaben (z. B. DK-Klassifikation), lösten gar keinen
+  `step_error_callback` aus. Jetzt: Status `error`, Callback genau einmal,
+  Bus-Event `state.pipeline_step` mit `status="error"` + `error`-Payload,
+  kein Auto-Advance (`src/core/pipeline_manager.py`).
+- **WorkflowExecutor (agentisch)**: try/except um Step-Konstruktor,
+  `step.execute()` und `ConditionalEngine.evaluate` → `StepResult(success=False)`
+  statt Thread-Crash; kaputte `when:`-Bedingung ist Step-Fehler, kein
+  stilles Überspringen (`src/core/agents/workflow_executor.py`).
+  Hinweis: `BaseStep.execute` fing `run()`-Exceptions schon ab — ungeschützt
+  waren Konstruktor, Condition und execute-Overrides.
+- **Parse-Fehler ≠ leeres Ergebnis**: unparsebare LLM-Antwort bei der
+  Initialisierung wirft jetzt `ValueError` mit Response-Preview statt mit
+  0 Schlagwörtern „erfolgreich" weiterzulaufen (`src/utils/pipeline_utils.py`);
+  `extract_keywords_from_response` loggt WARNING bei leerem Resultat aus
+  nicht-leerer Antwort (`src/core/processing_utils.py`); generischer Pfad in
+  `alima_manager._create_analysis_result` warnt (kein Raise, da
+  `match_keywords_against_text`-Fallback legitime Teilergebnisse liefert).
+- **Suggester: Quelle-down ≠ kein Treffer**: `BaseSuggester` bekommt
+  `last_errors` + `_record_search_error` (immer `logger.warning`, nicht mehr
+  `if self.debug: print`). SWB cached fehlerbehaftete Suchen **nicht** mehr
+  (vorher wurde ein API-Ausfall dauerhaft als „kein Treffer" persistiert).
+  Propagation: Suggester → `MetaSuggester` → `SearchCLI.last_errors` →
+  `execute_gnd_search` streamt `⚠️ Quelle(n) fehlgeschlagen für '<term>'`
+  und eine Abschluss-Warnung an GUI/CLI/Webapp.
+- **Zurückgestellt** (WP12-Dateien, Vermischung vermeiden): Rendering des
+  `status="error"`-Bus-Events im Chat-Panel/Webapp.
+
 ### Chat/log rendering moved to QWebEngineView — reliable collapse + live streaming (June 9, 2026)
 
 The chat/pipeline log rendered everything into a single `QTextBrowser` via

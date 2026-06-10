@@ -1384,6 +1384,7 @@ class PipelineTab(QWidget):
         self.pipeline_worker.step_started.connect(self.on_step_started)
         self.pipeline_worker.step_completed.connect(self.on_step_completed)
         self.pipeline_worker.step_error.connect(self.on_step_error)
+        self.pipeline_worker.pipeline_error.connect(self.on_pipeline_error)  # Claude Generated
         self.pipeline_worker.pipeline_completed.connect(self.on_pipeline_completed)
         self.pipeline_worker.stream_token.connect(self.on_llm_stream_token)
         self.pipeline_worker.aborted.connect(self.on_pipeline_aborted)  # Claude Generated
@@ -1999,6 +2000,36 @@ class PipelineTab(QWidget):
         )
 
         # Re-enable start button
+        self.auto_pipeline_button.setEnabled(True)
+
+    @pyqtSlot(str)
+    def on_pipeline_error(self, error_message: str):
+        """Handle pipeline-level failure that escaped step handling - Claude Generated
+
+        Without this the worker thread dies silently and the UI stays in
+        "Processing…" forever (see workers.py PipelineWorker.run).
+        """
+        if self.current_running_step:
+            self.duration_update_timer.stop()
+            self.current_running_step = None
+
+        if self.main_window and hasattr(self.main_window, "global_status_bar"):
+            if hasattr(self.main_window.global_status_bar, "update_pipeline_status"):
+                self.main_window.global_status_bar.update_pipeline_status(
+                    "Pipeline", "error"
+                )
+
+        self.pipeline_status_label.setText("Pipeline-Fehler")
+
+        if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:
+            self.stream_widget.end_llm_streaming()
+
+        QMessageBox.critical(
+            self,
+            "Pipeline-Fehler",
+            f"Die Pipeline ist mit einem Fehler abgebrochen:\n{error_message}",
+        )
+
         self.auto_pipeline_button.setEnabled(True)
 
     @pyqtSlot(object)

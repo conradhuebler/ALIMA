@@ -701,6 +701,14 @@ class AlimaManager:
         # Handle cases where extraction functions might return None or empty string
         if not matched_keywords:
             matched_keywords = {}
+            # Visibility: empty extraction from a non-empty response is more
+            # likely a parse failure than "no keywords" - Claude Generated
+            if response_text_str.strip():
+                self.logger.warning(
+                    f"Keyword extraction returned nothing for task '{task}' "
+                    f"(model={model}, response length {len(response_text_str)}) — "
+                    "possible unparseable LLM output."
+                )
         if gnd_systematic is None:
             gnd_systematic = ""
         if not keyword_chains:

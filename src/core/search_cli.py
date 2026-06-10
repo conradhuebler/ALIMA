@@ -28,6 +28,9 @@ class SearchCLI:
         self.catalog_search_url = catalog_search_url
         self.catalog_details_url = catalog_details_url
         self._active_suggesters = []  # Track active suggesters for cleanup
+        # Source failures of the last search() call ("<suggester>:<term>" → message).
+        # Lets callers distinguish "source down" from "term not found" - Claude Generated
+        self.last_errors: Dict[str, str] = {}
 
     def __enter__(self):
         """Enter context manager - Claude Generated"""
@@ -48,6 +51,7 @@ class SearchCLI:
         self, search_terms: List[str], suggester_types: List[SuggesterType]
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         combined_results = {}
+        self.last_errors = {}
 
         for suggester_type in suggester_types:
             self.logger.debug(f"Searching with {suggester_type.value} suggester")
@@ -63,11 +67,15 @@ class SearchCLI:
 
                 results = suggester.search(search_terms)
                 self.merge_results(combined_results, results)
+                # Propagate per-term source failures to callers - Claude Generated
+                self.last_errors.update(getattr(suggester, "last_errors", {}))
 
             except Exception as e:
                 self.logger.error(
                     f"Error searching with {suggester_type.value} suggester: {e}"
                 )
+                for term in search_terms:
+                    self.last_errors[f"{suggester_type.value}:{term}"] = str(e)
 
         return combined_results
 

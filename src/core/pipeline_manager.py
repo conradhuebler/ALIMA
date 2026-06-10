@@ -673,14 +673,17 @@ class PipelineManager:
         """
         try:
             from src.core.state_bus import AlimaStateBus
-            AlimaStateBus().emit_event("state.pipeline_step", {
+            payload = {
                 "tool": "execute_complete_pipeline",
                 "step_id": getattr(step, "step_id", "") or "",
                 "name": getattr(step, "name", "") or "",
                 "status": status,
-            })
+            }
+            if status == "error":
+                payload["error"] = getattr(step, "error_message", "") or ""
+            AlimaStateBus().emit_event("state.pipeline_step", payload)
         except Exception:
-            self.logger.debug(
+            self.logger.warning(
                 "_emit_pipeline_step_bus failed", exc_info=True
             )
 
@@ -2009,6 +2012,25 @@ class PipelineManager:
                         if current_step.step_id in completion_delay_steps:
                             time.sleep(0.2)  # 200ms for main thread to process completion signals
                             self.logger.debug(f"✅ Delayed 200ms after {current_step.step_id} completion for UI processing")
+                    else:
+                        # A failed step must stop the pipeline: auto-advancing
+                        # past it would feed garbage into every following step
+                        # and present the run as a success - Claude Generated
+                        self._emit_pipeline_step_bus(current_step, "error")
+                        if current_step.status != "error":
+                            # Graceful failure (returned False without raising):
+                            # execute_step has NOT notified anyone yet
+                            current_step.status = "error"
+                            if self.step_error_callback:
+                                self.step_error_callback(
+                                    current_step,
+                                    current_step.error_message or "Step failed without error message",
+                                )
+                        self.logger.error(
+                            f"Pipeline stopped at failed step '{current_step.step_id}': "
+                            f"{current_step.error_message or 'no error message'}"
+                        )
+                        return
 
                 self.current_step_index += 1
 
@@ -2035,7 +2057,9 @@ class PipelineManager:
                     from src.core.state_bus import AlimaStateBus
                     AlimaStateBus().emit_event("state.pipeline_completed", {})
                 except Exception:
-                    pass
+                    self.logger.warning(
+                        "state.pipeline_completed emit failed", exc_info=True
+                    )
                 if self.pipeline_completed_callback:
                     self.pipeline_completed_callback(self.current_analysis_state)
 

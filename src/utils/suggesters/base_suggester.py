@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Set, Optional, Union
 from pathlib import Path
 import sys
 import json
+import logging
 import tempfile
 from abc import ABC, ABCMeta, abstractmethod
 
@@ -65,6 +66,10 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
         """
         super().__init__()
         self.debug = debug
+        self.logger = logging.getLogger(self.__class__.__module__)
+        # Per-search-term failures of the last search() call. Empty results
+        # for a term listed here mean "source failed", NOT "no match" - Claude Generated
+        self.last_errors: Dict[str, str] = {}
         self.data_dir = self._get_data_dir(data_dir)
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +98,15 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
 
         raise BaseSuggesterError(
             "Given data_dir is neither string nor Path. Cannot proceed"
+        )
+
+    def _record_search_error(self, term: str, error: Union[Exception, str]) -> None:
+        """Log a search failure visibly and remember it in last_errors so callers
+        can distinguish 'source failed' from 'no results' - Claude Generated"""
+        message = str(error)
+        self.last_errors[term] = message
+        self.logger.warning(
+            f"{self.__class__.__name__}: search for '{term}' failed: {message}"
         )
 
     @abstractmethod
