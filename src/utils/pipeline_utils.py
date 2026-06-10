@@ -4523,17 +4523,9 @@ class PipelineStepExecutor:
         if force_update and self.logger:
             self.logger.info("⚠️ Force update enabled: new titles will be merged with existing")
 
-        # Use provided catalog configuration or allow web fallback - Claude Generated
-        if not catalog_token or not catalog_token.strip():
-            if self.logger:
-                self.logger.warning("No catalog token provided - BiblioClient will use web scraping fallback")
-            if stream_callback:
-                stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
-            catalog_token = ""  # Empty token triggers automatic web fallback
-
         # Initialize catalog client - supports BiblioClient or MarcXmlClient - Claude Generated
         try:
-            # Determine catalog type from config
+            # Determine catalog type from config and fill missing parameters - Claude Generated
             try:
                 from .config_manager import ConfigManager
                 config_manager = ConfigManager()
@@ -4541,18 +4533,39 @@ class PipelineStepExecutor:
                 catalog_type = getattr(catalog_config, 'catalog_type', 'libero_soap')
                 if catalog_type == 'auto':
                     catalog_type = catalog_config.get_catalog_type() if hasattr(catalog_config, 'get_catalog_type') else 'libero_soap'
+
+                # Fill missing catalog parameters from config — fixes dk_search_agentic
+                # which calls execute_dk_search without passing catalog config.
+                if not catalog_token or not catalog_token.strip():
+                    catalog_token = getattr(catalog_config, 'catalog_token', '') or ''
+                if not catalog_search_url or not catalog_search_url.strip():
+                    catalog_search_url = getattr(catalog_config, 'catalog_search_url', '') or ''
+                if not catalog_details_url or not catalog_details_url.strip():
+                    catalog_details_url = getattr(catalog_config, 'catalog_details_url', '') or ''
+                if not catalog_web_search_url or not catalog_web_search_url.strip():
+                    catalog_web_search_url = getattr(catalog_config, 'catalog_web_search_url', '') or ''
+                if not catalog_web_record_url or not catalog_web_record_url.strip():
+                    catalog_web_record_url = getattr(catalog_config, 'catalog_web_record_url', '') or ''
             except Exception as cfg_err:
                 if self.logger:
                     self.logger.debug(f"Config load failed, using default: {cfg_err}")
                 catalog_type = 'libero_soap'  # Default to original behavior
-            
+
+            # Log catalog configuration status - Claude Generated
+            if not catalog_token or not catalog_token.strip():
+                if self.logger:
+                    self.logger.warning("No catalog token provided - BiblioClient will use web scraping fallback")
+                if stream_callback:
+                    stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
+                catalog_token = ""  # Empty token triggers automatic web fallback
+
             if catalog_type == 'marcxml_sru':
                 # Use MARC XML SRU client - Claude Generated
                 from .clients.marcxml_client import MarcXmlClient
                 sru_preset = getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else ''
                 sru_base_url = getattr(catalog_config, 'sru_base_url', '') if 'catalog_config' in dir() else ''
                 sru_max_records = getattr(catalog_config, 'sru_max_records', 50) if 'catalog_config' in dir() else 50
-                
+
                 extractor = MarcXmlClient(
                     preset=sru_preset if sru_preset else '',
                     sru_base_url=sru_base_url if not sru_preset else '',
@@ -4576,7 +4589,7 @@ class PipelineStepExecutor:
                     web_search_url=catalog_web_search_url or "",  # Claude Generated - from CatalogConfig
                     web_record_url=catalog_web_record_url or "",  # Claude Generated - from CatalogConfig
                 )
-                
+
         except Exception as e:
             error_msg = f"Catalog client initialization failed: {e}"
             if self.logger:
@@ -6306,6 +6319,211 @@ class PipelineResultFormatter:
                     )
 
         return "".join(html_parts)
+
+    @staticmethod
+    def _escape_card_html(text: str) -> str:
+        """Escape & < > " for trusted-card HTML (matches the GUI renderer)."""
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    @staticmethod
+    def format_dk_search_card_html(output_data: Dict[str, Any]) -> Tuple[str, str]:
+        """Build the per-DK-code catalog-research card (HTML, plain_text). - Claude Generated
+
+        Shared producer for the GUI agentic chat (``PipelineChatPanel``) and the
+        webapp (WP12). Returns ``("", "")`` when there is nothing to show so the
+        caller can skip emitting an empty block.
+        """
+        flattened = output_data.get(
+            "dk_search_results_flattened", output_data.get("dk_search_results", [])
+        )
+        text = PipelineResultFormatter.format_dk_search_results_text(flattened)
+        if not text.strip():
+            return "", ""
+        body = PipelineResultFormatter._escape_card_html(text).replace("\n", "<br>")
+        html = (
+            "<div style='font-family: monospace; font-size: 9pt; color: #a8a8a8; "
+            "white-space: pre-wrap; margin: 4px 0 4px 8px;'>"
+            "<span style='color: #8be9fd;'>📚 Katalog-Recherche (DK/RVK):</span><br>"
+            f"{body}</div>"
+        )
+        return html, text
+
+    @staticmethod
+    def _infer_classification_system(display: str) -> str:
+        """Best-effort DK/RVK system inference from an unprefixed notation.
+
+        DK is purely numeric/dotted (``614.7``); RVK starts with letters
+        (``WD 5000``, ``AK 54000``). Falls back to ``DK`` for digit starts and
+        ``RVK`` for letter starts. - Claude Generated
+        """
+        code = (display or "").strip()
+        if not code:
+            return "UNKNOWN"
+        return "RVK" if code[0].isalpha() else "DK"
+
+    @staticmethod
+    def normalize_classifications(
+        dk_classifications: Any,
+        dk_search_results: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Normalise raw classifications to badge-card entries. - Claude Generated
+
+        Accepts ``List[str]`` or ``List[Dict]`` (the latter may carry
+        ``system`` / ``validation_status`` / ``label`` / ``validation_message``
+        from the RVK-validation enrichment). System is inferred when absent;
+        catalog titles + total hit count are attached when ``dk_search_results``
+        is given. Shared by the GUI and webapp badge card (WP12).
+        """
+        entries: List[Dict[str, Any]] = []
+        for item in dk_classifications or []:
+            if isinstance(item, dict):
+                display = (
+                    str(item.get("display") or "").strip()
+                    or f"{item.get('system', '')} {item.get('code', '')}".strip()
+                    or str(item.get("code") or "").strip()
+                )
+                system = str(item.get("system") or "").strip().upper()
+                validation_status = item.get("validation_status")
+                label = item.get("label")
+                validation_message = item.get("validation_message")
+            else:
+                display = str(item or "").strip()
+                system = ""
+                validation_status = label = validation_message = None
+            if not display:
+                continue
+            # Honour an inline "DK "/"RVK " prefix; else infer.
+            prefix_system, _code = PipelineResultFormatter.split_classification_code(display)
+            if not system:
+                system = prefix_system or PipelineResultFormatter._infer_classification_system(display)
+            titles, total_count = PipelineResultFormatter.get_titles_for_dk_code(
+                display, dk_search_results or []
+            )
+            entries.append({
+                "system": system or "UNKNOWN",
+                "display": display,
+                "validation_status": validation_status,
+                "label": label,
+                "validation_message": validation_message,
+                "titles": titles,
+                "total_count": total_count,
+            })
+        return entries
+
+    @staticmethod
+    def format_classification_badge_card_html(
+        entries: List[Dict[str, Any]], max_titles_per_code: int = 3
+    ) -> str:
+        """Render normalised classifications as the shared badge card. - Claude Generated
+
+        One HTML fragment (no ``<html>/<body>``) using the ``classification-*``
+        classes styled in the shared ``alima_render.css`` (scoped under
+        ``#log``). Ported from the webapp's structured cards so the GUI's
+        QWebEngineView log and the webapp render identical chrome (WP12). Empty
+        ``entries`` → ``""``.
+        """
+        if not entries:
+            return ""
+        esc = PipelineResultFormatter._escape_card_html
+
+        rvk = [e for e in entries if e["system"] == "RVK"]
+        std = sum(1 for e in rvk if e["validation_status"] == "standard")
+        nonstd = sum(1 for e in rvk if e["validation_status"] == "non_standard")
+        err = sum(1 for e in rvk if e["validation_status"] == "validation_error")
+        summary = ""
+        if std or nonstd or err:
+            parts = [
+                f'<span class="classification-badge classification-badge--standard">RVK standard: {std}</span>',
+                f'<span class="classification-badge classification-badge--non-standard">RVK nicht standard: {nonstd}</span>',
+            ]
+            if err:
+                parts.append(
+                    f'<span class="classification-badge classification-badge--unknown">API-Fehler: {err}</span>'
+                )
+            summary = f'<div class="classification-validation-summary">{"".join(parts)}</div>'
+
+        rows: List[str] = []
+        for e in entries:
+            system = e["system"]
+            sys_class = "classification-badge--rvk" if system == "RVK" else "classification-badge--dk"
+            head = [
+                f'<span class="classification-badge {sys_class}">{esc(system)}</span>',
+                f'<span class="classification-entry__code">{esc(e["display"])}</span>',
+            ]
+            vs = e.get("validation_status")
+            if system == "RVK" and vs == "standard":
+                head.append('<span class="classification-badge classification-badge--standard">standard</span>')
+            elif system == "RVK" and vs == "non_standard":
+                head.append('<span class="classification-badge classification-badge--non-standard">nicht standard</span>')
+            elif system == "RVK" and vs == "validation_error":
+                head.append('<span class="classification-badge classification-badge--unknown">API-Fehler</span>')
+            total = e.get("total_count") or 0
+            if total > 0:
+                bar = "🟩" * min(5, (total // 10) + 1)
+                head.append(
+                    f'<span class="classification-badge classification-badge--standard">'
+                    f'{bar} {total} Treffer</span>'
+                )
+
+            meta_parts: List[str] = []
+            if e.get("label"):
+                meta_parts.append(esc(str(e["label"])))
+            if e.get("validation_message") and vs != "standard":
+                meta_parts.append(esc(str(e["validation_message"])))
+            meta = (
+                f'<div class="classification-entry__meta">{" · ".join(meta_parts)}</div>'
+                if meta_parts else ""
+            )
+
+            titles = e.get("titles") or []
+            titles_html = ""
+            if titles:
+                lis = "".join(f"<li>{esc(str(t))}</li>" for t in titles[:max_titles_per_code])
+                more = (
+                    f'<li class="classification-entry__meta">… und {total - max_titles_per_code} weitere</li>'
+                    if total > max_titles_per_code else ""
+                )
+                titles_html = f'<ol class="classification-entry__titles">{lis}{more}</ol>'
+
+            rows.append(
+                f'<div class="classification-entry">'
+                f'<div class="classification-entry__head">{"".join(head)}</div>'
+                f"{meta}{titles_html}</div>"
+            )
+
+        return (
+            '<div class="classification-card-title">🏷 DK/RVK-Klassifikationen</div>'
+            f'{summary}'
+            f'<div class="classification-entry-list">{"".join(rows)}</div>'
+        )
+
+    @staticmethod
+    def format_dk_classifications_card_html(analysis_state: Any) -> Tuple[str, str]:
+        """Build the final DK-classifications card (HTML, plain_text). - Claude Generated
+
+        Shared producer for the GUI agentic-chat log and the webapp ``#log``
+        (WP12). Normalises ``analysis_state.dk_classifications`` (``List[str]`` or
+        ``List[Dict]``), attaches catalog titles from the title-carrying source
+        (agentic vs classic), and renders the structured **badge card** (ported
+        from the webapp). The Pipeline-Tab keeps its own
+        ``format_dk_classifications_html`` confidence card. Returns ``("", "")``
+        when no classifications exist.
+        """
+        dk_classifications = getattr(analysis_state, "dk_classifications", None)
+        if not dk_classifications:
+            return "", ""
+        flat = PipelineResultFormatter.select_dk_title_source(
+            getattr(analysis_state, "dk_search_results", None),
+            getattr(analysis_state, "dk_search_results_flattened", None),
+        )
+        entries = PipelineResultFormatter.normalize_classifications(dk_classifications, flat)
+        html = PipelineResultFormatter.format_classification_badge_card_html(entries)
+        return html, ", ".join(e["display"] for e in entries)
 
     @staticmethod
     def parse_dk_results_from_text(text: str) -> List[Dict[str, Any]]:
