@@ -6,6 +6,48 @@
 
 ## 2026
 
+### WP B+C — Debugbarkeit + E2E-Sicherheitsnetz (June 10, 2026)
+
+Fortsetzung des Maßnahmenplans (nach WP A). Suite: 579 passed / 5 skipped.
+
+**WP B — Debugbarkeit:**
+- **Zentrale Logging-Konfiguration komplett**: GUI und CLI nutzten
+  `logging_utils.setup_logging` bereits; die Webapp (vorher nur
+  `basicConfig`, Konsole) nutzt es jetzt auch → Konsole + `alima_webapp.log`,
+  `LOG_LEVEL=DEBUG` env-Var wird auf Stufe 2 gemappt (`src/webapp/app.py`).
+- **print() → Logger**: `swb_suggester.py` (18×) und `lobid_suggester.py` (4×)
+  auf `self.logger.debug` umgestellt; die zwei „could not extract"-Fälle in
+  SWB-Einzeltreffer-Seiten sind jetzt unbedingte `logger.warning` (Datenverlust).
+  Nicht angefasst: `src/core/lobid_subjects.py` (13×) und
+  `src/core/katalog_subject.py` (10×) — werden von nichts importiert,
+  **Dead-Code-Kandidaten für WP E**; `registry.py`-Treffer sind Docstring-Beispiele.
+- **except:pass-Audit** (~55 Stellen): nackte `except:` auf konkrete Typen
+  eingegrenzt (`OSError` bei unlink-Cleanups ×6, `ValueError/TypeError` bei
+  Datums-/JSON-Parsing ×3); Silent-Swallows mit Logging versehen
+  (`unified_provider_tab` Modell-Lookup/-Persist → warning,
+  `pipeline_config_dialog` Prompt-Fallback → debug, Bus-Emits in
+  `pipeline_manager` → warning bzw. `llm_agent_step`/`pipeline_utils` → debug);
+  übrige Best-Effort-Stellen mit Begründungskommentar. Übersprungen:
+  `pipeline_chat_panel.py` (3 Stellen, WP12-Datei).
+
+**WP C — E2E-Smoke-Tests** (`tests/test_e2e_smoke.py`, LLM an der
+LlmService-Grenze gemockt, Netzwerk an SearchCLI-/Tool-Grenze gefakt):
+- Klassische Pipeline: `execute_complete_pipeline` initialisation → search →
+  keywords → `KeywordAnalysisState` mit Keywords, Suchergebnissen, Streaming.
+- Agentisch: `alima_classic.yaml` (7 Steps) durch `WorkflowExecutor` mit
+  `LLMAgentStep` + deterministischen Funktionen; Kontext trägt Ergebnisse
+  durch die ganze Kette; plus Negativ-Test (LLM down → `report.success=False`).
+- `AgentLoop` Multi-Turn: 2 Tool-Calls + finale Antwort über 3 LLM-Turns,
+  Tool-Results landen in der Konversation, Hooks feuern.
+
+**Dabei gefundener+behobener Silent-Fail** (vom Negativ-Test aufgedeckt):
+`AgentLoop` wandelte LLM-Exceptions in `content="Error: …"` um und
+`LLMAgentStep` wertete das als Erfolg → Workflow lief mit Müll weiter und
+meldete `success=True`. Jetzt: `AgentResult.error`-Feld (rückwärtskompatibel),
+`AgentLoop` setzt es, `LLMAgentStep` lässt den Step fehlschlagen
+(`src/core/data_models.py`, `src/core/agent_loop.py`,
+`src/core/agents/steps/llm_agent_step.py`).
+
 ### WP A — Fehler sichtbar machen / Silent-Fail-Härtung (June 10, 2026)
 
 Erste Stufe des Maßnahmenplans aus der Basis-Bewertung (Plan-Datei

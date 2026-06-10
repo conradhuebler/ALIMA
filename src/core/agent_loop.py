@@ -113,6 +113,7 @@ class AgentLoop:
         tool_call_counter = Counter()  # Track repeated tool calls
         start_time = time.time()
         final_content = ""
+        run_error: Optional[str] = None  # LLM hard failure — see AgentResult.error - Claude Generated
 
         for iteration in range(1, self.max_iterations + 1):
             # Cancel check (P-δ.3 hook). Latency = max one iteration.
@@ -153,6 +154,7 @@ class AgentLoop:
                 if self._status_cb:
                     self._status_cb(f"\n❌ LLM-Fehler: {e}\n")
                 final_content = f"Error: {e}"
+                run_error = str(e)  # mark run as failed, not just oddly-worded - Claude Generated
                 break
 
             # Case 1: LLM wants to call tools
@@ -245,8 +247,8 @@ class AgentLoop:
                                 result_preview = f"{len(parsed)} Ergebnisse"
                             elif isinstance(parsed, dict):
                                 result_preview = f"{len(parsed)} Einträge"
-                        except:
-                            pass
+                        except (json.JSONDecodeError, TypeError):
+                            pass  # keep generic preview - Claude Generated
                         self._status_cb(f"    ✓ {result_preview} ({tool_duration:.1f}s)")
 
                     # Add tool result to messages
@@ -307,6 +309,7 @@ class AgentLoop:
             iterations=min(iteration, self.max_iterations) if 'iteration' in dir() else 0,
             tokens_used=0,  # TODO: Track from provider responses
             messages=conv,
+            error=run_error,
         )
 
     def _get_tool_type_label(self, tool_name: str) -> str:

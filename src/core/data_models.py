@@ -279,3 +279,7 @@ class AgentResult:
     tokens_used: int = 0
     agent_name: str = ""
     messages: List[Dict[str, Any]] = field(default_factory=list)  # full conversation including tool calls
+    # Set when the run aborted on an LLM failure: content then holds an
+    # error string, NOT a model answer. Callers must check this instead of
+    # treating the run as successful - Claude Generated
+    error: Optional[str] = None

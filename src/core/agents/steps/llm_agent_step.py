@@ -116,6 +116,10 @@ class LLMAgentStep(BaseStep):
         _t0 = time.monotonic()
         result = self._invoke_loop(system_prompt, user_prompt, tool_names, params)
         _emit_prompt_done(_prompt_id, self.step_id, time.monotonic() - _t0)
+        if getattr(result, "error", None):
+            # LLM hard failure — fail the step instead of parsing the error
+            # string as if it were a model answer - Claude Generated
+            raise RuntimeError(f"LLM call failed: {result.error}")
         parsed = _extract_json(result.content)
 
         _log_response(self.step_id, result.content)
@@ -217,6 +221,12 @@ class LLMAgentStep(BaseStep):
                 _chunk_prompt_id, f"{self.step_id}[chunk {idx}/{total}]",
                 time.monotonic() - _t0,
             )
+            if getattr(result, "error", None):
+                # LLM hard failure — fail the whole step (a missing chunk would
+                # silently drop keywords) - Claude Generated
+                raise RuntimeError(
+                    f"LLM call failed in chunk {idx}/{total}: {result.error}"
+                )
             parsed = _extract_json(result.content)
             total_iterations += getattr(result, "iterations", 1)
             per_chunk.append({"index": idx, "response": parsed})
@@ -342,7 +352,7 @@ class LLMAgentStep(BaseStep):
                         },
                     )
                 except Exception:
-                    pass
+                    logger.debug("tool.called bus emit failed", exc_info=True)
 
             def _emit_tool_result(name, result):
                 try:
@@ -355,7 +365,7 @@ class LLMAgentStep(BaseStep):
                         },
                     )
                 except Exception:
-                    pass
+                    logger.debug("tool.result bus emit failed", exc_info=True)
         except Exception:
             _emit_tool_called = None
             _emit_tool_result = None
@@ -505,7 +515,7 @@ def _emit_prompts(
                 },
             )
         except Exception:
-            pass
+            logger.debug("pipeline_prompt bus emit failed", exc_info=True)
 
 
 def _emit_prompt_done(prompt_id: Optional[str], step_id: str, duration_s: float) -> None:
@@ -520,7 +530,7 @@ def _emit_prompt_done(prompt_id: Optional[str], step_id: str, duration_s: float)
             {"prompt_id": prompt_id, "step_id": step_id, "duration_s": float(duration_s)},
         )
     except Exception:
-        pass
+        logger.debug("pipeline_prompt_done bus emit failed", exc_info=True)
 
 
 def _log_response(step_id: str, content: str) -> None:
