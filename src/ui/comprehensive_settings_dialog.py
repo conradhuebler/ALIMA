@@ -333,7 +333,83 @@ class ComprehensiveSettingsDialog(QDialog):
         
         self.sru_group.setLayout(sru_layout)
         layout.addWidget(self.sru_group)
-        
+
+        # finc / VuFind-JSON settings - Claude Generated (finc integration, June 2026)
+        # Sits alongside Libero/SRU as a LOCAL catalog backend. When
+        # finc_base_url is set, the FincSuggester takes priority over
+        # Libero for the search_finc MCP tool. finc returns full VuFind
+        # records (not aggregated GND keywords), so it does not replace
+        # SWB/Lobid in gnd_batch_search — see FincSuggester docstring.
+        self.finc_group = QGroupBox("finc / VuFind-JSON Configuration")
+        finc_layout = QFormLayout()
+
+        self.finc_base_url = QLineEdit()
+        self.finc_base_url.setPlaceholderText(
+            "https://finc.example.org/fincsolrproxy/proxy.php"
+        )
+        self.finc_base_url.setToolTip(
+            "Base URL of the finc solrproxy (no trailing slash). The client "
+            "appends /api/v1/search automatically. Leave empty to disable."
+        )
+        finc_layout.addRow("finc Base URL:", self.finc_base_url)
+
+        self.finc_web_record_url = QLineEdit()
+        self.finc_web_record_url.setPlaceholderText(
+            "https://katalog.example.org/Record/"
+        )
+        self.finc_web_record_url.setToolTip(
+            "Web frontend record base URL (with trailing slash). Used to build "
+            "the web_url for each record. Optional — leave empty to omit."
+        )
+        finc_layout.addRow("Web Record URL:", self.finc_web_record_url)
+
+        self.finc_default_limit = QSpinBox()
+        self.finc_default_limit.setRange(1, 100)
+        self.finc_default_limit.setValue(20)
+        self.finc_default_limit.setToolTip(
+            "Maximum records per search (1..100). Default: 20."
+        )
+        finc_layout.addRow("Default Limit:", self.finc_default_limit)
+
+        self.finc_timeout = QSpinBox()
+        self.finc_timeout.setRange(1, 300)
+        self.finc_timeout.setValue(30)
+        self.finc_timeout.setSuffix(" s")
+        self.finc_timeout.setToolTip(
+            "HTTP timeout in seconds. Default: 30."
+        )
+        finc_layout.addRow("Timeout:", self.finc_timeout)
+
+        self.finc_institution_filter = QLineEdit()
+        self.finc_institution_filter.setPlaceholderText("DE-105")
+        self.finc_institution_filter.setToolTip(
+            "Optional default institution facet value, e.g. DE-105. Applied as "
+            "filter[]=institution:\"<value>\" to every search unless overridden "
+            "by the caller."
+        )
+        finc_layout.addRow("Institution Filter:", self.finc_institution_filter)
+
+        self.finc_dk_enabled = QCheckBox("DK-Klassifikationssuche über finc (statt Libero/SRU)")
+        self.finc_dk_enabled.setToolTip(
+            "Wenn aktiviert (und finc Base URL gesetzt), nutzt der DK-Such-Schritt "
+            "finc: Titelliste pro Schlagwort + udk_raw/rvk pro Titel. Sonst bleibt "
+            "Libero/SRU der DK-Backend. finc bleibt unabhängig davon über das "
+            "search_finc-Tool erreichbar."
+        )
+        finc_layout.addRow("DK-Suche:", self.finc_dk_enabled)
+
+        self.finc_harvest_enabled = QCheckBox("Schlagwort-Schritt: finc-Titel ernten + Schlagworte gegen GND-Cache abgleichen")
+        self.finc_harvest_enabled.setToolTip(
+            "Wenn aktiviert (und finc Base URL gesetzt), reichert der Suchschritt "
+            "den GND-Pool mit katalog-gegroundeten Treffern an: pro Schlagwort eine "
+            "finc-Subject-Suche, deren Titel-Schlagworte gegen den lokalen GND-Cache "
+            "abgeglichen werden. Standard aus."
+        )
+        finc_layout.addRow("Schlagwort-Ernte:", self.finc_harvest_enabled)
+
+        self.finc_group.setLayout(finc_layout)
+        layout.addWidget(self.finc_group)
+
         # Advanced settings
         advanced_group = QGroupBox("Advanced Settings")
         advanced_layout = QFormLayout()
@@ -675,7 +751,18 @@ class ComprehensiveSettingsDialog(QDialog):
         self.sru_schema.setCurrentText(config.catalog.sru_schema)
         self.sru_max_records.setValue(config.catalog.sru_max_records)
         self.strict_gnd_validation.setChecked(config.catalog.strict_gnd_validation_for_dk_search)
-        
+
+        # finc settings - Claude Generated (finc integration, June 2026)
+        self.finc_base_url.setText(getattr(config.catalog, "finc_base_url", "") or "")
+        self.finc_web_record_url.setText(getattr(config.catalog, "finc_web_record_url", "") or "")
+        self.finc_default_limit.setValue(getattr(config.catalog, "finc_default_limit", 20) or 20)
+        self.finc_timeout.setValue(getattr(config.catalog, "finc_timeout", 30) or 30)
+        self.finc_institution_filter.setText(
+            getattr(config.catalog, "finc_institution_filter", "") or ""
+        )
+        self.finc_dk_enabled.setChecked(bool(getattr(config.catalog, "finc_dk_enabled", False)))
+        self.finc_harvest_enabled.setChecked(bool(getattr(config.catalog, "finc_harvest_enabled", False)))
+
         # Trigger visibility update
         self._on_catalog_type_changed(config.catalog.catalog_type)
         self._on_sru_preset_changed(config.catalog.sru_preset)
@@ -930,7 +1017,15 @@ class ComprehensiveSettingsDialog(QDialog):
             sru_schema=self.sru_schema.currentText(),
             sru_preset=self.sru_preset_combo.currentText(),
             sru_max_records=self.sru_max_records.value(),
-            strict_gnd_validation_for_dk_search=self.strict_gnd_validation.isChecked()
+            strict_gnd_validation_for_dk_search=self.strict_gnd_validation.isChecked(),
+            # finc / VuFind-JSON - Claude Generated (finc integration, June 2026)
+            finc_base_url=self.finc_base_url.text().strip(),
+            finc_web_record_url=self.finc_web_record_url.text().strip(),
+            finc_default_limit=self.finc_default_limit.value(),
+            finc_timeout=self.finc_timeout.value(),
+            finc_institution_filter=self.finc_institution_filter.text().strip(),
+            finc_dk_enabled=self.finc_dk_enabled.isChecked(),
+            finc_harvest_enabled=self.finc_harvest_enabled.isChecked(),
         )
 
         # System configuration - Claude Generated fix for expanded config structure

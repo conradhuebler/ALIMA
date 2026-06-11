@@ -235,9 +235,20 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertEqual(llm_analysis.model_used, model)
         self.assertIn("Umweltverschmutzung", str(llm_analysis.extracted_gnd_keywords))
 
+    @patch('src.utils.config_manager.ConfigManager.get_catalog_config')
     @patch('src.utils.clients.biblio_client.BiblioClient')  # WIP imports locally inside execute_dk_search
-    def test_execute_dk_search(self, MockBiblioClient):
-        """Test the DK search step of the pipeline."""
+    def test_execute_dk_search(self, MockBiblioClient, mock_get_catalog_config):
+        """Test the DK search step of the pipeline (Libero/BiblioClient path)."""
+        # Pin a non-finc Libero catalog config so this test exercises the
+        # BiblioClient path deterministically, independent of the operator's
+        # real ~/.config/alima/config.json — which now has finc configured and
+        # would otherwise (correctly) take the finc DK backend. - Claude Generated
+        import types
+        mock_get_catalog_config.return_value = types.SimpleNamespace(
+            finc_base_url="", catalog_type="libero_soap", catalog_token="",
+            catalog_search_url="", catalog_details_url="",
+            catalog_web_search_url="", catalog_web_record_url="",
+        )
         # 1. Arrange: Define inputs and configure mock responses
         keywords = ["Umweltverschmutzung (GND-ID: 4061694-5)"]
         catalog_token = "test_token"

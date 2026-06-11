@@ -615,7 +615,26 @@ class CatalogConfig:
     sru_schema: str = 'marcxml'  # Record schema: 'marcxml' or 'MARC21-xml'
     sru_preset: str = ''  # Use preset: "dnb", "loc", "gbv", "swb", "k10plus"
     sru_max_records: int = 50  # Maximum records per search
-    
+
+    # finc / VuFind-JSON catalog configuration - Claude Generated
+    # Used by FincClient (src/utils/clients/finc_client.py) to talk to a local
+    # finc/VuFind instance (e.g. TU Freiberg finc solrproxy). Sits alongside
+    # Libero/SRU; priority is set in tool_registry._init_suggesters and
+    # pipeline_utils.execute_dk_search (finc is preferred when configured).
+    finc_base_url: str = ''  # e.g. "https://finc.example.org/fincsolrproxy/proxy.php"
+    finc_web_record_url: str = ''  # e.g. "https://katalog.example.org/Record/" (used to build web_url)
+    finc_default_limit: int = 20  # Max records per search (1..100)
+    finc_timeout: int = 30  # HTTP timeout in seconds
+    finc_institution_filter: str = ''  # Optional default filter[]=facet:"value" (VuFind facet syntax)
+    # Opt-in: use finc (per-title udk_raw) for the DK classification search
+    # instead of Libero/SRU. Requires finc_base_url. Default off so finc stays
+    # reachable via the search_finc tool without changing the DK backend. - Claude Generated
+    finc_dk_enabled: bool = False
+    # Opt-in: in the keyword search step, harvest finc catalog titles and
+    # reconcile their subjects against the local GND cache to enrich the
+    # selection pool (agentic finc_subject_harvest step). Requires finc_base_url. - Claude Generated
+    finc_harvest_enabled: bool = False
+
     # EXPERT OPTION: Set to False to allow non-GND-validated keywords in DK search
     # Default True: Only GND-validated keywords are used (recommended for quality control)
     # Set to False: Include plain text keywords if GND validation fails

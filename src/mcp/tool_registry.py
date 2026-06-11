@@ -57,6 +57,7 @@ class ToolRegistry:
         self._lobid = None
         self._swb = None
         self._biblio = None
+        self._finc = None
         self._resolver = None
         self._presets: Dict[str, List[str]] = {}
         self._load_default_presets()
@@ -185,6 +186,30 @@ class ToolRegistry:
                 self._biblio = BiblioSuggester()
         except Exception as e:
             logger.warning(f"BiblioSuggester init failed: {e}")
+        # finc / VuFind-JSON client. Preferred over Libero when configured
+        # (TU Freiberg finc solrproxy). Operator decision June 2026:
+        # "finc oberste Priorität, dann libero". - Claude Generated
+        try:
+            from src.utils.suggesters.finc_suggester import FincSuggester
+            finc_cfg = cat_cfg
+            if finc_cfg is None and self._config_manager is not None:
+                try:
+                    finc_cfg = self._config_manager.get_catalog_config()
+                except Exception as e:
+                    logger.debug(f"catalog_config for finc unavailable: {e}")
+            if finc_cfg is not None:
+                finc_base = getattr(finc_cfg, "finc_base_url", "") or ""
+                if finc_base:
+                    self._finc = FincSuggester(
+                        base_url=finc_base,
+                        web_record_url=getattr(finc_cfg, "finc_web_record_url", "") or "",
+                        default_limit=getattr(finc_cfg, "finc_default_limit", 20),
+                        timeout=getattr(finc_cfg, "finc_timeout", 30),
+                        institution_filter=getattr(finc_cfg, "finc_institution_filter", "") or "",
+                    )
+                    logger.info("FincSuggester initialized (preferred catalog source)")
+        except Exception as e:
+            logger.warning(f"FincSuggester init failed: {e}")
         self._suggesters_initialized = True
 
     def _get_resolver(self):
@@ -390,6 +415,48 @@ class ToolRegistry:
         )
         return json.dumps(
             {"source": "catalog_titles", "results": results},
+            ensure_ascii=False,
+        )
+
+    def _handle_search_finc(
+        self,
+        terms: List[str],
+        search_type: str = "kw",
+        filters: Optional[Dict[str, str]] = None,
+        facets: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> str:
+        """Run a finc / VuFind-JSON search and return normalized records.
+
+        Preferred over search_catalog/search_catalog_titles when the operator's
+        institution runs a finc instance. Each `terms` entry yields a result
+        block with `records` (list of normalized VuFind records) and
+        `result_count`. Per-term failures are reported in `errors` (matches
+        the search_lobid/search_swb shape). - Claude Generated
+        """
+        self._init_suggesters()
+        if self._finc is None:
+            return json.dumps(
+                {"error": "FincSuggester not configured (set finc_base_url in catalog_config)"}
+            )
+        try:
+            results = self._finc.search(
+                searches=list(terms or []),
+                search_type=search_type or "kw",
+                filters=filters,
+                limit=limit,
+                facets=facets,
+            )
+        except Exception as e:
+            logger.error(f"search_finc failed: {e}")
+            return json.dumps({"source": "finc", "error": str(e)})
+        # results shape: {term: {records, result_count, errors}}
+        return json.dumps(
+            {
+                "source": "finc",
+                "results": results,
+                "errors": dict(getattr(self._finc, "last_errors", {}) or {}),
+            },
             ensure_ascii=False,
         )
 
@@ -904,6 +971,7 @@ class ToolRegistry:
         self.register(tool_schemas.SEARCH_SWB, self._handle_search_swb)
         self.register(tool_schemas.SEARCH_CATALOG, self._handle_search_catalog)
         self.register(tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles)
+        self.register(tool_schemas.SEARCH_FINC, self._handle_search_finc)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
         self.register(tool_schemas.SCRAPE_URL, self._handle_scrape_url)
         self.register(tool_schemas.READ_PDF, self._handle_read_pdf)
@@ -943,6 +1011,7 @@ class ToolRegistry:
                 (tool_schemas.SEARCH_SWB, self._handle_search_swb),
                 (tool_schemas.SEARCH_CATALOG, self._handle_search_catalog),
                 (tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles),
+                (tool_schemas.SEARCH_FINC, self._handle_search_finc),
                 (tool_schemas.RESOLVE_DOI, self._handle_resolve_doi),
                 (tool_schemas.SCRAPE_URL, self._handle_scrape_url),
                 (tool_schemas.READ_PDF, self._handle_read_pdf),

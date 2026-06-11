@@ -6,6 +6,42 @@
 
 ## 2026
 
+### finc / VuFind-JSON catalog backend (June 11, 2026)
+
+Established finc (TU Freiberg finc solrproxy) as a LOCAL catalog backend.
+Endpoint/URLs are config-driven (`CatalogConfig.finc_*`, default off); no
+institution URL is hard-coded.
+
+**Phase A — review fixes** (`finc_client.py`, `finc_suggester.py`,
+`tool_schemas.py`): the proxy returns HTTP 200 with `{"status":"ERROR"}` on bad
+queries — now surfaced instead of silently reporting 0 results. Corrected the
+institution facet key (`institution`, not `institution_facet`) and the phrase-
+quote guidance (literal `"`, not `%22` which double-encodes via requests).
+
+**Phase B — facets** (`finc_client.py`, `finc_suggester.py`, `tool_registry.py`):
+`FincClient.search(facets=…)` requests `facet[]=` and parses the facet block;
+`limit=0` for facet-only; `normalize_dk_value("dk 530.145")→"DK 530.145"`.
+`search_finc` MCP tool gains `facets` + clarified one/many-title, subject,
+author modes.
+
+**Phase C — pipeline (opt-in, gated)**:
+- `FincCatalogClient` (`finc_catalog_client.py`) — BiblioClient-compatible
+  extractor: finc Subject search → titles, then per-title `udk_raw_de105`/
+  `rvk_facet` via single-record isolation (`lookfor=id:"…"`), parallelized;
+  funnels through `extract_classifications_from_titles` for shape-identical
+  output. Wired into `execute_dk_search` behind `finc_dk_enabled` (Libero/SRU
+  fallback). Live benchmark ~0.9s/keyword at 8 workers.
+- `finc_subject_harvest` deterministic step (`deterministic_functions.py`,
+  `alima_classic.yaml`) behind `finc_harvest_enabled` — harvests finc titles +
+  reconciles subjects against the local GND cache into the selection pool.
+- finc DK source = `udk_raw_de105` (numeric DK, matches Libero's scraped field);
+  `rvk_facet` for RVK; only `dk `-prefixed values emitted (drops `fg`/`fgaut`
+  artifacts). Flags exposed in settings dialog + CLI wizard.
+
+Tests: `test_finc_client.py`, `test_finc_catalog_client.py`,
+`test_finc_subject_harvest.py` + gated live integration/benchmark
+(`RUN_INTEGRATION_TESTS=1 FINC_TEST_BASE_URL=…`).
+
 ### Kern-Konvergenz klassisch ↔ agentisch (WP-K1–K4) (June 10, 2026)
 
 Befund: der agentische v5x-Workflow füllte den Klassifikations-/Keyword-Kontext

@@ -60,6 +60,19 @@ The `suggesters/` directory implements a plugin-like system for integrating diff
 2. **Caching Optimization**: Better cache hit rates and reduced API calls
 3. **Result Processing**: Enhanced result normalization and deduplication
 4. **Threading Safety**: Improved thread-safe operations for GUI integration
+5. **✅ ADDED — FincSuggester (June 2026)**: VuFind-JSON /api/v1/search backend
+   - `src/utils/suggesters/finc_suggester.py` — BaseSuggester wrapper around FincClient
+   - Returns **records** (id, title, authors, subjects, formats, languages, series, web_url) per term, NOT aggregated GND keywords
+   - `search_type` mapping: kw/freetext→AllFields, title→Title, subject→Subject, author→Author
+   - Lazy-init in `tool_registry._init_suggesters` (gated by `finc_base_url`)
+   - MCP tool `search_finc` registered in LIBRARY_TOOLS
+
+### ✅ finc integration (resolved June 2026)
+- **finc is a LOCAL catalog backend** (alongside Libero); SWB/Lobid stay EXTERNAL. Integrated opt-in, gated by `CatalogConfig`:
+  - **Keyword step**: `finc_subject_harvest` (`finc_harvest_enabled`) — finc Subject search per keyword → record subjects reconciled against the LOCAL GND cache → GND-validated entries merged into the pool. `gnd_batch_search` stays `["swb","lobid"]`.
+  - **DK step**: `PipelineStepExecutor.execute_dk_search` (`finc_dk_enabled`) — per-title `udk_raw_de105`/`rvk_facet` via `FincCatalogClient` (BiblioClient-compatible), Libero/SRU fallback.
+  - `catalog_multi_search` unchanged (swb/lobid/catalog).
+- `search_finc` MCP tool supports `search_type` (subject/title/author/kw) + `facets` (DK/RVK distribution). finc default `''` → all features off until configured.
 
 ### Current Configuration
 - **Default Providers**: Lobid, SWB, and local catalog when available

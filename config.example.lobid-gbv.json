@@ -15,7 +15,14 @@
     "sru_schema": "marcxml",
     "sru_preset": "gbv",
     "sru_max_records": 50,
-    "strict_gnd_validation_for_dk_search": true
+    "strict_gnd_validation_for_dk_search": true,
+    "finc_base_url": "",
+    "finc_web_record_url": "",
+    "finc_default_limit": 20,
+    "finc_timeout": 30,
+    "finc_institution_filter": "",
+    "finc_dk_enabled": false,
+    "finc_harvest_enabled": false
   },
   "prompt_config": {
     "prompts_file": "prompts.json",

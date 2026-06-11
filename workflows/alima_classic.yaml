@@ -95,13 +95,35 @@ steps:
       enrich_from_local_db: true
 
   # ──────────────────────────────────────────────────────────────────
+  # Step 2b: finc harvest — catalog titles + subject→GND reconciliation
+  # Opt-in (CatalogConfig.finc_harvest_enabled). No-op when disabled, so the
+  # pool stays exactly the swb/lobid result above. When on, enriches the pool
+  # with catalog-grounded GND entries before selection.
+  # ──────────────────────────────────────────────────────────────────
+  - id: finc_harvest
+    type: deterministic
+    function: finc_subject_harvest
+    description: "Harvest finc catalog titles + reconcile subjects into the GND pool (opt-in)"
+    enabled: true
+    depends_on: [search]
+
+    inputs:
+      keywords: "${extracted_keywords}"
+
+    outputs: {}
+
+    config:
+      max_records: 20
+      max_subjects: 60
+
+  # ──────────────────────────────────────────────────────────────────
   # Step 3: Selection — chunked selection of relevant GND keywords
   # ──────────────────────────────────────────────────────────────────
   - id: selection_chunks
     type: llm_agent
     description: "Chunked relevance filter over GND pool (prompts from prompts.json / keywords_chunked)"
     enabled: true
-    depends_on: [search]
+    depends_on: [finc_harvest]
 
     inputs:
       abstract: "${abstract}"

@@ -35,6 +35,14 @@ class CLISetupWizard:
         self.catalog_search_url = ""
         self.catalog_details_url = ""
         self.catalog_token = ""
+        # finc / VuFind-JSON settings (optional) - Claude Generated (finc integration, June 2026)
+        self.finc_base_url = ""
+        self.finc_web_record_url = ""
+        self.finc_default_limit = 20
+        self.finc_timeout = 30
+        self.finc_institution_filter = ""
+        self.finc_dk_enabled = False
+        self.finc_harvest_enabled = False
         # Load institution presets - Claude Generated
         from .preset_loader import PresetLoader
         self._presets = PresetLoader.load()
@@ -53,6 +61,7 @@ class CLISetupWizard:
             self._collect_task_model_selections()  # Collect task-specific model preferences
             self._setup_gnd_database()
             self._setup_catalog()  # Optional SOAP catalog step - Claude Generated
+            self._setup_finc()    # Optional finc / VuFind-JSON step - Claude Generated
             self._print_summary()
 
             # Create and save configuration
@@ -67,12 +76,21 @@ class CLISetupWizard:
             config.system_config.first_run_completed = True
 
             # Apply catalog SOAP settings if configured - Claude Generated
-            if self.catalog_search_url or self.catalog_details_url or self.catalog_token:
-                from .config_models import CatalogConfig
+            from .config_models import CatalogConfig
+            if (self.catalog_search_url or self.catalog_details_url or self.catalog_token
+                    or self.finc_base_url):
                 config.catalog_config = CatalogConfig(
                     catalog_search_url=self.catalog_search_url,
                     catalog_details_url=self.catalog_details_url,
                     catalog_token=self.catalog_token,
+                    # finc fields - Claude Generated (finc integration, June 2026)
+                    finc_base_url=self.finc_base_url,
+                    finc_web_record_url=self.finc_web_record_url,
+                    finc_default_limit=self.finc_default_limit,
+                    finc_timeout=self.finc_timeout,
+                    finc_institution_filter=self.finc_institution_filter,
+                    finc_dk_enabled=self.finc_dk_enabled,
+                    finc_harvest_enabled=self.finc_harvest_enabled,
                 )
 
             self.config_manager.save_config(config)
@@ -99,7 +117,9 @@ class CLISetupWizard:
         print("\nDieser Assistent führt Sie durch:")
         print("  1. Einrichtung eines LLM-Anbieters (lokal oder Cloud)")
         print("  2. Optionaler Download der GND-Normdaten")
-        print("  3. Überprüfung Ihrer Konfiguration")
+        print("  3. Optional: Libero-SOAP-Katalog (lokaler UB-Katalog)")
+        print("  4. Optional: finc / VuFind-JSON-Katalog (alternativer lokaler Katalog)")
+        print("  5. Überprüfung Ihrer Konfiguration")
         print("\n💡 Sie können diese Einstellungen jederzeit im Einstellungsmenü ändern.")
         print("=" * 60 + "\n")
 
@@ -505,6 +525,88 @@ class CLISetupWizard:
             self.catalog_details_url = ""
             self.catalog_token = ""
 
+    def _setup_finc(self):
+        """Optional finc / VuFind-JSON catalog configuration step.
+
+        finc is one of two local catalog backends (alongside Libero) and is
+        reachable via the MCP tool `search_finc`. It returns full VuFind
+        records (id, title, authors, subjects, …) — NOT aggregated GND
+        keywords — so it does not replace SWB/Lobid in gnd_batch_search.
+
+        Empty input (or answer 'n') skips the step without writing any
+        config. - Claude Generated (finc integration, June 2026)
+        """
+        print("\n\n📌 Schritt 5: finc / VuFind-JSON Katalog (Optional)\n")
+        print("finc ist ein alternativer lokaler Katalog-Backend (VuFind-SolrProxy).")
+        print("Wenn konfiguriert, wird das MCP-Tool 'search_finc' aktiv und liefert")
+        print("VuFind-Records (Titel, Autoren, Schlagwörter) sowie die DK/RVK-Verteilung")
+        print("über Facetten zurück (Notationen pro Einzeltitel via udk_raw-Abfrage).")
+        print("Dieser Schritt ist optional — leer lassen überspringt finc.\n")
+
+        choice = input("finc konfigurieren? (j/n, Standard: n): ").lower().strip()
+        if choice != 'j':
+            print("⏭️  finc übersprungen")
+            return
+
+        base = input(
+            "finc Base URL\n"
+            "  (z.B. https://finc.example.org/fincsolrproxy/proxy.php\n"
+            "   ohne trailing slash): "
+        ).strip()
+        if not base:
+            print("⏭️  Keine URL angegeben, finc übersprungen")
+            return
+        # Strip trailing slash — the client appends /api/v1/search itself
+        self.finc_base_url = base.rstrip("/")
+
+        web_record = input(
+            "Web Record URL (mit trailing slash, z.B. https://katalog.example.org/Record/)\n"
+            "  leer lassen = keine web_url in Records: "
+        ).strip()
+        if web_record:
+            self.finc_web_record_url = web_record.rstrip("/") + "/"
+
+        institution = input(
+            "Institutions-Filter (z.B. DE-105, leer lassen für keinen): "
+        ).strip()
+        self.finc_institution_filter = institution
+
+        try:
+            limit_input = input(
+                f"Default Limit pro Suche (1-100, Standard: 20): "
+            ).strip()
+            self.finc_default_limit = int(limit_input) if limit_input else 20
+            if not 1 <= self.finc_default_limit <= 100:
+                raise ValueError
+        except ValueError:
+            print("⚠️  Ungültiger Wert, behalte Standard 20")
+            self.finc_default_limit = 20
+
+        try:
+            timeout_input = input(
+                f"HTTP-Timeout in Sekunden (Standard: 30): "
+            ).strip()
+            self.finc_timeout = int(timeout_input) if timeout_input else 30
+            if self.finc_timeout < 1:
+                raise ValueError
+        except ValueError:
+            print("⚠️  Ungültiger Wert, behalte Standard 30")
+            self.finc_timeout = 30
+
+        dk_choice = input(
+            "finc für die DK-Klassifikationssuche verwenden (statt Libero/SRU)?\n"
+            "  (j/n, Standard: n — finc bleibt sonst nur über das search_finc-Tool nutzbar): "
+        ).lower().strip()
+        self.finc_dk_enabled = (dk_choice == 'j')
+
+        harvest_choice = input(
+            "Im Schlagwort-Schritt finc-Titel ernten und Schlagworte gegen den GND-Cache abgleichen?\n"
+            "  (j/n, Standard: n): "
+        ).lower().strip()
+        self.finc_harvest_enabled = (harvest_choice == 'j')
+
+        print("✅ finc-Konfiguration gespeichert")
+
     def _print_summary(self):
         """Print configuration summary - Claude Generated"""
         print("\n" + "=" * 60)
@@ -530,6 +632,19 @@ class CLISetupWizard:
             print(f"  Search URL: {self.catalog_search_url}")
             print(f"  Details URL: {self.catalog_details_url or '(nicht gesetzt)'}")
             print(f"  Token: {'(gesetzt)' if self.catalog_token else '(nicht gesetzt)'}")
+        else:
+            print(f"  Nicht konfiguriert (übersprungen)")
+
+        # finc summary - Claude Generated (finc integration, June 2026)
+        print(f"\nfinc / VuFind-JSON:")
+        if self.finc_base_url:
+            print(f"  Base URL:    {self.finc_base_url}")
+            print(f"  Web Record:  {self.finc_web_record_url or '(nicht gesetzt)'}")
+            print(f"  Institution: {self.finc_institution_filter or '(kein Filter)'}")
+            print(f"  DK-Suche:    {'finc' if self.finc_dk_enabled else 'Libero/SRU (finc nur via Tool)'}")
+            print(f"  Schlagwort-Ernte: {'finc + GND-Abgleich' if self.finc_harvest_enabled else 'aus'}")
+            print(f"  Limit:       {self.finc_default_limit}")
+            print(f"  Timeout:     {self.finc_timeout}s")
         else:
             print(f"  Nicht konfiguriert (übersprungen)")
 

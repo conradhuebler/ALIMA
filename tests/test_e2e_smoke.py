@@ -191,6 +191,12 @@ class TestAgenticWorkflowEndToEnd(unittest.TestCase):
                  "gnd_id": "4035769-7", "count": 3},
             ]}
 
+        def finc_subject_harvest(keywords=None, config=None, tool_registry=None,
+                                 context=None, stream_callback=None, **kw):
+            # Opt-in step; default-disabled no-op shape. - Claude Generated
+            return {"entries": [], "harvested_terms": [], "subjects_reconciled": 0,
+                    "merged_added": 0, "tool_calls": 0, "enabled": False}
+
         def verify_final_keywords(config=None, tool_registry=None, context=None,
                                   stream_callback=None, **kw):
             return {
@@ -214,6 +220,7 @@ class TestAgenticWorkflowEndToEnd(unittest.TestCase):
 
         fns = {
             "gnd_batch_search": gnd_batch_search,
+            "finc_subject_harvest": finc_subject_harvest,
             "verify_final_keywords": verify_final_keywords,
             "dk_search_agentic": dk_search_agentic,
             "build_dk_search_results": build_dk_search_results,
@@ -251,7 +258,7 @@ class TestAgenticWorkflowEndToEnd(unittest.TestCase):
 
         failed = [r.step_id for r in report.step_results if not r.success]
         self.assertTrue(report.success, f"failed steps: {failed}; error: {report.error}")
-        self.assertEqual(len(report.step_results), 8)
+        self.assertEqual(len(report.step_results), 9)  # incl. opt-in finc_harvest step
         # Context carries results through the whole chain
         self.assertEqual(context.working_title, "Alpen_Limnologie")
         self.assertIn("Limnologie", context.extracted_keywords)

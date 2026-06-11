@@ -4653,14 +4653,47 @@ class PipelineStepExecutor:
                 catalog_type = 'libero_soap'  # Default to original behavior
 
             # Log catalog configuration status - Claude Generated
-            if not catalog_token or not catalog_token.strip():
+            # (skip the Libero token warning when finc is the active backend) - Claude Generated
+            _finc_url_for_warn = getattr(catalog_config, 'finc_base_url', '') if 'catalog_config' in dir() else ''
+            _finc_dk_active = (
+                isinstance(_finc_url_for_warn, str) and bool(_finc_url_for_warn.strip())
+                and bool(getattr(catalog_config, 'finc_dk_enabled', False) if 'catalog_config' in dir() else False)
+            )
+            if not _finc_dk_active and (not catalog_token or not catalog_token.strip()):
                 if self.logger:
                     self.logger.warning("No catalog token provided - BiblioClient will use web scraping fallback")
                 if stream_callback:
                     stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
                 catalog_token = ""  # Empty token triggers automatic web fallback
 
-            if catalog_type == 'marcxml_sru':
+            # finc / VuFind-JSON is the PREFERRED DK source when configured
+            # (operator decision June 2026: "finc oberste Priorität, dann
+            # libero"). It returns the same keyword-centric shape via the
+            # BiblioClient-compatible FincCatalogClient, so the per-keyword loop
+            # below is unchanged; Libero/SRU remain the fallback when finc is
+            # unset. - Claude Generated
+            # finc DK is opt-in: requires a real finc_base_url AND the explicit
+            # finc_dk_enabled flag. The isinstance check also guards against a
+            # Mock catalog_config in tests and the '' default. - Claude Generated
+            finc_base_url = getattr(catalog_config, 'finc_base_url', '') if 'catalog_config' in dir() else ''
+            finc_dk_enabled = bool(getattr(catalog_config, 'finc_dk_enabled', False) if 'catalog_config' in dir() else False)
+            if finc_dk_enabled and isinstance(finc_base_url, str) and finc_base_url.strip():
+                from .clients.finc_catalog_client import FincCatalogClient
+                finc_cb = (lambda m: stream_callback(m, "dk_search")) if stream_callback else None
+                extractor = FincCatalogClient(
+                    base_url=finc_base_url,
+                    web_record_url=getattr(catalog_config, 'finc_web_record_url', '') or '',
+                    institution_filter=getattr(catalog_config, 'finc_institution_filter', '') or '',
+                    timeout=getattr(catalog_config, 'finc_timeout', 30) or 30,
+                    max_titles_per_keyword=getattr(catalog_config, 'finc_default_limit', 50) or 50,
+                    logger_=self.logger,
+                    stream_callback=finc_cb,
+                )
+                if self.logger:
+                    self.logger.info("Using finc catalog client (preferred DK source)")
+                if stream_callback:
+                    stream_callback("Verwende finc-Katalog für DK-Suche (Titelliste + udk_raw pro Titel)\n", "dk_search")
+            elif catalog_type == 'marcxml_sru':
                 # Use MARC XML SRU client - Claude Generated
                 from .clients.marcxml_client import MarcXmlClient
                 sru_preset = getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else ''

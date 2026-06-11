@@ -329,6 +329,184 @@ def gnd_batch_search(
 
 
 # ============================================================
+# finc_subject_harvest — keyword-step finc title + subject harvest
+# ============================================================
+
+@register_tool_fn("finc_subject_harvest")
+def finc_subject_harvest(
+    keywords: List[str],
+    *,
+    tool_registry: Any = None,
+    context: Any = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Harvest finc catalog titles + reconcile their subjects into the GND pool.
+
+    Opt-in via ``CatalogConfig.finc_harvest_enabled``. For each extracted
+    keyword it runs a finc Subject search, stores the title records + DK/RVK
+    facet distribution on ``context.extra['finc_harvest']`` (reusable by the DK
+    step), and reconciles the records' free-text subjects against the LOCAL GND
+    cache (``search_gnd``). Matched subjects become GND-validated pool entries
+    merged into ``context.gnd_entries`` (same shape as ``gnd_batch_search``),
+    giving the selection LLM more catalog-grounded candidates; titles already in
+    the pool gain ``"finc"`` as a confirming source (boosting their rank). finc
+    subjects carry no GND-IDs of their own, so subjects that don't reconcile are
+    dropped from the pool (kept only as harvest provenance). - Claude Generated
+
+    Returns ``{"entries":[...], "harvested_terms":[...], "subjects_reconciled":N,
+    "merged_added":N, "tool_calls":N, "enabled":bool}``.
+    """
+    if tool_registry is None:
+        raise RuntimeError("finc_subject_harvest requires tool_registry")
+
+    max_records = 20
+    max_subjects = 60
+    if config:
+        max_records = config.get("max_records", max_records)
+        max_subjects = config.get("max_subjects", max_subjects)
+
+    # Gate: opt-in. Explicit config 'enabled' wins; else read the catalog config.
+    enabled = bool(config.get("enabled")) if config and "enabled" in config else None
+    if enabled is None:
+        try:
+            from src.utils.config_manager import ConfigManager
+            cat_cfg = ConfigManager().get_catalog_config()
+            enabled = bool(getattr(cat_cfg, "finc_harvest_enabled", False))
+        except Exception as e:
+            logger.debug(f"finc_subject_harvest: config read failed: {e}")
+            enabled = False
+    if not enabled:
+        return {"entries": [], "harvested_terms": [], "subjects_reconciled": 0,
+                "merged_added": 0, "tool_calls": 0, "enabled": False}
+
+    keywords = list(dict.fromkeys(
+        k for k in (keywords or []) if isinstance(k, str) and k.strip()
+    ))
+    if not keywords:
+        return {"entries": [], "harvested_terms": [], "subjects_reconciled": 0,
+                "merged_added": 0, "tool_calls": 0, "enabled": True}
+
+    if stream_callback:
+        stream_callback(
+            f"\n📚 finc_subject_harvest: {len(keywords)} Keywords → finc Titel + "
+            f"Schlagwort-Abgleich gegen GND-Cache\n"
+        )
+
+    tool_calls = 0
+    subject_freq: Dict[str, int] = {}
+    harvest_store: Dict[str, Any] = {}
+
+    for kw in keywords:
+        try:
+            raw = tool_registry.execute("search_finc", {
+                "terms": [kw], "search_type": "subject",
+                "limit": max_records, "facets": ["udk_raw_de105", "rvk_facet"],
+            })
+            tool_calls += 1
+        except Exception as e:
+            logger.warning(f"finc_subject_harvest: search_finc failed for '{kw}': {e}")
+            continue
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(data, dict):
+            continue
+        if data.get("error"):
+            # finc unconfigured / hard error — no point looping further. - Claude Generated
+            logger.info(f"finc_subject_harvest: {data['error']}")
+            if stream_callback:
+                stream_callback(f"  ⚠️ finc nicht verfügbar: {data['error']}\n")
+            break
+        entry = (data.get("results") or {}).get(kw) or {}
+        records = entry.get("records", []) or []
+        harvest_store[kw] = {
+            "records": [{"id": r.get("id"), "title": r.get("title")}
+                        for r in records if r.get("id")],
+            "dk_dist": (entry.get("facets", {}) or {}).get("udk_raw_de105", []),
+            "rvk_dist": (entry.get("facets", {}) or {}).get("rvk_facet", []),
+        }
+        for r in records:
+            for grp in r.get("subjects", []) or []:
+                for subj in (grp if isinstance(grp, list) else [grp]):
+                    s = (subj or "").strip() if isinstance(subj, str) else ""
+                    if s:
+                        subject_freq[s] = subject_freq.get(s, 0) + 1
+        if stream_callback:
+            stream_callback(f"  🌐 '{kw}': {len(records)} Titel\n")
+
+    # Store harvest on context for the DK step / GUI transparency
+    if context is not None and isinstance(getattr(context, "extra", None), dict):
+        context.extra["finc_harvest"] = harvest_store
+
+    # Reconcile the most frequent subjects against the local GND cache
+    top_subjects = sorted(subject_freq.items(), key=lambda kv: kv[1], reverse=True)[:max_subjects]
+    new_entries: List[Dict[str, Any]] = []
+    reconciled = 0
+    for subj, freq in top_subjects:
+        try:
+            raw = tool_registry.execute("search_gnd", {"term": subj, "min_results": 1})
+            tool_calls += 1
+        except Exception as e:
+            logger.debug(f"finc_subject_harvest: search_gnd failed for '{subj}': {e}")
+            continue
+        gdata = json.loads(raw) if isinstance(raw, str) else raw
+        gentries = (gdata or {}).get("entries") or []
+        if not gentries:
+            continue
+        best = gentries[0]
+        gid = best.get("gnd_id", "")
+        title = best.get("title", "")
+        if not title:
+            continue
+        reconciled += 1
+        new_entries.append({
+            "title": title,
+            "gnd_ids": [gid] if gid else [],
+            "gnd_id": gid,
+            "ddc_codes": list(best.get("ddcs", []) or []),
+            "dk_codes": [],
+            "count": freq,
+            "description": best.get("description", "") or "",
+            "synonyms": list(best.get("synonyms", []) or []),
+            "sources": ["finc"],
+            "source_count": 1,
+        })
+
+    # Merge into context.gnd_entries: confirm existing titles (add 'finc' source)
+    # or append new finc-reconciled entries. - Claude Generated
+    merged_added = 0
+    if context is not None and hasattr(context, "gnd_entries"):
+        index = {(e.get("title") or "").lower(): e for e in context.gnd_entries}
+        for ne in new_entries:
+            key = ne["title"].lower()
+            existing = index.get(key)
+            if existing is not None:
+                srcs = set(existing.get("sources", []) or [])
+                if "finc" not in srcs:
+                    srcs.add("finc")
+                    existing["sources"] = sorted(srcs)
+                    existing["source_count"] = len(srcs)
+            else:
+                context.gnd_entries.append(ne)
+                index[key] = ne
+                merged_added += 1
+
+    if stream_callback:
+        stream_callback(
+            f"✅ finc_subject_harvest: {reconciled} Schlagworte gegen GND-Cache "
+            f"abgeglichen, {merged_added} neue Pool-Einträge, {tool_calls} tool calls\n"
+        )
+
+    return {
+        "entries": new_entries,
+        "harvested_terms": keywords,
+        "subjects_reconciled": reconciled,
+        "merged_added": merged_added,
+        "tool_calls": tool_calls,
+        "enabled": True,
+    }
+
+
+# ============================================================
 # dk_classification_twophase — DK data collection + LLM call
 # ============================================================
 
@@ -790,6 +968,16 @@ def catalog_multi_search(
     Unlike ``gnd_batch_search`` (which targets keyword lookups for the
     pipeline), this fn also hits the catalog SOAP/SRU and returns a
     result-oriented structure suitable for end-user display.
+
+    finc integration (resolved June 2026): finc is NOT folded into this fn.
+    Because finc returns full VuFind records (not the aggregated keyword shape
+    this fn produces), it is integrated where its strengths fit instead — opt-in
+    and gated by ``CatalogConfig``:
+      - keyword step: ``finc_subject_harvest`` (finc_harvest_enabled) reconciles
+        finc record subjects against the local GND cache into the pool;
+      - DK step: ``PipelineStepExecutor.execute_dk_search`` (finc_dk_enabled)
+        reads per-title ``udk_raw_de105``/``rvk_facet`` via ``FincCatalogClient``.
+    ``catalog_multi_search`` stays swb/lobid/catalog. - Claude Generated
 
     Args:
         search_type: ``"kw"`` (default, subject/keyword), ``"title"`` (title-only
