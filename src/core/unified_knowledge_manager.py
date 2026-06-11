@@ -1028,16 +1028,20 @@ class UnifiedKnowledgeManager:
 
             # Log appropriately based on status
             if status == 'success':
-                # DIAGNOSTIC: Calculate total DK/RVK counts across all titles - Claude Generated
-                total_dk = 0
-                total_rvk = 0
+                # DIAGNOSTIC: count classifications by system (DK/DDC/RVK) - Claude Generated
+                from src.utils.classification_systems import classification_system
+                counts = {"DK": 0, "DDC": 0, "RVK": 0}
                 for title in titles:
-                    classifications = title.get('classifications', [])
-                    total_dk += sum(1 for c in classifications if str(c).startswith('DK ') or str(c).replace('.', '', 1).isdigit())
-                    total_rvk += sum(1 for c in classifications if str(c).startswith('RVK '))
-
-                self.logger.debug(f"Storing catalog cache for '{search_term}': {result_count} titles | "
-                                 f"DK: {total_dk} | RVK: {total_rvk}")
+                    for c in title.get('classifications', []):
+                        s = classification_system(str(c))
+                        if not s and str(c).replace('.', '', 1).isdigit():
+                            s = "DK"  # legacy: a bare number means DK
+                        if s in counts:
+                            counts[s] += 1
+                self.logger.debug(
+                    f"Storing catalog cache for '{search_term}': {result_count} titles | "
+                    f"DK: {counts['DK']} | DDC: {counts['DDC']} | RVK: {counts['RVK']}"
+                )
 
                 for title in titles[:3]:  # Log first 3 titles for success
                     classifications_count = len(title.get('classifications', []))

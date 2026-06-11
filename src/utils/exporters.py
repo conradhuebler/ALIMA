@@ -103,13 +103,8 @@ def _split_classification(value: Any) -> tuple[str, str]:
             str(value.get("system") or "").strip().upper(),
             str(value.get("code") or "").strip(),
         )
-    text = str(value or "").strip()
-    upper = text.upper()
-    if upper.startswith("DK "):
-        return ("DK", text[3:].strip())
-    if upper.startswith("RVK "):
-        return ("RVK", text[4:].strip())
-    return ("", text)
+    from .classification_systems import split_classification_code
+    return split_classification_code(value)
 
 
 def _extract_chains(state: Dict[str, Any]) -> List[List[str]]:

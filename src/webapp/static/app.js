@@ -1399,6 +1399,8 @@ class AlimaWebapp {
             const itemsHtml = classifications.map(cls => {
                 const systemClass = cls.system === 'RVK'
                     ? 'classification-badge classification-badge--rvk'
+                    : cls.system === 'DDC'
+                    ? 'classification-badge classification-badge--ddc'
                     : 'classification-badge classification-badge--dk';
 
                 let validationHtml = '';

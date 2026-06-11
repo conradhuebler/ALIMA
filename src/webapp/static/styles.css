@@ -779,6 +779,11 @@ body {
     color: var(--clr-info);
 }
 
+.classification-badge--ddc {
+    background: var(--clr-warning-bg);
+    color: var(--clr-warning);
+}
+
 .classification-badge--rvk {
     background: var(--clr-primary-light);
     color: var(--clr-primary);

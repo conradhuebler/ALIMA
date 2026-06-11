@@ -58,6 +58,10 @@ _SUBJECT_RECORDS = {
 _TITLE_FACETS = {
     "id-A": {
         "udk_raw_de105": [{"value": "dk 530.145", "count": 1}],
+        "dewey-raw": [
+            {"value": 530, "count": 1},      # NUMERIC value (real finc behavior) -> "DDC 530"
+            {"value": "x-bad", "count": 1},  # non-digit -> must be skipped
+        ],
         "rvk_facet": [
             {"value": "uc 100", "count": 1},
             {"value": "no subject assigned", "count": 1},  # must be skipped
@@ -127,8 +131,23 @@ class TestFincCatalogClient(unittest.TestCase):
         title_list, matched = km.extract_calls[0]
         self.assertEqual(matched, ["Quantenmechanik"])  # clean keyword (GND suffix stripped)
         by_id = {t["rsn"]: t for t in title_list}
-        self.assertEqual(set(by_id["id-A"]["classifications"]), {"DK 530.145", "RVK UC 100"})
+        # DK (udk_raw), DDC (dewey-raw, digit-led only), RVK (rvk_facet, upper-cased)
+        self.assertEqual(
+            set(by_id["id-A"]["classifications"]),
+            {"DK 530.145", "DDC 530", "RVK UC 100"},
+        )
+        # 'x-bad' dewey value dropped; 'no subject assigned' RVK dropped
+        self.assertNotIn("DDC x-bad", by_id["id-A"]["classifications"])
         self.assertEqual(by_id["id-B"]["classifications"], ["RVK UK 1000"])
+
+    def test_ddc_facet_requested(self):
+        km = _FakeKM()
+        finc = _finc_mock()
+        client = _make_client(km, finc)
+        client.extract_dk_classifications_for_keywords(["Quantenmechanik"])
+        id_call = next(c for c in finc.search.call_args_list
+                       if c.kwargs.get("lookfor", "").startswith('id:"'))
+        self.assertIn("dewey-raw", id_call.kwargs["facets"])
 
     def test_cache_hit_short_circuits_finc(self):
         cached_titles = [{"rsn": "x", "title": "Cached", "classifications": ["DK 004"]}]
@@ -170,7 +189,7 @@ class TestFincCatalogClient(unittest.TestCase):
         id_call = next(c for c in finc.search.call_args_list
                        if c.kwargs.get("lookfor", "").startswith('id:"'))
         self.assertIsNone(id_call.kwargs.get("filters"))
-        self.assertEqual(id_call.kwargs["facets"], ["udk_raw_de105", "rvk_facet"])
+        self.assertEqual(id_call.kwargs["facets"], ["udk_raw_de105", "dewey-raw", "rvk_facet"])
 
 
 # --------------------------------------------------------------------------

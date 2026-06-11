@@ -73,13 +73,11 @@ def parse_classification_entry(item: Any) -> Dict[str, Any]:
         display = f"{system} {code}".strip()
 
     if display and not system:
-        upper_display = display.upper()
-        if upper_display.startswith("DK "):
-            system = "DK"
-            code = code or display[3:].strip()
-        elif upper_display.startswith("RVK "):
-            system = "RVK"
-            code = code or display[4:].strip()
+        from src.utils.classification_systems import split_classification_code
+        detected_system, detected_code = split_classification_code(display)
+        if detected_system:
+            system = detected_system
+            code = code or detected_code
 
     if not code:
         code = display

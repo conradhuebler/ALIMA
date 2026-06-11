@@ -278,15 +278,21 @@ class FincClient:
         """
         if not isinstance(raw_facets, dict):
             return {}
+
+        def _as_str(v: Any) -> str:
+            # Some facets (e.g. dewey-raw) return numeric values (530, not "530");
+            # normalize to str so all consumers can treat values uniformly. - Claude Generated
+            return "" if v is None else str(v)
+
         out: Dict[str, List[Dict[str, Any]]] = {}
         for name, buckets in raw_facets.items():
             if not isinstance(buckets, list):
                 continue
             out[name] = [
                 {
-                    "value": b.get("value", ""),
+                    "value": _as_str(b.get("value")),
                     "count": int(b.get("count", 0) or 0),
-                    "translated": b.get("translated", b.get("value", "")),
+                    "translated": _as_str(b.get("translated", b.get("value"))),
                 }
                 for b in buckets
                 if isinstance(b, dict)

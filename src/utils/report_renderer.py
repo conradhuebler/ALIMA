@@ -105,13 +105,9 @@ def _build_context(state: Dict[str, Any]) -> Dict[str, Any]:
             })
         else:
             text = str(entry)
-            upper = text.upper()
-            if upper.startswith("DK "):
-                classifications.append({"display": text, "system": "DK", "code": text[3:].strip()})
-            elif upper.startswith("RVK "):
-                classifications.append({"display": text, "system": "RVK", "code": text[4:].strip()})
-            else:
-                classifications.append({"display": text, "system": "", "code": text})
+            from .classification_systems import split_classification_code
+            system, code = split_classification_code(text)
+            classifications.append({"display": text, "system": system, "code": code})
 
     return {
         "title": results.get("working_title") or inp.get("text_preview") or "ALIMA-Analyse",

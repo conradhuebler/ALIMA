@@ -38,6 +38,7 @@ class FincCatalogClient:
     """finc DK/RVK extractor exposing the BiblioClient extractor interface."""
 
     DK_FACET = "udk_raw_de105"
+    DDC_FACET = "dewey-raw"   # numeric per-title DDC (e.g. "530"), DDC analog of udk_raw
     RVK_FACET = "rvk_facet"
     # rvk_facet buckets that are not real classifications. - Claude Generated
     _RVK_SKIP = {"", "no subject assigned", "nicht zugeordnet"}
@@ -247,7 +248,7 @@ class FincCatalogClient:
         payload = client.search(
             lookfor=f'id:"{record_id}"',
             type="AllFields",
-            facets=[self.DK_FACET, self.RVK_FACET],
+            facets=[self.DK_FACET, self.DDC_FACET, self.RVK_FACET],
             limit=1,
         )
         if payload.get("status") != "OK":
@@ -261,6 +262,13 @@ class FincCatalogClient:
             # ("fg", "fgaut") that must NOT be emitted as classifications. - Claude Generated
             if value.lower().startswith("dk "):
                 out.append(FincClient.normalize_dk_value(value))  # -> "DK 530.145"
+        for bucket in facets.get(self.DDC_FACET, []):
+            # dewey-raw values come back NUMERIC (530, not "530") — coerce to str
+            # before parsing. Holds bare DDC notations ("530", "530.1"); only emit
+            # digit-led values to skip any non-DDC artifacts. - Claude Generated
+            value = str(bucket.get("value") or "").strip()
+            if value and value[0].isdigit():
+                out.append(f"DDC {value}")
         for bucket in facets.get(self.RVK_FACET, []):
             value = (bucket.get("value") or "").strip()
             if value and value.lower() not in self._RVK_SKIP:

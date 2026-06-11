@@ -62,6 +62,7 @@
   padding: 2px 8px; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.01em;
 }
 #log .classification-badge--dk { background: rgba(139, 233, 253, 0.15); color: #8be9fd; }
+#log .classification-badge--ddc { background: rgba(255, 184, 108, 0.18); color: #ffb86c; }
 #log .classification-badge--rvk { background: rgba(189, 147, 249, 0.18); color: #bd93f9; }
 #log .classification-badge--standard { background: rgba(80, 250, 123, 0.15); color: #50fa7b; }
 #log .classification-badge--non-standard { background: rgba(241, 250, 140, 0.15); color: #f1fa8c; }

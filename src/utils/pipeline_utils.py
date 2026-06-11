@@ -6171,16 +6171,12 @@ class PipelineResultFormatter:
     def split_classification_code(classification: str) -> Tuple[str, str]:
         """Split a prefixed classification string into (system, code) - Claude Generated
 
-        ``"DK 666.76"`` -> ``("DK", "666.76")``; ``"RVK Q12"`` -> ``("RVK", "Q12")``;
-        unprefixed values return ``("", value)``.
+        Delegates to the shared classification-system registry so DK/DDC/RVK are
+        recognised uniformly. ``"DK 666.76"`` -> ``("DK", "666.76")``;
+        ``"DDC 530.1"`` -> ``("DDC", "530.1")``; unprefixed -> ``("", value)``.
         """
-        value = str(classification or "").strip()
-        upper = value.upper()
-        if upper.startswith("DK "):
-            return ("DK", value[3:].strip())
-        if upper.startswith("RVK "):
-            return ("RVK", value[4:].strip())
-        return ("", value)
+        from .classification_systems import split_classification_code as _split
+        return _split(classification)
 
     @staticmethod
     def get_titles_for_dk_code(
@@ -6619,7 +6615,10 @@ class PipelineResultFormatter:
         rows: List[str] = []
         for e in entries:
             system = e["system"]
-            sys_class = "classification-badge--rvk" if system == "RVK" else "classification-badge--dk"
+            sys_class = {
+                "RVK": "classification-badge--rvk",
+                "DDC": "classification-badge--ddc",
+            }.get(system, "classification-badge--dk")
             head = [
                 f'<span class="classification-badge {sys_class}">{esc(system)}</span>',
                 f'<span class="classification-entry__code">{esc(e["display"])}</span>',

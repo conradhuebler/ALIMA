@@ -613,15 +613,12 @@ class AnalysisReviewTab(QWidget):
 
     @staticmethod
     def _split_classification_code(classification: str) -> tuple[str, str]:
-        """Split a prefixed classification string into (system, code)."""
-        value = str(classification or "").strip()
-        upper = value.upper()
+        """Split a prefixed classification string into (system, code).
 
-        if upper.startswith("DK "):
-            return ("DK", value[3:].strip())
-        if upper.startswith("RVK "):
-            return ("RVK", value[4:].strip())
-        return ("", value)
+        Delegates to the shared registry (recognises DK/DDC/RVK). - Claude Generated
+        """
+        from src.utils.classification_systems import split_classification_code
+        return split_classification_code(classification)
 
     def _get_titles_for_classification(self, dk_code: str, max_titles: int = 20) -> tuple[list, int]:
         """
