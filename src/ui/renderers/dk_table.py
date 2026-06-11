@@ -81,7 +81,14 @@ class DkTableRenderer(BaseRenderer):
             parts.append("</div>")
 
             if titles:
+                # Collapsible title list: the full set lives inside <details>
+                # so long lists stay readable (no 3/5-title truncation). Needs a
+                # <details>-capable view (QWebEngineView), not QTextEdit. - Claude Generated
                 parts.append("<div style='padding-left: 20px; margin-bottom: 20px;'>")
+                parts.append(
+                    f"<details><summary style='cursor: pointer; color: {color}; "
+                    f"font-size: 9pt; font-weight: bold;'>\U0001f4d6 {len(titles)} Titel anzeigen</summary>"
+                )
                 parts.append("<ol style='font-size: 9pt; line-height: 1.6;'>")
                 for title in titles:
                     parts.append(f"<li>{_escape_html(str(title))}</li>")
@@ -91,7 +98,7 @@ class DkTableRenderer(BaseRenderer):
                         f"<p style='color: #888; font-style: italic; font-size: 9pt;'>"
                         f"... und {total_count - len(titles)} weitere Titel</p>"
                     )
-                parts.append("</div>")
+                parts.append("</details></div>")
             else:
                 parts.append(
                     "<div style='padding-left: 20px; margin-bottom: 20px;'>"

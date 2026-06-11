@@ -622,6 +622,26 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
         self.assertIn("614.7", html)
         self.assertIn("classification-entry-list", html)
 
+    def test_badge_card_titles_preview_then_collapsible(self):
+        # >3 titles: first 3 inline, the rest inside a collapsible <details>,
+        # with the true remainder noted (titles list is source-capped). - Claude Generated
+        entries = [{"system": "DK", "display": "DK 504.53", "validation_status": None,
+                    "total_count": 7, "titles": ["T1", "T2", "T3", "T4", "T5"], "label": ""}]
+        html = self.fmt.format_classification_badge_card_html(entries)
+        self.assertIn("<details", html)
+        self.assertIn("weitere Titel anzeigen", html)
+        for t in ("T1", "T2", "T3", "T4", "T5"):
+            self.assertIn(t, html)
+        self.assertIn("und 2 weitere", html)  # total 7 - 5 listed
+        # preview (T3) appears before the collapsible block
+        self.assertLess(html.index("T3"), html.index("<details"))
+
+    def test_badge_card_few_titles_no_details(self):
+        entries = [{"system": "DK", "display": "DK 1", "validation_status": None,
+                    "total_count": 2, "titles": ["A", "B"], "label": ""}]
+        html = self.fmt.format_classification_badge_card_html(entries)
+        self.assertNotIn("<details", html)
+
     def test_badge_card_validation_summary_and_badge(self):
         entries = self.fmt.normalize_classifications([
             {"system": "RVK", "display": "QZ 123", "validation_status": "non_standard"},

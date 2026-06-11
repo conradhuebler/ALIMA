@@ -236,9 +236,9 @@ class AnalysisReviewTab(QWidget):
         # Re-apply fonts to all text widgets so font-size changes propagate
         for attr in (
             "abstract_text", "initial_keywords_text", "gnd_keywords_text",
-            "final_analysis_text", "chunk_details_text", "dk_classification_display",
+            "final_analysis_text", "chunk_details_text",
             "stats_text",
-        ):
+        ):  # dk_classification_display is a QWebEngineView (font via CSS) - Claude Generated
             w = getattr(self, attr, None)
             if w is not None:
                 w.setFont(get_scaled_font(size_delta=+1))
@@ -356,10 +356,11 @@ class AnalysisReviewTab(QWidget):
 
         self.details_tabs.addTab(iteration_widget, "Iterationsverlauf")
 
-        # DK/RVK Classifications tab
-        self.dk_classification_display = QTextEdit()
-        self.dk_classification_display.setReadOnly(True)
-        self.dk_classification_display.setFont(get_scaled_font(size_delta=+1))
+        # DK/RVK Classifications tab — QWebEngineView so the per-DK title lists
+        # render as collapsible <details> (QTextEdit can't fold them). - Claude Generated
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+        self.dk_classification_display = QWebEngineView()
+        self.dk_classification_display.setHtml("<html><body></body></html>")
         self.details_tabs.addTab(self.dk_classification_display, "DK/RVK")
 
         # K10+ Export tab
@@ -638,21 +639,36 @@ class AnalysisReviewTab(QWidget):
 
         expected_type, normalized_code = self._split_classification_code(dk_code)
 
-        # Search for matching entry in dk_search_results
+        # dk_search_results comes in two shapes depending on the pipeline path:
+        #   flat:            [{dk, classification_type, titles}, ...]
+        #   keyword-centric: [{keyword, classifications:[{dk, titles, ...}]}, ...]
+        # The agentic pipeline stores the keyword-centric form, so a flat-only
+        # match silently found nothing -> missing title lists. Handle both and
+        # aggregate (dedupe) a DK's titles across every keyword that produced
+        # it. - Claude Generated
+        collected: list = []
+        seen: set = set()
         for result in self.current_analysis.dk_search_results:
-            result_code = str(result.get("dk", "")).strip()
-            result_type = str(result.get("classification_type", "")).strip().upper()
+            if "dk" in result:
+                entries = [result]
+            elif isinstance(result.get("classifications"), list):
+                entries = result["classifications"]
+            else:
+                continue
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                e_code = str(e.get("dk", "")).strip()
+                e_type = str(e.get("classification_type", e.get("type", ""))).strip().upper()
+                if e_code == normalized_code and (not expected_type or e_type == expected_type):
+                    for title in (e.get("titles") or []):
+                        t = str(title).strip()
+                        if t and t not in seen:
+                            seen.add(t)
+                            collected.append(t)
 
-            if result_code == normalized_code and (not expected_type or result_type == expected_type):
-                titles = result.get("titles", [])
-                total_count = len(titles)
-
-                # Limit to max_titles
-                limited_titles = titles[:max_titles] if len(titles) > max_titles else titles
-
-                return (limited_titles, total_count)
-
-        return ([], 0)
+        total_count = len(collected)
+        return (collected[:max_titles], total_count)
 
     def populate_detail_tabs(self):
         """Populate the detail tabs with data - Claude Generated (Refactored)"""
@@ -716,7 +732,9 @@ class AnalysisReviewTab(QWidget):
 
             rows = []
             for dk_code in self.current_analysis.classifications:
-                titles, total_count = self._get_titles_for_classification(dk_code)
+                # Pull the full title list; the renderer puts it in a collapsible
+                # <details> so long lists stay readable. - Claude Generated
+                titles, total_count = self._get_titles_for_classification(dk_code, max_titles=100000)
                 rows.append({
                     "dk": dk_code,
                     "titles": titles,
@@ -726,7 +744,9 @@ class AnalysisReviewTab(QWidget):
                 DkTableRenderer().render_html(rows)
             )
         else:
-            self.dk_classification_display.setPlainText("Keine DK/RVK-Klassifikationen vorhanden")
+            self.dk_classification_display.setHtml(
+                "<html><body><p>Keine DK/RVK-Klassifikationen vorhanden</p></body></html>"
+            )
 
         # K10+ Export - Claude Generated
         k10plus_lines = self._generate_k10plus_format()

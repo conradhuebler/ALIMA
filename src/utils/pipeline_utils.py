@@ -6639,12 +6639,33 @@ class PipelineResultFormatter:
             titles = e.get("titles") or []
             titles_html = ""
             if titles:
-                lis = "".join(f"<li>{esc(str(t))}</li>" for t in titles[:max_titles_per_code])
-                more = (
-                    f'<li class="classification-entry__meta">… und {total - max_titles_per_code} weitere</li>'
-                    if total > max_titles_per_code else ""
+                # Show a short preview, then put the rest in a collapsible
+                # <details> so the full list is reachable (no hard 3-title cut).
+                # Both render surfaces (GUI QWebEngineView log + webapp #log)
+                # support <details>. - Claude Generated
+                preview, rest = titles[:max_titles_per_code], titles[max_titles_per_code:]
+                preview_lis = "".join(f"<li>{esc(str(t))}</li>" for t in preview)
+                if rest:
+                    rest_lis = "".join(f"<li>{esc(str(t))}</li>" for t in rest)
+                    remainder = (
+                        f'<li class="classification-entry__meta">… und {total - len(titles)} weitere</li>'
+                        if total and total > len(titles) else ""
+                    )
+                    rest_block = (
+                        f'<details class="classification-entry__titles-more">'
+                        f'<summary style="cursor:pointer">… {len(rest)} weitere Titel anzeigen</summary>'
+                        f'<ol class="classification-entry__titles" start="{len(preview) + 1}">'
+                        f'{rest_lis}{remainder}</ol></details>'
+                    )
+                elif total and total > len(titles):
+                    rest_block = (
+                        f'<div class="classification-entry__meta">… und {total - len(titles)} weitere</div>'
+                    )
+                else:
+                    rest_block = ""
+                titles_html = (
+                    f'<ol class="classification-entry__titles">{preview_lis}</ol>{rest_block}'
                 )
-                titles_html = f'<ol class="classification-entry__titles">{lis}{more}</ol>'
 
             rows.append(
                 f'<div class="classification-entry">'
