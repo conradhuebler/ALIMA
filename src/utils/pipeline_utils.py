@@ -6343,9 +6343,22 @@ class PipelineResultFormatter:
         items, so callers (Pipeline-Tab + Agentic-Chat) get a consistent source
         regardless of mode.
         """
+        def _prep(lst: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+            # A keyword-centric source ({keyword, classifications:[...]}, no
+            # top-level dk) hides its catalog titles one level down. The agentic
+            # pipeline stores dk_search_results in exactly that shape, so without
+            # flattening it scored 0 here and the card fell back to the
+            # title-less flattened source — i.e. titles vanished for agentic
+            # runs (pipeline-mode dependent, not LLM dependent). Flatten first so
+            # the title score and downstream lookup see the real titles. - Claude Generated
+            lst = lst or []
+            if any(isinstance(r, dict) and "classifications" in r and not r.get("dk") for r in lst):
+                return flatten_keyword_centric_results(lst)
+            return lst
+
         candidates = [
-            dk_search_results or [],
-            dk_search_results_flattened or [],
+            _prep(dk_search_results),
+            _prep(dk_search_results_flattened),
         ]
 
         def _title_score(lst: List[Dict[str, Any]]) -> int:

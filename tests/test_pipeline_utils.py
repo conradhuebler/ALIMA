@@ -535,6 +535,31 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
         chosen = self.fmt.select_dk_title_source(keyword_centric, thin)
         self.assertIs(chosen, thin)
 
+    def test_select_source_keyword_centric_with_titles_wins(self):
+        # Regression: agentic dk_search_results is keyword-centric WITH real
+        # catalog titles nested. Previously it scored 0 (titles not top-level)
+        # and the title-less flattened source won -> titles vanished. Now the
+        # keyword-centric source is flattened and selected. - Claude Generated
+        kw_centric = [{"keyword": "Quantenmechanik", "classifications": [
+            {"dk": "530.145", "classification_type": "DK", "titles": ["Buch A", "Buch B"]}]}]
+        thin = [{"dk": "530.145", "classification_type": "DK", "titles": [], "count": 9}]
+        chosen = self.fmt.select_dk_title_source(kw_centric, thin)
+        titles = [t for item in chosen if item.get("dk") == "530.145"
+                  for t in item.get("titles", [])]
+        self.assertEqual(titles, ["Buch A", "Buch B"])
+
+    def test_card_from_keyword_centric_state_shows_titles(self):
+        # End-to-end: a state whose dk_search_results is keyword-centric must
+        # still render the catalog titles in the card (not LLM-dependent). - Claude Generated
+        class _St:
+            dk_classifications = ["DK 530.145"]
+            dk_search_results = [{"keyword": "QM", "classifications": [
+                {"dk": "530.145", "classification_type": "DK", "titles": ["Buch A", "Buch B"]}]}]
+            dk_search_results_flattened = [{"dk": "530.145", "classification_type": "DK", "titles": []}]
+        html, _ = self.fmt.format_dk_classifications_card_html(_St())
+        self.assertIn("Buch A", html)
+        self.assertIn("Buch B", html)
+
     # --- format_dk_search_results_text ---------------------------------
     def test_search_text_contains_code_and_count(self):
         text = self.fmt.format_dk_search_results_text(self.flattened)
