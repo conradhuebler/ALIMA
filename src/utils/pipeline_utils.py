@@ -2101,6 +2101,8 @@ class PipelineStepExecutor:
         
         for result in dk_search_results:
             classification_type = str(result.get("classification_type", result.get("type", "DK"))).upper()
+            # RVK is validated separately and exempt from the frequency filter;
+            # DK and DDC are frequency-filtered below. - Claude Generated
             if classification_type == "RVK":
                 filtered_results.append(result)
                 continue
@@ -2118,9 +2120,9 @@ class PipelineStepExecutor:
         
         if stream_callback:
             if low_frequency_count > 0:
-                stream_callback(f"Filtere DK-Ergebnisse: {len(filtered_results)} Einträge mit ≥{dk_frequency_threshold} Vorkommen, {low_frequency_count} mit niedrigerer Häufigkeit ausgeschlossen\n", "dk_classification")
+                stream_callback(f"Filtere Klassifikationen: {len(filtered_results)} Einträge mit ≥{dk_frequency_threshold} Vorkommen, {low_frequency_count} mit niedrigerer Häufigkeit ausgeschlossen\n", "dk_classification")
             else:
-                stream_callback(f"Verwende alle {len(filtered_results)} DK-Einträge (keine Häufigkeits-Filterung nötig)\n", "dk_classification")
+                stream_callback(f"Verwende alle {len(filtered_results)} Klassifikations-Einträge (keine Häufigkeits-Filterung nötig)\n", "dk_classification")
 
         # Filter out results without titles - Claude Generated
         results_with_titles = []

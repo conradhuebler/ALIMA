@@ -24,10 +24,14 @@ def get_autosave_dir(config_manager=None) -> Path:
 DEFAULT_DK_MAX_RESULTS = 40
 """Maximum number of search results to retrieve per keyword from catalog (default: 20)"""
 
-DEFAULT_DK_FREQUENCY_THRESHOLD = 1
-"""Minimum occurrence count for DK classifications to be included in LLM analysis.
-Only classifications that appear >= this many times in the catalog will be passed to the LLM.
-- threshold=1 (default): Include all DK codes found (maximum coverage, may include noise)
+DEFAULT_CLASSIFICATION_FREQUENCY_THRESHOLD = 1
+"""Minimum occurrence count for a catalog classification (DK/DDC) to be included
+in LLM analysis. RVK is exempt (validated separately). Only classifications that
+appear >= this many times in the catalog are passed to the LLM.
+- threshold=1 (default): Include all codes found (maximum coverage, may include noise)
 - threshold=2-3: Recommended for general use (balanced precision/coverage)
 - threshold=5+: Strict filtering for high-confidence classifications only
 Higher thresholds improve classification precision but may reduce coverage."""
+
+# Back-compat alias (general-notation generalization, WS3). - Claude Generated
+DEFAULT_DK_FREQUENCY_THRESHOLD = DEFAULT_CLASSIFICATION_FREQUENCY_THRESHOLD

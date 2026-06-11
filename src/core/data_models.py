@@ -108,12 +108,50 @@ class KeywordAnalysisState:
 
     @property
     def classifications(self) -> List[str]:
-        """Preferred neutral alias for final DK/RVK classification strings."""
+        """Preferred neutral alias for final DK/RVK/DDC classification strings."""
         return self.dk_classifications
 
     @classifications.setter
     def classifications(self, value: List[str]) -> None:
         self.dk_classifications = list(value or [])
+
+    # ------------------------------------------------------------------
+    # Notation-agnostic aliases (general-notation generalization, WS2).
+    # The ``dk_*`` fields stay the canonical/persisted names (saved-state JSON
+    # back-compat); ``notation_*`` is the preferred name for new code that
+    # treats DK/DDC/RVK uniformly. - Claude Generated
+    # ------------------------------------------------------------------
+    @property
+    def notation_codes(self) -> List[str]:
+        return self.dk_classifications
+
+    @notation_codes.setter
+    def notation_codes(self, value: List[str]) -> None:
+        self.dk_classifications = list(value or [])
+
+    @property
+    def notation_search_results(self) -> List[Dict[str, Any]]:
+        return self.dk_search_results
+
+    @notation_search_results.setter
+    def notation_search_results(self, value: List[Dict[str, Any]]) -> None:
+        self.dk_search_results = value
+
+    @property
+    def notation_search_results_flattened(self) -> List[Dict[str, Any]]:
+        return self.dk_search_results_flattened
+
+    @notation_search_results_flattened.setter
+    def notation_search_results_flattened(self, value: List[Dict[str, Any]]) -> None:
+        self.dk_search_results_flattened = value
+
+    @property
+    def notation_statistics(self) -> Optional[Dict[str, Any]]:
+        return self.dk_statistics
+
+    @notation_statistics.setter
+    def notation_statistics(self, value: Optional[Dict[str, Any]]) -> None:
+        self.dk_statistics = value
 
     # ------------------------------------------------------------------
     # WP10 P-δ.1: Mutations-API (additive — direct field writes elsewhere

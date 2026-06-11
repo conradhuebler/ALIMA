@@ -132,6 +132,35 @@ class SharedContext(BaseSharedContext):
     quality_report: Dict[str, Any] = field(default_factory=dict)  # ReflectionStep output
     max_missing_reruns: int = 1  # Max times to rerun search for missing concepts
 
+    # ------------------------------------------------------------------
+    # Notation-agnostic aliases (general-notation generalization, WS2).
+    # ``dk_*`` fields stay canonical; ``notation_*`` is preferred for new code
+    # treating DK/DDC/RVK uniformly. - Claude Generated
+    # ------------------------------------------------------------------
+    @property
+    def notation_codes(self) -> List[Dict]:
+        return self.dk_classifications
+
+    @notation_codes.setter
+    def notation_codes(self, value: List[Dict]) -> None:
+        self.dk_classifications = value
+
+    @property
+    def notation_search_results(self) -> List[Dict]:
+        return self.dk_search_results
+
+    @notation_search_results.setter
+    def notation_search_results(self, value: List[Dict]) -> None:
+        self.dk_search_results = value
+
+    @property
+    def notation_catalog_stats(self) -> Dict[str, Any]:
+        return self.dk_catalog_stats
+
+    @notation_catalog_stats.setter
+    def notation_catalog_stats(self, value: Dict[str, Any]) -> None:
+        self.dk_catalog_stats = value
+
     def set_step_result(self, step_name: str, result: Dict, quality: float = None) -> None:
         """Store result from a pipeline step.
 
