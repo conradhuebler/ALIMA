@@ -467,6 +467,24 @@ class ToolRegistry:
         except Exception as e:
             logger.error(f"search_finc failed: {e}")
             return json.dumps({"source": "finc", "error": str(e)})
+        # Ensure every record has a catalog web_url. The FincClient builds it
+        # from finc_web_record_url + id; if that URL is missing (config gap)
+        # we reconstruct it from catalog_web_record_url, which is the same
+        # catalog host used by the Libero backend. - Claude Generated
+        cat_record_base = ""
+        try:
+            if self._config_manager:
+                _cc = self._config_manager.get_catalog_config()
+                cat_record_base = (
+                    getattr(_cc, "catalog_web_record_url", "") or ""
+                ).rstrip("/")
+        except Exception:
+            pass
+        if cat_record_base:
+            for term_data in results.values():
+                for rec in term_data.get("records", []):
+                    if not rec.get("web_url") and rec.get("id"):
+                        rec["web_url"] = f"{cat_record_base}/{rec['id']}"
         # results shape: {term: {records, result_count, errors}}
         return json.dumps(
             {

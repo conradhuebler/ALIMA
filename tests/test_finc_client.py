@@ -702,6 +702,60 @@ class TestSearchFincMCPHandler(unittest.TestCase):
         filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
         self.assertEqual(filters.get("facet_avail"), "Online")
 
+    def test_web_url_reconstructed_from_catalog_base_when_missing(self):
+        # If finc_web_record_url is not configured, web_url is empty.
+        # The handler must fill it in from catalog_web_record_url + id.
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""     # not configured
+        catalog_cfg.catalog_web_record_url = "https://katalog.example.org/Record"
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 1, "records": [
+                {"id": "0-123", "title": "Chemie", "authors": {},
+                 "subjects": [], "formats": [], "languages": [],
+                 "series": [], "urls": [], "web_url": "", "raw": {}}
+            ]
+        })
+
+        out = reg._handle_search_finc(terms=["chemie"])
+        data = json.loads(out)
+        rec = data["results"]["chemie"]["records"][0]
+        self.assertEqual(rec["web_url"], "https://katalog.example.org/Record/0-123")
+
+    def test_web_url_not_overwritten_when_already_present(self):
+        # If FincClient already built web_url, the handler must not overwrite it.
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = "https://katalog.example.org/Record/"
+        catalog_cfg.catalog_web_record_url = "https://WRONG.example.org/Record"
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 1, "records": [
+                {"id": "0-456", "title": "Physik", "authors": {},
+                 "subjects": [], "formats": [], "languages": [],
+                 "series": [], "urls": [],
+                 "web_url": "https://katalog.example.org/Record/0-456",
+                 "raw": {}}
+            ]
+        })
+
+        out = reg._handle_search_finc(terms=["physik"])
+        data = json.loads(out)
+        rec = data["results"]["physik"]["records"][0]
+        # Must keep the original web_url, not replace with WRONG
+        self.assertEqual(rec["web_url"], "https://katalog.example.org/Record/0-456")
+
     def test_tool_registered_in_library_preset(self):
         from src.mcp.tool_schemas import SEARCH_FINC, LIBRARY_TOOLS
         self.assertIn(SEARCH_FINC, LIBRARY_TOOLS)
