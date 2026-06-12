@@ -128,9 +128,38 @@ class SystemPromptDialog(QDialog):
 
 
 class ChatInputEdit(QTextEdit):
-    """Multi-line chat input. Enter = submit, Shift+Enter = newline."""
+    """Multi-line chat input. Enter = submit, Shift+Enter = newline.
+
+    Optionally hosts a floating overlay button (the send icon) pinned to the
+    bottom-right corner of the field and repositioned on every resize, for a
+    modern chat-composer look. Claude Generated.
+    """
 
     submit = pyqtSignal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._overlay_btn = None
+        self._overlay_margin = 8
+
+    def set_overlay_button(self, button, margin: int = 8) -> None:
+        """Pin ``button`` to the bottom-right corner of this field."""
+        self._overlay_btn = button
+        self._overlay_margin = margin
+        button.setParent(self)
+        button.raise_()
+        self._reposition_overlay()
+
+    def _reposition_overlay(self) -> None:
+        btn = self._overlay_btn
+        if btn is None:
+            return
+        m = self._overlay_margin
+        btn.move(self.width() - btn.width() - m, self.height() - btn.height() - m)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reposition_overlay()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -503,10 +532,12 @@ class PipelineChatPanel(QWidget):
         self.input_field.setPlaceholderText(
             "Frage stellen — Enter = senden, Shift+Enter = neue Zeile"
         )
+        # Right padding reserves room for the floating send button so text
+        # never flows underneath it. Claude Generated.
         self.input_field.setStyleSheet(
             "QTextEdit { background-color: #3d3d3d; color: #e0e0e0; "
-            "border: 1px solid #555; border-radius: 4px; padding: 4px 8px; "
-            "font-size: 11pt; }"
+            "border: 1px solid #555; border-radius: 10px; "
+            "padding: 8px 52px 8px 12px; font-size: 11pt; }"
             "QTextEdit:focus { border: 1px solid #8be9fd; }"
         )
         self.input_field.setFont(get_scaled_font(size_delta=0))
@@ -523,18 +554,21 @@ class PipelineChatPanel(QWidget):
         self.input_field.submit.connect(self.send_message)
         input_layout.addWidget(self.input_field, stretch=1)
 
-        self.send_btn = QPushButton("Senden")
-        self.send_btn.setStyleSheet(get_button_styles().get("primary", ""))
+        # Round send button floating in the field's bottom-right corner.
+        self.send_btn = QPushButton("➤", self.input_field)
+        self.send_btn.setToolTip("Senden (Enter)")
+        self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.send_btn.setFixedSize(36, 36)
         self.send_btn.setDefault(True)
-        self.send_btn.setSizePolicy(
-            QSizePolicy.Policy.Fixed,
-            QSizePolicy.Policy.Fixed,
+        self.send_btn.setStyleSheet(
+            "QPushButton { background-color: #8be9fd; color: #1e1e1e; "
+            "border: none; border-radius: 18px; font-size: 15pt; "
+            "font-weight: bold; padding-bottom: 2px; }"
+            "QPushButton:hover { background-color: #a4f0ff; }"
+            "QPushButton:disabled { background-color: #555; color: #888; }"
         )
         self.send_btn.clicked.connect(self.send_message)
-        input_layout.addWidget(
-            self.send_btn,
-            alignment=Qt.AlignmentFlag.AlignBottom,
-        )
+        self.input_field.set_overlay_button(self.send_btn, margin=8)
 
         self.body_splitter.addWidget(input_frame)
 

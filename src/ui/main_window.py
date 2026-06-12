@@ -684,13 +684,27 @@ class MainWindow(QMainWindow):
             self.logger.debug(f"P-θ banner skipped: {exc}")
 
     def _on_agentic_mode_changed(self, enabled: bool) -> None:
-        """Show/hide the agentic context dock when pipeline mode changes - Claude Generated"""
+        """Refresh agentic context panels on mode change - Claude Generated.
+
+        Dock visibility is intentionally NOT toggled here: the agentic context
+        dock is shown only on request via View ▸ 🤖 Agentic Kontext. This only
+        keeps the panel data consistent with the selected pipeline mode.
+        """
         if enabled:
             self.agentic_context_widget.reset()
-            self.agentic_dock.show()
         else:
             self.agentic_context_widget.clear_panels()
-            self.agentic_dock.hide()
+
+    def _show_agentic_dock(self) -> None:
+        """Show the agentic context dock on demand and (re)build its panels
+        from the currently selected workflow - Claude Generated."""
+        try:
+            if hasattr(self, "pipeline_tab"):
+                self.pipeline_tab._rebuild_agentic_panels()
+        except Exception as exc:  # noqa: BLE001
+            self.logger.debug(f"Agentic dock panel rebuild skipped: {exc}")
+        self.agentic_dock.show()
+        self.agentic_dock.raise_()
 
     def get_provider_info(self):
         """Get cached provider information from ProviderStatusService - Claude Generated"""
@@ -887,13 +901,9 @@ class MainWindow(QMainWindow):
 
         self.logger.info("Pipeline results successfully distributed to all tabs")
 
-        # Auto-navigate to DK Classification tab if results are available - Claude Generated
-        if hasattr(analysis_state, 'classifications') and analysis_state.classifications:
-            # Find index of DK classification tab
-            for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == "📊 Klassifikationen":
-                    self.tabs.setCurrentIndex(i)
-                    break
+        # NB: intentionally do NOT switch tabs on completion. Results are
+        # distributed to the specialized tabs above, but the user stays in the
+        # Pipeline tab (chat / pipeline-logger) to read the run. Claude Generated.
 
         # Classical distribution finished — release the guard so subsequent
         # agent-driven bus completions are distributed by the bus handler. The
@@ -2506,9 +2516,9 @@ class MainWindow(QMainWindow):
         # P-δ.5a: chat_dock retired. Chat input lives inside PipelineChatPanel
         # in the Pipeline tab — no separate menu action needed.
 
-        # Agentic-Kontext-Dock anzeigen - Claude Generated
+        # Agentic-Kontext-Dock auf Wunsch anzeigen - Claude Generated
         show_agentic_action = view_menu.addAction("🤖 Agentic &Kontext")
-        show_agentic_action.triggered.connect(self.agentic_dock.show)
+        show_agentic_action.triggered.connect(self._show_agentic_dock)
 
         view_menu.addSeparator()
 

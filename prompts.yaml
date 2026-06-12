@@ -72,7 +72,25 @@ keywords:
       \ nie für kreative Ergänzungen. \n- Bei Unklarheiten: Frage nach (z. B. bei\
       \ mehrdeutigen Begriffen im Abstract). \n\n**Beispiel für deine Denkweise**:\
       \ \n*Analyse* → *Schlagwortauswahl* → *Kettenbildung* → *Fehlkonzept-Check*\
-      \ → *JSON-Ausgabe*.\n\n"
+      \ → *JSON-Ausgabe*.\n\n**Regelwerk verbale Sacherschließung (RSWK/RDA):**\n\
+      Inhaltsanalyse aus allen verfügbaren Quellen (Titel, Inhaltsverzeichnis, Vorwort/Abstract,\
+      \ Kapitelüberschriften, Fußnoten, Literaturverzeichnis, Text) — nie allein nach\
+      \ dem Titel.\n1. Engstes Schlagwort: vergib stets das spezifischste passende\
+      \ GND-Schlagwort.\n2. Kein Oberbegriff in derselben Kette: Oberbegriffe sind\
+      \ automatisch mitabgedeckt — nenne NICHT einen Begriff und seinen Oberbegriff\
+      \ in derselben Schlagwortkette.\n3. Ein Schlagwort ist der kürzeste verbale\
+      \ Ausdruck für den Inhalt; vermeide unnötige Zusammensetzungen.\n4. Ketten-Reihenfolge\
+      \ nach RSWK (\"Piraten gehen selten zum Friseur\"): Person → Geographikum →\
+      \ Sachschlagwort → Zeit → Form (p-g-s-z-f; Ausnahmen z. B. |f|Kongress, |g|Shanghai\
+      \ <2008>).\n5. Formschlagwörter (RDA) separat erkennen: z. B. Aufsatzsammlung,\
+      \ Biografie, Lehrbuch, Konferenzschrift/Kongress.\n\n**Hintergrund Erfassungskontext\
+      \ (NICHT Teil der JSON-Ausgabe):**\nVerbale SW werden in Kat. 5550 erfasst;\
+      \ bei mehr als sechs Schlagworten neue Schlagwortreihen (5551, 5552 …), max.\
+      \ 6 SW pro Kette. RDA-Indikator 1505 $erda; Formschlagworte stehen in 1131 (verlinkt),\
+      \ nicht in 555x. K10plus (seit 2019): pro Kette $ADE-105 als Quelle der verbalen\
+      \ SW; FR-Kürzel und Feld 4700 entfallen (Altdaten bleiben erhalten). Deutsche/englische\
+      \ Titel ab 1987 sind durch die DNB verschlagwortet (erkennbar an der 3er-ISBN\
+      \ xxx-3-xxx-xxxxx-x) — hier ist keine erneute verbale Erschließung nötig."
     temperature: 0.5
     top_p: 0.5
     models:
@@ -376,7 +394,22 @@ dk_classification:
       \ (vermeide doppelte Abdeckung desselben Themas). \n5. **JSON-Ausgabe**: Gib\
       \ das Ergebnis immer als valides JSON-Objekt aus.\n\n**Werkzeuge & Limits**:\
       \ \n- Nutze **nur** die im Bibliotheksbestand enthaltenen Klassifikationen als\
-      \ Referenz – keine externen Quellen.\n\n"
+      \ Referenz – keine externen Quellen.\n\n**Regelwerk klassifikatorische Sacherschließung\
+      \ (DK):**\n1. Wähle die nützlichste und exakteste Stelle in der feinsten möglichen\
+      \ Untergliederungsstufe.\n2. Behandelt ein Werk mehrere verwandte Gegenstände,\
+      \ prüfe, ob eine übergeordnete Klasse günstiger ist als mehrere Einzelstellen.\n\
+      3. Beurteile eine Klasse nie nur nach ihrer Bezeichnung — ziehe über- und untergeordnete\
+      \ Klassen hinzu (Mehrdeutigkeit der Sprache).\n4. Gibt es keine exakt passende\
+      \ Stelle, wähle die dem Inhalt am nächsten kommende.\n5. Nie allein nach dem\
+      \ Titel(blatt) klassifizieren.\n6. DDC nur als grobe Orientierung (muss an die\
+      \ DK angepasst werden); WiWi-Literatur wird nach RVK statt DK erschlossen.\n\
+      TUBAF-Konventionen: regalstandort-bestimmende Notation zuerst; Zeichen ';' und\
+      \ '-' werden vergeben, '()' und ':' nicht.\n\n**Hintergrund Erfassungskontext\
+      \ (NICHT Teil der JSON-Ausgabe):**\nKlassifikation erfolgt im Exemplarsatz (Gültigkeit\
+      \ TUBAF). 1 bis max. 10 Notationen (praktisch meist weniger). K10plus: Feld\
+      \ 6700 ist wiederholbar (6700, 6701, …). Hilfsmittel: DK-Handausgabe Bd. 2 (alphab.\
+      \ Sachverzeichnis), Vorauflagen, Aachener DK-Register (swr.exe), DDC/melvil\
+      \ (melvil.d-nb.de)."
     temperature: 0.25
     top_p: 0.01
     models:

@@ -641,9 +641,10 @@ class PipelineTab(QWidget):
         self.workflow_combo.setMinimumWidth(180)
         self.workflow_combo.setMaximumWidth(260)
         self.workflow_combo.setToolTip(
-            "Workflow für Agent-Modus (v4 YAMLs aus workflows/).\n"
-            "alima_classic: 4-Step ALIMA-Pipeline (default).\n"
-            "Wird nur ausgeführt, wenn '🤖 Agentic' aktiv ist."
+            "Pipeline-Auswahl. Bestimmt zugleich die Ausführungsart:\n"
+            "• „Klassische Pipeline (nicht agentisch)“ → sequenzielle Pipeline.\n"
+            "• alle übrigen Einträge → agentischer Workflow (YAML).\n"
+            "Voreinstellung: ALIMA v5.1. Legacy-Workflows nach dem Trenner."
         )
         self.workflow_combo.setStyleSheet(_combo_css)
         self._populate_workflow_combo()
@@ -671,21 +672,9 @@ class PipelineTab(QWidget):
         self._populate_global_override_combo()
         tb_layout.addWidget(self.global_override_combo)
 
-        # Agentic mode controls
-        agentic_sep = QFrame()
-        agentic_sep.setFrameShape(QFrame.Shape.VLine)
-        agentic_sep.setFixedHeight(24)
-        agentic_sep.setStyleSheet("color: #ccc;")
-        tb_layout.addWidget(agentic_sep)
-
-        self.agentic_mode_checkbox = QCheckBox("🤖 Agentic")
-        self.agentic_mode_checkbox.setToolTip(
-            "Verwendet LLM-gesteuerte Agenten mit MCP-Tools statt sequenzieller Pipeline.\n"
-            "⚠️ Experimentell: Erhöht Token-Nutzung um ca. 3x"
-        )
-        self.agentic_mode_checkbox.setChecked(False)
-        self.agentic_mode_checkbox.stateChanged.connect(self.on_agentic_mode_toggled)
-        tb_layout.addWidget(self.agentic_mode_checkbox)
+        # Agentic vs. classic is driven by the workflow_combo selection
+        # (see _on_workflow_changed). The agentic context dock is shown only
+        # on request via View ▸ 🤖 Agentic Kontext — Claude Generated.
 
         tb_layout.addStretch()
 
@@ -1434,6 +1423,8 @@ class PipelineTab(QWidget):
         # Apply LLM model selection + DK config - Claude Generated
         self._apply_global_override_from_gui()
         self._update_dk_config_from_gui()
+        # Ensure run mode matches the workflow picker (agentic vs. classic).
+        self._apply_workflow_selection()
 
         # Stop any existing worker
         if self.pipeline_worker and self.pipeline_worker.isRunning():
@@ -1751,19 +1742,47 @@ class PipelineTab(QWidget):
         """Handle configuration changes - Claude Generated (Webcam Feature)"""
         self.logger.debug("Pipeline tab: Handling config change")
 
-    def _populate_workflow_combo(self):
-        """Populate workflow combo from discovered v4 YAMLs - Claude Generated.
+    # Preferred display order for the workflow picker. ``__classic__`` is the
+    # synthetic non-agentic entry (rigid pipeline); every other key is a YAML
+    # workflow stem run agentically. Unknown stems are appended alphabetically
+    # before the legacy separator. Claude Generated.
+    _WORKFLOW_ORDER = [
+        "alima_v51",          # ⭐ default (agentic v5.1)
+        "__classic__",        # classic, non-agentic
+        "alima",              # v5.0
+        "alima_classic_v51",  # v4.1
+        "alima_classic",      # v4.0
+        "title_list_search",
+        "catalog_search",
+        "synonym_expansion",
+        "batch_metadata",
+    ]
 
-        Scans ``DEFAULT_SEARCH_PATHS`` for workflow files and lists each by
-        stem (label shows version). The legacy hardcoded v3 names were
-        removed in the Phase 5 cleanup.
+    def _populate_workflow_combo(self):
+        """Populate the workflow picker - Claude Generated.
+
+        Order: ALIMA v5.1 (Voreinstellung) → „Klassische Pipeline (nicht
+        agentisch)“ → übrige Workflows → Trenner → legacy-Workflows aus
+        ``workflows/legacy/``. Die Auswahl steuert agentisch vs. klassisch
+        (siehe ``_on_workflow_changed``).
         """
         try:
-            from src.core.agents.workflow_loader import (
-                DEFAULT_SEARCH_PATHS,
-                load_workflow,
-            )
-            self.workflow_combo.clear()
+            import yaml
+            from src.core.agents.workflow_loader import DEFAULT_SEARCH_PATHS
+
+            def _wf_version(path) -> Optional[str]:
+                """Cheap top-level ``version`` read — tolerant of legacy
+                (v2/v3) schemas that ``load_workflow`` would reject."""
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = yaml.safe_load(fh) or {}
+                    return str(data.get("version", "?"))
+                except Exception:
+                    return None
+
+            # Discover stems → version, separating root and legacy workflows.
+            root: dict = {}
+            legacy: dict = {}
             seen: set = set()
             for base in DEFAULT_SEARCH_PATHS:
                 if not base.exists() or not base.is_dir():
@@ -1773,25 +1792,72 @@ class PipelineTab(QWidget):
                     if key in seen:
                         continue
                     seen.add(key)
-                    try:
-                        wf = load_workflow(path, strict=False)
-                        label = f"{path.stem} (v{wf.version})"
-                    except Exception:
-                        continue
-                    self.workflow_combo.addItem(label, path.stem)
-            if self.workflow_combo.count() == 0:
-                self.workflow_combo.addItem("alima_classic", "alima_classic")
-            self.logger.debug(f"Workflow combo populated with {self.workflow_combo.count()} workflows")
+                    ver = _wf_version(path)
+                    if ver is not None:
+                        root[path.stem] = ver
+                legacy_dir = base / "legacy"
+                if legacy_dir.is_dir():
+                    for path in sorted(legacy_dir.glob("*.yaml")):
+                        key = path.resolve()
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        ver = _wf_version(path)
+                        if ver is not None:
+                            legacy[path.stem] = ver
+
+            self.workflow_combo.blockSignals(True)
+            self.workflow_combo.clear()
+
+            def _label(stem: str) -> str:
+                ver = root.get(stem)
+                return f"{stem} (v{ver})" if ver else stem
+
+            # 1. ALIMA v5.1 (default)
+            if "alima_v51" in root:
+                self.workflow_combo.addItem(
+                    f"⭐ ALIMA v5.1 — agentisch (v{root['alima_v51']})", "alima_v51"
+                )
+            # 2. Classic non-agentic (synthetic entry, no YAML)
+            self.workflow_combo.addItem(
+                "Klassische Pipeline (nicht agentisch)", "__classic__"
+            )
+            # 3. Remaining workflows in preferred order, then any extras A→Z
+            added = {"alima_v51", "__classic__"}
+            for stem in self._WORKFLOW_ORDER:
+                if stem in added or stem not in root:
+                    continue
+                self.workflow_combo.addItem(_label(stem), stem)
+                added.add(stem)
+            for stem in sorted(root):
+                if stem in added:
+                    continue
+                self.workflow_combo.addItem(_label(stem), stem)
+                added.add(stem)
+            # 4. Legacy workflows after a separator
+            if legacy:
+                self.workflow_combo.insertSeparator(self.workflow_combo.count())
+                for stem in sorted(legacy):
+                    self.workflow_combo.addItem(
+                        f"{stem} (legacy v{legacy[stem]})", stem
+                    )
+
+            self.workflow_combo.setCurrentIndex(0)  # ALIMA v5.1 (or classic fallback)
+            self.workflow_combo.blockSignals(False)
+            self.logger.debug(
+                f"Workflow combo populated with {self.workflow_combo.count()} entries"
+            )
+
             # Wire once — guard against duplicate connects on repopulate.
             try:
                 self.workflow_combo.currentIndexChanged.disconnect(
                     self._on_workflow_changed
                 )
-            except (TypeError, RuntimeError):
-                pass
-            self.workflow_combo.currentIndexChanged.connect(
-                self._on_workflow_changed
-            )
+            except Exception:
+                pass  # not yet connected (first call) — nothing to disconnect
+            self.workflow_combo.currentIndexChanged.connect(self._on_workflow_changed)
+            # Push the default selection (v5.1 → agentic) into the config now.
+            self._apply_workflow_selection()
         except Exception as e:
             self.logger.error(f"Error populating workflow combo: {e}")
 
@@ -1807,20 +1873,51 @@ class PipelineTab(QWidget):
         ),
     }
 
-    def _on_workflow_changed(self, _index: int) -> None:
-        """Apply workflow selection: update config + hint text - Claude Generated."""
+    def _apply_workflow_selection(self) -> bool:
+        """Push the current workflow-combo choice into the pipeline config.
+
+        The synthetic ``__classic__`` entry runs the rigid non-agentic
+        pipeline (``enable_agentic_mode=False``); every YAML entry runs
+        agentically with its stem as ``workflow_name``. Returns the resulting
+        agentic flag. Claude Generated.
+        """
+        data = (
+            self.workflow_combo.currentData()
+            if hasattr(self, "workflow_combo")
+            else None
+        )
+        if data is None:  # separator or empty combo
+            return False
+        agentic = data != "__classic__"
+        if self.pipeline_manager and self.pipeline_manager.config:
+            self.pipeline_manager.config.enable_agentic_mode = agentic
+            if agentic:
+                self.pipeline_manager.config.workflow_name = data
+        return agentic
+
+    def _on_workflow_changed(self, _index: int = 0) -> None:
+        """Apply workflow selection: config (agentic/classic) + hint + panels.
+
+        Dock visibility is NOT changed here — the agentic context dock is
+        shown only on request (View ▸ 🤖 Agentic Kontext). Claude Generated.
+        """
         if not hasattr(self, "workflow_combo"):
             return
-        workflow_name = self.workflow_combo.currentData()
-        if workflow_name and self.pipeline_manager and self.pipeline_manager.config:
-            self.pipeline_manager.config.workflow_name = workflow_name
+        data = self.workflow_combo.currentData()
+        if data is None:  # separator selected (shouldn't happen) — ignore
+            return
+        agentic = self._apply_workflow_selection()
 
-        hint = self.WORKFLOW_HINTS.get(workflow_name or "", "")
+        hint = self.WORKFLOW_HINTS.get(data if agentic else "", "")
         if hasattr(self, "unified_input"):
             self.unified_input.set_hint(hint)
 
+        # Notify MainWindow so it can refresh the (possibly hidden) context
+        # panels; the dock's visibility stays user-controlled.
+        self.agentic_mode_changed.emit(agentic)
         # Keep the context widget panels in sync with the selected workflow.
         self._rebuild_agentic_panels()
+        self.logger.info(f"Workflow '{data}' selected (agentic={agentic})")
 
     def _rebuild_agentic_panels(self) -> None:
         """Load active workflow YAML and emit workflow def to MainWindow dock.
@@ -1850,44 +1947,6 @@ class PipelineTab(QWidget):
             self.agentic_workflow_built.emit(wf_def)
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Agentic panel rebuild failed: {e}")
-
-    def on_agentic_mode_toggled(self, state):
-        """Handle agentic mode checkbox toggle - Claude Generated"""
-        enabled = state == Qt.CheckState.Checked.value
-
-        self.logger.info(f"Agentic mode {'enabled' if enabled else 'disabled'}")
-
-        # Notify MainWindow dock, adjust splitter - Claude Generated
-        self.agentic_mode_changed.emit(enabled)
-        w = self.main_splitter.width() or 1000
-        if enabled:
-            # More space for stream; context lives in external dock
-            self.main_splitter.setSizes([int(w * 0.45), int(w * 0.55)])
-            # Preview workflow panels in dock before first run
-            self._rebuild_agentic_panels()
-        else:
-            self.main_splitter.setSizes([int(w * 0.65), int(w * 0.35)])
-
-        # Update pipeline configuration
-        if self.pipeline_manager and self.pipeline_manager.config:
-            self.pipeline_manager.config.enable_agentic_mode = enabled
-            if enabled:
-                # Set workflow if selected
-                workflow_name = self.workflow_combo.currentData()
-                if workflow_name:
-                    self.pipeline_manager.config.workflow_name = workflow_name
-                    self.logger.info(f"Workflow set to: {workflow_name}")
-
-                # Show warning about experimental feature
-                if self.main_window and hasattr(self.main_window, "global_status_bar"):
-                    self.main_window.global_status_bar.show_temporary_message(
-                        "🤖 Agentic Modus aktiviert - Experimentell!", 3000
-                    )
-            else:
-                if self.main_window and hasattr(self.main_window, "global_status_bar"):
-                    self.main_window.global_status_bar.show_temporary_message(
-                        "Agentic Modus deaktiviert", 2000
-                    )
 
     @pyqtSlot(object)
     def on_step_started(self, step: PipelineStep):

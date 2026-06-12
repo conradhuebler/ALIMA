@@ -326,6 +326,19 @@ steps:
       5. FEHLENDE KONZEPTE MELDEN: Zentrale Titelbegriffe ohne GND-Eintrag
          explizit unter "missing_concepts" dokumentieren.
 
+      **Hinweis (zwei Variationen):** Die RSWK-Regeln (engstes Schlagwort, kein Oberbegriff in der Kette) und die obige Findability-Gewichtung verfolgen zwei unterschiedliche Zielsetzungen — normgerechte Erschließung vs. Auffindbarkeit. Behandle sie als gleichwertige Variationen und balanciere beide bei Schlagwortauswahl und Kettenbildung bewusst ab.
+
+      **Regelwerk verbale Sacherschließung (RSWK/RDA):**
+      Inhaltsanalyse aus allen verfügbaren Quellen (Titel, Inhaltsverzeichnis, Vorwort/Abstract, Kapitelüberschriften, Fußnoten, Literaturverzeichnis, Text) — nie allein nach dem Titel.
+      1. Engstes Schlagwort: vergib stets das spezifischste passende GND-Schlagwort.
+      2. Kein Oberbegriff in derselben Kette: Oberbegriffe sind automatisch mitabgedeckt — nenne NICHT einen Begriff und seinen Oberbegriff in derselben Schlagwortkette.
+      3. Ein Schlagwort ist der kürzeste verbale Ausdruck für den Inhalt; vermeide unnötige Zusammensetzungen.
+      4. Ketten-Reihenfolge nach RSWK ("Piraten gehen selten zum Friseur"): Person → Geographikum → Sachschlagwort → Zeit → Form (p-g-s-z-f; Ausnahmen z. B. |f|Kongress, |g|Shanghai <2008>).
+      5. Formschlagwörter (RDA) separat erkennen: z. B. Aufsatzsammlung, Biografie, Lehrbuch, Konferenzschrift/Kongress.
+
+      **Hintergrund Erfassungskontext (NICHT Teil der JSON-Ausgabe):**
+      Verbale SW werden in Kat. 5550 erfasst; bei mehr als sechs Schlagworten neue Schlagwortreihen (5551, 5552 …), max. 6 SW pro Kette. RDA-Indikator 1505 $erda; Formschlagworte stehen in 1131 (verlinkt), nicht in 555x. K10plus (seit 2019): pro Kette $ADE-105 als Quelle der verbalen SW; FR-Kürzel und Feld 4700 entfallen (Altdaten bleiben erhalten). Deutsche/englische Titel ab 1987 sind durch die DNB verschlagwortet (erkennbar an der 3er-ISBN xxx-3-xxx-xxxxx-x) — hier ist keine erneute verbale Erschließung nötig.
+
     user_prompt: |
       **Aufgabe**:
       Analysiere den folgenden **Abstract** und wende einen **systematischen GND-Schlagwortungsprozess** an. Dein Ziel ist es:
@@ -489,6 +502,18 @@ steps:
 
       **Werkzeuge & Limits**:
       - Nutze **nur** die im Bibliotheksbestand enthaltenen Klassifikationen als Referenz – keine externen Quellen.
+
+      **Regelwerk klassifikatorische Sacherschließung (DK):**
+      1. Wähle die nützlichste und exakteste Stelle in der feinsten möglichen Untergliederungsstufe.
+      2. Behandelt ein Werk mehrere verwandte Gegenstände, prüfe, ob eine übergeordnete Klasse günstiger ist als mehrere Einzelstellen.
+      3. Beurteile eine Klasse nie nur nach ihrer Bezeichnung — ziehe über- und untergeordnete Klassen hinzu (Mehrdeutigkeit der Sprache).
+      4. Gibt es keine exakt passende Stelle, wähle die dem Inhalt am nächsten kommende.
+      5. Nie allein nach dem Titel(blatt) klassifizieren.
+      6. DDC nur als grobe Orientierung (muss an die DK angepasst werden); WiWi-Literatur wird nach RVK statt DK erschlossen.
+      TUBAF-Konventionen: regalstandort-bestimmende Notation zuerst; Zeichen ';' und '-' werden vergeben, '()' und ':' nicht.
+
+      **Hintergrund Erfassungskontext (NICHT Teil der JSON-Ausgabe):**
+      Klassifikation erfolgt im Exemplarsatz (Gültigkeit TUBAF). 1 bis max. 10 Notationen (praktisch meist weniger). K10plus: Feld 6700 ist wiederholbar (6700, 6701, …). Hilfsmittel: DK-Handausgabe Bd. 2 (alphab. Sachverzeichnis), Vorauflagen, Aachener DK-Register (swr.exe), DDC/melvil (melvil.d-nb.de).
 
     user_prompt: |
       **Aufgabe**:
