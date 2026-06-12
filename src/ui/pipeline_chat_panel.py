@@ -258,11 +258,16 @@ class PipelineChatPanel(QWidget):
             cat_cfg = ConfigManager().get_catalog_config()
             web_base = getattr(cat_cfg, "catalog_web_record_url", "") or ""
             self._renderer.set_catalog_web_base(web_base)
-            # Derive catalog host (scheme+netloc) for ext-link classification.
-            if web_base:
-                p = urlparse(web_base)
-                if p.scheme and p.netloc:
-                    self._renderer.set_catalog_host(f"{p.scheme}://{p.netloc}")
+            # Derive catalog host(s) (scheme+netloc) for link classification.
+            # Use both catalog URL fields as host sources — either may be set.
+            for url in (
+                web_base,
+                getattr(cat_cfg, "catalog_web_search_url", "") or "",
+            ):
+                if url:
+                    p = urlparse(url)
+                    if p.scheme and p.netloc:
+                        self._renderer.add_catalog_host(f"{p.scheme}://{p.netloc}")
         except Exception:
             pass  # feature disabled silently — see _replace_cat_markers
 

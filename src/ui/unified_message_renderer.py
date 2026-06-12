@@ -120,7 +120,7 @@ class UnifiedMessageRenderer:
         # base is set by the panel from CatalogConfig.catalog_web_record_url;
         # empty default disables the feature (markers reduced to display text).
         self._catalog_web_base: str = ""
-        self._catalog_host: str = ""
+        self._catalog_hosts: set = set()
         # URLs seen in tool results this turn — exempt from ext-link flagging.
         self._trusted_urls: set = set()
 
@@ -141,13 +141,14 @@ class UnifiedMessageRenderer:
         self._catalog_web_base = (url or "").rstrip("/")
 
     def set_catalog_host(self, host: str) -> None:
-        """Set the catalog hostname (scheme+host, no path) for link classification.
+        """Set (replace) the primary catalog hostname for link classification. Claude Generated."""
+        self._catalog_hosts = {(host or "").rstrip("/")} if host else set()
 
-        Any rendered Markdown link whose href does NOT start with this host is
-        marked with class ``ext-link`` so the CSS renders it in a warning colour.
-        If not set, all links keep the default ``#log a`` style. Claude Generated.
-        """
-        self._catalog_host: str = (host or "").rstrip("/")
+    def add_catalog_host(self, host: str) -> None:
+        """Register an additional catalog hostname (e.g. from finc_web_record_url). Claude Generated."""
+        h = (host or "").rstrip("/")
+        if h:
+            self._catalog_hosts.add(h)
 
     def add_trusted_urls(self, urls: Iterable[str]) -> None:
         """Register URLs from tool results as trusted for link classification.
@@ -395,18 +396,17 @@ class UnifiedMessageRenderer:
         configured local catalog host. External links are rendered in a warning
         colour by the CSS. No-op when no catalog host is configured. Claude Generated.
         """
-        if not html or "<a " not in html or not self._catalog_host:
+        if not html or "<a " not in html or not self._catalog_hosts:
             return html
 
-        host = self._catalog_host
-
+        hosts = self._catalog_hosts
         trusted = self._trusted_urls
 
         def _sub(match: "re.Match[str]") -> str:
             href = match.group(1)
             after = match.group(2)
             # Local catalog URL → mark as cat-link (book icon via CSS)
-            if href.startswith(host):
+            if any(href.startswith(h) for h in hosts):
                 if 'class="' in after:
                     after = after.replace('class="', 'class="cat-link ', 1)
                 else:
