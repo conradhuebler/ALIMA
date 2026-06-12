@@ -606,6 +606,102 @@ class TestSearchFincMCPHandler(unittest.TestCase):
         call = reg._finc.client.search.call_args
         self.assertEqual(call.kwargs["facets"], ["udk_raw_de105"])
 
+    def test_availability_local_injects_facet_avail_filter(self):
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+
+        reg._handle_search_finc(terms=["chemie"], availability="local")
+        call_filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
+        self.assertEqual(call_filters.get("facet_avail"), "Local")
+
+    def test_availability_online_maps_correctly(self):
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+
+        reg._handle_search_finc(terms=["chemie"], availability="online")
+        filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
+        self.assertEqual(filters.get("facet_avail"), "Online")
+
+    def test_availability_free_maps_correctly(self):
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+
+        reg._handle_search_finc(terms=["chemie"], availability="free")
+        filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
+        self.assertEqual(filters.get("facet_avail"), "Free")
+
+    def test_availability_none_does_not_inject_filter(self):
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+
+        reg._handle_search_finc(terms=["chemie"])
+        filters = reg._finc.client.search.call_args.kwargs.get("filters") or {}
+        self.assertNotIn("facet_avail", filters)
+
+    def test_explicit_facet_avail_not_overridden_by_availability(self):
+        # Caller passes filters={"facet_avail": "Online"} AND availability="local" —
+        # explicit filter wins (setdefault semantics).
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+
+        reg._handle_search_finc(
+            terms=["chemie"],
+            filters={"facet_avail": "Online"},
+            availability="local",
+        )
+        filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
+        self.assertEqual(filters.get("facet_avail"), "Online")
+
     def test_tool_registered_in_library_preset(self):
         from src.mcp.tool_schemas import SEARCH_FINC, LIBRARY_TOOLS
         self.assertIn(SEARCH_FINC, LIBRARY_TOOLS)

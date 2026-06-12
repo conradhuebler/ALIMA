@@ -418,6 +418,9 @@ class ToolRegistry:
             ensure_ascii=False,
         )
 
+    # Maps availability enum values (lowercase, LLM-facing) to VuFind facet values.
+    _AVAIL_TO_FACET = {"local": "Local", "online": "Online", "free": "Free"}
+
     def _handle_search_finc(
         self,
         terms: List[str],
@@ -425,6 +428,7 @@ class ToolRegistry:
         filters: Optional[Dict[str, str]] = None,
         facets: Optional[List[str]] = None,
         limit: int = 20,
+        availability: Optional[str] = None,
     ) -> str:
         """Run a finc / VuFind-JSON search and return normalized records.
 
@@ -445,11 +449,18 @@ class ToolRegistry:
         effective_facets = facets
         if (search_type or "kw") in ("dk", "rvk") and not facets:
             effective_facets = ["udk_raw_de105", "rvk_facet"]
+        # Translate availability enum to facet_avail filter; caller-supplied
+        # filters always take precedence. - Claude Generated
+        effective_filters = dict(filters or {})
+        if availability:
+            facet_val = self._AVAIL_TO_FACET.get((availability or "").lower())
+            if facet_val:
+                effective_filters.setdefault("facet_avail", facet_val)
         try:
             results = self._finc.search(
                 searches=list(terms or []),
                 search_type=search_type or "kw",
-                filters=filters,
+                filters=effective_filters or None,
                 limit=limit,
                 facets=effective_facets,
             )

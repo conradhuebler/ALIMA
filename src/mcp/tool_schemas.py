@@ -248,7 +248,9 @@ SEARCH_FINC = ToolDefinition(
         "and web_url. Use `facets` (e.g. [\"udk_raw_de105\",\"rvk_facet\"]) to also "
         "get the DK/RVK classification distribution, and `filters` to scope by "
         "facet (VuFind syntax, e.g. {\"institution\": \"DE-105\"} or "
-        "{\"id\": \"<record-id>\"} for one record). "
+        "{\"id\": \"<record-id>\"} for one record). Use `availability` to "
+        "restrict to physical holdings ('local'), licensed e-resources "
+        "('online'), or open access ('free'). "
         "Always cite records as Markdown links: [title](web_url). "
         "Every listed record must include its link when web_url is present."
     ),
@@ -301,6 +303,16 @@ SEARCH_FINC = ToolDefinition(
                 "minimum": 0,
                 "maximum": 100,
                 "description": "Maximum records per term (0..100; 0 = facets only).",
+            },
+            "availability": {
+                "type": "string",
+                "enum": ["local", "online", "free"],
+                "description": (
+                    "Filter by holding type: 'local' = physical copy in the library "
+                    "(Präsenzbestand/Ausleihbestand); 'online' = licensed electronic "
+                    "resource; 'free' = open access / freely available online. "
+                    "Omit to return all holdings."
+                ),
             },
         },
         "required": ["terms"],
