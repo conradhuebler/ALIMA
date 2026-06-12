@@ -651,12 +651,13 @@ class TestCLinkMarkerReplacement(RendererTestBase):
 
 
 class TestClassifyLinks(RendererTestBase):
-    """_classify_links: local-catalog links stay blue, external links get ext-link. Claude Generated."""
+    """_classify_links: catalog links get cat-link, external links get ext-link. Claude Generated."""
 
-    def test_local_link_unchanged(self):
+    def test_local_link_gets_cat_link_class(self):
         self.renderer.set_catalog_host("https://katalog.example.org")
         html = '<a href="https://katalog.example.org/Record/0-123">Titel</a>'
         out = self.renderer._classify_links(html)
+        self.assertIn("cat-link", out)
         self.assertNotIn("ext-link", out)
         self.assertIn('href="https://katalog.example.org/Record/0-123"', out)
 

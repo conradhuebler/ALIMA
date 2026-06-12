@@ -45,7 +45,9 @@
 #log .rendered pre { background: #1a2228; padding: 6px; border-radius: 4px; overflow-x: auto; }
 #log .rendered code { font-family: monospace; }
 #log a { color: #5af; }
-#log a.ext-link { color: #ff9800; }  /* external / non-catalog link warning */
+#log a.cat-link::after { content: " 📖"; font-style: normal; }  /* local catalog entry */
+#log a.ext-link { color: #ff9800; }   /* external / non-catalog link warning */
+#log a.ext-link::after { content: " ↗"; }
 
 /* Classification badge cards — shared GUI ↔ webapp render of DK/RVK results.
  * Ported from the webapp's structured cards (WP12), recoloured for the dark

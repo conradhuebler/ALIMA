@@ -405,10 +405,17 @@ class UnifiedMessageRenderer:
         def _sub(match: "re.Match[str]") -> str:
             href = match.group(1)
             after = match.group(2)
-            # Local catalog URL or URL seen in a tool result → keep as-is
-            if href.startswith(host) or href in trusted:
+            # Local catalog URL → mark as cat-link (book icon via CSS)
+            if href.startswith(host):
+                if 'class="' in after:
+                    after = after.replace('class="', 'class="cat-link ', 1)
+                else:
+                    after = f' class="cat-link"{after}'
+                return f'<a href="{href}"{after}>'
+            # Trusted URL from tool result → keep as-is (no warning, no icon)
+            if href in trusted:
                 return match.group(0)
-            # Invented external link — inject warning class
+            # Invented external link — inject warning class (↗ icon via CSS)
             if 'class="' in after:
                 after = after.replace('class="', 'class="ext-link ', 1)
             else:
