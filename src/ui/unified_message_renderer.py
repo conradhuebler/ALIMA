@@ -22,7 +22,7 @@ import re
 import time
 from datetime import datetime
 from html import escape as html_escape
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 from PyQt6.QtWidgets import QCheckBox
 
@@ -120,6 +120,9 @@ class UnifiedMessageRenderer:
         # base is set by the panel from CatalogConfig.catalog_web_record_url;
         # empty default disables the feature (markers reduced to display text).
         self._catalog_web_base: str = ""
+        self._catalog_host: str = ""
+        # URLs seen in tool results this turn — exempt from ext-link flagging.
+        self._trusted_urls: set = set()
 
     # ------------------------------------------------------------------
     # Configuration
@@ -136,6 +139,27 @@ class UnifiedMessageRenderer:
         their display text only — no broken links).
         """
         self._catalog_web_base = (url or "").rstrip("/")
+
+    def set_catalog_host(self, host: str) -> None:
+        """Set the catalog hostname (scheme+host, no path) for link classification.
+
+        Any rendered Markdown link whose href does NOT start with this host is
+        marked with class ``ext-link`` so the CSS renders it in a warning colour.
+        If not set, all links keep the default ``#log a`` style. Claude Generated.
+        """
+        self._catalog_host: str = (host or "").rstrip("/")
+
+    def add_trusted_urls(self, urls: Iterable[str]) -> None:
+        """Register URLs from tool results as trusted for link classification.
+
+        Trusted URLs are not flagged as ext-link even when they don't belong
+        to the configured catalog host (e.g. DOIs or publisher URLs returned
+        by finc records). The whitelist is cleared on each new user turn via
+        render_user_bubble(). Claude Generated.
+        """
+        for u in urls:
+            if u and isinstance(u, str) and u.startswith(("http://", "https://")):
+                self._trusted_urls.add(u)
 
     # ------------------------------------------------------------------
     # Pipeline log rendering
@@ -240,6 +264,7 @@ class UnifiedMessageRenderer:
 
     def render_user_bubble(self, text: str) -> None:
         """Right-aligned green WhatsApp-style bubble."""
+        self._trusted_urls.clear()  # new turn → discard previous tool-result URLs
         body = self._escape_html(text)
         html = (
             '<div style="text-align: right; margin: 6px 0;">'
@@ -278,15 +303,15 @@ class UnifiedMessageRenderer:
         md_html = ""
         if self._current_assistant_text:
             try:
-                import markdown
+                from markdown_it import MarkdownIt
 
-                # P-δ.5: replace <<CAT:rsn|display>> markers with clickable
-                # anchors BEFORE the markdown pass (see _replace_cat_markers).
+                # P-δ.5: replace <<CAT:rsn|display>> and <<CLINK:url|display>>
+                # markers with clickable anchors BEFORE the markdown pass.
                 render_text = self._replace_cat_markers(self._current_assistant_text)
-                md_html = markdown.markdown(
-                    render_text,
-                    extensions=["extra", "nl2br"],
-                )
+                render_text = self._replace_clink_markers(render_text)
+                _md = MarkdownIt("commonmark", {"breaks": True}).enable("table")
+                md_html = _md.render(render_text)
+                md_html = self._classify_links(md_html)
                 md_html = (
                     f'<span style="color: #e9edef; font-size: 10pt;">{md_html}</span>'
                 )
@@ -337,6 +362,60 @@ class UnifiedMessageRenderer:
 
         # `|` is the separator; `[^|]+?` is non-greedy on display text.
         return re.sub(r"<<CAT:([^|\n]+)\|([^|\n]+)>>", _sub, text)
+
+    def _replace_clink_markers(self, text: str) -> str:
+        """Replace ``<<CLINK:url|display>>`` with a clickable HTML anchor.
+
+        Accepts any http(s) URL directly — no base-URL config needed.
+        Intended for catalog records whose ``web_url`` is already a full URL
+        (finc, Libero OPAC). Display text is HTML-escaped (prompt-injection
+        mitigation). Non-http(s) URLs degrade to display text only. Claude Generated.
+        """
+        if not text or "<<CLINK:" not in text:
+            return text
+
+        def _sub(match: "re.Match[str]") -> str:
+            url = match.group(1).strip()
+            display = html_escape(match.group(2).strip(), quote=True)
+            if not url.startswith(("http://", "https://")):
+                return display
+            return (
+                f'<a href="{url}" style="color: #5af; text-decoration: underline;">'
+                f"{display}</a>"
+            )
+
+        # \\? makes the backslash before | optional: inside Markdown tables the
+        # LLM escapes | as \| to avoid splitting cells, so the marker arrives
+        # as <<CLINK:url\|title>>. Lazy +? stops the URL group cleanly before
+        # the optional backslash so the captured URL has no trailing \.
+        return re.sub(r"<<CLINK:([^|\n]+?)\\?\|([^|\n]+?)>>", _sub, text)
+
+    def _classify_links(self, html: str) -> str:
+        """Add class='ext-link' to any <a href> that does not belong to the
+        configured local catalog host. External links are rendered in a warning
+        colour by the CSS. No-op when no catalog host is configured. Claude Generated.
+        """
+        if not html or "<a " not in html or not self._catalog_host:
+            return html
+
+        host = self._catalog_host
+
+        trusted = self._trusted_urls
+
+        def _sub(match: "re.Match[str]") -> str:
+            href = match.group(1)
+            after = match.group(2)
+            # Local catalog URL or URL seen in a tool result → keep as-is
+            if href.startswith(host) or href in trusted:
+                return match.group(0)
+            # Invented external link — inject warning class
+            if 'class="' in after:
+                after = after.replace('class="', 'class="ext-link ', 1)
+            else:
+                after = f' class="ext-link"{after}'
+            return f'<a href="{href}"{after}>'
+
+        return re.sub(r'<a href="([^"]*)"([^>]*)>', _sub, html)
 
     # ------------------------------------------------------------------
     # Collapsible tool calls (native <details>)

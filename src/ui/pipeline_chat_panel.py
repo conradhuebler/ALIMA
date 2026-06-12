@@ -254,9 +254,15 @@ class PipelineChatPanel(QWidget):
         # (markers are reduced to plain text) if config is missing.
         try:
             from src.utils.config_manager import ConfigManager
+            from urllib.parse import urlparse
             cat_cfg = ConfigManager().get_catalog_config()
             web_base = getattr(cat_cfg, "catalog_web_record_url", "") or ""
             self._renderer.set_catalog_web_base(web_base)
+            # Derive catalog host (scheme+netloc) for ext-link classification.
+            if web_base:
+                p = urlparse(web_base)
+                if p.scheme and p.netloc:
+                    self._renderer.set_catalog_host(f"{p.scheme}://{p.netloc}")
         except Exception:
             pass  # feature disabled silently — see _replace_cat_markers
 
@@ -1532,9 +1538,33 @@ class PipelineChatPanel(QWidget):
                 "PipelineChatPanel: _on_bus_pipeline_prompt_done failed"
             )
 
+    @staticmethod
+    def _extract_urls_from_json(data) -> "set[str]":
+        """Recursively collect all http(s) URL strings from a parsed JSON value."""
+        urls: "set[str]" = set()
+        if isinstance(data, str):
+            if data.startswith(("http://", "https://")):
+                urls.add(data)
+        elif isinstance(data, dict):
+            for v in data.values():
+                urls |= PipelineChatPanel._extract_urls_from_json(v)
+        elif isinstance(data, (list, tuple)):
+            for item in data:
+                urls |= PipelineChatPanel._extract_urls_from_json(item)
+        return urls
+
     def _on_bus_tool_result(self, payload: dict) -> None:
         try:
             result = payload.get("result", "") or ""
+            # Register any URLs from tool results so the renderer won't
+            # flag them as external (e.g. DOIs from finc records). - Claude Generated
+            try:
+                import json as _json
+                self._renderer.add_trusted_urls(
+                    self._extract_urls_from_json(_json.loads(result))
+                )
+            except Exception:
+                pass
             bus_id = payload.get("id")
             tool_id = self._bus_tool_call_ids.pop(bus_id, None) if bus_id else None
             if tool_id:

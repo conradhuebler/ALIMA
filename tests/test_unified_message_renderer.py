@@ -215,24 +215,19 @@ class TestAssistantBubble(RendererTestBase):
         self.assertEqual(self.view.assistant_tokens, ["token1", " token2"])
 
     def test_assistant_finalize_calls_markdown(self):
-        fake_md = MagicMock()
-        fake_md.markdown.return_value = "<p><strong>bold</strong></p>"
-        with patch.dict("sys.modules", {"markdown": fake_md}):
-            self.renderer.open_assistant_bubble("model")
-            self.renderer.append_assistant_token("**bold**")
-            self.renderer.finalize_assistant_bubble()
-        fake_md.markdown.assert_called_once()
+        self.renderer.open_assistant_bubble("model")
+        self.renderer.append_assistant_token("**bold**")
+        self.renderer.finalize_assistant_bubble()
+        # markdown_it renders **bold** → <strong>bold</strong>
         self.assertIn("bold", self.view.assistant_final or "")
+        self.assertIn("<strong>", self.view.assistant_final or "")
         self.assertFalse(self.renderer._assistant_block_open)
         self.assertIsNone(self.renderer._assistant_cell_cursor)
 
     def test_assistant_history(self):
-        fake_md = MagicMock()
-        fake_md.markdown.return_value = "<p>text</p>"
         self.renderer.open_assistant_bubble("model")
         self.renderer.append_assistant_token("text")
-        with patch.dict("sys.modules", {"markdown": fake_md}):
-            self.renderer.finalize_assistant_bubble()
+        self.renderer.finalize_assistant_bubble()
         self.assertEqual(len(self.renderer.history), 1)
         self.assertEqual(self.renderer.history[0].role.name, "ASSISTANT_BUBBLE")
 
@@ -593,6 +588,112 @@ class TestCatalogMarkerReplacement(RendererTestBase):
         self.assertEqual(self.renderer._replace_cat_markers(text), text)
 
 
+class TestCLinkMarkerReplacement(RendererTestBase):
+    """Tests for <<CLINK:url|display>> → clickable anchor (Claude Generated)."""
+
+    def test_https_url_replaced_with_anchor(self):
+        out = self.renderer._replace_clink_markers(
+            "Vor <<CLINK:https://katalog.example.org/Record/0-123|Chemie>> nach"
+        )
+        self.assertIn('href="https://katalog.example.org/Record/0-123"', out)
+        self.assertIn(">Chemie</a>", out)
+        self.assertNotIn("<<CLINK:", out)
+        self.assertTrue(out.startswith("Vor "))
+        self.assertTrue(out.endswith(" nach"))
+
+    def test_http_url_also_accepted(self):
+        out = self.renderer._replace_clink_markers(
+            "<<CLINK:http://katalog.example.org/Record/0-99|Titel>>"
+        )
+        self.assertIn('href="http://katalog.example.org/Record/0-99"', out)
+        self.assertIn(">Titel</a>", out)
+
+    def test_non_http_url_rejected(self):
+        out = self.renderer._replace_clink_markers(
+            "<<CLINK:ftp://evil.example/x|Anzeige>>"
+        )
+        self.assertNotIn("<a ", out)
+        self.assertNotIn("<<CLINK:", out)
+        self.assertIn("Anzeige", out)
+
+    def test_html_in_display_is_escaped(self):
+        out = self.renderer._replace_clink_markers(
+            "<<CLINK:https://example.org/1|<script>x</script>>>"
+        )
+        self.assertNotIn("<script>", out)
+        self.assertIn("&lt;script&gt;", out)
+
+    def test_no_marker_passthrough(self):
+        text = "Just plain text, no CLINK here."
+        self.assertEqual(self.renderer._replace_clink_markers(text), text)
+
+    def test_markdown_table_backslash_pipe_separator(self):
+        # In Markdown tables | must be escaped as \| inside a cell.
+        # The regex must handle <<CLINK:url\|title>> and produce a clean URL
+        # (no trailing backslash in href).
+        out = self.renderer._replace_clink_markers(
+            "<<CLINK:https://katalog.example.org/Record/0-123\\|Quantenchemie>>"
+        )
+        self.assertIn('href="https://katalog.example.org/Record/0-123"', out)
+        self.assertNotIn("\\", out.split("href=")[1].split('"')[1])  # no \ in href
+        self.assertIn(">Quantenchemie</a>", out)
+
+    def test_both_cat_and_clink_in_same_text(self):
+        self.renderer.set_catalog_web_base("https://katalog.example.org/Record/")
+        out = self.renderer._replace_cat_markers(
+            "A: <<CAT:12345|Libero-Titel>> B: <<CLINK:https://finc.example.org/Record/0-9|finc-Titel>>"
+        )
+        out = self.renderer._replace_clink_markers(out)
+        self.assertIn("Record/0-12345", out)
+        self.assertIn("href=\"https://finc.example.org/Record/0-9\"", out)
+        self.assertIn(">Libero-Titel</a>", out)
+        self.assertIn(">finc-Titel</a>", out)
+
+
+class TestClassifyLinks(RendererTestBase):
+    """_classify_links: local-catalog links stay blue, external links get ext-link. Claude Generated."""
+
+    def test_local_link_unchanged(self):
+        self.renderer.set_catalog_host("https://katalog.example.org")
+        html = '<a href="https://katalog.example.org/Record/0-123">Titel</a>'
+        out = self.renderer._classify_links(html)
+        self.assertNotIn("ext-link", out)
+        self.assertIn('href="https://katalog.example.org/Record/0-123"', out)
+
+    def test_external_link_gets_warning_class(self):
+        self.renderer.set_catalog_host("https://katalog.example.org")
+        html = '<a href="https://www.google.com/search?q=test">Google</a>'
+        out = self.renderer._classify_links(html)
+        self.assertIn("ext-link", out)
+
+    def test_no_catalog_host_passthrough(self):
+        # When no host is configured, all links pass through unchanged.
+        html = '<a href="https://www.google.com/">Google</a>'
+        out = self.renderer._classify_links(html)
+        self.assertEqual(html, out)
+
+    def test_doi_from_finc_classified_external_without_trust(self):
+        self.renderer.set_catalog_host("https://katalog.example.org")
+        html = '<a href="https://doi.org/10.1234/test">DOI-Link</a>'
+        out = self.renderer._classify_links(html)
+        self.assertIn("ext-link", out)
+
+    def test_doi_trusted_via_tool_result_not_flagged(self):
+        self.renderer.set_catalog_host("https://katalog.example.org")
+        self.renderer.add_trusted_urls(["https://doi.org/10.1234/test"])
+        html = '<a href="https://doi.org/10.1234/test">DOI-Link</a>'
+        out = self.renderer._classify_links(html)
+        self.assertNotIn("ext-link", out)
+
+    def test_trusted_urls_cleared_on_new_user_message(self):
+        self.renderer.set_catalog_host("https://katalog.example.org")
+        self.renderer.add_trusted_urls(["https://doi.org/10.1234/test"])
+        self.renderer.render_user_bubble("neue Frage")
+        html = '<a href="https://doi.org/10.1234/test">DOI-Link</a>'
+        out = self.renderer._classify_links(html)
+        self.assertIn("ext-link", out)
+
+
 class TestRenderEventEmission(unittest.TestCase):
     """WP12: the renderer emits a versioned JSON render-event stream to an
     injected transport (instead of calling WebLogView directly). These tests
@@ -662,13 +763,9 @@ class TestRenderEventEmission(unittest.TestCase):
         self.assertIn("alpha beta", closed["summary"])  # preview retained
 
     def test_assistant_bubble_lifecycle(self):
-        from unittest.mock import MagicMock, patch
-        fake_md = MagicMock()
-        fake_md.markdown.return_value = "<p><strong>b</strong></p>"
         self.renderer.open_assistant_bubble("gpt-4")
         self.renderer.append_assistant_token("**b**")
-        with patch.dict("sys.modules", {"markdown": fake_md}):
-            self.renderer.finalize_assistant_bubble()
+        self.renderer.finalize_assistant_bubble()
         self.assertIn("gpt-4", self._last("assistant_open")["header"])
         self.assertEqual(self._last("assistant_token")["text"], "**b**")
         self.assertIn("b", self._last("assistant_finalize")["html"])

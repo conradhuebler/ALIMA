@@ -205,7 +205,8 @@ SEARCH_CATALOG_TITLES = ToolDefinition(
         "dk_codes, rvk_codes, subjects). No GND/SWB/Lobid enrichment — "
         "pure catalog hits intended for title-list workflows. Each record "
         "includes `web_url` (catalog web link for that RSN) when a web "
-        "record URL is configured."
+        "record URL is configured. Always cite records as Markdown links: "
+        "[title](web_url). Omit the link only when web_url is absent."
     ),
     parameters={
         "type": "object",
@@ -247,7 +248,9 @@ SEARCH_FINC = ToolDefinition(
         "and web_url. Use `facets` (e.g. [\"udk_raw_de105\",\"rvk_facet\"]) to also "
         "get the DK/RVK classification distribution, and `filters` to scope by "
         "facet (VuFind syntax, e.g. {\"institution\": \"DE-105\"} or "
-        "{\"id\": \"<record-id>\"} for one record)."
+        "{\"id\": \"<record-id>\"} for one record). "
+        "Always cite records as Markdown links: [title](web_url). "
+        "Every listed record must include its link when web_url is present."
     ),
     parameters={
         "type": "object",
@@ -259,14 +262,17 @@ SEARCH_FINC = ToolDefinition(
             },
             "search_type": {
                 "type": "string",
-                "enum": ["kw", "title", "subject", "author", "freetext"],
+                "enum": ["kw", "title", "subject", "author", "freetext", "dk", "rvk"],
                 "default": "kw",
                 "description": (
                     "Which field to search: subject = controlled subject/keyword "
                     "headings; title = words in the title (use for one or many "
                     "titles); author = author/contributor names; kw/freetext = "
-                    "all fields. Maps to the VuFind `type` (Subject/Title/Author/"
-                    "AllFields)."
+                    "all fields; dk = search directly in the DK/UDK notation field "
+                    "(udk_raw_de105, e.g. lookfor='DK 57' or 'qt 000'); rvk = search "
+                    "directly in the RVK notation field (rvk_facet). For dk and rvk "
+                    "types, udk_raw_de105 and rvk_facet facets are added automatically "
+                    "so the classification distribution is always returned."
                 ),
             },
             "filters": {

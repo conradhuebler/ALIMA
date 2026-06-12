@@ -342,6 +342,16 @@ class TestFincSuggesterUnit(unittest.TestCase):
             ["AllFields", "Title", "Subject", "Author", "AllFields", "AllFields"],
         )
 
+    def test_dk_rvk_search_type_mapping(self):
+        s = self._make_suggester()
+        s.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+        s.search(["DK 57"], search_type="dk")
+        s.search(["UC 100"], search_type="rvk")
+        types = [c.kwargs["type"] for c in s.client.search.call_args_list]
+        self.assertEqual(types, ["udk_raw_de105", "rvk_facet"])
+
     def test_default_institution_filter_applied(self):
         s = self._make_suggester(institution_filter="DE-105")
         s.client.search = MagicMock(return_value={
@@ -549,6 +559,52 @@ class TestSearchFincMCPHandler(unittest.TestCase):
         reg._handle_search_finc(terms=["python"])
         filters = reg._finc.client.search.call_args.kwargs["filters"]
         self.assertEqual(filters, {"institution": "DE-105"})
+
+    def test_handler_dk_search_type_auto_adds_facets(self):
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        from src.mcp.tool_registry import ToolRegistry
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": [],
+            "facets": {
+                "udk_raw_de105": [{"value": "dk 57", "count": 5, "translated": "dk 57"}],
+                "rvk_facet": [{"value": "WW 3350", "count": 3, "translated": "WW 3350"}],
+            },
+        })
+
+        reg._handle_search_finc(terms=["DK 57"], search_type="dk")
+        call = reg._finc.client.search.call_args
+        # Both facets auto-added when caller passed none
+        self.assertIn("udk_raw_de105", call.kwargs["facets"])
+        self.assertIn("rvk_facet", call.kwargs["facets"])
+        self.assertEqual(call.kwargs["type"], "udk_raw_de105")
+
+    def test_handler_dk_search_type_respects_explicit_facets(self):
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        from src.mcp.tool_registry import ToolRegistry
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 0, "records": []
+        })
+
+        # Caller explicitly requests only one facet — must not be overridden
+        reg._handle_search_finc(terms=["DK 57"], search_type="dk", facets=["udk_raw_de105"])
+        call = reg._finc.client.search.call_args
+        self.assertEqual(call.kwargs["facets"], ["udk_raw_de105"])
 
     def test_tool_registered_in_library_preset(self):
         from src.mcp.tool_schemas import SEARCH_FINC, LIBRARY_TOOLS

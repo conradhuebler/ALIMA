@@ -439,13 +439,19 @@ class ToolRegistry:
             return json.dumps(
                 {"error": "FincSuggester not configured (set finc_base_url in catalog_config)"}
             )
+        # For DK/RVK field searches, automatically include the classification facets
+        # so callers always get the notation distribution back without having to ask.
+        # Explicit facets from the caller are preserved unchanged. - Claude Generated
+        effective_facets = facets
+        if (search_type or "kw") in ("dk", "rvk") and not facets:
+            effective_facets = ["udk_raw_de105", "rvk_facet"]
         try:
             results = self._finc.search(
                 searches=list(terms or []),
                 search_type=search_type or "kw",
                 filters=filters,
                 limit=limit,
-                facets=facets,
+                facets=effective_facets,
             )
         except Exception as e:
             logger.error(f"search_finc failed: {e}")

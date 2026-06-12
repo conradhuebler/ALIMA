@@ -41,6 +41,8 @@ _SEARCH_TYPE_TO_VUFIND = {
     "title": "Title",
     "subject": "Subject",
     "author": "Author",
+    "dk": "udk_raw_de105",
+    "rvk": "rvk_facet",
 }
 
 
