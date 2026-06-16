@@ -513,27 +513,21 @@ class LlmService(QObject):
         # Map legacy provider names to actual configured providers - Claude Generated
         mapped_provider = self._map_provider_name(provider)
 
-        self.logger.debug(f"🔧 ENSURE_INIT: Checking initialization for provider '{mapped_provider}' (original: '{provider}')")
-        self.logger.debug(f"🔧 CLIENT_KEYS_AVAILABLE: {list(self.clients.keys())}")
-
         if mapped_provider not in self.clients:
-            self.logger.warning(f"🔧 PROVIDER_NOT_IN_CLIENTS: '{mapped_provider}' not found in self.clients")
+            self.logger.warning(f"Provider '{mapped_provider}' is not registered")
             return False
 
-        # If provider is already initialized (not a string), return True
+        # If provider is already initialized (not the sentinel), return True
         if self.clients[mapped_provider] != "lazy_uninitialized":
-            self.logger.debug(f"🔧 PROVIDER_ALREADY_INIT: '{mapped_provider}' is already initialized")
             return True
 
-        # Initialize the provider now
-        self.logger.debug(f"🔧 LAZY_INITIALIZING: Starting lazy initialization for provider '{mapped_provider}'")
+        # Initialize the provider now (deferred connect)
+        self.logger.debug(f"Lazy-initializing provider '{mapped_provider}'")
         try:
             self._initialize_single_provider(mapped_provider)
-            success = mapped_provider in self.clients and self.clients[mapped_provider] != "lazy_uninitialized"
-            self.logger.debug(f"🔧 LAZY_INIT_RESULT: '{mapped_provider}' initialization success: {success}")
-            return success
+            return mapped_provider in self.clients and self.clients[mapped_provider] != "lazy_uninitialized"
         except Exception as e:
-            self.logger.error(f"🔧 LAZY_INIT_FAILED: Failed to lazy-initialize provider {mapped_provider}: {e}")
+            self.logger.error(f"Failed to lazy-initialize provider '{mapped_provider}': {e}")
             return False
 
     def initialize_providers(self, providers: List[str] = None):

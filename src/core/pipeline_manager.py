@@ -42,6 +42,7 @@ from ..utils.smart_provider_selector import SmartProviderSelector
 from ..utils.config_models import (
     UnifiedProviderConfig,
     PipelineMode,
+    ProviderScope,
     TaskType,
     PipelineStepConfig
 )
@@ -277,7 +278,21 @@ class PipelineConfig:
         provider = self.global_provider_override or "(unchanged)"
         model = self.global_model_override or "(unchanged)"
         logger.info(f"🔬 Global override applied: {provider}/{model} → {llm_steps}")
-    
+
+    def has_explicit_step_override(self, step_id: str) -> bool:
+        """True if the step's provider/model differs from the pipeline baseline.
+
+        Used by the UI to decide whether a step is using the pipeline default or
+        an explicit per-step override.  A saved step with empty provider/model is
+        treated as *not* overridden.  Claude Generated (default-model cleanup).
+        """
+        if not self.step_configs or step_id not in self.step_configs:
+            return False
+        step_config = self.step_configs[step_id]
+        if isinstance(step_config, dict):
+            return bool(step_config.get("provider") or step_config.get("model"))
+        return bool(step_config.provider or step_config.model)
+
     @classmethod
     def create_from_provider_preferences(cls, config_manager) -> 'PipelineConfig':
         """Create PipelineConfig from pipeline_default settings - Claude Generated
@@ -293,52 +308,15 @@ class PipelineConfig:
         try:
             unified_config = config_manager.get_unified_config()
 
-            # Get pipeline default provider/model
-            default_provider = unified_config.pipeline_default_provider
-            default_model = unified_config.pipeline_default_model
+            # Resolve pipeline default through the centralized hierarchy.
+            # Falls back through pipeline_default -> preferred -> first enabled provider.
+            default_provider, default_model = unified_config.resolve_default_provider_model(
+                scope=ProviderScope.PIPELINE
+            )
 
-            def _provider_model(prov) -> str:
-                """Preferred model, else first listed model, else empty."""
-                return (getattr(prov, "preferred_model", "") or
-                        (list(getattr(prov, "available_models", None) or [""]) or [""])[0])
-
-            # Central general default: the "Default Provider"/"Default Model" set
-            # in the general provider settings (unified_config.preferred_provider/
-            # preferred_model). Used when no pipeline-specific default is set, so
-            # one place configures the default for pipeline AND chat.
             if not default_provider:
-                pref_provider = getattr(unified_config, "preferred_provider", "") or ""
-                if pref_provider:
-                    default_provider = pref_provider
-                    default_model = getattr(unified_config, "preferred_model", "") or ""
-                    logger.debug(f"Using general default provider: {default_provider}")
-
-            # Fallback: use first available provider if still nothing configured
-            if not default_provider:
-                enabled_providers = unified_config.get_enabled_providers()
-                if enabled_providers:
-                    first_provider = enabled_providers[0]
-                    default_provider = first_provider.name
-                    default_model = _provider_model(first_provider)
-                    logger.debug(f"No default set, using first provider: {default_provider}")
-                else:
-                    logger.warning("No enabled providers found")
-                    return cls()
-
-            # Gap-closer: a provider may be set with no model (the settings UI
-            # lets you pick a provider but the model dropdown can be empty when
-            # models aren't fetched). Derive the provider's preferred/first model
-            # so a provider-only default still yields a complete (provider, model).
-            if default_provider and not default_model:
-                for p in unified_config.get_enabled_providers():
-                    if p.name == default_provider:
-                        default_model = _provider_model(p)
-                        if default_model:
-                            logger.info(
-                                f"Pipeline default model empty — filled from provider "
-                                f"'{default_provider}' preferred/first model: {default_model}"
-                            )
-                        break
+                logger.warning("No enabled providers found")
+                return cls()
 
             logger.info(f"Pipeline Default: {default_provider}/{default_model}")
 
@@ -845,14 +823,22 @@ class PipelineManager:
 
         self.logger.info(f"🚀 Starting v4 workflow pipeline {pipeline_id}: {workflow_path}")
 
+        # Resolve agentic default from the unified config hierarchy first.
+        # Runtime --override still wins via global_provider_override.
         provider = self.config.global_provider_override or ""
         model = self.config.global_model_override or ""
         if not provider or not model:
-            # Walk all step_configs (legacy CLI ids + workflow-specific ids).
-            # Earlier code looked only at ("initialisation", "keywords",
-            # "dk_classification") which silently produced empty provider/model
-            # for v5-style workflows (alima.yaml step ids: extraction,
-            # search, selection_chunks, ...).
+            unified_config = self.config_manager.get_unified_config() if self.config_manager else None
+            if unified_config is not None:
+                resolved_provider, resolved_model = unified_config.resolve_default_provider_model(
+                    scope=ProviderScope.AGENTIC
+                )
+                provider = provider or resolved_provider
+                model = model or resolved_model
+
+        # Final fallback: walk step_configs for any user-supplied override.
+        # This keeps legacy --step overrides and saved per-step settings working.
+        if not provider or not model:
             for cfg in self.config.step_configs.values():
                 if cfg is None:
                     continue
@@ -872,8 +858,8 @@ class PipelineManager:
         if not provider or not model:
             self.logger.warning(
                 "Agentic workflow %r starts with empty provider/model "
-                "(provider=%r, model=%r). Set global_provider/model_override "
-                "or populate step_configs.",
+                "(provider=%r, model=%r). Set agentic_default_provider/model, "
+                "pipeline_default_provider/model, or use --override.",
                 getattr(workflow_path, "name", workflow_path),
                 provider,
                 model,

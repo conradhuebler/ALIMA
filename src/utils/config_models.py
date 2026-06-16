@@ -28,6 +28,18 @@ class PipelineMode(Enum):
     EXPERT = "expert"      # Full parameter control
 
 
+class ProviderScope(str, Enum):
+    """Scope for default provider/model resolution - Claude Generated.
+
+    A ``str`` subclass so existing string callers keep working: comparisons like
+    ``ProviderScope.AGENTIC == "agentic"`` are True, and the resolver accepts
+    either the enum member or the bare string.
+    """
+    GENERAL = "general"    # preferred -> first enabled
+    PIPELINE = "pipeline"  # pipeline_default -> preferred -> first enabled
+    AGENTIC = "agentic"    # agentic_default -> pipeline_default -> preferred -> first enabled
+
+
 class TaskType(Enum):
     """ALIMA pipeline step types for intelligent provider selection - Claude Generated"""
     INPUT = "input"                      # File/text input (no LLM)
@@ -442,6 +454,11 @@ class UnifiedProviderConfig:
     pipeline_default_provider: str = ""  # e.g. "ollama", "gemini"
     pipeline_default_model: str = ""     # e.g. "cogito:32b", "gemini-1.5-flash"
 
+    # Agentic / workflow default provider/model (WP-ι cleanup)
+    # Falls back to pipeline_default, then preferred_provider if unset.
+    agentic_default_provider: str = ""
+    agentic_default_model: str = ""
+
     # Task-specific preferences (for step overrides)
     task_preferences: Dict[str, TaskPreference] = field(default_factory=dict)
 
@@ -558,6 +575,97 @@ class UnifiedProviderConfig:
             return task_pref.chunked_model_priority
 
         return task_pref.model_priority
+
+    def resolve_provider_model(self, provider_name: str) -> tuple[str, str]:
+        """Return a usable (provider, model) for a known provider name.
+
+        If the provider is unknown, model is empty.  This is the single place
+        that knows how to turn a bare provider name into a provider/model pair.
+        Claude Generated (default-model cleanup).
+        """
+        provider = self.get_provider_by_name(provider_name)
+        if provider is None:
+            return provider_name, ""
+        model = (
+            getattr(provider, "preferred_model", "") or
+            (list(getattr(provider, "available_models", None) or []) or [""])[0]
+        )
+        return provider.name, model
+
+    def resolve_default_provider_model(
+        self,
+        *,
+        scope: "ProviderScope | str" = ProviderScope.GENERAL,
+        fallback_to_first_enabled: bool = True,
+    ) -> tuple[str, str]:
+        """Resolve the default (provider, model) for a given scope.
+
+        Hierarchy per scope (first match wins):
+          - pipeline:  pipeline_default -> preferred -> first enabled provider
+          - agentic:   agentic_default -> pipeline_default -> preferred -> first enabled provider
+          - general:   preferred -> first enabled provider
+
+        Empty strings are treated as unset.  When ``fallback_to_first_enabled`` is
+        True and no configured default is available, the first enabled provider's
+        preferred/first model is used.  Claude Generated (default-model cleanup).
+
+        Args:
+            scope: Which default to resolve ("general", "pipeline", or "agentic").
+            fallback_to_first_enabled: Whether to fall back to the first enabled
+                provider when no explicit default is configured.
+
+        Returns:
+            Tuple of (provider, model). May be ("", "") if no provider is configured.
+        """
+        # Determine the ordered list of candidate (provider, model) settings.
+        candidate_fields: list[tuple[str, str]] = []
+        if scope == "agentic":
+            candidate_fields.append(
+                (self.agentic_default_provider, self.agentic_default_model)
+            )
+        if scope in ("agentic", "pipeline"):
+            candidate_fields.append(
+                (self.pipeline_default_provider, self.pipeline_default_model)
+            )
+        # General fallback is always last.
+        candidate_fields.append((self.preferred_provider, self.preferred_model))
+
+        for provider, model in candidate_fields:
+            if provider:
+                if not model:
+                    _, model = self.resolve_provider_model(provider)
+                return provider, model
+
+        if fallback_to_first_enabled:
+            enabled = self.get_enabled_providers()
+            if enabled:
+                provider, model = self.resolve_provider_model(enabled[0].name)
+                if provider:
+                    return provider, model
+
+        return "", ""
+
+    def fill_empty_default_models(self) -> None:
+        """Persist resolved models for any default-provider with an empty model.
+
+        When a ``*_default_provider`` is set but its ``*_default_model`` is empty,
+        resolve the provider's preferred/first model and store it.  This makes the
+        choice durable instead of re-deriving it on every read (and re-saving it as
+        empty).  A no-op when the provider has no resolvable model yet (e.g. models
+        not detected).  Claude Generated (default-model cleanup).
+        """
+        pairs = (
+            ("pipeline_default_provider", "pipeline_default_model"),
+            ("agentic_default_provider", "agentic_default_model"),
+            ("preferred_provider", "preferred_model"),
+        )
+        for provider_attr, model_attr in pairs:
+            provider = getattr(self, provider_attr, "") or ""
+            model = getattr(self, model_attr, "") or ""
+            if provider and not model:
+                _, resolved = self.resolve_provider_model(provider)
+                if resolved:
+                    setattr(self, model_attr, resolved)
 
     @classmethod
     def from_legacy_config(cls, legacy_data: Dict[str, Any]) -> 'UnifiedProviderConfig':

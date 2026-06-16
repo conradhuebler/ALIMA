@@ -1256,8 +1256,8 @@ class PipelineChatPanel(QWidget):
 
     def _resolve_provider_model(self) -> tuple[str, str]:
         # Shared chain (CLI/HTTP/GUI): combo override → ChatConfig default →
-        # pipeline global override → pipeline step default (carries the
-        # first-enabled-provider fallback) → llm_service.current.
+        # pipeline global override → unified agentic default → pipeline default →
+        # general default → first enabled provider → llm_service.current.
         ov_provider = ov_model = None
         override_data = self.model_combo.currentData()
         if override_data:
@@ -1273,17 +1273,6 @@ class PipelineChatPanel(QWidget):
         )
         if provider and model:
             return provider, model
-        # Last resort: first initialized LLM client + its first listed model.
-        try:
-            clients = getattr(self.llm_service, "clients", {}) if self.llm_service else {}
-            if clients:
-                provider = list(clients.keys())[0]
-                sp = getattr(self.llm_service, "supported_providers", {})
-                models = sp.get(provider, {}).get("models", [])
-                if models:
-                    return provider, models[0]
-        except Exception:
-            pass
         return "", ""
 
     def _get_chat_config(self):

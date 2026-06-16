@@ -34,6 +34,7 @@ from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
 from ..utils.config_models import (
     PipelineStepConfig,
+    ProviderScope,
     TaskType as UnifiedTaskType
 )
 from ..utils.smart_provider_selector import SmartProviderSelector, TaskType as SmartTaskType
@@ -738,7 +739,7 @@ class HybridStepConfigWidget(QWidget):
 
                 if models:
                     # 🔍 DEBUG: Log available models - Claude Generated
-                    self.logger.critical(f"🔍 AVAILABLE_MODELS: provider='{provider}', models={models[:5]}{'...' if len(models) > 5 else ''} (total: {len(models)})")
+                    self.logger.debug(f"🔍AVAILABLE_MODELS: provider='{provider}', models={models[:5]}{'...' if len(models) > 5 else ''} (total: {len(models)})")
 
                     # Populate combo with visual styling for baseline models - Claude Generated
                     model_to_select = self._populate_model_combo_with_styling(provider, models)
@@ -757,7 +758,7 @@ class HybridStepConfigWidget(QWidget):
                             stored_model = self.model_combo.itemData(i, Qt.ItemDataRole.UserRole)
                             if stored_model == model_to_select:
                                 self.model_combo.setCurrentIndex(i)
-                                self.logger.critical(f"🔍 MODEL_SELECTED: '{model_to_select}' at index {i}")
+                                self.logger.debug(f"🔍MODEL_SELECTED: '{model_to_select}' at index {i}")
                                 break
 
                     # Apply combo-box level styling based on selected model
@@ -811,7 +812,7 @@ class HybridStepConfigWidget(QWidget):
                 return None
 
             # 🔍 DEBUG: Log pipeline config dialog preference request - Claude Generated
-            self.logger.critical(f"🔍 PIPELINE_DIALOG_PREF_REQUEST: provider='{provider}'")
+            self.logger.debug(f"🔍PIPELINE_DIALOG_PREF_REQUEST: provider='{provider}'")
 
             # TIER 1: Check Task Preferences first (highest priority) - Claude Generated
             try:
@@ -827,44 +828,44 @@ class HybridStepConfigWidget(QWidget):
             config = self.config_manager.load_config(force_reload=True)
             
             # 🔍 DEBUG: Log what pipeline dialog sees in loaded config - Claude Generated
-            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: gemini_preferred='{config.unified_config.gemini_preferred_model}', anthropic_preferred='{config.unified_config.anthropic_preferred_model}'")
-            self.logger.critical(f"🔍 PIPELINE_CONFIG_LOAD: openai_providers_count={len(config.unified_config.openai_compatible_providers)}, ollama_providers_count={len(config.unified_config.ollama_providers)}")
+            self.logger.debug(f"🔍PIPELINE_CONFIG_LOAD: gemini_preferred='{config.unified_config.gemini_preferred_model}', anthropic_preferred='{config.unified_config.anthropic_preferred_model}'")
+            self.logger.debug(f"🔍PIPELINE_CONFIG_LOAD: openai_providers_count={len(config.unified_config.openai_compatible_providers)}, ollama_providers_count={len(config.unified_config.ollama_providers)}")
             
             # Check static providers
             if provider == "gemini":
                 preferred = config.unified_config.gemini_preferred_model or None
-                self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: gemini -> '{preferred}'")
+                self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: gemini -> '{preferred}'")
                 return preferred
             elif provider == "anthropic":
                 preferred = config.unified_config.anthropic_preferred_model or None
-                self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: anthropic -> '{preferred}'")
+                self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: anthropic -> '{preferred}'")
                 return preferred
             
             # Check OpenAI-compatible providers
             for openai_provider in config.unified_config.openai_compatible_providers:
-                self.logger.critical(f"🔍 PIPELINE_CHECKING_OPENAI: '{openai_provider.name}'.preferred_model='{openai_provider.preferred_model}' vs requested '{provider}'")
+                self.logger.debug(f"🔍PIPELINE_CHECKING_OPENAI: '{openai_provider.name}'.preferred_model='{openai_provider.preferred_model}' vs requested '{provider}'")
                 if openai_provider.name == provider:
                     preferred = openai_provider.preferred_model or None
-                    self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: openai_compatible '{provider}' -> '{preferred}'")
+                    self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: openai_compatible '{provider}' -> '{preferred}'")
                     return preferred
             
             # Check Ollama providers - with fuzzy matching - Claude Generated
             for ollama_provider in config.unified_config.ollama_providers:
-                self.logger.critical(f"🔍 PIPELINE_CHECKING_OLLAMA: '{ollama_provider.name}' vs requested '{provider}'")
+                self.logger.debug(f"🔍PIPELINE_CHECKING_OLLAMA: '{ollama_provider.name}' vs requested '{provider}'")
                 
                 # Direct name match
                 if ollama_provider.name == provider:
                     preferred = ollama_provider.preferred_model or None
-                    self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (exact)")
+                    self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (exact)")
                     return preferred
                 
                 # Fuzzy matching for provider name variations
                 if self._provider_names_match(ollama_provider.name, provider):
                     preferred = ollama_provider.preferred_model or None
-                    self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy: '{ollama_provider.name}')")
+                    self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy: '{ollama_provider.name}')")
                     return preferred
             
-            self.logger.critical(f"🔍 PIPELINE_DIALOG_FOUND: '{provider}' -> None (not found)")
+            self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: '{provider}' -> None (not found)")
             return None
             
         except Exception as e:
@@ -882,7 +883,7 @@ class HybridStepConfigWidget(QWidget):
         base_name = preferred_lower.split(':')[0]  # Extract base name before ':'
         for model in available_models:
             if model.lower().startswith(base_name):
-                self.logger.critical(f"🔍 FUZZY_MATCH: '{preferred_model}' -> '{model}' (base name match)")
+                self.logger.debug(f"🔍FUZZY_MATCH: '{preferred_model}' -> '{model}' (base name match)")
                 return model
         
         # 2. Try tag-flexible matching (e.g., "model:8b" -> "model:latest")  
@@ -890,13 +891,13 @@ class HybridStepConfigWidget(QWidget):
             base_part = preferred_lower.split(':')[0]
             for model in available_models:
                 if ':' in model.lower() and model.lower().split(':')[0] == base_part:
-                    self.logger.critical(f"🔍 FUZZY_MATCH: '{preferred_model}' -> '{model}' (tag flexible match)")
+                    self.logger.debug(f"🔍FUZZY_MATCH: '{preferred_model}' -> '{model}' (tag flexible match)")
                     return model
         
         # 3. Try substring matching for complex model names
         for model in available_models:
             if base_name in model.lower() or model.lower() in preferred_lower:
-                self.logger.critical(f"🔍 FUZZY_MATCH: '{preferred_model}' -> '{model}' (substring match)")
+                self.logger.debug(f"🔍FUZZY_MATCH: '{preferred_model}' -> '{model}' (substring match)")
                 return model
         
         return None
@@ -2337,18 +2338,19 @@ class PipelineConfigDialog(QDialog):
             if self.config_manager:
                 try:
                     unified_config = self.config_manager.get_unified_config()
-                    # Load pipeline default provider
-                    if unified_config.pipeline_default_provider:
-                        index = self.default_provider_combo.findData(
-                            unified_config.pipeline_default_provider
-                        )
+                    # Show the *effective* pipeline default, even when the saved
+                    # pipeline_default_provider is empty and the fallback is used.
+                    effective_provider, effective_model = (
+                        unified_config.resolve_default_provider_model(scope=ProviderScope.PIPELINE)
+                    )
+                    if effective_provider:
+                        index = self.default_provider_combo.findData(effective_provider)
                         if index >= 0:
                             self.default_provider_combo.setCurrentIndex(index)
-                    # Load pipeline default model
-                    if unified_config.pipeline_default_model:
-                        index = self.default_model_combo.findData(
-                            unified_config.pipeline_default_model
-                        )
+                            # Trigger model list population for the selected provider.
+                            self._update_model_dropdown(effective_provider)
+                    if effective_model:
+                        index = self.default_model_combo.findData(effective_model)
                         if index >= 0:
                             self.default_model_combo.setCurrentIndex(index)
                 except Exception as e:
@@ -2411,6 +2413,10 @@ class PipelineConfigDialog(QDialog):
             step_configs = {}
             search_suggesters = ["lobid", "swb"]  # Default
 
+            # Pipeline default against which overrides are judged.
+            baseline_provider = getattr(baseline_config.step_configs.get("initialisation"), "provider", "") or ""
+            baseline_model = getattr(baseline_config.step_configs.get("initialisation"), "model", "") or ""
+
             for step_id, step_widget in self.step_widgets.items():
                 if step_id == "search":
                     # Handle search step (no LLM configuration)
@@ -2422,24 +2428,28 @@ class PipelineConfigDialog(QDialog):
                     # Handle LLM steps with baseline + override logic
                     widget_config = step_widget.get_config()
 
-                    # Check if user made manual selections (overrides)
-                    has_provider_override = widget_config.get("provider") and widget_config["provider"] != ""
-                    has_model_override = widget_config.get("model") and widget_config["model"] != ""
+                    step_provider = widget_config.get("provider") or ""
+                    step_model = widget_config.get("model") or ""
 
-                    if has_provider_override or has_model_override:
-                        # User made manual selections -> apply as overrides
+                    # Only treat as an explicit override if it differs from the
+                    # pipeline default. Otherwise store empty so the central
+                    # default is used and future default changes propagate.
+                    is_override = (
+                        step_provider and
+                        (step_provider != baseline_provider or step_model != baseline_model)
+                    )
+
+                    if is_override:
                         step_configs[step_id] = widget_config
-                        self.logger.info(f"Step '{step_id}': applying UI overrides (provider={widget_config.get('provider')}, model={widget_config.get('model')})")
+                        self.logger.info(f"Step '{step_id}': applying UI override (provider={step_provider}, model={step_model})")
                     else:
-                        # No manual selections -> use baseline (smart selection)
-                        # Create minimal config that will trigger smart selection
                         step_configs[step_id] = {
                             "step_id": step_id,
                             "enabled": widget_config.get("enabled", True),
-                            "provider": None,  # Will use smart selection
-                            "model": None      # Will use smart selection
+                            "provider": None,  # Will use pipeline default
+                            "model": None      # Will use pipeline default
                         }
-                        self.logger.info(f"Step '{step_id}': using smart baseline (no overrides)")
+                        self.logger.info(f"Step '{step_id}': using pipeline default ({baseline_provider}/{baseline_model})")
 
             # Step 3: Convert dict configs to PipelineStepConfig objects - Claude Generated
             step_configs_converted = {}

@@ -26,16 +26,56 @@ class _FakeProvider:
 
 class _FakeUnified:
     def __init__(self, default_provider, default_model, providers,
-                 preferred_provider="", preferred_model=""):
+                 preferred_provider="", preferred_model="",
+                 agentic_default_provider="", agentic_default_model=""):
         self.pipeline_default_provider = default_provider
         self.pipeline_default_model = default_model
         self.preferred_provider = preferred_provider
         self.preferred_model = preferred_model
+        self.agentic_default_provider = agentic_default_provider
+        self.agentic_default_model = agentic_default_model
         self._providers = providers
         self.task_preferences = {}
 
     def get_enabled_providers(self):
         return self._providers
+
+    def get_provider_by_name(self, name: str):
+        for p in self._providers:
+            if p.name.lower() == name.lower():
+                return p
+        return None
+
+    def resolve_default_provider_model(self, *, scope="general", fallback_to_first_enabled=True):
+        candidate_fields = []
+        if scope == "agentic":
+            candidate_fields.append((self.agentic_default_provider, self.agentic_default_model))
+        if scope in ("agentic", "pipeline"):
+            candidate_fields.append((self.pipeline_default_provider, self.pipeline_default_model))
+        candidate_fields.append((self.preferred_provider, self.preferred_model))
+
+        for provider, model in candidate_fields:
+            if provider:
+                if not model:
+                    p = self.get_provider_by_name(provider)
+                    if p is not None:
+                        model = (
+                            getattr(p, "preferred_model", "") or
+                            (list(getattr(p, "available_models", None) or []) or [""])[0]
+                        )
+                return provider, model
+
+        if fallback_to_first_enabled:
+            enabled = self.get_enabled_providers()
+            if enabled:
+                p = enabled[0]
+                model = (
+                    getattr(p, "preferred_model", "") or
+                    (list(getattr(p, "available_models", None) or []) or [""])[0]
+                )
+                return p.name, model
+
+        return "", ""
 
 
 class _FakeCM:

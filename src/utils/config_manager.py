@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import platform
+import tempfile
 import time
 import threading
 from pathlib import Path
@@ -403,6 +404,10 @@ class ConfigManager:
         unified_config.pipeline_default_provider = data.get("pipeline_default_provider", "")
         unified_config.pipeline_default_model = data.get("pipeline_default_model", "")
 
+        # Parse agentic default provider/model - Claude Generated (default-model cleanup)
+        unified_config.agentic_default_provider = data.get("agentic_default_provider", "")
+        unified_config.agentic_default_model = data.get("agentic_default_model", "")
+
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
         unified_config.anthropic_api_key = data.get("anthropic_api_key", "")
@@ -535,98 +540,102 @@ class ConfigManager:
     def save_config(self, config: AlimaConfig, scope: str = 'user', preserve_unified: bool = True) -> bool:
         """Save configuration to specified scope - Claude Generated"""
         try:
-            # 🔍 DEBUG: Track save_config entry point
-            self.logger.critical(f"🔍 SAVE_CONFIG_ENTRY: preserve_unified={preserve_unified}")
-            self.logger.critical(f"🔍 SAVE_CONFIG_UNIFIED_PROVIDERS: {len(config.unified_config.providers)} providers in input config")
-            for i, p in enumerate(config.unified_config.providers):
-                self.logger.critical(f"🔍 SAVE_CONFIG_INPUT_PROVIDER_{i}: {p.name} ({p.provider_type})")
-
-            #config_path = self._get_config_path(scope)
-            #config_path.parent.mkdir(parents=True, exist_ok=True)
+            # Persist resolved default models so an empty model isn't re-derived on
+            # every read (and re-saved as empty next time).
+            try:
+                config.unified_config.fill_empty_default_models()
+            except Exception as e:
+                self.logger.warning(f"Could not normalize default models: {e}")
 
             # Convert AlimaConfig to dictionary for serialization
             config_dict = asdict(config)
-            self.logger.critical(f"🔍 SAVE_CONFIG_POST_ASDICT: {len(config_dict.get('unified_config', {}).get('providers', []))} providers after asdict")
 
             # DEFAULT: Always preserve unified_config unless explicitly disabled
             if preserve_unified:
                 try:
-                    self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVING: Reading current config from {self.config_file}")
                     with open(self.config_file, 'r', encoding='utf-8') as f:
                         current_config = json.load(f)
 
-                    # 🔍 DEBUG: Log what keys are in the current config
-                    self.logger.critical(f"🔍 SAVE_CONFIG_CURRENT_KEYS: {list(current_config.keys())}")
-
-                    # Keep existing unified_config if it exists
                     if 'unified_config' in current_config:
-                        preserved_providers = current_config['unified_config'].get('providers', [])
-                        self.logger.critical(f"🔍 SAVE_CONFIG_DISK_PROVIDERS: Found {len(preserved_providers)} providers on disk")
-
-                        # CRITICAL FIX: Use INCOMING providers from input config, not preserved from disk - Claude Generated
-                        incoming_providers = config_dict.get('unified_config', {}).get('providers', [])
-                        self.logger.critical(f"🔍 SAVE_CONFIG_INPUT_PROVIDERS: Found {len(incoming_providers)} providers in input config")
-                        for i, p in enumerate(incoming_providers):
-                            self.logger.critical(f"🔍 SAVE_CONFIG_INPUT_PROVIDER_{i}: {p.get('name', 'NO_NAME')} ({p.get('provider_type', 'NO_TYPE')})")
-
-                        incoming_task_prefs = config_dict.get('unified_config', {}).get('task_preferences', {})
+                        # Keep the existing unified_config on disk but overwrite the
+                        # parts the caller actually edited: providers, task prefs and
+                        # the default-model fields.
+                        incoming_unified = config_dict.get('unified_config', {})
+                        incoming_providers = incoming_unified.get('providers', [])
+                        incoming_task_prefs = incoming_unified.get('task_preferences', {})
                         preserved_unified_config = current_config['unified_config'].copy()
 
-                        # Update with NEW providers and task preferences from input config - Claude Generated
-                        preserved_unified_config['providers'] = incoming_providers  # ✅ USE NEW PROVIDERS FROM INPUT
+                        preserved_unified_config['providers'] = incoming_providers
                         if incoming_task_prefs:
                             preserved_unified_config['task_preferences'] = incoming_task_prefs
-                            self.logger.critical(f"✅ Updated unified_config: {len(incoming_providers)} providers (from input), {len(incoming_task_prefs)} task prefs")
-                        else:
-                            self.logger.critical(f"✅ Updated unified_config: {len(incoming_providers)} providers (from input), no task prefs")
+
+                        for key in (
+                            'pipeline_default_provider',
+                            'pipeline_default_model',
+                            'agentic_default_provider',
+                            'agentic_default_model',
+                            'preferred_provider',
+                            'preferred_model',
+                        ):
+                            if key in incoming_unified:
+                                preserved_unified_config[key] = incoming_unified[key]
 
                         config_dict['unified_config'] = preserved_unified_config
                     else:
-                        self.logger.critical("🔍 SAVE_CONFIG_NO_UNIFIED: No unified_config found in current file")
-                        # CRITICAL FIX: If the config being saved has providers but file doesn't have unified_config,
-                        # this means we're migrating or the input config should be preserved
+                        # No unified_config on disk: keep the incoming providers, or
+                        # fall back to the in-memory config so we never drop them.
                         input_providers = config_dict.get('unified_config', {}).get('providers', [])
-                        if input_providers:
-                            self.logger.critical(f"🔍 SAVE_CONFIG_LEGACY_OVERRIDE: Input config has {len(input_providers)} providers - preserving them despite legacy file format")
-                        else:
-                            # Load the current unified config from memory to avoid losing providers
+                        if not input_providers:
                             try:
                                 current_unified = self.get_unified_config()
                                 if current_unified.providers:
-                                    self.logger.critical(f"🔍 SAVE_CONFIG_MEMORY_PRESERVATION: Using current unified config from memory with {len(current_unified.providers)} providers")
                                     config_dict['unified_config'] = asdict(current_unified)
-                                else:
-                                    self.logger.critical("🔍 SAVE_CONFIG_NO_PROVIDERS: No providers found in memory either")
                             except Exception as memory_e:
-                                self.logger.critical(f"🔍 SAVE_CONFIG_MEMORY_ERROR: Could not load unified config from memory: {memory_e}")
+                                self.logger.warning(f"Could not load unified config from memory: {memory_e}")
+                except FileNotFoundError:
+                    pass  # First save: nothing to preserve.
                 except Exception as e:
-                    self.logger.critical(f"🔍 SAVE_CONFIG_PRESERVE_ERROR: Could not preserve unified_config: {e}")
-            else:
-                self.logger.critical("⚠️  SAVE_CONFIG_PRESERVATION_DISABLED - providers may be lost!")
+                    self.logger.warning(f"Could not preserve unified_config: {e}")
 
-            # Save with preserved unified_config
-            final_providers = config_dict.get('unified_config', {}).get('providers', [])
-            self.logger.critical(f"🔍 SAVE_CONFIG_FINAL_WRITE: Writing {len(final_providers)} providers to disk")
-
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config_dict, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
-
-            # Verify what was actually written
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                verification_config = json.load(f)
-            written_providers = verification_config.get('unified_config', {}).get('providers', [])
-            self.logger.critical(f"🔍 SAVE_CONFIG_VERIFICATION: {len(written_providers)} providers actually written to disk")
-
+            # Atomic write so a crash mid-write cannot corrupt the existing config.
+            self._atomic_write_json(config_dict)
             self.logger.info(f"Configuration saved to {self.config_file}")
 
             # Update internal cache with saved config - Claude Generated
             self._config = config
-            self.logger.debug("✅ Internal config cache updated with saved configuration")
-
             return True
         except Exception as e:
             self.logger.error(f"Error saving configuration: {e}")
             return False
+
+    def _atomic_write_json(self, config_dict: dict) -> None:
+        """Write the config dict to disk atomically with 0600 perms - Claude Generated.
+
+        Serializes to a temp file in the same directory, fsyncs it, then
+        os.replace()s it onto the target. A crash before the replace leaves the
+        previous config intact instead of a half-written file.
+        """
+        config_path = Path(self.config_file)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(config_path.parent), prefix=config_path.name + '.', suffix='.tmp'
+        )
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(config_dict, f, indent=2, ensure_ascii=False, cls=AlimaConfigEncoder)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.chmod(tmp_path, 0o600)
+            except OSError:
+                pass  # best-effort: platforms without POSIX perms
+            os.replace(tmp_path, str(config_path))
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get_unified_config(self) -> UnifiedProviderConfig:
         """Get unified provider configuration - Claude Generated"""

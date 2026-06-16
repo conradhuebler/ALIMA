@@ -1000,10 +1000,6 @@ class ComprehensiveSettingsDialog(QDialog):
         # Provider settings are managed through the unified provider system
         # No need to reconstruct LLMConfig - unified_config is already properly managed
         
-        # 🔍 DEBUG: Log unified provider preferred models - Claude Generated
-        for provider in config.unified_config.providers:
-            self.logger.critical(f"🔍 GET_CONFIG_FROM_UI_UNIFIED: {provider.name} ({provider.provider_type}).preferred_model='{provider.preferred_model}'")
-        
         # Catalog configuration - Claude Generated fix for expanded config structure
         config.catalog_config = CatalogConfig(
             catalog_type=self.catalog_type_combo.currentText(),

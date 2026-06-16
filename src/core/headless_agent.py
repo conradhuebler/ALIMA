@@ -28,6 +28,7 @@ from src.core.chat_prompts import (
     DEFAULT_SYSTEM_PROMPT,
 )
 from src.core.data_models import AgentResult
+from src.utils.config_models import ProviderScope
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +43,15 @@ def resolve_provider_model(
 ) -> "tuple[str, str]":
     """Resolve (provider, model) for a headless agent run.
 
-    Precedence (mirrors PipelineChatPanel + adds the pipeline general default):
-      1. explicit args / request body
+    Precedence:
+      1. explicit args / request body / GUI combo override
       2. ``ChatConfig.default_provider/model``
-      3. ``pipeline_manager.config.global_provider_override/model``
-      4. pipeline general default — ``config.step_configs[*].provider/model``
-         (populated from ``pipeline_default_provider`` / first enabled provider
-         by ``PipelineConfig.create_from_provider_preferences``). This is the
-         "real" default since provider/model are configured per pipeline step,
-         not as a standalone ChatConfig default.
-      5. ``llm_service.current_provider/model``
+      3. ``pipeline_manager.config.global_provider_override/model`` (runtime --override)
+      4. ``UnifiedProviderConfig.agentic_default_provider/model``
+      5. ``UnifiedProviderConfig.pipeline_default_provider/model``
+      6. ``UnifiedProviderConfig.preferred_provider/model`` (general default)
+      7. first enabled provider + its preferred/first model
+      8. ``llm_service.current_provider/model``
     """
     if explicit_provider and explicit_model:
         return explicit_provider, explicit_model
@@ -67,8 +67,23 @@ def resolve_provider_model(
         m = getattr(cfg, "global_model_override", None) or ""
         if p and m:
             return p, m
+
+    # Unified config hierarchy: agentic -> pipeline -> general -> first enabled.
+    config_manager = getattr(pipeline_manager, "config_manager", None)
+    if config_manager is not None:
+        try:
+            unified_config = config_manager.get_unified_config()
+            p, m = unified_config.resolve_default_provider_model(scope=ProviderScope.AGENTIC)
+            if p and m:
+                return p, m
+        except Exception:
+            logger.exception("Failed to resolve unified default for agent")
+
+    # Fallback for callers without a config_manager: scrape populated pipeline
+    # step_configs (legacy behavior preserved for tests / simple doubles).
+    cfg = getattr(pipeline_manager, "config", None)
+    if cfg is not None:
         step_configs = getattr(cfg, "step_configs", None) or {}
-        # Prefer LLM-bearing steps; fall back to any populated step.
         ordered = ["keywords", "initialisation", "dk_classification"]
         ordered += [k for k in step_configs if k not in ordered]
         for key in ordered:
