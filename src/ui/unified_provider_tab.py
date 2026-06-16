@@ -1860,8 +1860,13 @@ class UnifiedProviderTab(QWidget):
         # selectors return ("", "") when their "(Use … default)" placeholder is
         # chosen, i.e. unset = fall back to the wider default.
         prov, model = self.preferred_selector.get_selection()
-        self.unified_config.preferred_provider = prov
-        self.unified_config.preferred_model = model
+        # General default is always a concrete provider (no placeholder). Never
+        # clobber it with a transient empty read (e.g. mid-repopulation triggered
+        # by another selector's change) — that silently wiped preferred_provider
+        # while pipeline/agentic (where "" is a valid "unset") survived.
+        if prov:
+            self.unified_config.preferred_provider = prov
+            self.unified_config.preferred_model = model
 
         prov, model = self.pipeline_default_selector.get_selection()
         self.unified_config.pipeline_default_provider = prov
