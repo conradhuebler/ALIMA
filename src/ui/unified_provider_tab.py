@@ -1120,9 +1120,10 @@ class UnifiedProviderTab(QWidget):
         for selector in (self.preferred_selector,
                          self.pipeline_default_selector,
                          self.agentic_default_selector):
-            selector.set_providers(provider_names)
-        # The shared selector loads each provider's models live (cached); the
-        # pipeline/agentic selectors keep an empty "(Use … default)" placeholder.
+            selector.set_providers(provider_names, refresh=False)
+        # set_selection triggers the single model load per selector (no throwaway
+        # load for the index-0 provider first). The shared selector loads models
+        # live (cached); pipeline/agentic keep the "(Use … default)" placeholder.
         self.preferred_selector.set_selection(uc.preferred_provider, uc.preferred_model)
         self.pipeline_default_selector.set_selection(
             uc.pipeline_default_provider, uc.pipeline_default_model)

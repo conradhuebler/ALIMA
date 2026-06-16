@@ -67,7 +67,10 @@ class ProviderModelSelector(QWidget):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self._detection_service = detection_service or self._default_detection_service()
-        self._worker: Optional[_ModelLoadWorker] = None
+        # Keep a strong reference to every in-flight worker until it *finishes*.
+        # Dropping a running QThread's last reference lets Python GC destroy it
+        # mid-run → "QThread: Destroyed while thread is still running" → abort.
+        self._workers: "set[_ModelLoadWorker]" = set()
         self._loading = False
         self._decorations: Dict[str, str] = {}
         # allow_empty adds a placeholder meaning "unset → fall back to a wider
@@ -106,8 +109,12 @@ class ProviderModelSelector(QWidget):
 
     # -- public API -----------------------------------------------------------
 
-    def set_providers(self, providers: List[str]) -> None:
-        """Populate the provider combo (preserving the current pick if possible)."""
+    def set_providers(self, providers: List[str], *, refresh: bool = True) -> None:
+        """Populate the provider combo (preserving the current pick if possible).
+
+        Pass ``refresh=False`` when a ``set_selection`` will follow, so we don't
+        start a throwaway model load for the index-0 provider first.
+        """
         current = self._current_provider()
         with _blocked(self.provider_combo):
             self.provider_combo.clear()
@@ -119,7 +126,8 @@ class ProviderModelSelector(QWidget):
                 idx = self.provider_combo.findData(current)
                 if idx >= 0:
                     self.provider_combo.setCurrentIndex(idx)
-        self.refresh_models()
+        if refresh:
+            self.refresh_models()
 
     def _current_provider(self) -> str:
         """Provider *value* (data), falling back to the visible text for items
@@ -203,9 +211,17 @@ class ProviderModelSelector(QWidget):
         self._pending_preselect = preselect_model or self.get_selection()[1]
         worker = _ModelLoadWorker(self._detection_service, provider, force)
         worker.fetched.connect(self._on_models_fetched)
-        worker.finished.connect(worker.deleteLater)
-        self._worker = worker
+        # Hold a strong ref until the thread *finishes* (not just started), then
+        # drop it. Reassigning a single _worker slot would GC a still-running
+        # thread → abort. A late result for an outdated provider is filtered in
+        # _on_models_fetched, so overlapping loads are harmless.
+        worker.finished.connect(lambda w=worker: self._retire_worker(w))
+        self._workers.add(worker)
         worker.start()
+
+    def _retire_worker(self, worker: "_ModelLoadWorker") -> None:
+        self._workers.discard(worker)
+        worker.deleteLater()
 
     # -- internal slots -------------------------------------------------------
 
