@@ -43,6 +43,13 @@ class ProviderDetectionService:
     Wraps LlmService to provide clean API for provider detection, capabilities, and testing
     """
 
+    # Shared (class-level) TTL cache of per-provider model lists. Many short-lived
+    # ProviderDetectionService instances are created across UI surfaces; a class-level
+    # cache means they don't each fire their own live detection call. - Claude Generated
+    _model_cache: Dict[str, Tuple[float, List[str]]] = {}
+    _model_cache_lock = threading.Lock()
+    _model_cache_ttl = 300.0  # seconds
+
     def __init__(self, config_manager: Optional['ConfigManager'] = None):
         self.logger = logging.getLogger(__name__)
         self.config_manager = config_manager
@@ -79,14 +86,43 @@ class ProviderDetectionService:
             return False
 
     def get_available_models(self, provider: str, force_check: bool = False) -> List[str]:
-        """Get available models for a specific provider - Claude Generated"""
+        """Get available models for a provider, via a shared TTL cache - Claude Generated.
+
+        The cache is class-level so every ProviderDetectionService instance shares
+        it. ``force_check`` bypasses and refreshes the cache. On a fetch error a
+        previously cached (possibly stale) list is returned so models don't vanish
+        from the UI on a transient failure.
+        """
+        now = time.time()
+        if not force_check:
+            with self._model_cache_lock:
+                entry = self._model_cache.get(provider)
+            if entry and (now - entry[0]) < self._model_cache_ttl:
+                return list(entry[1])
         try:
             llm_service = self._get_llm_service()
-            models = llm_service.get_available_models(provider, force_check=force_check)
-            return models if models else []
+            models = llm_service.get_available_models(provider, force_check=force_check) or []
+            with self._model_cache_lock:
+                self._model_cache[provider] = (now, list(models))
+            return list(models)
         except Exception as e:
             self.logger.warning(f"Error getting models for {provider}: {e}")
-            return []
+            with self._model_cache_lock:
+                entry = self._model_cache.get(provider)
+            return list(entry[1]) if entry else []
+
+    @classmethod
+    def clear_model_cache(cls, provider: Optional[str] = None) -> None:
+        """Invalidate the shared model cache (all providers, or just one) - Claude Generated.
+
+        Call after the provider set changes (e.g. reload_providers) so the UI
+        re-detects instead of serving a stale list.
+        """
+        with cls._model_cache_lock:
+            if provider is None:
+                cls._model_cache.clear()
+            else:
+                cls._model_cache.pop(provider, None)
 
     def get_provider_info(self, provider: str) -> Dict[str, Any]:
         """Get comprehensive information about a provider - Claude Generated"""

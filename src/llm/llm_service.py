@@ -229,6 +229,14 @@ class LlmService(QObject):
         self.provider_status_cache.clear()
         self.logger.debug("Provider status cache cleared")
 
+        # Invalidate the shared model-list cache so the UI re-detects models for
+        # the reconfigured providers. - Claude Generated
+        try:
+            from ..utils.config_manager import ProviderDetectionService
+            ProviderDetectionService.clear_model_cache()
+        except Exception:
+            pass
+
         # Reinitialize provider configurations
         self._legacy_init_dynamic_provider_configs()
 
