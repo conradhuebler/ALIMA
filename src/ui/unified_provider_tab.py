@@ -719,88 +719,44 @@ class UnifiedProviderTab(QWidget):
         provider_button_layout.addStretch()
         layout.addLayout(provider_button_layout)
 
-        # Helper to build aligned provider/model rows with clear dropdown widgets.
-        from PyQt6.QtWidgets import QSizePolicy
+        # Default provider/model rows — shared ProviderModelSelector widgets.
+        from .provider_model_selector import ProviderModelSelector
 
         provider_label_width = 120
-        provider_combo_width = 180
-        model_combo_width = 220
 
-        def _make_default_row(layout: QHBoxLayout, label_text: str,
-                              provider_combo: QComboBox, model_combo: QComboBox,
-                              tooltip: str):
-            provider_label = QLabel(label_text)
-            provider_label.setMinimumWidth(provider_label_width)
-            provider_label.setAlignment(
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            )
-            layout.addWidget(provider_label)
+        def _make_selector_row(label_text: str, selector: "ProviderModelSelector", tooltip: str):
+            row = QHBoxLayout()
+            lbl = QLabel(label_text)
+            lbl.setMinimumWidth(provider_label_width)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(lbl)
+            selector.setToolTip(tooltip)
+            row.addWidget(selector, 1)
+            selector.selectionChanged.connect(lambda *_: self._update_config_from_ui())
+            layout.addLayout(row)
 
-            provider_combo.setMinimumWidth(provider_combo_width)
-            provider_combo.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-            layout.addWidget(provider_combo)
-
-            model_label = QLabel("Model:")
-            model_label.setMinimumWidth(45)
-            layout.addWidget(model_label)
-
-            model_combo.setMinimumWidth(model_combo_width)
-            model_combo.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-            model_combo.setToolTip(tooltip)
-            layout.addWidget(model_combo)
-            layout.addStretch()
-
-        # General default provider + model – central fallback for pipeline & chat.
-        default_provider_layout = QHBoxLayout()
-        self.preferred_provider_combo = QComboBox(widget)
-        self.preferred_model_combo = QComboBox(widget)
-        _make_default_row(
-            default_provider_layout, "General Default:",
-            self.preferred_provider_combo, self.preferred_model_combo,
+        # General default — central fallback for pipeline & chat (always concrete).
+        self.preferred_selector = ProviderModelSelector()
+        _make_selector_row(
+            "General Default:", self.preferred_selector,
             "Central default provider/model. Used as fallback when no "
-            "pipeline-specific or agentic-specific default is set."
-        )
-        self.preferred_provider_combo.currentTextChanged.connect(
-            self._on_preferred_provider_changed
-        )
-        self.preferred_model_combo.currentTextChanged.connect(self._update_config_from_ui)
-        layout.addLayout(default_provider_layout)
+            "pipeline-specific or agentic-specific default is set.")
 
-        # Pipeline default provider + model – overrides general default for the classic pipeline.
-        pipeline_default_layout = QHBoxLayout()
-        self.pipeline_default_provider_combo = QComboBox(widget)
-        self.pipeline_default_model_combo = QComboBox(widget)
-        _make_default_row(
-            pipeline_default_layout, "Pipeline Default:",
-            self.pipeline_default_provider_combo, self.pipeline_default_model_combo,
+        # Pipeline default — overrides the general default (may be left unset).
+        self.pipeline_default_selector = ProviderModelSelector(
+            allow_empty=True, empty_provider_label="(Use general default)")
+        _make_selector_row(
+            "Pipeline Default:", self.pipeline_default_selector,
             "Default provider/model for the classic pipeline. "
-            "Leave empty to use the general default."
-        )
-        self.pipeline_default_provider_combo.currentTextChanged.connect(
-            self._on_pipeline_default_provider_changed
-        )
-        self.pipeline_default_model_combo.currentTextChanged.connect(self._update_config_from_ui)
-        layout.addLayout(pipeline_default_layout)
+            "Leave empty to use the general default.")
 
-        # Agentic default provider + model – overrides pipeline default for YAML workflows / chat agent.
-        agentic_default_layout = QHBoxLayout()
-        self.agentic_default_provider_combo = QComboBox(widget)
-        self.agentic_default_model_combo = QComboBox(widget)
-        _make_default_row(
-            agentic_default_layout, "Agentic Default:",
-            self.agentic_default_provider_combo, self.agentic_default_model_combo,
+        # Agentic default — overrides the pipeline default (may be left unset).
+        self.agentic_default_selector = ProviderModelSelector(
+            allow_empty=True, empty_provider_label="(Use pipeline default)")
+        _make_selector_row(
+            "Agentic Default:", self.agentic_default_selector,
             "Default provider/model for agentic workflows and the chat agent. "
-            "Leave empty to use the pipeline default."
-        )
-        self.agentic_default_provider_combo.currentTextChanged.connect(
-            self._on_agentic_default_provider_changed
-        )
-        self.agentic_default_model_combo.currentTextChanged.connect(self._update_config_from_ui)
-        layout.addLayout(agentic_default_layout)
+            "Leave empty to use the pipeline default.")
 
         return widget
 
@@ -1154,117 +1110,20 @@ class UnifiedProviderTab(QWidget):
             return "❓ Error"
 
     def _populate_global_preferences(self):
-        """Populate global preferences - Claude Generated"""
+        """Populate the default-provider/model selectors from config - Claude Generated"""
         provider_names = [p.name for p in self.unified_config.providers if p.enabled]
-
-        def _fill_default_provider_combo(combo: QComboBox, saved_provider: str):
-            """Combo with placeholder for empty = fall back to general default."""
-            combo.blockSignals(True)
-            combo.clear()
-            combo.addItem("(Use general default)", "")
-            for name in provider_names:
-                combo.addItem(name, name)
-            if saved_provider in provider_names:
-                combo.setCurrentIndex(combo.findData(saved_provider))
-            combo.blockSignals(False)
-
-        # General default (legacy behavior: no placeholder, text = provider)
-        self.preferred_provider_combo.blockSignals(True)
-        self.preferred_provider_combo.clear()
-        self.preferred_provider_combo.addItems(provider_names)
-        if self.unified_config.preferred_provider in provider_names:
-            self.preferred_provider_combo.setCurrentText(self.unified_config.preferred_provider)
-        self.preferred_provider_combo.blockSignals(False)
-        self._populate_preferred_model_combo(self.preferred_provider_combo.currentText())
-
-        # Pipeline default
-        _fill_default_provider_combo(
-            self.pipeline_default_provider_combo,
-            self.unified_config.pipeline_default_provider,
-        )
-        self._populate_pipeline_default_model_combo(
-            self.pipeline_default_provider_combo.currentData() or ""
-        )
-
-        # Agentic default
-        _fill_default_provider_combo(
-            self.agentic_default_provider_combo,
-            self.unified_config.agentic_default_provider,
-        )
-        self._populate_agentic_default_model_combo(
-            self.agentic_default_provider_combo.currentData() or ""
-        )
-
-    def _on_preferred_provider_changed(self, provider_name: str):
-        """Default-provider changed → refresh model list, then persist. Claude Generated"""
-        self._populate_preferred_model_combo(provider_name)
-        self._update_config_from_ui()
-
-    def _on_pipeline_default_provider_changed(self, _provider_name: str):
-        """Pipeline-default provider changed → refresh model list, then persist."""
-        self._populate_pipeline_default_model_combo(
-            self.pipeline_default_provider_combo.currentData() or ""
-        )
-        self._update_config_from_ui()
-
-    def _on_agentic_default_provider_changed(self, _provider_name: str):
-        """Agentic-default provider changed → refresh model list, then persist."""
-        self._populate_agentic_default_model_combo(
-            self.agentic_default_provider_combo.currentData() or ""
-        )
-        self._update_config_from_ui()
-
-    def _populate_default_model_combo(self, combo: QComboBox, provider_name: str, saved_model: str):
-        """Shared helper: fill a model combo for a provider and restore saved model."""
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem("(Auto-select)", "")
-        models = []
-        for p in self.unified_config.providers:
-            if p.name == provider_name:
-                models = list(getattr(p, "available_models", None) or [])
-                pref = getattr(p, "preferred_model", "") or ""
-                if pref and pref not in models:
-                    models.append(pref)
-                break
-        models = sorted(models, key=lambda s: s.lower())
-        for m in models:
-            combo.addItem(m, m)
-        if saved_model:
-            idx = combo.findData(saved_model)
-            if idx < 0:
-                combo.addItem(saved_model, saved_model)
-                idx = combo.count() - 1
-            combo.setCurrentIndex(idx)
-        combo.blockSignals(False)
-
-    def _populate_pipeline_default_model_combo(self, provider_name: str):
-        """Fill pipeline-default model combo."""
-        combo = getattr(self, "pipeline_default_model_combo", None)
-        if combo is None:
-            return
-        saved = getattr(self.unified_config, "pipeline_default_model", "") or ""
-        self._populate_default_model_combo(combo, provider_name, saved)
-
-    def _populate_agentic_default_model_combo(self, provider_name: str):
-        """Fill agentic-default model combo."""
-        combo = getattr(self, "agentic_default_model_combo", None)
-        if combo is None:
-            return
-        saved = getattr(self.unified_config, "agentic_default_model", "") or ""
-        self._populate_default_model_combo(combo, provider_name, saved)
-
-    def _populate_preferred_model_combo(self, provider_name: str):
-        """Fill the general-default model combo from the provider's configured models.
-
-        Uses the provider's available_models + preferred_model from config (not a
-        live fetch) so it works even when the provider is offline. Claude Generated.
-        """
-        combo = getattr(self, "preferred_model_combo", None)
-        if combo is None:
-            return
-        saved = getattr(self.unified_config, "preferred_model", "") or ""
-        self._populate_default_model_combo(combo, provider_name, saved)
+        uc = self.unified_config
+        for selector in (self.preferred_selector,
+                         self.pipeline_default_selector,
+                         self.agentic_default_selector):
+            selector.set_providers(provider_names)
+        # The shared selector loads each provider's models live (cached); the
+        # pipeline/agentic selectors keep an empty "(Use … default)" placeholder.
+        self.preferred_selector.set_selection(uc.preferred_provider, uc.preferred_model)
+        self.pipeline_default_selector.set_selection(
+            uc.pipeline_default_provider, uc.pipeline_default_model)
+        self.agentic_default_selector.set_selection(
+            uc.agentic_default_provider, uc.agentic_default_model)
 
     def _populate_model_preferences(self):
         """Delegates to _populate_provider_table (tables are now merged) - Claude Generated"""
@@ -1985,30 +1844,20 @@ class UnifiedProviderTab(QWidget):
     
     def _update_config_from_ui(self):
         """Update configuration object from UI state - Claude Generated"""
-        # Update global preferences
-        self.unified_config.preferred_provider = self.preferred_provider_combo.currentText() or ""
-        mc = getattr(self, "preferred_model_combo", None)
-        if mc is not None:
-            # editable combo: typed value lives in currentText
-            self.unified_config.preferred_model = mc.currentText() or ""
+        # Update global preferences from the shared selectors. The pipeline/agentic
+        # selectors return ("", "") when their "(Use … default)" placeholder is
+        # chosen, i.e. unset = fall back to the wider default.
+        prov, model = self.preferred_selector.get_selection()
+        self.unified_config.preferred_provider = prov
+        self.unified_config.preferred_model = model
 
-        # Pipeline-specific default (empty = fall back to general default)
-        pdc = getattr(self, "pipeline_default_provider_combo", None)
-        if pdc is not None:
-            self.unified_config.pipeline_default_provider = pdc.currentData() or ""
-        pmc = getattr(self, "pipeline_default_model_combo", None)
-        if pmc is not None:
-            # editable combo: typed value lives in currentText
-            self.unified_config.pipeline_default_model = pmc.currentText() or ""
+        prov, model = self.pipeline_default_selector.get_selection()
+        self.unified_config.pipeline_default_provider = prov
+        self.unified_config.pipeline_default_model = model
 
-        # Agentic-specific default (empty = fall back to pipeline default)
-        adc = getattr(self, "agentic_default_provider_combo", None)
-        if adc is not None:
-            self.unified_config.agentic_default_provider = adc.currentData() or ""
-        amc = getattr(self, "agentic_default_model_combo", None)
-        if amc is not None:
-            # editable combo: typed value lives in currentText
-            self.unified_config.agentic_default_model = amc.currentText() or ""
+        prov, model = self.agentic_default_selector.get_selection()
+        self.unified_config.agentic_default_provider = prov
+        self.unified_config.agentic_default_model = model
 
         # CRITICAL FIX: Only save task preferences if we have an explicit task and no UI conflicts - Claude Generated
         if self.current_editing_task and not self.task_ui_dirty:

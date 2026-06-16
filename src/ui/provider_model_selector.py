@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _LOADING_TEXT = "⏳ Lade Modelle…"
 _MODEL_ROLE = Qt.ItemDataRole.UserRole
+_PROVIDER_ROLE = Qt.ItemDataRole.UserRole
 
 
 class _ModelLoadWorker(QThread):
@@ -59,13 +60,22 @@ class ProviderModelSelector(QWidget):
     selectionChanged = pyqtSignal(str, str)
 
     def __init__(self, detection_service=None, parent: Optional[QWidget] = None,
-                 *, editable_model: bool = True, label: Optional[str] = None):
+                 *, editable_model: bool = True, label: Optional[str] = None,
+                 allow_empty: bool = False,
+                 empty_provider_label: str = "(Use default)",
+                 empty_model_label: str = "(Auto-select)"):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self._detection_service = detection_service or self._default_detection_service()
         self._worker: Optional[_ModelLoadWorker] = None
         self._loading = False
         self._decorations: Dict[str, str] = {}
+        # allow_empty adds a placeholder meaning "unset → fall back to a wider
+        # default"; its value is "" so get_selection() returns an empty provider
+        # /model. Used by the settings tab's pipeline/agentic default rows.
+        self._allow_empty = allow_empty
+        self._empty_provider_label = empty_provider_label
+        self._empty_model_label = empty_model_label
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -94,15 +104,24 @@ class ProviderModelSelector(QWidget):
 
     def set_providers(self, providers: List[str]) -> None:
         """Populate the provider combo (preserving the current pick if possible)."""
-        current = self.provider_combo.currentText()
+        current = self._current_provider()
         with _blocked(self.provider_combo):
             self.provider_combo.clear()
-            self.provider_combo.addItems(list(providers))
-            if current and current in providers:
-                self.provider_combo.setCurrentText(current)
-        # Load models for whatever provider is now selected.
-        if self.provider_combo.currentText():
-            self.refresh_models()
+            if self._allow_empty:
+                self.provider_combo.addItem(self._empty_provider_label, "")
+            for name in providers:
+                self.provider_combo.addItem(name, name)
+            if current:
+                idx = self.provider_combo.findData(current)
+                if idx >= 0:
+                    self.provider_combo.setCurrentIndex(idx)
+        self.refresh_models()
+
+    def _current_provider(self) -> str:
+        """Provider *value* (data), falling back to the visible text for items
+        added without explicit data."""
+        data = self.provider_combo.currentData(_PROVIDER_ROLE)
+        return data if data is not None else self.provider_combo.currentText()
 
     def load_providers(self) -> None:
         """Populate providers from the detection service (enabled providers)."""
@@ -114,12 +133,14 @@ class ProviderModelSelector(QWidget):
         self.set_providers(providers)
 
     def set_selection(self, provider: str, model: str) -> None:
-        """Select a provider and model, loading the provider's models first."""
-        if provider and provider != self.provider_combo.currentText():
-            with _blocked(self.provider_combo):
-                if self.provider_combo.findText(provider) < 0:
-                    self.provider_combo.addItem(provider)
-                self.provider_combo.setCurrentText(provider)
+        """Select a provider and model (by value), loading the models first."""
+        idx = self.provider_combo.findData(provider)
+        with _blocked(self.provider_combo):
+            if idx < 0 and provider:
+                self.provider_combo.addItem(provider, provider)
+                idx = self.provider_combo.count() - 1
+            if idx >= 0:
+                self.provider_combo.setCurrentIndex(idx)
         self.refresh_models(preselect_model=model)
 
     def get_selection(self) -> Tuple[str, str]:
@@ -129,28 +150,40 @@ class ProviderModelSelector(QWidget):
         item is selected, falling back to the typed text — so display decoration
         never leaks into the value.
         """
-        provider = self.provider_combo.currentText().strip()
+        provider = (self._current_provider() or "").strip()
+        if self._loading:
+            # Mid-load the combo holds the loading placeholder; report the model
+            # we're loading toward instead of leaking that placeholder as a value.
+            return provider, (getattr(self, "_pending_preselect", "") or "").strip()
         data = self.model_combo.currentData(_MODEL_ROLE)
-        model = (data if data else self.model_combo.currentText()).strip()
-        return provider, model
+        model = data if data is not None else self.model_combo.currentText()
+        return provider, (model or "").strip()
 
     def set_decorations(self, decorations: Dict[str, str]) -> None:
         """Optional per-model display prefixes (e.g. ``{"cogito:32b": "⭐ "}``)."""
         self._decorations = dict(decorations or {})
 
+    def _model_values(self) -> List[str]:
+        """Model values currently in the combo (clean names, excluding loading)."""
+        out = []
+        for i in range(self.model_combo.count()):
+            data = self.model_combo.itemData(i, _MODEL_ROLE)
+            value = data if data is not None else self.model_combo.itemText(i)
+            if value and value != _LOADING_TEXT:
+                out.append(value)
+        return out
+
     def is_model_valid(self) -> bool:
         """True if the current model is among the loaded models (or list unknown)."""
-        provider, model = self.get_selection()
+        _provider, model = self.get_selection()
         if not model:
-            return False
-        known = [self.model_combo.itemData(i, _MODEL_ROLE) or self.model_combo.itemText(i)
-                 for i in range(self.model_combo.count())]
-        known = [k for k in known if k and k != _LOADING_TEXT]
+            return self._allow_empty  # empty is valid only when a placeholder exists
+        known = self._model_values()
         return (not known) or (model in known)
 
     def refresh_models(self, *, force: bool = False, preselect_model: str = "") -> None:
         """Asynchronously (re)load the current provider's models."""
-        provider = self.provider_combo.currentText().strip()
+        provider = self._current_provider().strip()
         if not provider:
             self._populate_models([], preselect_model)
             return
@@ -174,7 +207,7 @@ class ProviderModelSelector(QWidget):
 
     def _on_models_fetched(self, provider: str, models: List[str]) -> None:
         # Ignore late results for a provider the user already navigated away from.
-        if provider != self.provider_combo.currentText().strip():
+        if provider != self._current_provider().strip():
             return
         self._set_loading(False)
         preselect = getattr(self, "_pending_preselect", "")
@@ -185,19 +218,23 @@ class ProviderModelSelector(QWidget):
     def _populate_models(self, models: List[str], preselect: str) -> None:
         with _blocked(self.model_combo):
             self.model_combo.clear()
+            if self._allow_empty:
+                self.model_combo.addItem(self._empty_model_label, "")
             for m in models:
                 self.model_combo.addItem(f"{self._decorations.get(m, '')}{m}", m)
             if preselect:
                 self._select_model(preselect)
             elif self.model_combo.count():
-                self.model_combo.setCurrentIndex(0)
+                self.model_combo.setCurrentIndex(0)  # placeholder (if any) or first model
         self._apply_validation_style()
         provider, model = self.get_selection()
         self.selectionChanged.emit(provider, model)
 
     def _select_model(self, model: str) -> None:
         for i in range(self.model_combo.count()):
-            if (self.model_combo.itemData(i, _MODEL_ROLE) or self.model_combo.itemText(i)) == model:
+            data = self.model_combo.itemData(i, _MODEL_ROLE)
+            value = data if data is not None else self.model_combo.itemText(i)
+            if value == model:
                 self.model_combo.setCurrentIndex(i)
                 return
         if self.model_combo.isEditable():
