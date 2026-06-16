@@ -230,18 +230,11 @@ class ImageAnalysisTab(QWidget):
         provider_grid = QGridLayout()
         provider_grid.setSpacing(LAYOUT["inner_spacing"])
 
-        provider_grid.addWidget(QLabel("Provider:"), 0, 0)
-        self.provider_combo = QComboBox()
-        self.provider_combo.currentTextChanged.connect(self.update_models)
-        provider_grid.addWidget(self.provider_combo, 0, 1)
-
-        provider_grid.addWidget(QLabel("Modell:"), 1, 0)
-        self.model_combo = QComboBox()
-        provider_grid.addWidget(self.model_combo, 1, 1)
-        self.model_combo.setEditable(True)
-        from PyQt6.QtWidgets import QCompleter
-        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        provider_grid.addWidget(QLabel("Provider / Modell:"), 0, 0)
+        from .provider_model_selector import ProviderModelSelector
+        self.provider_selector = ProviderModelSelector()
+        self.provider_selector.selectionChanged.connect(self._on_provider_model_changed)
+        provider_grid.addWidget(self.provider_selector, 0, 1)
 
         provider_layout.addLayout(provider_grid)
 
@@ -389,52 +382,26 @@ class ImageAnalysisTab(QWidget):
         super().closeEvent(event)
 
     def load_providers_and_models(self):
-        """Load available providers and models"""
+        """Load providers/models into the shared selector - Claude Generated"""
         try:
-            providers = self.llm_service.get_available_providers()
-            self.provider_combo.addItems(providers)
-
-            if providers:
-                self.update_models(providers[0])
-                self.status_label.setText(
-                    f"Status: Bereit - {len(providers)} Provider verfügbar"
-                )
+            self.provider_selector.load_providers()
+            count = self.provider_selector.provider_combo.count()
+            if count:
+                self.status_label.setText(f"Status: Bereit - {count} Provider verfügbar")
                 self.status_label.setStyleSheet(get_status_label_styles()["success"])
             else:
                 self.status_label.setText("Status: Keine Provider verfügbar")
                 self.status_label.setStyleSheet(get_status_label_styles()["error"])
-
         except Exception as e:
             self.logger.error(f"Error loading providers: {e}")
-            self.status_label.setText(f"Status: Fehler beim Laden der Provider")
+            self.status_label.setText("Status: Fehler beim Laden der Provider")
             self.status_label.setStyleSheet(get_status_label_styles()["error"])
 
-    def update_models(self, provider):
-        """Update available models when provider changes"""
-        self.model_combo.clear()
-
-        try:
-            models = self.llm_service.get_available_models(provider)
-            # Sort models alphabetically (case-insensitive)
-            models = sorted(models, key=lambda s: s.lower())
-            self.model_combo.addItems(models)
-
-            if models:
-                self.model_combo.setCurrentIndex(0)
-                self.status_label.setText(
-                    f"Status: {provider} bereit - {len(models)} Modelle verfügbar"
-                )
-                self.status_label.setStyleSheet(get_status_label_styles()["success"])
-            else:
-                self.status_label.setText(
-                    f"Status: Keine Modelle für {provider} verfügbar"
-                )
-                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
-
-        except Exception as e:
-            self.logger.error(f"Error loading models for {provider}: {e}")
-            self.status_label.setText(f"Status: Fehler beim Laden der Modelle")
-            self.status_label.setStyleSheet(get_status_label_styles()["error"])
+    def _on_provider_model_changed(self, provider, model):
+        """Reflect the selector's choice in the status label - Claude Generated"""
+        if provider and model:
+            self.status_label.setText(f"Status: {provider} / {model}")
+            self.status_label.setStyleSheet(get_status_label_styles()["success"])
 
     def update_temperature_label(self, value):
         """Update temperature label"""
@@ -512,8 +479,7 @@ class ImageAnalysisTab(QWidget):
             )
             return
 
-        provider = self.provider_combo.currentText()
-        model = self.model_combo.currentText().strip()
+        provider, model = self.provider_selector.get_selection()
         prompt = self.prompt_input.toPlainText().strip()
 
         if not provider or not model:
@@ -601,8 +567,7 @@ class ImageAnalysisTab(QWidget):
         self._current_image_index += 1
         if self._current_image_index < self._total_images:
             # Process next image
-            provider = self.provider_combo.currentText()
-            model = self.model_combo.currentText().strip()
+            provider, model = self.provider_selector.get_selection()
             prompt = self.prompt_input.toPlainText().strip()
             self._analyze_current_image(provider, model, prompt)
             return
