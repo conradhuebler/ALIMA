@@ -411,6 +411,8 @@ class ConfigManager:
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
         unified_config.anthropic_api_key = data.get("anthropic_api_key", "")
+        unified_config.gemini_preferred_model = data.get("gemini_preferred_model", "")
+        unified_config.anthropic_preferred_model = data.get("anthropic_preferred_model", "")
 
         # Parse saved providers from config - Claude Generated
         providers_data = data.get("providers", [])
@@ -513,17 +515,19 @@ class ConfigManager:
 
     def _create_providers_from_api_keys(self, unified_config: UnifiedProviderConfig) -> None:
         """Auto-create UnifiedProvider objects from API keys - Claude Generated"""
-        # Create Gemini provider if API key exists
+        # Create Gemini provider if API key exists. Also migrate the legacy
+        # preferred-model field so it isn't silently dropped. - Claude Generated
         if unified_config.gemini_api_key and not unified_config.get_provider_by_name("gemini"):
             from .config_models import GeminiProvider, UnifiedProvider
             gemini_provider = GeminiProvider(
                 api_key=unified_config.gemini_api_key,
                 enabled=True,
+                preferred_model=unified_config.gemini_preferred_model,
                 description="Google Gemini API"
             )
             unified_provider = UnifiedProvider.from_gemini_provider(gemini_provider)
             unified_config.providers.append(unified_provider)
-            self.logger.debug("✅ Created Gemini UnifiedProvider from API key")
+            self.logger.debug("Created Gemini UnifiedProvider from API key")
 
         # Create Anthropic provider if API key exists
         if unified_config.anthropic_api_key and not unified_config.get_provider_by_name("anthropic"):
@@ -531,21 +535,24 @@ class ConfigManager:
             anthropic_provider = AnthropicProvider(
                 api_key=unified_config.anthropic_api_key,
                 enabled=True,
+                preferred_model=unified_config.anthropic_preferred_model,
                 description="Anthropic Claude API"
             )
             unified_provider = UnifiedProvider.from_anthropic_provider(anthropic_provider)
             unified_config.providers.append(unified_provider)
-            self.logger.debug("✅ Created Anthropic UnifiedProvider from API key")
+            self.logger.debug("Created Anthropic UnifiedProvider from API key")
 
     def save_config(self, config: AlimaConfig, scope: str = 'user', preserve_unified: bool = True) -> bool:
         """Save configuration to specified scope - Claude Generated"""
         try:
             # Persist resolved default models so an empty model isn't re-derived on
-            # every read (and re-saved as empty next time).
+            # every read (and re-saved as empty next time), and keep the legacy
+            # gemini/anthropic mirror fields in sync with their provider objects.
             try:
                 config.unified_config.fill_empty_default_models()
+                config.unified_config.sync_legacy_from_providers()
             except Exception as e:
-                self.logger.warning(f"Could not normalize default models: {e}")
+                self.logger.warning(f"Could not normalize provider config: {e}")
 
             # Convert AlimaConfig to dictionary for serialization
             config_dict = asdict(config)
@@ -576,6 +583,15 @@ class ConfigManager:
                             'agentic_default_model',
                             'preferred_provider',
                             'preferred_model',
+                            # Legacy gemini/anthropic mirror fields, kept in sync
+                            # from the authoritative provider objects on save.
+                            'gemini_api_key',
+                            'anthropic_api_key',
+                            'gemini_preferred_model',
+                            'anthropic_preferred_model',
+                            # Per-model chunking thresholds are user-edited and must
+                            # not be frozen to the on-disk value.
+                            'model_chunking_thresholds',
                         ):
                             if key in incoming_unified:
                                 preserved_unified_config[key] = incoming_unified[key]

@@ -277,12 +277,26 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
         from src.llm.llm_service import LlmService
         self.LlmService = LlmService
 
+    _GEN_TO_TYPE = {
+        "_generate_ollama_native": "ollama",
+        "_generate_openai_compatible": "openai_compatible",
+        "_generate_anthropic": "anthropic",
+        "_generate_gemini": "gemini",
+    }
+
     def _patched_service(self, generator_attr: str, sub_handler_attr: str):
+        from types import SimpleNamespace
         svc = MagicMock(spec=self.LlmService)
         svc.generate_with_tools = self.LlmService.generate_with_tools.__get__(svc, self.LlmService)
         svc._map_provider_name = lambda p: p
         svc._ensure_provider_initialized = lambda p: True
-        svc.supported_providers = {"fake": {"generator": getattr(svc, generator_attr)}}
+        # Dispatch is by provider_type on the provider's config object.
+        svc.supported_providers = {
+            "fake": {
+                "generator": getattr(svc, generator_attr),
+                "config": SimpleNamespace(provider_type=self._GEN_TO_TYPE[generator_attr]),
+            }
+        }
         target = MagicMock(return_value=_make_response())
         setattr(svc, sub_handler_attr, target)
         return svc, target

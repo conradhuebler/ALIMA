@@ -13,6 +13,7 @@ import traceback
 import socket
 import subprocess
 import platform
+from enum import Enum
 from urllib.parse import urlparse
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtNetwork import QTcpSocket, QHostInfo
@@ -23,6 +24,18 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
+
+
+class ProviderState(Enum):
+    """Explicit placeholder stored in ``LlmService.clients`` for a provider that
+    is registered but not yet connected (deferred/lazy init).
+
+    Replaces the former bare ``"lazy_uninitialized"`` string sentinel so the state
+    is typo-proof and compared by identity instead of stringly-typed equality.
+    A real client object replaces this marker once the provider is initialized.
+    Claude Generated.
+    """
+    LAZY_UNINITIALIZED = "lazy_uninitialized"
 
 
 class LlmService(QObject):
@@ -239,18 +252,29 @@ class LlmService(QObject):
             api_key: API key
         """
         if provider in self.static_providers:
-            # Update static provider API key in configuration
-            if provider == "gemini":
-                self.alima_config.unified_config.gemini_api_key = api_key
-            elif provider == "anthropic":
-                self.alima_config.unified_config.anthropic_api_key = api_key
-            
-            # Save configuration
-            self.config_manager.save_config(self.alima_config)
-            
-            # Reinitialize provider with new key
-            self._initialize_single_provider(provider)
-            
+            uc = self.alima_config.unified_config
+            # The provider object is the authoritative store for the key (the UI
+            # editor and reload both read it); the legacy gemini/anthropic fields
+            # are only a mirror kept in sync on save. - Claude Generated
+            provider_obj = uc.get_provider_by_name(provider)
+            if provider_obj is not None:
+                provider_obj.api_key = api_key
+                self.config_manager.save_config(self.alima_config)
+                # _initialize_single_provider reads the provider object's api_key.
+                self._initialize_single_provider(provider)
+            else:
+                # First-time gemini/anthropic setup: seed the legacy field so a
+                # reload materializes the provider object.
+                if provider == "gemini":
+                    uc.gemini_api_key = api_key
+                elif provider == "anthropic":
+                    uc.anthropic_api_key = api_key
+                else:
+                    self.logger.warning(f"Provider {provider} not found in configuration")
+                    return
+                self.config_manager.save_config(self.alima_config)
+                self.reload_providers()
+
         elif provider in self.openai_providers:
             # Update OpenAI-compatible provider API key
             provider_obj = self.alima_config.unified_config.get_provider_by_name(provider)
@@ -497,7 +521,7 @@ class LlmService(QObject):
                     continue
 
             # Mark provider as registered but not initialized - use original case for consistency - Claude Generated
-            self.clients[provider] = "lazy_uninitialized"
+            self.clients[provider] = ProviderState.LAZY_UNINITIALIZED
             self.logger.debug(f"Registered provider for lazy initialization: {provider}")
 
     def _ensure_provider_initialized(self, provider: str) -> bool:
@@ -518,14 +542,17 @@ class LlmService(QObject):
             return False
 
         # If provider is already initialized (not the sentinel), return True
-        if self.clients[mapped_provider] != "lazy_uninitialized":
+        if self.clients[mapped_provider] is not ProviderState.LAZY_UNINITIALIZED:
             return True
 
         # Initialize the provider now (deferred connect)
         self.logger.debug(f"Lazy-initializing provider '{mapped_provider}'")
         try:
             self._initialize_single_provider(mapped_provider)
-            return mapped_provider in self.clients and self.clients[mapped_provider] != "lazy_uninitialized"
+            return (
+                mapped_provider in self.clients
+                and self.clients[mapped_provider] is not ProviderState.LAZY_UNINITIALIZED
+            )
         except Exception as e:
             self.logger.error(f"Failed to lazy-initialize provider '{mapped_provider}': {e}")
             return False
@@ -622,9 +649,10 @@ class LlmService(QObject):
             # "openai_compatible" is a provider-type string, not a real provider name.
             # Map to the first initialized provider that uses the OpenAI-compatible generator.
             for name, info in self.supported_providers.items():
-                if (info.get('generator') == self._generate_openai_compatible
+                cfg = info.get('config')
+                if (getattr(cfg, 'provider_type', '') == "openai_compatible"
                         and name in self.clients
-                        and self.clients[name] != "lazy_uninitialized"):
+                        and self.clients[name] is not ProviderState.LAZY_UNINITIALIZED):
                     self.logger.debug(f"🔄 PROVIDER_MAPPING: 'openai_compatible' → '{name}'")
                     return name
             # Try lazy-init if not yet initialized
@@ -2498,25 +2526,30 @@ class LlmService(QObject):
         if tools is None:
             tools = []
 
-        generator_func = provider_info.get('generator')
+        # Dispatch by provider type rather than generator-function identity:
+        # provider_info["config"] is the UnifiedProvider, and the type->generator
+        # mapping in _init_unified_provider_configs is 1:1, so this routes
+        # identically while surviving generator-method refactors. - Claude Generated
+        provider_config = provider_info.get('config')
+        provider_type = getattr(provider_config, 'provider_type', '') if provider_config else ''
 
-        if generator_func == self._generate_ollama_native:
+        if provider_type == "ollama":
             return self._generate_ollama_native_with_tools(
                 provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
                 should_stop=should_stop,
             )
-        elif generator_func == self._generate_openai_compatible:
+        elif provider_type == "openai_compatible":
             return self._generate_openai_with_tools(
                 provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
                 should_stop=should_stop,
             )
-        elif generator_func == self._generate_anthropic:
+        elif provider_type == "anthropic":
             # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
             return self._generate_anthropic_with_tools(
                 model, messages, tools, temperature, top_p, max_tokens, stream_callback,
                 should_stop=should_stop,
             )
-        elif generator_func == self._generate_gemini:
+        elif provider_type == "gemini":
             return self._generate_gemini_with_tools(
                 model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
                 should_stop=should_stop,

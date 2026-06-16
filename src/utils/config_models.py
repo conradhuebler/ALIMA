@@ -667,6 +667,29 @@ class UnifiedProviderConfig:
                 if resolved:
                     setattr(self, model_attr, resolved)
 
+    def sync_legacy_from_providers(self) -> None:
+        """Refresh the legacy gemini/anthropic mirror fields from their provider objects.
+
+        Keys and preferred models are actually edited on the ``UnifiedProvider``
+        objects (the UI's provider editor and ``set_api_key`` both target them), so
+        the provider object is authoritative.  These legacy top-level fields are a
+        read-only mirror still consulted by some UI/status code; this keeps them
+        from going stale.  Only overwrites from a non-empty provider value so a
+        first-time legacy seed (before the provider is materialized) isn't clobbered.
+        Claude Generated (key cleanup).
+        """
+        for name, key_attr, model_attr in (
+            ("gemini", "gemini_api_key", "gemini_preferred_model"),
+            ("anthropic", "anthropic_api_key", "anthropic_preferred_model"),
+        ):
+            provider = self.get_provider_by_name(name)
+            if provider is None:
+                continue
+            if getattr(provider, "api_key", ""):
+                setattr(self, key_attr, provider.api_key)
+            if getattr(provider, "preferred_model", ""):
+                setattr(self, model_attr, provider.preferred_model)
+
     @classmethod
     def from_legacy_config(cls, legacy_data: Dict[str, Any]) -> 'UnifiedProviderConfig':
         """Create UnifiedProviderConfig from legacy configuration - Claude Generated"""
