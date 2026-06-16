@@ -732,10 +732,11 @@ class UnifiedProviderTab(QWidget):
             row.addWidget(lbl)
             selector.setToolTip(tooltip)
             row.addWidget(selector, 1)
-            # No live writeback: programmatic population loads models async, so a
-            # selectionChanged during open would race set_selection and clobber the
-            # saved default. The selectors are harvested at save time instead
-            # (ComprehensiveSettingsDialog._get_config_from_ui → _update_config_from_ui).
+            # Live writeback on USER changes only. The selector stays silent during
+            # programmatic population (set_selection/set_providers), so the immediate-
+            # save architecture persists the user's pick without a late async
+            # selectionChanged clobbering it. Save-time harvest is the safety net.
+            selector.selectionChanged.connect(lambda *_: self._on_default_selection_changed())
             layout.addLayout(row)
 
         # General default — central fallback for pipeline & chat (always concrete).
@@ -1127,6 +1128,13 @@ class UnifiedProviderTab(QWidget):
             uc.pipeline_default_provider, uc.pipeline_default_model)
         self.agentic_default_selector.set_selection(
             uc.agentic_default_provider, uc.agentic_default_model)
+
+    def _on_default_selection_changed(self):
+        """A default provider/model selector was changed by the user → write it to
+        config and mark dirty. Programmatic population is silent (the selector only
+        emits on user edits), so this never fires during load. Claude Generated."""
+        self._update_config_from_ui()
+        self.config_changed.emit()
 
     def _populate_model_preferences(self):
         """Delegates to _populate_provider_table (tables are now merged) - Claude Generated"""

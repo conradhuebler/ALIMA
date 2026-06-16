@@ -185,9 +185,17 @@ class ProviderModelSelector(QWidget):
         known = self._model_values()
         return (not known) or (model in known)
 
-    def refresh_models(self, *, force: bool = False, preselect_model: str = "") -> None:
-        """Asynchronously (re)load the current provider's models."""
+    def refresh_models(self, *, force: bool = False, preselect_model: str = "",
+                       user: bool = False) -> None:
+        """Asynchronously (re)load the current provider's models.
+
+        ``user`` marks a user-initiated change: only then does the resulting
+        population emit ``selectionChanged``. Programmatic population
+        (``set_selection`` / ``set_providers``) stays silent so its late async
+        completion can't clobber persisted config via the host's live writeback.
+        """
         provider = self._current_provider().strip()
+        self._pending_emit = user
         if not provider:
             self._populate_models([], preselect_model)
             return
@@ -202,7 +210,8 @@ class ProviderModelSelector(QWidget):
     # -- internal slots -------------------------------------------------------
 
     def _on_provider_changed(self, _provider: str) -> None:
-        self.refresh_models()
+        # Only fires for user changes (programmatic provider sets are blockSignals'd).
+        self.refresh_models(user=True)
 
     def _on_model_changed(self, _text: str) -> None:
         self._apply_validation_style()
@@ -231,8 +240,11 @@ class ProviderModelSelector(QWidget):
             elif self.model_combo.count():
                 self.model_combo.setCurrentIndex(0)  # placeholder (if any) or first model
         self._apply_validation_style()
-        provider, model = self.get_selection()
-        self.selectionChanged.emit(provider, model)
+        # Emit only for user-initiated loads; programmatic population is silent so
+        # it cannot overwrite persisted config via a late async writeback.
+        if getattr(self, "_pending_emit", True):
+            provider, model = self.get_selection()
+            self.selectionChanged.emit(provider, model)
 
     def _select_model(self, model: str) -> None:
         for i in range(self.model_combo.count()):
