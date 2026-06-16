@@ -21,7 +21,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,11 @@ class ProviderModelSelector(QWidget):
             layout.addWidget(QLabel(label))
 
         self.provider_combo = QComboBox()
+        self.provider_combo.setMinimumWidth(140)
+        self.provider_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(200)
+        self.model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.model_combo.setEditable(editable_model)
         if editable_model:
             self.model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)

@@ -732,7 +732,10 @@ class UnifiedProviderTab(QWidget):
             row.addWidget(lbl)
             selector.setToolTip(tooltip)
             row.addWidget(selector, 1)
-            selector.selectionChanged.connect(lambda *_: self._update_config_from_ui())
+            # No live writeback: programmatic population loads models async, so a
+            # selectionChanged during open would race set_selection and clobber the
+            # saved default. The selectors are harvested at save time instead
+            # (ComprehensiveSettingsDialog._get_config_from_ui → _update_config_from_ui).
             layout.addLayout(row)
 
         # General default — central fallback for pipeline & chat (always concrete).

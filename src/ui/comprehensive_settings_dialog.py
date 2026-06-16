@@ -980,6 +980,13 @@ class ComprehensiveSettingsDialog(QDialog):
         """Extract configuration from UI elements - Claude Generated (Refactoring)"""
         # Use the Unit of Work copy and update it with UI values
         config = self.config_to_edit
+
+        # Harvest the provider tab's default-provider/model selectors into
+        # unified_config now (they have no live writeback — see unified_provider_tab).
+        try:
+            self.unified_provider_tab._update_config_from_ui()
+        except Exception as e:
+            self.logger.warning(f"Could not sync provider tab defaults: {e}")
         
         # Database configuration - Claude Generated fix for expanded DatabaseConfig
         config.database_config = DatabaseConfig(
