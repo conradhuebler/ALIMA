@@ -1350,6 +1350,16 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'llm_service'):
                 self.llm_service.reload_providers()
 
+            # 1b. Reload the shared provider-detection service used by the
+            # provider/model pickers. It wraps its own LlmService whose client map
+            # stays stale otherwise, so a newly added provider's models wouldn't
+            # appear until restart (the list refreshes, the models don't). Must run
+            # before the per-tab refresh in step 6. - Claude Generated
+            try:
+                self.config_manager.get_provider_detection_service().reload()
+            except Exception:
+                self.logger.debug("detection service reload failed", exc_info=True)
+
             # 2. Refresh provider status to update reachability and available models
             if hasattr(self, 'llm_service'):
                 self.llm_service.refresh_all_provider_status()

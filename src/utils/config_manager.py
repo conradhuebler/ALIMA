@@ -124,6 +124,24 @@ class ProviderDetectionService:
             else:
                 cls._model_cache.pop(provider, None)
 
+    def reload(self) -> None:
+        """Rebuild the wrapped LlmService after the provider config changed - Claude Generated.
+
+        The wrapped ``LlmService`` is created once (lazily) and then keeps a stale
+        ``self.clients`` map. A provider added/edited in Settings therefore has no
+        client here, so ``get_available_models`` returns ``[]`` until a process
+        restart — the symptom where the provider list refreshes but its models
+        don't. Reloading rebuilds the clients; ``reload_providers`` also clears the
+        shared model cache so the next fetch re-detects. We clear it ourselves too,
+        in case the service wasn't instantiated yet or the reload raised.
+        """
+        if self._llm_service is not None:
+            try:
+                self._llm_service.reload_providers()
+            except Exception as e:
+                self.logger.warning(f"ProviderDetectionService reload failed: {e}")
+        self.clear_model_cache()
+
     def get_provider_info(self, provider: str) -> Dict[str, Any]:
         """Get comprehensive information about a provider - Claude Generated"""
         info = {

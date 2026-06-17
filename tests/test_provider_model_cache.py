@@ -29,6 +29,25 @@ class _BoomLlm:
         raise RuntimeError("network down")
 
 
+class _ReloadableLlm:
+    """LlmService stand-in whose model list only updates after reload_providers().
+
+    Mirrors the real bug: a provider added in Settings has no client until the
+    wrapped service is reloaded, so its models stay empty until then.
+    """
+
+    def __init__(self, before, after):
+        self._before = before
+        self._after = after
+        self.reloaded = False
+
+    def get_available_models(self, provider, force_check=False):
+        return list(self._after if self.reloaded else self._before)
+
+    def reload_providers(self):
+        self.reloaded = True
+
+
 class TestProviderModelCache(unittest.TestCase):
     def setUp(self):
         ProviderDetectionService.clear_model_cache()
@@ -78,6 +97,28 @@ class TestProviderModelCache(unittest.TestCase):
         ProviderDetectionService.clear_model_cache("p")
         svc.get_available_models("p")
         self.assertEqual(llm.calls, 2, "cleared provider must re-fetch")
+
+    def test_reload_reloads_wrapped_service_and_invalidates_cache(self):
+        # Regression: provider added in Settings; its models only appear after the
+        # wrapped LlmService is reloaded (was: only after a process restart).
+        llm = _ReloadableLlm(before=[], after=["new-model"])
+        svc = ProviderDetectionService()
+        svc._llm_service = llm
+        svc._get_llm_service = lambda: llm
+
+        self.assertEqual(svc.get_available_models("newprov"), [])  # caches empty
+        svc.reload()
+        self.assertTrue(llm.reloaded, "reload must reload the wrapped service")
+        self.assertEqual(
+            svc.get_available_models("newprov"), ["new-model"],
+            "reload must invalidate the cache so fresh models are fetched",
+        )
+
+    def test_reload_is_safe_without_instantiated_service(self):
+        # reload() must not crash when the wrapped service was never created.
+        svc = ProviderDetectionService()
+        self.assertIsNone(svc._llm_service)
+        svc.reload()  # should be a no-op that just clears the cache
 
 
 if __name__ == "__main__":
