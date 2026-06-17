@@ -130,5 +130,111 @@ class TestDefaultModelPersistence(_ConfigRoundTripBase):
         )
 
 
+class TestPreferredProviderClobberGuard(_ConfigRoundTripBase):
+    """Regression: a stale save with an empty preferred_provider must not wipe a
+    good on-disk default.
+
+    Trigger in the wild: closing the settings dialog runs
+    ``main_window.load_settings()`` → ``apply_font_size()`` which persists
+    ``font_size`` via a full ``save_config()`` of a singleton config that briefly
+    held ``''`` for ``preferred_provider`` — clobbering the value the dialog had
+    just saved. The merge in ``save_config`` now refuses to overwrite a non-empty
+    on-disk general default with an empty incoming value. Claude Generated.
+    """
+
+    def _seed_good_default(self):
+        self._seed({
+            "providers": [
+                {"name": "GWDG", "provider_type": "openai_compatible", "enabled": True,
+                 "preferred_model": "qwen3-coder", "available_models": ["qwen3-coder"]},
+                {"name": "Localhost", "provider_type": "ollama", "enabled": True,
+                 "preferred_model": "cogito:32b", "available_models": ["cogito:32b"]},
+            ],
+            "preferred_provider": "GWDG",
+            "preferred_model": "qwen3-coder",
+        })
+
+    def test_empty_incoming_does_not_clobber_disk_default(self):
+        self._seed_good_default()
+        cfg = self.cm.load_config()
+        # Simulate the stale font-size save: preferred_provider got blanked.
+        cfg.unified_config.preferred_provider = ""
+        cfg.unified_config.preferred_model = ""
+        self.assertTrue(self.cm.save_config(cfg))
+
+        on_disk = json.loads(self.config_file.read_text())["unified_config"]
+        self.assertEqual(on_disk["preferred_provider"], "GWDG",
+                         "empty incoming preferred_provider must not wipe the on-disk default")
+        self.assertEqual(on_disk["preferred_model"], "qwen3-coder")
+
+    def test_real_user_change_still_overwrites(self):
+        self._seed_good_default()
+        cfg = self.cm.load_config()
+        cfg.unified_config.preferred_provider = "Localhost"
+        cfg.unified_config.preferred_model = "cogito:32b"
+        self.assertTrue(self.cm.save_config(cfg))
+
+        on_disk = json.loads(self.config_file.read_text())["unified_config"]
+        self.assertEqual(on_disk["preferred_provider"], "Localhost",
+                         "a real (non-empty) user change must still overwrite the default")
+        self.assertEqual(on_disk["preferred_model"], "cogito:32b")
+
+
+class TestGeneralDefaultLoad(_ConfigRoundTripBase):
+    """Regression: the general default + per-model chunking thresholds written by
+    save_config must actually be read back on load. They were previously dropped by
+    _parse_unified_config, so a restart reset them and the next save clobbered the
+    on-disk value with the empty default. Claude Generated.
+    """
+
+    def test_preferred_provider_model_round_trip(self):
+        self._seed({
+            "providers": [{
+                "name": "GWDG", "provider_type": "openai_compatible", "enabled": True,
+                "preferred_model": "qwen3-coder", "available_models": ["qwen3-coder"],
+            }],
+            "preferred_provider": "GWDG",
+            "preferred_model": "qwen3-coder",
+        })
+        uc = self.cm.load_config().unified_config
+        self.assertEqual(uc.preferred_provider, "GWDG",
+                         "preferred_provider must be read back from disk on load")
+        self.assertEqual(uc.preferred_model, "qwen3-coder")
+
+    def test_model_chunking_thresholds_round_trip(self):
+        thresholds = {"GWDG": {"qwen3-coder": 800}}
+        self._seed({
+            "providers": [{
+                "name": "GWDG", "provider_type": "openai_compatible", "enabled": True,
+                "preferred_model": "qwen3-coder", "available_models": ["qwen3-coder"],
+            }],
+            "preferred_provider": "GWDG",
+            "preferred_model": "qwen3-coder",
+            "model_chunking_thresholds": thresholds,
+        })
+        uc = self.cm.load_config().unified_config
+        self.assertEqual(uc.model_chunking_thresholds, thresholds,
+                         "per-model chunking thresholds must survive a load")
+
+    def test_general_default_survives_save_reload_cycle(self):
+        """End-to-end: load (parse) → save (merge) → reload must keep the default."""
+        self._seed({
+            "providers": [{
+                "name": "GWDG", "provider_type": "openai_compatible", "enabled": True,
+                "preferred_model": "qwen3-coder", "available_models": ["qwen3-coder"],
+            }],
+            "preferred_provider": "GWDG",
+            "preferred_model": "qwen3-coder",
+        })
+        cfg = self.cm.load_config()
+        # A save that touches an unrelated field must not lose the general default.
+        cfg.ui_config.font_size = 13
+        self.assertTrue(self.cm.save_config(cfg))
+
+        _, cfg2 = self._reload()
+        self.assertEqual(cfg2.unified_config.preferred_provider, "GWDG")
+        self.assertEqual(cfg2.unified_config.preferred_model, "qwen3-coder")
+
+
 if __name__ == "__main__":
     unittest.main()

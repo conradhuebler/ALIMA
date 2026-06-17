@@ -444,6 +444,15 @@ class ConfigManager:
         unified_config.agentic_default_provider = data.get("agentic_default_provider", "")
         unified_config.agentic_default_model = data.get("agentic_default_model", "")
 
+        # Parse the general default (preferred_provider/model) and per-model chunking
+        # thresholds. These are written by save_config's preserve-merge but were
+        # previously never read back here, so a restart silently reset them to the
+        # dataclass default — and the next save then clobbered the on-disk value with
+        # that empty default. - Claude Generated
+        unified_config.preferred_provider = data.get("preferred_provider", "")
+        unified_config.preferred_model = data.get("preferred_model", "")
+        unified_config.model_chunking_thresholds = data.get("model_chunking_thresholds", {})
+
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
         unified_config.anthropic_api_key = data.get("anthropic_api_key", "")
@@ -617,8 +626,6 @@ class ConfigManager:
                             'pipeline_default_model',
                             'agentic_default_provider',
                             'agentic_default_model',
-                            'preferred_provider',
-                            'preferred_model',
                             # Legacy gemini/anthropic mirror fields, kept in sync
                             # from the authoritative provider objects on save.
                             'gemini_api_key',
@@ -631,6 +638,21 @@ class ConfigManager:
                         ):
                             if key in incoming_unified:
                                 preserved_unified_config[key] = incoming_unified[key]
+
+                        # The general default (preferred_provider/model) is always a
+                        # concrete value chosen in the UI — there is no "(Use default)"
+                        # placeholder for it, so an empty incoming value is never an
+                        # intentional unset but a stale/transient snapshot (e.g. the
+                        # font-size persistence in apply_font_size, the P-θ banner save,
+                        # or an llm_service save that loaded a singleton config briefly
+                        # holding ''). Only overwrite the on-disk value when the incoming
+                        # one is non-empty, so such saves can't wipe a good default.
+                        # This mirrors the `if prov:` guard in
+                        # unified_provider_tab._update_config_from_ui. - Claude Generated
+                        for key in ('preferred_provider', 'preferred_model'):
+                            incoming_val = incoming_unified.get(key)
+                            if incoming_val:
+                                preserved_unified_config[key] = incoming_val
 
                         config_dict['unified_config'] = preserved_unified_config
                     else:
