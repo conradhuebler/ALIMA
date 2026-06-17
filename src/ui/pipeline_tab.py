@@ -661,24 +661,37 @@ class PipelineTab(QWidget):
         llm_label.setStyleSheet("color: #555;")
         tb_layout.addWidget(llm_label)
 
-        self.global_override_combo = QComboBox()
-        self.global_override_combo.setMinimumWidth(180)
-        self.global_override_combo.setMaximumWidth(300)
-        self.global_override_combo.setToolTip(
+        # Shared provider+model picker (Phase 5): replaces the combined
+        # "provider | model" combo. The empty placeholder means "-- Standard --"
+        # (use the configured per-step defaults / task preferences). Non-editable:
+        # native text rendering, and the clean model name lives in UserRole.
+        from .provider_model_selector import ProviderModelSelector
+        self.global_override_selector = ProviderModelSelector(
+            allow_empty=True,
+            editable_model=False,
+            empty_provider_label="-- Standard --",
+            empty_model_label="(Auto)",
+        )
+        self.global_override_selector.setToolTip(
             "Provider/Modell für alle LLM-Schritte.\n"
             "\"-- Standard --\" = Aus Konfiguration/Task-Präferenzen"
         )
-        self.global_override_combo.setStyleSheet(_combo_css)
+        self.global_override_selector.set_combo_style(_combo_css)
+        self.global_override_selector.provider_combo.setFixedWidth(150)
+        self.global_override_selector.model_combo.setFixedWidth(190)
         self._populate_global_override_combo()
-        tb_layout.addWidget(self.global_override_combo)
+        tb_layout.addWidget(self.global_override_selector)
 
         # Agentic vs. classic is driven by the workflow_combo selection
         # (see _on_workflow_changed). The agentic context dock is shown only
         # on request via View ▸ 🤖 Agentic Kontext — Claude Generated.
 
+        # Fixed gap right after the override selector, then a stretch so the
+        # status/timer label sits at the far right.
+        tb_layout.addSpacing(16)
         tb_layout.addStretch()
 
-        # Pipeline status label
+        # Pipeline status label (shows the live step timer during a run)
         self.pipeline_status_label = QLabel("Bereit")
         self.pipeline_status_label.setStyleSheet("color: #666; padding-left: 8px;")
         tb_layout.addWidget(self.pipeline_status_label)
@@ -686,21 +699,19 @@ class PipelineTab(QWidget):
         main_layout.addWidget(self.toolbar_frame)
 
     def _populate_global_override_combo(self):
-        """Populate LLM model selector with available provider/model pairs - Claude Generated"""
+        """Populate the global LLM override picker from the enabled providers.
+
+        Safe to call again on config changes; the per-provider model list is
+        loaded lazily from the shared cache by the selector. - Claude Generated
+        """
         try:
-            self.global_override_combo.clear()
-            self.global_override_combo.addItem("-- Standard --", None)
             from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            unified_config = config_manager.get_unified_config()
-            for provider in unified_config.get_enabled_providers():
-                models = getattr(provider, 'available_models', []) or []
-                if not models and getattr(provider, 'preferred_model', None):
-                    models = [provider.preferred_model]
-                for model in models:
-                    self.global_override_combo.addItem(f"{provider.name} | {model}", f"{provider.name}|{model}")
+            unified_config = ConfigManager().get_unified_config()
+            names = [p.name for p in unified_config.get_enabled_providers()]
+            # refresh=False: the "-- Standard --" placeholder is the default pick.
+            self.global_override_selector.set_providers(names, refresh=False)
         except Exception as e:
-            self.logger.error(f"Error populating LLM combo: {e}")
+            self.logger.error(f"Error populating LLM override selector: {e}")
 
     def jump_to_step(self, step_id: str):
         """Jump to specific pipeline step - Claude Generated"""
@@ -1502,14 +1513,16 @@ class PipelineTab(QWidget):
 
     def _apply_global_override_from_gui(self):
         """Apply LLM model selection to pipeline config (global_provider/model_override) - Claude Generated"""
-        if not hasattr(self, 'global_override_combo'):
+        if not hasattr(self, 'global_override_selector'):
             return
-        override_data = self.global_override_combo.currentData()
         config = self.pipeline_manager.config
         if not config:
             return
-        if override_data:
-            provider, model = PipelineConfig.parse_override_string(override_data)
+        # A complete (provider, model) pick is an override; "-- Standard --" (and
+        # an incomplete provider-only pick) yields a falsy member → fall through to
+        # the baseline. Requiring both avoids an invalid provider/model mix.
+        provider, model = self.global_override_selector.get_selection()
+        if provider and model:
             config.global_provider_override = provider
             config.global_model_override = model
             # Propagate into the per-step configs. Setting the attribute alone is
