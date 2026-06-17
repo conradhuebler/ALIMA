@@ -1512,10 +1512,21 @@ class PipelineTab(QWidget):
             provider, model = PipelineConfig.parse_override_string(override_data)
             config.global_provider_override = provider
             config.global_model_override = model
+            # Propagate into the per-step configs. Setting the attribute alone is
+            # not enough: apply_global_override() only runs in __post_init__, so a
+            # runtime selection here would be ignored and every LLM step would keep
+            # its per-step pipeline default (e.g. gemma). The classic executor reads
+            # step_config.provider/model directly (get_step_config). - Claude Generated
+            config.apply_global_override()
             self.logger.info(f"🤖 LLM selected: {provider}/{model}")
         else:
+            # Back to "-- Standard --": clear the override AND rebuild the per-step
+            # baseline (pipeline default + task preferences). Without the rebuild a
+            # previously applied override would stay mutated into step_configs and
+            # stick. - Claude Generated
             config.global_provider_override = None
             config.global_model_override = None
+            self.pipeline_manager.reload_config()
 
     def _update_dk_config_from_gui(self):
         """
