@@ -384,6 +384,20 @@ class UnifiedProvider:
         """Setter for type alias - Claude Generated"""
         self.provider_type = value
 
+    @property
+    def is_usable(self) -> bool:
+        """Whether this provider can plausibly serve requests (config-level check).
+
+        gemini/anthropic are cloud-only and cannot do anything without an API
+        key, so a keyless stub left enabled in the list must not be picked as the
+        implicit "first enabled" default fallback. ollama (local) and
+        openai_compatible (may be a keyless local endpoint) are assumed usable —
+        reachability/SDK is verified at runtime by llm_service. Claude Generated.
+        """
+        if self.provider_type in ("gemini", "anthropic") and not self.api_key:
+            return False
+        return True
+
     @classmethod
     def from_ollama_provider(cls, provider: OllamaProvider) -> 'UnifiedProvider':
         """Create UnifiedProvider from OllamaProvider - Claude Generated"""
@@ -446,7 +460,10 @@ class UnifiedProviderConfig:
     providers: List[UnifiedProvider] = field(default_factory=list)
 
     # Global settings
-    provider_priority: List[str] = field(default_factory=lambda: ["ollama", "gemini", "anthropic", "openai"])
+    # No hardcoded provider list (per CLAUDE.md: read providers from config, not
+    # a baked-in cloud list). Empty = derive ordering from the configured
+    # providers. Claude Generated.
+    provider_priority: List[str] = field(default_factory=list)
     disabled_providers: List[str] = field(default_factory=list)
 
     # Pipeline default provider/model - single source of truth for pipeline execution
@@ -637,9 +654,13 @@ class UnifiedProviderConfig:
                 return provider, model
 
         if fallback_to_first_enabled:
-            enabled = self.get_enabled_providers()
-            if enabled:
-                provider, model = self.resolve_provider_model(enabled[0].name)
+            # Pick the first enabled *usable* provider, not just the first enabled
+            # one: an enabled-but-keyless cloud stub (e.g. a leftover gemini entry)
+            # would otherwise be chosen and then fail with "No client found".
+            for candidate in self.get_enabled_providers():
+                if not candidate.is_usable:
+                    continue
+                provider, model = self.resolve_provider_model(candidate.name)
                 if provider:
                     return provider, model
 
