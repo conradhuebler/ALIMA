@@ -267,7 +267,9 @@ class ProviderModelSelector(QWidget):
             self.model_combo.clear()
             if self._allow_empty:
                 self.model_combo.addItem(self._empty_model_label, "")
-            for m in models:
+            # Sort case-insensitively so the dropdown is predictable regardless of
+            # the order the detection service returns models in. - Claude Generated
+            for m in sorted(models, key=str.lower):
                 self.model_combo.addItem(f"{self._decorations.get(m, '')}{m}", m)
             if preselect:
                 self._select_model(preselect)
