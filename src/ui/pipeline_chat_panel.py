@@ -1276,6 +1276,24 @@ class PipelineChatPanel(QWidget):
         except Exception as e:
             self.logger.error(f"Error populating provider selector: {e}")
 
+    def refresh_providers(self) -> None:
+        """Refresh the provider list after a Settings change (provider added or
+        removed) without resetting the user's current pick.
+
+        Unlike _populate_model_combo this does NOT re-select the resolved default
+        — set_providers preserves the current provider/model selection when it
+        still exists, so a live chat choice survives the refresh. Called by the
+        embedding pipeline tab's on_config_changed. - Claude Generated
+        """
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            names = [p.name for p in
+                     ConfigManager().get_unified_config().get_enabled_providers()]
+            self.provider_selector.set_providers(names, refresh=False)
+        except Exception as e:
+            self.logger.error(f"Error refreshing chat provider selector: {e}")
+
     def _resolve_provider_model(self) -> tuple[str, str]:
         # Shared chain (CLI/HTTP/GUI): combo override → ChatConfig default →
         # pipeline global override → unified agentic default → pipeline default →

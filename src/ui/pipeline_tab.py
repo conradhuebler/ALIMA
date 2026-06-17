@@ -1765,6 +1765,13 @@ class PipelineTab(QWidget):
     def on_config_changed(self):
         """Handle configuration changes - Claude Generated (Webcam Feature)"""
         self.logger.debug("Pipeline tab: Handling config change")
+        # Refresh the embedded provider/model pickers so a provider added/removed
+        # in Settings shows up immediately (no restart). Both keep the current
+        # pick when the provider still exists. - Claude Generated
+        if hasattr(self, "global_override_selector"):
+            self._populate_global_override_combo()
+        if hasattr(self, "stream_widget") and hasattr(self.stream_widget, "refresh_providers"):
+            self.stream_widget.refresh_providers()
 
     # Preferred display order for the workflow picker. ``__classic__`` is the
     # synthetic non-agentic entry (rigid pipeline); every other key is a YAML
