@@ -36,7 +36,6 @@ from PyQt6.QtGui import QDesktopServices, QKeyEvent
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -367,22 +366,46 @@ class PipelineChatPanel(QWidget):
         title_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
         header_layout.addWidget(title_label)
 
-        self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(180)
-        self.model_combo.setMaximumWidth(280)
-        self.model_combo.setStyleSheet(
+        # Shared provider+model picker (Phase 5): replaces the single combined
+        # "provider | model" combo. Model lists come from the shared TTL cache and
+        # refresh per provider; the clean model name lives in UserRole so display
+        # decoration can never leak into the value (the old phantom-model bug).
+        from .provider_model_selector import ProviderModelSelector
+        # Non-editable: a read-only model combo renders its text natively via the
+        # QComboBox color (no embedded QLineEdit that ignores the dark theme), and
+        # the model list is anyway fully covered by detection — free-text entry is
+        # not needed in the chat header.
+        self.provider_selector = ProviderModelSelector(
+            allow_empty=True,
+            editable_model=False,
+            empty_provider_label="-- Auto --",
+            empty_model_label="(Auto)",
+        )
+        _combo_qss = (
             "QComboBox { font-size: 10px; padding: 2px 6px; border: 1px solid #555; "
             "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
+            # Make the drop-down affordance visible: the custom dark theme replaces
+            # the native rendering, so style the button area + draw a light arrow.
+            "QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; "
+            "width: 18px; border-left: 1px solid #555; background-color: #4a4a4a; "
+            "border-top-right-radius: 3px; border-bottom-right-radius: 3px; }"
+            "QComboBox::down-arrow { width: 0; height: 0; border-left: 4px solid transparent; "
+            "border-right: 4px solid transparent; border-top: 5px solid #ccc; }"
             "QComboBox QAbstractItemView { background-color: #2b2b2b; color: #ccc; "
             "selection-background-color: #005fcc; selection-color: white; border: 1px solid #555; }"
         )
+        # set_combo_style (not setStyleSheet directly): the selector's validation
+        # pass composes onto this base, so the dark theme survives model loading.
+        self.provider_selector.set_combo_style(_combo_qss)
+        # Fixed widths: a long model name must not resize the header. The closed
+        # combo clips; the popup view gets a generous minimum so the full names
+        # stay readable when the dropdown is open.
+        self.provider_selector.provider_combo.setFixedWidth(130)
+        self.provider_selector.model_combo.setFixedWidth(210)
+        self.provider_selector.model_combo.view().setMinimumWidth(320)
         self._populate_model_combo()
-        self.model_combo.currentIndexChanged.connect(self._on_model_combo_changed)
-        header_layout.addWidget(self.model_combo)
-        self.model_combo.setEditable(True)
-        from PyQt6.QtWidgets import QCompleter
-        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        self.provider_selector.selectionChanged.connect(self._on_model_selection_changed)
+        header_layout.addWidget(self.provider_selector)
 
         self.persist_combo_toggle = QCheckBox("💾")
         self.persist_combo_toggle.setChecked(False)
@@ -1175,8 +1198,7 @@ class PipelineChatPanel(QWidget):
         else:
             self.model_status_label.setText("→ (kein Modell)")
 
-    @pyqtSlot(int)
-    def _on_model_combo_changed(self, _idx: int) -> None:
+    def _on_model_selection_changed(self, _provider: str, _model: str) -> None:
         self._refresh_model_status()
         if self.persist_combo_toggle.isChecked():
             self._persist_combo_to_chat_config()
@@ -1204,12 +1226,8 @@ class PipelineChatPanel(QWidget):
             )
 
     def _persist_combo_to_chat_config(self) -> None:
-        data = self.model_combo.currentData()
-        if not data:
-            return
-        try:
-            provider, model = data.split("|", 1)
-        except ValueError:
+        provider, model = self.provider_selector.get_selection()
+        if not (provider and model):
             return
         try:
             from ..utils.config_manager import ConfigManager
@@ -1233,40 +1251,40 @@ class PipelineChatPanel(QWidget):
             )
 
     def _populate_model_combo(self):
+        """Populate the provider picker from the enabled providers.
+
+        Safe to call again on config changes (fixes the old staleness where the
+        combo was only built once in setup_ui). The per-provider model list is
+        loaded lazily from the shared cache by the selector itself.
+        """
         try:
-            self.model_combo.clear()
-            self.model_combo.addItem("-- Auto --", None)
             from ..utils.config_manager import ConfigManager
 
-            config_manager = ConfigManager()
-            unified_config = config_manager.get_unified_config()
-            for provider in unified_config.get_enabled_providers():
-                models = getattr(provider, "available_models", []) or []
-                if not models and getattr(provider, "preferred_model", None):
-                    models = [provider.preferred_model]
-                # Sort models alphabetically by model name (case-insensitive)
-                models = sorted(models, key=lambda s: s.lower())
-                for model in models:
-                    self.model_combo.addItem(
-                        f"{provider.name} | {model}",
-                        f"{provider.name}|{model}",
-                    )
+            unified_config = ConfigManager().get_unified_config()
+            names = [p.name for p in unified_config.get_enabled_providers()]
+            # refresh=False: a set_selection follows, so don't kick off a
+            # throwaway model load for the index-0 provider first.
+            self.provider_selector.set_providers(names, refresh=False)
+            # Show the effective saved default live (ChatConfig default →
+            # pipeline/general default → first enabled) instead of a bare
+            # "-- Auto --", so the combo reflects what the chat will actually use.
+            # set_selection is programmatic → silent, so it won't trigger a
+            # spurious persist via the 💾 toggle.
+            prov, model = self._resolve_provider_model()
+            if prov and model:
+                self.provider_selector.set_selection(prov, model)
         except Exception as e:
-            self.logger.error(f"Error populating model combo: {e}")
+            self.logger.error(f"Error populating provider selector: {e}")
 
     def _resolve_provider_model(self) -> tuple[str, str]:
         # Shared chain (CLI/HTTP/GUI): combo override → ChatConfig default →
         # pipeline global override → unified agentic default → pipeline default →
         # general default → first enabled provider → llm_service.current.
-        ov_provider = ov_model = None
-        override_data = self.model_combo.currentData()
-        if override_data:
-            try:
-                ov_provider, ov_model = override_data.split("|", 1)
-            except ValueError:
-                ov_provider = ov_model = None
+        # Combo override = the explicit (provider, model) pick; "-- Auto --"
+        # yields ("", "") which falls through to the resolution chain below.
+        ov_provider, ov_model = self.provider_selector.get_selection()
         provider, model = resolve_provider_model(
-            ov_provider, ov_model,
+            ov_provider or None, ov_model or None,
             chat_config=self._get_chat_config(),
             pipeline_manager=self.pipeline_manager,
             llm_service=self.llm_service,

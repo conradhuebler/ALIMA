@@ -73,6 +73,10 @@ class ProviderModelSelector(QWidget):
         self._workers: "set[_ModelLoadWorker]" = set()
         self._loading = False
         self._decorations: Dict[str, str] = {}
+        # Host-supplied base stylesheet for the model combo. The validation pass
+        # composes its red border onto this instead of replacing it, so a themed
+        # host (e.g. the dark chat header) isn't wiped once models load.
+        self._model_base_qss = ""
         # allow_empty adds a placeholder meaning "unset → fall back to a wider
         # default"; its value is "" so get_selection() returns an empty provider
         # /model. Used by the settings tab's pipeline/agentic default rows.
@@ -174,6 +178,20 @@ class ProviderModelSelector(QWidget):
     def set_decorations(self, decorations: Dict[str, str]) -> None:
         """Optional per-model display prefixes (e.g. ``{"cogito:32b": "⭐ "}``)."""
         self._decorations = dict(decorations or {})
+
+    def set_combo_style(self, qss: str) -> None:
+        """Apply a base stylesheet to both combos.
+
+        Use this instead of ``model_combo.setStyleSheet()`` directly: the model
+        combo's validation pass would otherwise replace a host stylesheet on the
+        next (re)load. The validation border is composed *onto* this base, so a
+        themed host (e.g. the dark chat header) survives model loading.
+        Claude Generated.
+        """
+        qss = qss or ""
+        self.provider_combo.setStyleSheet(qss)
+        self._model_base_qss = qss
+        self._apply_validation_style()
 
     def _model_values(self) -> List[str]:
         """Model values currently in the combo (clean names, excluding loading)."""
@@ -281,11 +299,15 @@ class ProviderModelSelector(QWidget):
                 self.model_combo.addItem(_LOADING_TEXT)
 
     def _apply_validation_style(self) -> None:
+        # Compose onto the host base stylesheet so a themed model combo isn't
+        # wiped on (re)load; the later QComboBox rule overrides only the border.
+        base = self._model_base_qss
         if self._loading:
-            self.model_combo.setStyleSheet("")
+            self.model_combo.setStyleSheet(base)
             return
         ok = self.is_model_valid()
-        self.model_combo.setStyleSheet("" if ok else "QComboBox { border: 1px solid #d32f2f; }")
+        invalid = "" if ok else "QComboBox { border: 1px solid #d32f2f; }"
+        self.model_combo.setStyleSheet(base + invalid)
 
 
 class _blocked:

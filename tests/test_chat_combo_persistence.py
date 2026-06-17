@@ -5,8 +5,8 @@ Three cases:
    does NOT call ConfigManager.save_config.
 2. ``test_toggle_on_persists`` — combo change with toggle on writes
    ChatConfig.default_provider/model + calls save_config once.
-3. ``test_combo_auto_entry_skips_persist`` — combo "Auto" entry
-   (data=None) skips persistence even when toggle is on.
+3. ``test_combo_auto_entry_skips_persist`` — the "Auto" selection
+   (("", "")) skips persistence even when toggle is on.
 
 Strategy: avoid instantiating the real ChatWidget. It builds a full
 QWidget hierarchy which conflicts with the QCoreApplication-only setup
@@ -14,9 +14,13 @@ used by the rest of the test suite (see tests/test_state_bus.py).
 
 Instead, call the persistence helpers as unbound methods on a minimal
 stand-in object that carries only the attributes the helpers touch:
-``model_combo``, ``persist_combo_toggle``, ``logger`` and
+``provider_selector``, ``persist_combo_toggle``, ``logger`` and
 ``_append_system_message``. This exercises 100% of the new code path
 without the Qt-widget overhead.
+
+Phase 5: the combined "provider|model" combo was replaced by the shared
+``ProviderModelSelector``; the helpers now read a structured
+``get_selection() -> (provider, model)`` instead of splitting a string.
 """
 from __future__ import annotations
 
@@ -31,13 +35,14 @@ from src.ui.pipeline_chat_panel import PipelineChatPanel as ChatWidget
 from src.utils.config_models import ChatConfig
 
 
-def _make_stub(combo_data, toggle_on: bool) -> SimpleNamespace:
+def _make_stub(selection, toggle_on: bool) -> SimpleNamespace:
     """Build a minimal duck-typed object with the attributes
-    ChatWidget._on_model_combo_changed / _persist_combo_to_chat_config
-    access. Side-effects observable via the system-message list."""
+    ChatWidget._on_model_selection_changed / _persist_combo_to_chat_config
+    access. ``selection`` is the (provider, model) tuple the shared selector
+    would return. Side-effects observable via the system-message list."""
     system_messages: list[str] = []
     stub = SimpleNamespace(
-        model_combo=SimpleNamespace(currentData=lambda: combo_data),
+        provider_selector=SimpleNamespace(get_selection=lambda: selection),
         persist_combo_toggle=SimpleNamespace(isChecked=lambda: toggle_on),
         logger=logging.getLogger("test"),
         model_status_label=SimpleNamespace(setText=lambda _t: None),
@@ -46,7 +51,9 @@ def _make_stub(combo_data, toggle_on: bool) -> SimpleNamespace:
     )
     # Bind methods from ChatWidget — descriptor protocol gives us a
     # callable bound to ``stub``.
-    stub._on_model_combo_changed = ChatWidget._on_model_combo_changed.__get__(stub)
+    stub._on_model_selection_changed = (
+        ChatWidget._on_model_selection_changed.__get__(stub)
+    )
     stub._persist_combo_to_chat_config = (
         ChatWidget._persist_combo_to_chat_config.__get__(stub)
     )
@@ -57,14 +64,14 @@ def _make_stub(combo_data, toggle_on: bool) -> SimpleNamespace:
 class TestComboPersistence(unittest.TestCase):
 
     def test_toggle_off_does_not_persist(self):
-        stub = _make_stub("ollama|cogito:32b", toggle_on=False)
+        stub = _make_stub(("ollama", "cogito:32b"), toggle_on=False)
         with patch("src.utils.config_manager.ConfigManager") as cm_class:
-            stub._on_model_combo_changed(0)
+            stub._on_model_selection_changed("ollama", "cogito:32b")
             cm_class.return_value.save_config.assert_not_called()
         self.assertEqual(stub.system_messages, [])
 
     def test_toggle_on_persists(self):
-        stub = _make_stub("ollama|cogito:32b", toggle_on=True)
+        stub = _make_stub(("ollama", "cogito:32b"), toggle_on=True)
 
         # chat_config must live on the AlimaConfig returned by load_config —
         # that is the object the helper mutates AND saves (the unified config
@@ -77,7 +84,7 @@ class TestComboPersistence(unittest.TestCase):
             cm_instance.load_config.return_value = full_alima
             cm_instance.save_config.return_value = True
 
-            stub._on_model_combo_changed(0)
+            stub._on_model_selection_changed("ollama", "cogito:32b")
 
             cm_instance.save_config.assert_called_once_with(
                 full_alima, preserve_unified=True
@@ -90,10 +97,10 @@ class TestComboPersistence(unittest.TestCase):
         self.assertIn("Chat-Default gespeichert", stub.system_messages[0])
 
     def test_combo_auto_entry_skips_persist(self):
-        """Auto (data=None) should not attempt to persist."""
-        stub = _make_stub(None, toggle_on=True)
+        """Auto selection (("", "")) should not attempt to persist."""
+        stub = _make_stub(("", ""), toggle_on=True)
         with patch("src.utils.config_manager.ConfigManager") as cm_class:
-            stub._on_model_combo_changed(0)
+            stub._on_model_selection_changed("", "")
             cm_class.return_value.save_config.assert_not_called()
 
 
