@@ -12,6 +12,7 @@ from dataclasses import asdict
 
 from src.mcp.mcp_types import ToolDefinition
 from src.mcp import tool_schemas
+from src.core.url_utils import gnd_url, swb_ppn_url
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +201,20 @@ class ToolRegistry:
             if finc_cfg is not None:
                 finc_base = getattr(finc_cfg, "finc_base_url", "") or ""
                 if finc_base:
+                    # The catalog record page base: prefer the finc-specific URL,
+                    # but fall back to catalog_web_record_url (the Libero OPAC base
+                    # is the same host) so the FincSuggester builds the catalog
+                    # web_url at the source — independent of whether the
+                    # _handle_search_finc reconstruction (config_manager-gated)
+                    # runs. Without this, GUI ToolRegistry() (no config_manager)
+                    # produced finc records with no catalog link. - Claude Generated
+                    finc_web_record = (
+                        getattr(finc_cfg, "finc_web_record_url", "") or ""
+                        or getattr(finc_cfg, "catalog_web_record_url", "") or ""
+                    )
                     self._finc = FincSuggester(
                         base_url=finc_base,
-                        web_record_url=getattr(finc_cfg, "finc_web_record_url", "") or "",
+                        web_record_url=finc_web_record,
                         default_limit=getattr(finc_cfg, "finc_default_limit", 20),
                         timeout=getattr(finc_cfg, "finc_timeout", 30),
                         institution_filter=getattr(finc_cfg, "finc_institution_filter", "") or "",
@@ -250,34 +262,59 @@ class ToolRegistry:
         entries = km.search_local_gnd(term, min_results=min_results)
         results = []
         for e in entries:
-            results.append({
-                "gnd_id": e.gnd_id,
-                "title": e.title,
-                "description": e.description,
-                "synonyms": e.synonyms,
-                "ddcs": e.ddcs,
-            })
+            results.append(self._gnd_entry_dict(
+                e.gnd_id, e.title, e.description, e.synonyms, e.ddcs,
+                getattr(e, "ppn", ""),
+            ))
         return json.dumps({"term": term, "count": len(results), "entries": results}, ensure_ascii=False)
+
+    @staticmethod
+    def _gnd_entry_dict(gnd_id, title, description, synonyms, ddcs, ppn="") -> Dict[str, Any]:
+        """Serialise a GND entry with pre-formatted links for the chat agent.
+
+        Claude Generated. Adds a ready ``url`` (d-nb.info, canonical) and, when a
+        PPN is stored, an additional ``swb_url`` so the LLM never builds a GND URL
+        itself (and never mistakes a GND id for a catalog RSN).
+        """
+        d: Dict[str, Any] = {
+            "gnd_id": gnd_id, "title": title, "description": description,
+            "synonyms": synonyms, "ddcs": ddcs,
+        }
+        _url = gnd_url(gnd_id)
+        if _url:
+            d["url"] = _url
+        _swb = swb_ppn_url(str(ppn or ""))
+        if _swb:
+            d["swb_url"] = _swb
+        return d
 
     def _handle_get_gnd_entry(self, gnd_id: str) -> str:
         km = self._get_knowledge_manager()
         entry = km.get_gnd_fact(gnd_id)
         if entry is None:
             return json.dumps({"error": f"GND entry '{gnd_id}' not found"})
-        return json.dumps({
-            "gnd_id": entry.gnd_id, "title": entry.title,
-            "description": entry.description, "synonyms": entry.synonyms, "ddcs": entry.ddcs,
-        }, ensure_ascii=False)
+        return json.dumps(self._gnd_entry_dict(
+            entry.gnd_id, entry.title, entry.description, entry.synonyms,
+            entry.ddcs, getattr(entry, "ppn", ""),
+        ), ensure_ascii=False)
 
     def _handle_get_gnd_batch(self, gnd_ids: List[str]) -> str:
         km = self._get_knowledge_manager()
         entries = km.get_gnd_facts_batch(gnd_ids)
         results = {}
         for gnd_id, entry in entries.items():
-            results[gnd_id] = {
+            val = {
                 "title": entry.title, "description": entry.description,
                 "synonyms": entry.synonyms, "ddcs": entry.ddcs,
             }
+            # Claude Generated - pre-formatted links (see _gnd_entry_dict).
+            _url = gnd_url(gnd_id)
+            if _url:
+                val["url"] = _url
+            _swb = swb_ppn_url(str(getattr(entry, "ppn", "") or ""))
+            if _swb:
+                val["swb_url"] = _swb
+            results[gnd_id] = val
         return json.dumps({"count": len(results), "entries": results}, ensure_ascii=False)
 
     def _handle_get_search_cache(self, term: str, suggester_type: str) -> str:
@@ -336,15 +373,26 @@ class ToolRegistry:
 
     @staticmethod
     def _serialize_suggester_results(results: Dict) -> Dict:
-        """Convert per-term suggester results (with sets) to JSON-safe dicts - Claude Generated"""
+        """Convert per-term suggester results (with sets) to JSON-safe dicts - Claude Generated
+
+        Also pre-formats canonical d-nb.info URLs for every GND id (``gnd_urls``)
+        so the chat agent links Lobid/SWB hits without constructing a URL itself.
+        """
         serializable = {}
         for term, keywords in results.items():
             serializable[term] = {}
             for kw, data in keywords.items():
-                serializable[term][kw] = {
+                row = {
                     k: list(v) if isinstance(v, set) else v
                     for k, v in data.items()
                 }
+                gnd_urls = [
+                    u for g in (row.get("gndid") or [])
+                    if (u := gnd_url(str(g)))
+                ]
+                if gnd_urls:
+                    row["gnd_urls"] = gnd_urls
+                serializable[term][kw] = row
         return serializable
 
     def _handle_search_lobid(self, terms: List[str], search_type: str = "kw") -> str:
@@ -471,13 +519,19 @@ class ToolRegistry:
         # from finc_web_record_url + id; if that URL is missing (config gap)
         # we reconstruct it from catalog_web_record_url, which is the same
         # catalog host used by the Libero backend. - Claude Generated
+        # Use the injected config_manager if present, else the global singleton
+        # (GUI builds ToolRegistry() without one — otherwise this reconstruction
+        # was a no-op there and finc records had no catalog link). - Claude Generated
         cat_record_base = ""
         try:
-            if self._config_manager:
-                _cc = self._config_manager.get_catalog_config()
-                cat_record_base = (
-                    getattr(_cc, "catalog_web_record_url", "") or ""
-                ).rstrip("/")
+            _cm = self._config_manager
+            if _cm is None:
+                from src.utils.config_manager import ConfigManager
+                _cm = ConfigManager()
+            _cc = _cm.get_catalog_config()
+            cat_record_base = (
+                getattr(_cc, "catalog_web_record_url", "") or ""
+            ).rstrip("/")
         except Exception:
             pass
         if cat_record_base:

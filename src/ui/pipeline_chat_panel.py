@@ -242,6 +242,9 @@ class PipelineChatPanel(QWidget):
         self.system_prompt: str = self.DEFAULT_SYSTEM_PROMPT
         self.session: ChatSession = ChatSession()
         self.current_worker: Optional[ChatAgentWorker] = None
+        # True between a cancel request and the worker actually finishing, so the
+        # UI stays locked (no premature 'ready' / silently-dropped sends). - Claude Generated
+        self._stopping: bool = False
         self.current_context: str = ""
         self.working_title: str = ""
         self._current_render_model: str = ""
@@ -279,23 +282,13 @@ class PipelineChatPanel(QWidget):
         )
         # P-δ.5: wire catalog web-OPAC base URL so the renderer can turn
         # <<CAT:rsn|text>> markers into clickable links. Degrades cleanly
-        # (markers are reduced to plain text) if config is missing.
+        # (markers are reduced to plain text) if config is missing. Shared with
+        # the webapp via configure_catalog_from_config (Claude Generated).
         try:
             from src.utils.config_manager import ConfigManager
-            from urllib.parse import urlparse
-            cat_cfg = ConfigManager().get_catalog_config()
-            web_base = getattr(cat_cfg, "catalog_web_record_url", "") or ""
-            self._renderer.set_catalog_web_base(web_base)
-            # Derive catalog host(s) (scheme+netloc) for link classification.
-            # Use both catalog URL fields as host sources — either may be set.
-            for url in (
-                web_base,
-                getattr(cat_cfg, "catalog_web_search_url", "") or "",
-            ):
-                if url:
-                    p = urlparse(url)
-                    if p.scheme and p.netloc:
-                        self._renderer.add_catalog_host(f"{p.scheme}://{p.netloc}")
+            self._renderer.configure_catalog_from_config(
+                ConfigManager().get_catalog_config()
+            )
         except Exception:
             pass  # feature disabled silently — see _replace_cat_markers
 
@@ -1468,10 +1461,17 @@ class PipelineChatPanel(QWidget):
         self.message_sent.emit(text)
 
     def cancel_generation(self):
-        if self.current_worker and self.current_worker.isRunning():
+        # Only SIGNAL the worker; do NOT flip the UI to 'ready' here. The worker
+        # is still winding down (finishing the in-flight tool/LLM call), and
+        # send_message() drops new sends while it runs — so a premature 'ready'
+        # state would silently swallow the next message. The lifecycle returns to
+        # ready in _on_finished/_on_error, the single owners of that transition.
+        # - Claude Generated
+        if self.current_worker and self.current_worker.isRunning() and not self._stopping:
+            self._stopping = True
             self.current_worker.request_stop()
-            self._append_system_message("⏹ Generation abgebrochen.")
-            self._set_ui_running(False)
+            self._append_system_message("⏹ Abbruch angefordert … (warte auf Worker)")
+            self._set_ui_stopping()
 
     @pyqtSlot(str)
     def _on_token(self, token: str):
@@ -1512,6 +1512,8 @@ class PipelineChatPanel(QWidget):
             )
         self._hide_typing()
         self._finalize_assistant_message()
+        if self._stopping:
+            self._append_system_message("⏹ Abgebrochen.")
         self._set_ui_running(False)
 
     @pyqtSlot(str)
@@ -1602,21 +1604,6 @@ class PipelineChatPanel(QWidget):
                 "PipelineChatPanel: _on_bus_pipeline_prompt_done failed"
             )
 
-    @staticmethod
-    def _extract_urls_from_json(data) -> "set[str]":
-        """Recursively collect all http(s) URL strings from a parsed JSON value."""
-        urls: "set[str]" = set()
-        if isinstance(data, str):
-            if data.startswith(("http://", "https://")):
-                urls.add(data)
-        elif isinstance(data, dict):
-            for v in data.values():
-                urls |= PipelineChatPanel._extract_urls_from_json(v)
-        elif isinstance(data, (list, tuple)):
-            for item in data:
-                urls |= PipelineChatPanel._extract_urls_from_json(item)
-        return urls
-
     def _on_bus_tool_result(self, payload: dict) -> None:
         try:
             result = payload.get("result", "") or ""
@@ -1624,8 +1611,9 @@ class PipelineChatPanel(QWidget):
             # flag them as external (e.g. DOIs from finc records). - Claude Generated
             try:
                 import json as _json
+                from src.core.url_utils import extract_urls_from_json
                 self._renderer.add_trusted_urls(
-                    self._extract_urls_from_json(_json.loads(result))
+                    extract_urls_from_json(_json.loads(result))
                 )
             except Exception:
                 pass
@@ -1749,8 +1737,12 @@ class PipelineChatPanel(QWidget):
     # -- UI helpers ------------------------------------------------------
 
     def _set_ui_running(self, running: bool):
+        # Single owner of the running↔ready transition. Always clears the
+        # transient 'stopping' state and re-arms the cancel button. - Claude Generated
+        self._stopping = False
         self.send_btn.setVisible(not running)
         self.cancel_btn.setVisible(running)
+        self.cancel_btn.setEnabled(True)
         self.input_field.setEnabled(not running)
         if running:
             self.input_field.setPlaceholderText("Antwort wird generiert...")
@@ -1759,6 +1751,16 @@ class PipelineChatPanel(QWidget):
                 "Frage zu den Pipeline-Ergebnissen stellen..."
             )
             self.input_field.setFocus()
+
+    def _set_ui_stopping(self):
+        """Transient state after a cancel request: keep send locked and show the
+        cancel button disabled until the worker actually finishes, so the UI never
+        claims 'ready' (and silently drops the next send) mid-stop. Claude Generated."""
+        self.send_btn.setVisible(False)
+        self.cancel_btn.setVisible(True)
+        self.cancel_btn.setEnabled(False)
+        self.input_field.setEnabled(False)
+        self.input_field.setPlaceholderText("Wird abgebrochen …")
 
     # -- Chat bubble & marker rendering (delegated to UnifiedMessageRenderer) --
 

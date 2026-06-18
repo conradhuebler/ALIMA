@@ -176,6 +176,19 @@ class TestSharedContextFromKAS(unittest.TestCase):
         self.assertIn("Cadmium", ctx.gnd_entries_per_keyword)
         self.assertIn("Boden", ctx.gnd_entries_per_keyword)
 
+    def test_gnd_entries_carry_preformatted_url(self):
+        # Claude Generated - each GND entry gets a ready d-nb.info URL so the
+        # chat agent never builds one (and never confuses it with a catalog RSN).
+        kas = _make_full_kas()
+        ctx = SharedContext.from_keyword_analysis_state(kas)
+        by_id = {e["gnd_id"]: e for e in ctx.gnd_entries}
+        self.assertEqual(
+            by_id["4007249-3"]["url"], "https://d-nb.info/gnd/4007249-3"
+        )
+        self.assertEqual(
+            by_id["4006670-9"]["url"], "https://d-nb.info/gnd/4006670-9"
+        )
+
     def test_dk_strings_normalised_to_dicts(self):
         kas = _make_full_kas()
         ctx = SharedContext.from_keyword_analysis_state(kas)

@@ -111,6 +111,38 @@ class TestAgentLoopHooks(unittest.TestCase):
         # Only one LLM call should have happened before should_stop returned True.
         self.assertEqual(llm.generate_with_tools.call_count, 1)
 
+    def test_should_stop_breaks_mid_tool_batch(self):
+        """A multi-tool response stops after the in-flight tool, not all of them.
+
+        should_stop returns False at the iteration boundary and for the first
+        tool, then True — so only one of three queued tools executes. - Claude Generated"""
+        batch = [
+            ToolCall(id="t1", name="get_keywords", arguments={"i": 1}),
+            ToolCall(id="t2", name="get_keywords", arguments={"i": 2}),
+            ToolCall(id="t3", name="get_keywords", arguments={"i": 3}),
+        ]
+        responses = [AgentResponse(content="", tool_calls=batch) for _ in range(5)]
+        llm = _make_llm_service(responses)
+        registry = _make_registry()
+
+        calls = {"n": 0}
+
+        def _should_stop() -> bool:
+            calls["n"] += 1
+            # boundary(False) → tc1(False) → tc2(True)
+            return calls["n"] >= 3
+
+        loop = AgentLoop(
+            llm_service=llm,
+            tool_registry=registry,
+            max_iterations=5,
+            should_stop=_should_stop,
+        )
+        loop.run(system_prompt="sys", user_prompt="ask", tools=[], provider="p", model="m")
+
+        # Only the first queued tool executed before the mid-batch break.
+        self.assertEqual(registry.execute.call_count, 1)
+
     def test_status_callback_suppressed_when_on_tool_call_set(self):
         """Phase F: when ``on_tool_call`` is wired, status lines for the
         call/result are suppressed — the bus/hook already carries the

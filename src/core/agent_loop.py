@@ -174,6 +174,15 @@ class AgentLoop:
 
                 # Execute each tool call
                 for tc in response.tool_calls:
+                    # Cancel check between tool calls in a batch: without this, a
+                    # multi-tool response runs every queued tool before the loop
+                    # re-checks at the iteration boundary, so cancel latency could
+                    # span several tool calls. Bound it to one in-flight tool. The
+                    # outer loop then breaks at the next boundary. - Claude Generated
+                    if self.should_stop and self.should_stop():
+                        logger.info("Agent loop stop requested mid tool-batch")
+                        break
+
                     # Diminishing returns detection
                     call_key = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
                     tool_call_counter[call_key] += 1

@@ -156,19 +156,6 @@
 
             </div><!-- /.card (inputs) -->
 
-            <!-- Pipeline Timeline Card -->
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-label">Pipeline</h2>
-                    <span id="autosave-status" class="autosave-chip" style="display: none;">
-                        💾 Gespeichert
-                    </span>
-                </div>
-                <div id="pipeline-steps" class="pipeline-timeline">
-                    <!-- Dynamisch von app.js befüllt -->
-                </div>
-            </div>
-
             <!-- Extracted Text (conditional) -->
             <div id="extracted-text-section" class="card" style="display: none;">
                 <div class="card-header">
@@ -183,9 +170,6 @@
                     <h2 id="results-panel-title" class="card-label">Analyse</h2>
                 </div>
                 <div id="results-summary" class="results-list"></div>
-                <!-- WP12: shared render region — DK/GND cards rendered via the
-                     same alima_render.js dispatcher the GUI uses. -->
-                <div id="log" class="alima-render-region"></div>
                 <div class="results-actions">
                     <button id="export-btn" class="btn btn-outline btn-sm">📥 JSON exportieren</button>
                     <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;">
@@ -223,11 +207,20 @@
 
                 <!-- Editor Actions (fixed on mobile, inline on desktop) -->
                 <div class="editor-footer">
-                    <select id="model-override" class="field field--select"
-                            title="Globaler Modell-Override für alle LLM-Steps">
-                        <option value="">— Standard-Modell —</option>
+                    <select id="workflow-select" class="field field--select"
+                            title="Workflow für Analyse / Pipeline">
+                        <option value="">— Workflow laden … —</option>
                     </select>
                     <div class="editor-btns">
+                        <select id="provider-override" class="field field--select"
+                                title="Provider-Override" style="max-width: 130px;">
+                            <option value="">— Provider —</option>
+                        </select>
+                        <select id="model-override" class="field field--select"
+                                title="Globaler Modell-Override für alle LLM-Steps"
+                                style="max-width: 180px;">
+                            <option value="">— Modell —</option>
+                        </select>
                         <button id="analyze-btn" class="btn btn-primary btn-analyze">
                             <span aria-hidden="true">▶</span> Analyse starten
                         </button>
@@ -253,15 +246,33 @@
                             <span class="toggle-chevron" aria-hidden="true">▾</span>
                         </button>
                         <div class="stream-title-group">
-                            <h2 class="stream-title">Ausgabe</h2>
-                            <span class="stream-subtitle">LLM-Streaming</span>
+                            <h2 class="stream-title">Log / Chat</h2>
+                            <span class="stream-subtitle">Pipeline-Log, Tool-Calls, Streaming, Chat</span>
                         </div>
                     </div>
                     <button id="clear-logs-btn" class="btn btn-ghost-dark btn-sm">Löschen</button>
                 </div>
 
                 <div id="stream-body" class="stream-body">
+                    <!-- WP12: shared render region — DK/GND cards, tool calls, chat
+                         bubbles and system messages are rendered here. -->
+                    <div id="log" class="alima-render-region"></div>
                     <div id="stream-text" class="stream-text"></div>
+                </div>
+
+                <!-- Unified chat input -->
+                <div id="chat-input-area" class="chat-input-area">
+                    <div class="chat-input-wrap">
+                        <textarea id="chat-input" class="chat-input"
+                                  placeholder="Frage zur Analyse stellen… (Enter = senden, Shift+Enter = neue Zeile)"
+                                  rows="1"></textarea>
+                        <button id="chat-send-btn" class="btn btn-primary btn-sm chat-send-btn">
+                            ➤
+                        </button>
+                    </div>
+                    <div class="chat-hint">
+                        Enter sendet · Shift+Enter neue Zeile
+                    </div>
                 </div>
             </div>
         </section><!-- /.panel-stream -->

@@ -229,20 +229,38 @@ class TestFincClientUnit(unittest.TestCase):
             )
             self.assertNotIn("//0-", record["web_url"])
 
-    def test_web_url_falls_back_to_first_url_when_no_record_url(self):
+    def test_web_url_is_catalog_only_never_publisher(self):
+        # web_url is the CATALOG record page only. When no record base is
+        # configured it stays empty — it must NEVER fall back to a publisher /
+        # full-text URL (that belongs in resource_url). - Claude Generated
         client = FincClient(
             base_url="https://dobby.example/proxy.php",
             web_record_url="",  # disabled
         )
         with patch.object(client.session, "get", return_value=_make_mock_response(MOCK_OK_PAYLOAD)):
             result = client.search("python")
-        # First record has no urls, so web_url should be empty
+        # No record base → no catalog link (not a publisher URL).
         self.assertEqual(result["records"][0]["web_url"], "")
-        # Second record has a urls entry → web_url falls back to it
+        self.assertEqual(result["records"][1]["web_url"], "")
+        # The publisher/full-text link is offered separately as resource_url.
+        self.assertEqual(result["records"][0]["resource_url"], "")
         self.assertEqual(
-            result["records"][1]["web_url"],
+            result["records"][1]["resource_url"],
             "https://example.org/0-9999999",
         )
+
+    def test_resource_url_separate_from_web_url(self):
+        # With a record base configured, web_url is the catalog entry AND
+        # resource_url is the publisher link — both present. - Claude Generated
+        client = FincClient(
+            base_url="https://dobby.example/proxy.php",
+            web_record_url="https://katalog.example/Record/",
+        )
+        with patch.object(client.session, "get", return_value=_make_mock_response(MOCK_OK_PAYLOAD)):
+            result = client.search("python")
+        second = result["records"][1]
+        self.assertEqual(second["web_url"], "https://katalog.example/Record/0-9999999")
+        self.assertEqual(second["resource_url"], "https://example.org/0-9999999")
 
     def test_facets_param_emitted_and_block_parsed(self):
         client = FincClient(base_url="https://dobby.example/proxy.php")
@@ -426,6 +444,61 @@ class TestSearchFincMCPHandler(unittest.TestCase):
         cfg_mgr.get_catalog_config.return_value = catalog_cfg
         reg = ToolRegistry(config_manager=cfg_mgr)  # noqa: F841
         return reg
+
+    def test_init_finc_falls_back_to_catalog_web_record_url(self):
+        # GUI bug: finc_web_record_url empty → the FincSuggester must still build
+        # catalog links by falling back to catalog_web_record_url at the source
+        # (so it works even when ToolRegistry has no injected config_manager).
+        # - Claude Generated
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""  # not configured
+        catalog_cfg.catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        self.assertEqual(
+            reg._finc.client.web_record_url,
+            "https://katalog.ub.tu-freiberg.de/Record/",
+        )
+
+    def test_handler_reconstructs_catalog_web_url_keeps_resource_url(self):
+        # The reported bug: finc record has only a publisher link, no catalog
+        # web_url. The handler MUST fill web_url from catalog_web_record_url (the
+        # catalog link must be there) while resource_url keeps the book link.
+        # - Claude Generated
+        catalog_cfg = MagicMock()
+        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
+        catalog_cfg.finc_web_record_url = ""  # finc base not configured
+        catalog_cfg.catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
+        catalog_cfg.finc_default_limit = 20
+        catalog_cfg.finc_timeout = 30
+        catalog_cfg.finc_institution_filter = ""
+
+        reg = self._make_registry(catalog_cfg)
+        reg._init_suggesters()
+        reg._finc.client.search = MagicMock(return_value={
+            "status": "OK", "resultCount": 1, "records": [
+                {"id": "0-1846124905", "title": "Quantenchemie", "authors": {},
+                 "subjects": [], "formats": [], "languages": [], "series": [],
+                 "urls": [{"url": "https://www.degruyterbrill.com/isbn/9783111215075"}],
+                 "web_url": "",
+                 "resource_url": "https://www.degruyterbrill.com/isbn/9783111215075",
+                 "raw": {}}
+            ]
+        })
+
+        data = json.loads(reg._handle_search_finc(terms=["Quantenchemie"]))
+        rec = data["results"]["Quantenchemie"]["records"][0]
+        self.assertEqual(
+            rec["web_url"], "https://katalog.ub.tu-freiberg.de/Record/0-1846124905"
+        )
+        self.assertEqual(
+            rec["resource_url"], "https://www.degruyterbrill.com/isbn/9783111215075"
+        )
 
     def test_handler_returns_records_for_each_term(self):
         catalog_cfg = MagicMock()

@@ -70,7 +70,6 @@ class AlimaWebapp {
         if (typeof window !== 'undefined') window.__autoscroll = false;
         this._lastRenderSeq = -1;
 
-        this.setupPipelineSteps();
         this.setupEventListeners();
         this.initializeSession();
     }
@@ -78,12 +77,42 @@ class AlimaWebapp {
     // Initialize session when app loads - Claude Generated
     async initializeSession() {
         await this.createNewSession();
+        await this.loadWorkflows();
         await this.loadModelOverrides();
         // Check if current URL session is already active (page refresh scenario)
         const reconnectedCurrent = await this.checkCurrentSessionState();
         // If not, check localStorage for a different running session
         if (!reconnectedCurrent) await this.checkForRunningSession();
         console.log('Ready for analysis');
+    }
+
+    // Load available workflows into the header dropdown - Claude Generated
+    async loadWorkflows() {
+        try {
+            const response = await fetch('/api/workflows');
+            if (!response.ok) return;
+            const workflows = await response.json();
+            const select = document.getElementById('workflow-select');
+            if (!select) return;
+            // Keep placeholder option
+            select.innerHTML = '<option value="">— Workflow laden … —</option>';
+            workflows.forEach(wf => {
+                const option = document.createElement('option');
+                option.value = wf.value;
+                option.textContent = wf.label;
+                if (wf.value === '__separator__') {
+                    option.disabled = true;
+                }
+                // Pre-select ALIMA v5.1 agentic default if available
+                if (wf.value === 'alima_v51' && !select.dataset.userSelected) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+            console.log(`Loaded ${workflows.length} workflows`);
+        } catch (e) {
+            console.error('Failed to load workflows:', e);
+        }
     }
 
     // Check if the current session (from URL) is already running or completed - Claude Generated
@@ -199,57 +228,51 @@ class AlimaWebapp {
         }
     }
 
-    // Load available models for override dropdown - Claude Generated
+    // Load available provider/model overrides into separate dropdowns - Claude Generated
     async loadModelOverrides() {
         try {
             const response = await fetch('/api/models');
             if (!response.ok) return;
             const models = await response.json();
-            const select = document.getElementById('model-override');
-            if (!select) return;
-            models.forEach(m => {
+
+            const providerSelect = document.getElementById('provider-override');
+            const modelSelect = document.getElementById('model-override');
+            if (!providerSelect || !modelSelect) return;
+
+            const providers = [...new Set(models.map(m => m.provider))].sort();
+            providerSelect.innerHTML = '<option value="">— Provider —</option>';
+            providers.forEach(p => {
                 const option = document.createElement('option');
-                option.value = m.value;
-                option.textContent = `${m.provider} | ${m.model}`;
-                select.appendChild(option);
+                option.value = p;
+                option.textContent = p;
+                providerSelect.appendChild(option);
             });
-            console.log(`Loaded ${models.length} models for override dropdown`);
+
+            this._availableModels = models;
+            this._refreshModelOverrideOptions();
+
+            providerSelect.addEventListener('change', () => this._refreshModelOverrideOptions());
+
+            console.log(`Loaded ${models.length} models across ${providers.length} providers`);
         } catch (e) {
             console.error('Failed to load models:', e);
         }
     }
 
-    // Pipeline step definitions
-    setupPipelineSteps() {
-        this.steps = [
-            { id: 'input', name: 'Eingabe', description: 'Verarbeitung' },
-            { id: 'initialisation', name: 'Initialisierung', description: 'Schlagworte' },
-            { id: 'search', name: 'Katalogsuche', description: 'GND/SWB' },
-            { id: 'keywords', name: 'Erschließung', description: 'Finale Worte' },
-            { id: 'classification', name: 'Klassifikation', description: 'Codes' }
-        ];
-
-        this.renderPipelineSteps();
-    }
-
-    // Render pipeline steps
-    renderPipelineSteps() {
-        const container = document.getElementById('pipeline-steps');
-        container.innerHTML = '';
-
-        this.steps.forEach((step) => {
-            const stepEl = document.createElement('div');
-            stepEl.className = 'step pending';
-            stepEl.id = `step-${step.id}`;
-            stepEl.dataset.step = step.id;
-            stepEl.innerHTML = `
-                <div class="step-status">▷</div>
-                <div class="step-content">
-                    <div class="step-name">${step.name}</div>
-                    <div class="step-info" data-default-info="${step.description}">${step.description}</div>
-                </div>
-            `;
-            container.appendChild(stepEl);
+    _refreshModelOverrideOptions() {
+        const providerSelect = document.getElementById('provider-override');
+        const modelSelect = document.getElementById('model-override');
+        if (!providerSelect || !modelSelect || !this._availableModels) return;
+        const provider = providerSelect.value;
+        modelSelect.innerHTML = '<option value="">— Modell —</option>';
+        const filtered = provider
+            ? this._availableModels.filter(m => m.provider === provider)
+            : this._availableModels;
+        filtered.forEach(m => {
+            const option = document.createElement('option');
+            option.value = m.model;
+            option.textContent = m.model;
+            modelSelect.appendChild(option);
         });
     }
 
@@ -339,6 +362,29 @@ class AlimaWebapp {
         // Theme toggle button — Claude Generated
         const themeBtn = document.getElementById('theme-toggle');
         if (themeBtn) themeBtn.addEventListener('click', () => ThemeManager.toggle());
+
+        // Workflow dropdown: remember user choice and auto-select agentic default on first load
+        const workflowSelect = document.getElementById('workflow-select');
+        if (workflowSelect) {
+            workflowSelect.addEventListener('change', () => {
+                workflowSelect.dataset.userSelected = 'true';
+            });
+        }
+
+        // Chat input: Enter sends, Shift+Enter newline
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send-btn');
+        if (chatInput) {
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendChatMessage();
+                }
+            });
+        }
+        if (chatSendBtn) {
+            chatSendBtn.addEventListener('click', () => this.sendChatMessage());
+        }
 
         // Drag and drop
         this.setupDragAndDrop();
@@ -615,13 +661,75 @@ class AlimaWebapp {
         await this.submitAnalysis('text', textContent, null, sourceType, sourceValue);
     }
 
+    // Send a chat message to the session agent - Claude Generated
+    async sendChatMessage() {
+        const chatInput = document.getElementById('chat-input');
+        if (!chatInput) return;
+        const message = chatInput.value.trim();
+        if (!message) return;
+        if (!this.sessionId) {
+            alert('Session not initialized. Please refresh the page.');
+            return;
+        }
+
+        // The backend will render the user bubble into the shared render buffer
+        // and stream it to us via WebSocket so the log stays the single source of truth.
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+
+        const providerSelect = document.getElementById('provider-override');
+        const modelSelect = document.getElementById('model-override');
+        const body = {
+            message,
+            provider: providerSelect?.value || null,
+            model: modelSelect?.value || null,
+        };
+
+        try {
+            const response = await fetch(`/api/session/${this.sessionId}/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!response.ok) {
+                const err = await response.text();
+                throw new Error(`HTTP ${response.status}: ${err}`);
+            }
+            const data = await response.json();
+            console.log('Chat started:', data);
+            // Make sure the WebSocket is open so backend-rendered events reach the UI.
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                this.connectWebSocket();
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+            this.appendSystemMessage(`❌ Chat-Fehler: ${error.message}`);
+        }
+    }
+
+    // Append a user chat bubble to the unified log region - Claude Generated
+    appendUserBubble(text) {
+        if (typeof appendBlock !== 'function') return;
+        const html = `
+            <div class="user-bubble">
+                <span class="user-bubble-inner">${this.escapeHtml(text)}</span>
+            </div>`;
+        appendBlock(html);
+    }
+
+    // Append a system/info line to the unified log region - Claude Generated
+    appendSystemMessage(text) {
+        if (typeof appendBlock !== 'function') return;
+        const html = `<div class="system-message">${this.escapeHtml(text)}</div>`;
+        appendBlock(html);
+    }
+
     // Submit analysis request
     async submitAnalysis(inputType, content, file, sourceType = null, sourceValue = null) {
         try {
             this.isAnalyzing = true;
             this.updateButtonState();
             this.clearStreamText();
-            this.resetSteps();
             this.resetResultsPanelContent();
             this.hideRecoveryOption();
             this.setResultsPanelState('running');
@@ -649,10 +757,17 @@ class AlimaWebapp {
                 formData.append('source_value', sourceValue);
             }
 
+            // Add workflow selection - Claude Generated
+            const workflowSelect = document.getElementById('workflow-select');
+            if (workflowSelect && workflowSelect.value) {
+                formData.append('workflow', workflowSelect.value);
+            }
+
             // Add global model override if selected - Claude Generated
-            const overrideSelect = document.getElementById('model-override');
-            if (overrideSelect && overrideSelect.value) {
-                formData.append('global_override', overrideSelect.value);
+            const providerSelect = document.getElementById('provider-override');
+            const modelSelect = document.getElementById('model-override');
+            if (providerSelect && providerSelect.value && modelSelect && modelSelect.value) {
+                formData.append('global_override', `${providerSelect.value}|${modelSelect.value}`);
             }
 
             const response = await fetch(`/api/analyze/${this.sessionId}`, {
@@ -888,6 +1003,10 @@ class AlimaWebapp {
             case 'stream_open': openStreamBlock(ev.id, ev.summary); break;
             case 'stream_token': appendStreamBlock(ev.text); break;
             case 'stream_close': closeStreamBlock(ev.id, ev.summary, ev.collapse); break;
+            case 'typing':
+                if (ev.active) showTyping(ev.model);
+                else hideTyping();
+                break;
             case 'clear': clearLog(); this._lastRenderSeq = -1; break;
             default: break;  // unknown/ignorable type — forward-compatible
         }
@@ -912,51 +1031,10 @@ class AlimaWebapp {
             this.hideRecoveryOption();
             console.log(`📊 Step update: ${msg.current_step}`);
 
-            // Map backend step names to frontend
-            const stepMap = {
-                'initialisation': 'initialisation',
-                'search': 'search',
-                'dk_search': 'classification',
-                'keywords': 'keywords',
-                'classification': 'classification',
-                'dk_classification': 'classification',
-            };
-            const stepInfoMap = {
-                'initialisation': 'Schlagworte',
-                'search': 'GND/SWB',
-                'dk_search': 'Katalogabgleich',
-                'keywords': 'Finale Worte',
-                'classification': 'Codeauswahl',
-                'dk_classification': 'Codeauswahl',
-            };
-
-            const displayStep = stepMap[msg.current_step] || msg.current_step;
-            const stepStatus = msg.current_step_status || 'running';  // Claude Generated
-            this.updateStepStatus(displayStep, stepStatus);
-            this.updateStepInfo(displayStep, stepInfoMap[msg.current_step]);
-
-            // Mark previous steps as completed
-            const stepIndex = this.steps.findIndex(s => s.id === displayStep);
-            const upTo = stepStatus === 'completed' ? stepIndex : stepIndex - 1;
-
-            for (let i = 0; i <= upTo; i++) {
-                this.updateStepStatus(this.steps[i].id, 'completed');
-            }
-
-            // Display DK search progress if available - Claude Generated
+            // DK search progress is logged to the raw stream for visibility.
             if (msg.dk_search_progress && (msg.current_step === 'dk_search' || msg.current_step === 'search')) {
                 const progress = msg.dk_search_progress;
-                const progressText = `(${progress.current}/${progress.total} - ${progress.percent}%)`;
-
-                // Find step info element and add progress
-                const stepElement = document.querySelector(`.step[data-step="${displayStep}"]`);
-                if (stepElement) {
-                    const infoElement = stepElement.querySelector('.step-info');
-                    if (infoElement) {
-                        const baseText = stepInfoMap[msg.current_step] || infoElement.dataset.defaultInfo || infoElement.textContent.split('(')[0].trim();
-                        infoElement.textContent = `${baseText} ${progressText}`;
-                    }
-                }
+                this.appendStreamText(`[${progress.current}/${progress.total}] (${progress.percent}%) DK-Suche…`);
             }
         }
 
@@ -1005,14 +1083,8 @@ class AlimaWebapp {
             const isExtractionOnly = msg.results && msg.results.input_mode === 'extraction_only';
 
             if (isExtractionOnly) {
-                // Only mark input step as completed for extraction-only
-                this.updateStepStatus('input', 'completed');
                 this.appendStreamText(`\n✅ Text erfolgreich extrahiert!`);
             } else {
-                // Mark all steps as completed for full pipeline
-                this.steps.forEach(step => {
-                    this.updateStepStatus(step.id, 'completed');
-                });
                 this.appendStreamText(`\n✅ Analyse erfolgreich abgeschlossen!`);
             }
 
@@ -1047,7 +1119,6 @@ class AlimaWebapp {
             }
         } else if (msg.status === 'error') {
             this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
-            this.updateStepStatus(msg.current_step, 'error');
         }
 
         this.isAnalyzing = false;
@@ -1110,43 +1181,6 @@ class AlimaWebapp {
             section.style.display = 'block';
             console.log(`Extracted text shown: ${text.substring(0, 100)}...`);
         }
-    }
-
-    // Update step status
-    updateStepStatus(stepId, status) {
-        const stepEl = document.getElementById(`step-${stepId}`);
-        if (!stepEl) return;
-
-        // Update class
-        stepEl.className = `step ${status}`;
-
-        // Update status icon
-        const statusEl = stepEl.querySelector('.step-status');
-        const icons = {
-            pending: '▷',
-            running: '▶',
-            completed: '✓',
-            error: '✗'
-        };
-        statusEl.textContent = icons[status] || '◆';
-    }
-
-    updateStepInfo(stepId, text) {
-        const stepEl = document.getElementById(`step-${stepId}`);
-        if (!stepEl) return;
-
-        const infoEl = stepEl.querySelector('.step-info');
-        if (!infoEl) return;
-
-        infoEl.textContent = text || infoEl.dataset.defaultInfo || '';
-    }
-
-    // Reset all steps
-    resetSteps() {
-        this.steps.forEach(step => {
-            this.updateStepStatus(step.id, 'pending');
-            this.updateStepInfo(step.id, step.description);
-        });
     }
 
     // Display working title after initialisation - Claude Generated
@@ -1523,7 +1557,6 @@ class AlimaWebapp {
     // Clear results
     async clearResults() {
         this.clearStreamText();
-        this.resetSteps();
         this.hideResultsPanel();
         this.resetSharedRender();  // WP12: empty the shared render region
 
@@ -1592,7 +1625,12 @@ class AlimaWebapp {
         if (streamEl) {
             streamEl.innerHTML = '';
         }
-        this.lastDisplayedStep = null;  // Reset step tracking - Claude Generated
+        // WP12: the shared render region lives in the same panel now.
+        if (typeof clearLog === 'function') {
+            clearLog();
+        }
+        this._lastRenderSeq = -1;
+        this.lastDisplayedStep = null;
     }
 
     scheduleStreamRender() {

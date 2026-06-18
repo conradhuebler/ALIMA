@@ -293,7 +293,7 @@ class TestSystemMessage(RendererTestBase):
 
     def test_system_message_centered(self):
         self.renderer.render_system_message("status")
-        self.assertIn("text-align: center", self.view.to_html())
+        self.assertIn('class="system-message"', self.view.to_html())
 
     def test_system_history(self):
         self.renderer.render_system_message("ok")
@@ -830,6 +830,81 @@ class TestWebLogViewTransportMapping(unittest.TestCase):
     def test_unknown_event_type_is_ignored(self):
         # Forward-compat: an unknown type must not raise.
         self.transport.send({"type": "future_event", "foo": "bar"})
+
+
+class TestLinkClassification(RendererTestBase):
+    """GND/SWB authority links + catalog config wiring. Claude Generated."""
+
+    class _Cfg:
+        catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
+        catalog_web_search_url = "https://katalog.ub.tu-freiberg.de/Search"
+
+    def setUp(self):
+        super().setUp()
+        # Realistic GUI/webapp state: a catalog host is configured, so link
+        # classification is active (no-op otherwise).
+        self.renderer.configure_catalog_from_config(self._Cfg())
+
+    def _finalize(self, markdown_text: str) -> str:
+        self.renderer.open_assistant_bubble("m")
+        self.renderer.append_assistant_token(markdown_text)
+        self.renderer.finalize_assistant_bubble()
+        return self.view.assistant_final or ""
+
+    def test_gnd_link_not_flagged_external(self):
+        html = self._finalize("[Quantenchemie](https://d-nb.info/gnd/4047979-1)")
+        self.assertIn('href="https://d-nb.info/gnd/4047979-1"', html)
+        self.assertNotIn("ext-link", html)
+
+    def test_swb_link_not_flagged_external(self):
+        html = self._finalize(
+            "[Begriff](https://swb.bsz-bw.de/DB=2.104/PPNSET?PPN=106192760&INDEXSET=21)"
+        )
+        self.assertIn("swb.bsz-bw.de", html)
+        self.assertNotIn("ext-link", html)
+
+    def test_unknown_external_link_is_flagged(self):
+        html = self._finalize("[Suche](https://www.google.com/search?q=x)")
+        self.assertIn("ext-link", html)
+
+    def test_trusted_tool_url_not_flagged(self):
+        self.renderer.add_trusted_urls({"https://doi.org/10.1/xyz"})
+        html = self._finalize("[Paper](https://doi.org/10.1/xyz)")
+        self.assertNotIn("ext-link", html)
+
+    def test_configure_catalog_from_config(self):
+        class _Cfg:
+            catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
+            catalog_web_search_url = "https://katalog.ub.tu-freiberg.de/Search"
+
+        self.renderer.configure_catalog_from_config(_Cfg())
+        self.assertEqual(
+            self.renderer._catalog_web_base,
+            "https://katalog.ub.tu-freiberg.de/Record",
+        )
+        self.assertIn(
+            "https://katalog.ub.tu-freiberg.de", self.renderer._catalog_hosts
+        )
+
+    def test_configure_catalog_handles_none(self):
+        # None is a no-op (must not raise, must not clobber existing config).
+        self.renderer.configure_catalog_from_config(None)
+        self.assertEqual(
+            self.renderer._catalog_web_base,
+            "https://katalog.ub.tu-freiberg.de/Record",
+        )
+
+    def test_catalog_marker_links_after_config(self):
+        class _Cfg:
+            catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
+            catalog_web_search_url = ""
+
+        self.renderer.configure_catalog_from_config(_Cfg())
+        html = self._finalize("Treffer: <<CAT:25515640|Quantenchemie>>")
+        self.assertIn(
+            'href="https://katalog.ub.tu-freiberg.de/Record/0-25515640"', html
+        )
+        self.assertIn("cat-link", html)
 
 
 if __name__ == "__main__":

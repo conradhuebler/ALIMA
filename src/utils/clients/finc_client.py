@@ -326,15 +326,22 @@ class FincClient:
         follow the operator-approved Biblio-style template.
         """
         record_id = raw.get("id") or ""
+        # web_url is the CATALOG RECORD page (e.g. .../Record/0-1846124905) — it
+        # must never point at a publisher/full-text URL. The finc/VuFind record id
+        # already carries the "0-" prefix, so web_record_url + id is the catalog
+        # link. Left empty when no record base is configured; the MCP handler then
+        # reconstructs it from catalog_web_record_url. - Claude Generated
         web_url = ""
         if self.web_record_url and record_id:
             web_url = f"{self.web_record_url}{record_id}"
-        elif record_id:
-            # Fall back to the first URL entry that looks like a record link
-            for u in raw.get("urls", []) or []:
-                if isinstance(u, dict) and u.get("url"):
-                    web_url = u["url"]
-                    break
+        # resource_url is the book itself at the publisher / full-text provider
+        # (e.g. https://www.degruyterbrill.com/isbn/...), offered IN ADDITION to
+        # the catalog link. First entry of the VuFind ``urls`` list. - Claude Generated
+        resource_url = ""
+        for u in raw.get("urls", []) or []:
+            if isinstance(u, dict) and u.get("url"):
+                resource_url = u["url"]
+                break
         return {
             "id": record_id,
             "title": raw.get("title") or "",
@@ -345,5 +352,6 @@ class FincClient:
             "series": raw.get("series") or [],
             "urls": raw.get("urls") or [],
             "web_url": web_url,
+            "resource_url": resource_url,
             "raw": raw,
         }

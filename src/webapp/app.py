@@ -13,7 +13,7 @@ import threading
 import unicodedata
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 import subprocess
 import sys
@@ -31,6 +31,7 @@ from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Streamin
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import uvicorn
+import yaml
 
 # Import ALIMA Pipeline components - Claude Generated
 from src.core.pipeline_manager import PipelineManager, PipelineConfig
@@ -39,7 +40,7 @@ from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from src.llm.llm_service import LlmService
 from src.llm.prompt_service import PromptService
 from src.utils.config_manager import ConfigManager
-from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata
+from src.utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata, resolve_input_to_text
 from src.utils.pipeline_utils import PipelineJsonManager, PipelineResultFormatter
 from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
 from src.webapp.result_serialization import (
@@ -47,6 +48,11 @@ from src.webapp.result_serialization import (
     ensure_json_serializable as _ensure_json_serializable,
     extract_results_from_analysis_state as _extract_results_from_analysis_state,
     prepare_results_for_export as _prepare_results_for_export,
+)
+from src.core.agents.workflow_loader import (
+    DEFAULT_SEARCH_PATHS,
+    find_workflow_file,
+    load_workflow,
 )
 
 # Setup logging - Claude Generated: shared setup (console + alima_webapp.log),
@@ -241,6 +247,11 @@ class Session:
         self.working_title = None  # Working title from initialisation step - Claude Generated
         self.dk_search_progress = None  # DK search progress info (current/total/percent) - Claude Generated
         self.pipeline_manager_ref = None  # Reference for step-abort - Claude Generated
+        self.chat_thread = None  # Running chat-agent StoppableAgentThread (for cancel) - Claude Generated
+        self.workflow_name = None  # Selected workflow for this session - Claude Generated
+        self.last_provider: Optional[str] = None  # Effective provider from last pipeline run - Claude Generated
+        self.last_model: Optional[str] = None  # Effective model from last pipeline run - Claude Generated
+        self.chat_history: list = []  # Chat-agent conversation history - Claude Generated
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -309,6 +320,8 @@ class Session:
             self.render_buffer.clear()  # WP12: reset render-event log - Claude Generated
             self.render_buffer_sent_count = 0
         self.abort_requested = False
+        self.workflow_name = None
+        self.chat_history = []
         self.cleanup()
         logger.info(f"Session {self.session_id} cleared")
 
@@ -370,9 +383,231 @@ def _build_session_renderer(session: "Session"):
     """
     from src.ui.unified_message_renderer import UnifiedMessageRenderer
 
-    return UnifiedMessageRenderer(
+    renderer = UnifiedMessageRenderer(
         WebSocketRenderTransport(session), _HeadlessAutoScroll()
     )
+    # Webapp parity with the GUI panel: wire the catalog web-OPAC base + hosts so
+    # <<CAT:rsn|…>> markers become links here too. Degrades silently. Claude Generated.
+    try:
+        from src.utils.config_manager import ConfigManager
+        renderer.configure_catalog_from_config(
+            ConfigManager().get_catalog_config()
+        )
+    except Exception:
+        pass
+    return renderer
+
+
+class _SessionBusSubscriber:
+    """Session-local AlimaStateBus subscriber for agentic pipeline + chat logs.
+
+    Bridges ``tool.called``, ``tool.result`` and ``state.pipeline_*`` bus events
+    into the per-session :class:`UnifiedMessageRenderer`. The webapp has no Qt
+    event loop, so the bus falls back to direct handler dispatch; this class is
+    therefore instantiated per-run and unsubscribed when the run ends to avoid
+    leaking handlers on the singleton bus.
+
+    Claude Generated (Phase 4).
+    """
+
+    def __init__(self, renderer):
+        self._renderer = renderer
+        self._bus = None
+        # Pipeline-step block state
+        self._step_tool_id: Optional[str] = None
+        self._open_step_status: List[str] = []
+        self._pipeline_step_open: bool = False
+        # Agentic prompt collapsible state
+        self._prompt_blocks: Dict[str, str] = {}
+        self._prompt_meta: Dict[str, str] = {}
+        # Bus tool-call id -> renderer tool-call id
+        self._bus_tool_ids: Dict[str, str] = {}
+
+        # Store bound handlers so subscribe/unsubscribe pairs match by identity.
+        self._on_tool_called = self._handle_tool_called
+        self._on_tool_result = self._handle_tool_result
+        self._on_pipeline_step = self._handle_pipeline_step
+        self._on_pipeline_prompt = self._handle_pipeline_prompt
+        self._on_pipeline_prompt_done = self._handle_pipeline_prompt_done
+        self._on_pipeline_completed = self._handle_pipeline_completed
+        self._on_pipeline_started = self._handle_pipeline_started
+
+    def subscribe(self) -> None:
+        from src.core.state_bus import AlimaStateBus
+
+        self._bus = AlimaStateBus()
+        self._bus.subscribe("tool.called", self._on_tool_called)
+        self._bus.subscribe("tool.result", self._on_tool_result)
+        self._bus.subscribe("state.pipeline_step", self._on_pipeline_step)
+        self._bus.subscribe("state.pipeline_prompt", self._on_pipeline_prompt)
+        self._bus.subscribe(
+            "state.pipeline_prompt_done", self._on_pipeline_prompt_done
+        )
+        self._bus.subscribe("state.pipeline_completed", self._on_pipeline_completed)
+        self._bus.subscribe("state.pipeline_started", self._on_pipeline_started)
+
+    def unsubscribe(self) -> None:
+        if self._bus is None:
+            return
+        try:
+            self._bus.unsubscribe("tool.called", self._on_tool_called)
+            self._bus.unsubscribe("tool.result", self._on_tool_result)
+            self._bus.unsubscribe("state.pipeline_step", self._on_pipeline_step)
+            self._bus.unsubscribe("state.pipeline_prompt", self._on_pipeline_prompt)
+            self._bus.unsubscribe(
+                "state.pipeline_prompt_done", self._on_pipeline_prompt_done
+            )
+            self._bus.unsubscribe(
+                "state.pipeline_completed", self._on_pipeline_completed
+            )
+            self._bus.unsubscribe("state.pipeline_started", self._on_pipeline_started)
+        except Exception:
+            logger.exception("SessionBusSubscriber unsubscribe failed")
+        finally:
+            self._bus = None
+            self._step_tool_id = None
+            self._open_step_status.clear()
+            self._pipeline_step_open = False
+            self._prompt_blocks.clear()
+            self._prompt_meta.clear()
+            self._bus_tool_ids.clear()
+
+    # ------------------------------------------------------------------
+    # Handlers
+    # ------------------------------------------------------------------
+
+    def _handle_tool_called(self, payload: Dict[str, Any]) -> None:
+        bus_id = (payload or {}).get("id") or ""
+        name = (payload or {}).get("name") or ""
+        args = (payload or {}).get("arguments") or {}
+        tool_id = self._renderer.render_tool_call(name, args)
+        if bus_id:
+            self._bus_tool_ids[bus_id] = tool_id
+
+    def _handle_tool_result(self, payload: Dict[str, Any]) -> None:
+        bus_id = (payload or {}).get("id") or ""
+        result = (payload or {}).get("result") or ""
+        raw_status = (payload or {}).get("status") or "success"
+        status = "success" if raw_status == "ok" else raw_status
+
+        # Register tool-result URLs as trusted so pre-formatted GND/catalog links
+        # aren't flagged as external (GUI parity). Claude Generated.
+        try:
+            import json as _json
+            from src.core.url_utils import extract_urls_from_json
+            self._renderer.add_trusted_urls(
+                extract_urls_from_json(_json.loads(result))
+            )
+        except Exception:
+            pass
+
+        if (payload or {}).get("cache_hit"):
+            preview = (result or "").strip().replace("\n", " ")
+            if len(preview) > 80:
+                preview = preview[:80] + "…"
+            result = f"📦 cache: {preview}"
+
+        tool_id = self._bus_tool_ids.pop(bus_id, None) if bus_id else None
+        if tool_id:
+            self._renderer.render_tool_result(
+                tool_id, result, status=status or "success"
+            )
+        else:
+            preview = (result or "").strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            self._renderer.render_system_message(f"↳ {preview}")
+
+    def _handle_pipeline_step(self, payload: Dict[str, Any]) -> None:
+        status = payload.get("status", "")
+        step_id = payload.get("step_id", "") or "?"
+        name = payload.get("name", "") or step_id
+        tool_name = f"pipeline.{step_id}"
+        args = {
+            "step": step_id,
+            "name": name,
+            "tool": payload.get("tool", ""),
+        }
+
+        if status == "running":
+            self._step_tool_id = self._renderer.render_tool_call(tool_name, args)
+            self._open_step_status.clear()
+            self._pipeline_step_open = True
+            return
+
+        result_status = "success" if status == "completed" else "error"
+        if self._open_step_status:
+            result_text = "\n".join(self._open_step_status)
+        else:
+            result_text = f"{status or 'done'}: {name}"
+        self._open_step_status.clear()
+        self._pipeline_step_open = False
+
+        if self._step_tool_id:
+            self._renderer.render_tool_result(
+                self._step_tool_id, result_text, status=result_status
+            )
+            self._step_tool_id = None
+        else:
+            tid = self._renderer.render_tool_call(tool_name, args)
+            self._renderer.render_tool_result(tid, result_text, status=result_status)
+
+    def _handle_pipeline_prompt(self, payload: Dict[str, Any]) -> None:
+        prompt_id = str(payload.get("prompt_id", "") or "")
+        step_id = payload.get("step_id", "") or "?"
+        kind = payload.get("kind", "input") or "input"
+        system = payload.get("system", "") or ""
+        user = payload.get("user", "") or ""
+        ts = str(payload.get("timestamp", "") or "")
+        ts_hms = ts.split("T")[-1] if "T" in ts else ts
+        provider = payload.get("provider", "") or ""
+        model = payload.get("model", "") or ""
+
+        meta_parts = []
+        if ts_hms:
+            meta_parts.append(ts_hms)
+        pm = "/".join(p for p in (provider, model) if p)
+        if pm:
+            meta_parts.append(pm)
+        meta = "  ".join(meta_parts)
+
+        if kind == "reflection":
+            icon, title = "🔍", f"Reflexion '{step_id}'"
+        else:
+            icon, title = "📥", f"Input '{step_id}'"
+
+        body = f"--- SYSTEM ---\n{system}\n\n--- USER ---\n{user}"
+        # Close any open stream block so the collapsible sits on its own line.
+        self._renderer.end_streaming_line()
+        tool_id = self._renderer.render_collapsible(
+            title, body, collapsed=True, icon=icon, meta=meta
+        )
+        if prompt_id:
+            self._prompt_blocks[prompt_id] = tool_id
+            self._prompt_meta[prompt_id] = meta
+
+    def _handle_pipeline_prompt_done(self, payload: Dict[str, Any]) -> None:
+        prompt_id = str(payload.get("prompt_id", "") or "")
+        dur = payload.get("duration_s")
+        tool_id = self._prompt_blocks.get(prompt_id)
+        if tool_id is None or dur is None:
+            return
+        base = self._prompt_meta.get(prompt_id, "")
+        meta = f"{base}  ⏱ {float(dur):.1f}s" if base else f"⏱ {float(dur):.1f}s"
+        self._renderer.update_collapsible_meta(tool_id, meta)
+
+    def _handle_pipeline_completed(self, payload: Dict[str, Any]) -> None:
+        label = "✅ Pipeline abgeschlossen"
+        workflow = (payload or {}).get("workflow")
+        if workflow:
+            label += f" ({workflow})"
+        self._renderer.render_system_message(label)
+
+    def _handle_pipeline_started(self, payload: Dict[str, Any]) -> None:
+        pid = (payload or {}).get("pipeline_id", "") or ""
+        self._renderer.render_system_message(
+            f"🚀 Pipeline gestartet{f' ({pid[:8]})' if pid else ''}"
+        )
 
 
 @app.get("/")
@@ -408,6 +643,13 @@ async def get_webapp(request: Request, session: str = None) -> HTMLResponse:
     """
     if not session:
         session = str(uuid.uuid4())
+
+    # Ensure the session exists in server state so a tab opened with
+    # ?session=... can immediately poll/chat without a separate create call.
+    # If an existing ID was passed, we keep its state; otherwise we seed it.
+    if session not in sessions:
+        sessions[session] = Session(session)
+        logger.info(f"Created session from webapp route: {session}")
 
     # Render template with injected session ID
     return templates.TemplateResponse(
@@ -477,6 +719,14 @@ async def cancel_session(session_id: str) -> dict:
     session = sessions[session_id]
     if session.status == "running":
         session.abort_requested = True
+        # Stop a running chat-agent turn (aborts the AgentLoop + in-flight LLM
+        # generation). Pipeline runs read abort_requested separately. - Claude Generated
+        chat_thread = getattr(session, "chat_thread", None)
+        if chat_thread is not None:
+            try:
+                chat_thread.request_stop()
+            except Exception:
+                logger.exception("Failed to request chat-thread stop")
         logger.info(f"Cancellation requested for session {session_id}")
         return {
             "session_id": session_id,
@@ -544,6 +794,7 @@ async def start_analysis(
     global_override: Optional[str] = Form(None),  # "provider|model" override - Claude Generated
     source_type: Optional[str] = Form(None),   # Original source type for filename metadata - Claude Generated
     source_value: Optional[str] = Form(None),  # DOI/URL/filename for working title - Claude Generated
+    workflow: Optional[str] = Form(None),  # Workflow stem or __classic__ - Claude Generated
 ) -> dict:
     """Start pipeline analysis - Direct execution with LLM queueing - Claude Generated (2026-01-13)"""
     # Auto-create session if not exists (for /webapp route with injected sessionId) - Claude Generated (2026-01-13)
@@ -574,9 +825,12 @@ async def start_analysis(
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     session.status = "running"
+    if workflow:
+        session.workflow_name = workflow
+        logger.info(f"Session {session_id} workflow set to: {workflow}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -925,6 +1179,117 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
     raise HTTPException(status_code=400, detail=f"Format not supported: {format}")
 
 
+# Workflow list order mirrors the Qt6 pipeline tab picker.
+_WORKFLOW_ORDER = [
+    "alima_v51",
+    "__classic__",
+    "alima",
+    "alima_classic_v51",
+    "alima_classic",
+    "title_list_search",
+    "catalog_search",
+    "synonym_expansion",
+    "batch_metadata",
+]
+
+
+def _discover_workflows() -> tuple[dict, dict]:
+    """Scan DEFAULT_SEARCH_PATHS for v4 YAML workflows.
+
+    Returns (root_stem → version, legacy_stem → version). - Claude Generated
+    """
+    root: dict = {}
+    legacy: dict = {}
+    seen: set = set()
+
+    for base in DEFAULT_SEARCH_PATHS:
+        if not base.exists() or not base.is_dir():
+            continue
+        for path in sorted(base.glob("*.yaml"), key=lambda p: str(p.name)):
+            key = path.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh) or {}
+                version = str(data.get("version", "?"))
+                root[path.stem] = version
+            except Exception as e:
+                logger.warning(f"Could not read workflow {path}: {e}")
+        legacy_dir = base / "legacy"
+        if legacy_dir.is_dir():
+            for path in sorted(legacy_dir.glob("*.yaml"), key=lambda p: str(p.name)):
+                key = path.resolve()
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = yaml.safe_load(fh) or {}
+                    version = str(data.get("version", "?"))
+                    legacy[path.stem] = version
+                except Exception as e:
+                    logger.warning(f"Could not read legacy workflow {path}: {e}")
+
+    return root, legacy
+
+
+@app.get("/api/workflows")
+async def get_available_workflows() -> list:
+    """Get available pipeline/agentic workflows for the workflow dropdown. - Claude Generated"""
+    try:
+        root, legacy = _discover_workflows()
+
+        def _label(stem: str) -> str:
+            ver = root.get(stem)
+            return f"{stem} (v{ver})" if ver else stem
+
+        items = []
+        added: set = set()
+
+        if "alima_v51" in root:
+            items.append({
+                "label": f"⭐ ALIMA v5.1 — agentisch (v{root['alima_v51']})",
+                "value": "alima_v51",
+                "agentic": True,
+            })
+            added.add("alima_v51")
+
+        items.append({
+            "label": "Klassische Pipeline (nicht agentisch)",
+            "value": "__classic__",
+            "agentic": False,
+        })
+        added.add("__classic__")
+
+        for stem in _WORKFLOW_ORDER:
+            if stem in added or stem not in root:
+                continue
+            items.append({"label": _label(stem), "value": stem, "agentic": True})
+            added.add(stem)
+
+        for stem in sorted(root):
+            if stem in added:
+                continue
+            items.append({"label": _label(stem), "value": stem, "agentic": True})
+            added.add(stem)
+
+        if legacy:
+            items.append({"label": "───────────────", "value": "__separator__", "agentic": False})
+            for stem in sorted(legacy):
+                items.append({
+                    "label": f"{stem} (legacy v{legacy[stem]})",
+                    "value": stem,
+                    "agentic": True,
+                })
+
+        return items
+    except Exception as e:
+        logger.error(f"Error getting workflows: {e}")
+        return []
+
+
 class AgentRunRequest(BaseModel):
     """Body for POST /agent/run — Claude Generated (P-ι)."""
     input: Dict[str, Any] = {}
@@ -936,6 +1301,15 @@ class AgentRunRequest(BaseModel):
     mode: Optional[str] = None  # "verschlagwortung" | "suche" | "general" | "auto"
     autonomous: bool = False
     stream: bool = True
+
+
+class ChatMessageRequest(BaseModel):
+    """Body for POST /api/session/{id}/chat — Claude Generated."""
+    message: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = None
+    mode: Optional[str] = None  # auto | verschlagwortung | suche | general
 
 
 def _agent_context_from_input(input_data: Dict[str, Any]) -> str:
@@ -1121,6 +1495,226 @@ def _wrap_agent_target(run_callable, q):
     return _target
 
 
+def _shared_context_from_analysis_state(state) -> Optional[Any]:
+    """Bridge a PipelineManager analysis_state into a SharedContext for chat tools.
+
+    Returns None if the bridge cannot be built (e.g. state missing). - Claude Generated
+    """
+    if state is None:
+        return None
+    try:
+        from src.core.agents.shared_context import SharedContext
+        return SharedContext.from_keyword_analysis_state(state)
+    except Exception as e:
+        logger.debug(f"Could not build SharedContext from analysis state: {e}")
+        return None
+
+
+def _build_session_agent_runner(session: "Session", req: ChatMessageRequest):
+    """Per-session HeadlessAgentRunner wired to the session's pipeline context. - Claude Generated"""
+    from src.core.headless_agent import HeadlessAgentRunner, resolve_provider_model
+    from src.core.headless_gateway import AutoRejectGateway
+    from src.utils.config_models import ChatConfig
+
+    services = AppContext().get_services()
+    cm = services['config_manager']
+    try:
+        chat_config = cm.load_config().chat_config
+    except Exception:
+        chat_config = ChatConfig()
+
+    # Reuse the session's pipeline manager reference if a pipeline ran here;
+    # otherwise create an isolated one so chat tools still see a PM.
+    pm = session.pipeline_manager_ref
+    if pm is None:
+        pm = PipelineManager(
+            alima_manager=services['alima_manager'],
+            cache_manager=services['cache_manager'],
+            logger=logger,
+            config_manager=cm,
+        )
+        # Seed the isolated PM with the session analysis state so chat tools
+        # can answer questions about the just-finished pipeline results.
+        if session.current_analysis_state is not None:
+            pm.current_analysis_state = session.current_analysis_state
+
+    # Chat-agent in the webapp session is never autonomous in round 1:
+    # destructive mutations require explicit confirmation via the UI.
+    gateway = AutoRejectGateway()
+
+    # Prefer explicit request values, then the session's last effective pipeline
+    # provider/model, then the usual ChatConfig / unified-config fallbacks.
+    chat_provider = req.provider or session.last_provider
+    chat_model = req.model or session.last_model
+    provider, model = resolve_provider_model(
+        chat_provider, chat_model,
+        chat_config=chat_config, pipeline_manager=pm, llm_service=services['llm_service'],
+    )
+    if not provider or not model:
+        raise ValueError(
+            "No provider/model — set in request body, ChatConfig defaults, "
+            "or pipeline_default_provider/model in config"
+        )
+
+    runner = HeadlessAgentRunner(
+        llm_service=services['llm_service'],
+        pipeline_manager=pm,
+        chat_config=chat_config,
+        gateway=gateway,
+        mode=req.mode or "auto",
+        max_iterations=30,
+    )
+    return runner, pm, provider, model
+
+
+@app.post("/api/session/{session_id}/chat")
+async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
+    """Send a chat message within a session and stream the agent turn via WebSocket.
+
+    The assistant reply is rendered into the same session render_buffer that
+    pipelines use, so the unified log/chat panel shows one continuous conversation.
+    """
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[session_id]
+    message = (req.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Empty message")
+
+    try:
+        runner, pm, provider, model = _build_session_agent_runner(session, req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Persist user turn in session history.
+    session.chat_history.append({"role": "user", "content": message})
+
+    # Renderer writes into the same append-only buffer the WebSocket broadcasts.
+    session_renderer = _build_session_renderer(session)
+    # Phase 4: bridge AlimaStateBus events (extra tool calls, pipeline state)
+    # during the chat turn into the same render buffer.
+    bus_subscriber = _SessionBusSubscriber(session_renderer)
+    bus_subscriber.subscribe()
+
+    session_renderer.render_user_bubble(message)
+    session_renderer.show_typing(f"{provider} | {model}")
+    session_renderer.open_assistant_bubble(f"{provider} | {model}")
+
+    # Keep the WebSocket alive while the chat agent is streaming. The WS loop
+    # terminates as soon as the session leaves running/idle, so after a pipeline
+    # run the connection would otherwise drop before any chat tokens arrive.
+    session.status = "running"
+
+    # Derive work context from the session's pipeline result, if any.
+    context_str = ""
+    state = getattr(pm, "current_analysis_state", None) or session.current_analysis_state
+    shared_context = _shared_context_from_analysis_state(state)
+    if state is not None:
+        wt = getattr(state, "working_title", "") or ""
+        ab = getattr(state, "original_abstract", "") or ""
+        parts = []
+        if wt:
+            parts.append(f"Titel: {wt}")
+        if ab:
+            parts.append(f"Abstract: {ab[:500]}{'…' if len(ab) > 500 else ''}")
+        context_str = "\n".join(parts)
+
+    services = AppContext().get_services()
+
+    # Fresh turn → clear any stale cancel flag from a previous run.
+    session.abort_requested = False
+
+    # Track open tool-call ids so on_tool_result can close the matching block.
+    _open_tool_ids: list = []
+
+    def run_chat_turn(should_stop):
+        try:
+            def _on_tool_call(tc):
+                tool_id = session_renderer.render_tool_call(
+                    tc.name, tc.arguments or {}
+                )
+                _open_tool_ids.append(tool_id)
+
+            def _on_tool_result(_name, res):
+                # Trust tool-result URLs so pre-formatted GND/catalog links
+                # aren't flagged external (GUI parity). Claude Generated.
+                try:
+                    import json as _json
+                    from src.core.url_utils import extract_urls_from_json
+                    session_renderer.add_trusted_urls(
+                        extract_urls_from_json(_json.loads(res))
+                    )
+                except Exception:
+                    pass
+                tool_id = _open_tool_ids.pop() if _open_tool_ids else None
+                if tool_id:
+                    session_renderer.render_tool_result(
+                        tool_id, res[:2000], status="success"
+                    )
+                else:
+                    session_renderer.render_system_message(
+                        f"↳ {_name}: {res[:120]}"
+                    )
+
+            result = runner.run(
+                message,
+                provider=provider,
+                model=model,
+                context_str=context_str,
+                temperature=req.temperature,
+                conversation_history=list(session.chat_history),
+                shared_context=shared_context,
+                on_token=lambda t: session_renderer.append_assistant_token(t),
+                on_status=lambda s: session_renderer.render_pipeline_log(s, "debug"),
+                on_tool_call=_on_tool_call,
+                on_tool_result=_on_tool_result,
+                should_stop=should_stop,
+            )
+            # Persist assistant turn and tool log in session history.
+            content = getattr(result, "content", "") or ""
+            if content:
+                session.chat_history.append({"role": "assistant", "content": content})
+            session_renderer.finalize_assistant_bubble()
+            if should_stop():
+                session_renderer.render_system_message("⏹ Chat abgebrochen")
+            else:
+                session_renderer.render_system_message("✅ Assistant-Antwort abgeschlossen")
+            session.status = "idle"
+            return result
+        except Exception as e:
+            logger.exception("Session chat turn failed")
+            session_renderer.render_system_message(f"❌ Chat-Fehler: {e}")
+            session.status = "error"
+            session.error_message = str(e)
+            raise
+        finally:
+            session_renderer.hide_typing()
+            session.chat_thread = None
+            try:
+                bus_subscriber.unsubscribe()
+            except Exception:
+                logger.exception("Failed to unsubscribe chat bus subscriber")
+
+    # Run on a StoppableAgentThread so /cancel can abort the turn (parity with
+    # /agent/run and the GUI ChatAgentWorker). The thread exposes _stop_event,
+    # which nested pipeline tools also read for mid-run cancellation. Callbacks
+    # fire on the worker thread and append to the lock-protected render buffer.
+    from src.core.headless_agent import StoppableAgentThread
+    chat_thread = StoppableAgentThread(
+        run_chat_turn, llm_service=services['llm_service']
+    )
+    session.chat_thread = chat_thread
+    chat_thread.start()
+
+    return {
+        "session_id": session_id,
+        "status": "chat_started",
+        "provider": provider,
+        "model": model,
+    }
+
+
 @app.get("/api/session/{session_id}/recover")
 async def recover_session(session_id: str) -> dict:
     """Recover results from auto-saved state after timeout - Claude Generated"""
@@ -1193,6 +1787,7 @@ async def run_analysis(
     global_override: Optional[str] = None,
     source_type: Optional[str] = None,   # Original source type for working title - Claude Generated
     source_value: Optional[str] = None,  # DOI/URL/filename for working title - Claude Generated
+    workflow: Optional[str] = None,  # Workflow stem or __classic__ - Claude Generated
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -1202,8 +1797,12 @@ async def run_analysis(
     # WP12: single shared producer for the DK/GND chrome (same renderer the GUI
     # uses); events are buffered on the session and broadcast over the WebSocket.
     session_renderer = _build_session_renderer(session)
+    # Phase 4: bridge AlimaStateBus events (tool calls, pipeline steps/prompts)
+    # into the same render buffer. Subscriber is local to this run.
+    bus_subscriber = _SessionBusSubscriber(session_renderer)
 
     try:
+        bus_subscriber.subscribe()
         # Resolve input to text - Claude Generated
         input_text = None
 
@@ -1276,7 +1875,6 @@ async def run_analysis(
 
         # Create a NEW PipelineManager for this session to prevent cross-session contamination - Claude Generated (2026-01-13)
         # This ensures each concurrent analysis has its own isolated pipeline state
-        from src.core.pipeline_manager import PipelineManager
         pipeline_manager = PipelineManager(
             alima_manager=services['alima_manager'],
             cache_manager=services['cache_manager'],
@@ -1297,6 +1895,28 @@ async def run_analysis(
 
         # Set config on pipeline manager (was missing - config was built but never applied)
         pipeline_manager.set_config(pipeline_config)
+
+        # Remember the effective provider/model so the session chat agent can fall
+        # back to the same credentials after the pipeline manager is discarded.
+        eff_provider = pipeline_config.global_provider_override
+        eff_model = pipeline_config.global_model_override
+        if not eff_provider:
+            init_cfg = pipeline_config.step_configs.get("initialisation")
+            if init_cfg is not None:
+                eff_provider = getattr(init_cfg, "provider", None) or ""
+                eff_model = getattr(init_cfg, "model", None) or ""
+        session.last_provider = eff_provider or None
+        session.last_model = eff_model or None
+
+        # Configure agentic mode when a non-classic workflow is requested - Claude Generated
+        if workflow and workflow != "__classic__":
+            pipeline_config.enable_agentic_mode = True
+            pipeline_config.workflow_name = workflow
+            logger.info(f"🧬 Agentic mode enabled for workflow: {workflow}")
+        else:
+            pipeline_config.enable_agentic_mode = False
+            pipeline_config.workflow_name = None
+            logger.info("🔒 Classic (non-agentic) pipeline mode selected")
 
         # Define callbacks for live updates - Claude Generated
         def on_step_started(step):
@@ -1506,6 +2126,11 @@ async def run_analysis(
         session.status = "error"
         session.error_message = str(e)
     finally:
+        # Phase 4: remove session-local bus handlers before cleanup.
+        try:
+            bus_subscriber.unsubscribe()
+        except Exception:
+            logger.exception("Failed to unsubscribe session bus subscriber")
         # Cleanup
         if session_id in sessions:
             session.cleanup()

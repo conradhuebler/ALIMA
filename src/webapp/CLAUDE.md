@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA pipeline, making the pipeline widget accessible via browser without PyQt6.
+The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA pipeline and agentic platform, accessible via browser without PyQt6. It mirrors the Qt6 GUI: workflow selection, unified chat+log panel, and headless chat-agent integration.
 
 ## Architecture
 
@@ -17,7 +17,8 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 **Frontend** (`static/`):
 - Vanilla JavaScript (no dependencies)
 - Tab-based input UI (text, DOI, file upload)
-- Pipeline step visualization (5-step workflow)
+- Workflow dropdown (classical + YAML agentic workflows)
+- Unified chat/log panel (user/assistant bubbles, tool-call collapsibles, live LLM streaming)
 - WebSocket client for live progress
 - JSON download handler
 
@@ -27,7 +28,11 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 
 ## Current Features
 
-✅ **Pipeline Widget as Webapp** - Full visualization of 5 analysis steps
+✅ **Agentic Platform** - Workflow dropdown + agentic pipeline mode shared with Qt6 GUI
+✅ **Unified Chat/Log Panel** - Right-side panel renders pipeline log, tool-call collapsibles, LLM streaming, user/assistant chat bubbles (old 5-step timeline removed)
+✅ **Workflow Selection** - Classical pipeline (`__classic__`) and YAML agentic workflows via `/api/workflows`
+✅ **Session Chat Agent** - `POST /api/session/{id}/chat` reuses pipeline context and streams over WebSocket
+✅ **Pipeline Widget as Webapp** - Analysis visualization via shared WP12 render layer
 ✅ **Input Modes** - Text, DOI/URL, PDF, Images, Webcam capture
 ✅ **Drag & Drop Upload** - Intuitive file upload with visual feedback
 ✅ **Webcam Integration** - Capture images directly from browser
@@ -125,23 +130,26 @@ Old behavior:     /                    → serves index.html, uses /api/session 
 |--------|----------|---------|
 | POST | `/api/session` | Create new session |
 | GET | `/api/session/{id}` | Get session status |
-| POST | `/api/analyze/{id}` | Submit analysis (routed through queue, NEW 2026-01-12) |
-| GET | `/api/queue/status` | Get global queue statistics (NEW 2026-01-12) |
-| GET | `/api/session/{id}/queue` | Get session queue position and ETA (NEW 2026-01-12) |
+| POST | `/api/analyze/{id}` | Submit analysis; pass `workflow` (`__classic__` or YAML stem) and `global_override` |
+| GET | `/api/workflows` | List classical + agentic workflows for the dropdown |
+| POST | `/api/session/{id}/chat` | Send a chat message in the session context |
+| GET | `/api/queue/status` | Get global queue statistics |
 | WS | `/ws/{id}` | WebSocket for live updates (30 min timeout, heartbeat every 5s) |
 | GET | `/api/export/{id}` | Download JSON results |
-| GET | `/api/session/{id}/recover` | Recover results from auto-save after timeout (2026-01-06) |
+| GET | `/api/session/{id}/recover` | Recover results from auto-save after timeout |
 | DELETE | `/api/session/{id}` | Delete session |
 
 ## Implementation Notes
 
 - **Pipeline Integration**: Direct PipelineManager with callbacks (shared with CLI/GUI)
+- **Agentic Mode**: `/api/analyze/{id}` with `workflow=<stem>` sets `enable_agentic_mode=True` on `PipelineConfig`
+- **Shared Render Layer (WP12)**: `UnifiedMessageRenderer` + `WebSocketRenderTransport` emit the same render events as the Qt6 GUI; `alima_render.js/css` render them in the browser
+- **StateBus Bridge**: `_SessionBusSubscriber` (per-run) forwards `tool.called`, `tool.result`, `state.pipeline_*` events into the session render buffer; `state_bus.py` falls back to direct dispatch when no Qt event loop is present
+- **Chat Agent**: `_build_session_agent_runner` reuses the session's `PipelineManager` or seeds an isolated one with `current_analysis_state`; `HeadlessAgentRunner` runs off the asyncio loop
 - **Service Initialization**: AppContext singleton initializes services on first use (lazy init)
-- **Initialization Sequence**: ConfigManager → LlmService → PromptService → AlimaManager → UnifiedKnowledgeManager → PipelineManager (6-step pattern)
+- **Initialization Sequence**: ConfigManager → LlmService → PromptService → AlimaManager → UnifiedKnowledgeManager → PipelineManager
 - **Callbacks**: `step_started`, `step_completed`, `step_error`, `pipeline_completed`, `stream_callback`
-- **Queue Integration** (NEW 2026-01-12): PipelineQueueManager initialized on startup, all `/api/analyze` requests routed through queue
-- **Queue Execution**: Queued requests executed when semaphore available, FIFO scheduling with persistent SQLite storage
-- **Thread-Safety** (NEW 2026-01-12): `Session._streaming_lock` (threading.Lock) protects streaming_buffer from concurrent access (background thread vs WebSocket handler)
+- **Thread-Safety**: `Session._streaming_lock` (threading.Lock) protects streaming_buffer and render buffer from concurrent access
 - **WebSocket**: Live progress updates via callbacks (with HTTP polling fallback), connects automatically when request starts executing
 - **File Handling**: Uploaded files read immediately in request handler (prevents "read of closed file" error)
 - **Drag & Drop**: Uses dragenter/dragover/drop events for file upload with visual feedback
@@ -153,7 +161,6 @@ Old behavior:     /                    → serves index.html, uses /api/session 
 - **Recovery Mechanism**: Automatic detection of WebSocket timeout, recovery button shows to restore results from auto-save
 - **Heartbeat Protocol**: WebSocket sends heartbeat every 5 seconds to maintain connection during long DK searches
 - **Auto-Cleanup**: Old auto-save files (>24h) automatically removed on webapp startup
-- **Queue UI** (NEW 2026-01-12): Shows queue position and ETA with animated status indicator, auto-connects WebSocket when execution starts
 
 ## Usage
 

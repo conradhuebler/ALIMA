@@ -553,129 +553,6 @@ body {
 
 .btn-full { flex: 1; }
 
-/* ═══════════════════════════════════════════════════
-   PIPELINE TIMELINE — Vertical sidebar layout
-   ═══════════════════════════════════════════════════ */
-.pipeline-timeline {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    padding: var(--sp-1) 0;
-}
-
-/* Each step: icon left, text right */
-.step {
-    display: grid;
-    grid-template-columns: 36px 1fr;
-    gap: var(--sp-3);
-    padding: 7px 0;
-    position: relative;
-    align-items: flex-start;
-    transition: all var(--ease-base);
-}
-
-/* Vertical connector line — runs from bottom of icon down to next step */
-.step:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: 17px;          /* center of 36px column = 18px, minus 1px for visual centering */
-    top: calc(7px + 36px); /* padding-top + icon height */
-    bottom: 0;
-    width: 2px;
-    background: var(--clr-border);
-    z-index: 0;
-    transition: background var(--ease-base);
-}
-
-/* No ::before needed for vertical layout */
-.step::before { display: none; }
-
-/* Icon circle */
-.step-status {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: var(--clr-surface-2);
-    border: 2px solid var(--clr-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.9rem;
-    position: relative;
-    z-index: 1;
-    flex-shrink: 0;
-    transition: all var(--ease-base);
-    line-height: 1;
-}
-
-.step-content {
-    padding-top: 7px; /* vertically align text with icon center */
-}
-
-.step-name {
-    font-family: var(--font-display);
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--clr-muted);
-    line-height: 1.2;
-    transition: color var(--ease-base);
-}
-
-.step-info {
-    font-size: 0.72rem;
-    color: var(--clr-subtle);
-    margin-top: 2px;
-    line-height: 1.3;
-}
-
-/* ── Step States ── */
-.step.pending .step-status {
-    background: var(--clr-surface-2);
-    border-color: var(--clr-border);
-    color: var(--clr-subtle);
-}
-
-.step.running .step-status {
-    background: var(--clr-warning-bg);
-    border-color: var(--clr-warning);
-    color: var(--clr-warning);
-    animation: ripple 1.6s ease-in-out infinite;
-}
-
-.step.running .step-name  { color: var(--clr-warning); }
-.step.running .step-info  { color: var(--clr-warning); opacity: 0.7; }
-
-.step.running:not(:last-child)::after {
-    background: linear-gradient(to bottom, var(--clr-warning), var(--clr-border));
-    opacity: 0.6;
-}
-
-.step.completed .step-status {
-    background: var(--clr-success-bg);
-    border-color: var(--clr-success);
-    color: var(--clr-success);
-}
-
-.step.completed .step-name { color: var(--clr-success); }
-
-.step.completed:not(:last-child)::after {
-    background: var(--clr-success);
-}
-
-.step.error .step-status {
-    background: var(--clr-error-bg);
-    border-color: var(--clr-error);
-    color: var(--clr-error);
-}
-
-.step.error .step-name { color: var(--clr-error); }
-
-@keyframes ripple {
-    0%   { box-shadow: 0 0 0 0    rgba(217, 119, 6, 0.55); }
-    70%  { box-shadow: 0 0 0 10px rgba(217, 119, 6, 0);    }
-    100% { box-shadow: 0 0 0 0    rgba(217, 119, 6, 0);    }
-}
-
 .autosave-chip {
     font-size: 0.72rem;
     font-weight: 500;
@@ -1568,3 +1445,50 @@ body {
    rules are webapp layout only (rounding + hide-when-empty). */
 .alima-render-region { border-radius: 6px; margin-top: 8px; overflow: auto; }
 .alima-render-region:empty { display: none; }
+
+/* ═══════════════════════════════════════════════════
+   UNIFIED CHAT INPUT (Phase 2)
+   ═══════════════════════════════════════════════════ */
+.chat-input-area {
+    border-top: 1px solid var(--clr-border);
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--clr-surface);
+}
+.chat-input-wrap {
+    display: flex;
+    gap: var(--sp-2);
+    align-items: flex-end;
+}
+.chat-input {
+    flex: 1;
+    min-height: 38px;
+    max-height: 120px;
+    padding: 8px 10px;
+    border: 1px solid var(--clr-border-2);
+    border-radius: var(--r-md);
+    background: var(--clr-surface);
+    color: var(--clr-text);
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    resize: none;
+    outline: none;
+}
+.chat-input:focus {
+    border-color: var(--clr-primary);
+    box-shadow: 0 0 0 3px var(--clr-primary-ring);
+}
+.chat-send-btn {
+    height: 38px;
+    width: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--r-pill);
+    padding: 0;
+    font-size: 1.1rem;
+}
+.chat-hint {
+    font-size: 0.75rem;
+    color: var(--clr-subtle);
+    margin-top: var(--sp-1);
+}

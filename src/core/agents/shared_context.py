@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.core.agents.base_shared_context import BaseSharedContext
+from src.core.url_utils import gnd_url, swb_ppn_url
 
 logger = logging.getLogger(__name__)
 
@@ -489,7 +490,17 @@ class SharedContext(BaseSharedContext):
                 if gnd_id in seen_ids:
                     continue
                 seen_ids.add(gnd_id)
-                gnd_entries.append({"gnd_id": gnd_id, **info})
+                # Claude Generated - pre-format the canonical d-nb.info GND URL
+                # (and SWB/PPN link when a PPN is stored) so the chat agent never
+                # has to construct one from the bare id. See src/core/url_utils.py.
+                entry = {"gnd_id": gnd_id, **info}
+                _gurl = gnd_url(gnd_id)
+                if _gurl:
+                    entry["url"] = _gurl
+                _swb = swb_ppn_url(str(info.get("ppn") or ""))
+                if _swb:
+                    entry["swb_url"] = _swb
+                gnd_entries.append(entry)
             if term and titles:
                 gnd_per_kw[term] = titles
         ctx.gnd_entries = gnd_entries

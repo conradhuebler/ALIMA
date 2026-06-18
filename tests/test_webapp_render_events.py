@@ -201,7 +201,7 @@ class TestRunAnalysisEmitsCards(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(appmod.AppContext, "get_services", return_value=services), \
              mock.patch.object(appmod.PipelineConfig, "create_from_provider_preferences",
                                return_value=mock.MagicMock()), \
-             mock.patch("src.core.pipeline_manager.PipelineManager", FakePM), \
+             mock.patch("src.webapp.app.PipelineManager", FakePM), \
              mock.patch.object(appmod, "_autosave_session_state"):
             await appmod.run_analysis(sid, "text", "an abstract about environment", None, None)
 

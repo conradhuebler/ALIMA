@@ -399,5 +399,54 @@ class TestPipelineLifecycleEvents(unittest.TestCase):
         self.assertEqual(len(messages), 1)
 
 
+class TestCancelLifecycle(unittest.TestCase):
+    """Cancel must not flip the UI to 'ready' until the worker finishes. Claude Generated."""
+
+    def _stub(self, running=True, stopping=False):
+        stub = SimpleNamespace(
+            current_worker=MagicMock(),
+            _stopping=stopping,
+            send_btn=MagicMock(),
+            cancel_btn=MagicMock(),
+            input_field=MagicMock(),
+            system_messages=[],
+        )
+        stub.current_worker.isRunning.return_value = running
+        stub._append_system_message = stub.system_messages.append
+        stub._set_ui_stopping = lambda: PipelineChatPanel._set_ui_stopping(stub)
+        stub._set_ui_running = lambda r: PipelineChatPanel._set_ui_running(stub, r)
+        return stub
+
+    def test_cancel_signals_worker_and_locks_ui(self):
+        stub = self._stub()
+        PipelineChatPanel.cancel_generation(stub)
+        stub.current_worker.request_stop.assert_called_once()
+        self.assertTrue(stub._stopping)
+        # UI does NOT go to 'ready': send hidden, input + cancel disabled
+        # (so a second click can't re-fire request_stop).
+        stub.send_btn.setVisible.assert_called_with(False)
+        stub.input_field.setEnabled.assert_called_with(False)
+        stub.cancel_btn.setEnabled.assert_called_with(False)
+
+    def test_cancel_is_idempotent_while_stopping(self):
+        stub = self._stub(stopping=True)
+        PipelineChatPanel.cancel_generation(stub)
+        stub.current_worker.request_stop.assert_not_called()
+
+    def test_finish_after_cancel_returns_to_ready(self):
+        stub = self._stub(running=False, stopping=True)
+        stub.session = SimpleNamespace(messages=[])
+        stub._renderer = SimpleNamespace(_assistant_block_open=False)
+        stub._hide_typing = MagicMock()
+        stub._finalize_assistant_message = MagicMock()
+        result = SimpleNamespace(messages=[], content="")
+        PipelineChatPanel._on_finished(stub, result)
+        # _set_ui_running(False) is the single owner that clears 'stopping'
+        # and re-arms the cancel button.
+        self.assertFalse(stub._stopping)
+        stub.cancel_btn.setEnabled.assert_called_with(True)
+        self.assertTrue(any("Abgebrochen" in m for m in stub.system_messages))
+
+
 if __name__ == "__main__":
     unittest.main()

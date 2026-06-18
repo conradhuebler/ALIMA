@@ -123,6 +123,13 @@ class UnifiedMessageRenderer:
         self._catalog_hosts: set = set()
         # URLs seen in tool results this turn — exempt from ext-link flagging.
         self._trusted_urls: set = set()
+        # Authority hosts (GND/SWB) are always trusted — pre-formatted GND/SWB
+        # URLs must never be flagged as suspicious external links, even when they
+        # didn't arrive via a tool result. Claude Generated.
+        self._authority_hosts: set = {
+            "https://d-nb.info",
+            "https://swb.bsz-bw.de",
+        }
 
     # ------------------------------------------------------------------
     # Configuration
@@ -161,6 +168,30 @@ class UnifiedMessageRenderer:
         for u in urls:
             if u and isinstance(u, str) and u.startswith(("http://", "https://")):
                 self._trusted_urls.add(u)
+
+    def configure_catalog_from_config(self, catalog_config: Any) -> None:
+        """Wire the catalog web-OPAC base + host(s) from a CatalogConfig.
+
+        Claude Generated. Single source of truth shared by the GUI panel and the
+        webapp so both frontends turn ``<<CAT:rsn|…>>`` markers into links and
+        classify catalog hosts identically. Degrades silently when config is
+        missing (markers reduce to plain text). The GND/SWB authority hosts are
+        always trusted regardless of this config (see ``__init__``).
+        """
+        if catalog_config is None:
+            return
+        from urllib.parse import urlparse
+
+        web_base = getattr(catalog_config, "catalog_web_record_url", "") or ""
+        self.set_catalog_web_base(web_base)
+        for url in (
+            web_base,
+            getattr(catalog_config, "catalog_web_search_url", "") or "",
+        ):
+            if url:
+                p = urlparse(url)
+                if p.scheme and p.netloc:
+                    self.add_catalog_host(f"{p.scheme}://{p.netloc}")
 
     # ------------------------------------------------------------------
     # Pipeline log rendering
@@ -268,10 +299,8 @@ class UnifiedMessageRenderer:
         self._trusted_urls.clear()  # new turn → discard previous tool-result URLs
         body = self._escape_html(text)
         html = (
-            '<div style="text-align: right; margin: 6px 0;">'
-            '<span style="display: inline-block; max-width: 65%; text-align: left; '
-            'background: #005c4b; color: #e9edef; font-size: 10pt; padding: 8px; '
-            'border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;">'
+            '<div class="user-bubble">'
+            '<span class="user-bubble-inner">'
             f"{body}</span></div>"
         )
         self.transport.send(ev.block(html, kind=ev.KIND_USER_BUBBLE))
@@ -357,7 +386,8 @@ class UnifiedMessageRenderer:
                 return display  # feature disabled or malformed → display only
             url = f"{self._catalog_web_base}/0-{rsn}"
             return (
-                f'<a href="{url}" style="color: #5af; text-decoration: underline;">'
+                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                f'style="color: #5af; text-decoration: underline;">'
                 f"{display}</a>"
             )
 
@@ -381,7 +411,8 @@ class UnifiedMessageRenderer:
             if not url.startswith(("http://", "https://")):
                 return display
             return (
-                f'<a href="{url}" style="color: #5af; text-decoration: underline;">'
+                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                f'style="color: #5af; text-decoration: underline;">'
                 f"{display}</a>"
             )
 
@@ -393,18 +424,26 @@ class UnifiedMessageRenderer:
 
     def _classify_links(self, html: str) -> str:
         """Add class='ext-link' to any <a href> that does not belong to the
-        configured local catalog host. External links are rendered in a warning
-        colour by the CSS. No-op when no catalog host is configured. Claude Generated.
+        configured local catalog host or a trusted/authority host. External links
+        are rendered in a warning colour by the CSS. Authority hosts (GND/SWB),
+        catalog hosts and trusted tool URLs are exempt. No-op when no catalog host
+        is configured (no basis to tell local from external). Claude Generated.
         """
         if not html or "<a " not in html or not self._catalog_hosts:
             return html
 
         hosts = self._catalog_hosts
+        authority = self._authority_hosts
         trusted = self._trusted_urls
 
         def _sub(match: "re.Match[str]") -> str:
             href = match.group(1)
             after = match.group(2)
+            # Add target="_blank" to every external/catalog link so ALIMA stays
+            # open in its own tab. Local anchors / mutation links are skipped.
+            if 'target="' not in after and 'target=' not in after:
+                after = f'{after} target="_blank" rel="noopener noreferrer"'
+
             # Local catalog URL → mark as cat-link (book icon via CSS)
             if any(href.startswith(h) for h in hosts):
                 if 'class="' in after:
@@ -412,9 +451,12 @@ class UnifiedMessageRenderer:
                 else:
                     after = f' class="cat-link"{after}'
                 return f'<a href="{href}"{after}>'
+            # GND/SWB authority host → trusted, no warning icon
+            if any(href.startswith(h) for h in authority):
+                return f'<a href="{href}"{after}>'
             # Trusted URL from tool result → keep as-is (no warning, no icon)
             if href in trusted:
-                return match.group(0)
+                return f'<a href="{href}"{after}>'
             # Invented external link — inject warning class (↗ icon via CSS)
             if 'class="' in after:
                 after = after.replace('class="', 'class="ext-link ', 1)
@@ -634,9 +676,8 @@ class UnifiedMessageRenderer:
     def render_system_message(self, text: str) -> None:
         """Centered italic green status line."""
         html = (
-            f'<div style="text-align: center; margin: 4px 0;">'
-            f'<span style="color: #4caf50; font-size: 9pt; font-style: italic;">'
-            f"{self._escape_html(text)}</span></div>"
+            f'<div class="system-message">'
+            f"{self._escape_html(text)}</div>"
         )
         self.transport.send(ev.block(html, kind=ev.KIND_SYSTEM))
         self.history.append(
@@ -645,6 +686,14 @@ class UnifiedMessageRenderer:
                 content=text,
             )
         )
+
+    def show_typing(self, model_label: str = "") -> None:
+        """Emit a typing indicator event."""
+        self.transport.send(ev.typing(model_label, active=True))
+
+    def hide_typing(self) -> None:
+        """Emit a typing-hide event."""
+        self.transport.send(ev.typing(active=False))
 
     def render_html_block(
         self, html: str, *, kind: Optional[str] = None, plain_text: str = ""

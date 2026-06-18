@@ -49,6 +49,26 @@
 #log a.ext-link { color: #ff9800; }   /* external / non-catalog link warning */
 #log a.ext-link::after { content: " ↗"; }
 
+/* Chat bubble alignment helpers (used by UnifiedMessageRenderer inline HTML) */
+#log .user-bubble {
+  text-align: right; margin: 6px 0;
+}
+#log .user-bubble-inner {
+  display: inline-block; max-width: 75%; text-align: left;
+  background: #005c4b; color: #e9edef; font-size: 10pt; padding: 8px;
+  border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;
+}
+#log .system-message {
+  text-align: center; margin: 4px 0;
+  color: #4caf50; font-size: 9pt; font-style: italic;
+}
+
+/* Typing indicator */
+#log .typing-indicator {
+  color: #8be9fd; font-size: 9pt; font-style: italic;
+  padding: 4px 12px; margin: 4px 0;
+}
+
 /* Classification badge cards — shared GUI ↔ webapp render of DK/RVK results.
  * Ported from the webapp's structured cards (WP12), recoloured for the dark
  * #log surface using the GUI's existing palette. */

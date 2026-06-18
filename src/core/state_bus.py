@@ -97,12 +97,28 @@ class _AlimaStateBus(QObject):
 
         # Cross-thread path: emit the Qt signal; the connected slot
         # is delivered on the bus's owning thread (GUI).
+        # If the bus's owning thread has no running event loop, the signal
+        # would be silently lost. Fall back to direct dispatch in that case
+        # so headless / webapp consumers still receive the event.
+        from PyQt6.QtCore import QAbstractEventDispatcher
+
+        if QAbstractEventDispatcher.instance(bus_thread) is None:
+            for event_filter, handler, _slot in self._subscriptions:
+                if event_filter != event_type:
+                    continue
+                try:
+                    handler(diff)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        f"Subscriber raised for event '{event_type}' (no-loop fallback): {exc}"
+                    )
+            return
+
         try:
             self.state_event.emit(event_type, diff)
         except RuntimeError:
-            # Qt rejected the emit (e.g. no event loop). Fall back to
-            # direct dispatch so we still observe the contract for
-            # non-GUI subscribers — better than losing the event.
+            # Qt rejected the emit (e.g. object already destroyed). Fall back
+            # to direct dispatch so we still observe the contract.
             for event_filter, handler, _slot in self._subscriptions:
                 if event_filter != event_type:
                     continue

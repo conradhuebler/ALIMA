@@ -25,8 +25,16 @@ function appendBlock(html) {
   var d = document.createElement('div');
   d.className = 'block';
   d.innerHTML = html;
+  _ensureLinksNewTab(d);
   _log().appendChild(d);
   maybeScroll();
+}
+
+function _ensureLinksNewTab(root) {
+  root.querySelectorAll('a:not([target])').forEach(function (a) {
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
 }
 function appendCollapsible(id, summary, body, open) {
   // Idempotent per id: a replay/duplicate updates the existing block.
@@ -39,6 +47,7 @@ function appendCollapsible(id, summary, body, open) {
   var b = document.createElement('div');
   b.className = 'tc-body';
   b.innerHTML = body || '';
+  _ensureLinksNewTab(b);
   det.appendChild(s);
   det.appendChild(b);
   _log().appendChild(det);
@@ -50,7 +59,10 @@ function updateCollapsible(id, summary, body) {
   var s = det.querySelector('summary');
   if (s) s.innerHTML = summary;
   var b = det.querySelector('.tc-body');
-  if (b) b.innerHTML = body || '';
+  if (b) {
+    b.innerHTML = body || '';
+    _ensureLinksNewTab(b);
+  }
   maybeScroll();
 }
 function openAssistant(header) {
@@ -76,6 +88,7 @@ function finalizeAssistant(html) {
   if (!curStream) return;
   curStream.className = 'rendered';
   curStream.innerHTML = html;
+  _ensureLinksNewTab(curStream);
   curStream = null;
   maybeScroll();
 }
@@ -105,6 +118,7 @@ function closeStreamBlock(id, summary, collapse) {
   if (det) {
     if (summary) { var s = det.querySelector('summary'); if (s) s.innerHTML = summary; }
     det.open = !collapse;
+    _ensureLinksNewTab(det);
   }
   curStreamBlock = null;
   maybeScroll();
@@ -114,4 +128,19 @@ function clearLog() {
   if (el) el.innerHTML = '';
   curStream = null;
   curStreamBlock = null;
+}
+var typingEl = null;
+function showTyping(model) {
+  if (!typingEl) {
+    typingEl = document.createElement('div');
+    typingEl.id = 'alima-typing-indicator';
+    typingEl.className = 'typing-indicator';
+    _log().appendChild(typingEl);
+  }
+  typingEl.style.display = 'block';
+  typingEl.textContent = '🤖 ' + (model || 'Modell') + ' schreibt …';
+  maybeScroll();
+}
+function hideTyping() {
+  if (typingEl) typingEl.style.display = 'none';
 }

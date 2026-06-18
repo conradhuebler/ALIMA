@@ -41,6 +41,7 @@ STREAM_OPEN = "stream_open"              # openStreamBlock(id, summary)
 STREAM_TOKEN = "stream_token"            # appendStreamBlock(text)
 STREAM_CLOSE = "stream_close"            # closeStreamBlock(id, summary, collapse)
 CLEAR = "clear"                          # clearLog()
+TYPING = "typing"                        # showTyping(model) / hideTyping()
 
 # Semantic ``kind`` tags for BLOCK events (optional; for frontend filtering).
 KIND_PIPELINE_LOG = "pipeline_log"
@@ -114,6 +115,10 @@ def stream_close(block_id: str, summary: str, collapse: bool = True) -> Dict[str
 
 def clear() -> Dict[str, Any]:
     return {"type": CLEAR}
+
+
+def typing(model: Optional[str] = None, active: bool = True) -> Dict[str, Any]:
+    return {"type": TYPING, "model": model or "", "active": bool(active)}
 
 
 # ---------------------------------------------------------------------------
