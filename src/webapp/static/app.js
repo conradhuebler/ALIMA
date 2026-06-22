@@ -229,15 +229,21 @@ class AlimaWebapp {
     }
 
     // Load available provider/model overrides into separate dropdowns - Claude Generated
-    async loadModelOverrides() {
+    async loadModelOverrides({ force = false } = {}) {
         try {
-            const response = await fetch('/api/models');
+            const response = force
+                ? await fetch('/api/models/refresh', { method: 'POST' })
+                : await fetch('/api/models');
             if (!response.ok) return;
             const models = await response.json();
 
             const providerSelect = document.getElementById('provider-override');
             const modelSelect = document.getElementById('model-override');
             if (!providerSelect || !modelSelect) return;
+
+            // Preserve the current pick across a refresh (mirrors Qt6 ProviderModelSelector)
+            const prevProvider = providerSelect.value;
+            const prevModel = modelSelect.value;
 
             const providers = [...new Set(models.map(m => m.provider))].sort();
             providerSelect.innerHTML = '<option value="">— Provider —</option>';
@@ -247,15 +253,41 @@ class AlimaWebapp {
                 option.textContent = p;
                 providerSelect.appendChild(option);
             });
+            if (prevProvider && providers.includes(prevProvider)) {
+                providerSelect.value = prevProvider;
+            }
 
             this._availableModels = models;
             this._refreshModelOverrideOptions();
+            if (prevModel && models.some(m => m.provider === providerSelect.value && m.model === prevModel)) {
+                modelSelect.value = prevModel;
+            }
 
-            providerSelect.addEventListener('change', () => this._refreshModelOverrideOptions());
+            if (!this._modelOverrideListenerBound) {
+                providerSelect.addEventListener('change', () => this._refreshModelOverrideOptions());
+                this._modelOverrideListenerBound = true;
+            }
 
             console.log(`Loaded ${models.length} models across ${providers.length} providers`);
         } catch (e) {
             console.error('Failed to load models:', e);
+        }
+    }
+
+    async refreshModels() {
+        const btn = document.getElementById('refresh-models-btn');
+        const original = btn ? btn.textContent : null;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳';
+        }
+        try {
+            await this.loadModelOverrides({ force: true });
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = original;
+            }
         }
     }
 
@@ -288,6 +320,11 @@ class AlimaWebapp {
         // Analyze button (full pipeline)
         document.getElementById('analyze-btn').addEventListener('click', () => {
             this.startAnalysis();
+        });
+
+        // Refresh models button (re-detect providers/models without restart) - Claude Generated
+        document.getElementById('refresh-models-btn')?.addEventListener('click', () => {
+            this.refreshModels();
         });
 
         // Clear text button - Claude Generated
