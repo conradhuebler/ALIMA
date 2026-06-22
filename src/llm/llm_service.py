@@ -2797,6 +2797,7 @@ class LlmService(QObject):
                 # index → {"id": str, "name": str, "arguments": str}
                 tool_acc: dict = {}
                 finish_reason = None
+                reasoning = ""  # separate reasoning_content channel - Claude Generated
 
                 for chunk in response_stream:
                     if should_stop and should_stop():
@@ -2808,6 +2809,7 @@ class LlmService(QObject):
                             content=content,
                             tool_calls=[],
                             stop_reason=StopReason.CANCELLED,
+                            reasoning=reasoning,
                         )
                     if not chunk.choices:
                         continue
@@ -2817,6 +2819,12 @@ class LlmService(QObject):
                     if delta.content:
                         content += delta.content
                         stream_callback(delta.content)
+
+                    # Reasoning channel (vLLM/OpenAI-compat reasoning models). Not
+                    # all SDKs expose it → getattr. - Claude Generated
+                    rc = getattr(delta, "reasoning_content", None)
+                    if rc:
+                        reasoning += rc
 
                     if delta.tool_calls:
                         for tc_delta in delta.tool_calls:
@@ -2872,6 +2880,7 @@ class LlmService(QObject):
                     return AgentResponse(content="", tool_calls=[], stop_reason=StopReason.CANCELLED)
 
                 content = response.choices[0].message.content or ""
+                reasoning = getattr(response.choices[0].message, "reasoning_content", "") or ""
                 tool_calls = []
 
                 if response.choices[0].message.tool_calls:
@@ -2892,7 +2901,10 @@ class LlmService(QObject):
                 if response.choices[0].finish_reason == "length":
                     stop_reason = StopReason.MAX_TOKENS
 
-            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+            return AgentResponse(
+                content=content, tool_calls=tool_calls,
+                stop_reason=stop_reason, reasoning=reasoning,
+            )
 
         except Exception as e:
             self.logger.error(f"OpenAI tool-calling error: {e}")

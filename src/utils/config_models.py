@@ -897,9 +897,17 @@ class ChatConfig:
     default_provider: str = ""
     default_model: str = ""
     max_iterations: int = 30
+    # Max tokens per LLM call in chat. Reasoning models can spend the whole
+    # budget on the thinking channel and return empty content on long inputs —
+    # a larger default leaves headroom for an actual answer. - Claude Generated
+    max_tokens: int = 8192
     no_cache_writes: bool = True
     temperature: float = 0.5
     system_prompt_override: str = ""
+    # Chat system-prompt tier: 'auto' (compact for small/code models, full
+    # otherwise), 'compact' (always short), 'full' (always long). The full
+    # ruleset can overwhelm small/code models into empty/wrong answers. - Claude Generated
+    system_prompt_tier: str = "auto"
     # P-ε: when True, mutation tools skip the inline confirm bubble and
     # apply the change immediately. Destructive ops (cache writes, catalog
     # calls with cost) still require confirmation regardless of this flag.

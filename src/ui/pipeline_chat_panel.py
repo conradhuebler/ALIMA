@@ -64,6 +64,7 @@ from ..core.chat_prompts import (
     get_user_prompt_template,
     detect_mode,
     apply_chat_directives,
+    resolve_prompt_compact,
 )
 from ..core.headless_agent import resolve_provider_model
 from ..core.pipeline_manager import PipelineStep
@@ -1417,12 +1418,26 @@ class PipelineChatPanel(QWidget):
         self._append_user_message(text)
         self.input_field.clear()
 
-        # Mode-aware prompt assembly + language/history directives - Claude Generated
+        # Resolve provider/model + config first — needed to pick the prompt tier.
+        provider, model = self._resolve_provider_model()
+        if not provider or not model:
+            self._append_system_message(
+                "⚠️ Kein LLM-Provider konfiguriert. Bitte in Pipeline-Einstellungen "
+                "ein Modell wählen."
+            )
+            return
+
+        chat_config = self._get_chat_config()
+
+        # Mode-aware prompt assembly + tier + language/history directives - Claude Generated
         mode = detect_mode(text, self.current_context)
         history = list(self.session.messages[-CHAT_HISTORY_WINDOW:])
         history_truncated = len(self.session.messages) > len(history)
+        compact = resolve_prompt_compact(
+            getattr(chat_config, "system_prompt_tier", "auto"), model
+        )
         effective_system_prompt = apply_chat_directives(
-            self.system_prompt or build_system_prompt(mode=mode),
+            self.system_prompt or build_system_prompt(mode=mode, compact=compact),
             language=self.chat_language,
             history_truncated=history_truncated,
         )
@@ -1432,16 +1447,7 @@ class PipelineChatPanel(QWidget):
             user_message=text,
         )
 
-        provider, model = self._resolve_provider_model()
-        if not provider or not model:
-            self._append_system_message(
-                "⚠️ Kein LLM-Provider konfiguriert. Bitte in Pipeline-Einstellungen "
-                "ein Modell wählen."
-            )
-            return
-
         self._refresh_shared_context()
-        chat_config = self._get_chat_config()
         kb_manager = None
         if self.pipeline_manager is not None:
             kb_manager = (
@@ -1475,6 +1481,7 @@ class PipelineChatPanel(QWidget):
             provider=provider,
             model=model,
             temperature=getattr(chat_config, "temperature", 0.5),
+            max_tokens=getattr(chat_config, "max_tokens", 4096),
             max_iterations=30,
             timeout_seconds=getattr(chat_config, "timeout_seconds", 600),
             history=history,

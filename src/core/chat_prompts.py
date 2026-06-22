@@ -9,6 +9,8 @@ with heuristic detection + explicit /v, /s, /g prefix commands.
 """
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # Shared rules — included in every mode
 # ---------------------------------------------------------------------------
@@ -277,32 +279,103 @@ USER_PROMPT_GENERAL = (
 VALID_MODES = ("verschlagwortung", "suche", "general")
 
 
+# ---------------------------------------------------------------------------
+# Compact ruleset — for smaller / code models that choke on the full prompt.
+# Keeps the essentials (tool-grounding, finc>libero, namesake, links) and a
+# crisp "always finish with a textual answer" instruction. Empirically a small
+# code model (north-mini-code) returns a correct answer with this but empty /
+# wrong output with the full SHARED_RULES. - Claude Generated
+# ---------------------------------------------------------------------------
+
+SHARED_RULES_COMPACT = (
+    "Du bist Assistent für Bibliothekswissenschaft und Sacherschließung "
+    "(GND, DK/DDC/RVK) in der ALIMA-Pipeline. Antworte fachlich korrekt auf Deutsch.\n\n"
+    "Regeln:\n"
+    "- Nenne nur, was Tools liefern. Erfinde KEINE Titel, Autoren, GND-IDs, "
+    "DK-Codes oder URLs. Bei 0 Treffern: sage das ehrlich.\n"
+    "- Katalogsuche: `search_finc` (besser als `search_catalog`/Libero). "
+    "GND: `search_gnd`/`search_lobid`. DK: `get_dk_cache`.\n"
+    "- Autorensuche: nur Treffer mit exakt passendem Vor- UND Nachnamen; "
+    "verschiedene Personen mit gleichem Nachnamen NICHT mischen.\n"
+    "- Verlinke Treffer als [Titel](web_url); URLs nur aus Tool-Feldern.\n"
+    "- WICHTIG: Sobald du genug Tool-Ergebnisse hast, schreibe eine finale "
+    "Antwort als normalen Text. Rufe nicht endlos Tools auf und stoppe NIE "
+    "ohne Textantwort."
+)
+
+_MODE_HINT_COMPACT = {
+    "verschlagwortung": "Aufgabe: Werk erschließen (Schlagworte, GND, DK-Codes).",
+    "suche": "Aufgabe: im Katalog/GND suchen und die Treffer übersichtlich auflisten.",
+    "general": "Beantworte die Frage; nutze Tools nach Bedarf.",
+}
+
+
 def build_system_prompt(
     mode: str = "general",
     context_hint: str = "",
+    compact: bool = False,
 ) -> str:
     """Assemble mode-specific system prompt.
 
     Args:
         mode: One of 'verschlagwortung', 'suche', 'general'.
         context_hint: Optional context string to append (e.g. current work).
+        compact: Use the short ruleset (for small/code models). - Claude Generated
     """
     if mode not in VALID_MODES:
         mode = "general"
 
-    sections = [SHARED_RULES]
-
-    mode_text = {
-        "verschlagwortung": MODE_VERSCHLAGWORTUNG,
-        "suche": MODE_SUCHE,
-        "general": MODE_GENERAL,
-    }[mode]
-    sections.append(mode_text)
+    if compact:
+        sections = [SHARED_RULES_COMPACT, "\n" + _MODE_HINT_COMPACT[mode]]
+    else:
+        sections = [SHARED_RULES]
+        mode_text = {
+            "verschlagwortung": MODE_VERSCHLAGWORTUNG,
+            "suche": MODE_SUCHE,
+            "general": MODE_GENERAL,
+        }[mode]
+        sections.append(mode_text)
 
     if context_hint:
         sections.append(f"\nKontext:\n{context_hint}")
 
     return "\n".join(sections)
+
+
+# Name markers that flag a model as "small or code" → compact prompt.
+_COMPACT_MODEL_MARKERS = ("code", "coder", "mini", "tiny", "small", "nano")
+# Parameter count (in billions) at/below which the compact prompt is preferred.
+_COMPACT_SIZE_MAX_B = 14.0
+# Matches a standalone size token like "7b" / "1.5b" / "13b" but NOT the "1b"
+# inside "31b" (the number must not be preceded by another digit/dot).
+_SIZE_RE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*b\b")
+
+
+def is_compact_model(model: str) -> bool:
+    """Heuristic: small / code models that do better with the compact prompt - Claude Generated."""
+    m = (model or "").lower()
+    if any(k in m for k in _COMPACT_MODEL_MARKERS):
+        return True
+    for num in _SIZE_RE.findall(m):
+        try:
+            if float(num) <= _COMPACT_SIZE_MAX_B:
+                return True
+        except ValueError:
+            pass
+    return False
+
+
+def resolve_prompt_compact(tier: str, model: str) -> bool:
+    """Resolve the prompt tier to a compact flag - Claude Generated.
+
+    tier: 'auto' (heuristic on model), 'compact' (force short), 'full' (force long).
+    """
+    t = (tier or "auto").lower()
+    if t == "compact":
+        return True
+    if t == "full":
+        return False
+    return is_compact_model(model)
 
 
 def get_user_prompt_template(mode: str = "general") -> str:

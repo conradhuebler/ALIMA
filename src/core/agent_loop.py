@@ -114,6 +114,8 @@ class AgentLoop:
         tool_call_counter = Counter()  # Track repeated tool calls
         start_time = time.time()
         final_content = ""
+        final_stop_reason: StopReason = StopReason.END_TURN  # tracked for diagnosis - Claude Generated
+        nudged = False  # one-time "write the final answer" retry - Claude Generated
         run_error: Optional[str] = None  # LLM hard failure — see AgentResult.error - Claude Generated
 
         for iteration in range(1, self.max_iterations + 1):
@@ -279,6 +281,59 @@ class AgentLoop:
 
             # Case 2: LLM returned final text (no tool calls)
             final_content = response.content
+            final_stop_reason = response.stop_reason
+
+            # One-time nudge: small/code models often call tools but never write
+            # a final answer (empty turn). Ask explicitly for a text answer (no
+            # tools) before giving up. Skip if the model used its reasoning
+            # channel (handled below). - Claude Generated
+            if not final_content and not nudged and not getattr(response, "reasoning", ""):
+                nudged = True
+                if self._status_cb:
+                    self._status_cb("\n📝 Modell ohne Text — fordere finale Antwort an…")
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Bitte schreibe JETZT die finale Antwort als normalen Text "
+                        "auf Deutsch, basierend auf den bisherigen Ergebnissen. "
+                        "Rufe KEIN weiteres Tool auf."
+                    ),
+                })
+                try:
+                    forced = self.llm_service.generate_with_tools(
+                        provider=provider, model=model, messages=messages, tools=[],
+                        temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                        seed=seed, think=think,
+                    )
+                    final_content = forced.content or getattr(forced, "reasoning", "")
+                    final_stop_reason = forced.stop_reason
+                    if final_content and self.stream_callback:
+                        self.stream_callback(final_content)
+                except Exception:
+                    logger.exception("final-answer nudge failed")
+
+            if not final_content:
+                # No text AND no tool calls — surface WHY instead of a silent
+                # empty bubble. Prefer the reasoning channel; otherwise explain
+                # via stop_reason. Stream it so both frontends show it live. - Claude Generated
+                if getattr(response, "reasoning", ""):
+                    final_content = (
+                        "💭 (Modell antwortete nur im Reasoning-Kanal, keine "
+                        "separate finale Antwort):\n\n" + response.reasoning
+                    )
+                elif response.stop_reason == StopReason.MAX_TOKENS:
+                    final_content = (
+                        "⚠️ Das Modell hat das Token-Limit erreicht, bevor eine "
+                        "Antwort kam (evtl. hat das Reasoning das Budget aufgebraucht). "
+                        "Erhöhe max_tokens oder kürze die Eingabe."
+                    )
+                else:
+                    final_content = (
+                        "⚠️ Das Modell hat keine Antwort geliefert "
+                        "(leerer Inhalt, keine Tool-Calls)."
+                    )
+                if self.stream_callback:
+                    self.stream_callback(final_content)
             if final_content:
                 messages.append({"role": "assistant", "content": final_content})
             if self._status_cb and final_content and self.max_iterations > 1:
@@ -309,11 +364,22 @@ class AgentLoop:
                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
                         seed=seed, think=think,
                     )
-                    final_content = forced.content
+                    final_stop_reason = forced.stop_reason
+                    final_content = forced.content or getattr(forced, "reasoning", "")
                     if final_content:
                         messages.append({"role": "assistant", "content": final_content})
                 except Exception:
                     final_content = "Agent reached maximum iterations without conclusion."
+                # Some models (e.g. code models) call tools but never write a
+                # final answer → don't end on a silent empty bubble. - Claude Generated
+                if not final_content:
+                    final_content = (
+                        "⚠️ Das Modell hat nach mehreren Tool-Aufrufen keine finale "
+                        "Textantwort geliefert. Dieses Modell schreibt im Tool-Modus "
+                        "oft keinen Abschlusstext — ggf. ein anderes Chat-Modell wählen."
+                    )
+                    if self.stream_callback:
+                        self.stream_callback(final_content)
 
         # Extract only messages added during this run (new user prompt + tool calls + assistant)
         conv = [dict(m) for m in messages[history_len:]] if messages else []
@@ -324,6 +390,7 @@ class AgentLoop:
             tokens_used=0,  # TODO: Track from provider responses
             messages=conv,
             error=run_error,
+            stop_reason=getattr(final_stop_reason, "value", str(final_stop_reason)),
         )
 
     def _get_tool_type_label(self, tool_name: str) -> str:

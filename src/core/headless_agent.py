@@ -26,6 +26,7 @@ from src.core.chat_prompts import (
     get_user_prompt_template,
     detect_mode,
     apply_chat_directives,
+    resolve_prompt_compact,
     DEFAULT_SYSTEM_PROMPT,
 )
 from src.core.data_models import AgentResult
@@ -226,7 +227,13 @@ class HeadlessAgentRunner:
         if effective_mode == "auto":
             effective_mode = detect_mode(user_message, context_str)
 
-        system_prompt = self.system_prompt or build_system_prompt(mode=effective_mode)
+        # Pick the prompt tier (compact for small/code models) - Claude Generated
+        compact = resolve_prompt_compact(
+            getattr(self.chat_config, "system_prompt_tier", "auto"), model
+        )
+        system_prompt = self.system_prompt or build_system_prompt(
+            mode=effective_mode, compact=compact
+        )
         # Append language + history-window directives (shared with the GUI). - Claude Generated
         system_prompt = apply_chat_directives(
             system_prompt,

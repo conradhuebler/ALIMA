@@ -864,6 +864,7 @@ def _log_chat_turn_safe(runner, session_id, provider, model, message, result, re
             mode=(getattr(req, "mode", None) or "auto"),
             language=(getattr(req, "language", None) or "de"),
             iterations=getattr(result, "iterations", 0),
+            stop_reason=getattr(result, "stop_reason", None),
             error=getattr(result, "error", None),
             config_dir=config_dir,
         )
@@ -1776,6 +1777,7 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
                 model=model,
                 context_str=context_str,
                 temperature=req.temperature,
+                max_tokens=getattr(runner.chat_config, "max_tokens", 4096),
                 conversation_history=recent_history,
                 shared_context=shared_context,
                 think=_parse_think_override(req.think),

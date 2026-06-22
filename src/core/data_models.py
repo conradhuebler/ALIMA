@@ -74,6 +74,7 @@ class LlmKeywordAnalysis:
     extracted_gnd_classes: List[str] = field(default_factory=list)
     analyse_text: Optional[str] = None  # Analysis/thought section from LLM response - Claude Generated
     chunk_responses: List[str] = field(default_factory=list)  # Intermediate responses from chunked analysis - Claude Generated
+    chunk_keywords: List[str] = field(default_factory=list)  # Deduplicated chunk-survivor keywords (pre-consolidation) for the GND-Recherche chunk tier - Claude Generated
     missing_concepts: List[str] = field(default_factory=list)  # Missing concepts identified for iterative refinement - Claude Generated
     keyword_chains: List[Dict] = field(default_factory=list)  # Schlagwortketten with reasons from LLM response - Claude Generated
     verification: Optional[Dict[str, Any]] = None  # GND pool verification results - Claude Generated
@@ -302,6 +303,10 @@ class AgentResponse:
     content: str = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
     stop_reason: StopReason = StopReason.END_TURN
+    # Separate reasoning/thinking channel (e.g. OpenAI-compat reasoning_content).
+    # Captured so a model that answers only in its reasoning channel — or runs out
+    # of tokens mid-reasoning — doesn't surface as a silent empty response. - Claude Generated
+    reasoning: str = ""
 
     @property
     def has_tool_calls(self) -> bool:
@@ -317,6 +322,9 @@ class AgentResult:
     tokens_used: int = 0
     agent_name: str = ""
     messages: List[Dict[str, Any]] = field(default_factory=list)  # full conversation including tool calls
+    # Stop reason of the final LLM turn (string form of StopReason) for logging
+    # and empty-response diagnosis. - Claude Generated
+    stop_reason: str = ""
     # Set when the run aborted on an LLM failure: content then holds an
     # error string, NOT a model answer. Callers must check this instead of
     # treating the run as successful - Claude Generated

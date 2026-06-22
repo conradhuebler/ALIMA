@@ -44,11 +44,18 @@ CREATE TABLE IF NOT EXISTS chat_log (
     response      TEXT,
     tool_calls    TEXT,   -- JSON array of {name, arguments, result, ...}
     iterations    INTEGER,
+    stop_reason   TEXT,   -- end_turn | tool_use | max_tokens | cancelled
     error         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_chat_log_session ON chat_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_log_ts ON chat_log(ts);
 """
+
+# Columns added after the initial schema shipped → migrated via ADD COLUMN on
+# existing DBs (SQLite can't add them in CREATE TABLE IF NOT EXISTS). - Claude Generated
+_MIGRATIONS = {
+    "stop_reason": "ALTER TABLE chat_log ADD COLUMN stop_reason TEXT",
+}
 
 
 def _resolve_path(db_path: str, config_dir: Optional[str]) -> Path:
@@ -65,6 +72,11 @@ def _connect(path: Path) -> sqlite3.Connection:
     key = str(path)
     if key not in _initialized_paths:
         conn.executescript(_SCHEMA)
+        # Migrate older DBs that predate newer columns.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(chat_log)")}
+        for col, ddl in _MIGRATIONS.items():
+            if col not in existing:
+                conn.execute(ddl)
         conn.commit()
         _initialized_paths.add(key)
     return conn
@@ -82,6 +94,7 @@ def log_chat_turn(
     mode: Optional[str] = None,
     language: Optional[str] = None,
     iterations: int = 0,
+    stop_reason: Optional[str] = None,
     error: Optional[str] = None,
     config_dir: Optional[str] = None,
 ) -> bool:
@@ -101,13 +114,13 @@ def log_chat_turn(
                 conn.execute(
                     "INSERT INTO chat_log "
                     "(ts, session_id, provider, model, mode, language, "
-                    " user_message, response, tool_calls, iterations, error) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    " user_message, response, tool_calls, iterations, stop_reason, error) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         datetime.now().isoformat(timespec="seconds"),
                         session_id, provider, model, mode, language,
                         user_message, response, tool_calls_json,
-                        int(iterations or 0), error,
+                        int(iterations or 0), stop_reason, error,
                     ),
                 )
                 conn.commit()
