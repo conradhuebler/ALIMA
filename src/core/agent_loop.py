@@ -71,6 +71,7 @@ class AgentLoop:
         max_tokens: int = 4096,
         seed: Optional[int] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
+        think: Optional[bool] = None,
     ) -> AgentResult:
         """
         Execute a full agent run with tool-calling loop.
@@ -134,7 +135,7 @@ class AgentLoop:
             # Call LLM with tools
             logger.info(f"Agent tool-call {iteration}/{self.max_iterations}")
             if self._status_cb and self.max_iterations > 1:
-                self._status_cb(f"\n🔄 Tool-Call {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
+                self._status_cb(f"\n🔄 Iteration {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
 
             try:
                 response: AgentResponse = self.llm_service.generate_with_tools(
@@ -148,6 +149,7 @@ class AgentLoop:
                     seed=seed,
                     stream_callback=self.stream_callback,
                     should_stop=self.should_stop,
+                    think=think,
                 )
             except Exception as e:
                 logger.error(f"LLM call failed at tool-call {iteration}: {e}")
@@ -280,16 +282,19 @@ class AgentLoop:
             if final_content:
                 messages.append({"role": "assistant", "content": final_content})
             if self._status_cb and final_content and self.max_iterations > 1:
-                self._status_cb(f"\n✅ Fertig nach {iteration} Tool-Calls\n")
-            logger.info(f"Agent completed after {iteration} tool-calls")
+                self._status_cb(
+                    f"\n✅ Fertig nach {iteration} Iteration(en), "
+                    f"{len(tool_log)} Tool-Call(s)\n"
+                )
+            logger.info(f"Agent completed after {iteration} iterations, {len(tool_log)} tool-calls")
             logger.debug(f"LLM response content:\n{final_content}")
             break
 
         else:
             # max_iterations exhausted
-            logger.warning(f"Agent hit max tool-calls ({self.max_iterations})")
+            logger.warning(f"Agent hit max iterations ({self.max_iterations})")
             if self._status_cb:
-                self._status_cb(f"\n⚠️ Maximum {self.max_iterations} Tool-Calls erreicht\n")
+                self._status_cb(f"\n⚠️ Maximum {self.max_iterations} Iterationen erreicht\n")
 
             # Force a final response without tools
             if not final_content:
@@ -302,7 +307,7 @@ class AgentLoop:
                         provider=provider, model=model,
                         messages=messages, tools=[],  # No tools = force text response
                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
-                        seed=seed,
+                        seed=seed, think=think,
                     )
                     final_content = forced.content
                     if final_content:

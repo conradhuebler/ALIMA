@@ -904,6 +904,11 @@ class ChatConfig:
     # apply the change immediately. Destructive ops (cache writes, catalog
     # calls with cost) still require confirmation regardless of this flag.
     autonomous_pipeline: bool = False
+    # Webapp-only, config-file setting (no UI): path to a SQLite DB that logs
+    # every chat turn (prompt, response, tool calls + results) for later
+    # analysis. Empty = disabled. Relative paths resolve against the config
+    # directory. - Claude Generated
+    session_log_db: str = ""
 
 
 @dataclass

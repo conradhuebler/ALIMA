@@ -214,11 +214,14 @@ class PipelineConfig:
     # Global provider/model override for all LLM steps - Claude Generated
     global_provider_override: Optional[str] = None
     global_model_override: Optional[str] = None
+    # Global thinking override for all LLM steps (None = leave per-step/task value) - Claude Generated
+    global_think_override: Optional[bool] = None
 
     def __post_init__(self):
         """Initialize step configs with proper defaults - Claude Generated"""
         # Apply global override if set
-        if self.global_provider_override or self.global_model_override:
+        if (self.global_provider_override or self.global_model_override
+                or self.global_think_override is not None):
             self.apply_global_override()
 
     @staticmethod
@@ -274,10 +277,13 @@ class PipelineConfig:
                 step_config.provider = self.global_provider_override
             if self.global_model_override:
                 step_config.model = self.global_model_override
+            if self.global_think_override is not None:
+                step_config.think = self.global_think_override
 
         provider = self.global_provider_override or "(unchanged)"
         model = self.global_model_override or "(unchanged)"
-        logger.info(f"🔬 Global override applied: {provider}/{model} → {llm_steps}")
+        think = "(unchanged)" if self.global_think_override is None else self.global_think_override
+        logger.info(f"🔬 Global override applied: {provider}/{model} think={think} → {llm_steps}")
 
     def has_explicit_step_override(self, step_id: str) -> bool:
         """True if the step's provider/model differs from the pipeline baseline.

@@ -36,6 +36,7 @@ from PyQt6.QtGui import QDesktopServices, QKeyEvent
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -58,9 +59,11 @@ from PyQt6.QtWidgets import (
 from ..core.chat_prompts import (
     DEFAULT_SYSTEM_PROMPT,
     USER_PROMPT_TEMPLATE,
+    CHAT_HISTORY_WINDOW,
     build_system_prompt,
     get_user_prompt_template,
     detect_mode,
+    apply_chat_directives,
 )
 from ..core.headless_agent import resolve_provider_model
 from ..core.pipeline_manager import PipelineStep
@@ -429,6 +432,28 @@ class PipelineChatPanel(QWidget):
         self.system_prompt_btn.setToolTip("System-Prompt bearbeiten")
         self.system_prompt_btn.clicked.connect(self.show_system_prompt_dialog)
         header_layout.addWidget(self.system_prompt_btn)
+
+        # Antwortsprache umschalten (Deutsch/Englisch) - Claude Generated
+        self.chat_language = "de"
+        self.language_btn = QPushButton("DE")
+        self.language_btn.setFixedSize(30, 22)
+        self.language_btn.setStyleSheet(icon_btn_style)
+        self.language_btn.setToolTip("Antwortsprache umschalten (Deutsch/Englisch)")
+        self.language_btn.clicked.connect(self._toggle_chat_language)
+        header_layout.addWidget(self.language_btn)
+
+        # Thinking/Reasoning des Chat-Agenten überschreiben - Claude Generated
+        self.chat_think_combo = QComboBox()
+        self.chat_think_combo.addItems(["🧠 Auto", "🧠 An", "🧠 Aus"])
+        self.chat_think_combo.setStyleSheet(
+            "QComboBox { color: #ccc; font-size: 10px; padding: 2px 6px; "
+            "border: 1px solid #555; border-radius: 3px; }"
+        )
+        self.chat_think_combo.setToolTip(
+            "Thinking/Reasoning des Chat-Agenten.\n"
+            "Auto = Modell-Default · An = think=true · Aus = think=false"
+        )
+        header_layout.addWidget(self.chat_think_combo)
 
         self.reset_toggle = QCheckBox("🔄 Reset")
         self.reset_toggle.setChecked(True)
@@ -1392,9 +1417,15 @@ class PipelineChatPanel(QWidget):
         self._append_user_message(text)
         self.input_field.clear()
 
-        # Mode-aware prompt assembly
+        # Mode-aware prompt assembly + language/history directives - Claude Generated
         mode = detect_mode(text, self.current_context)
-        effective_system_prompt = self.system_prompt or build_system_prompt(mode=mode)
+        history = list(self.session.messages[-CHAT_HISTORY_WINDOW:])
+        history_truncated = len(self.session.messages) > len(history)
+        effective_system_prompt = apply_chat_directives(
+            self.system_prompt or build_system_prompt(mode=mode),
+            language=self.chat_language,
+            history_truncated=history_truncated,
+        )
         effective_user_template = get_user_prompt_template(mode)
         user_prompt = effective_user_template.format(
             context=self.current_context or "(kein Werk geladen)",
@@ -1446,7 +1477,8 @@ class PipelineChatPanel(QWidget):
             temperature=getattr(chat_config, "temperature", 0.5),
             max_iterations=30,
             timeout_seconds=getattr(chat_config, "timeout_seconds", 600),
-            history=list(self.session.messages[-6:]),
+            history=history,
+            think=self._get_chat_think_override(),
         )
         self.current_worker.token_received.connect(self._on_token)
         self.current_worker.status_message.connect(self._on_status_message)
@@ -1763,6 +1795,17 @@ class PipelineChatPanel(QWidget):
         self.input_field.setPlaceholderText("Wird abgebrochen …")
 
     # -- Chat bubble & marker rendering (delegated to UnifiedMessageRenderer) --
+
+    def _toggle_chat_language(self):
+        """Toggle the chat reply language DE↔EN - Claude Generated"""
+        self.chat_language = "en" if self.chat_language == "de" else "de"
+        self.language_btn.setText(self.chat_language.upper())
+
+    def _get_chat_think_override(self):
+        """Read the chat thinking combo → None/True/False - Claude Generated"""
+        if not hasattr(self, "chat_think_combo"):
+            return None
+        return {0: None, 1: True, 2: False}.get(self.chat_think_combo.currentIndex())
 
     def _append_user_message(self, text: str):
         self._renderer.render_user_bubble(text)

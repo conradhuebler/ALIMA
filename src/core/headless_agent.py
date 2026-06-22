@@ -25,6 +25,7 @@ from src.core.chat_prompts import (
     build_system_prompt,
     get_user_prompt_template,
     detect_mode,
+    apply_chat_directives,
     DEFAULT_SYSTEM_PROMPT,
 )
 from src.core.data_models import AgentResult
@@ -171,6 +172,9 @@ class HeadlessAgentRunner:
         on_tool_call: Optional[Callable[[Any], None]] = None,
         on_tool_result: Optional[Callable[[str, str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
+        think: Optional[bool] = None,
+        language: str = "de",
+        history_truncated: bool = False,
     ) -> AgentResult:
         """Run one agent turn and return its :class:`AgentResult`.
 
@@ -223,6 +227,12 @@ class HeadlessAgentRunner:
             effective_mode = detect_mode(user_message, context_str)
 
         system_prompt = self.system_prompt or build_system_prompt(mode=effective_mode)
+        # Append language + history-window directives (shared with the GUI). - Claude Generated
+        system_prompt = apply_chat_directives(
+            system_prompt,
+            language=language,
+            history_truncated=history_truncated,
+        )
         user_template = get_user_prompt_template(effective_mode)
         user_prompt = user_template.format(
             context=context_str or "(kein Werk geladen)",
@@ -238,6 +248,7 @@ class HeadlessAgentRunner:
             temperature=temperature,
             max_tokens=max_tokens,
             conversation_history=conversation_history,
+            think=think,
         )
         return result
 

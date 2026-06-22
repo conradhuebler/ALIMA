@@ -49,7 +49,13 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
                 "prompt_service": mock.MagicMock(),
                 "pipeline_manager": mock.MagicMock(),
             }
-            services["config_manager"].load_config.return_value.chat_config = mock.MagicMock()
+            # No configured chat default → fall through to session.last_*.
+            # (A real ChatConfig has empty-string defaults; a bare MagicMock
+            # would look like a configured default and short-circuit.)
+            chat_cfg = mock.MagicMock()
+            chat_cfg.default_provider = ""
+            chat_cfg.default_model = ""
+            services["config_manager"].load_config.return_value.chat_config = chat_cfg
             services["config_manager"].get_unified_config.return_value.get_enabled_providers.return_value = []
 
             captured = {}
@@ -136,6 +142,50 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
         finally:
             appmod.sessions.pop(sid, None)
 
+
+    async def test_chat_config_default_beats_session_last_provider(self):
+        """ChatConfig.default_provider/model (config-only webapp setting) takes
+        precedence over the session's last pipeline provider/model. - Claude Generated"""
+        client, appmod = self._client()
+        sid = "test-chat-default"
+        session = appmod.Session(sid)
+        session.last_provider = "ollama"
+        session.last_model = "llama3"
+        appmod.sessions[sid] = session
+
+        try:
+            req = appmod.ChatMessageRequest(message="hi")
+            services = {
+                "config_manager": mock.MagicMock(),
+                "alima_manager": mock.MagicMock(),
+                "cache_manager": mock.MagicMock(),
+                "llm_service": mock.MagicMock(),
+                "prompt_service": mock.MagicMock(),
+                "pipeline_manager": mock.MagicMock(),
+            }
+            chat_cfg = mock.MagicMock()
+            chat_cfg.default_provider = "LLMachine"
+            chat_cfg.default_model = "north-mini-code-1.0:latest"
+            services["config_manager"].load_config.return_value.chat_config = chat_cfg
+            services["config_manager"].get_unified_config.return_value.get_enabled_providers.return_value = []
+
+            captured = {}
+
+            def fake_resolve(provider, model, **kwargs):
+                captured["provider_arg"] = provider
+                captured["model_arg"] = model
+                return (provider, model)
+
+            with mock.patch.object(appmod.AppContext, "get_services", return_value=services), \
+                 mock.patch.object(appmod, "PipelineManager", return_value=mock.MagicMock()), \
+                 mock.patch("src.core.headless_agent.HeadlessAgentRunner", return_value=mock.MagicMock()), \
+                 mock.patch("src.core.headless_agent.resolve_provider_model", side_effect=fake_resolve):
+                runner, pm, provider, model = appmod._build_session_agent_runner(session, req)
+
+            self.assertEqual(captured.get("provider_arg"), "LLMachine")
+            self.assertEqual(captured.get("model_arg"), "north-mini-code-1.0:latest")
+        finally:
+            appmod.sessions.pop(sid, None)
 
     async def test_cancel_stops_running_chat_thread(self):
         # /cancel must abort a running chat turn (parity with /agent/run and the

@@ -221,6 +221,13 @@
                                 style="max-width: 180px;">
                             <option value="">— Modell —</option>
                         </select>
+                        <select id="think-override" class="field field--select"
+                                title="Thinking/Reasoning für alle LLM-Steps überschreiben"
+                                style="max-width: 130px;">
+                            <option value="">Thinking: Standard</option>
+                            <option value="on">Thinking: An</option>
+                            <option value="off">Thinking: Aus</option>
+                        </select>
                         <button id="refresh-models-btn" class="btn btn-sm" title="Modelle neu laden">🔄</button>
                         <button id="analyze-btn" class="btn btn-primary btn-analyze">
                             <span aria-hidden="true">▶</span> Analyse starten
@@ -267,12 +274,13 @@
                         <textarea id="chat-input" class="chat-input"
                                   placeholder="Frage zur Analyse stellen… (Enter = senden, Shift+Enter = neue Zeile)"
                                   rows="1"></textarea>
+                        <button id="chat-lang-btn" class="btn btn-sm" title="Antwortsprache umschalten (Deutsch/Englisch)">DE</button>
                         <button id="chat-send-btn" class="btn btn-primary btn-sm chat-send-btn">
                             ➤
                         </button>
                     </div>
                     <div class="chat-hint">
-                        Enter sendet · Shift+Enter neue Zeile
+                        Enter sendet · Shift+Enter neue Zeile · Sprache: <span id="chat-lang-indicator">Deutsch</span>
                     </div>
                 </div>
             </div>

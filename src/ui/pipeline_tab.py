@@ -682,6 +682,21 @@ class PipelineTab(QWidget):
         self._populate_global_override_combo()
         tb_layout.addWidget(self.global_override_selector)
 
+        # Global thinking override for all LLM steps - Claude Generated
+        think_label = QLabel("Thinking:")
+        think_label.setStyleSheet("padding-left: 8px;")
+        tb_layout.addWidget(think_label)
+        self.global_think_combo = QComboBox()
+        self.global_think_combo.addItems(["Standard", "An", "Aus"])
+        self.global_think_combo.setToolTip(
+            "Thinking/Reasoning für alle LLM-Schritte überschreiben.\n"
+            "Standard = pro Modell/Task konfigurierter Wert\n"
+            "An = think=true · Aus = think=false"
+        )
+        self.global_think_combo.setStyleSheet(_combo_css)
+        self.global_think_combo.setFixedWidth(110)
+        tb_layout.addWidget(self.global_think_combo)
+
         # Agentic vs. classic is driven by the workflow_combo selection
         # (see _on_workflow_changed). The agentic context dock is shown only
         # on request via View ▸ 🤖 Agentic Kontext — Claude Generated.
@@ -1522,24 +1537,37 @@ class PipelineTab(QWidget):
         # an incomplete provider-only pick) yields a falsy member → fall through to
         # the baseline. Requiring both avoids an invalid provider/model mix.
         provider, model = self.global_override_selector.get_selection()
+        think_override = self._get_global_think_override()
         if provider and model:
             config.global_provider_override = provider
             config.global_model_override = model
+            config.global_think_override = think_override
             # Propagate into the per-step configs. Setting the attribute alone is
             # not enough: apply_global_override() only runs in __post_init__, so a
             # runtime selection here would be ignored and every LLM step would keep
             # its per-step pipeline default (e.g. gemma). The classic executor reads
             # step_config.provider/model directly (get_step_config). - Claude Generated
             config.apply_global_override()
-            self.logger.info(f"🤖 LLM selected: {provider}/{model}")
+            self.logger.info(f"🤖 LLM selected: {provider}/{model} think={think_override}")
         else:
             # Back to "-- Standard --": clear the override AND rebuild the per-step
             # baseline (pipeline default + task preferences). Without the rebuild a
             # previously applied override would stay mutated into step_configs and
-            # stick. - Claude Generated
+            # stick. The think-only override is overlaid after the rebuild. - Claude Generated
             config.global_provider_override = None
             config.global_model_override = None
             self.pipeline_manager.reload_config()
+            config = self.pipeline_manager.config
+            if config:
+                config.global_think_override = think_override
+                if think_override is not None:
+                    config.apply_global_override()
+
+    def _get_global_think_override(self):
+        """Read the global thinking override combo → None/True/False - Claude Generated"""
+        if not hasattr(self, 'global_think_combo'):
+            return None
+        return {0: None, 1: True, 2: False}.get(self.global_think_combo.currentIndex())
 
     def _update_dk_config_from_gui(self):
         """

@@ -423,6 +423,18 @@ class AlimaWebapp {
             chatSendBtn.addEventListener('click', () => this.sendChatMessage());
         }
 
+        // Chat reply-language toggle (DE/EN) - Claude Generated
+        if (this.chatLanguage === undefined) this.chatLanguage = 'de';
+        const chatLangBtn = document.getElementById('chat-lang-btn');
+        if (chatLangBtn) {
+            chatLangBtn.addEventListener('click', () => {
+                this.chatLanguage = this.chatLanguage === 'de' ? 'en' : 'de';
+                chatLangBtn.textContent = this.chatLanguage.toUpperCase();
+                const ind = document.getElementById('chat-lang-indicator');
+                if (ind) ind.textContent = this.chatLanguage === 'de' ? 'Deutsch' : 'English';
+            });
+        }
+
         // Drag and drop
         this.setupDragAndDrop();
 
@@ -716,10 +728,14 @@ class AlimaWebapp {
 
         const providerSelect = document.getElementById('provider-override');
         const modelSelect = document.getElementById('model-override');
+        const thinkSelect = document.getElementById('think-override');
         const body = {
             message,
             provider: providerSelect?.value || null,
             model: modelSelect?.value || null,
+            // Reply language + thinking override for the chat agent - Claude Generated
+            language: this.chatLanguage || 'de',
+            think: thinkSelect?.value || null,
         };
 
         try {
@@ -805,6 +821,12 @@ class AlimaWebapp {
             const modelSelect = document.getElementById('model-override');
             if (providerSelect && providerSelect.value && modelSelect && modelSelect.value) {
                 formData.append('global_override', `${providerSelect.value}|${modelSelect.value}`);
+            }
+
+            // Add global thinking override if not "default" - Claude Generated
+            const thinkSelect = document.getElementById('think-override');
+            if (thinkSelect && thinkSelect.value) {
+                formData.append('think_override', thinkSelect.value);
             }
 
             const response = await fetch(`/api/analyze/${this.sessionId}`, {

@@ -56,6 +56,7 @@ class ChatAgentWorker(QThread):
         seed: Optional[int] = None,
         tools: Optional[list] = None,
         history: Optional[List[Dict[str, Any]]] = None,
+        think: Optional[bool] = None,
         parent: Any = None,
     ) -> None:
         super().__init__(parent)
@@ -76,6 +77,7 @@ class ChatAgentWorker(QThread):
         # We default to "all", matching the chat-tools registry contract.
         self._tools = tools if tools is not None else []
         self._history = history
+        self._think = think
         self._stop_event = threading.Event()
         # Phase D: bus id for the currently-open tool call. Set by
         # _on_tool_call, consumed by _on_tool_result so the bus
@@ -156,6 +158,7 @@ class ChatAgentWorker(QThread):
                 max_tokens=self._max_tokens,
                 seed=self._seed,
                 conversation_history=self._history,
+                think=self._think,
             )
             self.generation_finished.emit(result)
         except Exception as exc:

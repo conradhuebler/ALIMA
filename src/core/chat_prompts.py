@@ -53,10 +53,38 @@ SHARED_RULES = (
     "  nutze `get_messages_history` mit passendem `offset` und `last_n`,\n"
     "  um die Ergebnisse zu finden. Du musst nicht nochmal die gleichen\n"
     "  Tools rufen — hole dir die Daten aus deiner eigenen Historie.\n\n"
+    "Katalog-Tool-Wahl:\n"
+    "- Für Katalogsuchen IMMER `search_finc` bevorzugen — es ist\n"
+    "  reichhaltiger (Autoren, Schlagworte, DK/RVK-Facetten,\n"
+    "  Exact-Match per Anführungszeichen, Format-Filter).\n"
+    "- `search_catalog` / `search_catalog_titles` (Libero) NUR als\n"
+    "  Fallback, wenn `search_finc` nichts liefert oder nicht\n"
+    "  verfügbar ist.\n\n"
+    "Autorensuche & Namensvetter (ZWINGEND):\n"
+    "- Eine Autorensuche liefert ALLE Treffer mit passendem\n"
+    "  Namensbestandteil — auch ANDERE Personen mit gleichem\n"
+    "  Nachnamen. Der Treffer-Output ist also nicht automatisch die\n"
+    "  gesuchte Person.\n"
+    "- Prüfe das Autorenfeld JEDES Treffers. Nenne nur Treffer, deren\n"
+    "  Autor in Vor- UND Nachname mit dem gesuchten Namen übereinstimmt.\n"
+    "- Mische NIEMALS verschiedene Personen mit gleichem Nachnamen\n"
+    "  (z.B. 'Richard Neubert' ≠ 'Richard Peter' ≠ 'Eberhard Neubert').\n"
+    "- Setze bei Autorensuchen den vollen Namen in Anführungszeichen\n"
+    "  (z.B. terms=['\"Richard Neubert\"']).\n"
+    "- Bei Unsicherheit nenne den vollständigen Autornamen des\n"
+    "  Treffers, damit der Nutzer die Zuordnung prüfen kann.\n\n"
+    "Treffer-Darstellung:\n"
+    "- Nenne nur, was im Treffer steht (Titel, Autor, Jahr, Typ, Link).\n"
+    "- KEINE erfundenen Relevanz-Begründungen ('hochrelevant für deine\n"
+    "  Masterarbeit') und keine Werbe-/Füllsätze.\n\n"
     "Offene Eingaben:\n"
     "- Wenn der Nutzer nur ein einzelnes Stichwort schreibt (z.B.\n"
     "  'Quantenchemie') OHNE vorherigen Kontext UND ohne Verb/Frage,\n"
     "  dann frage zurück, was zu tun ist.\n"
+    "- ABER: Existiert aus den letzten Nachrichten bereits ein Subjekt\n"
+    "  (z.B. ein Autor oder Thema), arbeite damit weiter, statt\n"
+    "  zurückzufragen ('Nutze Finc' nach einer Autorensuche → suche\n"
+    "  denselben Autor in finc).\n"
     "- Rufe NIEMALS eigenmächtig Tools auf, wenn der Nutzer keinen\n"
     "  klaren Auftrag gegeben hat UND kein vorheriger Kontext existiert."
 )
@@ -338,6 +366,57 @@ def detect_mode(user_message: str, context_str: str = "") -> str:
 
     # 5. Default
     return "general"
+
+
+# ---------------------------------------------------------------------------
+# Chat runtime directives — language + history window (shared GUI/webapp/CLI)
+# ---------------------------------------------------------------------------
+
+# Number of prior chat messages fed back to the agent as conversation context.
+# Both the Qt6 chat panel and the webapp/headless path use this single value so
+# the behaviour stays identical across frontends. - Claude Generated
+CHAT_HISTORY_WINDOW = 5
+
+
+def apply_chat_directives(
+    system_prompt: str,
+    language: str = "de",
+    history_truncated: bool = False,
+    shown_messages: int = CHAT_HISTORY_WINDOW,
+) -> str:
+    """Append language + history-truncation directives to a system prompt - Claude Generated.
+
+    ``language`` is 'de' (default) or 'en'. ``history_truncated`` adds an explicit
+    note when only the last ``shown_messages`` of a longer conversation are in
+    context, so the model knows older turns exist instead of treating the window
+    as the whole conversation.
+    """
+    is_en = (language or "de").lower().startswith("en")
+    parts = [system_prompt or ""]
+    if is_en:
+        parts.append(
+            "\n\nIMPORTANT: Always reply in English, regardless of the language "
+            "of the user's message or the provided context."
+        )
+    else:
+        parts.append(
+            "\n\nWICHTIG: Antworte ausschließlich auf Deutsch, unabhängig von der "
+            "Sprache der Nutzernachricht oder des bereitgestellten Kontexts."
+        )
+    if history_truncated:
+        if is_en:
+            parts.append(
+                f"\n\nNote on history: you are only shown the last {shown_messages} "
+                "messages of the conversation; older messages were truncated. If you "
+                "are missing context, say so or ask."
+            )
+        else:
+            parts.append(
+                f"\n\nHinweis zum Verlauf: Dir werden nur die letzten {shown_messages} "
+                "Nachrichten des Gesprächs gezeigt; ältere wurden gekürzt. Wenn dir "
+                "Kontext fehlt, weise darauf hin oder frag nach."
+            )
+    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------

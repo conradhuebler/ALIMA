@@ -47,6 +47,14 @@ class LlmService(QObject):
     and generation requests across all supported providers.
     """
 
+    # Per-request runtime flags, set by generate_response()/generate_with_tools()
+    # before dispatching to a provider generator. Class-level defaults so a
+    # generator called directly (e.g. in tests) doesn't trip over an unset
+    # attribute. - Claude Generated
+    current_think: Optional[bool] = None
+    current_output_format: Optional[str] = None
+    current_repetition_penalty: Optional[float] = None
+
     # Define PyQt signals for text streaming
     text_received = pyqtSignal(str, str)  # request_id, text_chunk
     generation_finished = pyqtSignal(str, str)  # request_id, message
@@ -1462,6 +1470,42 @@ class LlmService(QObject):
             self.generation_error.emit(self.current_request_id, error_msg)
             return error_msg
 
+    def _apply_openai_think(self, params: dict, model: str) -> None:
+        """Apply the current think flag to an OpenAI-compatible request - Claude Generated.
+
+        think is opt-in: ``current_think is None`` leaves the provider default
+        untouched (no params added, so backends that don't support reasoning are
+        unaffected). Boolean semantics:
+
+        - Reasoning models (o1/o3/o4/gpt-5/gpt-oss) use the standard
+          ``reasoning_effort`` param — "medium" when on, "minimal"/"low" when off.
+        - Other OpenAI-compatible backends (vLLM/SGLang/Ollama-OpenAI serving
+          Qwen3 etc.) use ``extra_body.chat_template_kwargs.enable_thinking``.
+
+        CAVEAT: thinking controls are not part of the base OpenAI protocol; a
+        backend that rejects unknown fields will only see them when the user
+        explicitly toggles think on/off for that model.
+        """
+        if self.current_think is None:
+            return
+        think = bool(self.current_think)
+        ml = (model or "").lower()
+        reasoning_prefixes = ("o1", "o3", "o4", "gpt-5", "gpt-oss")
+        is_reasoning = any(ml.startswith(p) for p in reasoning_prefixes)
+        if is_reasoning:
+            if think:
+                effort = "medium"
+            else:
+                # gpt-5 accepts "minimal"; the o-series minimum is "low".
+                effort = "minimal" if ml.startswith("gpt-5") else "low"
+            params["reasoning_effort"] = effort
+            self.logger.debug(f"OpenAI think: reasoning_effort={effort} for {model}")
+        else:
+            params.setdefault("extra_body", {}).setdefault(
+                "chat_template_kwargs", {}
+            )["enable_thinking"] = think
+            self.logger.debug(f"OpenAI think: enable_thinking={think} for {model}")
+
     def _generate_openai_compatible(
         self,
         model: str,
@@ -1539,12 +1583,8 @@ class LlmService(QObject):
             if self.current_repetition_penalty is not None:
                 params.setdefault("extra_body", {})["repetition_penalty"] = self.current_repetition_penalty
 
-            # think is Ollama-native and not part of the OpenAI protocol – ignore it here
-            if self.current_think is not None:
-                self.logger.debug(
-                    f"think={self.current_think} ignored for OpenAI-compat provider '{provider}' "
-                    f"(think is Ollama-native; use an ollama provider for think control)"
-                )
+            # Apply thinking/reasoning control (reasoning_effort or enable_thinking) - Claude Generated
+            self._apply_openai_think(params, model)
 
             # Handle streaming option
             if stream:
@@ -2493,6 +2533,7 @@ class LlmService(QObject):
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
+        think: Optional[bool] = None,
     ) -> "AgentResponse":
         """
         Generate a response with tool-calling support - Claude Generated
@@ -2521,6 +2562,10 @@ class LlmService(QObject):
 
         # Map legacy provider names
         provider = self._map_provider_name(provider)
+
+        # Thinking control for the tool-calling path (agent). Set here so the
+        # per-provider with-tools generators can read self.current_think. - Claude Generated
+        self.current_think = think
 
         if not self._ensure_provider_initialized(provider):
             raise ValueError(f"Provider '{provider}' not available for tool-calling")
@@ -2604,6 +2649,11 @@ class LlmService(QObject):
         if seed is not None:
             options["seed"] = seed
 
+        # Thinking control (top-level kwarg, mirrors _generate_ollama_native) - Claude Generated
+        think_kwargs: dict = {}
+        if self.current_think is not None:
+            think_kwargs["think"] = self.current_think
+
         # P-δ.5c: Ollama SDK 0.6.1 accepts stream=True with tools=[...].
         # Text content streams per chunk via message.content; tool_calls
         # arrive as a complete array on the final (done=True) chunk — no
@@ -2636,6 +2686,7 @@ class LlmService(QObject):
                     tools=ollama_tools if ollama_tools else None,
                     options=options,
                     stream=True,
+                    **think_kwargs,
                 )
                 content = ""
                 tool_calls_raw: list = []
@@ -2669,6 +2720,7 @@ class LlmService(QObject):
                     tools=ollama_tools if ollama_tools else None,
                     options=options,
                     stream=False,
+                    **think_kwargs,
                 )
                 content = ""
                 tool_calls = []
@@ -2738,6 +2790,7 @@ class LlmService(QObject):
                     params["seed"] = seed
                 if openai_tools:
                     params["tools"] = openai_tools
+                self._apply_openai_think(params, model)
                 response_stream = self.clients[provider].chat.completions.create(**params)
 
                 content = ""
@@ -2811,6 +2864,7 @@ class LlmService(QObject):
                     params["seed"] = seed
                 if openai_tools:
                     params["tools"] = openai_tools
+                self._apply_openai_think(params, model)
 
                 response = self.clients[provider].chat.completions.create(**params)
 

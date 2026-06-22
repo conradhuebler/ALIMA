@@ -17,6 +17,7 @@ tokens are renderer state until the line / bubble is finalised.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -632,10 +633,44 @@ class UnifiedMessageRenderer:
             "⏳" if tc["status"] == "running"
             else ("✓" if tc["status"] == "success" else "✗")
         )
+        # Result summary in the always-visible (collapsed) line so tool activity
+        # is reviewable without expanding each block. - Claude Generated
+        result_summary = self._result_summary(tc.get("result") or "")
+        result_html = (
+            f' <span style="color: #50fa7b;">→ {self._escape_html(result_summary)}</span>'
+            if result_summary
+            else ""
+        )
         return (
             f'<span style="color: #888; font-family: monospace; font-size: 9pt;">'
-            f"🔧 {name}({args_preview})  {status_icon}{duration_str}</span>"
+            f"🔧 {name}({args_preview})  {status_icon}{result_html}{duration_str}</span>"
         )
+
+    @staticmethod
+    def _result_summary(result: str) -> str:
+        """One-line summary of a tool result for the collapsed header - Claude Generated.
+
+        Counts records for the common finc/catalog shapes (a JSON list, or a
+        dict-of-lists keyed per search term) so the collapsed line shows e.g.
+        ``→ 12 Treffer``; falls back to a size hint for non-JSON results.
+        """
+        if not result:
+            return ""
+        try:
+            parsed = json.loads(result)
+        except (json.JSONDecodeError, TypeError):
+            n = len(result)
+            return f"{n} Zeichen" if n < 1024 else f"{n / 1024:.1f} kB"
+        if isinstance(parsed, list):
+            return f"{len(parsed)} Treffer"
+        if isinstance(parsed, dict):
+            list_vals = [v for v in parsed.values() if isinstance(v, list)]
+            if list_vals and len(list_vals) == len(parsed):
+                return f"{sum(len(v) for v in list_vals)} Treffer"
+            if "error" in parsed:
+                return "Fehler"
+            return f"{len(parsed)} Felder"
+        return ""
 
     def _tool_body_html(self, tool_id: str) -> str:
         """Body HTML for a collapsible block (escaped, pre-wrapped by .tc-body)."""

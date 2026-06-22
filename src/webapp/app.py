@@ -824,6 +824,53 @@ async def refresh_models() -> list:
     return await get_available_models()
 
 
+def _parse_think_override(value: Optional[str]) -> Optional[bool]:
+    """Map a 'default'|'on'|'off' thinking override string to None/True/False - Claude Generated."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v in ("on", "true", "1", "yes", "an"):
+        return True
+    if v in ("off", "false", "0", "no", "aus"):
+        return False
+    return None  # "default" / unknown → leave per-step/task value
+
+
+def _log_chat_turn_safe(runner, session_id, provider, model, message, result, req,
+                        tool_log=None) -> None:
+    """Best-effort chat-turn logging to the configured SQLite DB - Claude Generated.
+
+    No-op unless ``chat_config.session_log_db`` is set. Never raises. ``tool_log``
+    (full args+results from the callbacks) is preferred over the truncated
+    ``result.tool_log`` so the DB record is complete for later analysis.
+    """
+    try:
+        chat_config = getattr(runner, "chat_config", None)
+        db_path = getattr(chat_config, "session_log_db", "") if chat_config else ""
+        if not db_path:
+            return
+        from src.utils.chat_session_logger import log_chat_turn
+        cm = AppContext().get_services()['config_manager']
+        cfg_file = getattr(cm, "config_file", None)
+        config_dir = str(cfg_file.parent) if cfg_file else None
+        log_chat_turn(
+            db_path,
+            session_id=session_id,
+            provider=provider,
+            model=model,
+            user_message=message,
+            response=getattr(result, "content", "") or "",
+            tool_log=tool_log if tool_log is not None else getattr(result, "tool_log", None),
+            mode=(getattr(req, "mode", None) or "auto"),
+            language=(getattr(req, "language", None) or "de"),
+            iterations=getattr(result, "iterations", 0),
+            error=getattr(result, "error", None),
+            config_dir=config_dir,
+        )
+    except Exception as e:
+        logger.warning(f"chat-turn logging skipped: {e}")
+
+
 @app.post("/api/analyze/{session_id}")
 async def start_analysis(
     session_id: str,
@@ -831,6 +878,7 @@ async def start_analysis(
     content: Optional[str] = Form(None),  # For text/doi
     file: Optional[UploadFile] = File(None),  # For pdf/img
     global_override: Optional[str] = Form(None),  # "provider|model" override - Claude Generated
+    think_override: Optional[str] = Form(None),  # "default"|"on"|"off" thinking override - Claude Generated
     source_type: Optional[str] = Form(None),   # Original source type for filename metadata - Claude Generated
     source_value: Optional[str] = Form(None),  # DOI/URL/filename for working title - Claude Generated
     workflow: Optional[str] = Form(None),  # Workflow stem or __classic__ - Claude Generated
@@ -869,7 +917,7 @@ async def start_analysis(
         logger.info(f"Session {session_id} workflow set to: {workflow}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow, think_override))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -1349,6 +1397,8 @@ class ChatMessageRequest(BaseModel):
     model: Optional[str] = None
     temperature: Optional[float] = None
     mode: Optional[str] = None  # auto | verschlagwortung | suche | general
+    language: Optional[str] = None  # "de" (default) | "en" — reply language
+    think: Optional[str] = None  # "default" | "on" | "off" — thinking override
 
 
 def _agent_context_from_input(input_data: Dict[str, Any]) -> str:
@@ -1581,10 +1631,12 @@ def _build_session_agent_runner(session: "Session", req: ChatMessageRequest):
     # destructive mutations require explicit confirmation via the UI.
     gateway = AutoRejectGateway()
 
-    # Prefer explicit request values, then the session's last effective pipeline
-    # provider/model, then the usual ChatConfig / unified-config fallbacks.
-    chat_provider = req.provider or session.last_provider
-    chat_model = req.model or session.last_model
+    # Prefer explicit request values, then the configured chat default
+    # (ChatConfig.default_provider/model — a config-only webapp setting), then
+    # the session's last effective pipeline provider/model, then the usual
+    # unified-config fallbacks inside resolve_provider_model. - Claude Generated
+    chat_provider = req.provider or chat_config.default_provider or session.last_provider
+    chat_model = req.model or chat_config.default_model or session.last_model
     provider, model = resolve_provider_model(
         chat_provider, chat_model,
         chat_config=chat_config, pipeline_manager=pm, llm_service=services['llm_service'],
@@ -1666,6 +1718,9 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
 
     # Track open tool-call ids so on_tool_result can close the matching block.
     _open_tool_ids: list = []
+    # Full tool calls (args + untruncated results) for the chat-session DB log,
+    # which the rendered preview (res[:2000]) would otherwise lose. - Claude Generated
+    _tool_calls_full: list = []
 
     def run_chat_turn(should_stop):
         try:
@@ -1674,6 +1729,11 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
                     tc.name, tc.arguments or {}
                 )
                 _open_tool_ids.append(tool_id)
+                _tool_calls_full.append({
+                    "name": getattr(tc, "name", ""),
+                    "arguments": dict(getattr(tc, "arguments", {}) or {}),
+                    "result": None,
+                })
 
             def _on_tool_result(_name, res):
                 # Trust tool-result URLs so pre-formatted GND/catalog links
@@ -1686,6 +1746,12 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
                     )
                 except Exception:
                     pass
+                # Record the full result for the DB log (calls/results are
+                # sequential, so the open entry is the most recent one).
+                for entry in reversed(_tool_calls_full):
+                    if entry["result"] is None:
+                        entry["result"] = res
+                        break
                 tool_id = _open_tool_ids.pop() if _open_tool_ids else None
                 if tool_id:
                     session_renderer.render_tool_result(
@@ -1696,14 +1762,25 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
                         f"↳ {_name}: {res[:120]}"
                     )
 
+            # Last-N window of *prior* turns (exclude the just-appended current
+            # message; AgentLoop re-adds it as the user prompt). history_truncated
+            # tells the model older turns exist. - Claude Generated
+            from src.core.chat_prompts import CHAT_HISTORY_WINDOW
+            prior_history = list(session.chat_history)[:-1]
+            recent_history = prior_history[-CHAT_HISTORY_WINDOW:]
+            history_truncated = len(prior_history) > len(recent_history)
+
             result = runner.run(
                 message,
                 provider=provider,
                 model=model,
                 context_str=context_str,
                 temperature=req.temperature,
-                conversation_history=list(session.chat_history),
+                conversation_history=recent_history,
                 shared_context=shared_context,
+                think=_parse_think_override(req.think),
+                language=(req.language or "de"),
+                history_truncated=history_truncated,
                 on_token=lambda t: session_renderer.append_assistant_token(t),
                 on_status=lambda s: session_renderer.render_pipeline_log(s, "debug"),
                 on_tool_call=_on_tool_call,
@@ -1715,6 +1792,13 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
             if content:
                 session.chat_history.append({"role": "assistant", "content": content})
             session_renderer.finalize_assistant_bubble()
+
+            # Config-only chat-session DB logging (no UI). Pass the full
+            # tool calls+results captured via the callbacks (untruncated). - Claude Generated
+            _log_chat_turn_safe(
+                runner, session_id, provider, model, message, result, req,
+                tool_log=_tool_calls_full,
+            )
             if should_stop():
                 session_renderer.render_system_message("⏹ Chat abgebrochen")
             else:
@@ -1827,6 +1911,7 @@ async def run_analysis(
     source_type: Optional[str] = None,   # Original source type for working title - Claude Generated
     source_value: Optional[str] = None,  # DOI/URL/filename for working title - Claude Generated
     workflow: Optional[str] = None,  # Workflow stem or __classic__ - Claude Generated
+    think_override: Optional[str] = None,  # "default"|"on"|"off" thinking override - Claude Generated
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -1925,12 +2010,19 @@ async def run_analysis(
         pipeline_config = PipelineConfig.create_from_provider_preferences(config_manager)
 
         # Apply global override if provided - Claude Generated
-        if global_override:
-            provider, model = PipelineConfig.parse_override_string(global_override)
-            pipeline_config.global_provider_override = provider
-            pipeline_config.global_model_override = model
+        think_val = _parse_think_override(think_override)
+        if global_override or think_val is not None:
+            if global_override:
+                provider, model = PipelineConfig.parse_override_string(global_override)
+                pipeline_config.global_provider_override = provider
+                pipeline_config.global_model_override = model
+            pipeline_config.global_think_override = think_val
             pipeline_config.apply_global_override()
-            logger.info(f"🔬 Webapp global override applied: {provider}/{model}")
+            logger.info(
+                f"🔬 Webapp global override applied: "
+                f"{pipeline_config.global_provider_override}/{pipeline_config.global_model_override} "
+                f"think={think_val}"
+            )
 
         # Set config on pipeline manager (was missing - config was built but never applied)
         pipeline_manager.set_config(pipeline_config)
