@@ -2097,7 +2097,9 @@ class PipelineTab(QWidget):
             )
             search_results = getattr(state, "search_results", None) if state else None
             if search_results:
-                self._populate_gnd_hits(search_results)
+                # Fresh pool → clear chunk/final marks from a previous run so a
+                # later non-chunked run can't inherit a stale ☑ Chunk tier. - Claude Generated
+                self._populate_gnd_hits(search_results, reset_marks=True)
 
         elif step.step_id == "keywords" and step.output_data:
             final_keywords = step.output_data.get("final_keywords", "")
@@ -2122,6 +2124,16 @@ class PipelineTab(QWidget):
                 chains = llm_analysis.keyword_chains if llm_analysis else []
                 self._render_keyword_chains(chains, final_keywords_list)
 
+            # Surface the chunk-survivor pool (chunked runs only) as the ☑ Chunk
+            # tier before marking the ✅ Final tier — mirrors the agentic
+            # selection_chunks → selection tiering so the GND-Recherche tab
+            # visibly separates "gechunkt" from "ausgewählt". - Claude Generated
+            llm_analysis = step.output_data.get("llm_analysis")
+            chunk_survivors = (
+                getattr(llm_analysis, "chunk_keywords", None) if llm_analysis else None
+            )
+            if chunk_survivors:
+                self._mark_gnd_selection(chunk_survivors, tier="chunk")
             # Mark which GND-Recherche hits survived the selection step - Claude Generated
             self._mark_gnd_selection(final_keywords_list)
 
@@ -2342,7 +2354,7 @@ class PipelineTab(QWidget):
         final_set: set = set()
         for item in (final_keywords_source or []):
             if isinstance(item, dict):
-                final_set.add(_norm(item.get("keyword", "")))
+                final_set.add(_norm(item.get("keyword") or item.get("title") or ""))
             else:
                 final_set.add(_norm(str(item)))
 
@@ -2433,7 +2445,7 @@ class PipelineTab(QWidget):
                         for kw in verified:
                             if isinstance(kw, dict):
                                 lines.append(
-                                    f"{kw.get('keyword', '')} (GND-ID: {kw.get('gnd_id', '')})"
+                                    f"{kw.get('keyword') or kw.get('title') or ''} (GND-ID: {kw.get('gnd_id', '')})"
                                 )
                             else:
                                 lines.append(str(kw))
@@ -2445,7 +2457,7 @@ class PipelineTab(QWidget):
                     lines = []
                     for kw in final_kws:
                         if isinstance(kw, dict):
-                            lines.append(f"{kw.get('keyword', '')} (GND-ID: {kw.get('gnd_id', '')})")
+                            lines.append(f"{kw.get('keyword') or kw.get('title') or ''} (GND-ID: {kw.get('gnd_id', '')})")
                         else:
                             lines.append(str(kw))
                     self.keywords_result.setPlainText("\n".join(lines))

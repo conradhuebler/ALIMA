@@ -553,6 +553,59 @@ class TestAlimaClassicMigration(unittest.TestCase):
         picked = ctx.extra.get("picked")
         self.assertEqual([p["title"] for p in picked], ["A", "B", "C"])
 
+    def test_llm_chunked_selection_canonicalises_title_to_keyword(self):
+        """dedup_field='keyword': title-keyed LLM output is canonicalised + deduped.
+
+        Mirrors the alima.yaml selection_chunks contract, where the pool is
+        projected to ``title``/``gnd_id`` but the requested output field is
+        ``keyword``. The LLM frequently echoes ``title``; the merge boundary
+        must (a) still dedup (no silently-empty key) and (b) expose ``keyword``
+        so the GUI display shows the term, not just the GND-ID. - Claude Generated
+        """
+        ctx = SharedContext(abstract="Abstract zu X.", provider="p", model="m")
+        # Both chunks echo the input field name ``title``; "A" repeats across chunks.
+        fake_loop = MagicMock()
+        fake_loop.run.side_effect = [
+            _agent_result('```json\n{"keywords": [{"title": "A", "gnd_id": "1"}, {"title": "B", "gnd_id": "2"}]}\n```'),
+            _agent_result('```json\n{"keywords": [{"title": "C", "gnd_id": "3"}, {"title": "A", "gnd_id": "1"}]}\n```'),
+        ]
+        with patch(
+            "src.core.agents.steps.llm_agent_step.AgentLoop", return_value=fake_loop
+        ):
+            cfg = StepConfig(
+                id="sel",
+                type="llm_agent",
+                inputs={"gnd_entries": "${extra.pool}"},
+                outputs={"extra.picked": "response.keywords"},
+                raw={
+                    "system_prompt": "sys",
+                    "user_prompt": "chunk {chunk_index}/{chunk_total}: {gnd_entries}",
+                    "inputs": {"gnd_entries": "${extra.pool}"},
+                    "outputs": {"extra.picked": "response.keywords"},
+                    "chunking": {
+                        "enabled": True,
+                        "chunk_field": "gnd_entries",
+                        "chunk_size": 2,
+                        "merge_key": "keywords",
+                        "dedup_field": "keyword",
+                    },
+                },
+            )
+            ctx.extra["pool"] = [
+                {"title": "X1", "gnd_id": "1", "count": 10},
+                {"title": "X2", "gnd_id": "2", "count": 5},
+                {"title": "X3", "gnd_id": "3", "count": 1},
+            ]
+            step = LLMAgentStep(cfg, llm_service=MagicMock(), tool_registry=MagicMock())
+            result = step.execute(ctx)
+
+        self.assertTrue(result.success, msg=result.error)
+        picked = ctx.extra.get("picked")
+        # Duplicate "A" dropped (dedup not silently disabled) → A, B, C.
+        self.assertEqual([p["keyword"] for p in picked], ["A", "B", "C"])
+        # Every merged item carries a non-empty canonical ``keyword`` field.
+        self.assertTrue(all(p.get("keyword") for p in picked))
+
     def test_gnd_batch_search_fn(self):
         """gnd_batch_search: parses SWB/Lobid batch responses, merges pool, enriches."""
         from src.core.agents.registry import get_tool_fn

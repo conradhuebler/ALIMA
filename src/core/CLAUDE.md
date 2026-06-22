@@ -48,7 +48,9 @@ The `src/core/` directory contains the fundamental business logic and data manag
 6. **Cache Statistics Enhancement**: Added `get_cache_stats()` method for real-time monitoring
 
 ### Current Issues
-- No critical issues reported
+- **ADD — Agentic GND "Häufigkeit" zeigt 1 (display/sort entkoppeln)**: Mapping-Cache-Treffer bekommen in `meta_suggester._add_cached_results_to_combined` `count=1`; klassisch zeigt `flatten_gnd_hits` das Max über alle Suchbegriffe → agentisch wirkt inkonsistent (meist 1).
+  - **Falle**: der Pool-`count` steuert auch die Reihenfolge (`gnd_batch_search` Sort `(source_count, count)` + Chunking `sort_by: count`). Ändert man die Pool-Counts (z. B. Max-Merge in `_parse_batch_response*`), verschiebt sich `selection_chunks`→`selection` und Chunk/Final fallen zusammen (chunk = final). Naiver Max-Merge-Fix wurde aus genau diesem Grund zurückgenommen (Juni 2026).
+  - **Richtung**: Count NUR anzeigeseitig korrigieren (`flatten_gnd_hits`/GUI), ohne die `gnd_entries` zu verändern, die Selektion/Sortierung speisen. Verifikation: agentischer Lauf/State, prüfen dass Chunk ≠ Final bleibt.
 
 ### Development Notes
 - All new functions marked as "Claude Generated" for traceability

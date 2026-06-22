@@ -1873,6 +1873,7 @@ class PipelineStepExecutor:
             extracted_gnd_classes=final_single_result[1],
             keyword_chains=final_single_result[2].keyword_chains,  # Chains from final consolidation - Claude Generated
             chunk_responses=combined_responses,  # Store chunk responses separately - Claude Generated
+            chunk_keywords=list(deduplicated_keywords),  # Chunk-survivor pool (pre-consolidation) for the GND-Recherche chunk tier - Claude Generated
             verification=final_single_result[2].verification,  # Use verification from _execute_single_keyword_analysis() - Claude Generated
         )
 

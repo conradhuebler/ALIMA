@@ -274,7 +274,21 @@ class LLMAgentStep(BaseStep):
                 for it in chunk_items:
                     key: Any
                     if isinstance(it, dict):
-                        key = str(it.get(dedup_field, "")).lower()
+                        # The LLM frequently echoes the projected input field name
+                        # (``title``) instead of the requested ``keyword``. Fall back
+                        # across both so dedup is never silently disabled, and — when
+                        # this is a keyword selection (dedup_field == "keyword") —
+                        # canonicalise to ``keyword`` so downstream display/merge stay
+                        # consistent (copy, never mutate the parsed response). - Claude Generated
+                        key = str(
+                            it.get(dedup_field) or it.get("keyword") or it.get("title") or ""
+                        ).lower()
+                        if (
+                            dedup_field == "keyword"
+                            and not it.get("keyword")
+                            and it.get("title")
+                        ):
+                            it = {**it, "keyword": it["title"]}
                     else:
                         key = str(it).lower()
                     if key and key in seen:

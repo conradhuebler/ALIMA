@@ -234,6 +234,64 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertIsNotNone(llm_analysis)
         self.assertEqual(llm_analysis.model_used, model)
         self.assertIn("Umweltverschmutzung", str(llm_analysis.extracted_gnd_keywords))
+        # Single-pass path leaves the chunk-survivor tier empty (no ☑ Chunk
+        # tier in the GND-Recherche tab for non-chunked runs). - Claude Generated
+        self.assertEqual(llm_analysis.chunk_keywords, [])
+
+    def test_chunked_keyword_analysis_populates_chunk_keywords(self):
+        """Chunked path exposes the dedup survivor pool as chunk_keywords - Claude Generated.
+
+        The GUI marks this list as the ☑ Chunk tier; it must equal the
+        deduplicated pre-consolidation keywords so the GND-Recherche tab can
+        separate "gechunkt" from "ausgewählt".
+        """
+        dedup = [
+            "KW1 (GND-ID: 1)",
+            "KW2 (GND-ID: 2)",
+            "KW3 (GND-ID: 3)",
+        ]
+        fake_analysis = LlmKeywordAnalysis(
+            task_name="keywords",
+            model_used="m",
+            provider_used="p",
+            prompt_template="tmpl",
+            filled_prompt="filled",
+            temperature=0.7,
+            seed=42,
+            response_full_text="resp",
+            extracted_gnd_keywords=[],
+            keyword_chains=[],
+            verification=None,
+        )
+        with patch.object(
+            self.executor,
+            "_execute_single_keyword_analysis",
+            return_value=(["KW1 (GND-ID: 1)"], ["21.4"], fake_analysis),
+        ), patch.object(
+            self.executor, "_extract_keywords_enhanced", return_value=["x"]
+        ), patch.object(
+            self.executor, "_deduplicate_keywords", return_value=dedup
+        ):
+            final_keywords, gnd_classes, llm_analysis = (
+                self.executor._execute_chunked_keyword_analysis(
+                    original_abstract="abstract",
+                    gnd_compliant_keywords=[
+                        "KW1 (GND-ID: 1)",
+                        "KW2 (GND-ID: 2)",
+                        "KW3 (GND-ID: 3)",
+                        "KW4 (GND-ID: 4)",
+                    ],
+                    model="m",
+                    provider="p",
+                    task="keywords",
+                    chunking_task="keywords_chunked",
+                    keyword_chunking_threshold=2,  # forces chunking of the 4-keyword pool
+                )
+            )
+
+        self.assertEqual(llm_analysis.chunk_keywords, dedup)
+        # Survivor pool is independent of the (mocked) final consolidation result.
+        self.assertEqual(final_keywords, ["KW1 (GND-ID: 1)"])
 
     @patch('src.utils.config_manager.ConfigManager.get_catalog_config')
     @patch('src.utils.clients.biblio_client.BiblioClient')  # WIP imports locally inside execute_dk_search
