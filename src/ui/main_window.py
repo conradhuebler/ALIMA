@@ -1444,6 +1444,13 @@ class MainWindow(QMainWindow):
         editor = PromptEditorDialog(self)
         editor.exec()
 
+    def show_workflow_editor(self):
+        """Öffnet den Workflow-YAML-Editor - Claude Generated"""
+        from .workflow_editor_dialog import WorkflowEditorDialog
+
+        editor = WorkflowEditorDialog(self)
+        editor.exec()
+
     def show_database_viewer(self):
         """Open database viewer dialog - Claude Generated"""
         try:
@@ -2542,6 +2549,10 @@ class MainWindow(QMainWindow):
         # Prompt-Konfiguration-Aktion
         prompt_config_action = edit_menu.addAction("📝 &Prompt-Konfiguration")
         prompt_config_action.triggered.connect(self.show_prompt_editor)
+
+        # Workflow-Editor-Aktion - Claude Generated
+        workflow_editor_action = edit_menu.addAction("📋 &Workflow-Editor")
+        workflow_editor_action.triggered.connect(self.show_workflow_editor)
 
         # ========== Update-Menü ==========
         update_menu = menubar.addMenu("&Updates")

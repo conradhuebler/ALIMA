@@ -1632,6 +1632,14 @@ class PipelineConfigDialog(QDialog):
         )
         self._populate_workflow_combo()
         workflow_row.addWidget(self.workflow_combo, 1)
+
+        # Workflow editor button (view/edit/create the YAML) - Claude Generated
+        edit_workflow_btn = QPushButton("✏️")
+        edit_workflow_btn.setToolTip("Workflow-YAML ansehen, bearbeiten oder neu anlegen")
+        edit_workflow_btn.setMaximumWidth(40)
+        edit_workflow_btn.clicked.connect(self._open_workflow_editor)
+        workflow_row.addWidget(edit_workflow_btn)
+
         global_layout.addLayout(workflow_row)
 
         layout.addWidget(global_group)
@@ -2055,6 +2063,28 @@ class PipelineConfigDialog(QDialog):
                 self, "Fehler beim Speichern",
                 f"Fehler beim Speichern der Provider-Einstellungen:\n\n{str(e)}"
             )
+
+    def _open_workflow_editor(self) -> None:
+        """Open the workflow YAML editor and refresh the combo afterwards - Claude Generated."""
+        try:
+            from .workflow_editor_dialog import WorkflowEditorDialog
+        except Exception as e:  # noqa: BLE001
+            self.logger.error(f"Workflow editor unavailable: {e}")
+            return
+
+        current = self.workflow_combo.currentData()
+        editor = WorkflowEditorDialog(self, initial_workflow=current)
+        last_saved = {"stem": None}
+        editor.saved.connect(lambda stem: last_saved.update(stem=stem))
+        editor.exec()
+
+        # Refresh discovery so new/edited workflows appear, re-select sensibly.
+        self._populate_workflow_combo()
+        target = last_saved["stem"] or current
+        if target is not None:
+            idx = self.workflow_combo.findData(target)
+            if idx >= 0:
+                self.workflow_combo.setCurrentIndex(idx)
 
     def _populate_workflow_combo(self) -> None:
         """Populate workflow combo from workflows/ directory - Claude Generated.

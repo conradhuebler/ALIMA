@@ -173,7 +173,8 @@ The `src/ui/` directory implements the complete PyQt6-based graphical user inter
 9. **ADD - Enhanced Export**: Pipeline result export in multiple formats (PDF, Excel, etc.)
 
 ### Recently COMPLETED Tasks
-1. **✅ ADDED - Batch Processing Dialog**: Tab-based batch processing with filters and progress tracking
+1. **✅ ADDED - Workflow-Editor (`workflow_editor_dialog.py`)**: structured form editor for agentic v4 workflow YAML. Left nav = settings-button over a `QListWidget` of steps; step editor is a `QTabWidget` (Allgemein/Ein-Ausgaben/LLM/Prompts/Funktion) so prompts get room. ruamel.yaml round-trip preserves comments (verified zero-diff even through the commit-on-save cycle); validates with `load_workflow(strict=True)` before write; saves to `~/.config/alima/workflows/`. Reachable via Bearbeiten-Menü + ✏️ neben dem Workflow-Combo in `PipelineConfigDialog`. Engine read-only.
+2. **✅ ADDED - Batch Processing Dialog**: Tab-based batch processing with filters and progress tracking
 
 ### Previously COMPLETED Tasks
 1. **✅ TESTED - UI Refactoring & Unification**: All tabs refactored with `QSplitter` and unified styling
