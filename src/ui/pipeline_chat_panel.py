@@ -1083,16 +1083,16 @@ class PipelineChatPanel(QWidget):
                     card_html, kind="dk_classifications", plain_text=dk_codes_text
                 )
 
-        if (
-            analysis_state
-            and hasattr(analysis_state, "rvk_provenance")
-            and analysis_state.rvk_provenance
-        ):
-            rvk_count = len(analysis_state.rvk_provenance)
-            if rvk_count:
-                self.add_pipeline_message(
-                    f"\U0001f4d6 {rvk_count} RVK-Klassifikationen zugeordnet",
-                    "success",
+        # Reintroduced RVK-Analytik: frequency Auswertung + RVK provenance tables
+        # via the shared formatter (replaces the old plain-text provenance line so
+        # GUI and webapp render the identical chrome). - Claude Generated
+        if analysis_state:
+            ausw_html, ausw_plain = (
+                PipelineResultFormatter.format_dk_auswertung_card_html(analysis_state)
+            )
+            if ausw_html:
+                self._renderer.render_html_block(
+                    ausw_html, kind="dk_statistics", plain_text=ausw_plain
                 )
 
         # Auto-load chat context for the just-finished pipeline.

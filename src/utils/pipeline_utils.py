@@ -6718,6 +6718,156 @@ class PipelineResultFormatter:
         return html, ", ".join(e["display"] for e in entries)
 
     @staticmethod
+    def _confidence_bucket(count: int) -> Tuple[str, str]:
+        """Confidence label + emoji bar for a hit/title count. - Claude Generated
+
+        Mirrors the thresholds of ``src/ui/styles.get_confidence_style`` inline so
+        this shared formatter stays Qt-free (no ``get_colors``/Qt import on the
+        webapp/CLI path).
+        """
+        if count > 50:
+            return "Sehr hoch", "\U0001f7e9" * 5
+        if count > 20:
+            return "Hoch", "\U0001f7e9" * 3
+        if count > 5:
+            return "Mittel", "\U0001f7e9" * 2
+        return "Niedrig", "\U0001f7e9"
+
+    @staticmethod
+    def format_dk_auswertung_card_html(analysis_state: Any) -> Tuple[str, str]:
+        """Build the DK/RVK frequency-Auswertung + RVK-provenance card. - Claude Generated
+
+        Reintroduces the classic-pipeline RVK analytics ("Auswertung") into the
+        shared WP12 render layer. Two stacked tables in one HTML fragment (no
+        ``<html>/<body>``), styled by the ``#log``-scoped ``.alima-auswertung``
+        rules in ``alima_render.css`` so the GUI QWebEngineView log and the
+        webapp ``#log`` render identical chrome:
+
+        * **Auswertung** — top classifications from
+          ``analysis_state.dk_statistics["most_frequent"]`` plus a deduplication
+          headline and keyword coverage.
+        * **RVK-Provenienz** — source breakdown from
+          ``analysis_state.rvk_provenance``.
+
+        Returns ``("", "")`` when neither dataset is present (e.g. agentic
+        workflows that do not populate ``dk_statistics``).
+        """
+        stats = getattr(analysis_state, "dk_statistics", None) or {}
+        provenance = getattr(analysis_state, "rvk_provenance", None) or {}
+        most_frequent = stats.get("most_frequent") or []
+
+        prov_labels = [
+            ("catalog_standard", "Katalog (standard)"),
+            ("catalog_nonstandard", "Katalog (lokal)"),
+            ("rvk_gnd_index", "RVK-GND-Index"),
+            ("rvk_api", "RVK-API-Label"),
+        ]
+        prov_rows = [
+            (label, int(provenance.get(key) or 0))
+            for key, label in prov_labels
+            if int(provenance.get(key) or 0) > 0
+        ]
+
+        if not most_frequent and not prov_rows:
+            return "", ""
+
+        esc = PipelineResultFormatter._escape_card_html
+        sections: List[str] = []
+        plain_parts: List[str] = []
+
+        # --- Table A: frequency Auswertung ---
+        if most_frequent:
+            dedup = stats.get("deduplication_stats") or {}
+            total = stats.get("total_classifications")
+            original = dedup.get("original_count")
+            head_bits: List[str] = []
+            if original is not None and total is not None:
+                head_bits.append(f"{original} → {total} nach Deduplizierung")
+            if dedup.get("deduplication_rate"):
+                head_bits.append(f"Dedup-Rate {dedup['deduplication_rate']}")
+            if dedup.get("estimated_token_savings"):
+                head_bits.append(f"~{dedup['estimated_token_savings']} Token gespart")
+            headline = (
+                f'<div class="alima-auswertung__sub">{esc(" · ".join(head_bits))}</div>'
+                if head_bits
+                else ""
+            )
+
+            rows: List[str] = []
+            for item in most_frequent:
+                code = esc(str(item.get("dk", "")))
+                ctype = esc(str(item.get("type", "DK")))
+                count = int(item.get("count", 0) or 0)
+                kws = item.get("keywords") or []
+                kw_preview = ", ".join(esc(str(k)) for k in kws[:3])
+                if len(kws) > 3:
+                    kw_preview += f" (+{len(kws) - 3})"
+                conf_count = int(item.get("unique_titles", count) or 0)
+                conf_label, bar = PipelineResultFormatter._confidence_bucket(conf_count)
+                rows.append(
+                    "<tr>"
+                    f'<td class="alima-auswertung__code">{code}</td>'
+                    f"<td>{ctype}</td>"
+                    f'<td class="alima-auswertung__num">{count}</td>'
+                    f"<td>{kw_preview}</td>"
+                    f'<td class="alima-auswertung__conf">{bar} {conf_label}</td>'
+                    "</tr>"
+                )
+            table_a = (
+                '<table class="alima-auswertung-table">'
+                "<thead><tr>"
+                "<th>Code</th><th>Typ</th><th>Count</th>"
+                "<th>Keywords</th><th>Konfidenz</th>"
+                "</tr></thead>"
+                f"<tbody>{''.join(rows)}</tbody></table>"
+            )
+
+            coverage = stats.get("keyword_coverage") or {}
+            coverage_html = ""
+            if coverage:
+                cov_bits = [
+                    f"{esc(str(kw))} → {esc(', '.join(str(c) for c in (codes or [])[:3]))}"
+                    for kw, codes in list(coverage.items())[:8]
+                ]
+                coverage_html = (
+                    '<div class="alima-auswertung__sub">'
+                    f'Keyword-Coverage: {" · ".join(cov_bits)}'
+                    "</div>"
+                )
+
+            sections.append(
+                '<div class="classification-card-title">📊 DK/RVK-Auswertung</div>'
+                f"{headline}{table_a}{coverage_html}"
+            )
+            plain_parts.append(
+                "DK/RVK-Auswertung: "
+                + "; ".join(
+                    f"{i.get('dk', '')} ({i.get('count', 0)})" for i in most_frequent
+                )
+            )
+
+        # --- Table B: RVK provenance ---
+        if prov_rows:
+            prov_tr = "".join(
+                f"<tr><td>{esc(label)}</td>"
+                f'<td class="alima-auswertung__num">{count}</td></tr>'
+                for label, count in prov_rows
+            )
+            sections.append(
+                '<div class="classification-card-title">🧭 RVK-Provenienz</div>'
+                '<table class="alima-auswertung-table alima-auswertung-table--prov">'
+                "<thead><tr><th>Quelle</th><th>Anzahl</th></tr></thead>"
+                f"<tbody>{prov_tr}</tbody></table>"
+            )
+            plain_parts.append(
+                "RVK-Provenienz: "
+                + ", ".join(f"{label} {count}" for label, count in prov_rows)
+            )
+
+        html = f'<div class="alima-auswertung">{"".join(sections)}</div>'
+        return html, " | ".join(plain_parts)
+
+    @staticmethod
     def parse_dk_results_from_text(text: str) -> List[Dict[str, Any]]:
         """Parse DK/RVK results back from formatted text into dictionary format - Claude Generated"""
         import re
