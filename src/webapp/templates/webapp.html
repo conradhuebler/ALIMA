@@ -67,151 +67,164 @@
     </div>
 
     <!-- ═══════════════════════════════════
-         MAIN WORKSPACE
+         MAIN WORKSPACE — vertical stack:
+         input-zone (collapsible) · chat/log (central) · pipeline-bar (bottom)
          ═══════════════════════════════════ -->
     <main class="workspace">
 
-        <!-- ─── LEFT PANEL: Input Sources + Pipeline ─── -->
-        <aside class="panel panel-input">
-
-            <!-- Input Source Card -->
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-label">Eingabequellen</h2>
-                </div>
-
-                <div class="tab-pills" role="tablist">
-                    <button class="tab-btn active" data-tab="doi-tab" role="tab" aria-selected="true">
-                        <span class="tab-icon" aria-hidden="true">📄</span>DOI / URL
-                    </button>
-                    <button class="tab-btn" data-tab="file-tab" role="tab" aria-selected="false">
-                        <span class="tab-icon" aria-hidden="true">📁</span>Datei
-                    </button>
-                    <button class="tab-btn" data-tab="camera-tab" role="tab" aria-selected="false">
-                        <span class="tab-icon" aria-hidden="true">📷</span>Kamera
-                    </button>
-                </div>
-
-                <!-- DOI/URL Tab -->
-                <div id="doi-tab" class="tab-content active" role="tabpanel">
-                    <input type="text" id="doi-input" class="field"
-                           placeholder="10.1007/... oder https://...">
-                    <div class="input-row" style="margin-top:6px;">
-                        <button id="doi-resolve-btn" class="btn btn-primary btn-sm">Laden</button>
-                        <button id="doi-open-btn" class="btn btn-secondary btn-sm" title="DOI oder URL im Browser öffnen">🌐 Öffnen</button>
-                    </div>
-                    <p class="hint">Text wird ins Eingabefeld übernommen</p>
-                </div>
-
-                <!-- File Upload Tab -->
-                <div id="file-tab" class="tab-content" role="tabpanel">
-                    <div class="dropzone" id="file-upload-area">
-                        <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt"
-                               aria-label="Datei auswählen">
-                        <div class="dropzone-body" aria-hidden="true">
-                            <div class="dropzone-icon">⬆</div>
-                            <p class="dropzone-text">Datei ablegen oder klicken</p>
-                            <p class="dropzone-hint">PDF, Bild oder TXT</p>
-                        </div>
-                    </div>
-                    <span id="file-name" class="file-badge"></span>
-                    <p class="hint">Text wird extrahiert und ins Eingabefeld übernommen</p>
-                </div>
-
-                <!-- Camera Tab -->
-                <div id="camera-tab" class="tab-content" role="tabpanel">
-                    <div class="camera-rig">
-                        <video id="camera-video" class="camera-feed" playsinline autoplay muted></video>
-                        <canvas id="camera-canvas" style="display: none;"></canvas>
-
-                        <div class="camera-controls">
-                            <button id="camera-start-btn" class="btn btn-outline btn-sm btn-full">
-                                📷 Kamera starten
-                            </button>
-                            <button id="camera-capture-btn" class="btn btn-primary btn-sm btn-full"
-                                    style="display: none;">
-                                📸 Foto machen
-                            </button>
-                            <button id="camera-stop-btn" class="btn btn-ghost btn-sm"
-                                    style="display: none;">
-                                ✕ Stoppen
-                            </button>
-                        </div>
-
-                        <div id="camera-preview-actions" class="camera-actions" style="display: none;">
-                            <button id="camera-confirm-btn" class="btn btn-success btn-sm btn-full">
-                                ✓ Übernehmen
-                            </button>
-                            <button id="camera-retake-btn" class="btn btn-outline btn-sm btn-full">
-                                ↺ Erneut
-                            </button>
-                        </div>
-
-                        <div id="camera-preview" class="camera-preview" style="display: none;">
-                            <img id="camera-image" class="camera-preview-img" src="" alt="Kamera-Vorschau">
-                            <p class="hint">Text wird extrahiert und übernommen</p>
-                        </div>
-                    </div>
-                </div>
-
-            </div><!-- /.card (inputs) -->
-
-            <!-- Extracted Text (conditional) -->
-            <div id="extracted-text-section" class="card" style="display: none;">
-                <div class="card-header">
-                    <h2 class="card-label">Extrahierter Text</h2>
-                </div>
-                <pre id="extracted-text" class="extracted-text"></pre>
+        <!-- ─── TOP: collapsible input zone ─── -->
+        <section id="input-zone" class="input-zone">
+            <div class="input-zone-header">
+                <button id="input-zone-toggle" class="zone-toggle-btn"
+                        aria-label="Eingabe ein-/ausklappen" aria-expanded="true">
+                    <span class="toggle-chevron" aria-hidden="true">▾</span>
+                </button>
+                <h2 class="input-zone-label"><span aria-hidden="true">✏</span> Eingabe</h2>
+                <span class="input-zone-hint">Quelle wählen oder Text einfügen — klappt beim Start zu</span>
             </div>
 
-            <!-- Results Panel (conditional) -->
-            <div id="results-panel" class="card" style="display: none;">
-                <div class="card-header">
-                    <h2 id="results-panel-title" class="card-label">Analyse</h2>
-                </div>
-                <div id="results-summary" class="results-list"></div>
-                <div class="results-actions">
-                    <button id="export-btn" class="btn btn-outline btn-sm">📥 JSON exportieren</button>
-                    <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;">
-                        🔄 Wiederherstellen
-                    </button>
-                    <button id="clear-btn" class="btn btn-ghost btn-sm">Neue Analyse</button>
-                </div>
-                <span id="recovery-message" class="recovery-note" style="display: none;"></span>
-            </div>
+            <div class="input-zone-body">
+                <div class="input-zone-grid">
 
-        </aside><!-- /.panel-input -->
+                    <!-- Input Source Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-label">Eingabequellen</h2>
+                        </div>
 
-        <!-- ─── CENTER PANEL: Text Editor ─── -->
-        <section class="panel panel-editor">
-            <div class="card card--tall">
-                <div class="card-header">
-                    <h2 class="card-label">
-                        <span aria-hidden="true">✏</span> Eingabetext
-                    </h2>
-                    <button id="clear-text-btn" class="btn btn-ghost btn-sm">Leeren</button>
-                </div>
+                        <div class="tab-pills" role="tablist">
+                            <button class="tab-btn active" data-tab="doi-tab" role="tab" aria-selected="true">
+                                <span class="tab-icon" aria-hidden="true">📄</span>DOI / URL
+                            </button>
+                            <button class="tab-btn" data-tab="file-tab" role="tab" aria-selected="false">
+                                <span class="tab-icon" aria-hidden="true">📁</span>Datei
+                            </button>
+                            <button class="tab-btn" data-tab="camera-tab" role="tab" aria-selected="false">
+                                <span class="tab-icon" aria-hidden="true">📷</span>Kamera
+                            </button>
+                        </div>
 
-                <textarea id="text-input" class="editor-textarea"
-                          placeholder="Text direkt eingeben oder über Eingabequellen laden …"></textarea>
+                        <!-- DOI/URL Tab -->
+                        <div id="doi-tab" class="tab-content active" role="tabpanel">
+                            <input type="text" id="doi-input" class="field"
+                                   placeholder="10.1007/... oder https://...">
+                            <div class="input-row" style="margin-top:6px;">
+                                <button id="doi-resolve-btn" class="btn btn-primary btn-sm">Laden</button>
+                                <button id="doi-open-btn" class="btn btn-secondary btn-sm" title="DOI oder URL im Browser öffnen">🌐 Öffnen</button>
+                            </div>
+                            <p class="hint">Text wird ins Eingabefeld übernommen</p>
+                        </div>
 
-                <!-- Title Section -->
-                <div id="title-section" class="title-block">
-                    <div id="title-label-section" class="title-display" style="display: none;">
-                        <span class="title-key">📋 Arbeitstitel:</span>
-                        <span id="title-display" class="title-val"></span>
+                        <!-- File Upload Tab -->
+                        <div id="file-tab" class="tab-content" role="tabpanel">
+                            <div class="dropzone" id="file-upload-area">
+                                <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt"
+                                       aria-label="Datei auswählen">
+                                <div class="dropzone-body" aria-hidden="true">
+                                    <div class="dropzone-icon">⬆</div>
+                                    <p class="dropzone-text">Datei ablegen oder klicken</p>
+                                    <p class="dropzone-hint">PDF, Bild oder TXT</p>
+                                </div>
+                            </div>
+                            <span id="file-name" class="file-badge"></span>
+                            <p class="hint">Text wird extrahiert und ins Eingabefeld übernommen</p>
+                        </div>
+
+                        <!-- Camera Tab -->
+                        <div id="camera-tab" class="tab-content" role="tabpanel">
+                            <div class="camera-rig">
+                                <video id="camera-video" class="camera-feed" playsinline autoplay muted></video>
+                                <canvas id="camera-canvas" style="display: none;"></canvas>
+
+                                <div class="camera-controls">
+                                    <button id="camera-start-btn" class="btn btn-outline btn-sm btn-full">
+                                        📷 Kamera starten
+                                    </button>
+                                    <button id="camera-capture-btn" class="btn btn-primary btn-sm btn-full"
+                                            style="display: none;">
+                                        📸 Foto machen
+                                    </button>
+                                    <button id="camera-stop-btn" class="btn btn-ghost btn-sm"
+                                            style="display: none;">
+                                        ✕ Stoppen
+                                    </button>
+                                </div>
+
+                                <div id="camera-preview-actions" class="camera-actions" style="display: none;">
+                                    <button id="camera-confirm-btn" class="btn btn-success btn-sm btn-full">
+                                        ✓ Übernehmen
+                                    </button>
+                                    <button id="camera-retake-btn" class="btn btn-outline btn-sm btn-full">
+                                        ↺ Erneut
+                                    </button>
+                                </div>
+
+                                <div id="camera-preview" class="camera-preview" style="display: none;">
+                                    <img id="camera-image" class="camera-preview-img" src="" alt="Kamera-Vorschau">
+                                    <p class="hint">Text wird extrahiert und übernommen</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div><!-- /.card (inputs) -->
+
+                    <!-- Text Editor Card -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-label">
+                                <span aria-hidden="true">✏</span> Eingabetext
+                            </h2>
+                            <button id="clear-text-btn" class="btn btn-ghost btn-sm">Leeren</button>
+                        </div>
+
+                        <textarea id="text-input" class="editor-textarea"
+                                  placeholder="Text direkt eingeben oder über Eingabequellen laden …"></textarea>
+
+                        <!-- Title Section -->
+                        <div id="title-section" class="title-block">
+                            <div id="title-label-section" class="title-display" style="display: none;">
+                                <span class="title-key">📋 Arbeitstitel:</span>
+                                <span id="title-display" class="title-val"></span>
+                            </div>
+                            <input type="text" id="title-override" class="field"
+                                   placeholder="Optional: Arbeitstitel überschreiben">
+                        </div>
+                    </div><!-- /.card (editor) -->
+
+                </div><!-- /.input-zone-grid -->
+
+                <!-- Extracted Text (conditional) -->
+                <div id="extracted-text-section" class="card" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-label">Extrahierter Text</h2>
                     </div>
-                    <input type="text" id="title-override" class="field"
-                           placeholder="Optional: Arbeitstitel überschreiben">
+                    <pre id="extracted-text" class="extracted-text"></pre>
                 </div>
 
-                <!-- Editor Actions (fixed on mobile, inline on desktop) -->
-                <div class="editor-footer">
-                    <select id="workflow-select" class="field field--select"
-                            title="Workflow für Analyse / Pipeline">
-                        <option value="">— Workflow laden … —</option>
-                    </select>
-                    <div class="editor-btns">
+                <!-- Results Panel summary (conditional) — actions live in the
+                     persistent pipeline-bar so they stay reachable when this
+                     zone is collapsed during a run. -->
+                <div id="results-panel" class="card" style="display: none;">
+                    <div class="card-header">
+                        <h2 id="results-panel-title" class="card-label">Analyse</h2>
+                    </div>
+                    <div id="results-summary" class="results-list"></div>
+                </div>
+
+            </div><!-- /.input-zone-body -->
+
+            <!-- Pipeline-Leiste — persistent footer of the input zone: stays
+                 visible when the body above collapses during a run. -->
+            <footer class="pipeline-bar">
+                <!-- Live step overview (rendered by app.js) -->
+                <div id="pipeline-stepper" class="pipeline-stepper" aria-label="Pipeline-Übersicht"></div>
+
+                <div class="pipeline-controls">
+                    <div class="bar-group bar-group--config">
+                        <select id="workflow-select" class="field field--select"
+                                title="Workflow für Analyse / Pipeline">
+                            <option value="">— Workflow laden … —</option>
+                        </select>
                         <select id="provider-override" class="field field--select"
                                 title="Provider-Override" style="max-width: 130px;">
                             <option value="">— Provider —</option>
@@ -229,6 +242,9 @@
                             <option value="off">Thinking: Aus</option>
                         </select>
                         <button id="refresh-models-btn" class="btn btn-sm" title="Modelle neu laden">🔄</button>
+                    </div>
+
+                    <div class="bar-group bar-group--run">
                         <button id="analyze-btn" class="btn btn-primary btn-analyze">
                             <span aria-hidden="true">▶</span> Analyse starten
                         </button>
@@ -239,20 +255,27 @@
                             🛑 Schritt abbrechen
                         </button>
                     </div>
+
+                    <!-- Load/save controls — always reachable, even while the
+                         input body above is collapsed during a run. -->
+                    <div class="bar-group bar-group--results">
+                        <button id="export-btn" class="btn btn-outline btn-sm" disabled
+                                title="Exportiert die Ergebnisse als JSON">📥 Speichern</button>
+                        <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;">
+                            🔄 Laden
+                        </button>
+                        <button id="clear-btn" class="btn btn-ghost btn-sm">Neue Analyse</button>
+                        <span id="recovery-message" class="recovery-note" style="display: none;"></span>
+                    </div>
                 </div>
+            </footer><!-- /.pipeline-bar -->
+        </section><!-- /#input-zone -->
 
-            </div><!-- /.card -->
-        </section><!-- /.panel-editor -->
-
-        <!-- ─── RIGHT PANEL: Stream Output ─── -->
+        <!-- ─── CENTER: Stream / Chat (dominant) ─── -->
         <section class="panel panel-stream">
             <div id="stream-output" class="card card--dark">
                 <div class="stream-header">
                     <div class="stream-header-left">
-                        <button id="stream-toggle" class="stream-toggle-btn"
-                                aria-label="Ausgabe ein-/ausklappen" aria-expanded="true">
-                            <span class="toggle-chevron" aria-hidden="true">▾</span>
-                        </button>
                         <div class="stream-title-group">
                             <h2 class="stream-title">Log / Chat</h2>
                             <span class="stream-subtitle">Pipeline-Log, Tool-Calls, Streaming, Chat</span>
@@ -296,20 +319,6 @@
     <!-- WP12: shared render-layer DOM dispatcher (must load before app.js) -->
     <script src="/static/alima_render.js"></script>
     <script src="/static/app.js"></script>
-
-    <!-- Stream collapse toggle (mobile UX, cosmetic only) -->
-    <script>
-        (function () {
-            var btn = document.getElementById('stream-toggle');
-            var body = document.getElementById('stream-body');
-            if (!btn || !body) return;
-            btn.addEventListener('click', function () {
-                var isCollapsed = body.classList.toggle('is-collapsed');
-                btn.setAttribute('aria-expanded', String(!isCollapsed));
-                btn.querySelector('.toggle-chevron').textContent = isCollapsed ? '▸' : '▾';
-            });
-        }());
-    </script>
 
 </body>
 </html>

@@ -113,8 +113,6 @@ body {
     line-height: 1.6;
     min-height: 100vh;
     overflow-x: hidden;
-    /* Reserve space for the fixed action bar on mobile */
-    padding-bottom: var(--footer-bar-h);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -265,6 +263,205 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--sp-4);
+}
+
+/* ═══════════════════════════════════════════════════
+   INPUT ZONE — collapsible top region (sources + editor)
+   Claude Generated — webapp redesign
+   ═══════════════════════════════════════════════════ */
+.input-zone {
+    display: flex;
+    flex-direction: column;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+}
+
+.input-zone-header {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.zone-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: var(--clr-surface-2);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--r-sm);
+    color: var(--clr-muted);
+    cursor: pointer;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    transition: background var(--ease-fast);
+}
+.zone-toggle-btn:hover { background: var(--clr-surface-3); }
+.zone-toggle-btn .toggle-chevron {
+    display: block;
+    line-height: 1;
+    transition: transform var(--ease-fast);
+}
+.input-zone.is-collapsed .zone-toggle-btn .toggle-chevron { transform: rotate(-90deg); }
+
+.input-zone-label {
+    font-family: var(--font-display);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--clr-text);
+    flex-shrink: 0;
+}
+
+.input-zone-hint {
+    font-size: 0.76rem;
+    color: var(--clr-subtle);
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.input-zone-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    padding: 0 var(--sp-4) var(--sp-4);
+    overflow-y: auto;
+    max-height: 1600px;
+    opacity: 1;
+    transition: max-height var(--ease-slow), opacity var(--ease-base),
+                padding var(--ease-base);
+}
+.input-zone.is-collapsed .input-zone-body {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+/* Inner cards inside the zone shed their own border/shadow — the zone frames them */
+.input-zone-body .card {
+    border: 1px solid var(--clr-border);
+    box-shadow: none;
+}
+
+.input-zone-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+}
+
+/* ═══════════════════════════════════════════════════
+   PIPELINE BAR — bottom control/overview deck
+   Claude Generated — webapp redesign
+   ═══════════════════════════════════════════════════ */
+/* Persistent footer of #input-zone — stays visible when the body collapses.
+   Sheds standalone-card chrome; a top border + subtle tint mark it as the
+   control deck. Its bottom corners are clipped to the zone's radius. */
+.pipeline-bar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    background: var(--clr-surface-2);
+    border-top: 1px solid var(--clr-border);
+    padding: var(--sp-3) var(--sp-4);
+    flex-shrink: 0;
+}
+
+.pipeline-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-3) var(--sp-4);
+}
+
+.bar-group {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+}
+.bar-group--run { margin-left: auto; }
+.bar-group--run .btn-analyze { flex: 0 0 auto; min-width: 160px; }
+
+/* ── Stepper ── */
+.pipeline-stepper {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 2px 0;
+}
+.pipeline-stepper::-webkit-scrollbar { display: none; }
+.pipeline-stepper:empty { display: none; }
+
+.step-node {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--clr-muted);
+    white-space: nowrap;
+}
+.step-node:not(:last-child)::after {
+    content: "";
+    width: 22px;
+    height: 2px;
+    margin: 0 var(--sp-2);
+    background: var(--clr-border-2);
+    flex: 0 0 auto;
+}
+
+.step-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    background: var(--clr-surface-2);
+    border: 1.5px solid var(--clr-border-2);
+    color: var(--clr-muted);
+    flex: 0 0 auto;
+    transition: background var(--ease-fast), border-color var(--ease-fast),
+                color var(--ease-fast), box-shadow var(--ease-fast);
+}
+
+.step-node.is-done { color: var(--clr-text); }
+.step-node.is-done .step-dot {
+    background: var(--clr-success);
+    border-color: var(--clr-success);
+    color: #fff;
+}
+.step-node.is-done:not(:last-child)::after { background: var(--clr-success); }
+
+.step-node.is-active { color: var(--clr-text); }
+.step-node.is-active .step-dot {
+    background: var(--clr-primary);
+    border-color: var(--clr-primary);
+    color: #fff;
+    box-shadow: 0 0 0 4px var(--clr-primary-ring);
+    animation: step-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes step-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px var(--clr-primary-ring); }
+    50%      { box-shadow: 0 0 0 7px transparent; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -751,30 +948,6 @@ body {
    Mobile: position: fixed bottom
    Tablet+: position: static inside card
    ═══════════════════════════════════════════════════ */
-.editor-footer {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    /* Safe area for notched phones */
-    padding: var(--sp-3) var(--sp-4) max(var(--sp-3), env(safe-area-inset-bottom));
-    background: var(--clr-footer-glass);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border-top: 1px solid var(--clr-border);
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.07);
-    z-index: 300;
-    display: flex;
-    gap: var(--sp-2);
-    align-items: center;
-}
-
-.editor-btns {
-    display: flex;
-    gap: var(--sp-2);
-    flex-shrink: 0;
-}
-
 /* ═══════════════════════════════════════════════════
    STREAM PANEL
    ═══════════════════════════════════════════════════ */
@@ -1149,87 +1322,55 @@ body {
     .brand-tagline { display: block; }
 
     .workspace {
-        display: grid;
-        grid-template-columns: 300px 1fr;
-        grid-template-areas:
-            "input  editor"
-            "stream stream";
         gap: var(--sp-5);
         padding: var(--sp-5);
+    }
+
+    /* Sources + editor side by side inside the input zone */
+    .input-zone-grid {
+        display: grid;
+        grid-template-columns: 320px 1fr;
         align-items: start;
     }
 
-    .panel-input  { grid-area: input;  }
-    .panel-editor { grid-area: editor; }
-    .panel-stream { grid-area: stream; }
-
-    .editor-textarea { min-height: 260px; }
-
-    /* Demote action bar to inline (inside card flow) */
-    .editor-footer {
-        position: static;
-        background: transparent;
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
-        border-top: 1px solid var(--clr-border);
-        border-bottom: none;
-        padding: var(--sp-4) 0 0;
-        box-shadow: none;
-        flex-direction: column;
-    }
-
-    .editor-btns { width: 100%; }
-    .btn-analyze  { min-height: 48px; }
+    .editor-textarea { min-height: 200px; }
+    .btn-analyze { min-height: 44px; }
 
     /* Stream body: generous height on tablet */
-    .stream-body              { max-height: 420px; }
+    .stream-body              { max-height: 460px; }
     .stream-body.is-collapsed { max-height: 0; }
-    .stream-text              { max-height: 380px; font-size: 0.82rem; }
-
-    /* Stream toggle hidden on tablet+ */
-    .stream-toggle-btn { display: none; }
+    .stream-text              { max-height: 420px; font-size: 0.82rem; }
 }
 
 /* ═══════════════════════════════════════════════════
    RESPONSIVE — DESKTOP 1100px+
-   Stream-Spalte ist breiter als Editor — sie ist der
-   Fokus während der Analyse.
+   Vertical stack filling the viewport: collapsible input
+   zone (top) · chat/log (center, dominant) · pipeline-bar
+   (bottom). Chat is the focus during analysis.
    ═══════════════════════════════════════════════════ */
 @media (min-width: 1100px) {
 
     .workspace {
-        /* Input: fixed, Editor: 1fr, Stream: 1.5fr  */
-        grid-template-columns: 260px 1fr 1.5fr;
-        grid-template-areas: "input editor stream";
-        grid-template-rows: 1fr;
         height: calc(100vh - var(--header-h));
         overflow: hidden;
-        align-items: stretch;
         padding: var(--sp-5);
         gap: var(--sp-4);
     }
 
-    .panel {
-        height: 100%;
-        overflow-y: auto;
-        overflow-x: hidden;
-    }
+    /* Top input zone: capped, scrolls internally; collapses to its header */
+    .input-zone { flex: 0 0 auto; }
+    .input-zone-body { max-height: 42vh; }
+    .input-zone.is-collapsed .input-zone-body { max-height: 0; }
 
+    /* Center stream fills the remaining height and is the focal element */
     .panel-stream {
+        flex: 1;
+        min-height: 0;
         overflow: hidden;
     }
 
-    .card--tall {
-        height: 100%;
-    }
+    .editor-textarea { resize: none; }
 
-    .editor-textarea {
-        flex: 1;
-        min-height: 0;
-        resize: none;
-    }
-
-    /* Stream fills full column height, slightly elevated */
     .card--dark {
         height: 100%;
         overflow: hidden;
@@ -1244,7 +1385,7 @@ body {
     }
 
     .stream-body.is-collapsed {
-        /* Don't collapse on desktop */
+        /* Stream never collapses on desktop */
         max-height: none;
         opacity: 1;
     }
@@ -1252,23 +1393,17 @@ body {
     .stream-text {
         max-height: none;
         flex: 1;
-        /* Slightly larger on desktop where stream is the focal point */
         font-size: 0.84rem;
         line-height: 1.8;
     }
-
-    /* Stream toggle hidden — always open on desktop */
-    .stream-toggle-btn { display: none; }
 }
 
 /* ═══════════════════════════════════════════════════
    RESPONSIVE — LARGE DESKTOP 1440px+
    ═══════════════════════════════════════════════════ */
 @media (min-width: 1440px) {
-    .workspace {
-        grid-template-columns: 280px 1fr 1.6fr;
-        gap: var(--sp-5);
-    }
+    .input-zone-grid { grid-template-columns: 360px 1fr; }
+    .input-zone-body { max-height: 46vh; }
 }
 
 /* ═══════════════════════════════════════════════════

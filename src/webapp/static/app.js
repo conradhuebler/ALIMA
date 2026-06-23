@@ -70,6 +70,10 @@ class AlimaWebapp {
         if (typeof window !== 'undefined') window.__autoscroll = false;
         this._lastRenderSeq = -1;
 
+        // Pipeline-stepper state: per-workflow step lists + the active list. - Claude Generated
+        this.workflowSteps = {};
+        this._stepperSteps = [];
+
         this.setupEventListeners();
         this.initializeSession();
     }
@@ -96,6 +100,7 @@ class AlimaWebapp {
             if (!select) return;
             // Keep placeholder option
             select.innerHTML = '<option value="">— Workflow laden … —</option>';
+            this.workflowSteps = {};
             workflows.forEach(wf => {
                 const option = document.createElement('option');
                 option.value = wf.value;
@@ -103,6 +108,8 @@ class AlimaWebapp {
                 if (wf.value === '__separator__') {
                     option.disabled = true;
                 }
+                // Cache the per-workflow step list for the pipeline-stepper. - Claude Generated
+                this.workflowSteps[wf.value] = Array.isArray(wf.steps) ? wf.steps : [];
                 // Pre-select ALIMA v5.1 agentic default if available
                 if (wf.value === 'alima_v51' && !select.dataset.userSelected) {
                     option.selected = true;
@@ -110,6 +117,8 @@ class AlimaWebapp {
                 select.appendChild(option);
             });
             console.log(`Loaded ${workflows.length} workflows`);
+            // Render the stepper for whatever workflow is now selected. - Claude Generated
+            this.renderStepperForSelected();
         } catch (e) {
             console.error('Failed to load workflows:', e);
         }
@@ -405,7 +414,14 @@ class AlimaWebapp {
         if (workflowSelect) {
             workflowSelect.addEventListener('change', () => {
                 workflowSelect.dataset.userSelected = 'true';
+                this.renderStepperForSelected();  // Rebuild stepper for the chosen workflow - Claude Generated
             });
+        }
+
+        // Input-zone collapse toggle (manual) - Claude Generated
+        const inputZoneToggle = document.getElementById('input-zone-toggle');
+        if (inputZoneToggle) {
+            inputZoneToggle.addEventListener('click', () => this.toggleInputZone());
         }
 
         // Chat input: Enter sends, Shift+Enter newline
@@ -1071,6 +1087,89 @@ class AlimaWebapp {
         }
     }
 
+    // ─── Pipeline-Stepper (bottom bar) ─── Claude Generated ───
+
+    // Rebuild the stepper from the currently-selected workflow's step list.
+    renderStepperForSelected() {
+        const select = document.getElementById('workflow-select');
+        const val = select ? select.value : '';
+        this.renderStepper((this.workflowSteps && this.workflowSteps[val]) || []);
+    }
+
+    // Render the step nodes; empty list hides the stepper (CSS :empty).
+    renderStepper(steps) {
+        const el = document.getElementById('pipeline-stepper');
+        if (!el) return;
+        this._stepperSteps = Array.isArray(steps) ? steps : [];
+        el.innerHTML = '';
+        this._stepperSteps.forEach((s, i) => {
+            const node = document.createElement('div');
+            node.className = 'step-node';
+            node.dataset.stepId = s.id;
+            const dot = document.createElement('span');
+            dot.className = 'step-dot';
+            dot.textContent = String(i + 1);
+            const label = document.createElement('span');
+            label.className = 'step-label';
+            label.textContent = s.label || s.id;
+            node.appendChild(dot);
+            node.appendChild(label);
+            el.appendChild(node);
+        });
+    }
+
+    // Highlight progress. status 'completed' marks the step done and the next
+    // one active (running); anything else marks the matched step active. Unknown
+    // step ids (e.g. the final alias 'classification') are ignored gracefully.
+    updateStepper(currentStep, status) {
+        const el = document.getElementById('pipeline-stepper');
+        if (!el || !this._stepperSteps || !this._stepperSteps.length || !currentStep) return;
+        const ids = this._stepperSteps.map(s => s.id);
+        const idx = ids.indexOf(currentStep);
+        if (idx === -1) return;
+        const done = status === 'completed';
+        // Compute each node's state directly from idx/status in a single pass so
+        // the "next active on completed" isn't clobbered by a later iteration.
+        el.querySelectorAll('.step-node').forEach((n, i) => {
+            n.classList.remove('is-done', 'is-active');
+            let cls = null;
+            if (done) {
+                if (i <= idx) cls = 'is-done';
+                else if (i === idx + 1) cls = 'is-active';
+            } else {
+                if (i < idx) cls = 'is-done';
+                else if (i === idx) cls = 'is-active';
+            }
+            if (cls) n.classList.add(cls);
+        });
+    }
+
+    // Mark every step done (called on pipeline completion).
+    markStepperComplete() {
+        const el = document.getElementById('pipeline-stepper');
+        if (!el) return;
+        el.querySelectorAll('.step-node').forEach(n => {
+            n.classList.remove('is-active');
+            n.classList.add('is-done');
+        });
+    }
+
+    // ─── Input-zone collapse ─── Claude Generated ───
+
+    setInputZoneCollapsed(collapsed) {
+        const zone = document.getElementById('input-zone');
+        const toggle = document.getElementById('input-zone-toggle');
+        if (!zone) return;
+        zone.classList.toggle('is-collapsed', collapsed);
+        if (toggle) toggle.setAttribute('aria-expanded', String(!collapsed));
+    }
+
+    toggleInputZone() {
+        const zone = document.getElementById('input-zone');
+        if (!zone) return;
+        this.setInputZoneCollapsed(!zone.classList.contains('is-collapsed'));
+    }
+
     // Update pipeline status from WebSocket - Claude Generated
     updatePipelineStatus(msg) {
         // WP12: render shared chrome events (DK/GND cards) if present.
@@ -1089,6 +1188,9 @@ class AlimaWebapp {
         if (msg.current_step) {
             this.hideRecoveryOption();
             console.log(`📊 Step update: ${msg.current_step}`);
+
+            // Advance the bottom-bar pipeline-stepper. - Claude Generated
+            this.updateStepper(msg.current_step, msg.current_step_status);
 
             // DK search progress is logged to the raw stream for visibility.
             if (msg.dk_search_progress && (msg.current_step === 'dk_search' || msg.current_step === 'search')) {
@@ -1132,6 +1234,7 @@ class AlimaWebapp {
 
         if (msg.status === 'completed') {
             this.setResultsPanelState('completed');
+            this.markStepperComplete();  // All steps done - Claude Generated
 
             // Display working title if available - Claude Generated
             if (msg.results && msg.results.working_title) {
@@ -1549,11 +1652,11 @@ class AlimaWebapp {
         exportBtn.disabled = false;
 
         if (isRunning) {
-            exportBtn.textContent = '💾 Aktuellen Stand exportieren';
-            exportBtn.title = 'Exportiert den aktuellen Fortschritt (kann unvollständig sein)';
+            exportBtn.textContent = '💾 Stand speichern';
+            exportBtn.title = 'Exportiert den aktuellen Fortschritt als JSON (kann unvollständig sein)';
         } else {
-            exportBtn.textContent = '📥 JSON Exportieren';
-            exportBtn.title = 'Exportiert die vollständigen Ergebnisse';
+            exportBtn.textContent = '📥 Speichern';
+            exportBtn.title = 'Exportiert die vollständigen Ergebnisse als JSON';
         }
     }
 
@@ -1618,6 +1721,8 @@ class AlimaWebapp {
         this.clearStreamText();
         this.hideResultsPanel();
         this.resetSharedRender();  // WP12: empty the shared render region
+        this.setInputZoneCollapsed(false);  // Re-open input for a fresh run - Claude Generated
+        this.renderStepperForSelected();     // Reset stepper to pending - Claude Generated
 
         // Hide extracted text section - Claude Generated
         const extractedSection = document.getElementById('extracted-text-section');
@@ -1709,247 +1814,14 @@ class AlimaWebapp {
     }
 
     streamBufferToHtml(text) {
-        const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
-        const html = [];
-        let index = 0;
-
-        while (index < lines.length) {
-            const line = this.normalizeSpecialLogLine(lines[index]);
-            const trimmed = line.trim();
-
-            if (!trimmed) {
-                html.push('<div class="stream-log-blank"></div>');
-                index += 1;
-                continue;
-            }
-
-            if (trimmed === '## Analyse') {
-                html.push('<h2 class="stream-md-heading stream-md-heading--2">Analyse</h2>');
-                index += 1;
-                continue;
-            }
-
-            if (this.isStructuredSectionLabel(trimmed)) {
-                html.push(`<h3 class="stream-md-heading stream-md-heading--3">${this.renderInlineMarkdown(trimmed.replace(/:$/, ''))}</h3>`);
-                index += 1;
-                continue;
-            }
-
-            if (trimmed.startsWith('ℹ️ RVK-Zweitranking')) {
-                html.push(`<div class="stream-log-line stream-log-line--info">${this.renderInlineMarkdown(trimmed)}</div>`);
-                index += 1;
-                continue;
-            }
-
-            if (this.isMarkdownTableStart(lines, index)) {
-                const tableResult = this.renderMarkdownTable(lines, index);
-                html.push(tableResult.html);
-                index = tableResult.nextIndex;
-                continue;
-            }
-
-            if (this.isPipeRecordBlockStart(lines, index)) {
-                const tableResult = this.renderPipeRecordTable(lines, index);
-                html.push(tableResult.html);
-                index = tableResult.nextIndex;
-                continue;
-            }
-
-            if (/^#{1,3}\s+/.test(trimmed)) {
-                const level = Math.min(3, trimmed.match(/^#+/)[0].length);
-                const content = trimmed.replace(/^#{1,3}\s+/, '');
-                html.push(`<h${level} class="stream-md-heading stream-md-heading--${level}">${this.renderInlineMarkdown(content)}</h${level}>`);
-                index += 1;
-                continue;
-            }
-
-            if (/^\s*[-*]\s+/.test(line)) {
-                const items = [];
-                while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
-                    items.push(lines[index].replace(/^\s*[-*]\s+/, ''));
-                    index += 1;
-                }
-                const itemsHtml = items
-                    .map(item => `<li>${this.renderInlineMarkdown(item)}</li>`)
-                    .join('');
-                html.push(`<ul class="stream-md-list">${itemsHtml}</ul>`);
-                continue;
-            }
-
-            html.push(`<div class="stream-log-line">${this.renderInlineMarkdown(line)}</div>`);
-            index += 1;
+        // WP12: single source of truth — delegate to the shared stream formatter
+        // in alima_render.js (loaded before app.js) so the webapp #stream-text and
+        // the GUI #log render Jens Mittelbach's RVK-Zweitranking tables identically.
+        // - Claude Generated
+        if (typeof window.alimaFormatStreamBlockHtml === 'function') {
+            return window.alimaFormatStreamBlockHtml(text);
         }
-
-        return html.join('');
-    }
-
-    normalizeSpecialLogLine(line) {
-        let normalized = String(line || '');
-        normalized = normalized.replace(/<\|begin_of_thought\|>/g, '## Analyse');
-        normalized = normalized.replace(/<\|end_of_thought\|>/g, '').trimEnd();
-        return normalized;
-    }
-
-    isStructuredSectionLabel(line) {
-        const trimmed = String(line || '').trim();
-        return [
-            'DK-Profil für RVK-Zweitranking:',
-            'RVK-Kandidaten für DK-basiertes Zweitranking:',
-            'RVK-Bewertung aus DK-basiertem Zweitranking:',
-            'RVK-Auswahl nach DK-basiertem Zweitranking:',
-        ].includes(trimmed);
-    }
-
-    isMarkdownTableStart(lines, index) {
-        if (index + 1 >= lines.length) return false;
-        return this.isPotentialMarkdownTableRow(lines[index]) && this.isMarkdownTableSeparator(lines[index + 1]);
-    }
-
-    isPotentialMarkdownTableRow(line) {
-        const trimmed = String(line || '').trim();
-        if (!trimmed || !trimmed.includes('|')) return false;
-        const pipeCount = (trimmed.match(/\|/g) || []).length;
-        if (pipeCount < 2) return false;
-        if (trimmed.startsWith('🔍 ') || trimmed.startsWith('✅ ') || trimmed.startsWith('⚠️ ') || trimmed.startsWith('❌ ')) {
-            return false;
-        }
-        return true;
-    }
-
-    isMarkdownTableSeparator(line) {
-        const trimmed = String(line || '').trim();
-        if (!trimmed.includes('-')) return false;
-        const normalized = trimmed.replace(/^\|/, '').replace(/\|$/, '').trim();
-        const cells = normalized.split('|').map(cell => cell.trim()).filter(Boolean);
-        return cells.length >= 2 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
-    }
-
-    parseMarkdownTableRow(line) {
-        const trimmed = String(line || '').trim().replace(/^\|/, '').replace(/\|$/, '');
-        return trimmed.split('|').map(cell => cell.trim());
-    }
-
-    isPipeRecordBlockStart(lines, index) {
-        if (index + 1 >= lines.length) return false;
-        const current = String(lines[index] || '').trim();
-        const next = String(lines[index + 1] || '').trim();
-        return this.isPipeRecordLine(current) && this.isPipeRecordLine(next);
-    }
-
-    isPipeRecordLine(line) {
-        const trimmed = String(line || '').trim();
-        if (!trimmed || this.isMarkdownTableSeparator(trimmed)) {
-            return false;
-        }
-        if (trimmed.startsWith('═══') || trimmed.startsWith('[') || trimmed.startsWith('ℹ️ ') || trimmed.startsWith('✅ ') || trimmed.startsWith('⚠️ ') || trimmed.startsWith('❌ ') || trimmed.startsWith('🔎 ')) {
-            return false;
-        }
-        const pipeCount = (trimmed.match(/\|/g) || []).length;
-        return pipeCount >= 2;
-    }
-
-    splitPipeRecordLine(line) {
-        return String(line || '').split('|').map(cell => cell.trim()).filter(Boolean);
-    }
-
-    renderPipeRecordTable(lines, startIndex) {
-        const rows = [];
-        let index = startIndex;
-        const keyValueRows = [];
-        let renderAsKeyValue = true;
-
-        while (index < lines.length && this.isPipeRecordLine(lines[index])) {
-            const row = this.splitPipeRecordLine(lines[index]);
-            if (row.length >= 2) {
-                rows.push(row);
-                const head = row[0] || '';
-                const detailCells = row.slice(1);
-                const details = [];
-                for (const cell of detailCells) {
-                    const match = cell.match(/^([^:]+):\s*(.+)$/);
-                    if (match) {
-                        details.push({
-                            label: match[1].trim(),
-                            value: match[2].trim(),
-                        });
-                    } else {
-                        renderAsKeyValue = false;
-                    }
-                }
-                if (details.length > 0) {
-                    keyValueRows.push({ head, details });
-                } else {
-                    renderAsKeyValue = false;
-                }
-            }
-            index += 1;
-        }
-
-        if (renderAsKeyValue && keyValueRows.length > 0) {
-            const bodyHtml = keyValueRows
-                .map(row => {
-                    const detailHtml = row.details
-                        .map(detail => `<div class="stream-record-detail"><span class="stream-record-detail__label">${this.renderInlineMarkdown(detail.label)}</span><span class="stream-record-detail__value">${this.renderInlineMarkdown(detail.value)}</span></div>`)
-                        .join('');
-                    return `<tr><th class="stream-record-head">${this.renderInlineMarkdown(row.head)}</th><td>${detailHtml}</td></tr>`;
-                })
-                .join('');
-
-            return {
-                html: `<table class="stream-md-table stream-md-table--records stream-md-table--keyvalue"><tbody>${bodyHtml}</tbody></table>`,
-                nextIndex: index,
-            };
-        }
-
-        let maxColumns = 0;
-        for (const row of rows) {
-            maxColumns = Math.max(maxColumns, row.length);
-        }
-        const bodyHtml = rows
-            .map(row => {
-                const padded = Array.from({ length: maxColumns }, (_, cellIndex) => row[cellIndex] || '');
-                return `<tr>${padded.map(cell => `<td>${this.renderInlineMarkdown(cell)}</td>`).join('')}</tr>`;
-            })
-            .join('');
-
-        return {
-            html: `<table class="stream-md-table stream-md-table--records"><tbody>${bodyHtml}</tbody></table>`,
-            nextIndex: index,
-        };
-    }
-
-    renderMarkdownTable(lines, startIndex) {
-        const headers = this.parseMarkdownTableRow(lines[startIndex]);
-        const rows = [];
-        let index = startIndex + 2;
-
-        while (index < lines.length && this.isPotentialMarkdownTableRow(lines[index])) {
-            rows.push(this.parseMarkdownTableRow(lines[index]));
-            index += 1;
-        }
-
-        const headerHtml = headers
-            .map(cell => `<th>${this.renderInlineMarkdown(cell)}</th>`)
-            .join('');
-        const bodyHtml = rows
-            .map(row => {
-                const cells = headers.map((_, cellIndex) => row[cellIndex] || '');
-                return `<tr>${cells.map(cell => `<td>${this.renderInlineMarkdown(cell)}</td>`).join('')}</tr>`;
-            })
-            .join('');
-
-        return {
-            html: `<table class="stream-md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`,
-            nextIndex: index,
-        };
-    }
-
-    renderInlineMarkdown(text) {
-        let html = this.escapeHtml(text);
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        return html;
+        return this.escapeHtml(String(text || ''));
     }
 
     resetResultsPanelContent() {
@@ -2012,6 +1884,10 @@ class AlimaWebapp {
 
         // Show/hide abort-step button - Claude Generated
         document.getElementById('abort-step-btn').style.display = this.isAnalyzing ? 'block' : 'none';
+
+        // Auto-collapse the input zone when a run starts so the chat/log becomes
+        // the focal area. Add-only: the operator re-opens it via the chevron. - Claude Generated
+        if (this.isAnalyzing) this.setInputZoneCollapsed(true);
     }
 
     // Clear session (rename of clearResults) - Claude Generated

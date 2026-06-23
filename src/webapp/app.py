@@ -1281,13 +1281,42 @@ _WORKFLOW_ORDER = [
 ]
 
 
-def _discover_workflows() -> tuple[dict, dict]:
+def _extract_workflow_steps(data: dict) -> list:
+    """Reduce a workflow YAML's ``steps:`` block to [{id, label}, …] for the
+    frontend pipeline-stepper. Skips non-dict / id-less entries. - Claude Generated
+    """
+    steps = []
+    for entry in data.get("steps", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        step_id = entry.get("id")
+        if not step_id:
+            continue
+        steps.append({"id": str(step_id), "label": str(entry.get("name") or step_id)})
+    return steps
+
+
+# Canonical classic-pipeline steps — authoritative source is
+# PipelineManager.step_definitions (src/core/pipeline_manager.py); order matches
+# _create_pipeline_steps. German labels for webapp consistency. - Claude Generated
+_CLASSIC_STEPS = [
+    {"id": "input", "label": "Eingabe"},
+    {"id": "initialisation", "label": "Schlagwörter"},
+    {"id": "search", "label": "GND-Suche"},
+    {"id": "keywords", "label": "Prüfung"},
+    {"id": "dk_search", "label": "DK-Suche"},
+    {"id": "dk_classification", "label": "Klassifikation"},
+]
+
+
+def _discover_workflows() -> tuple[dict, dict, dict]:
     """Scan DEFAULT_SEARCH_PATHS for v4 YAML workflows.
 
-    Returns (root_stem → version, legacy_stem → version). - Claude Generated
+    Returns (root_stem → version, legacy_stem → version, stem → steps[]). - Claude Generated
     """
     root: dict = {}
     legacy: dict = {}
+    steps_by_stem: dict = {}
     seen: set = set()
 
     for base in DEFAULT_SEARCH_PATHS:
@@ -1303,6 +1332,7 @@ def _discover_workflows() -> tuple[dict, dict]:
                     data = yaml.safe_load(fh) or {}
                 version = str(data.get("version", "?"))
                 root[path.stem] = version
+                steps_by_stem[path.stem] = _extract_workflow_steps(data)
             except Exception as e:
                 logger.warning(f"Could not read workflow {path}: {e}")
         legacy_dir = base / "legacy"
@@ -1317,17 +1347,18 @@ def _discover_workflows() -> tuple[dict, dict]:
                         data = yaml.safe_load(fh) or {}
                     version = str(data.get("version", "?"))
                     legacy[path.stem] = version
+                    steps_by_stem[path.stem] = _extract_workflow_steps(data)
                 except Exception as e:
                     logger.warning(f"Could not read legacy workflow {path}: {e}")
 
-    return root, legacy
+    return root, legacy, steps_by_stem
 
 
 @app.get("/api/workflows")
 async def get_available_workflows() -> list:
     """Get available pipeline/agentic workflows for the workflow dropdown. - Claude Generated"""
     try:
-        root, legacy = _discover_workflows()
+        root, legacy, steps_by_stem = _discover_workflows()
 
         def _label(stem: str) -> str:
             ver = root.get(stem)
@@ -1341,6 +1372,7 @@ async def get_available_workflows() -> list:
                 "label": f"⭐ ALIMA v5.1 — agentisch (v{root['alima_v51']})",
                 "value": "alima_v51",
                 "agentic": True,
+                "steps": steps_by_stem.get("alima_v51", []),
             })
             added.add("alima_v51")
 
@@ -1348,28 +1380,33 @@ async def get_available_workflows() -> list:
             "label": "Klassische Pipeline (nicht agentisch)",
             "value": "__classic__",
             "agentic": False,
+            "steps": _CLASSIC_STEPS,
         })
         added.add("__classic__")
 
         for stem in _WORKFLOW_ORDER:
             if stem in added or stem not in root:
                 continue
-            items.append({"label": _label(stem), "value": stem, "agentic": True})
+            items.append({"label": _label(stem), "value": stem, "agentic": True,
+                          "steps": steps_by_stem.get(stem, [])})
             added.add(stem)
 
         for stem in sorted(root):
             if stem in added:
                 continue
-            items.append({"label": _label(stem), "value": stem, "agentic": True})
+            items.append({"label": _label(stem), "value": stem, "agentic": True,
+                          "steps": steps_by_stem.get(stem, [])})
             added.add(stem)
 
         if legacy:
-            items.append({"label": "───────────────", "value": "__separator__", "agentic": False})
+            items.append({"label": "───────────────", "value": "__separator__",
+                          "agentic": False, "steps": []})
             for stem in sorted(legacy):
                 items.append({
                     "label": f"{stem} (legacy v{legacy[stem]})",
                     "value": stem,
                     "agentic": True,
+                    "steps": steps_by_stem.get(stem, []),
                 })
 
         return items
@@ -2112,6 +2149,23 @@ async def run_analysis(
             session.error_message = error_msg
             logger.error(f"Step error: {step.step_id}: {error_msg}")
 
+        def on_agentic_context(step_id, snapshot):
+            """Mirror agentic step progress into the session for the frontend
+            pipeline-stepper. Agentic workflows don't use step_started_callback;
+            they report per-step completion via context snapshots (running
+            snapshots are skipped upstream). - Claude Generated"""
+            try:
+                sid = step_id or (snapshot or {}).get("_step_id")
+                if not sid:
+                    return
+                session.current_step = sid
+                snap_status = (snapshot or {}).get("_step_status") or "completed"
+                session.current_step_status = (
+                    "error" if snap_status == "error" else "completed"
+                )
+            except Exception:
+                logger.debug("agentic context step update failed", exc_info=True)
+
         def on_pipeline_completed(analysis_state):
             logger.info(f"Pipeline completed, storing results")
 
@@ -2131,6 +2185,19 @@ async def run_analysis(
                     )
             except Exception:
                 logger.exception("WP12: dk_classifications card emission failed")
+
+            # Reintroduced RVK-Analytik: frequency Auswertung + RVK provenance
+            # tables as a shared render card (classic pipeline only). - Claude Generated
+            try:
+                html, plain = PipelineResultFormatter.format_dk_auswertung_card_html(
+                    analysis_state
+                )
+                if html:
+                    session_renderer.render_html_block(
+                        html, kind="dk_statistics", plain_text=plain
+                    )
+            except Exception:
+                logger.exception("WP12: dk_auswertung card emission failed")
 
             # Use shared extraction helper (DRY principle) - Claude Generated
             session.results = _prepare_results_for_export(
@@ -2208,6 +2275,7 @@ async def run_analysis(
                     step_error=on_step_error,
                     pipeline_completed=on_pipeline_completed,
                     stream_callback=on_stream_token,
+                    agentic_context=on_agentic_context,
                 )
 
                 # Store reference and wire interrupt callback for step-abort - Claude Generated

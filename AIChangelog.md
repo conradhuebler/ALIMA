@@ -6,6 +6,97 @@
 
 ## 2026
 
+### Webapp-Redesign: vertikaler Stack + Pipeline-Leiste mit Live-Stepper (June 23, 2026)
+
+Restructured the `/webapp` layout from a fixed 3-column grid (`input | editor |
+stream`) into a vertical stack so the chat/log becomes the focal element. Webapp
+UI only — no pipeline-logic change, CLI/GUI parity untouched. Operator decisions:
+bottom bar + live step-stepper.
+
+**Layout (`templates/webapp.html`, `static/styles.css`).** Two stacked zones:
+- `#input-zone` (top) — a framed widget with: header (chevron toggle) + a
+  **collapsible** `.input-zone-body` (input sources + text editor + extracted
+  text + `#results-panel` summary; sources/editor side-by-side ≥768px) + the
+  `.pipeline-bar` as a **persistent footer inside the zone**. The body
+  auto-collapses to the header on run start; reopened manually.
+- `.pipeline-bar` (footer of `#input-zone`, never collapses) — `#pipeline-stepper`
+  row + controls row (workflow/provider/model/thinking + refresh, then
+  Analyse/Abbrechen/Schritt-abbrechen, then save/load Speichern/Laden/Neue
+  Analyse). Because it sits below the collapsible body but inside the zone, the
+  run status + abort + save/load stay visible while the body is collapsed during
+  a run. Styled as a deck (top border + `--clr-surface-2`, no standalone card
+  chrome; bottom corners clipped by the zone radius). `#export-btn` `disabled`
+  until results exist. Removed the old `position:fixed` `.editor-footer` and
+  `grid-template-areas`.
+- `.panel-stream` (bottom, `flex:1`) — chat/log, now dominant; grows as the input
+  body collapses. Desktop fills viewport via `.workspace { display:flex;
+  flex-direction:column; height:calc(100vh - header) }`.
+- New CSS: `.input-zone*`, `.pipeline-bar`, `.bar-group`, `.pipeline-stepper`,
+  `.step-node`/`.step-dot` (done/active/pending states, `step-pulse` animation,
+  theme-token colors). Mobile: zones stack, bar wraps, stepper scrolls X.
+
+**Stepper data (`src/webapp/app.py`).** `/api/workflows` items gain an ordered
+`steps:[{id,label}]`: agentic from each YAML `steps:` (`_extract_workflow_steps`),
+`__classic__` hardcoded (`_CLASSIC_STEPS`, mirrors `PipelineManager.step_definitions`).
+Agentic step progress now reaches the session via a new `agentic_context`
+callback wired into `set_callbacks` (per-completed-step; classic still uses
+`step_started/completed`).
+
+**Frontend (`static/app.js`).** Caches `workflowSteps` from `/api/workflows`;
+`renderStepper`/`renderStepperForSelected` build nodes on load + workflow change;
+`updateStepper(currentStep,status)` highlights from `current_step` in both the
+WS and polling paths (`updatePipelineStatus`); `markStepperComplete` on finish.
+`setInputZoneCollapsed`/`toggleInputZone` drive the collapse (auto on run via
+`updateButtonState`, reset on "Neue Analyse"). Element IDs preserved → existing
+handlers unchanged.
+
+**Verified** (Playwright, headless): vertical zone order + geometry, collapse
+435→52px with chat expanding to fill, stepper render (classic 6 / `alima_v51` 8)
+and live state transitions (running→active, completed→next-active, last-step
+clean), unknown-id graceful ignore, mobile stack + horizontal stepper scroll,
+`/api/workflows` `steps` payload, all static assets 200. Note: a full live
+pipeline run (needs provider/API key, consumes tokens) was not executed; stepper
+progression was driven through the exact functions the WS/polling handlers call.
+
+### Workflow-YAML-Editor im Qt6-GUI (June 23, 2026)
+
+Structured GUI editor to view, edit and create agentic v4 workflow YAML files
+(`workflows/*.yaml`) — previously only selectable, not editable. The workflow
+engine (loader, executor, registry, steps) is consumed **read-only**; nothing
+in it changed.
+
+**New: `src/ui/workflow_editor_dialog.py` — `WorkflowEditorDialog`.**
+- Left nav: vertical splitter — a „⚙ Workflow-Einstellungen" toggle button on
+  top over a `QListWidget` of steps (`id · type`) with Add/Remove + Move Up/Down
+  (order = execution order); button and list are mutually exclusive.
+- Settings panel: `name`/`version` + a multi-line `description` (`QTextEdit`) +
+  a vertical splitter of `settings`/`meta_agent` key-value tables.
+- Step editor is a **`QTabWidget`** (Allgemein / Ein-/Ausgaben / LLM / Prompts /
+  Funktion) so each concern stays uncluttered and the prompts get a full tab
+  with a resizable splitter (monospace `system_prompt`/`user_prompt`). Tab
+  visibility follows `type`: `llm_agent` → LLM + Prompts; `deterministic` →
+  Funktion (`function` from `list_tool_fns()` + `config`). `type` choices come
+  from `STEP_REGISTRY`; common fields (`id`, `description`, `enabled`,
+  `depends_on`, `when`) + `inputs`/`outputs` tables live in the first two tabs.
+- **ruamel.yaml round-trip** (new dep `ruamel.yaml==0.18.10`): only edited
+  leaves are mutated in place, so comments/section headers survive. Verified
+  zero-diff no-op round-trip on all 5 shipped workflows. Edited multi-line
+  prompts kept as `|` block scalars (`LiteralScalarString`); `None` rendered as
+  explicit `null`.
+- **Validate-before-write**: dumped YAML is loaded with the real execution
+  loader `load_workflow(strict=True)` (same call `pipeline_manager` makes); an
+  invalid workflow is never written (unknown type / missing id / duplicate id
+  all blocked).
+- **Save target** `~/.config/alima/workflows/` (already in
+  `DEFAULT_SEARCH_PATHS`). Shadow guard: warns when a same-named file exists in
+  project `workflows/` (which wins `find_workflow_file`), since the user copy
+  would otherwise be silently ignored at execution.
+
+**Access points** (engine untouched): Bearbeiten-Menü „📋 Workflow-Editor"
+(`main_window.show_workflow_editor`) and a „✏️" button next to the workflow
+combo in `PipelineConfigDialog` (refreshes the combo via the existing
+`_populate_workflow_combo` after close).
+
 ### finc / VuFind-JSON catalog backend (June 11, 2026)
 
 Established finc (TU Freiberg finc solrproxy) as a LOCAL catalog backend.

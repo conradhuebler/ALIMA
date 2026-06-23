@@ -90,3 +90,61 @@
 #log .classification-badge--standard { background: rgba(80, 250, 123, 0.15); color: #50fa7b; }
 #log .classification-badge--non-standard { background: rgba(241, 250, 140, 0.15); color: #f1fa8c; }
 #log .classification-badge--unknown { background: rgba(255, 85, 85, 0.15); color: #ff5555; }
+
+/* RVK-Analytik / Auswertung tables — shared GUI ↔ webapp render of the
+ * classic-pipeline frequency statistics and RVK provenance (WP12). */
+#log .alima-auswertung { margin: 6px 0; }
+#log .alima-auswertung__sub { font-size: 9pt; color: #8a8a8a; margin: 2px 0 6px; }
+#log .alima-auswertung-table {
+  width: 100%; border-collapse: collapse; margin: 2px 0 8px;
+  font-size: 9pt; background: #202c33; border: 1px solid #33414a; border-radius: 6px;
+}
+#log .alima-auswertung-table th {
+  text-align: left; padding: 5px 8px; background: #1a2228; color: #8be9fd;
+  font-weight: 700; border-bottom: 1px solid #33414a;
+}
+#log .alima-auswertung-table td {
+  padding: 4px 8px; color: #e9edef; border-bottom: 1px solid #2a3942; vertical-align: top;
+}
+#log .alima-auswertung-table tbody tr:nth-child(even) { background: #1d272e; }
+#log .alima-auswertung-table tbody tr:last-child td { border-bottom: none; }
+#log .alima-auswertung__code { font-family: monospace; color: #bd93f9; white-space: nowrap; }
+#log .alima-auswertung__num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#log .alima-auswertung__conf { white-space: nowrap; }
+#log .alima-auswertung-table--prov { width: auto; min-width: 260px; }
+
+/* Streamed-content formatting (shared formatter alimaFormatStreamBlockHtml):
+ * RVK-Zweitranking pipe/markdown tables, headings and lists. Mirrors the
+ * webapp's styles.css class names so the GUI #log renders Jens Mittelbach's
+ * tables identically (single source of truth for the rendering logic). */
+#log .stream-log-line { white-space: pre-wrap; word-break: break-word; color: #e9edef; }
+#log .stream-log-line--info {
+  color: #bfdbfe; font-weight: 600; padding: 6px 10px; margin: 6px 0;
+  background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 6px;
+}
+#log .stream-log-blank { height: 0.6rem; }
+#log .stream-md-heading { line-height: 1.25; color: #f8f8f2; margin: 8px 0 4px; }
+#log .stream-md-heading--1 { font-size: 12pt; }
+#log .stream-md-heading--2 { font-size: 10.5pt; letter-spacing: 0.03em; text-transform: uppercase; color: #8be9fd; }
+#log .stream-md-heading--3 { font-size: 10pt; color: #bd93f9; }
+#log .stream-md-list { margin: 0 0 8px 1.2rem; color: #e9edef; }
+#log .stream-md-list li { margin-bottom: 2px; }
+#log .stream-md-table {
+  width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 9pt;
+  color: #e9edef; background: #202c33; border: 1px solid #33414a; border-radius: 6px; overflow: hidden;
+}
+#log .stream-md-table th, #log .stream-md-table td {
+  padding: 6px 8px; border-bottom: 1px solid #2a3942; text-align: left; vertical-align: top;
+}
+#log .stream-md-table th {
+  font-size: 8.5pt; letter-spacing: 0.04em; text-transform: uppercase; color: #8be9fd; background: #1a2228;
+}
+#log .stream-md-table tr:last-child td, #log .stream-md-table tr:last-child th { border-bottom: none; }
+#log .stream-md-table--keyvalue .stream-record-head {
+  width: 150px; min-width: 150px; color: #50fa7b; background: rgba(80, 250, 123, 0.08);
+  vertical-align: top; padding: 8px 10px;
+}
+#log .stream-record-detail { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
+#log .stream-record-detail + .stream-record-detail { border-top: 1px dashed #2a3942; margin-top: 4px; padding-top: 6px; }
+#log .stream-record-detail__label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: #8be9fd; }
+#log .stream-record-detail__value { color: #e9edef; word-break: break-word; }

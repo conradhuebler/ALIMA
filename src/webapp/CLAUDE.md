@@ -26,10 +26,22 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 - Simple entry point: `python3 src/alima_webapp.py`
 - Runs on `localhost:8000`
 
+## Layout (vertical-stack redesign — 2026-06-23)
+
+Two stacked zones (replaces the old 3-column `input | editor | stream` grid):
+- **Top `#input-zone`** — a framed widget with three parts:
+  - `.input-zone-header` (chevron + label) — always visible.
+  - `.input-zone-body` (**collapsible**) — input sources (DOI/Datei/Kamera) + text editor + extracted text + `#results-panel` **summary only**. Auto-collapses on run start (`updateButtonState` → `setInputZoneCollapsed`); operator toggles via `#input-zone-toggle`.
+  - `.pipeline-bar` (**persistent footer inside the zone** — never collapses) — live step-stepper (`#pipeline-stepper`) + configs (workflow/provider/model/thinking) + run controls (Analyse/Abbrechen/Schritt-abbrechen) + save/load (`#export-btn` Speichern / `#recovery-btn` Laden / `#clear-btn` Neue Analyse). So when the body collapses during a run, header + bar stay visible (status + abort + save/load reachable); `#export-btn` is `disabled` until results exist.
+- **Bottom `.panel-stream`** — chat/log, `flex:1`, the dominant focal element; grows as the input body collapses.
+
+Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workflow (agentic from YAML `steps:`, `__classic__` from `PipelineManager.step_definitions`). Frontend caches it (`workflowSteps`), `renderStepper`/`updateStepper` highlight by `current_step` (done/active). Agentic progress reaches the session via `agentic_context` callback (per-completed-step); classic via `step_started/completed`. CSS: `.input-zone`/`.pipeline-bar`/`.pipeline-stepper` in `styles.css`.
+
 ## Current Features
 
 ✅ **Agentic Platform** - Workflow dropdown + agentic pipeline mode shared with Qt6 GUI
-✅ **Unified Chat/Log Panel** - Right-side panel renders pipeline log, tool-call collapsibles, LLM streaming, user/assistant chat bubbles (old 5-step timeline removed)
+✅ **Unified Chat/Log Panel** - Central panel renders pipeline log, tool-call collapsibles, LLM streaming, user/assistant chat bubbles (old 5-step timeline removed)
+✅ **Pipeline-Stepper** - Horizontal live step overview in the bottom bar, per-workflow (classic + agentic)
 ✅ **Workflow Selection** - Classical pipeline (`__classic__`) and YAML agentic workflows via `/api/workflows`
 ✅ **Session Chat Agent** - `POST /api/session/{id}/chat` reuses pipeline context and streams over WebSocket
 ✅ **Pipeline Widget as Webapp** - Analysis visualization via shared WP12 render layer
