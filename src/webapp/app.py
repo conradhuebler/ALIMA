@@ -687,10 +687,10 @@ async def get_session(session_id: str) -> dict:
         "status": session.status,
         "current_step": session.current_step,
         "created_at": session.created_at,
-        "results": _prepare_results_for_export(session.results, validate_rvk=False),
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
         "render_events": session.get_new_render_events(),  # WP12: shared chrome
+        # results intentionally omitted — polling clients fetch via /api/export/{id}
     }
 
 
@@ -1273,6 +1273,7 @@ async def export_results(session_id: str, format: str = "json") -> FileResponse:
 # Workflow list order mirrors the Qt6 pipeline tab picker.
 _WORKFLOW_ORDER = [
     "alima_v51",
+    "alima_v51_105",  # UB Freiberg variant: WiWi-only RVK, DK otherwise
     "__classic__",
     "alima",
     "alima_classic_v51",
@@ -1357,11 +1358,23 @@ def _discover_workflows() -> tuple[dict, dict, dict]:
     return root, legacy, steps_by_stem
 
 
+def _get_configured_default_workflow() -> str:
+    """Return SystemConfig.default_workflow, falling back to alima_v51. - Claude Generated"""
+    try:
+        from src.utils.config_manager import ConfigManager
+
+        cfg = ConfigManager().load_config()
+        return getattr(cfg.system_config, "default_workflow", "alima_v51") or "alima_v51"
+    except Exception:
+        return "alima_v51"
+
+
 @app.get("/api/workflows")
 async def get_available_workflows() -> list:
     """Get available pipeline/agentic workflows for the workflow dropdown. - Claude Generated"""
     try:
         root, legacy, steps_by_stem = _discover_workflows()
+        configured_default = _get_configured_default_workflow()
 
         def _label(stem: str) -> str:
             ver = root.get(stem)
@@ -1376,6 +1389,7 @@ async def get_available_workflows() -> list:
                 "value": "alima_v51",
                 "agentic": True,
                 "steps": steps_by_stem.get("alima_v51", []),
+                "default": configured_default == "alima_v51",
             })
             added.add("alima_v51")
 
@@ -1384,21 +1398,32 @@ async def get_available_workflows() -> list:
             "value": "__classic__",
             "agentic": False,
             "steps": _CLASSIC_STEPS,
+            "default": configured_default == "__classic__",
         })
         added.add("__classic__")
 
         for stem in _WORKFLOW_ORDER:
             if stem in added or stem not in root:
                 continue
-            items.append({"label": _label(stem), "value": stem, "agentic": True,
-                          "steps": steps_by_stem.get(stem, [])})
+            items.append({
+                "label": _label(stem),
+                "value": stem,
+                "agentic": True,
+                "steps": steps_by_stem.get(stem, []),
+                "default": configured_default == stem,
+            })
             added.add(stem)
 
         for stem in sorted(root):
             if stem in added:
                 continue
-            items.append({"label": _label(stem), "value": stem, "agentic": True,
-                          "steps": steps_by_stem.get(stem, [])})
+            items.append({
+                "label": _label(stem),
+                "value": stem,
+                "agentic": True,
+                "steps": steps_by_stem.get(stem, []),
+                "default": configured_default == stem,
+            })
             added.add(stem)
 
         if legacy:

@@ -110,8 +110,8 @@ class AlimaWebapp {
                 }
                 // Cache the per-workflow step list for the pipeline-stepper. - Claude Generated
                 this.workflowSteps[wf.value] = Array.isArray(wf.steps) ? wf.steps : [];
-                // Pre-select ALIMA v5.1 agentic default if available
-                if (wf.value === 'alima_v51' && !select.dataset.userSelected) {
+                // Pre-select the configured default workflow unless the user already chose one.
+                if (wf.default && !select.dataset.userSelected) {
                     option.selected = true;
                 }
                 select.appendChild(option);
@@ -141,10 +141,15 @@ class AlimaWebapp {
                 this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse…\n`);
                 this.connectWebSocket();
                 return true;
-            } else if (data.status === 'completed' && data.results && Object.keys(data.results).length > 0) {
+            } else if (data.status === 'completed') {
+                let results = {};
+                try {
+                    const exportResp = await fetch(`/api/export/${this.sessionId}`);
+                    if (exportResp.ok) results = await exportResp.json();
+                } catch (e) { console.warn('Could not fetch export results:', e); }
                 this.handleAnalysisComplete({
                     status: 'completed',
-                    results: data.results,
+                    results,
                     current_step: data.current_step || 'classification'
                 });
                 return true;
@@ -226,14 +231,19 @@ class AlimaWebapp {
             this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)\n`);
             this.connectWebSocket();
         } else {
-            // Completed: fetch results directly from session and display
-            this.handleAnalysisComplete({
-                status: 'completed',
-                results: data.results,
-                current_step: data.current_step || 'classification'
-            });
-            this.appendStreamText(`📂 Ergebnisse der abgeschlossenen Analyse wiederhergestellt.\n`);
-            localStorage.removeItem('alima_running_session');
+            // Completed: fetch results from export endpoint (session poll no longer includes them).
+            fetch(`/api/export/${savedId}`)
+                .then(r => r.ok ? r.json() : {})
+                .catch(() => ({}))
+                .then(results => {
+                    this.handleAnalysisComplete({
+                        status: 'completed',
+                        results,
+                        current_step: data.current_step || 'classification'
+                    });
+                    this.appendStreamText(`📂 Ergebnisse der abgeschlossenen Analyse wiederhergestellt.\n`);
+                    localStorage.removeItem('alima_running_session');
+                });
         }
     }
 
@@ -899,7 +909,7 @@ class AlimaWebapp {
                     type: 'status',
                     status: data.status,
                     current_step: data.current_step,
-                    results: data.results,
+                    results: {},  // results excluded from poll response; fetched separately on completion
                     streaming_tokens: data.streaming_tokens || {},  // Include tokens from polling
                     render_events: data.render_events || []  // WP12: shared chrome events
                 };
@@ -921,16 +931,28 @@ class AlimaWebapp {
                         }
                     }
 
+                    clearInterval(this.pollInterval);
+                    this.pollInterval = null;
+
+                    // Fetch full results separately so the final poll response stays small.
+                    let results = {};
+                    if (data.status === 'completed') {
+                        try {
+                            const exportResp = await fetch(`/api/export/${this.sessionId}`);
+                            if (exportResp.ok) results = await exportResp.json();
+                        } catch (e) {
+                            console.warn('Could not fetch export results:', e);
+                        }
+                    }
+
                     this.handleAnalysisComplete({
                         type: 'complete',
                         status: data.status,
-                        results: data.results,
+                        results: results,
                         error: data.error_message,
                         current_step: data.current_step,
                         render_events: data.render_events || []  // WP12
                     });
-                    clearInterval(this.pollInterval);
-                    this.pollInterval = null;
                 }
             } catch (error) {
                 console.error('Poll error:', error);
