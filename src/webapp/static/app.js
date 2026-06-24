@@ -1229,6 +1229,19 @@ class AlimaWebapp {
     handleAnalysisComplete(msg) {
         console.log('Analysis complete:', msg);
 
+        // Flush final streaming tokens buffered since the last 500ms status poll.
+        if (msg.streaming_tokens && Object.keys(msg.streaming_tokens).length > 0) {
+            for (const [stepId, tokens] of Object.entries(msg.streaming_tokens)) {
+                if (Array.isArray(tokens) && tokens.length > 0) {
+                    if (stepId && stepId !== this.lastDisplayedStep && stepId !== 'input') {
+                        this.appendStreamText(`\n═══ [${stepId}] ═══`);
+                        this.lastDisplayedStep = stepId;
+                    }
+                    this.appendStreamToken(tokens.join(''));
+                }
+            }
+        }
+
         // WP12: flush any final shared chrome events (e.g. the DK card).
         this.dispatchRenderEvents(msg.render_events);
 

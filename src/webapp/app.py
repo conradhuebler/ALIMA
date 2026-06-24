@@ -1134,10 +1134,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 logger.info(f"Session {session_id} status changed to {session.status}")
                 # Flush any remaining render events (e.g. the final DK card). - WP12
                 final_render, render_sent = session.get_render_events_since(render_sent)
+                # Flush remaining streaming tokens (tokens buffered since last 500ms poll).
+                final_tokens = session.get_and_clear_streaming_buffer()
                 # Send final update with JSON-serializable results
                 await websocket.send_json({
                     "type": "complete",
                     "status": session.status,
+                    "streaming_tokens": make_json_serializable(final_tokens),
                     "results": make_json_serializable(
                         _prepare_results_for_export(session.results, validate_rvk=False)
                     ),
