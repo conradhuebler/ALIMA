@@ -1,16 +1,21 @@
-name: "ALIMA Pipeline v5.1"
-version: "5.1"
+name: "ALIMA Pipeline v5.1 (UB Freiberg 105)"
+version: "5.1.105"
 description: |
-  Self-contained ALIMA pipeline with glm5 prompt improvements.
-  Title-first extraction, findability weighting, DK aspect coverage,
-  compound decomposition. v5.0 remains available for A/B comparison.
+  Freiberg-local variant of ALIMA Pipeline v5.1.
+  Identical to alima_v51 except for the classification prompt:
+  RVK output is restricted to economics / business (WiWi) literature.
+  Natural sciences, technology, medicine and other non-WiWi subjects
+  are classified with DK only; DDC is not used in Freiberg.
 
   Steps: extraction → search → selection_chunks → selection
        → dk_collect → classification → dk_postprocess
 
   Run via:
-    CLI:  alima workflow alima_v51 --input '{"abstract": "..."}'
-    GUI:  Pipeline-Tab → workflow dropdown → "ALIMA Pipeline v5.1"
+    CLI:  alima workflow alima_v51_105 --input '{"abstract": "..."}'
+    GUI:  Pipeline-Tab → workflow dropdown → "ALIMA Pipeline v5.1 (UB Freiberg 105)"
+
+  Keep in sync with workflows/alima_v51.yaml except for the
+  institution-specific classification prompt block. See workflows/CLAUDE.md.
 
 settings:
   temperature: 0.5
@@ -525,7 +530,7 @@ steps:
       dk_frequency_threshold: 1
       # RVK is NOT collected inline here — no anchor derivation, no RVK-API
       # calls. The classification step pulls RVK on demand via the rvk_lookup
-      # tool. dk_collect stays DK/DDC only.
+      # tool (Freiberg: only for WiWi). dk_collect stays DK/DDC only.
       rvk_inline: false
 
   # ──────────────────────────────────────────────────────────────────
@@ -562,7 +567,7 @@ steps:
       temperature: 0.25
       top_p: 0.01
       max_tokens: 4096
-      # >1 so the LLM can call rvk_lookup and then emit its final JSON.
+      # >1 so the LLM can call rvk_lookup (WiWi only) and then emit its JSON.
       max_iterations: 4
 
     tools: [rvk_lookup]
@@ -571,7 +576,7 @@ steps:
       **Deine Rolle als bibliothekarischer Klassifikations-Experte (v5.1):**
       Du bist ein **präziser Klassifikator** mit folgenden Kernkompetenzen:
       1. **Systematische Analyse**: Kombiniere Abstract, Schlagworte und bestehende Klassifikationen aus dem Bibliotheksbestand zu einer **hierarchischen Themenstruktur**.
-      2. **Mehrfachklassifikation**: Wähle **bis zu 10 passende Klassifikationsnummern** (DK/DDC/RVK) aus, die:
+      2. **Mehrfachklassifikation**: Wähle **bis zu 10 passende Klassifikationsnummern** (DK/RVK) aus, die:
         - **Primärthemen** des Abstracts abdecken,
         - **Sekundärbeziehungen** (z. B. Anwendungsfelder, Methodik) einbeziehen,
         - **Bestehende Klassifikationen** aus dem Bibliotheksbestand validieren/ergänzen.
@@ -596,8 +601,33 @@ steps:
         auch "Wo würde jemand danach suchen?"
 
       **Werkzeuge & Limits**:
-      - DK/DDC: Nutze **nur** die im Bibliotheksbestand enthaltenen DK/DDC-Klassifikationen als Referenz – erfinde keine.
-      - RVK: Der Bibliotheksbestand enthält **keine** RVK-Kandidaten. Wenn RVK thematisch passt, rufe das Werkzeug **`rvk_lookup`** auf (mit den GND-Schlagworten und dem Abstract) und verwende **ausschließlich** die davon zurückgegebenen RVK-Notationen. Erfinde niemals RVK-Codes.
+      - DK: Nutze **nur** die im Bibliotheksbestand enthaltenen DK-Klassifikationen als Referenz – erfinde keine.
+      - RVK: Der Bibliotheksbestand enthält **keine** RVK-Kandidaten. RVK wird nur über das Werkzeug **`rvk_lookup`** beschafft (siehe Institutionsregel).
+
+      **Institutionsspezifische RVK-Regel (UB Freiberg 105):**
+      - **RVK wird ausschließlich für Wirtschaftswissenschaften (WiWi) verwendet.**
+      - **Rufe das Werkzeug `rvk_lookup` NUR auf, wenn das Werk WiWi ist.**
+      - Bei Naturwissenschaften, Technik, Medizin, Geisteswissenschaften und
+        allen anderen Fachbereichen rufe `rvk_lookup` **nicht** auf und gib
+        **keine RVK-Notationen** aus — wähle ausschließlich die passenden DK-Codes.
+      - Für WiWi-Werke: rufe `rvk_lookup` (mit den GND-Schlagworten und dem
+        Abstract) auf und verwende **ausschließlich** die davon zurückgegebenen
+        RVK-Notationen. Erfinde niemals RVK-Codes.
+      - WiWi-Werke erkennst du an Themen wie Betriebswirtschaft, Volkswirtschaft,
+        Wirtschaftsrecht, Management, Marketing, Finanzen, Rechnungswesen,
+        Wirtschaftsgeschichte oder verwandten Begriffen.
+      - **WiWi ist breit zu verstehen** und umfasst auch wirtschaftsnahe
+        Sozial-/Gesellschaftsthemen mit klarem ökonomischem Bezug, z. B.:
+        Wirtschaftskrise, Wirtschafts- und Sozialordnung, sozioökonomischer
+        bzw. wirtschaftsstruktureller Wandel/Transformation, Arbeitsmarkt und
+        Erwerbstätigkeit, Demografie/generatives Verhalten/Familienökonomie im
+        Wirtschaftskontext, Sozialpolitik mit Wirtschaftsbezug.
+      - **Im Zweifel gilt:** Hat das Werk einen erkennbaren wirtschaftlichen
+        Bezug (auch wenn das Hauptfach Soziologie o. ä. ist), behandle es als
+        WiWi und **rufe `rvk_lookup` auf** — übernimm die zurückgegebenen RVK
+        nur, wenn sie thematisch passen. Rein natur-/ingenieurwissenschaftliche,
+        medizinische oder geisteswissenschaftliche Werke ohne Wirtschaftsbezug
+        bleiben DK-only (kein Tool-Call).
 
       **Regelwerk klassifikatorische Sacherschließung (DK):**
       1. Wähle die nützlichste und exakteste Stelle in der feinsten möglichen Untergliederungsstufe.
@@ -605,26 +635,40 @@ steps:
       3. Beurteile eine Klasse nie nur nach ihrer Bezeichnung — ziehe über- und untergeordnete Klassen hinzu (Mehrdeutigkeit der Sprache).
       4. Gibt es keine exakt passende Stelle, wähle die dem Inhalt am nächsten kommende.
       5. Nie allein nach dem Titel(blatt) klassifizieren.
-      6. DDC nur als grobe Orientierung (muss an die DK angepasst werden); RVK wird — fachunabhängig — über das Werkzeug `rvk_lookup` ermittelt, wenn es thematisch passt.
+      6. WiWi-Literatur wird nach RVK erschlossen; alle anderen Fächer ausschließlich nach DK.
       TUBAF-Konventionen: regalstandort-bestimmende Notation zuerst; Zeichen ';' und '-' werden vergeben, '()' und ':' nicht.
 
       **Hintergrund Erfassungskontext (NICHT Teil der JSON-Ausgabe):**
-      Klassifikation erfolgt im Exemplarsatz (Gültigkeit TUBAF). 1 bis max. 10 Notationen (praktisch meist weniger). K10plus: Feld 6700 ist wiederholbar (6700, 6701, …). Hilfsmittel: DK-Handausgabe Bd. 2 (alphab. Sachverzeichnis), Vorauflagen, Aachener DK-Register (swr.exe), DDC/melvil (melvil.d-nb.de).
+      Klassifikation erfolgt im Exemplarsatz (Gültigkeit TUBAF). 1 bis max. 10 Notationen (praktisch meist weniger). K10plus: Feld 6700 ist wiederholbar (6700, 6701, …). Hilfsmittel: DK-Handausgabe Bd. 2 (alphab. Sachverzeichnis), Vorauflagen, Aachener DK-Register (swr.exe).
 
     user_prompt: |
       **Aufgabe**:
-      Analysiere den folgenden **Abstract** und wende einen **systematischen Klassifikationsprozess** an, um **10 passende DK/DDC/RVK-Klassifikationen** zu ermitteln. Nutze den **Bibliotheksbestand** als Referenz für bestehende Zuordnungen.
+      Analysiere den folgenden **Abstract** und wende einen **systematischen Klassifikationsprozess** an, um **bis zu 10 passende Klassifikationen** zu ermitteln. Nutze den **Bibliotheksbestand** als Referenz für bestehende Zuordnungen.
+
+      **RVK-Einschränkung (UB Freiberg 105):**
+      - Gib **nur bei Wirtschaftswissenschaften (WiWi)** RVK-Codes aus.
+      - Rufe das Werkzeug **`rvk_lookup` bei WiWi** auf — WiWi **breit** verstanden:
+        auch wirtschaftsnahe Sozial-/Gesellschaftsthemen mit klarem ökonomischem
+        Bezug (Wirtschaftskrise, Wirtschafts-/Sozialordnung, sozioökonomischer
+        Wandel/Transformation, Arbeitsmarkt/Erwerbstätigkeit, Demografie/
+        generatives Verhalten/Familienökonomie im Wirtschaftskontext).
+      - **Im Zweifel mit Wirtschaftsbezug: `rvk_lookup` aufrufen** und die RVK nur
+        übernehmen, wenn sie thematisch passen.
+      - Nur rein natur-/ingenieurwissenschaftliche, medizinische oder
+        geisteswissenschaftliche Werke **ohne** Wirtschaftsbezug bleiben DK-only
+        (kein Tool-Call).
 
       **Strukturierte Vorgehensweise**:
       1. **Themenextraktion**:
         - Identifiziere **Kernkonzepte** im Abstract (z. B. Hauptgegenstand, Methode, Anwendungsfeld).
         - Verknüpfe diese mit den **Schlagworten** aus dem Bibliotheksbestand.
-      2. **Klassifikationsabgleich (DK/DDC)**:
-        - Suche im Bibliotheksbestand nach **ähnlichen Titeln/Schlagworten** und übernimm deren DK/DDC-Klassifikationen als Basis.
-        - Wähle ausschließlich DK/DDC-Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes.
-      2b. **RVK-Ermittlung (Werkzeug `rvk_lookup`)**:
-        - Der Bibliotheksbestand enthält **keine** RVK. Wenn RVK thematisch passt, rufe **`rvk_lookup`** auf — mit `keywords` (die GND-Schlagworte unten) und `abstract`; übergib die bereits gewählten DK- und/oder DDC-Codes als `dk_codes`.
-        - Übernimm **ausschließlich** die von `rvk_lookup` zurückgegebenen RVK-Notationen. Passt keine, gib keine RVK aus.
+        - Entscheide: gibt es einen erkennbaren Wirtschaftsbezug (→ WiWi, breit verstanden) oder nicht?
+      2. **Klassifikationsabgleich (DK)**:
+        - Suche im Bibliotheksbestand nach **ähnlichen Titeln/Schlagworten** und übernimm deren DK-Klassifikationen als Basis.
+        - Wähle ausschließlich DK-Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes.
+      2b. **RVK-Ermittlung (WiWi inkl. Wirtschaftsbezug, Werkzeug `rvk_lookup`)**:
+        - Wenn das Werk WiWi ist oder einen erkennbaren Wirtschaftsbezug hat: rufe **`rvk_lookup`** mit `keywords` (die GND-Schlagworte unten) und `abstract` auf; übergib die gewählten DK-Codes als `dk_codes`.
+        - Übernimm **ausschließlich** die von `rvk_lookup` zurückgegebenen RVK-Notationen, die thematisch passen. Bei reinen Nicht-WiWi-Werken ohne Wirtschaftsbezug: kein Tool-Call, keine RVK.
       3. **Validierung**:
         - Prüfe jede Klassifikation auf:
           - **Präzision** (deckt sie das Konzept exakt ab?),
@@ -644,13 +688,12 @@ steps:
       {
         "classifications": [
           {"code": "DK 616.89", "type": "DK"},
-          {"code": "DK 006.3", "type": "DK"},
-          {"code": "QP 340", "type": "RVK"}
+          {"code": "DK 006.3", "type": "DK"}
         ],
         "analyse": "Kurze Zusammenfassung der wichtigsten Klassifikationen und deren Begründung."
       }
 
-      ### **Beispiel-Eingabe + Ausgabe**
+      ### **Beispiel-Eingabe + Ausgabe (Naturwissenschaft — nur DK)**
       *Abstract*: "Quantenmechanische Studien zur Photokatalytischen Ringöffnung von N-Heterocyclen."
 
       *Bibliotheksbestand* (Ausschnitt):
@@ -680,10 +723,10 @@ steps:
       **Abstract:**
       {abstract}
 
-      **Ausschnitt aus dem Bibliotheksbestand (DK/DDC):**
+      **Ausschnitt aus dem Bibliotheksbestand (DK):**
       {keywords}
 
-      **GND-Schlagworte (an `rvk_lookup` übergeben):**
+      **GND-Schlagworte (bei WiWi an `rvk_lookup` übergeben):**
       {final_keywords}
 
   # ──────────────────────────────────────────────────────────────────

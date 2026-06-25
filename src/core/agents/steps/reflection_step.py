@@ -27,27 +27,26 @@ from src.core.agents.steps.llm_agent_step import (
 logger = logging.getLogger(__name__)
 
 
+# Generic, DOMAIN-NEUTRAL base. ALIMA-specific phase/GND/DK checks live in the
+# workflow YAML (`meta_agent.reflection.rules`) and are injected at the
+# `{workflow_rules}` slot by MetaAgent — so non-keywording pipelines don't get
+# a GND/DK-flavoured quality gate. - Claude Generated
 DEFAULT_REFLECTION_SYSTEM_PROMPT = (
-    "Du bist ALIMA Quality Agent. Du bewertest den aktuellen Stand der Pipeline.\n"
-    "WICHTIG: Prüfe NUR die Kriterien, die für den aktuellen Pipeline-Stand relevant sind.\n\n"
-    "Pipeline-Phasen:\n"
-    "1. initialisation → Keywords extrahiert (noch keine GND/DK)\n"
-    "2. search → GND-Suchergebnisse vorhanden\n"
-    "3. selection_chunks → Relevante Keywords gefiltert\n"
-    "4. selection → Schlagwortketten + final_keywords gebildet\n"
-    "5. dk_collect → DK/RVK aus Katalog gesucht\n"
-    "6. classification → Finale DK-Zuweisung\n\n"
-    "Prüflogik pro Phase:\n"
-    "- Nach initialisation: Sind Keywords sinnvoll und deutsch? Sind sie zerlegt (z.B. 'Dampfschifffahrt | Kapitän')?\n"
-    "- Nach search: Gibt es GND-Einträge? Sind die Keywords aussagekräftig?\n"
-    "- Nach selection: Gibt es final_keywords (15-20)? Gibt es missing_concepts?\n"
-    "- Nach dk_collect: Prüfe Katalogdaten-Menge. Wenn >20 Notationen und >30 Titel → genug für Zuordnung (action=continue).\n"
-    "- Nach classification: Gibt es DK-Codes? Sind 4-5-stellige dabei?\n"
-    "- Erst nach allen Steps: status=complete\n\n"
+    "Du bist der ALIMA Quality Agent. Du bewertest den aktuellen Stand einer "
+    "Pipeline und empfiehlst, ob fortgefahren, ein Schritt wiederholt oder "
+    "abgeschlossen wird.\n"
+    "WICHTIG: Prüfe NUR Kriterien, die für den AKTUELLEN Pipeline-Schritt relevant sind.\n\n"
+    "Allgemeine Logik:\n"
+    "- Prüfe, ob der aktuelle Schritt sein erwartetes Ergebnis geliefert hat.\n"
+    "- Wiederhole einen Schritt NUR bei einem konkreten, benannten Mangel — niemals "
+    "mit der Begründung 'könnte noch optimiert/vertieft werden'.\n"
+    "- status='complete', sobald alle Schritte gelaufen sind und keine offenen, noch "
+    "nicht behandelten Lücken bestehen.\n"
+    "{workflow_rules}\n"
     "Ausgabe als valides JSON:\n"
     '{\n'
     '  "status": "complete" | "incomplete" | "continue",\n'
-    '  "gaps": ["missing_concepts", "shallow_dk", "no_keywords", "no_rvk"],\n'
+    '  "gaps": [...],\n'
     '  "action": "finish" | "continue" | "search_missing" | "rerun_search" | "rerun_selection" | "rerun_classification" | "rerun_dk_collect",\n'
     '  "reason": "..."\n'
     '}\n'
@@ -60,7 +59,12 @@ DEFAULT_REFLECTION_USER_PROMPT = (
     "- Extrahierte Keywords: {extracted_keywords_count}\n"
     "- GND-Einträge: {gnd_entries_count}\n"
     "- Ausgewählte Keywords: {selected_keywords_count}\n"
+    "- Finale Schlagworte: {final_keywords}\n"
+    "- Schlagwortketten: {keyword_chains_count}\n"
     "- DK-Klassifikationen: {dk_classifications_count}\n"
+    "- DK-Codes (Ist): {dk_codes}\n"
+    "- Hat tiefe DK-Codes (≥4 Ziffern, deterministisch geprüft): {has_deep_dk}\n"
+    "- Analyse-Begründung (Auszug): {analyse_excerpt}\n"
     "- Katalog-Titel gesamt: {catalog_total_titles}\n"
     "- Katalog-Notationen (unique): {catalog_unique_notations}\n"
     "- Fehlende Konzepte: {missing_concepts}\n"
@@ -92,11 +96,29 @@ class ReflectionStep(BaseStep):
         quality = getattr(context, "quality_report", {}) or {}
         dk_list = getattr(context, "dk_classifications", []) or []
 
-        # Check DK depth
-        has_deep_dk = any(
-            len(str(cls.get("code", "")).replace(".", "")) >= 4
-            for cls in dk_list
-        )
+        # Check DK depth — count only the significant DIGITS, ignoring the
+        # type prefix ("DK "/"DDC "/"RVK ") and separators. The previous
+        # version measured len("DK 504.064") which always passed. - Claude Generated
+        import re as _re
+
+        def _dk_digit_len(code: Any) -> int:
+            return len(_re.sub(r"\D", "", str(code or "")))
+
+        has_deep_dk = any(_dk_digit_len(cls.get("code", "")) >= 4 for cls in dk_list)
+        dk_codes_str = ", ".join(
+            str(cls.get("code", "")) for cls in dk_list if cls.get("code")
+        ) or "keine"
+
+        # Final keywords + analyse give the reflection agent the actual
+        # content, not just counts. - Claude Generated
+        extra = getattr(context, "extra", {}) or {}
+        final_kws = extra.get("final_keywords", []) or []
+        final_kws_str = ", ".join(
+            (kw.get("keyword") if isinstance(kw, dict) else str(kw))
+            for kw in final_kws[:25]
+        ) or "keine"
+        analyse_txt = (getattr(context, "analyse", "") or extra.get("analyse", "") or "").strip()
+        analyse_excerpt = (analyse_txt[:300] + "…") if len(analyse_txt) > 300 else (analyse_txt or "—")
 
         # Check keyword count
         selected = getattr(context, "selected_keywords", []) or []
@@ -118,10 +140,17 @@ class ReflectionStep(BaseStep):
             "gnd_entries_count": len(getattr(context, "gnd_entries", [])),
             "selected_keywords_count": len(selected),
             "dk_classifications_count": len(dk_list),
+            "dk_codes": dk_codes_str,
+            "final_keywords": final_kws_str,
+            "keyword_chains_count": len(getattr(context, "keyword_chains", []) or []),
+            "analyse_excerpt": analyse_excerpt,
             "catalog_total_titles": catalog_total_titles,
             "catalog_unique_notations": catalog_unique_notations,
             "has_deep_dk": "ja" if has_deep_dk else "nein",
             "has_keywords": "ja" if has_keywords else "nein",
+            # Defensive: if this step ever runs without MetaAgent composing the
+            # system prompt, keep the {workflow_rules} slot from leaking. - Claude Generated
+            "workflow_rules": "",
             "missing_concepts": ", ".join(missing) if missing else "keine",
             "missing_concepts_searched": ", ".join(getattr(context, "missing_concepts_searched", [])) or "keine",
             "quality_report": json.dumps(quality, ensure_ascii=False) if quality else "{}",

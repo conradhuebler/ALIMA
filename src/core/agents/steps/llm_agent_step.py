@@ -153,6 +153,23 @@ class LLMAgentStep(BaseStep):
             raise RuntimeError(f"LLM call failed: {result.error}")
         parsed = _extract_json(result.content)
 
+        # Recover a structured field from raw text if the model botched the JSON
+        # schema (opt-in via the step's YAML `salvage:` block). - Claude Generated
+        salvage_cfg = raw_cfg.get("salvage")
+        before = parsed.get(salvage_cfg["field"]) if (isinstance(parsed, dict) and salvage_cfg) else None
+        parsed = _apply_salvage(parsed, result.content, salvage_cfg)
+        if salvage_cfg and not before and isinstance(parsed, dict) and parsed.get(salvage_cfg.get("field")):
+            n = len(parsed[salvage_cfg["field"]])
+            if self.stream_callback:
+                self.stream_callback(
+                    f"🛟 Salvage: {n} '{salvage_cfg['field']}' aus Rohtext gerettet "
+                    f"(JSON-Schema vom Modell verfehlt)\n"
+                )
+            logger.warning(
+                f"LLMAgentStep '{self.step_id}': salvaged {n} '{salvage_cfg['field']}' "
+                f"entries from non-JSON output"
+            )
+
         _log_response(self.step_id, result.content)
         return {
             "response": parsed,
@@ -664,6 +681,61 @@ def _first_balanced_object(text: str) -> Optional[str]:
             if depth == 0:
                 return text[start:i + 1]
     return None
+
+
+# Salvage classification codes from non-JSON output. Some models
+# (mistral/ministral) emit the DK codes as plain lines instead of the requested
+# {"classifications": [...]} schema, which leaves the DK table empty. - Claude Generated
+_SALVAGE_DK_RE = re.compile(r"\b(DK|DDC)\s+(\d[\d.\-/;:]*)", re.IGNORECASE)
+_SALVAGE_RVK_RE = re.compile(r"\bRVK\s+([A-Z]{2}\s?\d[\d.,/\-]*)", re.IGNORECASE)
+
+
+def _salvage_codes(raw_text: str) -> List[Dict[str, str]]:
+    """Recover ``[{"code": "DK 504.064", "type": "DK"}, …]`` from raw text.
+
+    Order-preserving, deduplicated. Returns ``[]`` when nothing matches.
+    """
+    out: List[Dict[str, str]] = []
+    seen: set = set()
+    for m in _SALVAGE_DK_RE.finditer(raw_text or ""):
+        typ = m.group(1).upper()
+        code = f"{typ} {m.group(2).strip().rstrip('.;:-/')}"
+        if code not in seen:
+            seen.add(code)
+            out.append({"code": code, "type": typ})
+    for m in _SALVAGE_RVK_RE.finditer(raw_text or ""):
+        code = "RVK " + re.sub(r"\s+", " ", m.group(1).strip())
+        if code not in seen:
+            seen.add(code)
+            out.append({"code": code, "type": "RVK"})
+    return out
+
+
+def _apply_salvage(
+    parsed: Dict[str, Any],
+    raw_text: str,
+    salvage_cfg: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Recover a structured field from raw text when JSON extraction missed it.
+
+    Opt-in via the step's YAML ``salvage: {field: ..., type: codes}`` block.
+    Only fires when ``parsed[field]`` is empty, so well-formed JSON is never
+    overwritten. - Claude Generated
+    """
+    if not salvage_cfg or not isinstance(salvage_cfg, dict):
+        return parsed
+    field = salvage_cfg.get("field")
+    if not field:
+        return parsed
+    if isinstance(parsed, dict) and parsed.get(field):
+        return parsed  # JSON parsing already produced it
+    if salvage_cfg.get("type", "codes") == "codes":
+        recovered = _salvage_codes(raw_text)
+        if recovered:
+            base = dict(parsed) if isinstance(parsed, dict) else {}
+            base[field] = recovered
+            return base
+    return parsed
 
 
 def _extract_json(content: str) -> Dict[str, Any]:
