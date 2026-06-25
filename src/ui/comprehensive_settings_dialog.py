@@ -26,6 +26,7 @@ from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, C
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
 from ..utils.config_models import TaskPreference, TaskType
+from ..core.agents.workflow_loader import DEFAULT_SEARCH_PATHS, is_v4_yaml
 
 
 class DatabaseTestWorker(QThread):
@@ -508,7 +509,16 @@ class ComprehensiveSettingsDialog(QDialog):
         self.log_level = QComboBox()
         self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
         system_layout.addRow("Log Level:", self.log_level)
-        
+
+        # Default workflow for agentic pipeline runs - Claude Generated
+        self.default_workflow_combo = QComboBox()
+        self.default_workflow_combo.setToolTip(
+            "Standard-Workflow für agentische Pipeline-Läufe. "
+            "Wird verwendet, wenn im Pipeline-Tab oder per CLI kein expliziter Workflow gewählt wird."
+        )
+        self._populate_default_workflow_combo()
+        system_layout.addRow("Standard-Workflow:", self.default_workflow_combo)
+
         # Cache Directory - Claude Generated
         cache_layout = QHBoxLayout()
         self.cache_dir = QLineEdit()
@@ -770,6 +780,10 @@ class ComprehensiveSettingsDialog(QDialog):
         # System settings
         self.debug_mode.setChecked(config.system_config.debug)
         self.log_level.setCurrentText(config.system_config.log_level)
+        default_workflow = getattr(config.system_config, "default_workflow", "alima_v51") or "alima_v51"
+        idx = self.default_workflow_combo.findData(default_workflow)
+        if idx >= 0:
+            self.default_workflow_combo.setCurrentIndex(idx)
         self.cache_dir.setText(config.system_config.cache_dir)
         self.data_dir.setText(config.system_config.data_dir)
         self.temp_dir.setText(config.system_config.temp_dir)
@@ -870,6 +884,50 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         if directory:
             self.autosave_dir.setText(directory)
+
+    def _populate_default_workflow_combo(self):
+        """Fill default workflow combo with discovered v4 workflows + classic. - Claude Generated"""
+        import yaml
+
+        self.default_workflow_combo.clear()
+        self.default_workflow_combo.addItem("⭐ Klassische Pipeline (nicht agentisch)", "__classic__")
+
+        seen: set = set()
+        workflows: list[tuple[str, str]] = []
+        for base in DEFAULT_SEARCH_PATHS:
+            if not base.exists() or not base.is_dir():
+                continue
+            for path in sorted(base.glob("*.yaml")):
+                if path.stem in seen:
+                    continue
+                seen.add(path.stem)
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        data = yaml.safe_load(fh) or {}
+                    if not is_v4_yaml(data):
+                        continue
+                    version = str(data.get("version", "?"))
+                    label = f"{path.stem} (v{version})"
+                    workflows.append((label, path.stem))
+                except Exception:
+                    continue
+
+        # Prefer a sensible order; unknown stems are appended alphabetically.
+        preferred_order = ["alima_v51", "alima_v51_105", "alima", "alima_classic_v51", "alima_classic"]
+        ordered = []
+        added = set()
+        for stem in preferred_order:
+            for label, value in workflows:
+                if value == stem and value not in added:
+                    ordered.append((label, value))
+                    added.add(value)
+        for label, value in sorted(workflows):
+            if value not in added:
+                ordered.append((label, value))
+                added.add(value)
+
+        for label, value in ordered:
+            self.default_workflow_combo.addItem(label, value)
 
     def _browse_cache_dir(self):
         """Browse for cache directory - Claude Generated"""
@@ -1043,6 +1101,7 @@ class ComprehensiveSettingsDialog(QDialog):
             doi_use_crossref=self.doi_use_crossref.isChecked(),
             doi_use_openalex=self.doi_use_openalex.isChecked(),
             doi_use_datacite=self.doi_use_datacite.isChecked(),
+            default_workflow=self.default_workflow_combo.currentData(),
             # Preserve wizard/system flags that have no UI controls - Claude Generated
             prompts_path=config.system_config.prompts_path,
             first_run_completed=config.system_config.first_run_completed,

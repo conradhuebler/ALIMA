@@ -2083,6 +2083,7 @@ class PipelineStepExecutor:
         dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,
         rvk_anchor_keywords: Optional[List[str]] = None,
         stream_callback=None,
+        include_rvk: bool = True,
     ) -> Dict[str, Any]:
         """Filter and format DK search results for the classification prompt - Claude Generated
 
@@ -2091,6 +2092,11 @@ class PipelineStepExecutor:
         context identically: frequency threshold (DK only, RVK exempt),
         institution-library RVK filter, title filter, RVK candidate maps and
         RVK guardrail text prepended to the formatted catalog excerpt.
+
+        ``include_rvk=False`` strips every RVK-typed entry up front, so the
+        formatted prompt and the candidate maps stay DK/DDC only. Used by
+        workflows that surface RVK out-of-band via the ``rvk_lookup`` tool
+        instead of inline in ``dk_collect`` - Claude Generated.
 
         Returns:
             Dict with results_with_titles, catalog_text, allowed_standard_rvk_map,
@@ -2103,9 +2109,12 @@ class PipelineStepExecutor:
         for result in dk_search_results:
             classification_type = str(result.get("classification_type", result.get("type", "DK"))).upper()
             # RVK is validated separately and exempt from the frequency filter;
-            # DK and DDC are frequency-filtered below. - Claude Generated
+            # DK and DDC are frequency-filtered below. When include_rvk is False
+            # the caller handles RVK out-of-band (rvk_lookup tool) → drop it so
+            # the prompt and candidate maps stay DK/DDC only. - Claude Generated
             if classification_type == "RVK":
-                filtered_results.append(result)
+                if include_rvk:
+                    filtered_results.append(result)
                 continue
 
             # Check if result has frequency information and meets threshold
@@ -3859,15 +3868,18 @@ class PipelineStepExecutor:
 
         aggregated: Dict[str, Dict[str, Any]] = {}
         for candidate in candidate_results:
+            # DK and DDC both contribute thematic hints; RVK is excluded
+            # (it is what we are ranking). - Claude Generated
             cls_type = str(candidate.get("classification_type", candidate.get("type", "DK"))).upper()
-            if cls_type != "DK":
+            if cls_type not in ("DK", "DDC"):
                 continue
 
             raw_code = str(candidate.get("dk", "") or "").strip()
             if not raw_code:
                 continue
 
-            key = f"DK {raw_code}"
+            prefix = "DDC" if cls_type == "DDC" else "DK"
+            key = f"{prefix} {raw_code}"
             current = aggregated.setdefault(
                 key,
                 {
@@ -3895,10 +3907,20 @@ class PipelineStepExecutor:
         lines = []
         for code in selected_dk_codes:
             clean_code = str(code or "").strip()
-            if not clean_code or clean_code.upper().startswith("RVK "):
+            if not clean_code:
+                continue
+            upper = clean_code.upper()
+            if upper.startswith("RVK "):
                 continue
 
-            normalized = clean_code if clean_code.upper().startswith("DK ") else f"DK {clean_code}"
+            # Normalise the prefix (uppercase) so DK/DDC codes match the
+            # aggregated keys; bare codes default to DK. - Claude Generated
+            if upper.startswith("DK "):
+                normalized = "DK " + clean_code[3:].strip()
+            elif upper.startswith("DDC "):
+                normalized = "DDC " + clean_code[4:].strip()
+            else:
+                normalized = f"DK {clean_code}"
             data = aggregated.get(normalized)
             if not data:
                 continue
@@ -4592,6 +4614,35 @@ class PipelineStepExecutor:
             }
         }
 
+    @staticmethod
+    def _strip_rvk_from_keyword_results(
+        keyword_results: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Drop RVK-typed classifications from keyword-centric results - Claude Generated
+
+        Used when ``rvk_enabled=False``: RVK is handled out-of-band (e.g. via
+        the ``rvk_lookup`` tool), so neither the catalog excerpt nor the GUI
+        transparency view should carry RVK entries.
+        """
+        cleaned: List[Dict[str, Any]] = []
+        for entry in keyword_results or []:
+            if not isinstance(entry, dict):
+                cleaned.append(entry)
+                continue
+            classifications = entry.get("classifications")
+            if isinstance(classifications, list):
+                new_entry = dict(entry)
+                new_entry["classifications"] = [
+                    c for c in classifications
+                    if str(
+                        (c or {}).get("classification_type", (c or {}).get("type", "DK"))
+                    ).upper() != "RVK"
+                ]
+                cleaned.append(new_entry)
+            else:
+                cleaned.append(entry)
+        return cleaned
+
     def execute_dk_search(
         self,
         keywords: List[str],
@@ -4605,6 +4656,7 @@ class PipelineStepExecutor:
         force_update: bool = False,  # Claude Generated
         strict_gnd_validation: bool = True,  # EXPERT OPTION: Allow disabling strict GND validation
         rvk_anchor_keywords: Optional[List[str]] = None,
+        rvk_enabled: bool = True,  # Claude Generated - False skips all RVK anchor/API work
     ) -> List[Dict[str, Any]]:
         """
         Execute catalog search for DK classification data - Claude Generated
@@ -4920,7 +4972,7 @@ class PipelineStepExecutor:
                 f"Suche Katalog-Einträge für {len(final_search_keywords)} Keywords {mode_info} (max {max_results})\n",
                 "dk_search"
             )
-            if rvk_anchor_keywords or rvk_anchor_entries:
+            if rvk_enabled and (rvk_anchor_keywords or rvk_anchor_entries):
                 rvk_anchor_preview_terms = []
                 if rvk_anchor_keywords:
                     rvk_anchor_preview_terms = [
@@ -5049,22 +5101,27 @@ class PipelineStepExecutor:
                         "dk_search"
                     )
 
-            dk_search_results = self._validate_catalog_rvk_candidates(
-                dk_search_results,
-                stream_callback=stream_callback,
-                rvk_anchor_keywords=rvk_anchor_keywords,
-            )
-            dk_search_results = self._inject_rvk_api_fallback(
-                rvk_anchor_search_keywords or final_search_keywords,
-                dk_search_results,
-                gnd_keyword_entries=rvk_anchor_entries,
-                stream_callback=stream_callback,
-            )
-            self._emit_rvk_source_diagnostics(
-                dk_search_results,
-                stream_callback=stream_callback,
-                step_id="dk_search",
-            )
+            if rvk_enabled:
+                dk_search_results = self._validate_catalog_rvk_candidates(
+                    dk_search_results,
+                    stream_callback=stream_callback,
+                    rvk_anchor_keywords=rvk_anchor_keywords,
+                )
+                dk_search_results = self._inject_rvk_api_fallback(
+                    rvk_anchor_search_keywords or final_search_keywords,
+                    dk_search_results,
+                    gnd_keyword_entries=rvk_anchor_entries,
+                    stream_callback=stream_callback,
+                )
+                self._emit_rvk_source_diagnostics(
+                    dk_search_results,
+                    stream_callback=stream_callback,
+                    step_id="dk_search",
+                )
+            else:
+                # RVK handled out-of-band (rvk_lookup tool) — no anchor
+                # validation, no RVK-API calls, no RVK in the result. - Claude Generated
+                dk_search_results = self._strip_rvk_from_keyword_results(dk_search_results)
 
             # Deduplicate and flatten classifications - Claude Generated Step 3
             dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
@@ -5094,22 +5151,25 @@ class PipelineStepExecutor:
                         f"⚠️ Teilergebnisse: {len(dk_search_results)} Keywords erfolgreich vor Fehler\n",
                         "dk_search"
                     )
-                dk_search_results = self._validate_catalog_rvk_candidates(
-                    dk_search_results,
-                    stream_callback=stream_callback,
-                    rvk_anchor_keywords=rvk_anchor_keywords,
-                )
-                dk_search_results = self._inject_rvk_api_fallback(
-                    final_search_keywords,
-                    dk_search_results,
-                    gnd_keyword_entries=gnd_keyword_entries,
-                    stream_callback=stream_callback,
-                )
-                self._emit_rvk_source_diagnostics(
-                    dk_search_results,
-                    stream_callback=stream_callback,
-                    step_id="dk_search",
-                )
+                if rvk_enabled:
+                    dk_search_results = self._validate_catalog_rvk_candidates(
+                        dk_search_results,
+                        stream_callback=stream_callback,
+                        rvk_anchor_keywords=rvk_anchor_keywords,
+                    )
+                    dk_search_results = self._inject_rvk_api_fallback(
+                        final_search_keywords,
+                        dk_search_results,
+                        gnd_keyword_entries=gnd_keyword_entries,
+                        stream_callback=stream_callback,
+                    )
+                    self._emit_rvk_source_diagnostics(
+                        dk_search_results,
+                        stream_callback=stream_callback,
+                        step_id="dk_search",
+                    )
+                else:
+                    dk_search_results = self._strip_rvk_from_keyword_results(dk_search_results)
                 # Process partial results
                 dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
                 dk_statistics = self._calculate_dk_statistics(dk_search_results_flattened, dk_search_results)

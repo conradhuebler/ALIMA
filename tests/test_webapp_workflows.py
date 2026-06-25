@@ -36,12 +36,14 @@ class TestWorkflowDiscovery(unittest.TestCase):
             with mock.patch("src.webapp.app.DEFAULT_SEARCH_PATHS", [base]):
                 # The fake paths cannot be opened; mock both open() and yaml parsing.
                 with mock.patch("builtins.open", mock.mock_open()), \
-                     mock.patch("src.webapp.app.yaml.safe_load", return_value={"version": "5.1"}):
-                    root, legacy = _discover_workflows()
+                     mock.patch("src.webapp.app.yaml.safe_load", return_value={"version": "5.1", "steps": []}):
+                    root, legacy, steps_by_stem = _discover_workflows()
 
         self.assertIn("alima_v51", root)
         self.assertIn("alima", root)
         self.assertIn("old", legacy)
+        self.assertIn("alima_v51", steps_by_stem)
+        self.assertIn("alima", steps_by_stem)
 
     def test_workflows_endpoint_returns_list(self):
         from fastapi.testclient import TestClient
@@ -51,7 +53,11 @@ class TestWorkflowDiscovery(unittest.TestCase):
         with mock.patch.object(appmod, "_discover_workflows", return_value=({
             "alima_v51": "5.1",
             "alima": "5.0",
-        }, {"old": "4.0"})):
+        }, {"old": "4.0"}, {
+            "alima_v51": [{"id": "extraction", "label": "Extraction"}],
+            "alima": [],
+            "old": [],
+        })):
             resp = client.get("/api/workflows")
 
         self.assertEqual(resp.status_code, 200)

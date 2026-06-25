@@ -1806,11 +1806,12 @@ class PipelineTab(QWidget):
     # workflow stem run agentically. Unknown stems are appended alphabetically
     # before the legacy separator. Claude Generated.
     _WORKFLOW_ORDER = [
-        "alima_v51",          # ⭐ default (agentic v5.1)
-        "__classic__",        # classic, non-agentic
-        "alima",              # v5.0
-        "alima_classic_v51",  # v4.1
-        "alima_classic",      # v4.0
+        "alima_v51",           # ⭐ default (agentic v5.1)
+        "alima_v51_105",       # UB Freiberg variant: WiWi-only RVK, DK otherwise
+        "__classic__",         # classic, non-agentic
+        "alima",               # v5.0
+        "alima_classic_v51",   # v4.1
+        "alima_classic",       # v4.0
         "title_list_search",
         "catalog_search",
         "synonym_expansion",
@@ -1901,7 +1902,20 @@ class PipelineTab(QWidget):
                         f"{stem} (legacy v{legacy[stem]})", stem
                     )
 
-            self.workflow_combo.setCurrentIndex(0)  # ALIMA v5.1 (or classic fallback)
+            # Respect configured default workflow (SystemConfig.default_workflow).
+            default_workflow = "alima_v51"
+            try:
+                from ..utils.config_manager import ConfigManager
+
+                cfg = ConfigManager().load_config()
+                default_workflow = getattr(cfg.system_config, "default_workflow", "alima_v51") or "alima_v51"
+            except Exception:
+                pass
+            default_idx = self.workflow_combo.findData(default_workflow)
+            if default_idx >= 0:
+                self.workflow_combo.setCurrentIndex(default_idx)
+            else:
+                self.workflow_combo.setCurrentIndex(0)  # ALIMA v5.1 (or classic fallback)
             self.workflow_combo.blockSignals(False)
             self.logger.debug(
                 f"Workflow combo populated with {self.workflow_combo.count()} entries"

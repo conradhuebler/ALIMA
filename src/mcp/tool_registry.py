@@ -1038,6 +1038,112 @@ class ToolRegistry:
             "total_iterations": total_iterations,
         }, ensure_ascii=False)
 
+    def _handle_rvk_lookup(
+        self,
+        keywords: list,
+        abstract: str = "",
+        dk_codes: Optional[list] = None,
+        max_results: int = 8,
+    ) -> str:
+        """Find validated RVK notations for subject keywords - Claude Generated.
+
+        Stateless wrapper over the pipeline's RVK anchor machinery
+        (``PipelineStepExecutor``): derives RVK anchors, runs the catalog RVK
+        search + official RVK-API validation, and returns a deterministically
+        ranked shortlist of authority-backed RVK candidates. Lets the
+        classification LLM pull RVK on demand (e.g. only for WiWi in the
+        Freiberg workflow) instead of running it unconditionally in dk_collect.
+
+        Note: runs its own catalog search (independent of dk_collect); the
+        catalog layer caches per term. ``alima_manager`` is None → deterministic
+        scoring only (no extra LLM call inside the tool).
+        """
+        clean_keywords = [str(k).strip() for k in (keywords or []) if str(k).strip()]
+        if not clean_keywords:
+            return json.dumps({"rvk": [], "count": 0})
+
+        try:
+            from src.utils.pipeline_utils import PipelineStepExecutor
+            from src.utils.config_manager import ConfigManager
+
+            config_manager = self._config_manager or ConfigManager()
+            executor = PipelineStepExecutor(
+                alima_manager=None,
+                cache_manager=None,
+                logger=logger,
+                config_manager=config_manager,
+            )
+
+            try:
+                anchors = executor._derive_rvk_anchor_keywords(
+                    clean_keywords,
+                    original_abstract=abstract or "",
+                )
+            except Exception as exc:
+                logger.warning(f"rvk_lookup: anchor derivation failed: {exc}")
+                anchors = None
+
+            # strict_gnd_validation=False: the calling LLM often passes plain
+            # subject terms (no "(GND-ID: …)" suffix). Strict mode would drop
+            # all of them → empty search → no RVK. Plain terms are searched
+            # directly; the RVK-API fallback still validates the results. - Claude Generated
+            dk_result = executor.execute_dk_search(
+                keywords=clean_keywords,
+                rvk_anchor_keywords=anchors,
+                rvk_enabled=True,
+                strict_gnd_validation=False,
+            )
+            prep = executor.prepare_dk_classification_context(
+                dk_result.get("classifications", []),
+                original_abstract=abstract or "",
+                rvk_anchor_keywords=anchors,
+                include_rvk=True,
+            )
+
+            # Optional DK-context hint for deterministic ranking (no LLM).
+            abstract_for_scoring = abstract or ""
+            clean_dk = [str(c).strip() for c in (dk_codes or []) if str(c).strip()]
+            if clean_dk:
+                try:
+                    dk_profile = executor._build_dk_semantic_profile(
+                        clean_dk, prep["results_with_titles"]
+                    )
+                    if dk_profile:
+                        abstract_for_scoring = f"{abstract_for_scoring}\n\nDK-Profil:\n{dk_profile}"
+                except Exception as exc:
+                    logger.debug(f"rvk_lookup: dk profile failed: {exc}")
+
+            shortlist = executor._build_rvk_scoring_shortlist(
+                prep["results_with_titles"],
+                abstract_for_scoring,
+                rvk_anchor_keywords=anchors,
+                max_standard=max(1, int(max_results or 8)),
+            )
+
+            candidates = []
+            for cand in shortlist[: max(1, int(max_results or 8))]:
+                notation = str(cand.get("dk", "")).strip()
+                if not notation:
+                    continue
+                candidates.append({
+                    "notation": f"RVK {notation}",
+                    "label": cand.get("label", ""),
+                    "ancestor_path": cand.get("ancestor_path", ""),
+                    "validation_status": cand.get("rvk_validation_status", "standard"),
+                    "source": cand.get("source", "catalog"),
+                    "count": int(cand.get("count", 0) or 0),
+                    "anchor_hits": int(cand.get("_anchor_hit_count", 0) or 0),
+                    "score": int(cand.get("_score", 0) or 0),
+                })
+
+            return json.dumps(
+                {"rvk": candidates, "count": len(candidates), "anchors": anchors or []},
+                ensure_ascii=False,
+            )
+        except Exception as exc:
+            logger.error(f"rvk_lookup failed: {exc}")
+            return json.dumps({"error": str(exc), "rvk": [], "count": 0})
+
     # ============================================================
     # Registry Setup
     # ============================================================
@@ -1054,6 +1160,7 @@ class ToolRegistry:
         self.register(tool_schemas.GET_CLASSIFICATION, self._handle_get_classification)
         self.register(tool_schemas.GET_DB_STATS, self._handle_get_db_stats)
         self.register(tool_schemas.SELECT_FROM_GND_POOL, self._handle_select_from_gnd_pool)
+        self.register(tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup)
 
         # Library tools
         self.register(tool_schemas.SEARCH_LOBID, self._handle_search_lobid)
@@ -1094,6 +1201,7 @@ class ToolRegistry:
                 (tool_schemas.STORE_SEARCH_RESULT, self._handle_store_search_result),
                 (tool_schemas.GET_CLASSIFICATION, self._handle_get_classification),
                 (tool_schemas.GET_DB_STATS, self._handle_get_db_stats),
+                (tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup),
             ],
             "library": [
                 (tool_schemas.SEARCH_LOBID, self._handle_search_lobid),

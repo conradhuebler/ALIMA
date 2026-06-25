@@ -841,6 +841,9 @@ class SystemConfig:
     first_run_completed: bool = False  # Set to true after wizard completion
     skip_first_run_check: bool = False  # Set to true to disable first-run dialog on empty config
 
+    # Default workflow for agentic pipeline runs - Claude Generated
+    default_workflow: str = "alima_v51"  # YAML workflow stem used when agentic mode is enabled
+
 
 @dataclass
 class UIConfig:

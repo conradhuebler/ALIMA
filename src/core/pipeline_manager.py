@@ -395,12 +395,21 @@ class PipelineConfig:
                         step_configs[step_id].think = think_val
                         logger.debug(f"Think override for {step_id}: think={think_val}")
 
+            # Resolve default workflow from system config; keep fallback for tests.
+            default_workflow = "alima_v51"
+            try:
+                alima_cfg = config_manager.load_config()
+                default_workflow = getattr(alima_cfg.system_config, "default_workflow", "alima_v51") or "alima_v51"
+            except Exception:
+                pass
+
             return cls(
                 auto_advance=True,
                 stop_on_error=True,
                 save_intermediate_results=True,
                 step_configs=step_configs,
-                search_suggesters=["lobid", "swb"]
+                search_suggesters=["lobid", "swb"],
+                workflow_name=default_workflow,
             )
 
         except Exception as e:
@@ -511,6 +520,7 @@ class PipelineManager:
             except Exception as e:
                 self.logger.warning(f"Failed to initialize from Provider Preferences, using default: {e}")
                 self.config: PipelineConfig = PipelineConfig()
+                self._apply_default_workflow_from_config()
         else:
             self.config: PipelineConfig = PipelineConfig()
             self.logger.info("Pipeline configuration initialized with default settings (no ConfigManager provided)")
@@ -547,6 +557,17 @@ class PipelineManager:
         self._abort_step_event = threading.Event()  # Step-only abort, does not stop pipeline - Claude Generated
         self.logger.debug("Pipeline manager initialized with thread-safe interrupt support")
 
+    def _apply_default_workflow_from_config(self):
+        """Override PipelineConfig.workflow_name from SystemConfig.default_workflow."""
+        if not self.config_manager:
+            return
+        try:
+            alima_cfg = self.config_manager.load_config()
+            default_workflow = getattr(alima_cfg.system_config, "default_workflow", None)
+            if default_workflow:
+                self.config.workflow_name = default_workflow
+        except Exception:
+            pass
 
     def set_config(self, config: PipelineConfig):
         """Set pipeline configuration - Claude Generated"""

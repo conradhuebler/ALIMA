@@ -121,7 +121,7 @@ def create_argument_parser():
     pipeline_parser.add_argument("--agentic-verbose", action="store_true", help="Log full system+user prompts to stream in agentic mode")
 
     # Workflow configuration - Claude Generated
-    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: alima_classic)")
+    pipeline_parser.add_argument("--workflow", type=str, default=None, help="Workflow name to use (default: SystemConfig.default_workflow, falls back to alima_v51)")
     pipeline_parser.add_argument("--custom-workflow", type=str, default=None, help="Path to custom workflow YAML/JSON file")
 
     # Single-step execution - Claude Generated

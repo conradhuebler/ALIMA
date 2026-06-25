@@ -742,9 +742,13 @@ def dk_search_agentic(
     if context is None:
         raise RuntimeError("dk_search_agentic requires context")
 
+    rvk_inline = True
     if config:
         max_keywords = config.get("max_keywords", max_keywords)
         dk_frequency_threshold = config.get("dk_frequency_threshold", dk_frequency_threshold)
+        # rvk_inline=False ⇒ no inline RVK anchor/API work here; RVK is surfaced
+        # on demand by the classification LLM via the rvk_lookup tool. - Claude Generated
+        rvk_inline = config.get("rvk_inline", True)
 
     keywords = _build_dk_keywords(context, max_keywords)
     if not keywords:
@@ -783,19 +787,23 @@ def dk_search_agentic(
             config_manager=config_manager,
         )
         # Classic-parity: derive RVK anchors from the same keywords.
-        # alima_manager is None → heuristic fallback inside - Claude Generated
-        try:
-            rvk_anchor_keywords = executor._derive_rvk_anchor_keywords(
-                keywords,
-                original_abstract=getattr(context, "abstract", "") or "",
-                stream_callback=_dk_cb,
-            )
-        except Exception as exc:
-            logger.warning(f"dk_search_agentic: RVK anchor derivation failed: {exc}")
-            rvk_anchor_keywords = None
+        # alima_manager is None → heuristic fallback inside. Skipped entirely
+        # when rvk_inline is False (RVK handled via rvk_lookup tool). - Claude Generated
+        rvk_anchor_keywords = None
+        if rvk_inline:
+            try:
+                rvk_anchor_keywords = executor._derive_rvk_anchor_keywords(
+                    keywords,
+                    original_abstract=getattr(context, "abstract", "") or "",
+                    stream_callback=_dk_cb,
+                )
+            except Exception as exc:
+                logger.warning(f"dk_search_agentic: RVK anchor derivation failed: {exc}")
+                rvk_anchor_keywords = None
         dk_result = executor.execute_dk_search(
             keywords=keywords,
             rvk_anchor_keywords=rvk_anchor_keywords,
+            rvk_enabled=rvk_inline,
             stream_callback=_dk_cb,
             strict_gnd_validation=True,  # keywords formatted as "Term (GND-ID: id)" — validated
         )
@@ -859,9 +867,10 @@ def dk_search_agentic(
             dk_frequency_threshold=threshold,
             rvk_anchor_keywords=rvk_anchor_keywords,
             stream_callback=_dk_cb,
+            include_rvk=rvk_inline,
         )
         formatted_prompt = prep["catalog_text"] if prep["results_with_titles"] else ""
-        if hasattr(context, "extra"):
+        if hasattr(context, "extra") and rvk_inline:
             # RVK candidate maps for potential downstream post-processing
             context.extra["rvk_allowed_standard"] = prep["allowed_standard_rvk_map"]
             context.extra["rvk_allowed_nonstandard"] = prep["allowed_nonstandard_rvk_map"]

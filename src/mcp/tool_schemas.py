@@ -125,6 +125,52 @@ GET_DB_STATS = ToolDefinition(
     },
 )
 
+RVK_LOOKUP = ToolDefinition(
+    name="rvk_lookup",
+    description=(
+        "Find authoritative, validated RVK (Regensburger Verbundklassifikation) "
+        "notations for a set of subject keywords. Runs the catalog RVK search, "
+        "validates candidates against the official RVK API, and returns a ranked "
+        "shortlist of authority-backed RVK notations with label and hierarchy "
+        "path. Use this when RVK classification is appropriate for the work. "
+        "Use ONLY the notations returned here — never invent RVK codes."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Subject keywords, ideally as 'Term (GND-ID: ...)' like the "
+                    "pipeline keyword format."
+                ),
+            },
+            "abstract": {
+                "type": "string",
+                "description": "The work's abstract — used for thematic RVK scoring.",
+                "default": "",
+            },
+            "dk_codes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Already-chosen DK and/or DDC codes (e.g. 'DK 330' or "
+                    "'DDC 330') — used as an additional thematic hint for RVK "
+                    "ranking."
+                ),
+                "default": [],
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum RVK candidates to return.",
+                "default": 8,
+            },
+        },
+        "required": ["keywords"],
+    },
+)
+
 
 # ============================================================
 # Library Server Tools (Web Services)
@@ -570,6 +616,7 @@ KNOWLEDGE_TOOLS = [
     SEARCH_GND, GET_GND_ENTRY, GET_GND_BATCH,
     GET_SEARCH_CACHE, GET_DK_CACHE, STORE_SEARCH_RESULT,
     GET_CLASSIFICATION, GET_DB_STATS, SELECT_FROM_GND_POOL,
+    RVK_LOOKUP,
 ]
 
 LIBRARY_TOOLS = [
