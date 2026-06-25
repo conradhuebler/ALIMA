@@ -6,6 +6,40 @@
 
 ## 2026
 
+### Rate-Limit-Retry für Tool-Calling (HTTP 429) (June 25, 2026)
+
+Provider-Rate-Limits (429) brachen bisher den ganzen agentischen Workflow ab:
+der Provider-Call wirft → `AgentLoop` fängt → `LLMAgentStep` macht `RuntimeError`
+→ Workflow-Fehler. Jetzt wird gewartet + wiederholt statt abgebrochen.
+
+**Implementierung (`src/llm/llm_service.py`).** Drei Modul-Funktionen + Einhängung
+an `generate_with_tools` (ein Dispatch-Punkt → gilt für alle Provider:
+OpenAI/Mistral, Anthropic, Gemini, Ollama, Fallback):
+- `_is_rate_limit_error(exc)` — erkennt 429 providerübergreifend (Status-Attribute
+  `status_code`/`http_status`/`code`/`status`, `response.status_code`,
+  Exception-Klassenname, Meldungstext) ohne SDK-Import. Bewusst breit.
+- `_rate_limit_retry_after(exc)` — liest die vom Server vorgegebene Wartezeit:
+  HTTP-`Retry-After` (Sekunden **oder** HTTP-Datum) → Geminis `retry_delay`
+  (`.seconds`) → Zahl aus dem Meldungstext. `None` ⇒ Backoff.
+- `_retry_on_rate_limit(fn, label, status_cb, should_stop)` — respektiert
+  `Retry-After` (Hard-Ceiling 300 s), sonst exponentielles Backoff (2→4→8…s,
+  Cap 60 s, + Jitter). Nicht-429-Fehler sofort re-raise; Aufgeben nach 5
+  Versuchen. Wartezeit ist unterbrechbar (`should_stop` jede Sekunde geprüft).
+  Status `⏳ Rate-Limit erreicht – warte Xs (Versuch n/5)` fließt in GUI/CLI-Log.
+
+Modul-Funktionen (nicht Methoden), damit die `MagicMock(spec=LlmService)`-
+Dispatch-Tests (`test_llm_service_seed`, `test_streaming_with_tools`) sie nicht
+wegmocken. Env-Tuning: `ALIMA_RATE_LIMIT_MAX_RETRIES`, `_BASE_DELAY_S`,
+`_MAX_DELAY_S`, `_RETRY_AFTER_CEILING_S`.
+
+**Tests.** `tests/test_rate_limit_retry.py` (15) — Erkennung, Retry-After-Parsing
+(Header/Datum/Gemini/Text), Retry-dann-Erfolg, Aufgeben nach Max, Passthrough,
+`should_stop`-Abbruch, End-to-End über `generate_with_tools`.
+
+**Scope/Caveats.** Nur der agentische `generate_with_tools`-Pfad; klassischer
+`generate_response`-Stream hat bereits eigenes (gröberes) Retry in
+`pipeline_utils.py`. Getestet mit simulierten 429ern, nicht gegen ein Live-Limit.
+
 ### Webapp-Redesign: vertikaler Stack + Pipeline-Leiste mit Live-Stepper (June 23, 2026)
 
 Restructured the `/webapp` layout from a fixed 3-column grid (`input | editor |

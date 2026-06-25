@@ -8,6 +8,8 @@ import importlib
 import logging
 import base64
 import json
+import re
+import random
 import sys
 import traceback
 import socket
@@ -24,6 +26,162 @@ try:
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
+
+
+def _env_num(name: str, default: float, cast=float) -> float:
+    """Read a numeric env override, falling back to ``default`` on any error. - Claude Generated"""
+    try:
+        return cast(os.getenv(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
+# Rate-limit retry policy for provider API calls (HTTP 429). Operator-tunable
+# via env so a tight per-minute quota can wait longer without a code change.
+# - Claude Generated
+_RL_MAX_RETRIES = int(_env_num("ALIMA_RATE_LIMIT_MAX_RETRIES", 5, int))
+_RL_BASE_DELAY_S = _env_num("ALIMA_RATE_LIMIT_BASE_DELAY_S", 2.0)
+_RL_MAX_DELAY_S = _env_num("ALIMA_RATE_LIMIT_MAX_DELAY_S", 60.0)
+# Hard ceiling honoured even when the server's Retry-After header is larger,
+# so a misbehaving provider can't hang the pipeline indefinitely. - Claude Generated
+_RL_RETRY_AFTER_CEILING_S = _env_num("ALIMA_RATE_LIMIT_RETRY_AFTER_CEILING_S", 300.0)
+
+_rl_logger = logging.getLogger(__name__)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """True if ``exc`` looks like an HTTP 429 / quota-exhausted error. - Claude Generated
+
+    Works across SDKs (OpenAI/Mistral, Anthropic, Gemini) without importing
+    them: checks status-code attributes, the exception class name, and the
+    message text. Deliberately broad — a false positive only costs one retry.
+    Module-level (not a method) so it survives ``MagicMock(spec=LlmService)``
+    dispatch tests that mock out instance methods.
+    """
+    for attr in ("status_code", "http_status", "code", "status"):
+        val = getattr(exc, attr, None)
+        if val == 429 or str(val) == "429":
+            return True
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) == 429:
+        return True
+    name = type(exc).__name__.lower()
+    if "ratelimit" in name or "resourceexhausted" in name or "toomanyrequests" in name:
+        return True
+    msg = str(exc).lower()
+    return (
+        "429" in msg
+        or "rate limit" in msg
+        or "rate_limited" in msg
+        or "too many requests" in msg
+        or "resource_exhausted" in msg
+        or "quota" in msg
+    )
+
+
+def _rate_limit_retry_after(exc: Exception) -> Optional[float]:
+    """Extract a server-suggested wait (seconds) from a rate-limit error. - Claude Generated
+
+    Reads, in order: the HTTP ``Retry-After`` header on the SDK exception's
+    response (numeric seconds or HTTP-date), Gemini's ``retry_delay`` duration,
+    and finally a number embedded in the message text. Returns ``None`` when the
+    API gives no hint (caller falls back to backoff).
+    """
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None)
+    if headers is not None:
+        try:
+            raw = headers.get("retry-after") or headers.get("Retry-After")
+        except Exception:
+            raw = None
+        if raw:
+            try:
+                return max(0.0, float(raw))
+            except (TypeError, ValueError):
+                try:
+                    from email.utils import parsedate_to_datetime
+                    from datetime import datetime, timezone
+                    when = parsedate_to_datetime(raw)
+                    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+                except Exception:
+                    pass
+    # Gemini ResourceExhausted exposes a retry_delay Duration (.seconds).
+    rd = getattr(exc, "retry_delay", None)
+    secs = getattr(rd, "seconds", None)
+    if secs is not None:
+        try:
+            return max(0.0, float(secs))
+        except (TypeError, ValueError):
+            pass
+    # Last resort: "... try again in 12s" / "retry after 30 seconds".
+    m = re.search(
+        r"(?:retry[\s-]*after|try again in|in)\s*(\d+(?:\.\d+)?)\s*(seconds?|secs?|s)\b",
+        str(exc),
+        re.IGNORECASE,
+    )
+    if m:
+        try:
+            return max(0.0, float(m.group(1)))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _retry_on_rate_limit(
+    fn: Callable[[], Any],
+    label: str,
+    status_cb: Optional[Callable[[str], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> Any:
+    """Run ``fn`` and retry on rate-limit (429) errors instead of failing. - Claude Generated
+
+    Honours the API's ``Retry-After`` when present (capped at
+    ``_RL_RETRY_AFTER_CEILING_S``), otherwise uses exponential backoff with
+    jitter. Re-raises non-rate-limit errors immediately and gives up after
+    ``_RL_MAX_RETRIES`` attempts. The wait is interruptible: ``should_stop`` is
+    polled each second so operator cancel stays responsive.
+    """
+    attempt = 0
+    while True:
+        try:
+            return fn()
+        except Exception as exc:  # re-raised unless it's a rate-limit error
+            if not _is_rate_limit_error(exc):
+                raise
+            attempt += 1
+            if attempt > _RL_MAX_RETRIES:
+                _rl_logger.error(
+                    f"{label}: rate limit persisted after {_RL_MAX_RETRIES} retries — giving up"
+                )
+                raise
+
+            suggested = _rate_limit_retry_after(exc)
+            if suggested is not None:
+                delay = min(suggested, _RL_RETRY_AFTER_CEILING_S)
+            else:
+                # Exponential backoff (2,4,8,…) capped, plus jitter to avoid
+                # synchronised retry bursts across parallel chunks. - Claude Generated
+                delay = min(_RL_BASE_DELAY_S * (2 ** (attempt - 1)), _RL_MAX_DELAY_S)
+                delay += random.uniform(0, min(1.0, delay * 0.25))
+
+            _rl_logger.warning(
+                f"{label}: rate limit (429) — attempt {attempt}/{_RL_MAX_RETRIES}, "
+                f"waiting {delay:.1f}s ({'Retry-After' if suggested is not None else 'backoff'})"
+            )
+            if status_cb:
+                status_cb(
+                    f"\n⏳ Rate-Limit erreicht – warte {delay:.0f}s "
+                    f"(Versuch {attempt}/{_RL_MAX_RETRIES})…\n"
+                )
+
+            waited = 0.0
+            while waited < delay:
+                if should_stop and should_stop():
+                    _rl_logger.info(f"{label}: rate-limit wait aborted by should_stop")
+                    raise
+                step = min(1.0, delay - waited)
+                time.sleep(step)
+                waited += step
 
 
 class ProviderState(Enum):
@@ -2586,33 +2744,44 @@ class LlmService(QObject):
         provider_config = provider_info.get('config')
         provider_type = getattr(provider_config, 'provider_type', '') if provider_config else ''
 
-        if provider_type == "ollama":
-            return self._generate_ollama_native_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                should_stop=should_stop,
-            )
-        elif provider_type == "openai_compatible":
-            return self._generate_openai_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                should_stop=should_stop,
-            )
-        elif provider_type == "anthropic":
-            # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
-            return self._generate_anthropic_with_tools(
-                model, messages, tools, temperature, top_p, max_tokens, stream_callback,
-                should_stop=should_stop,
-            )
-        elif provider_type == "gemini":
-            return self._generate_gemini_with_tools(
-                model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                should_stop=should_stop,
-            )
-        else:
-            # Fallback: simulate tool-calling via text for unsupported providers
-            return self._generate_text_fallback_with_tools(
-                provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                should_stop=should_stop,
-            )
+        # Provider call, wrapped so a transient HTTP 429 waits + retries instead
+        # of aborting the whole workflow. Status flows to stream_callback so the
+        # GUI/CLI log shows the wait. - Claude Generated
+        def _dispatch() -> "AgentResponse":
+            if provider_type == "ollama":
+                return self._generate_ollama_native_with_tools(
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                    should_stop=should_stop,
+                )
+            elif provider_type == "openai_compatible":
+                return self._generate_openai_with_tools(
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                    should_stop=should_stop,
+                )
+            elif provider_type == "anthropic":
+                # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
+                return self._generate_anthropic_with_tools(
+                    model, messages, tools, temperature, top_p, max_tokens, stream_callback,
+                    should_stop=should_stop,
+                )
+            elif provider_type == "gemini":
+                return self._generate_gemini_with_tools(
+                    model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                    should_stop=should_stop,
+                )
+            else:
+                # Fallback: simulate tool-calling via text for unsupported providers
+                return self._generate_text_fallback_with_tools(
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                    should_stop=should_stop,
+                )
+
+        return _retry_on_rate_limit(
+            _dispatch,
+            label=f"{provider}/{model}",
+            status_cb=stream_callback,
+            should_stop=should_stop,
+        )
 
     def _generate_ollama_native_with_tools(
         self,
