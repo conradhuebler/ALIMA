@@ -752,6 +752,14 @@ class AlimaWebapp {
         chatInput.value = '';
         chatInput.style.height = 'auto';
 
+        // Collapse the input zone on the first chat send so the chat/log area gets the
+        // full height — mirrors the auto-collapse on analysis start (updateButtonState).
+        // One-shot, so a later manual re-expand by the operator is respected. - Claude Generated
+        if (!this._inputZoneAutoCollapsed) {
+            this.setInputZoneCollapsed(true);
+            this._inputZoneAutoCollapsed = true;
+        }
+
         const providerSelect = document.getElementById('provider-override');
         const modelSelect = document.getElementById('model-override');
         const thinkSelect = document.getElementById('think-override');
@@ -1757,6 +1765,7 @@ class AlimaWebapp {
         this.hideResultsPanel();
         this.resetSharedRender();  // WP12: empty the shared render region
         this.setInputZoneCollapsed(false);  // Re-open input for a fresh run - Claude Generated
+        this._inputZoneAutoCollapsed = false;  // Re-arm one-shot chat auto-collapse - Claude Generated
         this.renderStepperForSelected();     // Reset stepper to pending - Claude Generated
 
         // Hide extracted text section - Claude Generated
