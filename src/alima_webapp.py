@@ -29,4 +29,10 @@ if __name__ == "__main__":
         port=8000,
         log_level=os.environ.get("LOG_LEVEL", "info").lower(),
         access_log=False,
+        # Honor X-Forwarded-Proto/For from the Apache reverse proxy so the app sees the
+        # real client + the https/wss scheme behind TLS termination. forwarded_allow_ips
+        # defaults to the proxy host; override via env when the proxy is a separate machine.
+        # - Claude Generated
+        proxy_headers=True,
+        forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1"),
     )

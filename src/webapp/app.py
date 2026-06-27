@@ -1132,15 +1132,29 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # Check if analysis is complete
             if session.status not in ["running", "idle"]:
                 logger.info(f"Session {session_id} status changed to {session.status}")
+                # Flush the remaining streaming tokens FIRST as a small, standalone frame
+                # (tokens buffered since the last 500ms poll). Delivering the final chat text
+                # ahead of the large `complete` frame means it survives even if a reverse
+                # proxy delays or truncates that bigger frame. The client renders this via
+                # updatePipelineStatus (same path as live tokens), so the `complete` frame
+                # below carries an empty streaming_tokens to avoid a double-render.
+                # - Claude Generated
+                final_tokens = session.get_and_clear_streaming_buffer()
+                if final_tokens:
+                    await websocket.send_json({
+                        "type": "status",
+                        "status": session.status,
+                        "current_step": session.current_step,
+                        "current_step_status": session.current_step_status,
+                        "streaming_tokens": make_json_serializable(final_tokens),
+                    })
                 # Flush any remaining render events (e.g. the final DK card). - WP12
                 final_render, render_sent = session.get_render_events_since(render_sent)
-                # Flush remaining streaming tokens (tokens buffered since last 500ms poll).
-                final_tokens = session.get_and_clear_streaming_buffer()
-                # Send final update with JSON-serializable results
+                # Send final update with JSON-serializable results (tokens already sent above).
                 await websocket.send_json({
                     "type": "complete",
                     "status": session.status,
-                    "streaming_tokens": make_json_serializable(final_tokens),
+                    "streaming_tokens": {},
                     "results": make_json_serializable(
                         _prepare_results_for_export(session.results, validate_rvk=False)
                     ),
@@ -1148,6 +1162,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "current_step": session.current_step,
                     "render_events": final_render,
                 })
+                # Graceful close so a reverse proxy flushes the final frame(s) before the
+                # socket is torn down — an abrupt close right after send can drop the last
+                # frame through mod_proxy_wstunnel. - Claude Generated
+                try:
+                    await websocket.close()
+                except Exception:
+                    pass
                 break
 
             # Increment and send heartbeat periodically - Claude Generated
