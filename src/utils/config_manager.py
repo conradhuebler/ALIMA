@@ -19,7 +19,8 @@ import logging
 from enum import Enum
 # Import centralized data models
 from .config_models import (
-    AlimaConfig, ChatConfig, DatabaseConfig, CatalogConfig, PromptConfig, UIConfig,
+    AlimaConfig, ChatConfig, DatabaseConfig, CatalogConfig, SearchProviderConfig,
+    PromptConfig, UIConfig,
     UnifiedProviderConfig, UnifiedProvider, TaskPreference, PipelineStepConfig,
     OllamaProvider, OpenAICompatibleProvider, GeminiProvider, AnthropicProvider,
     TaskType, PipelineMode
@@ -372,6 +373,7 @@ class ConfigManager:
             # Create main config sections - Claude Generated
             database_config = DatabaseConfig(**database_config_data)
             catalog_config = CatalogConfig(**config_data.get("catalog_config", config_data.get("catalog", {})))
+            search_provider_config = SearchProviderConfig(**config_data.get("search_provider_config", {}))
             prompt_config = PromptConfig(**config_data.get("prompt_config", config_data.get("prompt", {})))
             system_config = SystemConfig(**system_config_data)
 
@@ -430,6 +432,7 @@ class ConfigManager:
             config = AlimaConfig(
                 database_config=database_config,
                 catalog_config=catalog_config,
+                search_provider_config=search_provider_config,
                 prompt_config=prompt_config,
                 system_config=system_config,
                 ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
@@ -761,6 +764,16 @@ class ConfigManager:
     def get_catalog_config(self) -> CatalogConfig:
         """Get catalog configuration - Claude Generated"""
         return self.load_config().catalog_config
+
+    def get_search_provider_config(self) -> SearchProviderConfig:
+        """Get the per-search-provider enable/disable config (F-3 P3) - Claude Generated"""
+        return self.load_config().search_provider_config
+
+    def update_search_provider_config(self, search_provider_config: SearchProviderConfig) -> bool:
+        """Persist the per-search-provider enable/disable config - Claude Generated"""
+        config = self.load_config()
+        config.search_provider_config = search_provider_config
+        return self.save_config(config)
 
     def get_prompt_config(self) -> PromptConfig:
         """Get prompt configuration - Claude Generated"""

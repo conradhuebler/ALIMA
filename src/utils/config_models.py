@@ -803,6 +803,25 @@ class CatalogConfig:
 
 
 @dataclass
+class SearchProviderConfig:
+    """Per-search-provider enable/disable gate (F-3 P3) - Claude Generated.
+
+    Maps a SearchProvider id (lobid/swb/catalog/finc/gnd_local) to whether it is
+    exposed as a search tool. Endpoints/tokens still live in ``CatalogConfig``;
+    this only gates exposure/selectability. Absent ids default to *enabled*, so
+    registering a new provider needs no config change. Edited via the GUI
+    provider-selector (Settings).
+    """
+    providers: Dict[str, bool] = field(default_factory=dict)
+
+    def is_enabled(self, provider_id: str) -> bool:
+        return self.providers.get(provider_id, True)
+
+    def set_enabled(self, provider_id: str, enabled: bool) -> None:
+        self.providers[provider_id] = bool(enabled)
+
+
+@dataclass
 class PromptConfig:
     """Prompt configuration settings - Claude Generated"""
     prompts_file: str = 'prompts.json'
@@ -928,6 +947,7 @@ class AlimaConfig:
     # Core configuration sections
     database_config: DatabaseConfig = field(default_factory=DatabaseConfig)
     catalog_config: CatalogConfig = field(default_factory=CatalogConfig)
+    search_provider_config: SearchProviderConfig = field(default_factory=SearchProviderConfig)
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
     system_config: SystemConfig = field(default_factory=SystemConfig)
     ui_config: UIConfig = field(default_factory=UIConfig)  # Claude Generated - Webcam Feature

@@ -123,5 +123,38 @@ class GeneratedSearchToolTest(unittest.TestCase):
         self.assertEqual(out["error"], "BiblioSuggester not available")
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class ProviderConfigGatingTest(unittest.TestCase):
+    def test_disabled_provider_tool_not_generated(self):
+        from src.utils.config_models import SearchProviderConfig
+
+        reg = ToolRegistry()
+        reg._suggesters_initialized = True
+        reg._config_manager = types.SimpleNamespace(
+            get_search_provider_config=lambda: SearchProviderConfig(
+                providers={"finc": False, "swb": False}
+            )
+        )
+        names = {td.name for td, _ in reg._generated_search_tools()}
+        self.assertNotIn("search_finc", names)
+        self.assertNotIn("search_swb", names)
+        self.assertIn("search_lobid", names)
+        self.assertIn("search_catalog", names)
+        self.assertIn("search_catalog_titles", names)
+
+    def test_default_all_enabled_and_roundtrip(self):
+        from dataclasses import asdict
+        from src.utils.config_models import SearchProviderConfig
+
+        cfg = SearchProviderConfig()
+        self.assertTrue(cfg.is_enabled("anything"))  # absent → enabled
+        cfg.set_enabled("finc", False)
+        self.assertFalse(cfg.is_enabled("finc"))
+        # survives serialize → reload (asdict is how AlimaConfig persists)
+        restored = SearchProviderConfig(**asdict(cfg))
+        self.assertFalse(restored.is_enabled("finc"))
+        self.assertTrue(restored.is_enabled("lobid"))
+
+
 if __name__ == "__main__":
     unittest.main()

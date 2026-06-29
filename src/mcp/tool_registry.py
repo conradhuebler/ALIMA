@@ -1086,16 +1086,33 @@ class ToolRegistry:
     def _generated_search_tools(self):
         """Build ``(ToolDefinition, handler)`` for every provider-declared search
         tool. Schemas + dispatch come from each provider's ``ProviderToolSpec`` —
-        no hand-written ToolDefinition or per-source handler. - Claude Generated"""
+        no hand-written ToolDefinition or per-source handler. Providers disabled in
+        ``SearchProviderConfig`` are skipped (config-driven selectability). - Claude Generated"""
         from src.core.search import provider_tool_specs
 
+        spc = self._search_provider_config()
         tools = []
         for spec in provider_tool_specs():
+            if spec.provider_id and not spc.is_enabled(spec.provider_id):
+                continue
             td = ToolDefinition(
                 name=spec.name, description=spec.description, parameters=spec.parameters
             )
             tools.append((td, self._make_search_handler(spec)))
         return tools
+
+    def _search_provider_config(self):
+        """Load SearchProviderConfig; fall back to all-enabled if config is
+        unavailable (e.g. tests / no providers configured). - Claude Generated"""
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            return cm.get_search_provider_config()
+        except Exception:
+            from src.utils.config_models import SearchProviderConfig
+            return SearchProviderConfig()
 
     def _make_search_handler(self, spec):
         if spec.result_shape == "gnd_keywords":

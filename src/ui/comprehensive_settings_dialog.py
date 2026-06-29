@@ -25,6 +25,7 @@ from copy import deepcopy
 from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig, ProviderDetectionService
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
+from .provider_selector import SearchProviderSelectorWidget
 from ..utils.config_models import TaskPreference, TaskType
 from ..core.agents.workflow_loader import discover_workflow_files, is_v4_yaml
 
@@ -96,6 +97,7 @@ class ComprehensiveSettingsDialog(QDialog):
             self
         )
         self.catalog_tab = self._create_catalog_tab()
+        self.search_provider_tab = SearchProviderSelectorWidget(self)
         self.system_tab = self._create_system_tab()
         self.about_tab = self._create_about_tab()
         
@@ -107,6 +109,7 @@ class ComprehensiveSettingsDialog(QDialog):
         self.tab_widget.addTab(self.database_tab, "🗄️ Database")
         self.tab_widget.addTab(self.unified_provider_tab, "🚀 Providers & Models")  # Claude Generated - Unified Tab
         self.tab_widget.addTab(self.catalog_tab, "📚 Catalog")
+        self.tab_widget.addTab(self.search_provider_tab, "🔌 Search Providers")
         
         # Task Preferences are now integrated into the unified provider tab
         
@@ -753,6 +756,11 @@ class ComprehensiveSettingsDialog(QDialog):
         self.catalog_details_url.setText(config.catalog.catalog_details_url)
         self.catalog_web_search_url.setText(getattr(config.catalog, 'catalog_web_search_url', ''))
         self.catalog_web_record_url.setText(getattr(config.catalog, 'catalog_web_record_url', ''))
+
+        # Search provider enable/disable (F-3 P3) - Claude Generated
+        self.search_provider_tab.load(
+            getattr(config, 'search_provider_config', None)
+        )
         
         # SRU settings
         self.sru_preset_combo.setCurrentText(config.catalog.sru_preset)
@@ -1085,6 +1093,9 @@ class ComprehensiveSettingsDialog(QDialog):
             finc_dk_enabled=self.finc_dk_enabled.isChecked(),
             finc_harvest_enabled=self.finc_harvest_enabled.isChecked(),
         )
+
+        # Search provider enable/disable (F-3 P3) - Claude Generated
+        config.search_provider_config = self.search_provider_tab.to_config()
 
         # System configuration - Claude Generated fix for expanded config structure
         config.system_config = SystemConfig(

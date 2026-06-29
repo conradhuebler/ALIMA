@@ -186,6 +186,7 @@ class ProviderToolSpec:
     capability: "SearchCapability"
     description: str
     parameters: Dict[str, Any]
+    provider_id: str = ""  # set by the registry when collecting specs
     result_shape: str = "gnd_keywords"  # gnd_keywords | title_records | finc
     source_label: str = ""
     include_errors: bool = True

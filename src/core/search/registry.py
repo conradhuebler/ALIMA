@@ -75,7 +75,9 @@ def provider_tool_specs() -> List:
         cls = PROVIDER_REGISTRY[pid]
         fn = getattr(cls, "mcp_tool_specs", None)
         if callable(fn):
-            specs.extend(fn())
+            for spec in fn():
+                spec.provider_id = pid  # tag with owning provider for config gating
+                specs.append(spec)
     return specs
 
 
