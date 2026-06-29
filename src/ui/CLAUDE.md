@@ -20,7 +20,7 @@
 - `PipelineConfigDialog` / `workflow_editor_dialog.py`: pipeline config + form editor for agentic v4 workflow YAML (ruamel round-trip, validates `load_workflow(strict=True)`, saves to `~/.config/alima/workflows/`; engine read-only)
 - `batch_processing_dialog.py`: batch file/directory processing (QThread, progress, continue-on-error)
 - `SettingsDialog` / `PromptEditorDialog`: configuration + prompt template editing
-- `TableWidget`, `Widgets`, `Styles`: reusable display/components/theming
+- `TableWidget`, `Styles`: reusable display/theming (the unused `widgets.py` was removed June 2026)
 
 ### Design Patterns
 - Signal/slot, thread-safe UI updates; QThread for non-blocking LLM/search/IO with streaming + cancellation.
