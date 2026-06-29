@@ -170,10 +170,8 @@ class AlimaStateBus(QObject):
 ```
 
 ### Pattern-Vorbild im Bestand
-- [`src/core/search_engine.py`](../src/core/search_engine.py) — Signal-
-  basierte Search-Komponenten, Qt-Thread-Cross-Dispatch.
 - [`src/llm/provider_status_service.py`](../src/llm/provider_status_service.py)
-  — globale Status-Signale.
+  — globale Status-Signale; signal-basiert, Qt-Thread-Cross-Dispatch.
 - [`src/core/agents/shared_context.py:18-99`](../src/core/agents/shared_context.py)
   `ToolResultCache` — kein Pub-Sub, aber Thread-safe-Singleton-Pattern.
 
@@ -413,8 +411,7 @@ Session-scoped Plain-Python-Instanz für Webapp (`asyncio.Queue`-basiert).
 
 ### Begründung
 - pyqtSignal ist bereits Standard im Bestand
-  ([`search_engine.py`](../src/core/search_engine.py),
-   [`provider_status_service.py`](../src/llm/provider_status_service.py)).
+  ([`provider_status_service.py`](../src/llm/provider_status_service.py)).
 - Thread-Cross-Dispatch ist automatisch (Qt-Slot-Queue).
 - Webapp-Sessions sind isoliert → kein App-globales Singleton im
   Webapp-Backend. Eigene Instanz pro Session-Init.

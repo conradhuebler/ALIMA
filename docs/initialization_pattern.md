@@ -1,5 +1,9 @@
 # ALIMA Complete Pipeline Initialization Pattern
 
+> **Note (June 2026):** `SearchEngine` was removed as dead code (WP13) and no longer
+> participates in initialization. References to it below are historical; the live
+> GND-search entry point is `SearchCLI` (over `MetaSuggester`).
+
 ## Executive Summary
 
 The ALIMA pipeline has a **unified initialization architecture** used by all three interfaces (GUI, CLI, Webapp). All interfaces use identical core components initialized in the same sequence:
