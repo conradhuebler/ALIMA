@@ -7,6 +7,7 @@ See ``docs/search_provider_plugins.md``.
 
 from .provider import (
     ProviderResult,
+    ProviderToolSpec,
     ResultItem,
     SearchCapability,
     SearchProvider,
@@ -15,6 +16,7 @@ from .registry import (
     PROVIDER_REGISTRY,
     get_provider,
     list_providers,
+    provider_tool_specs,
     providers_for_capability,
     register_provider,
 )
@@ -24,12 +26,14 @@ from . import providers as _providers  # noqa: F401,E402
 
 __all__ = [
     "ProviderResult",
+    "ProviderToolSpec",
     "ResultItem",
     "SearchCapability",
     "SearchProvider",
     "PROVIDER_REGISTRY",
     "get_provider",
     "list_providers",
+    "provider_tool_specs",
     "providers_for_capability",
     "register_provider",
 ]

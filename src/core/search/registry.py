@@ -63,6 +63,22 @@ def providers_for_capability(capability: SearchCapability) -> List[str]:
     )
 
 
+def provider_tool_specs() -> List:
+    """Collect the MCP ``ProviderToolSpec``s declared by all registered providers.
+
+    The MCP tool layer enumerates these to *generate* ToolDefinitions + handlers
+    (no hand-written per-source schema/handler). Providers without specs (e.g.
+    gnd_local, which is a knowledge tool, not a library tool) are skipped.
+    """
+    specs: List = []
+    for pid in sorted(PROVIDER_REGISTRY):
+        cls = PROVIDER_REGISTRY[pid]
+        fn = getattr(cls, "mcp_tool_specs", None)
+        if callable(fn):
+            specs.extend(fn())
+    return specs
+
+
 def _reset_for_tests() -> None:
     """Clear the registry — used only by tests that register fakes."""
     PROVIDER_REGISTRY.clear()

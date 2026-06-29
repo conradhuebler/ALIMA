@@ -830,8 +830,9 @@ class TestSearchFincMCPHandler(unittest.TestCase):
         self.assertEqual(rec["web_url"], "https://katalog.example.org/Record/0-456")
 
     def test_tool_registered_in_library_preset(self):
-        from src.mcp.tool_schemas import SEARCH_FINC, LIBRARY_TOOLS
-        self.assertIn(SEARCH_FINC, LIBRARY_TOOLS)
+        # search_finc is now generated from FincProvider's ProviderToolSpec.
+        from src.mcp.tool_schemas import LIBRARY_TOOLS
+        self.assertIn("search_finc", [t.name for t in LIBRARY_TOOLS])
 
     def test_handler_swallows_unexpected_exceptions(self):
         catalog_cfg = MagicMock()

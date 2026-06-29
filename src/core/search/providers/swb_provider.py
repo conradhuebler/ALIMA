@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from ..provider import ProviderResult, SearchCapability
+from ..provider import ProviderResult, ProviderToolSpec, SearchCapability
 from ..registry import register_provider
 from ._base import SuggesterBackedProvider
 
@@ -16,6 +16,35 @@ class SwbProvider(SuggesterBackedProvider):
     id = "swb"
     label = "SWB (BSZ)"
     capabilities = {SearchCapability.GND_KEYWORDS}
+
+    @classmethod
+    def mcp_tool_specs(cls):
+        return [ProviderToolSpec(
+            name="search_swb",
+            capability=SearchCapability.GND_KEYWORDS,
+            description="Search SWB (Südwestdeutscher Bibliotheksverbund) catalog for subject headings and classifications.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "terms": {"type": "array", "items": {"type": "string"}, "description": "List of search terms"},
+                    "max_pages": {"type": "integer", "description": "Max result pages per term", "default": 5},
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["kw", "title", "freetext"],
+                        "default": "kw",
+                        "description": "Query mode: kw=subject (IKT 2074), title=title (IKT 2058), freetext=anyword",
+                    },
+                },
+                "required": ["terms"],
+            },
+            result_shape="gnd_keywords",
+            source_label="swb",
+            include_errors=True,
+            cached=True,
+            add_gnd_urls=True,
+            unavailable_message="SWBSuggester not available",
+            default_opts={"search_type": "kw", "max_pages": 5},
+        )]
 
     def _build_suggester(self):
         from src.utils.suggesters.swb_suggester import SWBSuggester

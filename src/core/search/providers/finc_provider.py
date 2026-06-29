@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from ..provider import ProviderResult, ResultItem, SearchCapability
+from ..provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from ..registry import register_provider
 
 
@@ -22,6 +22,100 @@ class FincProvider:
     id = "finc"
     label = "finc (VuFind)"
     capabilities = {SearchCapability.TITLE_RECORDS, SearchCapability.SUBJECT_FACETS}
+
+    @classmethod
+    def mcp_tool_specs(cls):
+        return [ProviderToolSpec(
+            name="search_finc",
+            capability=SearchCapability.TITLE_RECORDS,
+            description=(
+                "Search a finc / VuFind-JSON library catalog (e.g. TU Freiberg finc "
+                "solrproxy) for full bibliographic records. Preferred over search_catalog "
+                "when the institution runs a finc instance. Choose the search axis via "
+                "`search_type`: by subject/keyword, by title (one OR many — pass several "
+                "titles in `terms` to look them all up in one call), or by author. "
+                "`terms` is searched independently and the results are keyed per term. "
+                "Each record has id, title, authors, subjects, formats, languages, series, "
+                "web_url, and urls[]. The web_url is always the direct catalog record link "
+                "(e.g. https://katalog.ub.tu-freiberg.de/Record/0-1025700295). "
+                "urls[] may additionally contain DOI links, publisher pages, or open-access "
+                "copies — cite them when relevant (e.g. full-text link alongside catalog link). "
+                "Use `facets` (e.g. [\"udk_raw_de105\",\"rvk_facet\"]) to also "
+                "get the DK/RVK classification distribution, and `filters` to scope by "
+                "facet (VuFind syntax, e.g. {\"institution\": \"DE-105\"} or "
+                "{\"id\": \"<record-id>\"} for one record). Use `availability` to "
+                "restrict to physical holdings ('local'), licensed e-resources "
+                "('online'), or open access ('free'). "
+                "Always cite records as Markdown links: [title](web_url). "
+                "Every listed record must include its link when web_url is present."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "terms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "One or more search terms, each searched independently (e.g. several book titles or author names in one call). Wrap a phrase in literal double quotes for an exact match (e.g. \"conrad hübler\"); URL-encoding is handled automatically.",
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["kw", "title", "subject", "author", "freetext", "dk", "rvk"],
+                        "default": "kw",
+                        "description": (
+                            "Which field to search: subject = controlled subject/keyword "
+                            "headings; title = words in the title (use for one or many "
+                            "titles); author = author/contributor names; kw/freetext = "
+                            "all fields; dk = search directly in the DK/UDK notation field "
+                            "(udk_raw_de105, e.g. lookfor='DK 57' or 'qt 000'); rvk = search "
+                            "directly in the RVK notation field (rvk_facet). For dk and rvk "
+                            "types, udk_raw_de105 and rvk_facet facets are added automatically "
+                            "so the classification distribution is always returned."
+                        ),
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Optional facet filters as key→value. Each entry is sent "
+                            "as one filter[]=key:\"value\" parameter. Common keys: "
+                            "institution (holding library, e.g. DE-105), udk_facet_de105 "
+                            "(coarse DK group), rvk_facet, id (single record), format, "
+                            "language."
+                        ),
+                    },
+                    "facets": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional facet fields to compute per term; buckets are "
+                            "returned under each term's 'facets'. Use udk_raw_de105 for "
+                            "numeric DK notations (e.g. 'dk 530.145'), rvk_facet for RVK, "
+                            "dewey-hundreds for DDC."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 20,
+                        "minimum": 0,
+                        "maximum": 100,
+                        "description": "Maximum records per term (0..100; 0 = facets only).",
+                    },
+                    "availability": {
+                        "type": "string",
+                        "enum": ["local", "online", "free"],
+                        "description": (
+                            "Filter by holding type: 'local' = physical copy in the library "
+                            "(Präsenzbestand/Ausleihbestand); 'online' = licensed electronic "
+                            "resource; 'free' = open access / freely available online. "
+                            "Omit to return all holdings."
+                        ),
+                    },
+                },
+                "required": ["terms"],
+            },
+            result_shape="finc",
+            source_label="finc",
+            include_errors=True,
+        )]
 
     def __init__(self, **config: Any):
         self._config = config or {}

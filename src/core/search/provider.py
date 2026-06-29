@@ -167,6 +167,34 @@ class ProviderResult:
         return out
 
 
+@dataclass
+class ProviderToolSpec:
+    """Declarative MCP-tool descriptor a provider exposes (P3).
+
+    Pure data (no MCP import) so the tool layer can *generate* the ``ToolDefinition``
+    + handler from it instead of hand-writing both. ``result_shape`` selects the
+    MCP serializer; the remaining flags capture the (historical) per-tool nuances so
+    generation stays byte-faithful to the previous hand-written handlers:
+
+    * ``source_label`` — the ``"source"`` field in the JSON response.
+    * ``include_errors`` — whether the response carries an ``"errors"`` block.
+    * ``cached`` — GND-keyword tools that use the mapping-first cache for the
+      *default* options (``default_opts``) and the raw suggester otherwise.
+    """
+
+    name: str
+    capability: "SearchCapability"
+    description: str
+    parameters: Dict[str, Any]
+    result_shape: str = "gnd_keywords"  # gnd_keywords | title_records | finc
+    source_label: str = ""
+    include_errors: bool = True
+    cached: bool = False
+    add_gnd_urls: bool = False  # GND-keyword tools that enrich rows with gnd_urls
+    unavailable_message: str = ""  # error returned when the source isn't initialised
+    default_opts: Dict[str, Any] = field(default_factory=dict)
+
+
 @runtime_checkable
 class SearchProvider(Protocol):
     """Structural contract every search source implements.

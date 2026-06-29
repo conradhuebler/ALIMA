@@ -395,74 +395,8 @@ class ToolRegistry:
                 serializable[term][kw] = row
         return serializable
 
-    def _handle_search_lobid(self, terms: List[str], search_type: str = "kw") -> str:
-        self._init_suggesters()
-        if self._lobid is None:
-            return json.dumps({"error": "LobidSuggester not available"})
-        if search_type == "kw":
-            # Mapping-first via MetaSuggester (classic-pipeline parity) - Claude Generated
-            results = self._lobid.search(terms)
-        else:
-            # MetaSuggester has no search_type support — use raw child suggester
-            results = self._lobid.raw_suggester("lobid").search(
-                terms, search_type=search_type
-            )
-        return json.dumps({
-            "source": "lobid",
-            "results": self._serialize_suggester_results(results),
-            "errors": dict(getattr(self._lobid, "last_errors", {}) or {}),
-        }, ensure_ascii=False)
-
-    def _handle_search_swb(self, terms: List[str], max_pages: int = 5, search_type: str = "kw") -> str:
-        self._init_suggesters()
-        if self._swb is None:
-            return json.dumps({"error": "SWBSuggester not available"})
-        if search_type == "kw" and max_pages == 5:
-            # Mapping-first via MetaSuggester (classic-pipeline parity).
-            # Live fallback inside MetaSuggester uses the suggester default
-            # max_pages=5, so this branch only covers the default - Claude Generated
-            results = self._swb.search(terms)
-        else:
-            results = self._swb.raw_suggester("swb").search(
-                terms, max_pages=max_pages, search_type=search_type
-            )
-        return json.dumps({
-            "source": "swb",
-            "results": self._serialize_suggester_results(results),
-            "errors": dict(getattr(self._swb, "last_errors", {}) or {}),
-        }, ensure_ascii=False)
-
-    def _handle_search_catalog(self, terms: List[str], search_type: str = "kw") -> str:
-        self._init_suggesters()
-        if self._biblio is None:
-            return json.dumps({"error": "BiblioSuggester not available"})
-        results = self._biblio.search(terms, search_type=search_type)
-        serializable = {}
-        for term, keywords in results.items():
-            serializable[term] = {}
-            for kw, data in keywords.items():
-                serializable[term][kw] = {
-                    k: list(v) if isinstance(v, set) else v
-                    for k, v in data.items()
-                }
-        return json.dumps({"source": "catalog", "results": serializable}, ensure_ascii=False)
-
-    def _handle_search_catalog_titles(
-        self,
-        terms: List[str],
-        search_type: str = "title",
-        max_results: int = 25,
-    ) -> str:
-        self._init_suggesters()
-        if self._biblio is None:
-            return json.dumps({"error": "BiblioSuggester not available"})
-        results = self._biblio.search_titles(
-            terms, search_type=search_type, max_results=max_results
-        )
-        return json.dumps(
-            {"source": "catalog_titles", "results": results},
-            ensure_ascii=False,
-        )
+    # search_lobid / search_swb / search_catalog / search_catalog_titles handlers
+    # are generated from provider ProviderToolSpecs — see _generated_search_tools().
 
     # Maps availability enum values (lowercase, LLM-facing) to VuFind facet values.
     _AVAIL_TO_FACET = {"local": "Local", "online": "Online", "free": "Free"}
@@ -1146,6 +1080,93 @@ class ToolRegistry:
     # Registry Setup
     # ============================================================
 
+    # ============================================================
+    # Library search tools — generated from provider specs (P3)
+    # ============================================================
+    def _generated_search_tools(self):
+        """Build ``(ToolDefinition, handler)`` for every provider-declared search
+        tool. Schemas + dispatch come from each provider's ``ProviderToolSpec`` —
+        no hand-written ToolDefinition or per-source handler. - Claude Generated"""
+        from src.core.search import provider_tool_specs
+
+        tools = []
+        for spec in provider_tool_specs():
+            td = ToolDefinition(
+                name=spec.name, description=spec.description, parameters=spec.parameters
+            )
+            tools.append((td, self._make_search_handler(spec)))
+        return tools
+
+    def _make_search_handler(self, spec):
+        if spec.result_shape == "gnd_keywords":
+            return self._make_gnd_keywords_handler(spec)
+        if spec.result_shape == "title_records":
+            return self._make_title_records_handler(spec)
+        if spec.result_shape == "finc":
+            return self._handle_search_finc  # rich availability/web_url logic
+        raise ValueError(
+            f"Unknown result_shape '{spec.result_shape}' for tool {spec.name}"
+        )
+
+    def _gnd_search_instance(self, spec):
+        """(instance, raw_id) for a GND-keyword tool; raw_id None ⇒ no mapping cache."""
+        return {
+            "search_lobid": (self._lobid, "lobid"),
+            "search_swb": (self._swb, "swb"),
+            "search_catalog": (self._biblio, None),
+        }.get(spec.name, (None, None))
+
+    def _make_gnd_keywords_handler(self, spec):
+        def handler(terms, search_type="kw", max_pages=5, **_ignore):
+            self._init_suggesters()
+            inst, raw_id = self._gnd_search_instance(spec)
+            if inst is None:
+                return json.dumps({"error": spec.unavailable_message or f"{spec.source_label} not available"})
+            if spec.cached:
+                # Default options use the mapping-first cache; any non-default
+                # option bypasses it via the raw child suggester (parity with the
+                # former hand-written handlers). - Claude Generated
+                opts = {"search_type": search_type, "max_pages": max_pages}
+                is_default = all(opts.get(k) == v for k, v in spec.default_opts.items())
+                if is_default:
+                    results = inst.search(terms)
+                else:
+                    kw = {"search_type": search_type}
+                    if "max_pages" in spec.default_opts:
+                        kw["max_pages"] = max_pages
+                    results = inst.raw_suggester(raw_id).search(terms, **kw)
+            else:
+                results = inst.search(terms, search_type=search_type)
+            if spec.add_gnd_urls:
+                serialized = self._serialize_suggester_results(results)
+            else:
+                serialized = {}
+                for term, keywords in results.items():
+                    serialized[term] = {
+                        kw: {k: list(v) if isinstance(v, set) else v for k, v in data.items()}
+                        for kw, data in keywords.items()
+                    }
+            out = {"source": spec.source_label, "results": serialized}
+            if spec.include_errors:
+                out["errors"] = dict(getattr(inst, "last_errors", {}) or {})
+            return json.dumps(out, ensure_ascii=False)
+
+        return handler
+
+    def _make_title_records_handler(self, spec):
+        def handler(terms, search_type="title", max_results=25, **_ignore):
+            self._init_suggesters()
+            if self._biblio is None:
+                return json.dumps({"error": spec.unavailable_message or "catalog not available"})
+            results = self._biblio.search_titles(
+                terms, search_type=search_type, max_results=max_results
+            )
+            return json.dumps(
+                {"source": spec.source_label, "results": results}, ensure_ascii=False
+            )
+
+        return handler
+
     def register_all_tools(self):
         """Register all available tools with their handlers - Claude Generated"""
         # Knowledge tools
@@ -1160,12 +1181,9 @@ class ToolRegistry:
         self.register(tool_schemas.SELECT_FROM_GND_POOL, self._handle_select_from_gnd_pool)
         self.register(tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup)
 
-        # Library tools
-        self.register(tool_schemas.SEARCH_LOBID, self._handle_search_lobid)
-        self.register(tool_schemas.SEARCH_SWB, self._handle_search_swb)
-        self.register(tool_schemas.SEARCH_CATALOG, self._handle_search_catalog)
-        self.register(tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles)
-        self.register(tool_schemas.SEARCH_FINC, self._handle_search_finc)
+        # Library tools — search tools generated from provider specs (P3)
+        for td, handler in self._generated_search_tools():
+            self.register(td, handler)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
         self.register(tool_schemas.SCRAPE_URL, self._handle_scrape_url)
         self.register(tool_schemas.READ_PDF, self._handle_read_pdf)
@@ -1202,11 +1220,7 @@ class ToolRegistry:
                 (tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup),
             ],
             "library": [
-                (tool_schemas.SEARCH_LOBID, self._handle_search_lobid),
-                (tool_schemas.SEARCH_SWB, self._handle_search_swb),
-                (tool_schemas.SEARCH_CATALOG, self._handle_search_catalog),
-                (tool_schemas.SEARCH_CATALOG_TITLES, self._handle_search_catalog_titles),
-                (tool_schemas.SEARCH_FINC, self._handle_search_finc),
+                *self._generated_search_tools(),
                 (tool_schemas.RESOLVE_DOI, self._handle_resolve_doi),
                 (tool_schemas.SCRAPE_URL, self._handle_scrape_url),
                 (tool_schemas.READ_PDF, self._handle_read_pdf),

@@ -176,198 +176,9 @@ RVK_LOOKUP = ToolDefinition(
 # Library Server Tools (Web Services)
 # ============================================================
 
-SEARCH_LOBID = ToolDefinition(
-    name="search_lobid",
-    description="Search Lobid.org GND API for subject headings. Returns keywords with GND IDs and DDC codes.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "terms": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of search terms",
-            },
-            "search_type": {
-                "type": "string",
-                "enum": ["kw", "title", "freetext"],
-                "default": "kw",
-                "description": "Query mode: kw=subject/keyword, title=title-only, freetext=any field",
-            },
-        },
-        "required": ["terms"],
-    },
-)
-
-SEARCH_SWB = ToolDefinition(
-    name="search_swb",
-    description="Search SWB (Südwestdeutscher Bibliotheksverbund) catalog for subject headings and classifications.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "terms": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of search terms",
-            },
-            "max_pages": {"type": "integer", "description": "Max result pages per term", "default": 5},
-            "search_type": {
-                "type": "string",
-                "enum": ["kw", "title", "freetext"],
-                "default": "kw",
-                "description": "Query mode: kw=subject (IKT 2074), title=title (IKT 2058), freetext=anyword",
-            },
-        },
-        "required": ["terms"],
-    },
-)
-
-SEARCH_CATALOG = ToolDefinition(
-    name="search_catalog",
-    description="Search bibliographic catalog via SOAP/SRU for titles and DK classifications.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "terms": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of search terms",
-            },
-            "search_type": {
-                "type": "string",
-                "enum": ["kw", "title", "freetext"],
-                "default": "kw",
-                "description": "Query mode: kw=anyword (Libero 'ku'), title=title (Libero 'k'), freetext=anyword",
-            },
-        },
-        "required": ["terms"],
-    },
-)
-
-SEARCH_CATALOG_TITLES = ToolDefinition(
-    name="search_catalog_titles",
-    description=(
-        "Search bibliographic catalog for book records by title or keyword. "
-        "Returns per-query lists of records (rsn, title, authors, year, "
-        "dk_codes, rvk_codes, subjects). No GND/SWB/Lobid enrichment — "
-        "pure catalog hits intended for title-list workflows. Each record "
-        "includes `web_url` (catalog web link for that RSN) when a web "
-        "record URL is configured. Always cite records as Markdown links: "
-        "[title](web_url). Omit the link only when web_url is absent."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "terms": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of title queries",
-            },
-            "search_type": {
-                "type": "string",
-                "default": "title",
-                "description": (
-                    "Libero use-code or alias: 'title' (ti, default), "
-                    "'kw'/'freetext' (ku), or raw codes like 'kb' (author), "
-                    "'ke' (combined author), 'sk' (subjects), 'i' (ISBN)."
-                ),
-            },
-            "max_results": {
-                "type": "integer",
-                "default": 25,
-                "description": "Maximum records per query",
-            },
-        },
-        "required": ["terms"],
-    },
-)
-
-SEARCH_FINC = ToolDefinition(
-    name="search_finc",
-    description=(
-        "Search a finc / VuFind-JSON library catalog (e.g. TU Freiberg finc "
-        "solrproxy) for full bibliographic records. Preferred over search_catalog "
-        "when the institution runs a finc instance. Choose the search axis via "
-        "`search_type`: by subject/keyword, by title (one OR many — pass several "
-        "titles in `terms` to look them all up in one call), or by author. "
-        "`terms` is searched independently and the results are keyed per term. "
-        "Each record has id, title, authors, subjects, formats, languages, series, "
-        "web_url, and urls[]. The web_url is always the direct catalog record link "
-        "(e.g. https://katalog.ub.tu-freiberg.de/Record/0-1025700295). "
-        "urls[] may additionally contain DOI links, publisher pages, or open-access "
-        "copies — cite them when relevant (e.g. full-text link alongside catalog link). "
-        "Use `facets` (e.g. [\"udk_raw_de105\",\"rvk_facet\"]) to also "
-        "get the DK/RVK classification distribution, and `filters` to scope by "
-        "facet (VuFind syntax, e.g. {\"institution\": \"DE-105\"} or "
-        "{\"id\": \"<record-id>\"} for one record). Use `availability` to "
-        "restrict to physical holdings ('local'), licensed e-resources "
-        "('online'), or open access ('free'). "
-        "Always cite records as Markdown links: [title](web_url). "
-        "Every listed record must include its link when web_url is present."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "terms": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "One or more search terms, each searched independently (e.g. several book titles or author names in one call). Wrap a phrase in literal double quotes for an exact match (e.g. \"conrad hübler\"); URL-encoding is handled automatically.",
-            },
-            "search_type": {
-                "type": "string",
-                "enum": ["kw", "title", "subject", "author", "freetext", "dk", "rvk"],
-                "default": "kw",
-                "description": (
-                    "Which field to search: subject = controlled subject/keyword "
-                    "headings; title = words in the title (use for one or many "
-                    "titles); author = author/contributor names; kw/freetext = "
-                    "all fields; dk = search directly in the DK/UDK notation field "
-                    "(udk_raw_de105, e.g. lookfor='DK 57' or 'qt 000'); rvk = search "
-                    "directly in the RVK notation field (rvk_facet). For dk and rvk "
-                    "types, udk_raw_de105 and rvk_facet facets are added automatically "
-                    "so the classification distribution is always returned."
-                ),
-            },
-            "filters": {
-                "type": "object",
-                "description": (
-                    "Optional facet filters as key→value. Each entry is sent "
-                    "as one filter[]=key:\"value\" parameter. Common keys: "
-                    "institution (holding library, e.g. DE-105), udk_facet_de105 "
-                    "(coarse DK group), rvk_facet, id (single record), format, "
-                    "language."
-                ),
-            },
-            "facets": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "Optional facet fields to compute per term; buckets are "
-                    "returned under each term's 'facets'. Use udk_raw_de105 for "
-                    "numeric DK notations (e.g. 'dk 530.145'), rvk_facet for RVK, "
-                    "dewey-hundreds for DDC."
-                ),
-            },
-            "limit": {
-                "type": "integer",
-                "default": 20,
-                "minimum": 0,
-                "maximum": 100,
-                "description": "Maximum records per term (0..100; 0 = facets only).",
-            },
-            "availability": {
-                "type": "string",
-                "enum": ["local", "online", "free"],
-                "description": (
-                    "Filter by holding type: 'local' = physical copy in the library "
-                    "(Präsenzbestand/Ausleihbestand); 'online' = licensed electronic "
-                    "resource; 'free' = open access / freely available online. "
-                    "Omit to return all holdings."
-                ),
-            },
-        },
-        "required": ["terms"],
-    },
-)
+# search_lobid / search_swb / search_catalog / search_catalog_titles / search_finc
+# are generated from each provider's ProviderToolSpec (src/core/search/providers),
+# registered via ToolRegistry._generated_search_tools(). - Claude Generated
 
 RESOLVE_DOI = ToolDefinition(
     name="resolve_doi",
@@ -619,8 +430,18 @@ KNOWLEDGE_TOOLS = [
     RVK_LOOKUP,
 ]
 
+def _generated_search_tool_defs():
+    """search_* tools generated from provider ProviderToolSpecs - Claude Generated."""
+    from src.core.search import provider_tool_specs
+
+    return [
+        ToolDefinition(name=s.name, description=s.description, parameters=s.parameters)
+        for s in provider_tool_specs()
+    ]
+
+
 LIBRARY_TOOLS = [
-    SEARCH_LOBID, SEARCH_SWB, SEARCH_CATALOG, SEARCH_CATALOG_TITLES, SEARCH_FINC,
+    *_generated_search_tool_defs(),
     RESOLVE_DOI, SCRAPE_URL,
     READ_PDF, ANALYZE_IMAGE,
 ]

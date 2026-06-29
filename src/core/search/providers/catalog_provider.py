@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from ..provider import ProviderResult, ResultItem, SearchCapability
+from ..provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from ..registry import register_provider
 from ._base import SuggesterBackedProvider
 
@@ -25,6 +25,68 @@ class CatalogProvider(SuggesterBackedProvider):
         SearchCapability.TITLE_RECORDS,
         SearchCapability.CLASSIFICATION,
     }
+
+    @classmethod
+    def mcp_tool_specs(cls):
+        return [
+            ProviderToolSpec(
+                name="search_catalog",
+                capability=SearchCapability.GND_KEYWORDS,
+                description="Search bibliographic catalog via SOAP/SRU for titles and DK classifications.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "terms": {"type": "array", "items": {"type": "string"}, "description": "List of search terms"},
+                        "search_type": {
+                            "type": "string",
+                            "enum": ["kw", "title", "freetext"],
+                            "default": "kw",
+                            "description": "Query mode: kw=anyword (Libero 'ku'), title=title (Libero 'k'), freetext=anyword",
+                        },
+                    },
+                    "required": ["terms"],
+                },
+                result_shape="gnd_keywords",
+                source_label="catalog",
+                include_errors=False,
+                cached=False,
+                unavailable_message="BiblioSuggester not available",
+            ),
+            ProviderToolSpec(
+                name="search_catalog_titles",
+                capability=SearchCapability.TITLE_RECORDS,
+                description=(
+                    "Search bibliographic catalog for book records by title or keyword. "
+                    "Returns per-query lists of records (rsn, title, authors, year, "
+                    "dk_codes, rvk_codes, subjects). No GND/SWB/Lobid enrichment — "
+                    "pure catalog hits intended for title-list workflows. Each record "
+                    "includes `web_url` (catalog web link for that RSN) when a web "
+                    "record URL is configured. Always cite records as Markdown links: "
+                    "[title](web_url). Omit the link only when web_url is absent."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "terms": {"type": "array", "items": {"type": "string"}, "description": "List of title queries"},
+                        "search_type": {
+                            "type": "string",
+                            "default": "title",
+                            "description": (
+                                "Libero use-code or alias: 'title' (ti, default), "
+                                "'kw'/'freetext' (ku), or raw codes like 'kb' (author), "
+                                "'ke' (combined author), 'sk' (subjects), 'i' (ISBN)."
+                            ),
+                        },
+                        "max_results": {"type": "integer", "default": 25, "description": "Maximum records per query"},
+                    },
+                    "required": ["terms"],
+                },
+                result_shape="title_records",
+                source_label="catalog_titles",
+                include_errors=False,
+                unavailable_message="BiblioSuggester not available",
+            ),
+        ]
 
     def _build_suggester(self):
         from src.utils.suggesters.biblio_suggester import BiblioSuggester
