@@ -33,6 +33,23 @@ from src.cli.commands import (
 )
 
 
+# Commands that need neither first-run setup nor prompts.json (infra/inspection only)
+_SETUP_EXEMPT_COMMANDS = {
+    "setup", "list-models", "list-providers", "test-providers",
+    "list-models-detailed", "dnb-import", "clear-cache", "migrate-db",
+    "db-config", "workflows",
+}
+
+
+def _add_llm_args(parser, *, provider_help="Default LLM provider",
+                  model_help="Default LLM model",
+                  temperature_help="Default LLM temperature"):
+    """Add the shared LLM provider/model/temperature options to a subparser. - Claude Generated"""
+    parser.add_argument("--provider", help=provider_help)
+    parser.add_argument("--model", help=model_help)
+    parser.add_argument("--temperature", type=float, help=temperature_help)
+
+
 def create_argument_parser():
     """Create and configure the argument parser.
 
@@ -329,9 +346,7 @@ def create_argument_parser():
     wf_input.add_argument("--input", help="JSON string with workflow input")
     wf_input.add_argument("--input-file", help="Path to JSON file with workflow input")
     workflow_parser.add_argument("--output", help="Path to write JSON report")
-    workflow_parser.add_argument("--provider", help="Default LLM provider")
-    workflow_parser.add_argument("--model", help="Default LLM model")
-    workflow_parser.add_argument("--temperature", type=float, help="Default LLM temperature")
+    _add_llm_args(workflow_parser)
     workflow_parser.add_argument("--only-step", help="Run only the named step")
     workflow_parser.add_argument("--quiet", action="store_true", help="Suppress streaming output")
 
@@ -353,9 +368,12 @@ def create_argument_parser():
     agent_input.add_argument("--input-file", help="Path to a text file with the work")
     agent_input.add_argument("--input-image", help="Path to an image to OCR via Vision-LLM")
     agent_parser.add_argument("--prompt", help="Instruction for the agent (default: analyse the work)")
-    agent_parser.add_argument("--provider", help="LLM provider (falls back to ChatConfig default)")
-    agent_parser.add_argument("--model", help="LLM model (falls back to ChatConfig default)")
-    agent_parser.add_argument("--temperature", type=float, help="Sampling temperature")
+    _add_llm_args(
+        agent_parser,
+        provider_help="LLM provider (falls back to ChatConfig default)",
+        model_help="LLM model (falls back to ChatConfig default)",
+        temperature_help="Sampling temperature",
+    )
     agent_parser.add_argument("--max-iterations", type=int, dest="max_iterations",
                               help="Max tool-calling iterations")
     agent_parser.add_argument("--autonomous", action="store_true",
@@ -385,8 +403,9 @@ def main():
     setup_logging(level=args.log_level)
     logger = logging.getLogger(__name__)
 
-    # Check for first-run setup requirement (except for specific commands)
-    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "workflows"]:
+    # First-run setup + prompts.json checks (skipped for infra/inspection commands).
+    # Single config load shared by both checks. - Claude Generated
+    if args.command not in _SETUP_EXEMPT_COMMANDS:
         config_manager = ConfigManager()
         config = config_manager.load_config()
 
@@ -397,12 +416,7 @@ def main():
             print("\nOr set 'skip_first_run_check: true' in config.json to disable this check.\n")
             return
 
-    # Check if prompts file exists (except for specific commands)
-    if args.command not in ["setup", "list-models", "list-providers", "test-providers", "list-models-detailed", "dnb-import", "clear-cache", "migrate-db", "db-config", "workflows"]:
-        config_manager = ConfigManager()
-        config = config_manager.load_config()
         prompts_file_path = config.system_config.prompts_path
-
         if not os.path.exists(prompts_file_path):
             logger.error(f"Prompts file not found at: {prompts_file_path}")
             logger.error("Please check your config.json or create prompts.json in the project directory.")
