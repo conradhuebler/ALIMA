@@ -35,8 +35,8 @@ Branch `agent`, commits `601614a … caec4a3`:
 ### P1 — Quick, safe wins
 | ID | Area | Finding | Action | Risk |
 |----|------|---------|--------|------|
-| F-1 | data | Stale `swb_gnd_cache.json` may hold cached network-failures as "no hit" (pre-WPA) | One-time local delete; rebuilds itself. Operator, no code. | none |
-| F-2 | CLI | Mixed stdout: `protocol_formatters` uses bare `print()`, handlers use `print_result` | Route formatters through `print_result` for consistent quiet/verbose | low |
+| F-1 | data | Stale `swb_gnd_cache.json` may hold cached network-failures as "no hit" (pre-WPA) | ✅ DONE (June 29): purged the 3 local gitignored caches (`src/{,cli/,webapp/}data/swbsuggester/`); they rebuild on next search | none |
+| F-2 | CLI | Mixed stdout: `protocol_formatters` uses bare `print()`, handlers use `print_result` | ✅ CLOSED — non-issue (verified): `print_result` always writes stdout and only *adds* logging; the formatters' bare `print()` is display/export output (correct), errors already go to stderr. Routing them through `print_result` would only add log noise. No change. | — |
 
 ### P2 — Major workstream: Search-Provider-Plugins (+ coupled bug)
 | ID | Area | Finding | Action | Risk |
@@ -74,7 +74,7 @@ direction (CLAUDE.md Vision) and the natural place to also fix F-4 cleanly.
   further safe dedup).
 
 ## Suggested order
-1. F-1, F-2 (quick, safe).
+1. ✅ F-1 done (caches purged); F-2 closed (verified non-issue).
 2. F-3 + F-4 as one workstream (plugin system unblocks the count bug) — the headline.
 3. Pre-existing test-debt triage (small, unblocks confidence).
 4. F-5/F-6/F-7 once a GUI test loop exists; F-8 opportunistically.

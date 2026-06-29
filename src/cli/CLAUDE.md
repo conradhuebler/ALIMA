@@ -13,7 +13,7 @@
 ## [Variable Section - Short-term Information]
 
 ### Known Issues / Cleanup
-- **TODO — unify stdout convention**: `formatters/protocol_formatters.py` writes via bare `print()`, while command handlers use `src.utils.logging_utils.print_result`. Pick one (likely route formatters through `print_result`) for consistent quiet/verbose handling.
+- **stdout convention (resolved — non-issue)**: `formatters/protocol_formatters.py` uses bare `print()` for display/export output (correct), `print_result` is for command result lines. `print_result` always writes stdout and only adds logging, so there's no quiet-handling gap to fix — the split is intentional.
 - `save-state` is deprecated but intentionally retained (operator decision, June 2026).
 
 ## [Instructions Block - Operator-Defined Tasks]
