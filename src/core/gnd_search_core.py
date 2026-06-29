@@ -1,0 +1,172 @@
+"""Shared GND-search aggregation primitives - Claude Generated.
+
+Both the classic pipeline (``SearchCLI`` / ``PipelineStepExecutor.execute_gnd_search``)
+and the agentic v4 path (``deterministic_functions.gnd_batch_search`` /
+``catalog_multi_search``) already run their searches through the *same* engine —
+``MetaSuggester`` with mapping-first caching. What used to be duplicated was the
+**aggregation layer** on top of that engine: merging a keyword/title entry
+(max hit-count + union of GND/DDC/DK codes), folding per-source results into a
+single pool, and ranking that pool.
+
+This module is the single home for those primitives. It has **no** dependency on
+``pipeline_utils``, ``deterministic_functions`` or ``search_cli`` so either core can
+import it without a cycle.
+
+⚠️ **Count-Landmine (see ``src/core/CLAUDE.md``):** the per-entry ``count`` and the
+``source_count`` produced here drive the agentic ranking
+(``selection_chunks`` → ``selection``) and the classic chunk ordering. Do **not**
+change how ``count`` is derived (it must stay ``max`` across confirmations, never a
+sum) — a naive max/merge change collapses *chunk* and *final* into the same set.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+def merge_code_entry(
+    target: Dict[str, Any],
+    source: Dict[str, Any],
+    code_fields: Sequence[str],
+    count_field: str = "count",
+) -> None:
+    """Merge one search entry into another in place — the shared merge-atom.
+
+    Used by both the classic nested merge (``SearchCLI.merge_results``, where the
+    code fields are ``set``s) and the agentic pool merge (``merge_into_pool``,
+    where they are ``list``s). The container type of ``target[field]`` is
+    preserved: ``set`` → ``set.update``; ``list`` → order-preserving dedup append.
+
+    ``count`` is combined with ``max`` (never summed) — this is the count-semantics
+    the selection/chunking ranking relies on; see the module docstring.
+    """
+    if count_field:
+        target[count_field] = max(
+            target.get(count_field, 0) or 0, source.get(count_field, 0) or 0
+        )
+    for field in code_fields:
+        new_vals: Iterable[Any] = source.get(field) or []
+        existing = target.get(field)
+        if isinstance(existing, set):
+            existing.update(new_vals)
+        else:
+            merged: List[Any] = list(existing or [])
+            seen: Set[Any] = set(merged)
+            for value in new_vals:
+                if value not in seen:
+                    merged.append(value)
+                    seen.add(value)
+            target[field] = merged
+
+
+def merge_into_pool(
+    pool: Dict[str, Dict[str, Any]],
+    new_data: Dict[str, Dict[str, Any]],
+) -> None:
+    """Fold a per-source title→entry map into the running ``pool`` (keyed by
+    lower-cased title). Unions GND IDs / DDC / DK codes and keeps the max count.
+    """
+    for title, entry in new_data.items():
+        key = title.lower()
+        if key in pool:
+            existing = pool[key]
+            merge_code_entry(existing, entry, code_fields=("gnd_ids", "ddc_codes", "dk_codes"))
+            if existing.get("gnd_ids") and not existing.get("gnd_id"):
+                existing["gnd_id"] = existing["gnd_ids"][0]
+        else:
+            pool[key] = dict(entry)
+
+
+def _entry_from_kw_data(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a canonical pool entry from a single suggester keyword payload."""
+    gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
+    return {
+        "title": kw_title,
+        "gnd_ids": gnd_ids,
+        "gnd_id": gnd_ids[0] if gnd_ids else "",
+        "ddc_codes": list(kw_data.get("ddc", [])),
+        "dk_codes": list(kw_data.get("dk", [])),
+        "count": kw_data.get("count", 0),
+        "description": "",
+        "synonyms": [],
+    }
+
+
+def parse_batch_response(raw: Any) -> Dict[str, Dict[str, Any]]:
+    """Parse a SWB/Lobid batch-search JSON response into a title→entry pool.
+
+    Accepts the serialized tool response (``{"results": {term: {title: {...}}}}``)
+    either as a JSON string or already-decoded dict.
+    """
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as exc:
+        logger.warning(f"parse_batch_response: could not parse response: {exc}")
+        return {}
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for term_results in (data.get("results", {}) or {}).values():
+        if not isinstance(term_results, dict):
+            continue
+        for kw_title, kw_data in term_results.items():
+            if not isinstance(kw_data, dict):
+                continue
+            entry = _entry_from_kw_data(kw_title, kw_data)
+            if not entry["gnd_ids"] and not kw_title:
+                continue
+            out[kw_title] = entry
+    return out
+
+
+def parse_batch_response_with_terms(
+    raw: Any,
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+    """Like :func:`parse_batch_response` but also returns, per title, the list of
+    search terms that produced it (drives per-keyword GUI display).
+    """
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as exc:
+        logger.warning(f"parse_batch_response_with_terms: could not parse response: {exc}")
+        return {}, {}
+
+    out: Dict[str, Dict[str, Any]] = {}
+    terms_per_title: Dict[str, List[str]] = {}
+    for term, term_results in (data.get("results", {}) or {}).items():
+        if not isinstance(term_results, dict):
+            continue
+        for kw_title, kw_data in term_results.items():
+            if not isinstance(kw_data, dict):
+                continue
+            entry = _entry_from_kw_data(kw_title, kw_data)
+            if not entry["gnd_ids"] and not kw_title:
+                continue
+            out[kw_title] = entry
+            terms_per_title.setdefault(kw_title, []).append(term)
+    return out, terms_per_title
+
+
+def rank_pool(
+    pool: Dict[str, Dict[str, Any]],
+    src_index: Dict[str, Set[str]],
+) -> List[Dict[str, Any]]:
+    """Attach source provenance and return pool entries ranked for selection.
+
+    Each entry gets ``sources`` (sorted source names that confirmed the title) and
+    ``source_count`` (= ``len(sources)``). Entries are ranked by
+    ``(source_count, count)`` descending — multi-source confirmations first, then
+    hit count. This ordering feeds the agentic ``selection_chunks`` → ``selection``
+    flow; see the module docstring's count-landmine note before changing it.
+    """
+    for key, entry in pool.items():
+        entry["sources"] = sorted(src_index.get(key, set()))
+        entry["source_count"] = len(entry["sources"])
+    return sorted(
+        pool.values(),
+        key=lambda e: (e.get("source_count", 0), e.get("count", 0)),
+        reverse=True,
+    )

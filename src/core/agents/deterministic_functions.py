@@ -20,6 +20,12 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from src.core.agents.registry import register_tool_fn
 from src.core.agents.tool_providers import DKDataProvider
+from src.core.gnd_search_core import (
+    merge_into_pool,
+    parse_batch_response,
+    parse_batch_response_with_terms,
+    rank_pool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,94 +33,6 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # gnd_batch_search — SWB + Lobid + local enrichment
 # ============================================================
-
-def _merge_into_pool(
-    pool: Dict[str, Dict[str, Any]],
-    new_data: Dict[str, Dict[str, Any]],
-) -> None:
-    """Union GND IDs / DDC / DK codes across pool entries."""
-    for title, entry in new_data.items():
-        key = title.lower()
-        if key in pool:
-            existing = pool[key]
-            ids = set(existing.get("gnd_ids", [])) | set(entry.get("gnd_ids", []))
-            existing["gnd_ids"] = list(ids)
-            if ids and not existing.get("gnd_id"):
-                existing["gnd_id"] = next(iter(ids))
-            existing["ddc_codes"] = list(
-                set(existing.get("ddc_codes", [])) | set(entry.get("ddc_codes", []))
-            )
-            existing["dk_codes"] = list(
-                set(existing.get("dk_codes", [])) | set(entry.get("dk_codes", []))
-            )
-            existing["count"] = max(existing.get("count", 0), entry.get("count", 0))
-        else:
-            pool[key] = dict(entry)
-
-
-def _parse_batch_response(raw: str) -> Dict[str, Dict[str, Any]]:
-    """Parse SWB/Lobid batch-search JSON response into keyword-level pool."""
-    try:
-        data = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception as e:
-        logger.warning(f"gnd_batch_search: could not parse response: {e}")
-        return {}
-
-    out: Dict[str, Dict[str, Any]] = {}
-    for term_results in (data.get("results", {}) or {}).values():
-        if not isinstance(term_results, dict):
-            continue
-        for kw_title, kw_data in term_results.items():
-            if not isinstance(kw_data, dict):
-                continue
-            gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
-            if not gnd_ids and not kw_title:
-                continue
-            out[kw_title] = {
-                "title": kw_title,
-                "gnd_ids": gnd_ids,
-                "gnd_id": gnd_ids[0] if gnd_ids else "",
-                "ddc_codes": list(kw_data.get("ddc", [])),
-                "dk_codes": list(kw_data.get("dk", [])),
-                "count": kw_data.get("count", 0),
-                "description": "",
-                "synonyms": [],
-            }
-    return out
-
-
-def _parse_batch_response_with_terms(raw: str) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
-    """Parse SWB/Lobid response into pool + track which search term found each title."""
-    try:
-        data = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception as e:
-        logger.warning(f"gnd_batch_search: could not parse response: {e}")
-        return {}, {}
-
-    out: Dict[str, Dict[str, Any]] = {}
-    terms_per_title: Dict[str, List[str]] = {}
-    for term, term_results in (data.get("results", {}) or {}).items():
-        if not isinstance(term_results, dict):
-            continue
-        for kw_title, kw_data in term_results.items():
-            if not isinstance(kw_data, dict):
-                continue
-            gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
-            if not gnd_ids and not kw_title:
-                continue
-            out[kw_title] = {
-                "title": kw_title,
-                "gnd_ids": gnd_ids,
-                "gnd_id": gnd_ids[0] if gnd_ids else "",
-                "ddc_codes": list(kw_data.get("ddc", [])),
-                "dk_codes": list(kw_data.get("dk", [])),
-                "count": kw_data.get("count", 0),
-                "description": "",
-                "synonyms": [],
-            }
-            terms_per_title.setdefault(kw_title, []).append(term)
-    return out, terms_per_title
-
 
 @register_tool_fn("gnd_batch_search")
 def gnd_batch_search(
@@ -213,10 +131,10 @@ def gnd_batch_search(
                     f"  ⚠️ {src}: {len(term_errors)} Teilfehler ({failed_terms}{more}) — "
                     f"leere Treffer dafür sind NICHT bestätigt\n"
                 )
-            data, terms_map = _parse_batch_response_with_terms(payload)
+            data, terms_map = parse_batch_response_with_terms(payload)
             for key in data:
                 src_index.setdefault(key.lower(), set()).add(src)
-            _merge_into_pool(pool, data)
+            merge_into_pool(pool, data)
             # Track term-to-title mapping for per-keyword display
             for title, terms in terms_map.items():
                 for term in terms:
@@ -285,17 +203,10 @@ def gnd_batch_search(
             except Exception as e:
                 logger.warning(f"gnd_batch_search: get_gnd_batch enrichment failed: {e}")
 
-    # Attach source provenance and rank: entries confirmed by multiple
-    # sources first, then by hit count — realizes the multi-source ranking
-    # the selection prompt relies on - Claude Generated
-    for key, entry in pool.items():
-        entry["sources"] = sorted(src_index.get(key, set()))
-        entry["source_count"] = len(entry["sources"])
-    entries: List[Dict[str, Any]] = sorted(
-        pool.values(),
-        key=lambda e: (e.get("source_count", 0), e.get("count", 0)),
-        reverse=True,
-    )
+    # Attach source provenance and rank (multi-source confirmations first, then
+    # hit count) — the ordering the selection prompt relies on; see
+    # gnd_search_core.rank_pool and its count-landmine note. - Claude Generated
+    entries: List[Dict[str, Any]] = rank_pool(pool, src_index)
 
     if context is not None and hasattr(context, "gnd_entries"):
         existing_titles = {e.get("title", "").lower() for e in context.gnd_entries}
@@ -1037,11 +948,11 @@ def catalog_multi_search(
                 tool, {"terms": queries, "search_type": search_type}
             )
             tool_calls += 1
-            data = _parse_batch_response(raw)
+            data = parse_batch_response(raw)
             for key, entry in data.items():
                 k = key.lower()
                 src_index.setdefault(k, set()).add(src)
-            _merge_into_pool(pool, data)
+            merge_into_pool(pool, data)
             if stream_callback:
                 stream_callback(f"  🌐 {src}: {len(data)} hits\n")
         except Exception as e:

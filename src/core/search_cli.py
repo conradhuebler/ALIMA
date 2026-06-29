@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Any
 
 from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
+from .gnd_search_core import merge_code_entry
 from .unified_knowledge_manager import UnifiedKnowledgeManager
 
 
@@ -88,10 +89,10 @@ class SearchCLI:
                 if keyword not in combined_results[search_term]:
                     combined_results[search_term][keyword] = data.copy()
                 else:
-                    existing_data = combined_results[search_term][keyword]
-                    existing_data["count"] = max(
-                        existing_data["count"], data.get("count", 0)
+                    # Shared merge-atom (max count + union of code sets) —
+                    # see src/core/gnd_search_core.py - Claude Generated
+                    merge_code_entry(
+                        combined_results[search_term][keyword],
+                        data,
+                        code_fields=("gndid", "ddc", "dk"),
                     )
-                    existing_data["gndid"].update(data.get("gndid", set()))
-                    existing_data["ddc"].update(data.get("ddc", set()))
-                    existing_data["dk"].update(data.get("dk", set()))
