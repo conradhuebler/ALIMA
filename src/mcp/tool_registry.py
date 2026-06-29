@@ -144,13 +144,13 @@ class ToolRegistry:
         if self._suggesters_initialized:
             return
         try:
-            from src.utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
-            self._lobid = MetaSuggester(suggester_type=SuggesterType.LOBID)
+            from src.utils.suggesters.meta_suggester import MetaSuggester
+            self._lobid = MetaSuggester(providers="lobid")
         except Exception as e:
             logger.warning(f"Lobid MetaSuggester init failed: {e}")
         try:
-            from src.utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
-            self._swb = MetaSuggester(suggester_type=SuggesterType.SWB)
+            from src.utils.suggesters.meta_suggester import MetaSuggester
+            self._swb = MetaSuggester(providers="swb")
         except Exception as e:
             logger.warning(f"SWB MetaSuggester init failed: {e}")
         try:
@@ -404,8 +404,7 @@ class ToolRegistry:
             results = self._lobid.search(terms)
         else:
             # MetaSuggester has no search_type support — use raw child suggester
-            from src.utils.suggesters.meta_suggester import SuggesterType
-            results = self._lobid.suggesters[SuggesterType.LOBID].search(
+            results = self._lobid.raw_suggester("lobid").search(
                 terms, search_type=search_type
             )
         return json.dumps({
@@ -424,8 +423,7 @@ class ToolRegistry:
             # max_pages=5, so this branch only covers the default - Claude Generated
             results = self._swb.search(terms)
         else:
-            from src.utils.suggesters.meta_suggester import SuggesterType
-            results = self._swb.suggesters[SuggesterType.SWB].search(
+            results = self._swb.raw_suggester("swb").search(
                 terms, max_pages=max_pages, search_type=search_type
             )
         return json.dumps({

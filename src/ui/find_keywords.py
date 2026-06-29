@@ -27,7 +27,7 @@ import sys
 import json
 from pathlib import Path
 
-from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
+from ..utils.suggesters.meta_suggester import MetaSuggester
 from ..core.search_cli import SearchCLI
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..utils.config_models import PipelineStepConfig, PipelineMode
@@ -440,21 +440,21 @@ class SearchTab(QWidget):
                 self.progressBar.setVisible(False)
                 return
 
-            # Bestimme die zu verwendenden Suggester-Typen
+            # Bestimme die zu verwendenden Provider-Ids - Claude Generated
             suggester_types = []
             if self.lobid_button.isChecked():
-                suggester_types.append(SuggesterType.LOBID)
+                suggester_types.append("lobid")
             if self.swb_button.isChecked():
-                suggester_types.append(SuggesterType.SWB)
+                suggester_types.append("swb")
             if self.catalog_button.isChecked():
-                suggester_types.append(SuggesterType.CATALOG)
+                suggester_types.append("catalog")
 
             # Wenn keine Quelle ausgewählt wurde, Lobid als Standard verwenden
             if not suggester_types:
                 self.logger.warning(
                     "Keine Suchquelle ausgewählt, verwende Lobid als Standard."
                 )
-                suggester_types.append(SuggesterType.LOBID)
+                suggester_types.append("lobid")
 
             self.logger.info(f"Selected suggester types: {suggester_types}")
             self.logger.info(f"Search terms: {search_terms}")
@@ -464,31 +464,30 @@ class SearchTab(QWidget):
             self.progressBar.setMaximum(100)
             self.progressBar.setValue(10)
 
-            # Determine single suggester type
-            # MetaSuggester expects a single SuggesterType, not a list
-            # IMPORTANT: Don't use ALL to avoid triggering catalog DK lookups outside pipeline
+            # Determine single provider id (one MetaSuggester per primary source)
+            # IMPORTANT: Don't use "all" to avoid triggering catalog DK lookups outside pipeline
             if len(suggester_types) == 1:
                 selected_type = suggester_types[0]
-            elif SuggesterType.LOBID in suggester_types and SuggesterType.SWB in suggester_types:
+            elif "lobid" in suggester_types and "swb" in suggester_types:
                 # Both Lobid and SWB: Use Lobid as primary, manually merge SWB below
-                selected_type = SuggesterType.LOBID
+                selected_type = "lobid"
                 self.use_swb_fallback = True
-            elif SuggesterType.LOBID in suggester_types:
-                selected_type = SuggesterType.LOBID
+            elif "lobid" in suggester_types:
+                selected_type = "lobid"
                 self.use_swb_fallback = False
-            elif SuggesterType.SWB in suggester_types:
-                selected_type = SuggesterType.SWB
+            elif "swb" in suggester_types:
+                selected_type = "swb"
                 self.use_swb_fallback = False
             else:
-                selected_type = SuggesterType.LOBID  # Fallback
+                selected_type = "lobid"  # Fallback
                 self.use_swb_fallback = False
 
             self.logger.info(f"Using suggester type: {selected_type}, SWB fallback: {self.use_swb_fallback}")
 
-            # Create MetaSuggester with selected type
+            # Create MetaSuggester with selected provider
             self.logger.info("Creating MetaSuggester...")
             meta_suggester = MetaSuggester(
-                suggester_type=selected_type
+                providers=selected_type
             )
             self.logger.info("MetaSuggester created successfully")
 
@@ -502,10 +501,10 @@ class SearchTab(QWidget):
             self.logger.info(f"Search completed, got {len(combined_results)} results")
 
             # If both Lobid and SWB selected, merge SWB results
-            if self.use_swb_fallback and SuggesterType.SWB in suggester_types:
+            if self.use_swb_fallback and "swb" in suggester_types:
                 self.progressBar.setValue(50)
                 self.logger.info("Adding SWB results...")
-                swb_suggester = MetaSuggester(suggester_type=SuggesterType.SWB)
+                swb_suggester = MetaSuggester(providers="swb")
                 swb_results = swb_suggester.search(search_terms)
 
                 # Merge results
@@ -1334,11 +1333,11 @@ class SearchTab(QWidget):
             search_terms = self.extract_search_terms(search_term)
 
             # Use Lobid + SWB for manual searches (NOT Catalog to avoid DK lookups)
-            lobid_suggester = MetaSuggester(suggester_type=SuggesterType.LOBID)
+            lobid_suggester = MetaSuggester(providers="lobid")
             all_results = lobid_suggester.search(search_terms)
 
             # Also search SWB and merge
-            swb_suggester = MetaSuggester(suggester_type=SuggesterType.SWB)
+            swb_suggester = MetaSuggester(providers="swb")
             swb_results = swb_suggester.search(search_terms)
 
             # Merge SWB results into Lobid results

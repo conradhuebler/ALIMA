@@ -81,7 +81,9 @@ class DKDataResult:
                 title = entry.get("title", "")
                 ddc_codes = entry.get("ddc_codes", [])
                 dk_codes = entry.get("dk_codes", [])
-                count = entry.get("count", 0)
+                # F-4: prefer the display-only real count over the pool count
+                # (1 for mapping-cache hits); display-only, never feeds ranking.
+                count = max(int(entry.get("count", 0) or 0), int(entry.get("display_count") or 0))
                 if ddc_codes or dk_codes:
                     codes_str = ", ".join(ddc_codes + dk_codes)
                     parts.append(f"- {title}: {codes_str} (Häufigkeit: {count})\n")

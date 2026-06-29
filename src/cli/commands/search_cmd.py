@@ -9,7 +9,7 @@ Handlers for search-related commands:
 import logging
 from src.core.search_cli import SearchCLI
 from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
-from src.utils.suggesters.meta_suggester import SuggesterType
+from src.core.search import SearchCapability, providers_for_capability
 from src.utils.logging_utils import print_result
 from src.utils.config_manager import ConfigManager
 
@@ -26,11 +26,14 @@ def handle_search(args, logger: logging.Logger):
     cache_manager = UnifiedKnowledgeManager()
     search_cli = SearchCLI(cache_manager)
 
+    # Valid suggester names = GND-keyword provider ids (+ "all"). - Claude Generated
+    valid = set(providers_for_capability(SearchCapability.GND_KEYWORDS)) | {"all"}
     suggester_types = []
     for suggester in args.suggesters:
-        try:
-            suggester_types.append(SuggesterType[suggester.upper()])
-        except KeyError:
+        pid = str(suggester).lower()
+        if pid in valid:
+            suggester_types.append(pid)
+        else:
             logger.warning(f"Unknown suggester: {suggester}")
 
     if not suggester_types:

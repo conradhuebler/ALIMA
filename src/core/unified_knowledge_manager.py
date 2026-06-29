@@ -11,7 +11,7 @@ import hashlib
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from .database_manager import DatabaseManager
@@ -54,6 +54,10 @@ class SearchMapping:
     result_count: int
     last_updated: str
     created_at: str
+    # Display-only per-GND-ID hit counts (F-4): {gnd_id: count}. Kept separate
+    # from the pool/ranking count, which a cache hit still reports as 1. Empty for
+    # rows written before the column existed. - Claude Generated
+    gnd_counts: Dict[str, int] = field(default_factory=dict)
 
 
 class UnifiedKnowledgeManager:
@@ -205,6 +209,7 @@ class UnifiedKnowledgeManager:
                     suggester_type {dialect.varchar_type(64)} NOT NULL,
                     found_gnd_ids {dialect.text_type(db_type)},
                     found_classifications {dialect.text_type(db_type)},
+                    gnd_counts {dialect.text_type(db_type)},
                     result_count INTEGER DEFAULT 0,
                     last_updated {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
                     created_at {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
@@ -259,10 +264,36 @@ class UnifiedKnowledgeManager:
 
             # Perform schema migration if needed - Claude Generated
             self._migrate_catalog_dk_cache_schema()
+            self._migrate_search_mappings_schema()
 
         except Exception as e:
             self.logger.error(f"Error initializing unified database: {e}")
             raise
+
+    def _migrate_search_mappings_schema(self):
+        """Add the F-4 ``gnd_counts`` column to existing search_mappings tables.
+
+        Additive, idempotent: fresh DBs already have the column from CREATE TABLE;
+        older DBs get it via ALTER. Existing rows keep NULL → display falls back to
+        the pool count (1 for cache hits). - Claude Generated
+        """
+        try:
+            db_type = self.db_manager.get_db_type()
+            dialect = self.db_manager.get_dialect()
+            query = dialect.get_table_info_query(db_type, 'search_mappings')
+            rows = self.db_manager.fetch_all(query)
+            columns = dialect.parse_table_info(db_type, rows if rows else [])
+            if "gnd_counts" not in columns:
+                self.logger.info("🔄 Migrating search_mappings: adding gnd_counts column (F-4)...")
+                self.db_manager.execute_query(
+                    dialect.alter_table_add_column(
+                        db_type, 'search_mappings', 'gnd_counts',
+                        dialect.text_type(db_type)
+                    )
+                )
+                self.logger.info("✅ search_mappings migration completed: added gnd_counts")
+        except Exception as e:
+            self.logger.warning(f"search_mappings gnd_counts migration check failed (non-critical): {e}")
 
     def _migrate_catalog_dk_cache_schema(self):
         """Migrate catalog_dk_cache table - handle schema upgrades - Claude Generated"""
@@ -568,7 +599,8 @@ class UnifiedKnowledgeManager:
                     found_classifications=json.loads(row['found_classifications'] or '[]'),
                     result_count=row['result_count'],
                     last_updated=row['last_updated'],
-                    created_at=row['created_at']
+                    created_at=row['created_at'],
+                    gnd_counts=json.loads((row.get('gnd_counts') if hasattr(row, 'get') else None) or '{}'),
                 )
             return None
 
@@ -578,8 +610,14 @@ class UnifiedKnowledgeManager:
     
     def update_search_mapping(self, search_term: str, suggester_type: str,
                             found_gnd_ids: List[str] = None,
-                            found_classifications: List[Dict[str, str]] = None):
-        """Update or create search mapping - Claude Generated (Fixed PyQt6 QtSql subquery issue)"""
+                            found_classifications: List[Dict[str, str]] = None,
+                            gnd_counts: Dict[str, int] = None):
+        """Update or create search mapping - Claude Generated (Fixed PyQt6 QtSql subquery issue)
+
+        ``gnd_counts`` (F-4): optional ``{gnd_id: count}`` display-only hit counts
+        persisted alongside the GND-ID list, so a later cache hit can restore the
+        real Häufigkeit without touching the pool/ranking count.
+        """
         try:
             normalized_term = self._normalize_term(search_term)
 
@@ -592,14 +630,15 @@ class UnifiedKnowledgeManager:
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO search_mappings
                 (search_term, normalized_term, suggester_type, found_gnd_ids,
-                 found_classifications, result_count, last_updated, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, COALESCE(?, CURRENT_TIMESTAMP))
+                 found_classifications, gnd_counts, result_count, last_updated, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, COALESCE(?, CURRENT_TIMESTAMP))
             """, [
                 search_term,
                 normalized_term,
                 suggester_type,
                 json.dumps(found_gnd_ids or []),
                 json.dumps(found_classifications or []),
+                json.dumps(gnd_counts or {}),
                 len(found_gnd_ids or []) + len(found_classifications or []),
                 created_at_value  # Pre-fetched value instead of subquery
             ])

@@ -66,6 +66,9 @@ class _FakeUKM:
     def _migrate_catalog_dk_cache_schema(self):
         pass
 
+    def _migrate_search_mappings_schema(self):
+        pass
+
     # Borrow the real method under test.
     _init_database = UnifiedKnowledgeManager._init_database
 

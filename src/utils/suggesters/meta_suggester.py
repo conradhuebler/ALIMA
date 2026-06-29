@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
 # meta_suggester.py
+"""Orchestrator over the capability-based search providers - Claude Generated.
 
-from typing import List, Dict, Any, Set, Optional, Union, Tuple
+P2 of the search-provider-plugin migration: ``MetaSuggester`` no longer hard-codes
+an if/elif over a ``SuggesterType`` enum. It **enumerates the provider registry**
+(``src/core/search``) by provider id, wraps each ``GND_KEYWORDS`` provider in the
+mapping-first ``CachingProvider``, and aggregates their results into the legacy
+``{term: {keyword: {count, gndid, ddc, dk}}}`` shape so existing callers (classic
+pipeline, CLI, GUI, MCP) keep working unchanged.
+
+The ``SuggesterType`` enum is retired — callers pass provider-id strings
+("lobid" | "swb" | "catalog"; "all" = all three legacy GND-keyword sources).
+"""
+
+from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
-from enum import Enum
-import json
-import time
 import logging
 
 from .base_suggester import BaseSuggester, BaseSuggesterError
-from .lobid_suggester import LobidSuggester
-from .swb_suggester import SWBSuggester
-from .biblio_suggester import BiblioSuggester
 
-
-class SuggesterType(Enum):
-    """Enum for the different types of suggesters available."""
-
-    LOBID = "lobid"
-    SWB = "swb"
-    CATALOG = "catalog"  # Now uses BiblioSuggester
-    ALL = "all"
+# Legacy GND-keyword sources MetaSuggester has always combined. "all" maps here
+# (gnd_local/finc are not part of the classic keyword flow). - Claude Generated
+_DEFAULT_GND_PROVIDERS = ["lobid", "swb", "catalog"]
 
 
 class MetaSuggesterError(BaseSuggesterError):
@@ -30,175 +31,157 @@ class MetaSuggesterError(BaseSuggesterError):
 
 
 class MetaSuggester(BaseSuggester):
-    """
-    Meta suggester that combines results from multiple suggesters.
-    Provides a unified interface for accessing different keyword suggestion sources.
+    """Combine GND-keyword results from one or more registered providers.
+
+    Mapping-first caching (incl. write-back + the F-4 display-count restore) is
+    applied per ``GND_KEYWORDS`` provider via ``CachingProvider``.
     """
 
     def __init__(
         self,
-        suggester_type: SuggesterType = SuggesterType.ALL,
+        providers: Optional[Union[str, List[str]]] = None,
         data_dir: Optional[Union[str, Path]] = None,
         catalog_token: str = "",
         debug: bool = False,
         catalog_search_url: str = "",
         catalog_details: str = "",
+        enable_mapping_search: bool = True,
+        mapping_max_age_hours: int = 24,
     ):
-        """
-        Initialize the meta suggester.
+        """Initialize the meta suggester.
 
         Args:
-            suggester_type: Type of suggester to use (ALL, LOBID, SWB, CATALOG)
-            data_dir: Directory for data storage (optional)
-            catalog_token: API token for catalog access (optional)
-            debug: Whether to enable debug output
-            catalog_search_url: URL for catalog search API (optional)
-            catalog_details: URL for catalog details API (optional)
+            providers: provider id or list of ids ("lobid"|"swb"|"catalog");
+                ``None`` or "all" → all three legacy GND-keyword sources.
+            data_dir: optional storage directory.
+            catalog_token / catalog_search_url / catalog_details: catalog config.
+            debug: verbose logging.
+            enable_mapping_search: wrap GND_KEYWORDS providers with the cache.
+            mapping_max_age_hours: cache freshness window.
         """
         super().__init__(data_dir, debug)
 
-        # Configure logging
         self.logger = logging.getLogger("meta_suggester")
         if not self.logger.handlers:
             handler = logging.StreamHandler()
-            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-            handler.setFormatter(formatter)
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            )
             self.logger.addHandler(handler)
-
         self.logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
-        self.suggester_type = suggester_type
-        self.suggesters = {}
-        
-        # Week 2: Initialize unified knowledge manager for mapping-first search
         from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
+
         self.ukm = UnifiedKnowledgeManager()
-        self.enable_mapping_search = True  # Can be disabled for fallback
-        self.mapping_max_age_hours = 24    # Configurable cache age
-        self.debug_mapping = debug         # Debug flag for mapping output
+        self.enable_mapping_search = enable_mapping_search
+        self.mapping_max_age_hours = mapping_max_age_hours
+        self.debug_mapping = debug
 
-        # Initialize the appropriate suggesters
-        if suggester_type in [SuggesterType.LOBID, SuggesterType.ALL]:
-            self.suggesters[SuggesterType.LOBID] = LobidSuggester(
-                data_dir=(self.data_dir / "lobid") if data_dir else None, debug=debug
-            )
+        self.provider_ids = self._resolve_provider_ids(providers)
+        provider_config = {
+            "token": catalog_token,
+            "catalog_token": catalog_token,
+            "catalog_search_url": catalog_search_url,
+            "catalog_details": catalog_details,
+            "debug": debug,
+        }
 
-        if suggester_type in [SuggesterType.SWB, SuggesterType.ALL]:
-            self.suggesters[SuggesterType.SWB] = SWBSuggester(
-                data_dir=(self.data_dir / "swb") if data_dir else None, debug=debug
-            )
+        from ...core.search import SearchCapability, get_provider
+        from ...core.search.caching import CachingProvider
 
-        if suggester_type in [SuggesterType.CATALOG, SuggesterType.ALL]:
-            self.suggesters[SuggesterType.CATALOG] = BiblioSuggester(
-                data_dir=(self.data_dir / "catalog") if data_dir else None,
-                token=catalog_token,
-                debug=debug,
-                catalog_search_url=catalog_search_url,
-                catalog_details=catalog_details,
-            )
+        # id -> provider used for search (caching-wrapped for GND_KEYWORDS)
+        self.providers: Dict[str, Any] = {}
+        # id -> underlying BaseSuggester (compat: direct access / prepare / MCP)
+        self.suggesters: Dict[str, Any] = {}
 
-        # BiblioSuggester handles all catalog operations (unified approach)
+        for pid in self.provider_ids:
+            try:
+                cls = get_provider(pid)
+            except KeyError:
+                self.logger.warning(f"Unknown provider '{pid}', skipping")
+                continue
+            inst = cls(**provider_config)
+            raw = getattr(inst, "suggester", None)
+            if raw is not None:
+                self.suggesters[pid] = raw
+                try:
+                    raw.currentTerm.connect(self.currentTerm)
+                except Exception:
+                    pass
+            if (
+                SearchCapability.GND_KEYWORDS in getattr(cls, "capabilities", set())
+                and self.enable_mapping_search
+            ):
+                inst = CachingProvider(
+                    inst, ukm=self.ukm, max_age_hours=self.mapping_max_age_hours
+                )
+            self.providers[pid] = inst
 
-        # Connect signals from suggesters
-        for suggester in self.suggesters.values():
-            suggester.currentTerm.connect(self.currentTerm)
+    @staticmethod
+    def _resolve_provider_ids(providers: Optional[Union[str, List[str]]]) -> List[str]:
+        """Normalise the ``providers`` argument to a list of provider ids."""
+        if providers is None:
+            return list(_DEFAULT_GND_PROVIDERS)
+        if isinstance(providers, str):
+            providers = [providers]
+        ids: List[str] = []
+        for p in providers:
+            pid = str(p).lower()
+            if pid == "all":
+                for d in _DEFAULT_GND_PROVIDERS:
+                    if d not in ids:
+                        ids.append(d)
+            elif pid not in ids:
+                ids.append(pid)
+        return ids
+
+    def raw_suggester(self, provider_id: Optional[str] = None):
+        """Return an underlying ``BaseSuggester`` for direct ``search_type``
+        passthrough (cache-bypassing), used by the MCP layer. ``None`` returns the
+        first available. - Claude Generated"""
+        if provider_id is not None:
+            return self.suggesters.get(provider_id)
+        return next(iter(self.suggesters.values()), None)
 
     def prepare(self, force_download: bool = False) -> None:
-        """
-        Prepare all suggesters.
-
-        Args:
-            force_download: Whether to force data download/preparation
-        """
-        for name, suggester in self.suggesters.items():
-            self.logger.debug(f"Preparing {name.value} suggester")
-            suggester.prepare(force_download)
+        """Prepare all underlying suggesters (best-effort)."""
+        for pid, suggester in self.suggesters.items():
+            try:
+                self.logger.debug(f"Preparing {pid} suggester")
+                suggester.prepare(force_download)
+            except Exception as e:
+                self.logger.warning(f"prepare() failed for {pid}: {e}")
 
     def search(self, terms: List[str]) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        """
-        Week 2: Search with mappings-first strategy, fallback to live search - Claude Generated
+        """Search all providers and aggregate into the legacy GND-keyword shape.
 
-        Args:
-            terms: List of search terms
-
-        Returns:
-            Dictionary with structure:
-            {
-                search_term: {
-                    keyword: {
-                        "count": int,
-                        "gndid": set,
-                        "ddc": set,
-                        "dk": set
-                    }
-                }
-            }
+        Mapping-first caching + the F-4 display-count restore happen inside each
+        provider's ``CachingProvider`` wrapper.
         """
-        combined_results = {}
-        # Fresh error state; keys are "<suggester>:<term>" - Claude Generated
+        from ...core.search import SearchCapability
+
+        combined_results: Dict[str, Dict[str, Dict[str, Any]]] = {t: {} for t in terms}
         self.last_errors = {}
 
-        # Initialize empty results for each term
-        for term in terms:
-            combined_results[term] = {}
-
-        # Call each suggester with mapping-first logic
-        for suggester_type, suggester in self.suggesters.items():
-            self.logger.debug(f"Searching with {suggester_type.value} suggester")
-            
-            # Week 2: Try mappings first if enabled
-            if self.enable_mapping_search:
-                mapping_hits = 0
-                live_searches = 0
-
+        for pid, provider in self.providers.items():
+            self.logger.debug(f"Searching with {pid} provider")
+            try:
+                result = provider.search(
+                    SearchCapability.GND_KEYWORDS, terms, progress=self.currentTerm.emit
+                )
+            except Exception as e:
+                self.logger.error(f"Error searching with {pid} provider: {e}")
                 for term in terms:
-                    self.logger.info(f"🔍 Suche '{term}' mit {suggester_type.value} (mapping_search={self.enable_mapping_search})")
-                    # Check for cached mapping first
-                    cached_gnd_ids, was_cached = self.ukm.search_with_mappings_first(
-                        search_term=term,
-                        suggester_type=suggester_type.value,
-                        max_age_hours=self.mapping_max_age_hours,
-                        live_search_fallback=lambda t: suggester.search([t])
-                    )
+                    self.last_errors[f"{pid}:{term}"] = str(e)
+                continue
 
-                    if was_cached:
-                        mapping_hits += 1
-                        self.logger.info(f"✅ Cache-Hit für '{term}': {len(cached_gnd_ids)} GND-IDs")
-                        # Convert cached GND IDs to results format
-                        if cached_gnd_ids:
-                            self._add_cached_results_to_combined(
-                                combined_results, term, cached_gnd_ids, suggester_type.value
-                            )
-                    else:
-                        live_searches += 1
-                        self.logger.info(f"📡 Live-Suche für '{term}' (Cache-Miss)")
-                        # Fallback already executed by search_with_mappings_first
-                        # Results should have been updated in mapping, now get fresh live results
-                        try:
-                            live_results = suggester.search([term])
-                            self._merge_suggester_results(combined_results, {term: live_results.get(term, {})}, term)
-                        except Exception as e:
-                            self.logger.error(f"Live search fallback failed for {term}: {e}")
-                            self.last_errors[f"{suggester_type.value}:{term}"] = str(e)
-                
-                if self.debug_mapping:
-                    self.logger.info(f"📊 {suggester_type.value}: {mapping_hits} mapping hits, {live_searches} live searches")
-            else:
-                # Traditional search without mappings
-                try:
-                    suggester_results = suggester.search(terms)
-                    for term in terms:
-                        if term in suggester_results:
-                            self._merge_suggester_results(combined_results, suggester_results, term)
-                except Exception as e:
-                    self.logger.error(f"Error searching with {suggester_type.value} suggester: {e}")
-                    for term in terms:
-                        self.last_errors[f"{suggester_type.value}:{term}"] = str(e)
-
-            # Collect per-term failures recorded inside the child suggester
-            # (e.g. network errors that resulted in empty per-term results) - Claude Generated
-            for term, message in getattr(suggester, "last_errors", {}).items():
-                self.last_errors.setdefault(f"{suggester_type.value}:{term}", message)
+            per_term = result.to_gnd_keywords()
+            for term in terms:
+                self._merge_suggester_results(
+                    combined_results, {term: per_term.get(term, {})}, term
+                )
+            for term, message in (result.errors or {}).items():
+                self.last_errors.setdefault(f"{pid}:{term}", message)
 
         if self.last_errors:
             self.logger.warning(
@@ -207,70 +190,41 @@ class MetaSuggester(BaseSuggester):
             )
 
         return combined_results
-    
-    def _add_cached_results_to_combined(self, combined_results: Dict, term: str, 
-                                      gnd_ids: List[str], suggester_type: str):
-        """Add cached GND results to combined results format - Claude Generated"""
-        try:
-            for gnd_id in gnd_ids:
-                # Get GND entry details from unified knowledge manager
-                gnd_entry = self.ukm.get_gnd_fact(gnd_id)
-                if gnd_entry:
-                    keyword = gnd_entry.title
-                    
-                    if keyword not in combined_results[term]:
-                        combined_results[term][keyword] = {
-                            "count": 1,  # Default count for cached entries
-                            "gndid": {gnd_id},
-                            "ddc": set(),
-                            "dk": set(),
-                        }
-                    else:
-                        combined_results[term][keyword]["gndid"].add(gnd_id)
-                        
-        except Exception as e:
-            self.logger.error(f"Error adding cached results: {e}")
-    
-    def _merge_suggester_results(self, combined_results: Dict, suggester_results: Dict, term: str):
-        """Merge individual suggester results into combined results - Claude Generated"""
+
+    def _merge_suggester_results(
+        self, combined_results: Dict, suggester_results: Dict, term: str
+    ):
+        """Merge one provider's per-term results into the combined dict.
+
+        ``count`` is max-merged (pool/ranking semantics, unchanged). The optional
+        display-only ``display_count`` (F-4) is max-merged separately and only
+        carried when a source provides it. - Claude Generated
+        """
         if term not in suggester_results:
             return
-            
-        term_results = suggester_results[term]
 
-        # For each keyword from this suggester
-        for keyword, data in term_results.items():
-            # If keyword not in combined results yet, add it
+        for keyword, data in suggester_results[term].items():
             if keyword not in combined_results[term]:
-                combined_results[term][keyword] = {
+                entry = {
                     "count": data.get("count", 1),
                     "gndid": data.get("gndid", set()),
                     "ddc": data.get("ddc", set()),
                     "dk": data.get("dk", set()),
                 }
+                if data.get("display_count") is not None:
+                    entry["display_count"] = data["display_count"]
+                combined_results[term][keyword] = entry
             else:
-                # Update existing entry
                 existing = combined_results[term][keyword]
-
-                # Use max of counts
-                existing["count"] = max(
-                    existing["count"], data.get("count", 1)
-                )
-
-                # Update sets by merging
+                existing["count"] = max(existing["count"], data.get("count", 1))
                 existing["gndid"].update(data.get("gndid", set()))
                 existing["ddc"].update(data.get("ddc", set()))
                 existing["dk"].update(data.get("dk", set()))
+                dc = data.get("display_count")
+                if dc is not None:
+                    cur = existing.get("display_count")
+                    existing["display_count"] = dc if cur is None else max(cur, dc)
 
     def search_unified(self, terms: List[str]) -> List[List]:
-        """
-        Get unified search results in the specified format.
-
-        Args:
-            terms: List of search terms
-
-        Returns:
-            List of results, where each result is a list with elements:
-            [keyword, gnd_id, ddc, dk, count, search_term]
-        """
+        """Get unified search results: ``[keyword, gnd_id, ddc, dk, count, term]``."""
         return self.get_unified_results(terms)

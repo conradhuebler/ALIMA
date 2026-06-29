@@ -75,16 +75,36 @@ def merge_into_pool(
         if key in pool:
             existing = pool[key]
             merge_code_entry(existing, entry, code_fields=("gnd_ids", "ddc_codes", "dk_codes"))
+            _merge_display_count(existing, entry)
             if existing.get("gnd_ids") and not existing.get("gnd_id"):
                 existing["gnd_id"] = existing["gnd_ids"][0]
         else:
             pool[key] = dict(entry)
 
 
+def _merge_display_count(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+    """Max-merge the display-only ``display_count`` across sources (F-4).
+
+    Each side's "real" count is its ``display_count`` if set, else its pool
+    ``count``. We only annotate ``target`` when the result exceeds the pool count,
+    so the entry shape is unchanged in the common all-live (no-cache) case. This is
+    display metadata only — ``rank_pool`` never reads it.
+    """
+    t_eff = target.get("display_count")
+    if t_eff is None:
+        t_eff = target.get("count", 0) or 0
+    s_eff = source.get("display_count")
+    if s_eff is None:
+        s_eff = source.get("count", 0) or 0
+    best = max(int(t_eff), int(s_eff))
+    if best > (target.get("count", 0) or 0):
+        target["display_count"] = best
+
+
 def _entry_from_kw_data(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any]:
     """Build a canonical pool entry from a single suggester keyword payload."""
     gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
-    return {
+    entry = {
         "title": kw_title,
         "gnd_ids": gnd_ids,
         "gnd_id": gnd_ids[0] if gnd_ids else "",
@@ -94,6 +114,13 @@ def _entry_from_kw_data(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any
         "description": "",
         "synonyms": [],
     }
+    # F-4: carry the display-only count when present (mapping-cache hits). It rides
+    # into ``gnd_entries`` for the display layer but is NEVER read by ``rank_pool``
+    # — see the count-landmine note in the module docstring. Absent when no cache.
+    display_count = kw_data.get("display_count")
+    if display_count is not None:
+        entry["display_count"] = display_count
+    return entry
 
 
 def parse_batch_response(raw: Any) -> Dict[str, Dict[str, Any]]:

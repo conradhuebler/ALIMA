@@ -28,7 +28,7 @@ from ..core.data_models import (
 )
 from ..core.search_cli import SearchCLI
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
-from .suggesters.meta_suggester import SuggesterType
+from ..core.search import SearchCapability, providers_for_capability
 from ..core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
@@ -469,14 +469,15 @@ class PipelineStepExecutor:
             # Add catalog if available (no auto-detection, explicit configuration)
             # Catalog will be added via suggesters parameter in pipeline
 
-        # Convert suggester names to types
+        # Convert suggester names to provider ids - Claude Generated
+        valid_providers = set(providers_for_capability(SearchCapability.GND_KEYWORDS)) | {"all"}
         suggester_types = []
         for suggester_name in suggesters:
-            try:
-                suggester_types.append(SuggesterType[suggester_name.upper()])
-            except KeyError:
-                if self.logger:
-                    self.logger.warning(f"Unknown suggester: {suggester_name}")
+            pid = str(suggester_name).lower()
+            if pid in valid_providers:
+                suggester_types.append(pid)
+            elif self.logger:
+                self.logger.warning(f"Unknown suggester: {suggester_name}")
 
         # Convert keywords to list if needed
         if isinstance(keywords, str):
@@ -487,14 +488,14 @@ class PipelineStepExecutor:
         # Stream search progress if callback provided - Claude Generated
         # === DIAGNOSTIC: Log suggester configuration ===
         if self.logger:
-            self.logger.info(f"🔍 execute_gnd_search: {len(keywords_list)} Keywords, Suggester: {[st.value for st in suggester_types]}")
+            self.logger.info(f"🔍 execute_gnd_search: {len(keywords_list)} Keywords, Suggester: {suggester_types}")
         if stream_callback:
             stream_callback(
                 f"Suche mit {len(keywords_list)} Keywords: {', '.join(keywords_list)}\n",
                 "search",
             )
             stream_callback(
-                f"Verwende Suggester: {', '.join([st.value for st in suggester_types])}\n",
+                f"Verwende Suggester: {', '.join(suggester_types)}\n",
                 "search",
             )
 
@@ -611,7 +612,7 @@ class PipelineStepExecutor:
                     # Search with SWB and Lobid suggesters
                     search_result_dict = search_cli.search(
                         search_terms=[concept],
-                        suggester_types=[SuggesterType.LOBID, SuggesterType.SWB]
+                        suggester_types=["lobid", "swb"]
                     )
 
                     # Extract results for this concept
@@ -1022,7 +1023,7 @@ class PipelineStepExecutor:
                     # Search unknown subjects via SWB
                     swb_results = swb_search_cli.search(
                         search_terms=unknown_subjects,
-                        suggester_types=[SuggesterType.SWB]
+                        suggester_types=["swb"]
                     )
 
                     # Claude Generated - Debug SWB results before merging

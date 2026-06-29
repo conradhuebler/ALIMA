@@ -260,11 +260,17 @@ class PipelineResultFormatter:
         """
         by_id: Dict[str, Dict[str, Any]] = {}
 
-        def _add(label: str, gnd_id: str, count: Any, term: str) -> None:
+        def _add(label: str, gnd_id: str, count: Any, term: str,
+                 display_count: Any = None) -> None:
             gnd_id = str(gnd_id or "").strip()
             if not gnd_id:
                 return
             cnt = int(count) if isinstance(count, (int, float)) else 0
+            # F-4: prefer the display-only count (real Häufigkeit restored from the
+            # mapping cache) over the pool count, which is 1 for cache hits. This is
+            # display-only — it never feeds ranking (see gnd_search_core landmine).
+            dc = int(display_count) if isinstance(display_count, (int, float)) else 0
+            cnt = max(cnt, dc)
             row = by_id.get(gnd_id)
             if row is None:
                 by_id[gnd_id] = {
@@ -290,7 +296,7 @@ class PipelineResultFormatter:
                     continue
                 label = entry.get("keyword") or entry.get("title", "")
                 _add(label, entry.get("gnd_id", ""), entry.get("count", 0),
-                     entry.get("search_term", ""))
+                     entry.get("search_term", ""), entry.get("display_count"))
         else:
             # --- dict form or List[SearchResult] ---
             items: List[Tuple[str, Any]] = []
@@ -313,8 +319,9 @@ class PipelineResultFormatter:
                     if not isinstance(data, dict):
                         continue
                     count = data.get("count", 0)
+                    display_count = data.get("display_count")
                     for gnd_id in (data.get("gndid", []) or []):
-                        _add(label, gnd_id, count, term)
+                        _add(label, gnd_id, count, term, display_count)
 
         rows = list(by_id.values())
         rows.sort(key=lambda r: (-r["count"], r["begriff"].lower()))

@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Any
 
-from ..utils.suggesters.meta_suggester import MetaSuggester, SuggesterType
+from ..utils.suggesters.meta_suggester import MetaSuggester
 from .gnd_search_core import merge_code_entry
 from .unified_knowledge_manager import UnifiedKnowledgeManager
 
@@ -49,17 +49,17 @@ class SearchCLI:
         self.logger.debug("SearchCLI closed and resources released")
 
     def search(
-        self, search_terms: List[str], suggester_types: List[SuggesterType]
+        self, search_terms: List[str], suggester_types: List[str]
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         combined_results = {}
         self.last_errors = {}
 
         for suggester_type in suggester_types:
-            self.logger.debug(f"Searching with {suggester_type.value} suggester")
+            self.logger.debug(f"Searching with {suggester_type} suggester")
 
             try:
                 suggester = MetaSuggester(
-                    suggester_type=suggester_type,
+                    providers=suggester_type,
                     debug=False,
                     catalog_token=self.catalog_token,
                     catalog_search_url=self.catalog_search_url,
@@ -73,10 +73,10 @@ class SearchCLI:
 
             except Exception as e:
                 self.logger.error(
-                    f"Error searching with {suggester_type.value} suggester: {e}"
+                    f"Error searching with {suggester_type} suggester: {e}"
                 )
                 for term in search_terms:
-                    self.last_errors[f"{suggester_type.value}:{term}"] = str(e)
+                    self.last_errors[f"{suggester_type}:{term}"] = str(e)
 
         return combined_results
 
