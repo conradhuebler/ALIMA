@@ -38,6 +38,7 @@ from ..core.processing_utils import (
 from .smart_provider_selector import SmartProviderSelector
 from .config_models import TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
+from .chunking import split_into_equal_chunks
 
 
 # ----------------------------------------------------------------------
@@ -1705,28 +1706,10 @@ class PipelineStepExecutor:
         # Get threshold from kwargs (it's passed from execute_final_keyword_analysis)
         threshold = kwargs.get("keyword_chunking_threshold", 500)
 
-        # Determine number of chunks needed
-        if total_keywords <= threshold * 1.5:
-            # For moderate oversize: use 2 chunks
-            num_chunks = 2
-        else:
-            # For large oversize: calculate based on threshold
-            num_chunks = max(2, (total_keywords + threshold - 1) // threshold)
-
-        # Calculate equal chunk size
-        chunk_size = total_keywords // num_chunks
-        remainder = total_keywords % num_chunks
-
-        # Create chunks with equal distribution
-        chunks = []
-        start_idx = 0
-        for i in range(num_chunks):
-            # Add one extra keyword to first 'remainder' chunks to distribute remainder
-            current_chunk_size = chunk_size + (1 if i < remainder else 0)
-            chunks.append(
-                gnd_compliant_keywords[start_idx : start_idx + current_chunk_size]
-            )
-            start_idx += current_chunk_size
+        # Split into equal chunks via the shared classic-semantics splitter
+        # (single source of truth: src/utils/chunking.py) - Claude Generated
+        chunks = split_into_equal_chunks(gnd_compliant_keywords, threshold)
+        num_chunks = len(chunks)
 
         if stream_callback:
             chunk_sizes = [len(chunk) for chunk in chunks]

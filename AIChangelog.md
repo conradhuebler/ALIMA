@@ -6,6 +6,56 @@
 
 ## 2026
 
+### Kern-Aufräumung I: geteilter GND-Such-Kern + Chunking-Dedup (June 29, 2026)
+
+Erste Aufräum-Runde an den beiden Kernen (klassische Pipeline ↔ Agentik v4). Ziel:
+über Zeit „vibisch"/agentisch gewachsene Doppelungen auflösen, **ohne** Verhalten zu
+ändern. Leitprinzip: schmal & sicher, byte-identische Outputs, abgesichert durch
+Charakterisierungs-Tests.
+
+**Verifizierter Befund (wichtiger als der Umbau):** Die vermutete Duplikation ist
+deutlich kleiner als ein Oberflächen-Scan nahelegt. Klassik und Agentik teilen die
+GND-Such-**Engine** bereits (`MetaSuggester` mapping-first — klassisch direkt via
+`SearchCLI`, agentisch via `tool_registry`-Tools, die intern denselben `MetaSuggester`
+nutzen). Die Abhängigkeit ist **einseitig** agentisch→klassisch (kein Zirkel:
+`deterministic_functions` importiert `verify_keywords_against_gnd_pool` +
+`PipelineStepExecutor.execute_dk_search` aus `pipeline_utils`, nicht umgekehrt).
+`PipelineManager` *komponiert* `AlimaManager` (kein Subclass, keine Doppel-Orchestrierung).
+Der Seed wird in `shared_context.to_keyword_analysis_state` bereits durchgereicht.
+
+**Neu — `src/core/gnd_search_core.py`** (reine Funktionen, kein Import aus
+pipeline_utils/deterministic_functions/search_cli → kein Zyklus):
+- `merge_code_entry` — geteilter Merge-Atom (Max-Count + Union, containertyp-erhaltend:
+  set→`update`, list→order-preserving dedup). Genutzt von klassisch
+  `SearchCLI.merge_results` **und** agentisch `merge_into_pool`.
+- `merge_into_pool` / `parse_batch_response` / `parse_batch_response_with_terms` —
+  aus `deterministic_functions` extrahiert; backen jetzt `gnd_batch_search`
+  **und** `catalog_multi_search` (3 Aufrufstellen entdoppelt).
+- `rank_pool` — `source_count`-Attachierung + Ranking `(source_count, count)` desc.
+  Docstring dokumentiert die **Count-Landmine** (Pool-`count` steuert
+  `selection_chunks`→`selection`; nie summieren, nur `max`).
+
+**Neu — `src/utils/chunking.py`** `split_into_equal_chunks`: das gespiegelte
+Equal-Chunk-Splitting aus `pipeline_utils._execute_chunked_keyword_analysis` und
+`llm_agent_step` (dort als `_split_chunks_classic` re-exportiert) — eine Quelle der
+Wahrheit gegen künftige Drift.
+
+**Bewusst NICHT angefasst (Befund):** Keyword-Extraktion ist keine sichere
+Konsolidierung — `extract_keywords_from_response` (String) und
+`extract_keywords_from_descriptive_text` (Tupel + GND-Validierung) haben verschiedene
+Verträge; `extract_keywords_from_descriptive_text_simple` ist Dead-Code (→ WP13).
+
+**Tests.** Neu `tests/test_gnd_search_core.py` (14). Bestehende Safety-Nets grün:
+`TestGndBatchSearchConvergence`, `TestClassicChunkSplitting`. Voller Lauf
+(file-isoliert): 60 Dateien clean; unverändert die 2 bekannten Pre-existing-Fails
+(Qt-Abort `test_analysis_review_tab`, DK-Title-Konvergenz). Keine neuen Fehler.
+
+**Caveats.** Verifiziert via Charakterisierungs-Tests + isolierter Suite, **nicht**
+gegen einen Live-Vergleichslauf klassisch↔agentisch (steht für Operator aus). Byte-
+Identität gilt für die getesteten Pfade; die `list`-Merge-Reihenfolge ist nun
+deterministisch (vorher via `set()` nicht-deterministisch) — funktional äquivalent,
+da Selektion/Ranking nicht von Code-Reihenfolge abhängt.
+
 ### Rate-Limit-Retry für Tool-Calling (HTTP 429) (June 25, 2026)
 
 Provider-Rate-Limits (429) brachen bisher den ganzen agentischen Workflow ab:

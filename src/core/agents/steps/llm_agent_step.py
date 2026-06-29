@@ -49,6 +49,10 @@ from src.core.agents.context_path import resolve_mapping
 from src.core.agents.prompt_resolver import resolve_prompts
 from src.core.agents.registry import register_step
 from src.core.agents.steps.base_step import BaseStep, StepConfig
+# Shared keyword-chunking split (classic-pipeline semantics) — single source of
+# truth lives in src/utils/chunking.py; kept under the historic private name so
+# existing imports/tests keep working. - Claude Generated
+from src.utils.chunking import split_into_equal_chunks as _split_chunks_classic
 
 logger = logging.getLogger(__name__)
 
@@ -61,37 +65,6 @@ _TOOL_PRESETS_FALLBACK: Dict[str, List[str]] = {
     "classification": ["get_dk_cache", "get_classification", "search_catalog"],
     "none": [],
 }
-
-
-def _split_chunks_classic(items: List[Any], threshold: int) -> List[List[Any]]:
-    """Split items with classic-pipeline semantics - Claude Generated
-
-    Mirrors ``_execute_chunked_keyword_analysis`` in pipeline_utils:
-    at or below the threshold everything goes into ONE call; above it,
-    items are distributed into EQUAL chunks (2 chunks up to 1.5×threshold,
-    otherwise ceil(total/threshold)) instead of fixed-size slices with a
-    small tail chunk.
-    """
-    total = len(items)
-    if total == 0:
-        return []
-    if threshold <= 0 or total <= threshold:
-        return [list(items)]
-
-    if total <= threshold * 1.5:
-        num_chunks = 2
-    else:
-        num_chunks = max(2, (total + threshold - 1) // threshold)
-
-    base_size = total // num_chunks
-    remainder = total % num_chunks
-    chunks: List[List[Any]] = []
-    start = 0
-    for i in range(num_chunks):
-        size = base_size + (1 if i < remainder else 0)
-        chunks.append(list(items[start:start + size]))
-        start += size
-    return chunks
 
 
 @register_step("llm_agent")
