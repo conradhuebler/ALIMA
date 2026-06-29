@@ -15,6 +15,17 @@ The `src/utils/` directory provides essential configuration management and utili
 - `exporters` (P-θ): JSON/CSV/TeX/MARC writers + `load_state` for autosave JSONs
 - `report_renderer` (P-θ): Jinja2 LaTeX report generator with custom delimiters `(((  )))` / `((* *))`, optional pdflatex build
 
+**Pipeline modules** (split out of the former `pipeline_utils.py` god-module; all
+re-exported from `pipeline_utils` via a facade, so `from …pipeline_utils import X`
+keeps working):
+- `pipeline_utils.py`: `PipelineStepExecutor` (shared CLI/GUI/Webapp step logic) + classic-step helpers (`_emit_classic_*`, `_run_classic_step`).
+- `pipeline_input.py`: `execute_input_extraction` (PDF/image/text/OCR).
+- `gnd_keyword_utils.py`: GND-pool verification + keyword/RVK canonicalisation (leaf).
+- `pipeline_text_utils.py`: pure text/display/title helpers (leaf, shared by executor + formatter).
+- `pipeline_formatters.py`: `PipelineResultFormatter`.
+- `pipeline_persistence.py`: `PipelineJsonManager`, `export_analysis_state_to_file`, `AnalysisPersistence`.
+- `chunking.py`: `split_into_equal_chunks` (shared with agentic `llm_agent_step`).
+
 ### Configuration Management System
 **ConfigManager Features:**
 - **Thread-Safe Singleton Pattern**: Single instance ensuring consistent configuration access across entire application

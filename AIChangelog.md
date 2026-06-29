@@ -6,6 +6,50 @@
 
 ## 2026
 
+### Kern-Aufräumung II: pipeline_utils Modul-Split (June 29, 2026)
+
+Der 7615-Zeilen-Gott-Modul `src/utils/pipeline_utils.py` wurde in fokussierte
+Module zerlegt. **Strategie: Facade.** Code wird in neue Module verschoben und in
+`pipeline_utils` per `from .<modul> import …` **re-exportiert** — kein einziger
+externer Importer (`from …pipeline_utils import X` in UI/CLI/Webapp/Tests) muss
+geändert werden. Inkrementell, Modul für Modul, Tests nach jedem Schritt.
+
+**Neue Module (`src/utils/`):**
+- `pipeline_input.py` (465) — `execute_input_extraction` + PDF/Image/OCR-Helfer.
+- `gnd_keyword_utils.py` (508) — `verify_keywords_against_gnd_pool`,
+  `extract_keywords_from_descriptive_text*`, `canonicalize_*`, `extract_gnd_id`,
+  `deduplicate_canonical_keywords` (Leaf, kein Executor-Import).
+- `pipeline_text_utils.py` (243) — reine Text/Display/Title-Helfer
+  (`repair_display_text`, `sanitize_for_filename`, `build_working_title`,
+  `extract_source_identifier`, `flatten_keyword_centric_results`); Leaf, von
+  Executor **und** Formatter genutzt.
+- `pipeline_formatters.py` (992) — `PipelineResultFormatter` (importiert nur die
+  Text-Leaf-Helfer, einseitig).
+- `pipeline_persistence.py` (400) — `PipelineJsonManager`,
+  `export_analysis_state_to_file`, `AnalysisPersistence`.
+
+`pipeline_utils.py`: **7615 → 5098 Zeilen** (−33%), enthält jetzt fokussiert die
+Classic-Step-Helfer (`_emit_classic_*`, `_run_classic_step`) + die Klasse
+`PipelineStepExecutor` (inkl. `execute_complete_pipeline`).
+
+**Fallen beim Split (alle gefixt + verifiziert):** Modul-globale Namen wandern
+nicht automatisch mit — `logger = logging.getLogger(__name__)` musste in
+`pipeline_text_utils`/`pipeline_formatters`/`pipeline_persistence` neu gesetzt
+werden; Annotationen werden bei `def`-Zeit ausgewertet → fehlende Typing-Namen
+(`Set`) und Datamodel-Klassen (`TaskState` & Co. in `pipeline_persistence`) mussten
+importiert werden. Import-Test fängt Annotation-NameErrors zuverlässig.
+
+**Bewusst NICHT zerlegt:** `PipelineStepExecutor` bleibt eine Klasse (~4900 Z.) —
+ein Split via Mixins wäre riskant/unleserlich ohne echten Nutzen.
+
+**Tests.** File-isolierte Gesamtsuite: 59–60 Dateien clean; unverändert die 2
+bekannten Pre-existing-Issues (DK-Title-Konvergenz, Qt-Abort
+`test_analysis_review_tab`). `test_image_analysis_tab` zeigte einen **flaky** Qt-
+Teardown-Abort am Interpreter-Exit (auf Wiederholung grün), keine Logik-Regression.
+
+**Caveat.** Keine Verhaltensänderung beabsichtigt; abgesichert über die bestehende
+Suite + Import-Checks, nicht über einen Live-Pipeline-Lauf.
+
 ### Kern-Aufräumung I: geteilter GND-Such-Kern + Chunking-Dedup (June 29, 2026)
 
 Erste Aufräum-Runde an den beiden Kernen (klassische Pipeline ↔ Agentik v4). Ziel:
