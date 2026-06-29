@@ -124,8 +124,10 @@ Verträge; `extract_keywords_from_descriptive_text_simple` ist Dead-Code (→ WP
 (file-isoliert): 60 Dateien clean; unverändert die 2 bekannten Pre-existing-Fails
 (Qt-Abort `test_analysis_review_tab`, DK-Title-Konvergenz). Keine neuen Fehler.
 
-**Caveats.** Verifiziert via Charakterisierungs-Tests + isolierter Suite, **nicht**
-gegen einen Live-Vergleichslauf klassisch↔agentisch (steht für Operator aus). Byte-
+**Caveats.** Verifiziert via Charakterisierungs-Tests + isolierter Suite.
+Operator-Vergleichslauf klassisch↔agentisch (June 29, 2026): beide Pfade laufen
+durch, reasonable results — keine Regression (klassisch≠agentisch ist erwartet,
+verschiedene Pfade by design). Byte-
 Identität gilt für die getesteten Pfade; die `list`-Merge-Reihenfolge ist nun
 deterministisch (vorher via `set()` nicht-deterministisch) — funktional äquivalent,
 da Selektion/Ranking nicht von Code-Reihenfolge abhängt.

@@ -109,7 +109,7 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **ADDED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Wartet auf Operator-Vergleichslauf (→ TESTED).
+- **TESTED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Operator-Vergleichslauf June 29, 2026: beide Pfade laufen durch, reasonable results (klassisch≠agentisch by design). → bereit für APPROVED (Operator-Entscheid: in Changelog verschieben + hier entfernen).
 
 ## [Instructions Block — Operator-Defined Tasks]
 
