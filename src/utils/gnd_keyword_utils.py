@@ -384,29 +384,6 @@ def extract_keywords_from_descriptive_text(
     return [], []
 
 
-def extract_keywords_from_descriptive_text_simple(
-    text: str, gnd_compliant_keywords: List[str]
-) -> List[str]:
-    """Simplified keyword extraction using basic string containment - Claude Generated"""
-
-    if not text or not gnd_compliant_keywords:
-        return []
-
-    matched_keywords = []
-    text_lower = text.lower()
-
-    for gnd_keyword in gnd_compliant_keywords:
-        if "(" in gnd_keyword and ")" in gnd_keyword:
-            # Extract clean keyword
-            clean_keyword = gnd_keyword.split("(")[0].strip().lower()
-
-            # Simple containment check
-            if clean_keyword in text_lower:
-                matched_keywords.append(gnd_keyword)
-
-    return matched_keywords
-
-
 def extract_classes_from_descriptive_text(text: str, output_format: Optional[str] = None) -> List[str]:
     """Extract classification classes from LLM text - Claude Generated
 

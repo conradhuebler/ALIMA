@@ -253,6 +253,7 @@ alima_presets_*.json
 *.db
 *.db.backup*
 *.bak
+*.backup
 *.tmp
 *~
 *.aux

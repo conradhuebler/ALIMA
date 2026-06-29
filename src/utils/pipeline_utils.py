@@ -54,7 +54,6 @@ from .pipeline_input import (
 from .gnd_keyword_utils import (
     verify_keywords_against_gnd_pool,
     extract_keywords_from_descriptive_text,
-    extract_keywords_from_descriptive_text_simple,
     extract_classes_from_descriptive_text,
     canonicalize_keyword,
     extract_gnd_id,

@@ -2,22 +2,20 @@
 
 ## [Preserved Section - Permanent Documentation]
 
-### Utils Architecture
-The `src/utils/` directory provides essential configuration management and utility services for ALIMA:
+### Core Components
+- `ConfigManager`: thread-safe singleton; JSON-persisted unified config + provider system. `reset()` for test isolation.
+- `TextProcessor`: language detection, keyword extraction, text cleaning, stopword filtering.
+- `model_capabilities`: auto-detection of model-specific chunking thresholds (15+ patterns; explicit > pattern > default).
+- `repetition_detector`: LLM repetition-loop detection (char/n-gram/window) + parameter-variation suggestions.
+- `smart_provider_selector`: provider/model resolution (explicit UI > task prefs > config defaults).
+- `pdf_extractor` (P-η): PyPDF2 extraction + quality heuristic + optional Vision-LLM OCR fallback.
+- `image_analyzer` (P-η): sync wrapper over `LlmService.generate_response(image=...)`.
+- `exporters` / `report_renderer` (P-θ): JSON/CSV/TeX/MARC writers + `load_state`; Jinja2 LaTeX reports (delimiters `(((  )))` / `((* *))`).
+- `batch_processor`: batch engine over `PipelineStepExecutor` (DOI/PDF/TXT/IMG/URL; resume via `BatchState`).
+- `pipeline_config_parser` / `pipeline_config_builder`: single source of truth for CLI/GUI pipeline param parsing + validation.
 
-**Core Components:**
-- `ConfigManager`: Centralized configuration management with JSON persistence and unified provider system
-- `TextProcessor`: Advanced text analysis and processing utilities
-- `model_capabilities`: Auto-detection of model-specific chunking thresholds (15+ model patterns)
-- `repetition_detector`: LLM repetition loop detection with parameter variation suggestions
-- `pdf_extractor` (P-η): Pure-Python PDF text extraction (PyPDF2) with quality heuristic + optional Vision-LLM OCR fallback
-- `image_analyzer` (P-η): Sync wrapper over `LlmService.generate_response(image=...)` for Vision-LLM calls
-- `exporters` (P-θ): JSON/CSV/TeX/MARC writers + `load_state` for autosave JSONs
-- `report_renderer` (P-θ): Jinja2 LaTeX report generator with custom delimiters `(((  )))` / `((* *))`, optional pdflatex build
-
-**Pipeline modules** (split out of the former `pipeline_utils.py` god-module; all
-re-exported from `pipeline_utils` via a facade, so `from …pipeline_utils import X`
-keeps working):
+### Pipeline modules
+Split out of the former `pipeline_utils.py` god-module; all re-exported from `pipeline_utils` via a facade, so `from …pipeline_utils import X` keeps working:
 - `pipeline_utils.py`: `PipelineStepExecutor` (shared CLI/GUI/Webapp step logic) + classic-step helpers (`_emit_classic_*`, `_run_classic_step`).
 - `pipeline_input.py`: `execute_input_extraction` (PDF/image/text/OCR).
 - `gnd_keyword_utils.py`: GND-pool verification + keyword/RVK canonicalisation (leaf).
@@ -26,194 +24,34 @@ keeps working):
 - `pipeline_persistence.py`: `PipelineJsonManager`, `export_analysis_state_to_file`, `AnalysisPersistence`.
 - `chunking.py`: `split_into_equal_chunks` (shared with agentic `llm_agent_step`).
 
-### Configuration Management System
-**ConfigManager Features:**
-- **Thread-Safe Singleton Pattern**: Single instance ensuring consistent configuration access across entire application
-  - Uses `threading.Lock` for thread-safe singleton creation (similar to UnifiedKnowledgeManager)
-  - All `ConfigManager()` calls return the same instance automatically
-  - `reset()` method available for test isolation (testing only)
-- **Unified Provider System**: Centralized management of all LLM providers (Ollama, OpenAI, Gemini, Anthropic)
-- **JSON Persistence**: Human-readable configuration files with automatic saving/loading
-- **Type-Safe Configuration**: Dataclass-based configuration objects with validation
-- **Environment Override Support**: Environment variable configuration overrides
-
-**Configuration Sections:**
-- `AlimaConfig`: Main configuration object containing all sub-configurations
-- `DatabaseConfig`: SQLite/MySQL database configuration
-- `CatalogConfig`: Library catalog API configuration
-- `PromptConfig`: LLM prompt templates with variable substitution
-- `SystemConfig`: System-wide settings and paths
-- `UIConfig`: Interface preferences
-- `UnifiedProviderConfig`: Centralized provider management with task preferences
-
-### Advanced Configuration Features
-**AI Provider Management:**
-- Unified provider system supporting Ollama, OpenAI-compatible APIs, Google Gemini, and Anthropic Claude
-- Flexible provider configuration with multiple hosts/instances
-- Provider priority ordering and task-specific preferences
-- Secure API key storage and management
-
-**Prompt Template System:**
-- JSON-based template storage with variable substitution
-- Task-specific prompt optimization
-- Model-specific prompt variations
-- Required variable validation and documentation
-
-**Configuration Validation:**
-- Comprehensive validation with error reporting
-- Provider and model availability checking
-- Directory creation and permission checks
-- Environment-specific configuration adjustments
-
-### TextProcessor Capabilities
-**Text Analysis Features:**
-- **Language Detection**: Automatic language identification
-- **Keyword Extraction**: Advanced keyword identification algorithms
-- **Text Cleaning**: Unicode normalization and special character handling
-- **Statistical Analysis**: Text metrics and content analysis
-- **Stopword Filtering**: Multi-language stopword removal
-
-**Processing Pipeline:**
-- Multi-stage text processing with configurable steps
-- Result caching for performance optimization
-- Error handling and graceful degradation
-- Support for various text formats and encodings
+### Configuration
+- Location: `~/.config/alima/config.json` (unified JSON; legacy migration complete).
+- Sections (dataclasses): `AlimaConfig`, `DatabaseConfig`, `CatalogConfig`, `PromptConfig`, `SystemConfig`, `UIConfig`, `UnifiedProviderConfig`.
+- Providers: Ollama, OpenAI-compatible, Gemini, Anthropic; multi-host, priority ordering, task-specific preferences; environment-variable overrides.
 
 ## [Variable Section - Short-term Information]
 
-### Recent Enhancements (Claude Generated)
-1. **Unified Config System**: Streamlined configuration with JSON-based unified provider management
-2. **Provider Configuration**: Improved AI provider management and validation
-3. **Template System**: Enhanced prompt template loading and variable substitution
-4. **Text Processing**: Optimized keyword extraction and language detection
-5. **✅ ADDED: Model Capabilities Registry (`model_capabilities.py`)**: Auto-detection of optimal chunking thresholds
-   - Pattern-based model recognition (15+ patterns covering major LLM families)
-   - Auto-detection: Large models (1000 kw), Medium (500 kw), Small (200-300 kw)
-   - Explicit override support with priority handling (explicit > pattern > default)
-   - GUI integration: Spinbox special value "Auto" (0) triggers auto-detection
-6. **✅ FIXED: Provider Selection Priority**: Manual UI selections now override task preferences
-   - Correct priority order: Explicit UI > Task preferences > Config defaults
-   - Enhanced logging with visual indicators (🎯 explicit, 📋 preference, ⚙️ default)
-7. **✅ ADDED: Repetition Detector (`repetition_detector.py`)**: LLM repetition loop detection
-   - Three detection methods: char patterns, N-gram counting, window similarity (Jaccard)
-   - Configurable thresholds and auto-abort functionality
-   - Parameter variation suggestions for recovery
-8. **✅ ADDED: Per-Model Chunking Thresholds**: Model-specific keyword chunking configuration
-   - `UnifiedProviderConfig.model_chunking_thresholds` for per-model settings
-   - Priority: explicit > per-model config > pattern match > default
-   - UI integration in unified_provider_tab with spinbox per model
-   - Stronger validation for empty/whitespace provider/model strings
-7. **🚀 MAJOR: Pipeline Utils (`pipeline_utils.py`)**: Shared logic abstraction for CLI and GUI
-   - **PipelineStepExecutor**: Unified pipeline step execution logic
-   - **PipelineJsonManager**: JSON serialization/deserialization utilities
-   - **PipelineResultFormatter**: Result formatting for display/prompts
-   - **execute_complete_pipeline()**: End-to-end pipeline execution function
-8. **✅ ADDED: Batch Processing (`batch_processor.py`)**: Complete batch processing system
-   - **BatchProcessor**: Main engine using PipelineStepExecutor
-   - **BatchSourceParser**: Validates and parses batch file formats
-   - **BatchState**: Resume functionality with JSON persistence
-   - **SourceType Enum**: DOI, PDF, TXT, IMG, URL support
-   - **Callbacks**: on_source_start, on_source_complete, on_batch_complete
-   - **Error Handling**: Continue-on-error and stop-on-error modes
-9. **✅ ADDED: Pipeline Configuration Consolidation**: Unified parameter parsing and validation
-   - **PipelineConfigParser** (`pipeline_config_parser.py`): Consolidated parsing and validation logic
-     - Unified CLI/GUI parameter parsing (CLI format: `STEP=PROVIDER|MODEL` or `STEP=VALUE`)
-     - Step-aware task validation for consistent behavior across interfaces
-     - Range validation for temperature (0.0-2.0), top_p (0.0-1.0), seed, and custom parameters
-     - Single source of truth for step-to-tasks mapping (initialisation, keywords, dk_classification)
-   - **PipelineConfigBuilder** (`pipeline_config_builder.py`): Unified configuration construction
-     - Baseline configuration generation from provider preferences
-     - Validated override application with comprehensive error tracking
-     - Support for all parameter types: provider, model, task, temperature, top_p, seed, custom_params
-     - Error accumulation and reporting for partial configuration handling
-   - **Benefits**: Eliminated ~200 lines of duplication, consistent validation across CLI/GUI, feature parity (CLI now supports DK thresholds and keyword chunking parameters)
-
-### Configuration Status
-- **Config Location**: `~/.config/alima/config.json`
-- **Default Values**: Comprehensive defaults for all configuration sections
-- **Validation**: Active validation with detailed error reporting
-- **Migration**: Legacy configuration migration completed - system now uses unified JSON format exclusively
-
-### Development Notes
-- All new utility functions marked as "Claude Generated"
-- Comprehensive logging throughout configuration system
-- Type hints maintained for better IDE integration
-- Environment variable support for containerized deployments
+### Known state — API keys in plaintext
+`~/.config/alima/config.json` stores provider API keys unencrypted. Encryption/keyring is a separate (security, platform-dependent) package — recorded here so it is not mistaken for an oversight.
 
 ### WIP: DK Classification Splitting
-- **50/50 Split Logic**: Divide DK classification list into two equal halves for parallel processing
-- **Chunk Execution**: Each chunk gets full abstract + its half of DK classifications via `_execute_dk_classification_chunk()`
-- **Merge Strategy**: Combine results with intelligent deduplication (case-insensitive, whitespace-normalized), limit to top 15
-- **Integration**: `execute_dk_classification_split()` in pipeline_utils.py, called from `execute_dk_classification()` when enabled
-- **Configuration**: `enable_dk_splitting` + `dk_split_threshold` parameters in PipelineStepConfig
-- **Documentation**: See `docs/dk_classification_splitting.md` for complete architecture and performance analysis
-- **Benefits**: ~50% token reduction per request, better LLM focus, more reliable parsing
+Split the DK list into equal halves for parallel LLM classification, merge with dedup (top 15). `execute_dk_classification_split()` in `pipeline_utils.py`, gated by `enable_dk_splitting` + `dk_split_threshold`. Details: `docs/dk_classification_splitting.md`.
 
-### Known Issues & Improvements
-- **FIXME: Keyword Parser Robustness** (`pipeline_utils.py:1545-1553`): LLM inconsistently outputs comma-separated keywords instead of pipe-separated. Added fallback to handle both formats. **Future improvement**: Make prompt templates more explicit about format requirements and standardize LLM instructions across all models.
-- **FIX: Non-Matched Keywords for DK Search** (`pipeline_utils.py:1565-1596`): Keywords without GND cache matches (e.g., "Molekül", "Festkörper") are now included in DK catalog search as plain keywords. FIXME: Investigate why some valid keywords fail GND lookup - could indicate cache staleness or incomplete GND system coverage.
+### Known Issues
+- **Keyword parser robustness**: LLM sometimes emits comma- instead of pipe-separated keywords; fallback handles both. Improvement: tighten prompt format instructions across models.
+- **Non-matched keywords for DK search**: keywords without GND-cache match are passed to DK catalog search as plain keywords. Investigate cache staleness / incomplete GND coverage.
 
 ### Current Prompt Templates
-- `abstract_analysis`: Schlagwort extraction from abstracts
-- `results_verification`: GND keyword quality verification
-- `concept_extraction`: General concept identification
-- `ub_search`: University library search optimization
-- `classification`: DDC classification assignment
+`abstract_analysis`, `results_verification`, `concept_extraction`, `ub_search`, `classification`.
 
 ## [Instructions Block - Operator-Defined Tasks]
 
 ### Future Tasks
-1. **ADD - Configuration UI**: Graphical configuration editor for complex settings
-2. **ADD - Template Editor**: Advanced template editor with syntax highlighting
-3. **ADD - Profile Management**: Multiple configuration profiles for different use cases
-4. **ADD - Cloud Sync**: Configuration synchronization across multiple installations
-5. **ADDED - Pipeline Abstraction**: Shared CLI/GUI pipeline logic in `pipeline_utils.py`
-
-### Recently ADDED Features
-1. **✅ PipelineStepExecutor**: 
-   - Unified execution logic for initialisation, search, and final keyword analysis
-   - Consistent error handling and logging across CLI and GUI
-   - Stream callback support for real-time feedback
-   - Configurable parameters and model selection
-
-2. **✅ PipelineJsonManager**:
-   - Complete JSON serialization/deserialization for `TaskState` and `KeywordAnalysisState`
-   - Set-to-list conversion for JSON compatibility
-   - Save/load functionality with comprehensive error handling
-
-3. **✅ Complete Pipeline Function**:
-   - `execute_complete_pipeline()` runs full workflow from input to final keywords
-   - Used by both CLI (`pipeline` command) and GUI (PipelineManager)
-   - Eliminates code duplication between implementations
-
-### ✅ PRODUCTION READY - Tested and Verified
-
-**Pipeline Utils Functions:**
-- **PipelineStepExecutor**: Successfully handles all 3 LLM steps (initialisation, keywords, classification)
-- **PipelineJsonManager**: Save/resume functionality working for both CLI and GUI
-- **Stream Callback Compatibility**: Adapts between GUI (token, step_id) and CLI (token) formats
-- **Parameter Filtering**: Correctly filters config parameters for AlimaManager compatibility
-
-**CLI Integration:**
-```bash
-# New unified pipeline command
-python alima_cli.py pipeline --input-text "..." --initial-model "cogito:14b" --final-model "cogito:32b"
-
-# Resume from saved state
-python alima_cli.py pipeline --resume-from "results.json"
-
-# List available models
-python alima_cli.py list-models --ollama-host "http://server" --ollama-port 11434
-```
-
-**GUI Integration:**
-- PipelineManager refactored to use PipelineStepExecutor
-- All pipeline steps working with real-time streaming
-- JSON save/resume capabilities added to GUI
+1. **Configuration UI**: graphical editor for complex settings
+2. **Template Editor**: advanced prompt editor with syntax highlighting
+3. **Profile Management**: multiple configuration profiles per use case
+4. **Cloud Sync**: configuration synchronization across installations
 
 ### Vision
-- Establish comprehensive configuration ecosystem supporting all ALIMA features
-- Provide intuitive configuration management for non-technical users
-- Support for advanced deployment scenarios (Docker, cloud, enterprise)
-- Integration with external configuration management systems (Ansible, Terraform)
-- Real-time configuration updates without application restart
+- Comprehensive configuration ecosystem for all ALIMA features, usable by non-technical users.
+- Advanced deployment scenarios (Docker, cloud, enterprise); real-time config updates without restart.

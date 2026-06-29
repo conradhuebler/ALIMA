@@ -41,7 +41,6 @@ from typing import Optional, Dict
 from .find_keywords import SearchTab
 from .abstract_tab import AbstractTab
 from .comprehensive_settings_dialog import ComprehensiveSettingsDialog
-from ..core.search_engine import SearchEngine
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.gndparser import GNDParser
 from ..core.gitupdate import GitUpdateWorker
@@ -340,7 +339,6 @@ class MainWindow(QMainWindow):
         # self.config = UnifiedProviderConfig()  # Legacy config reference removed
         # Initialisiere Core-Komponenten
         self.cache_manager = UnifiedKnowledgeManager()
-        self.search_engine = SearchEngine(self.cache_manager)
         self.logger = logging.getLogger(__name__)
 
         # Bus-driven result-tab refresh (Konvergenz Pipeline/Agent) - Claude Generated
