@@ -8,6 +8,8 @@ executor and PipelineResultFormatter can share these. Split out of the former
 import html
 import logging
 import re
+from datetime import datetime
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)

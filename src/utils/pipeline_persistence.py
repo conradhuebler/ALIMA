@@ -6,9 +6,12 @@ Split out of the former ``pipeline_utils`` god-module; still re-exported from it
 No dependency on PipelineStepExecutor.
 """
 
+import dataclasses
 import json
 import logging
 import os
+from dataclasses import asdict
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..core.data_models import (
