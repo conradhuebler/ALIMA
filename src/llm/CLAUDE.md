@@ -57,6 +57,11 @@ The `src/llm/` directory provides a unified interface for integrating multiple L
 
 ## [Variable Section - Short-term Information]
 
+### Provider Dispatch (live set)
+- **Text path** (`generate_response`): dispatches via `supported_providers[p]['generator']` — 4 live generators: `_generate_gemini`, `_generate_anthropic`, `_generate_ollama_native`, `_generate_openai_compatible` (GitHub/Azure run as `openai_compatible`).
+- **Tool path** (`generate_with_tools`): dispatches by `provider_type`, wrapped in `_retry_on_rate_limit`; 5 `_generate_*_with_tools` generators (+ text fallback).
+- Shared scaffolding: `_convert_messages_for_{ollama,openai}`, `_retry_on_rate_limit`, `_apply_openai_think`. Per-provider generators are genuinely provider-specific (no further safe dedup; superseded HTTP-Ollama/GitHub/Azure generators removed June 2026).
+
 ### Recent Enhancements (Claude Generated)
 1. **Enhanced Signal System**: Improved PyQt signal handling for real-time streaming
 2. **Provider Stability**: Better error handling and connection management

@@ -6,6 +6,36 @@
 
 ## 2026
 
+### Kern-Aufräumung III: llm_service Per-Provider-Entdopplung (June 29, 2026)
+
+Untersuchung der vermuteten „~80% Per-Provider-Duplikation" in
+`src/llm/llm_service.py`. **Befund (verifiziert):** Die Behauptung hält nicht —
+die *lebenden* Generatoren sind genuin provider-spezifisch (eigene SDKs,
+Streaming-Protokolle, Tool-Schema-Formate, Response-Parsing) und teilen ihr
+Gerüst bereits: Dispatch-Registry (`supported_providers[p]['generator']` für den
+Text-Pfad, Dispatch-by-`provider_type` für den Tool-Pfad), `_convert_messages_for_*`,
+`_retry_on_rate_limit`, `_apply_openai_think`. Die „Duplikation" war in Wahrheit
+**abgelöster Dead-Code**.
+
+**Entfernt (436 Zeilen, alle mit 0 Referenzen — keine Calls/Strings/getattr/
+Registry/Tests):**
+- `_generate_ollama` (HTTP) — abgelöst durch `_generate_ollama_native` (Registry
+  nutzt nur den Native-Generator, vgl. „BUGFIX"-Kommentar).
+- `_generate_github` + `_generate_azure_inference` — abgelöst durch
+  `_generate_openai_compatible` (GitHub/Azure laufen als `openai_compatible`).
+- `_init_ollama` (HTTP) + `_init_azure_inference` — zugehörige tote Initializer.
+
+Die 4 lebenden Text-Generatoren (gemini/anthropic/ollama-native/openai_compatible)
++ 5 Tool-Generatoren + alle 4 `_cancel_*`-Helfer (via `cancel_generation`) bleiben
+unangetastet. `llm_service.py`: **3493 → 3057 Zeilen** (−12,5%).
+
+**Bewusst NICHT gemacht:** Strategy-Pattern-Rewrite der lebenden Generatoren —
+hohes Risiko an der kritischsten Schicht für minimalen echten Dedup-Gewinn.
+
+**Tests.** `test_llm_service_seed`, `test_streaming_with_tools`, `test_rate_limit_retry`
+grün (47). File-isolierte Gesamtsuite: 60 clean, unverändert die 2 bekannten
+Pre-existing-Issues. Keine neuen Fehler; keine Restreferenzen auf entfernte Methoden.
+
 ### Kern-Aufräumung II: pipeline_utils Modul-Split (June 29, 2026)
 
 Der 7615-Zeilen-Gott-Modul `src/utils/pipeline_utils.py` wurde in fokussierte
