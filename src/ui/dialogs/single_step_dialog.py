@@ -48,8 +48,8 @@ from src.core.agents.state_bridge import load_state_file
 from src.core.agents.sub_agents import create_caching_registry
 from src.core.agents.workflow_executor import WorkflowExecutor
 from src.core.agents.workflow_loader import (
-    DEFAULT_SEARCH_PATHS,
     WorkflowDef,
+    discover_workflow_files,
     load_workflow,
 )
 from src.ui.forms.form_field import FormField
@@ -301,22 +301,14 @@ class SingleStepDialog(QDialog):
     def _populate_workflows(self) -> None:
         self.workflow_combo.blockSignals(True)
         self.workflow_combo.clear()
-        seen: set = set()
-        for base in DEFAULT_SEARCH_PATHS:
-            if not base.exists() or not base.is_dir():
+        for path in discover_workflow_files():
+            try:
+                wf = load_workflow(path, strict=False)
+            except Exception:
                 continue
-            for path in sorted(base.glob("*.yaml")):
-                key = path.resolve()
-                if key in seen:
-                    continue
-                seen.add(key)
-                try:
-                    wf = load_workflow(path, strict=False)
-                except Exception:
-                    continue
-                self.workflow_combo.addItem(
-                    f"{path.stem} (v{wf.version})", path.stem
-                )
+            self.workflow_combo.addItem(
+                f"{path.stem} (v{wf.version})", path.stem
+            )
         self.workflow_combo.blockSignals(False)
         if self.workflow_combo.count() > 0:
             self._on_workflow_changed(0)

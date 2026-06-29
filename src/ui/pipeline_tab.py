@@ -1828,7 +1828,7 @@ class PipelineTab(QWidget):
         """
         try:
             import yaml
-            from src.core.agents.workflow_loader import DEFAULT_SEARCH_PATHS
+            from src.core.agents.workflow_loader import DEFAULT_SEARCH_PATHS, discover_workflow_files
 
             def _wf_version(path) -> Optional[str]:
                 """Cheap top-level ``version`` read — tolerant of legacy
@@ -1843,28 +1843,25 @@ class PipelineTab(QWidget):
             # Discover stems → version, separating root and legacy workflows.
             root: dict = {}
             legacy: dict = {}
-            seen: set = set()
+            files = discover_workflow_files()
+            for path in files:
+                ver = _wf_version(path)
+                if ver is not None:
+                    root[path.stem] = ver
+            # legacy subdirs are not part of the shared top-level discovery
+            seen: set = {p.resolve() for p in files}
             for base in DEFAULT_SEARCH_PATHS:
-                if not base.exists() or not base.is_dir():
+                legacy_dir = base / "legacy"
+                if not legacy_dir.is_dir():
                     continue
-                for path in sorted(base.glob("*.yaml")):
+                for path in sorted(legacy_dir.glob("*.yaml")):
                     key = path.resolve()
                     if key in seen:
                         continue
                     seen.add(key)
                     ver = _wf_version(path)
                     if ver is not None:
-                        root[path.stem] = ver
-                legacy_dir = base / "legacy"
-                if legacy_dir.is_dir():
-                    for path in sorted(legacy_dir.glob("*.yaml")):
-                        key = path.resolve()
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        ver = _wf_version(path)
-                        if ver is not None:
-                            legacy[path.stem] = ver
+                        legacy[path.stem] = ver
 
             self.workflow_combo.blockSignals(True)
             self.workflow_combo.clear()

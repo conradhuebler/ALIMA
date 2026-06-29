@@ -2094,7 +2094,7 @@ class PipelineConfigDialog(QDialog):
         """
         try:
             from src.core.agents.workflow_loader import (
-                DEFAULT_SEARCH_PATHS,
+                discover_workflow_files,
                 load_workflow,
             )
         except Exception as e:  # noqa: BLE001
@@ -2104,21 +2104,13 @@ class PipelineConfigDialog(QDialog):
         self.workflow_combo.blockSignals(True)
         self.workflow_combo.clear()
 
-        seen: set = set()
-        for base in DEFAULT_SEARCH_PATHS:
-            if not base.exists() or not base.is_dir():
+        for path in discover_workflow_files():
+            try:
+                wf = load_workflow(path, strict=False)
+                label = f"{path.stem} (v{wf.version})"
+            except Exception:
                 continue
-            for path in sorted(base.glob("*.yaml")):
-                key = path.resolve()
-                if key in seen:
-                    continue
-                seen.add(key)
-                try:
-                    wf = load_workflow(path, strict=False)
-                    label = f"{path.stem} (v{wf.version})"
-                except Exception:
-                    continue
-                self.workflow_combo.addItem(label, path.stem)
+            self.workflow_combo.addItem(label, path.stem)
 
         if self.workflow_combo.count() == 0:
             self.workflow_combo.addItem("alima_classic", "alima_classic")

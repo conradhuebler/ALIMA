@@ -51,6 +51,7 @@ from src.webapp.result_serialization import (
 )
 from src.core.agents.workflow_loader import (
     DEFAULT_SEARCH_PATHS,
+    discover_workflow_files,
     find_workflow_file,
     load_workflow,
 )
@@ -965,14 +966,11 @@ async def process_input_only(
 
 
 def make_json_serializable(obj):
-    """Convert sets and other non-JSON types to JSON-serializable equivalents - Claude Generated"""
-    if isinstance(obj, set):
-        return list(obj)
-    elif isinstance(obj, dict):
-        return {k: make_json_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
-        return [make_json_serializable(v) for v in obj]
-    return obj
+    """Convert sets/tuples to JSON-serializable equivalents - Claude Generated.
+
+    Thin wrapper over the canonical ``PipelineJsonManager.convert_sets_to_lists``.
+    """
+    return PipelineJsonManager.convert_sets_to_lists(obj)
 
 
 def sanitize_filename(filename: str, max_length: int = 100) -> str:
@@ -1342,12 +1340,27 @@ def _discover_workflows() -> tuple[dict, dict, dict]:
     root: dict = {}
     legacy: dict = {}
     steps_by_stem: dict = {}
-    seen: set = set()
 
+    # Top-level workflows via the shared discovery (CLI/GUI use the same). - Claude Generated
+    files = discover_workflow_files()
+    for path in files:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            version = str(data.get("version", "?"))
+            root[path.stem] = version
+            steps_by_stem[path.stem] = _extract_workflow_steps(data)
+        except Exception as e:
+            logger.warning(f"Could not read workflow {path}: {e}")
+
+    # Legacy subdirs are not part of the shared top-level discovery — scan
+    # them here for backward display (deduped against the top-level set).
+    seen: set = {p.resolve() for p in files}
     for base in DEFAULT_SEARCH_PATHS:
-        if not base.exists() or not base.is_dir():
+        legacy_dir = base / "legacy"
+        if not legacy_dir.is_dir():
             continue
-        for path in sorted(base.glob("*.yaml"), key=lambda p: str(p.name)):
+        for path in sorted(legacy_dir.glob("*.yaml"), key=lambda p: str(p.name)):
             key = path.resolve()
             if key in seen:
                 continue
@@ -1356,25 +1369,10 @@ def _discover_workflows() -> tuple[dict, dict, dict]:
                 with open(path, encoding="utf-8") as fh:
                     data = yaml.safe_load(fh) or {}
                 version = str(data.get("version", "?"))
-                root[path.stem] = version
+                legacy[path.stem] = version
                 steps_by_stem[path.stem] = _extract_workflow_steps(data)
             except Exception as e:
-                logger.warning(f"Could not read workflow {path}: {e}")
-        legacy_dir = base / "legacy"
-        if legacy_dir.is_dir():
-            for path in sorted(legacy_dir.glob("*.yaml"), key=lambda p: str(p.name)):
-                key = path.resolve()
-                if key in seen:
-                    continue
-                seen.add(key)
-                try:
-                    with open(path, encoding="utf-8") as fh:
-                        data = yaml.safe_load(fh) or {}
-                    version = str(data.get("version", "?"))
-                    legacy[path.stem] = version
-                    steps_by_stem[path.stem] = _extract_workflow_steps(data)
-                except Exception as e:
-                    logger.warning(f"Could not read legacy workflow {path}: {e}")
+                logger.warning(f"Could not read legacy workflow {path}: {e}")
 
     return root, legacy, steps_by_stem
 

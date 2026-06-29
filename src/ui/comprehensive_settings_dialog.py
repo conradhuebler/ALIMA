@@ -26,7 +26,7 @@ from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, C
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
 from ..utils.config_models import TaskPreference, TaskType
-from ..core.agents.workflow_loader import DEFAULT_SEARCH_PATHS, is_v4_yaml
+from ..core.agents.workflow_loader import discover_workflow_files, is_v4_yaml
 
 
 class DatabaseTestWorker(QThread):
@@ -894,23 +894,20 @@ class ComprehensiveSettingsDialog(QDialog):
 
         seen: set = set()
         workflows: list[tuple[str, str]] = []
-        for base in DEFAULT_SEARCH_PATHS:
-            if not base.exists() or not base.is_dir():
+        for path in discover_workflow_files():
+            if path.stem in seen:
                 continue
-            for path in sorted(base.glob("*.yaml")):
-                if path.stem in seen:
+            seen.add(path.stem)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh) or {}
+                if not is_v4_yaml(data):
                     continue
-                seen.add(path.stem)
-                try:
-                    with open(path, encoding="utf-8") as fh:
-                        data = yaml.safe_load(fh) or {}
-                    if not is_v4_yaml(data):
-                        continue
-                    version = str(data.get("version", "?"))
-                    label = f"{path.stem} (v{version})"
-                    workflows.append((label, path.stem))
-                except Exception:
-                    continue
+                version = str(data.get("version", "?"))
+                label = f"{path.stem} (v{version})"
+                workflows.append((label, path.stem))
+            except Exception:
+                continue
 
         # Prefer a sensible order; unknown stems are appended alphabetically.
         preferred_order = ["alima_v51", "alima_v51_105", "alima", "alima_classic_v51", "alima_classic"]

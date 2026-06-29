@@ -23,6 +23,7 @@ from src.core.agents.sub_agents import create_caching_registry
 from src.core.agents.workflow_executor import WorkflowExecutor
 from src.core.agents.workflow_loader import (
     DEFAULT_SEARCH_PATHS,
+    discover_workflow_files,
     find_workflow_file,
     load_workflow,
 )
@@ -31,19 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 def _discover_workflows() -> List[Path]:
-    """Return every ``*.yaml`` under the configured search paths, deduped."""
-    seen: set[Path] = set()
-    out: List[Path] = []
-    for base in DEFAULT_SEARCH_PATHS:
-        if not base.exists() or not base.is_dir():
-            continue
-        for p in sorted(base.glob("*.yaml")):
-            key = p.resolve()
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(p)
-    return out
+    """Return every ``*.yaml`` under the configured search paths, deduped.
+
+    Thin wrapper over the shared ``workflow_loader.discover_workflow_files``. - Claude Generated
+    """
+    return discover_workflow_files()
 
 
 def _load_input_blob(args) -> Dict[str, Any]:

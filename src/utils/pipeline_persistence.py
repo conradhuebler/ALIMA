@@ -86,14 +86,14 @@ class PipelineJsonManager:
 
     @staticmethod
     def convert_sets_to_lists(obj):
-        """Convert sets to lists for JSON serialization - Claude Generated"""
+        """Convert sets/tuples to lists (recursively) for JSON serialization - Claude Generated"""
         if isinstance(obj, set):
             return list(obj)
         if isinstance(obj, dict):
             return {
                 k: PipelineJsonManager.convert_sets_to_lists(v) for k, v in obj.items()
             }
-        if isinstance(obj, list):
+        if isinstance(obj, (list, tuple)):
             return [PipelineJsonManager.convert_sets_to_lists(elem) for elem in obj]
         return obj
 

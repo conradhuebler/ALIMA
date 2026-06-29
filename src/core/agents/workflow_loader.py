@@ -71,6 +71,31 @@ def find_workflow_file(
     return None
 
 
+def discover_workflow_files(
+    search_paths: Optional[List[Path]] = None,
+) -> List[Path]:
+    """Return every top-level ``*.yaml`` workflow across the search paths.
+
+    Deduped by resolved path, sorted by filename within each search path. Shared
+    discovery for the CLI / webapp / GUI frontends — each layers its own
+    presentation (labels, versions, steps) on top. Legacy subdirectories are not
+    scanned. - Claude Generated
+    """
+    paths = search_paths or DEFAULT_SEARCH_PATHS
+    seen: set = set()
+    out: List[Path] = []
+    for base in paths:
+        if not base.exists() or not base.is_dir():
+            continue
+        for path in sorted(base.glob("*.yaml")):
+            key = path.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(path)
+    return out
+
+
 def is_v4_yaml(data: Dict[str, Any]) -> bool:
     """Return True if the parsed YAML uses the v4 ``steps:`` schema."""
     return isinstance(data, dict) and isinstance(data.get("steps"), list)
