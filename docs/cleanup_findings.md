@@ -41,11 +41,12 @@ Branch `agent`, commits `601614a … caec4a3`:
 ### P2 — Major workstream: Search-Provider-Plugins (+ coupled bug)
 | ID | Area | Finding | Action | Risk |
 |----|------|---------|--------|------|
-| F-3 | core/suggesters | DB/API search sources are ad-hoc; finc bypassed the suggester abstraction; `SuggesterType` enum + per-frontend wiring | Capability-based `SearchProvider` plugin standard + single registry; retire `SuggesterType`; auto-exposed selectable tools. Spec: [`search_provider_plugins.md`](search_provider_plugins.md) | high (touches search core) |
-| F-4 | agentic | "Häufigkeit zeigt 1": mapping-cache hits get `count=1`; agentic GND counts look wrong | Display-side fix only (`flatten_gnd_hits`/GUI), never the pool counts (count-landmine: changing pool count collapses chunk==final). **Operator: do with F-3.** | medium |
+| F-3 | core/suggesters | DB/API search sources were ad-hoc; finc bypassed the suggester abstraction; `SuggesterType` enum + per-frontend wiring | ✅ DONE (June 29, commits `5061801`/`35bc487`/`85900e2` + GUI): capability-based `SearchProvider` standard + single `@register_provider` registry (`src/core/search/`); `SuggesterType` retired; caching as `CachingProvider` wrapper; finc folded into the standard; MCP search tools generated from `ProviderToolSpec`; `SearchProviderConfig` + GUI selector. Spec: [`search_provider_plugins.md`](search_provider_plugins.md) | high (touches search core) |
+| F-4 | agentic | "Häufigkeit zeigt 1": mapping-cache hits got `count=1`; agentic GND counts looked wrong | ✅ DONE (June 29, with F-3 P2): cache now stores per-GND-ID `gnd_counts`; cache hits keep pool `count=1` (ranking unchanged) and restore a display-only `display_count` read by `flatten_gnd_hits`/GUI/agentic. `rank_pool` never reads it. Open: final agentic-run confirmation (needs LLM). | medium |
 
-F-4 is operator-coupled to F-3 ("kommt mit dem Plugin-System"). F-3 is the strategic
-direction (CLAUDE.md Vision) and the natural place to also fix F-4 cleanly.
+F-3/F-4 delivered as one workstream (P1+P2+P3). The MCP auto-generation was proven
+byte-identical to the former hand-written handlers; the GUI provider-selector needs
+an operator click-test (sandbox-untestable, per the GUI gate below).
 
 ### P3 — Structural refactors (high value, GUI-test-gated)
 **All blocked on an operator GUI click-test loop — not safely doable blind.**
@@ -75,6 +76,8 @@ direction (CLAUDE.md Vision) and the natural place to also fix F-4 cleanly.
 
 ## Suggested order
 1. ✅ F-1 done (caches purged); F-2 closed (verified non-issue).
-2. F-3 + F-4 as one workstream (plugin system unblocks the count bug) — the headline.
-3. Pre-existing test-debt triage (small, unblocks confidence).
+2. ✅ F-3 + F-4 done (plugin system + count bug, June 29) — the headline.
+3. Pre-existing test-debt triage (small, unblocks confidence). NOTE: dead
+   `src/core/tests/test_suggesters.py` (stale `core/suggesters` layout, never
+   collected) surfaced during F-3 — candidate for deletion.
 4. F-5/F-6/F-7 once a GUI test loop exists; F-8 opportunistically.

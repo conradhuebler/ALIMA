@@ -7,8 +7,9 @@
 
 ## Tool Sets
 - **Knowledge tools**: Wrap `UnifiedKnowledgeManager` (search_gnd, get_gnd_entry, etc.)
-- **Library tools**: Wrap suggesters/resolvers (search_lobid, search_swb, search_catalog, search_finc, resolve_doi, scrape_url, read_pdf, analyze_image)
-  - `search_finc` → finc/VuFind-JSON catalog (`FincSuggester`): search by subject / one-or-many titles / author; optional `facets` (e.g. `udk_raw_de105`, `rvk_facet`) for DK/RVK distribution. Config-gated (`finc_base_url`).
+- **Library tools**: search_lobid/swb/catalog/catalog_titles/finc + resolve_doi, scrape_url, read_pdf, analyze_image
+  - The 5 search_* tools are **generated** from each provider's `ProviderToolSpec` (`src/core/search/providers`) via `ToolRegistry._generated_search_tools()` — no hand-written schema/handler. Gated by `SearchProviderConfig` (per-provider enable/disable). `_handle_search_finc` kept for its availability/web_url logic, wired via the spec.
+  - `search_finc` → finc/VuFind-JSON catalog: search by subject / one-or-many titles / author; optional `facets` (e.g. `udk_raw_de105`, `rvk_facet`) for DK/RVK distribution. Config-gated (`finc_base_url`).
 - **Pipeline result tools**: Access saved JSON results (list, load, extract keywords/abstract)
 - **Export tools** (P-θ): `export_results` (json/csv/tex/marc), `generate_report` (Jinja2 TeX, optional pdflatex)
 

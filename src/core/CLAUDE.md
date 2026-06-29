@@ -38,9 +38,12 @@ The `src/core/` directory contains the fundamental business logic and data manag
 ## [Variable Section - Short-term Information]
 
 ### Current Issues
-- **ADD — Agentic GND "Häufigkeit" zeigt 1 (display/sort entkoppeln)**: Mapping-Cache-Treffer bekommen in `meta_suggester._add_cached_results_to_combined` `count=1`; klassisch zeigt `flatten_gnd_hits` das Max über alle Suchbegriffe → agentisch wirkt inkonsistent (meist 1).
-  - **Falle**: der Pool-`count` steuert auch die Reihenfolge (`gnd_batch_search` Sort `(source_count, count)` + Chunking `sort_by: count`). Ändert man die Pool-Counts (z. B. Max-Merge in `parse_batch_response*`), verschiebt sich `selection_chunks`→`selection` und Chunk/Final fallen zusammen (chunk = final). Naiver Max-Merge-Fix wurde aus genau diesem Grund zurückgenommen (Juni 2026).
-  - **Richtung**: Count NUR anzeigeseitig korrigieren (`flatten_gnd_hits`/GUI), ohne die `gnd_entries` zu verändern, die Selektion/Sortierung speisen. Verifikation: agentischer Lauf/State, prüfen dass Chunk ≠ Final bleibt.
+- ✅ **F-4 GND „Häufigkeit zeigt 1" (gelöst June 29)**: Mapping-Cache speichert jetzt
+  Per-GND-ID-Counts (`gnd_counts`); Cache-Treffer behalten Pool-`count=1`
+  (Ranking/Chunking unverändert — Count-Landmine) und tragen ein separates
+  `display_count` (echte Häufigkeit), das `flatten_gnd_hits`/GUI/Agentik anzeigen.
+  Caching liegt im `CachingProvider` (`src/core/search/`), nicht mehr in
+  `meta_suggester`. Offen: finaler agentischer Lauf zur Bestätigung (Chunk ≠ Final).
 
 ### WIP: Iterative GND Search
 - Missing-concept feedback loop: `<missing_list>` → `extract_missing_concepts_from_response()` (processing_utils) + `execute_fallback_gnd_search()` / `execute_iterative_keyword_refinement()` (pipeline_utils). Details: `docs/iterative_gnd_search.md`.

@@ -6,6 +6,45 @@
 
 ## 2026
 
+### Search-Provider-Plugin-System (F-3) + „Häufigkeit zeigt 1" (F-4) (June 29, 2026)
+
+Umsetzung des capability-basierten Search-Provider-Standards (CLAUDE.md-Vision)
+plus des gekoppelten Anzeige-Bugs F-4. Drei Phasen, je ein Commit, Suite grün
+(835 passed, 1 vorbestehender DK-Title-Fail).
+
+**P1 — Standard + Registry** (`src/core/search/`, additiv/facade-erhaltend):
+- Qt-freier `SearchProvider`-Protocol + getypter `ProviderResult` (capability-
+  getaggt) + `SearchCapability`; eine `@register_provider`-Registry analog
+  `@register_step`/`@register_tool_fn`.
+- 5 Provider (lobid/swb/catalog/finc/gnd_local) umhüllen die bestehenden Suggester
+  und registrieren sich beim Import. **finc ist jetzt im Standard** (TITLE_RECORDS
+  + SUBJECT_FACETS) statt MCP-Sonderfall. Verlustfreie Legacy-Shape-Konverter.
+- `tests/test_providers.py` (Round-Trip + Registry-Guards).
+
+**P2 — Caching-Wrapper, `SuggesterType` entfernt, F-4-Fix:**
+- Mapping-first-Caching aus `MetaSuggester` in den `CachingProvider`-Decorator
+  ausgelagert; `MetaSuggester` enumeriert jetzt die Registry (kein Enum/if-elif).
+  `SuggesterType` entfernt, alle 8 Importer auf Provider-Id-Strings migriert.
+- **F-4:** Mapping-Cache speichert jetzt Per-GND-ID-Counts (additive Spalte
+  `gnd_counts` + abgesicherte Migration). Cache-Treffer behalten Pool-`count = 1`
+  (Ranking/Chunking unverändert — Count-Landmine), tragen aber ein separates
+  `display_count` mit der echten Häufigkeit; fließt über `gnd_search_core` →
+  `flatten_gnd_hits` + agentische Anzeige; `rank_pool` liest es nie.
+- `tests/test_caching_provider.py`.
+
+**P3 — Registry-getriebene MCP-Tools + Provider-Config + GUI:**
+- Die 5 Library-Such-Tools werden aus `ProviderToolSpec`-Deklarationen generiert
+  (`ToolRegistry._generated_search_tools()`); 5 Schemas + 4 Handler entfernt
+  (`_handle_search_finc` bleibt, via Spec verdrahtet). **Bytegleich** zu den alten
+  Handlern bewiesen (Schemas + Outputs über kw/non-kw/default/non-default).
+- `SearchProviderConfig` (per-Provider enable/disable) gated die Tool-Exposition;
+  GUI-Selektor (`src/ui/provider_selector.py`) als Tab in den Settings.
+- `tests/test_provider_tool_generation.py`.
+
+Spec: [`docs/search_provider_plugins.md`](docs/search_provider_plugins.md).
+Offen: GUI-Selektor operator-Klicktest; finaler agentischer Lauf zur F-4/Landmine-
+Bestätigung (braucht LLM).
+
 ### Kern-Aufräumung III: llm_service Per-Provider-Entdopplung (June 29, 2026)
 
 Untersuchung der vermuteten „~80% Per-Provider-Duplikation" in

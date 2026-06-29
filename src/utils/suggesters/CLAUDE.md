@@ -15,10 +15,15 @@ The `suggesters/` directory implements a plugin-like system for integrating diff
 
 ### Suggester Pattern Implementation
 **Plugin Architecture:**
-- All suggesters inherit from `BaseSuggester` for consistent interface
-- `SuggesterType` enum defines available suggester types
-- Factory pattern in `MetaSuggester` for dynamic suggester instantiation
-- Configurable suggester selection (single provider or combined results)
+- Suggesters inherit from `BaseSuggester` (Qt) but are now **wrapped** by the
+  capability-based provider plugin system in `src/core/search/` (`@register_provider`).
+- `SuggesterType` enum **retired** (June 29) — `MetaSuggester` enumerates the provider
+  registry by id ("lobid"/"swb"/"catalog"; "all" = the three legacy GND sources).
+- Mapping-first caching moved out of `MetaSuggester` into the reusable
+  `CachingProvider` wrapper (`src/core/search/caching.py`); it also restores the F-4
+  display-only `display_count`. See [`docs/search_provider_plugins.md`](../../../docs/search_provider_plugins.md).
+- Configurable suggester selection (single provider or combined results); per-provider
+  enable/disable via `SearchProviderConfig` + GUI selector.
 
 **Key Design Features:**
 - **Caching Strategy**: Each suggester implements local and remote caching

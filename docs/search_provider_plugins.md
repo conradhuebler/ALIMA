@@ -1,10 +1,14 @@
-# Search Provider Plugin System (Design / Vision)
+# Search Provider Plugin System (Design / Implemented)
 
-> **Status:** Vision / not implemented. This documents a perspectival refactor of
-> the database/API search layer into a capability-based plugin system with
-> standards, so new data sources (finc was the latest; more will come) can be
-> added uniformly and offered as selectable tools. Operator-requested
-> (June 29, 2026). Nothing here is a debt fix — it is forward-looking structure.
+> **Status:** ✅ Implemented (June 29, 2026) in `src/core/search/` — P1+P2+P3 per the
+> migration plan below. Commits `5061801` (P1), `35bc487` (P2 + F-4), `85900e2`
+> (P3 MCP generation), + `SearchProviderConfig`/GUI selector. `SuggesterType` is
+> retired; finc is folded into the standard; MCP search tools are generated from
+> `ProviderToolSpec`s. The design notes below are kept for context; deviations from
+> the original sketch: caching wraps `GND_KEYWORDS` only; the `currentTerm` Qt signal
+> survives via an optional `progress` callback (providers themselves are Qt-free);
+> `finc`'s rich availability/web_url handler is kept (wired via its spec) rather than
+> fully generated. Open: operator GUI click-test + a final agentic run.
 
 ## Motivation
 

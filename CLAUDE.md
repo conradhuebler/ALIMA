@@ -109,14 +109,14 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline: F-3 Search-Provider-Plugins (+ gekoppelt F-4 „Häufigkeit zeigt 1"). Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
+- **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline F-3 Search-Provider-Plugins + F-4 „Häufigkeit zeigt 1" ✅ DONE (June 29, P1+P2+P3); offen: GUI-Klicktest + agentischer Verifikationslauf. Nächste P3-Strukturrefactors (F-5/F-6/F-7) GUI-test-gated. Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
 - **TESTED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Operator-Vergleichslauf June 29, 2026: beide Pfade laufen durch, reasonable results (klassisch≠agentisch by design). → bereit für APPROVED (Operator-Entscheid: in Changelog verschieben + hier entfernen).
 
 ## [Instructions Block — Operator-Defined Tasks]
 
 ### Vision
 - Restructure code: consolidate distributed logic from `utils`, `core`, `suggestors`.
-- **Search-Provider-Plugin-System** — capability-based provider standard + single `@register_provider` registry so DB/API sources (lobid/swb/catalog/finc/…) are uniform, selectable tools; `SuggesterType`/MetaSuggester if-elif may be retired. Details: [`docs/search_provider_plugins.md`](docs/search_provider_plugins.md).
+- ✅ **Search-Provider-Plugin-System** (done June 29) — capability-based provider standard + single `@register_provider` registry (`src/core/search/`); DB/API sources (lobid/swb/catalog/finc/gnd_local) are uniform, config-selectable tools; `SuggesterType` retired. Details: [`docs/search_provider_plugins.md`](docs/search_provider_plugins.md).
 - Maintain unified pipeline architecture (CLI/GUI/Webapp parity).
 - Extend agentic v4 to cover more workflow types beyond classical pipeline.
 - **Chat-Agent as first-class frontend** — chat-first + headless dual-mode: same `AgentLoop`/toolset drives GUI-Chat, CLI (`alima agent --doi …`), and HTTP endpoint. GUI keeps role for visual inspection / high-risk operator mutations. Details: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
@@ -131,7 +131,7 @@ When documenting implemented features, the AI must apply these rules:
 7. **Streaming-with-Tools Backend** (P-δ.5): ✅ Ollama, OpenAI, Anthropic stream text deltas when tools are active (`_generate_*_with_tools` in `llm_service.py`). Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers). Renderer is now QWebEngineView-based (`src/ui/web_log_view.py` `WebLogView`) — native `<details>` collapse, live token append; see `AIChangelog.md` (June 9, 2026).
 8. **WP12 — Unified Render Layer (GUI ↔ Webapp)**: shared CSS+JS render layer + JSON render-event protocol; WP12.1–.4 committed in `9552d93`. Remaining work tracked as **WP12.5** §9.2–.5 (visual verification, error-event rendering, 2 operator decisions on webapp double-display & agentic tier). Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md).
 9. **WP13 — Cleanup**: ✅ DONE (commit `93ccc19`) — dead modules + dead test + tracked backups + `workflows/legacy/` removed, sub-CLAUDE.md hygiene. Remaining: one-time local SWB cache purge (`swb_gnd_cache.json`, operator, no code). Spec: [`docs/wp13_cleanup.md`](docs/wp13_cleanup.md).
-10. **Search-Provider-Plugins**: capability-based `SearchProvider` Protocol + `ProviderResult` + `@register_provider` registry replacing `SuggesterType`/MetaSuggester if-elif; mapping-first caching as wrapper; auto-exposed selectable tools; finc folded into the standard. Phased P1–P3, facade-preserving. Spec: [`docs/search_provider_plugins.md`](docs/search_provider_plugins.md).
+10. **Search-Provider-Plugins**: ✅ DONE (June 29, P1+P2+P3) — capability-based `SearchProvider` + `@register_provider` registry (`src/core/search/`) replacing `SuggesterType`/MetaSuggester if-elif; `CachingProvider` wrapper (F-4 `display_count`); MCP tools generated from `ProviderToolSpec`; finc in the standard; `SearchProviderConfig` + GUI selector. Spec: [`docs/search_provider_plugins.md`](docs/search_provider_plugins.md). Remaining: GUI click-test + agentic verification lauf.
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.
