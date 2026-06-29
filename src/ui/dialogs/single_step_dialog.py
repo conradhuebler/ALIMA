@@ -184,21 +184,12 @@ class SingleStepDialog(QDialog):
         top_row.addWidget(self.load_button)
         outer.addLayout(top_row)
 
-        # Row 2 — provider + model
+        # Row 2 — provider + model (shared ProviderModelSelector) - Claude Generated
+        from src.ui.provider_model_selector import ProviderModelSelector
         prov_row = QHBoxLayout()
-        prov_row.addWidget(QLabel("Provider:"))
-        self.provider_combo = QComboBox()
-        self.provider_combo.setMinimumWidth(160)
-        prov_row.addWidget(self.provider_combo)
-        prov_row.addSpacing(20)
-        prov_row.addWidget(QLabel("Model:"))
-        self.model_combo = QComboBox()
-        self.model_combo.setMinimumWidth(240)
-        self.model_combo.setEditable(True)
-        from PyQt6.QtWidgets import QCompleter
-        self.model_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.model_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
-        prov_row.addWidget(self.model_combo)
+        prov_row.addWidget(QLabel("LLM:"))
+        self.provider_selector = ProviderModelSelector(editable_model=True)
+        prov_row.addWidget(self.provider_selector, 1)
         prov_row.addStretch(1)
         outer.addLayout(prov_row)
 
@@ -258,45 +249,8 @@ class SingleStepDialog(QDialog):
         self.load_button.clicked.connect(self._on_load_state)
         self.run_button.clicked.connect(self._on_run_clicked)
         self.cascade_button.clicked.connect(self._on_cascade_clicked)
-        self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
 
-        self._populate_providers()
-
-    # ------------------------------------------------------------------
-    # Population helpers
-    # ------------------------------------------------------------------
-    def _populate_providers(self) -> None:
-        self.provider_combo.blockSignals(True)
-        self.provider_combo.clear()
-        providers: List[str] = []
-        try:
-            if self.llm_service is not None:
-                providers = list(self.llm_service.get_available_providers() or [])
-        except Exception as exc:
-            self.logger.warning(f"Could not list providers: {exc}")
-        for name in providers:
-            self.provider_combo.addItem(name, name)
-        self.provider_combo.blockSignals(False)
-        if self.provider_combo.count() > 0:
-            self._on_provider_changed(0)
-
-    def _on_provider_changed(self, _index: int) -> None:
-        self.model_combo.blockSignals(True)
-        self.model_combo.clear()
-        provider = self.provider_combo.currentData()
-        if not provider or self.llm_service is None:
-            self.model_combo.blockSignals(False)
-            return
-        try:
-            models = list(self.llm_service.get_available_models(provider) or [])
-            # Sort models alphabetically (case-insensitive)
-            models = sorted(models, key=lambda s: s.lower())
-        except Exception as exc:
-            self.logger.warning(f"Could not list models for {provider}: {exc}")
-            models = []
-        for name in models:
-            self.model_combo.addItem(name, name)
-        self.model_combo.blockSignals(False)
+        self.provider_selector.load_providers()
 
     def _populate_workflows(self) -> None:
         self.workflow_combo.blockSignals(True)
@@ -530,8 +484,7 @@ class SingleStepDialog(QDialog):
         if not self.workflow:
             return
 
-        provider = self.provider_combo.currentData()
-        model = self.model_combo.currentData()
+        provider, model = self.provider_selector.get_selection()
         if not provider or not model:
             QMessageBox.warning(
                 self,
