@@ -67,9 +67,11 @@ an operator click-test (sandbox-untestable, per the GUI gate below).
 - **GUI testing gate**: F-5/F-6/F-7/F-8 are GUI-heavy and cannot be runtime-verified
   in the dev sandbox (offscreen import only). They need an operator click-test loop;
   do them one unit at a time with a hand-off, not in big blind batches.
-- **Pre-existing test debt** (baseline, not from this sweep): 2 known fails —
-  `test_analysis_review_tab` (Qt abort) + `test_core_convergence::test_fallback_when_rich_has_no_titles`
-  (DK-title). Triage: fix or quarantine so the suite is meaningfully green.
+- ✅ **Pre-existing test debt** (baseline, not from this sweep): RESOLVED (June 30).
+  `test_core_convergence` DK-title fail was stale test data (fixed); `test_analysis_review_tab`
+  Qt abort now subprocess-probe-skipped in headless (runs on a real display); dead
+  `src/core/tests/test_suggesters.py` removed. `pytest tests/` → 836 passed, 10 skipped,
+  0 failed (no `--ignore`).
 - Out of scope here (own efforts): `pipeline_utils` was split but not further
   decomposed; `llm_service` live generators are genuinely provider-specific (no
   further safe dedup).
@@ -77,7 +79,5 @@ an operator click-test (sandbox-untestable, per the GUI gate below).
 ## Suggested order
 1. ✅ F-1 done (caches purged); F-2 closed (verified non-issue).
 2. ✅ F-3 + F-4 done (plugin system + count bug, June 29) — the headline.
-3. Pre-existing test-debt triage (small, unblocks confidence). NOTE: dead
-   `src/core/tests/test_suggesters.py` (stale `core/suggesters` layout, never
-   collected) surfaced during F-3 — candidate for deletion.
-4. F-5/F-6/F-7 once a GUI test loop exists; F-8 opportunistically.
+3. ✅ Pre-existing test-debt triage done (June 30); dead `test_suggesters.py` removed.
+4. F-5/F-6/F-7 once a GUI test loop exists; F-8 opportunistically. **← next**
