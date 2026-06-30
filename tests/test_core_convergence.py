@@ -296,20 +296,22 @@ class TestDkClassificationTitleFallback(unittest.TestCase):
         """
         from src.utils.pipeline_utils import PipelineResultFormatter
 
-        # Simulate state.dk_search_results (keyword-centric, no top-level dk)
-        # AFTER dk_collect but BEFORE dk_postprocess:
+        # Simulate state.dk_search_results (keyword-centric, no usable titles —
+        # the "rich has no titles" case the docstring describes). AFTER dk_collect
+        # but BEFORE dk_postprocess. (select_dk_title_source now flattens the
+        # keyword-centric shape first; with empty titles it scores 0.)
         keyword_centric = [
             {"keyword": "Halbleiter", "classifications": [
-                {"dk": "666.76", "titles": ["Titel 1", "Titel 2"]}
+                {"dk": "666.76", "titles": []}
             ]}
         ]
-        # state.dk_search_results_flattened from shared_context (thin, has labels)
+        # state.dk_search_results_flattened from shared_context (thin, has 1 title)
         thin = [
             {"dk": "666.76", "classification_type": "DK", "titles": ["Halbleitertechnologie"]},
         ]
         chosen = PipelineResultFormatter.select_dk_title_source(keyword_centric, thin)
-        # The keyword-centric list has no top-level dk entries → score = 0
-        # The thin list has 1 title → score = 1 > 0 → chosen
+        # keyword-centric flattens to a dk entry with no titles → score 0;
+        # thin has 1 title → score 1 > 0 → chosen.
         self.assertIs(chosen, thin)
         # The classifier code can now find a title
         titles, count = PipelineResultFormatter.get_titles_for_dk_code("666.76", chosen)

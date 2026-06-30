@@ -34,10 +34,39 @@ if _existing is not None and not isinstance(_existing, QApplication):
 
 _qapp = QApplication.instance() or QApplication([])
 
+import subprocess
+import sys
+
+
+def _qwebengine_works() -> bool:
+    """Probe (in a child process) whether QWebEngineView can initialise.
+
+    AnalysisReviewTab builds a QWebEngineView (Chromium) in init_detail_tabs,
+    which hard-aborts (SIGABRT) where Chromium can't start (CI / sandbox / no GPU)
+    — and a having a DISPLAY set is not sufficient. We probe in a subprocess so a
+    crash is isolated; the parent then skips instead of aborting the whole suite.
+    On a real developer machine the probe succeeds and the test runs. - Claude Generated
+    """
+    code = (
+        "from PyQt6.QtWidgets import QApplication;"
+        "from PyQt6.QtWebEngineWidgets import QWebEngineView;"
+        "app=QApplication([]);v=QWebEngineView();v.setHtml('<html></html>')"
+    )
+    try:
+        return subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, timeout=60
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+_QWEBENGINE_OK = _qwebengine_works()
+
 from src.core import state_bus as state_bus_mod
 from src.ui.analysis_review_tab import AnalysisReviewTab
 
 
+@unittest.skipUnless(_QWEBENGINE_OK, "QWebEngineView cannot initialise here (headless/CI)")
 class TestAnalysisReviewTabMiniLog(unittest.TestCase):
     """Phase E: tab's mini-log subscribes to bus tool events."""
 
