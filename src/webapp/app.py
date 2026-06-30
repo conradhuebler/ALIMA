@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -47,11 +47,9 @@ from src.core.agents.workflow_loader import (
     find_workflow_file,
     load_workflow,
 )
-# Shared session serialization + auto-save helpers (extracted to session_io.py,
-# F-6 split). Still used by the websocket handler, lifespan and run_analysis that
-# remain in this module. - Claude Generated
+# Shared auto-save helpers (extracted to session_io.py, F-6 split). Still used by
+# the lifespan (cleanup) and run_analysis (_autosave) that remain here. - Claude Generated
 from src.webapp.session_io import (
-    make_json_serializable,
     _autosave_session_state,
     cleanup_old_autosaves,
 )
@@ -61,6 +59,7 @@ from src.webapp.routers import workflows as workflows_router
 from src.webapp.routers import models as models_router
 from src.webapp.routers import sessions as sessions_router
 from src.webapp.routers import export as export_router
+from src.webapp.routers import websocket as websocket_router
 from src.webapp.routers.workflows import _discover_workflows
 
 # Setup logging - Claude Generated: shared setup (console + alima_webapp.log),
@@ -174,6 +173,7 @@ app.include_router(workflows_router.router)
 app.include_router(models_router.router)
 app.include_router(sessions_router.router)
 app.include_router(export_router.router)
+app.include_router(websocket_router.router)
 
 # Session registry (``sessions``), the ``Session`` model and the lazy
 # ``AppContext`` live in session_state.py; the WP12 render bridge classes
@@ -387,133 +387,7 @@ async def process_input_only(
 # GET /api/queue/status now lives in routers/models.py. - Claude Generated
 
 
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """WebSocket for live progress updates - Claude Generated"""
-
-    if session_id not in sessions:
-        await websocket.close(code=1008, reason="Session not found")
-        return
-
-    await websocket.accept()
-    session = sessions[session_id]
-    logger.info(f"WebSocket connected for session {session_id}")
-
-    try:
-        last_step = None
-        idle_count = 0
-        render_sent = 0  # WP12: per-connection cursor → full replay on (re)connect
-        # Use configurable timeout (count in 0.5s intervals)
-        max_idle = WEBSOCKET_TIMEOUT_SECONDS * 2  # Claude Generated (config-based)
-
-        # Heartbeat mechanism for long-running pipelines - Claude Generated
-        # Use configurable heartbeat interval (count in 0.5s intervals)
-        heartbeat_interval = WEBSOCKET_HEARTBEAT_INTERVAL * 2  # Claude Generated (config-based)
-        heartbeat_counter = 0
-
-        while True:
-            # Check if analysis is complete
-            if session.status not in ["running", "idle"]:
-                logger.info(f"Session {session_id} status changed to {session.status}")
-                # Flush the remaining streaming tokens FIRST as a small, standalone frame
-                # (tokens buffered since the last 500ms poll). Delivering the final chat text
-                # ahead of the large `complete` frame means it survives even if a reverse
-                # proxy delays or truncates that bigger frame. The client renders this via
-                # updatePipelineStatus (same path as live tokens), so the `complete` frame
-                # below carries an empty streaming_tokens to avoid a double-render.
-                # - Claude Generated
-                final_tokens = session.get_and_clear_streaming_buffer()
-                if final_tokens:
-                    await websocket.send_json({
-                        "type": "status",
-                        "status": session.status,
-                        "current_step": session.current_step,
-                        "current_step_status": session.current_step_status,
-                        "streaming_tokens": make_json_serializable(final_tokens),
-                    })
-                # Flush any remaining render events (e.g. the final DK card). - WP12
-                final_render, render_sent = session.get_render_events_since(render_sent)
-                # Send final update with JSON-serializable results (tokens already sent above).
-                await websocket.send_json({
-                    "type": "complete",
-                    "status": session.status,
-                    "streaming_tokens": {},
-                    "results": make_json_serializable(
-                        _prepare_results_for_export(session.results, validate_rvk=False)
-                    ),
-                    "error": session.error_message,
-                    "current_step": session.current_step,
-                    "render_events": final_render,
-                })
-                # Graceful close so a reverse proxy flushes the final frame(s) before the
-                # socket is torn down — an abrupt close right after send can drop the last
-                # frame through mod_proxy_wstunnel. - Claude Generated
-                try:
-                    await websocket.close()
-                except Exception:
-                    pass
-                break
-
-            # Increment and send heartbeat periodically - Claude Generated
-            heartbeat_counter += 1
-            if heartbeat_counter >= heartbeat_interval:
-                heartbeat_counter = 0
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "session_id": session_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "current_step": session.current_step
-                })
-
-            # Always send status update (every 500ms) - Claude Generated
-            # Include streaming tokens buffered since last update
-            # Use get_new_streaming_tokens to avoid losing tokens during long runs - Claude Generated
-            if session.status == "running":
-                streaming_tokens = session.get_new_streaming_tokens()
-            else:
-                streaming_tokens = session.get_and_clear_streaming_buffer()
-
-            # WP12: new render events since this connection last saw them.
-            new_render, render_sent = session.get_render_events_since(render_sent)
-
-            await websocket.send_json({
-                "type": "status",
-                "status": session.status,
-                "current_step": session.current_step,
-                "current_step_status": session.current_step_status,  # 'running' or 'completed' - Claude Generated
-                "results": make_json_serializable(
-                    _prepare_results_for_export(session.results, validate_rvk=False)
-                ),
-                "streaming_tokens": make_json_serializable(streaming_tokens),  # Dict[step_id -> List[tokens]]
-                "render_events": new_render,  # WP12: shared chrome events
-                "autosave_timestamp": session.autosave_timestamp,  # For status indicator - Claude Generated
-                "dk_search_progress": session.dk_search_progress,  # DK search progress info - Claude Generated
-            })
-
-            # Track idle time (no step change)
-            if session.current_step == last_step:
-                idle_count += 1
-            else:
-                idle_count = 0
-                last_step = session.current_step
-                logger.info(f"Step changed: {session.current_step}")
-
-            # Timeout if idle too long
-            if idle_count > max_idle:
-                logger.warning(f"Session {session_id} idle timeout")
-                await websocket.send_json({
-                    "type": "error",
-                    "error": "Analysis timeout",
-                })
-                break
-
-            # Wait before next update
-            await asyncio.sleep(0.5)
-
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {session_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error for {session_id}: {e}", exc_info=True)
+# WS /ws/{id} (live progress) now lives in routers/websocket.py. - Claude Generated
 
 
 # GET /api/export/{id} now lives in routers/export.py. - Claude Generated
