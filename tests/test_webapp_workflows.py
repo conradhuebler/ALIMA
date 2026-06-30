@@ -14,7 +14,7 @@ class TestWorkflowDiscovery(unittest.TestCase):
     def test_discover_workflows_separates_root_and_legacy(self):
         from src.webapp.app import _discover_workflows
 
-        with mock.patch("src.webapp.app.DEFAULT_SEARCH_PATHS", [mock.MagicMock()]):
+        with mock.patch("src.webapp.routers.workflows.DEFAULT_SEARCH_PATHS", [mock.MagicMock()]):
             # Set up a fake directory tree
             base = mock.MagicMock()
             base.exists.return_value = True
@@ -33,10 +33,10 @@ class TestWorkflowDiscovery(unittest.TestCase):
             }.get(pattern, [])
 
             # Replace the first search path with our fake base
-            with mock.patch("src.webapp.app.DEFAULT_SEARCH_PATHS", [base]):
+            with mock.patch("src.webapp.routers.workflows.DEFAULT_SEARCH_PATHS", [base]):
                 # The fake paths cannot be opened; mock both open() and yaml parsing.
                 with mock.patch("builtins.open", mock.mock_open()), \
-                     mock.patch("src.webapp.app.yaml.safe_load", return_value={"version": "5.1", "steps": []}):
+                     mock.patch("src.webapp.routers.workflows.yaml.safe_load", return_value={"version": "5.1", "steps": []}):
                     root, legacy, steps_by_stem = _discover_workflows()
 
         self.assertIn("alima_v51", root)
@@ -50,7 +50,7 @@ class TestWorkflowDiscovery(unittest.TestCase):
         from src.webapp import app as appmod
 
         client = TestClient(appmod.app)
-        with mock.patch.object(appmod, "_discover_workflows", return_value=({
+        with mock.patch("src.webapp.routers.workflows._discover_workflows", return_value=({
             "alima_v51": "5.1",
             "alima": "5.0",
         }, {"old": "4.0"}, {
