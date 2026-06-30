@@ -109,7 +109,7 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline F-3 Search-Provider-Plugins + F-4 „Häufigkeit zeigt 1" ✅ DONE (June 29, P1+P2+P3); offen: GUI-Klicktest + agentischer Verifikationslauf. Nächste P3-Strukturrefactors (F-5/F-6/F-7) GUI-test-gated. Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
+- **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline F-3 Search-Provider-Plugins + F-4 „Häufigkeit zeigt 1" ✅ DONE (June 29); F-6 webapp `app.py`-Split 2537→240 ✅ DONE (June 30, sandbox-verifiziert). Offen: F-5/F-7 (GUI-test-gated), F-8 (opportunistisch). Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
 - **TESTED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Operator-Vergleichslauf June 29, 2026: beide Pfade laufen durch, reasonable results (klassisch≠agentisch by design). → bereit für APPROVED (Operator-Entscheid: in Changelog verschieben + hier entfernen).
 
 ## [Instructions Block — Operator-Defined Tasks]

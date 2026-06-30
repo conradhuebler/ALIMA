@@ -6,13 +6,14 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 
 ## Architecture
 
-**Backend** (`app.py`):
-- FastAPI REST API with WebSocket support
-- Direct PipelineManager integration (same as CLI/GUI)
-- AppContext singleton for lazy service initialization
-- Session management (in-memory, per-request lifecycle)
-- JSON export of results
-- CORS enabled for development
+**Backend** — FastAPI, split into a thin app factory + `APIRouter` modules (F-6, 2026-06-30):
+- `app.py` — app factory, lifespan, middleware/static/templates, `include_router`, the 3 pages (`/`, `/webapp`, `/health`), and re-export shims (tests import/patch via `src.webapp.app`).
+- `session_state.py` — `sessions` registry, `Session` model, lazy `AppContext` service container, autosave/websocket constants.
+- `render_bridge.py` — WP12 transport + `_SessionBusSubscriber` (StateBus→`UnifiedMessageRenderer`).
+- `session_io.py` — shared helpers: `make_json_serializable`, `sanitize_filename`, autosave, `_parse_think_override`.
+- `routers/` — `workflows`, `models`, `sessions`, `export`, `websocket`, `analysis` (analyze/input + `run_analysis`), `agent` (`/agent/run` + chat).
+- DAG: `session_state` ← `render_bridge`/`session_io` ← `routers/*` ← `app`. Routers never import `app`.
+- Direct PipelineManager integration (same as CLI/GUI); in-memory sessions; CORS enabled.
 
 **Frontend** (`static/`):
 - Vanilla JavaScript (no dependencies)

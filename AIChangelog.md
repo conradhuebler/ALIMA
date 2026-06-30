@@ -6,6 +6,41 @@
 
 ## 2026
 
+### Webapp `app.py` God-File-Split → APIRouter (F-6) (June 30, 2026)
+
+`src/webapp/app.py` von **2537 → 240 LoC (−90%)** zerlegt. 8 Commits (je ein
+Modul/Router, Suite nach jedem grün: 841 passed, 10 skipped). Sandbox-verifiziert
+(kein GUI-Gate — anders als F-5).
+
+**Phase A — Infrastruktur (re-export, keine Test-Änderung):**
+- `session_state.py` — `sessions`-Registry, `Session`-Modell, lazy `AppContext`,
+  Autosave/WebSocket-Konstanten.
+- `render_bridge.py` — WP12-Transport + `_SessionBusSubscriber` (verbatim; `Session`
+  als TYPE_CHECKING-Forward-Ref → kein Zyklus).
+
+**Phase B — `APIRouter`-Module (je Commit, Test-Patch-Ziele mitwandern):**
+- `routers/{workflows,models,sessions,export,websocket,analysis,agent}.py`,
+  gemountet via `app.include_router(...)`.
+- Geteilte Helfer in `session_io.py` (`make_json_serializable`, `sanitize_filename`,
+  Autosave, `_parse_think_override`) statt in einem Router — Router importieren nie
+  `app` (azyklische DAG `session_state ← render_bridge/session_io ← routers ← app`).
+- `app.py` bleibt: Factory, Lifespan, Middleware/Static/Templates, Includes, 3 Seiten
+  (`/`, `/webapp`, `/health`), Re-Export-Shims.
+
+**Test-Kontrakt-Technik (der knifflige Teil):** Tests patchen/importieren via
+`src.webapp.app.*`. Re-Export hält Direktimporte + *Klassen-Methoden*-Patches
+(`patch.object(appmod.AppContext, …)`) am Leben, weil dieselbe Klassen-Objekt-Identität
+erhalten bleibt. Nur *Modul-Attribut-Ersetzungen* (`patch("src.webapp.app.PipelineManager")`,
+`appmod.X = …`) müssen auf den neuen Router umziehen — denn der bewegte Consumer löst
+den Namen jetzt im Router-Namespace auf. Pro Router migriert; Klassen-Methoden-Patches
+blieben unverändert.
+
+**Verifikation pro Commit:** AST-Undefined-Name-Scan (fing einen echten
+Funktionskörper-`NameError` — `_parse_think_override` — den Import + grüne Suite beide
+verfehlten), Route-Tabelle byte-identisch (25 Routen), Live-Endpoint-Proben
+(`/api/workflows`, Session-Roundtrip, WS-`complete`, `/api/analyze` durch `run_analysis`),
+volle Suite grün. Eine vorbestehend flakige WS-Statebus-Test (Memory) unverändert.
+
 ### Search-Provider-Plugin-System (F-3) + „Häufigkeit zeigt 1" (F-4) (June 29, 2026)
 
 Umsetzung des capability-basierten Search-Provider-Standards (CLAUDE.md-Vision)

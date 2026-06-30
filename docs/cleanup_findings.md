@@ -53,7 +53,7 @@ an operator click-test (sandbox-untestable, per the GUI gate below).
 | ID | Area | Finding | Action | Risk |
 |----|------|---------|--------|------|
 | F-5 | UI | God-files. **In progress (June 30):** ✅ `unified_provider_tab` 2115→681 (→ `provider_dialogs.py` 540 + `task_preferences_widget.py` 932); ✅ `pipeline_config_dialog` 2226→765 (→ `step_config_widgets.py` 1487). **Remaining:** `pipeline_tab` 2882, `main_window` 2650, `pipeline_chat_panel` 1922 (+ the 3 new modules are still large but cohesive). | Extract cohesive widgets/sections; one file at a time + operator click-test (verbatim moves verified by AST scan + construct-smoke + green suite). | high (Qt, untestable here) |
-| F-6 | webapp | `app.py` 2539 LoC god-file (~25 routes + session/streaming/agent) | `APIRouter` split (sessions/streaming/agent/workflows/export) | med-high (shared `app`+state) |
+| F-6 | webapp | ✅ **DONE (June 30)** — `app.py` 2537→240 LoC (−90%). | Split into thin app factory + `session_state.py`/`render_bridge.py`/`session_io.py` + `routers/{workflows,models,sessions,export,websocket,analysis,agent}.py`; re-export shims keep `src.webapp.app` test contract; route table byte-identical; suite green (841). Sandbox-verified (no GUI gate). | done |
 | F-7 | UI | 17 `QThread`/`StoppableWorker` subclasses; base only partly adopted; 2 model-loaders overlap (`_ModelLoadWorker` vs `ModelFetchWorker`) | **Partly done (June 30):** model-loaders merged into shared `ModelLoadWorker(StoppableWorker)` in `workers.py` (signal contracts preserved; unit-tested `tests/test_model_load_worker.py`) — GUI wiring needs a click-test. **Blanket base-adoption descoped:** most remaining plain-`QThread` workers are short probes that don't need cancellation; convert only genuinely-cancellable long workers case-by-case (GUI-gated). | medium (threading) |
 
 ### P4 — Decide-on-touch (behavior changes, not pure dedup)
@@ -64,7 +64,7 @@ an operator click-test (sandbox-untestable, per the GUI gate below).
 ---
 
 ## Cross-cutting / meta
-- **GUI testing gate**: F-5/F-6/F-7/F-8 are GUI-heavy and cannot be runtime-verified
+- **GUI testing gate**: F-5/F-7/F-8 are GUI-heavy and cannot be runtime-verified (F-6 was sandbox-verifiable — done)
   in the dev sandbox (offscreen import only). They need an operator click-test loop;
   do them one unit at a time with a hand-off, not in big blind batches.
 - ✅ **Pre-existing test debt** (baseline, not from this sweep): RESOLVED (June 30).
@@ -80,4 +80,5 @@ an operator click-test (sandbox-untestable, per the GUI gate below).
 1. ✅ F-1 done (caches purged); F-2 closed (verified non-issue).
 2. ✅ F-3 + F-4 done (plugin system + count bug, June 29) — the headline.
 3. ✅ Pre-existing test-debt triage done (June 30); dead `test_suggesters.py` removed.
-4. F-5/F-6/F-7 once a GUI test loop exists; F-8 opportunistically. **← next**
+4. ✅ F-6 done (June 30) — webapp `app.py` 2537→240, sandbox-verified.
+5. F-5/F-7 once a GUI test loop exists; F-8 opportunistically. **← next**
