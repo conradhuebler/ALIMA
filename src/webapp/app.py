@@ -10,7 +10,6 @@ import os
 import re
 import tempfile
 import threading
-import unicodedata
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -48,10 +47,20 @@ from src.core.agents.workflow_loader import (
     find_workflow_file,
     load_workflow,
 )
+# Shared session serialization + auto-save helpers (extracted to session_io.py,
+# F-6 split). Still used by the websocket handler, lifespan and run_analysis that
+# remain in this module. - Claude Generated
+from src.webapp.session_io import (
+    make_json_serializable,
+    _autosave_session_state,
+    cleanup_old_autosaves,
+)
 # APIRouter modules extracted from this file (F-6 split). _discover_workflows is
 # re-exported for the unit test that imports it via src.webapp.app. - Claude Generated
 from src.webapp.routers import workflows as workflows_router
 from src.webapp.routers import models as models_router
+from src.webapp.routers import sessions as sessions_router
+from src.webapp.routers import export as export_router
 from src.webapp.routers.workflows import _discover_workflows
 
 # Setup logging - Claude Generated: shared setup (console + alima_webapp.log),
@@ -163,6 +172,8 @@ templates = Jinja2Templates(directory=str(templates_dir))
 # paths are unique so registration order does not affect matching. - Claude Generated
 app.include_router(workflows_router.router)
 app.include_router(models_router.router)
+app.include_router(sessions_router.router)
+app.include_router(export_router.router)
 
 # Session registry (``sessions``), the ``Session`` model and the lazy
 # ``AppContext`` live in session_state.py; the WP12 render bridge classes
@@ -219,103 +230,8 @@ async def get_webapp(request: Request, session: str = None) -> HTMLResponse:
     )
 
 
-@app.post("/api/session")
-async def create_session() -> dict:
-    """Create a new analysis session - Claude Generated"""
-    session_id = str(uuid.uuid4())[:8]
-    sessions[session_id] = Session(session_id)
-    logger.info(f"Created session: {session_id}")
-    return {"session_id": session_id, "status": "created"}
-
-
-@app.get("/api/session/{session_id}")
-async def get_session(session_id: str) -> dict:
-    """Get session status - Claude Generated"""
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
-    # Get only new streaming tokens since last retrieval - Claude Generated
-    # This prevents tokens from being lost when session is still running
-    if session.status == "running":
-        streaming_tokens = session.get_new_streaming_tokens()
-    else:
-        # Session finished, return all remaining unsent tokens
-        streaming_tokens = session.get_and_clear_streaming_buffer()
-
-    return {
-        "session_id": session.session_id,
-        "status": session.status,
-        "current_step": session.current_step,
-        "created_at": session.created_at,
-        "error_message": session.error_message,
-        "streaming_tokens": streaming_tokens,  # Include for polling clients
-        "render_events": session.get_new_render_events(),  # WP12: shared chrome
-        # results intentionally omitted — polling clients fetch via /api/export/{id}
-    }
-
-
-@app.post("/api/session/{session_id}/clear")
-async def clear_session(session_id: str) -> dict:
-    """Clear session state and reset for new analysis - Claude Generated"""
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
-    session.clear()
-
-    return {
-        "session_id": session_id,
-        "status": "cleared",
-        "message": "Session cleared and reset"
-    }
-
-
-@app.post("/api/session/{session_id}/cancel")
-async def cancel_session(session_id: str) -> dict:
-    """Request cancellation of running pipeline - Claude Generated"""
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
-    if session.status == "running":
-        session.abort_requested = True
-        # Stop a running chat-agent turn (aborts the AgentLoop + in-flight LLM
-        # generation). Pipeline runs read abort_requested separately. - Claude Generated
-        chat_thread = getattr(session, "chat_thread", None)
-        if chat_thread is not None:
-            try:
-                chat_thread.request_stop()
-            except Exception:
-                logger.exception("Failed to request chat-thread stop")
-        logger.info(f"Cancellation requested for session {session_id}")
-        return {
-            "session_id": session_id,
-            "status": "cancel_requested",
-            "message": "Cancellation requested"
-        }
-    else:
-        return {
-            "session_id": session_id,
-            "status": session.status,
-            "message": "Session is not running"
-        }
-
-
-@app.post("/api/session/{session_id}/abort_step")
-async def abort_current_step_endpoint(session_id: str) -> dict:
-    """Abort only the current LLM generation; pipeline continues - Claude Generated"""
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-    session = sessions[session_id]
-    pm = session.pipeline_manager_ref  # Local ref to avoid race condition
-    if session.status == "running" and pm is not None:
-        pm.abort_current_step()
-        logger.info(f"Step-abort requested for session {session_id}")
-        return {"session_id": session_id, "status": "step_abort_requested",
-                "message": "Current LLM step will be aborted; pipeline continues"}
-    return {"session_id": session_id, "status": session.status,
-            "message": "No active LLM step to abort"}
+# Session lifecycle endpoints (create/get/clear/cancel/abort_step) now live
+# in routers/sessions.py (mounted via app.include_router above). - Claude Generated
 
 
 # GET /api/models + POST /api/models/refresh now live in routers/models.py
@@ -462,105 +378,9 @@ async def process_input_only(
     return {"session_id": session_id, "status": "started", "mode": "input_extraction"}
 
 
-def make_json_serializable(obj):
-    """Convert sets/tuples to JSON-serializable equivalents - Claude Generated.
-
-    Thin wrapper over the canonical ``PipelineJsonManager.convert_sets_to_lists``.
-    """
-    return PipelineJsonManager.convert_sets_to_lists(obj)
-
-
-def sanitize_filename(filename: str, max_length: int = 100) -> str:
-    """Sanitize filename for HTTP headers and cross-platform safety - Claude Generated
-
-    Args:
-        filename: Original filename (may contain unicode, special chars)
-        max_length: Maximum filename length (default: 100)
-
-    Returns:
-        ASCII-safe filename suitable for Content-Disposition header
-    """
-    if not filename:
-        return "alima_analysis"
-
-    # Normalize unicode (e.g., ü → u)
-    normalized = unicodedata.normalize('NFKD', filename)
-    # Remove non-ASCII characters
-    ascii_safe = normalized.encode('ASCII', 'ignore').decode('ASCII')
-    # Replace invalid filename characters with underscore
-    sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', ascii_safe)
-    # Collapse multiple underscores/spaces into single underscore
-    sanitized = re.sub(r'[_\s]+', '_', sanitized).strip('_ ')
-    # Truncate and ensure we have a valid result
-    result = sanitized[:max_length].rstrip('_')
-    return result if result else "alima_analysis"
-
-
-def _autosave_session_state(session: Session):
-    """Auto-save session state to JSON after each pipeline step - Claude Generated"""
-
-    if not session.autosave_enabled or not session.current_analysis_state:
-        return
-
-    try:
-        # Save analysis state using existing PipelineJsonManager
-        PipelineJsonManager.save_analysis_state(
-            session.current_analysis_state,
-            str(session.autosave_path)
-        )
-
-        # Update timestamp for status indicator - Claude Generated
-        session.autosave_timestamp = datetime.now().isoformat()
-
-        # Save metadata for recovery UI
-        metadata = {
-            "session_id": session.session_id,
-            "created_at": session.created_at,
-            "last_step": session.current_step,
-            "status": session.status,
-            "autosave_timestamp": session.autosave_timestamp,
-        }
-
-        metadata_path = session.autosave_path.with_suffix('.meta.json')
-        with open(metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, indent=2)
-
-        logger.info(f"✓ Auto-saved session {session.session_id} after step '{session.current_step}'")
-
-    except Exception as e:
-        logger.error(f"Auto-save failed for session {session.session_id}: {e}")
-        session.autosave_failed = True
-        # Don't raise - auto-save is best-effort, shouldn't block pipeline
-
-
-def cleanup_old_autosaves(max_age_hours: int = None):
-    """Remove auto-save files older than max_age_hours - Claude Generated"""
-
-    if max_age_hours is None:
-        max_age_hours = AUTOSAVE_MAX_AGE_HOURS  # Use global config
-
-    try:
-        cutoff_time = datetime.now().timestamp() - (max_age_hours * 3600)
-        cleaned_count = 0
-
-        for file_path in AUTOSAVE_DIR.glob("session_*.json"):
-            if file_path.stat().st_mtime < cutoff_time:
-                # Remove JSON file
-                file_path.unlink()
-
-                # Remove metadata file
-                meta_path = file_path.with_suffix('.meta.json')
-                if meta_path.exists():
-                    meta_path.unlink()
-
-                cleaned_count += 1
-                logger.debug(f"Cleaned up old autosave: {file_path.name}")
-
-        if cleaned_count > 0:
-            logger.info(f"✓ Cleaned up {cleaned_count} old auto-save files (>{max_age_hours}h)")
-
-    except Exception as e:
-        logger.error(f"Cleanup error: {e}")
+# Session serialization + auto-save helpers (make_json_serializable,
+# sanitize_filename, _autosave_session_state, cleanup_old_autosaves) now live
+# in session_io.py and are imported above. - Claude Generated
 
 
 
@@ -696,62 +516,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         logger.error(f"WebSocket error for {session_id}: {e}", exc_info=True)
 
 
-@app.get("/api/export/{session_id}")
-async def export_results(session_id: str, format: str = "json") -> FileResponse:
-    """Export analysis results - supports partial and complete exports - Claude Generated"""
-
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
-
-    # Allow export even if results are empty (partial state) - Claude Generated (2026-01-06)
-    # User can download current progress at any time
-
-    if format == "json":
-        status_suffix = "complete" if session.status == "completed" else "partial"
-
-        # Create temporary JSON file
-        temp_file = tempfile.NamedTemporaryFile(
-            mode='w',
-            suffix='.json',
-            delete=False,
-            dir=tempfile.gettempdir()
-        )
-
-        export_data = _build_export_payload(
-            session_id=session.session_id,
-            created_at=session.created_at,
-            status=session.status,
-            current_step=session.current_step,
-            input_data=session.input_data,
-            results=session.results,
-            autosave_timestamp=session.autosave_timestamp,
-            validate_rvk=True,
-        )
-
-        json.dump(export_data, temp_file, indent=2, ensure_ascii=False)
-        temp_file.close()
-
-        session.add_temp_file(temp_file.name)
-
-        # Filename includes working title if available - Claude Generated
-        if session.working_title:
-            safe_title = sanitize_filename(session.working_title)
-            filename = f"{safe_title}.json"
-            logger.info(f"📥 Export filename from working_title: '{session.working_title}' → '{filename}'")
-        else:
-            # Fallback: use session ID and status indicator - Claude Generated (2026-01-06)
-            filename = f"alima_analysis_{session.session_id}_{status_suffix}.json"
-            logger.warning(f"⚠️ No working_title, using fallback filename: {filename} (session.working_title={session.working_title})")
-
-        return FileResponse(
-            temp_file.name,
-            filename=filename,
-            media_type="application/json"
-        )
-
-    raise HTTPException(status_code=400, detail=f"Format not supported: {format}")
+# GET /api/export/{id} now lives in routers/export.py. - Claude Generated
 
 
 # Workflow discovery + GET /api/workflows now live in
@@ -1219,67 +984,7 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
     }
 
 
-@app.get("/api/session/{session_id}/recover")
-async def recover_session(session_id: str) -> dict:
-    """Recover results from auto-saved state after timeout - Claude Generated"""
-
-    if session_id not in sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = sessions[session_id]
-
-    # Check if auto-save exists
-    if not session.autosave_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="No auto-saved state available for this session"
-        )
-
-    try:
-        # Load from auto-saved JSON using existing PipelineJsonManager
-        analysis_state = PipelineJsonManager.load_analysis_state(str(session.autosave_path))
-
-        # Reconstruct results using shared helper
-        session.results = _extract_results_from_analysis_state(analysis_state)
-        session.status = "recovered"
-        session.current_analysis_state = analysis_state
-
-        # Read metadata
-        metadata = {}
-        metadata_path = session.autosave_path.with_suffix('.meta.json')
-        if metadata_path.exists():
-            with open(metadata_path, encoding='utf-8') as f:
-                metadata = json.load(f)
-
-        logger.info(f"✓ Successfully recovered session {session_id} from auto-save")
-
-        return {
-            "session_id": session_id,
-            "status": "recovered",
-            "results": make_json_serializable(
-                _prepare_results_for_export(session.results, validate_rvk=False)
-            ),
-            "metadata": metadata,
-            "message": "Results recovered successfully"
-        }
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Corrupted auto-save file for session {session_id}: {e}")
-        raise HTTPException(
-            status_code=422,
-            detail="Auto-save file is corrupted and cannot be recovered"
-        )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail="Auto-save file not found"
-        )
-    except Exception as e:
-        logger.error(f"Recovery failed for session {session_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Recovery failed: {str(e)}"
-        )
+# GET /api/session/{id}/recover now lives in routers/sessions.py. - Claude Generated
 
 
 async def run_analysis(
@@ -1810,15 +1515,7 @@ async def run_input_extraction(
             session.cleanup()
 
 
-@app.delete("/api/session/{session_id}")
-async def delete_session(session_id: str) -> dict:
-    """Delete a session - Claude Generated"""
-    if session_id in sessions:
-        session = sessions[session_id]
-        session.cleanup()
-        del sessions[session_id]
-        return {"status": "deleted"}
-    raise HTTPException(status_code=404, detail="Session not found")
+# DELETE /api/session/{id} now lives in routers/sessions.py. - Claude Generated
 
 
 @app.get("/health")
