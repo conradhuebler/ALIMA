@@ -54,7 +54,7 @@ an operator click-test (sandbox-untestable, per the GUI gate below).
 |----|------|---------|--------|------|
 | F-5 | UI | God-files: `pipeline_tab` 2882, `main_window` 2650, `pipeline_config_dialog` 2177, `unified_provider_tab` 2111, `pipeline_chat_panel` 1922 | Extract cohesive widgets/sections; one file at a time + click-test | high (Qt, untestable here) |
 | F-6 | webapp | `app.py` 2539 LoC god-file (~25 routes + session/streaming/agent) | `APIRouter` split (sessions/streaming/agent/workflows/export) | med-high (shared `app`+state) |
-| F-7 | UI | 17 `QThread`/`StoppableWorker` subclasses; base only partly adopted; 2 model-loaders overlap (`_ModelLoadWorker` vs `ModelFetchWorker`) | Adopt `StoppableWorker` base consistently; merge model-loaders | medium (threading) |
+| F-7 | UI | 17 `QThread`/`StoppableWorker` subclasses; base only partly adopted; 2 model-loaders overlap (`_ModelLoadWorker` vs `ModelFetchWorker`) | **Partly done (June 30):** model-loaders merged into shared `ModelLoadWorker(StoppableWorker)` in `workers.py` (signal contracts preserved; unit-tested `tests/test_model_load_worker.py`) — GUI wiring needs a click-test. **Blanket base-adoption descoped:** most remaining plain-`QThread` workers are short probes that don't need cancellation; convert only genuinely-cancellable long workers case-by-case (GUI-gated). | medium (threading) |
 
 ### P4 — Decide-on-touch (behavior changes, not pure dedup)
 | ID | Area | Finding | Action | Risk |

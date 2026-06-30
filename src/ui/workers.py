@@ -59,6 +59,51 @@ class StoppableWorker(QThread):
             raise InterruptedError("Operation cancelled by user")
 
 
+class ModelLoadWorker(StoppableWorker):
+    """Shared model-list loader — fetch available models off the UI thread.
+
+    Merges the former ``ProviderModelSelector._ModelLoadWorker`` (single provider,
+    ``force``) and ``UnifiedProviderTab.ModelFetchWorker`` (provider batch). Emits
+    both shapes so each consumer keeps its existing wiring:
+
+    * ``fetched(provider, models)`` — per provider, incrementally (single-provider
+      callers connect this);
+    * ``models_fetched({provider: models})`` — once, at the end (batch callers).
+
+    Being a :class:`StoppableWorker`, a long batch fetch can be cancelled between
+    providers via ``request_stop()``. - Claude Generated
+    """
+
+    fetched = pyqtSignal(str, list)        # provider, models (incremental)
+    models_fetched = pyqtSignal(dict)      # {provider: [models]} (final)
+
+    def __init__(self, detection_service, providers, force: bool = False):
+        super().__init__()
+        self._detection_service = detection_service
+        # Accept a single id or an iterable of ids.
+        self._providers = [providers] if isinstance(providers, str) else list(providers)
+        self._force = force
+
+    def run(self):
+        result = {}
+        for provider in self._providers:
+            if self.is_interrupted():
+                break
+            try:
+                models = self._detection_service.get_available_models(
+                    provider, force_check=self._force
+                )
+            except Exception as e:  # pragma: no cover - defensive
+                self.logger.warning(
+                    f"ModelLoadWorker: model fetch failed for {provider}: {e}"
+                )
+                models = []
+            models = list(models or [])
+            result[provider] = models
+            self.fetched.emit(provider, models)
+        self.models_fetched.emit(result)
+
+
 class SingleStepWorker(QThread):
     """Worker thread for single pipeline step execution - Claude Generated"""
 

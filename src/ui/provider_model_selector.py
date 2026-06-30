@@ -20,37 +20,16 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QWidget
+
+from .workers import ModelLoadWorker
 
 logger = logging.getLogger(__name__)
 
 _LOADING_TEXT = "⏳ Lade Modelle…"
 _MODEL_ROLE = Qt.ItemDataRole.UserRole
 _PROVIDER_ROLE = Qt.ItemDataRole.UserRole
-
-
-class _ModelLoadWorker(QThread):
-    """Fetch one provider's models off the UI thread (cache-backed)."""
-
-    fetched = pyqtSignal(str, list)  # provider, models
-
-    def __init__(self, detection_service, provider: str, force: bool):
-        super().__init__()
-        self._detection_service = detection_service
-        self._provider = provider
-        self._force = force
-
-    def run(self):  # noqa: D401 - QThread entry point
-        try:
-            models = self._detection_service.get_available_models(
-                self._provider, force_check=self._force
-            )
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning("ProviderModelSelector: model fetch failed for %s: %s",
-                           self._provider, e)
-            models = []
-        self.fetched.emit(self._provider, list(models or []))
 
 
 class ProviderModelSelector(QWidget):
@@ -70,7 +49,7 @@ class ProviderModelSelector(QWidget):
         # Keep a strong reference to every in-flight worker until it *finishes*.
         # Dropping a running QThread's last reference lets Python GC destroy it
         # mid-run → "QThread: Destroyed while thread is still running" → abort.
-        self._workers: "set[_ModelLoadWorker]" = set()
+        self._workers: "set[ModelLoadWorker]" = set()
         self._loading = False
         self._decorations: Dict[str, str] = {}
         # Host-supplied base stylesheet for the model combo. The validation pass
@@ -227,7 +206,7 @@ class ProviderModelSelector(QWidget):
             return
         self._set_loading(True)
         self._pending_preselect = preselect_model or self.get_selection()[1]
-        worker = _ModelLoadWorker(self._detection_service, provider, force)
+        worker = ModelLoadWorker(self._detection_service, provider, force)
         worker.fetched.connect(self._on_models_fetched)
         # Hold a strong ref until the thread *finishes* (not just started), then
         # drop it. Reassigning a single _worker slot would GC a still-running
@@ -237,7 +216,7 @@ class ProviderModelSelector(QWidget):
         self._workers.add(worker)
         worker.start()
 
-    def _retire_worker(self, worker: "_ModelLoadWorker") -> None:
+    def _retire_worker(self, worker: "ModelLoadWorker") -> None:
         self._workers.discard(worker)
         worker.deleteLater()
 

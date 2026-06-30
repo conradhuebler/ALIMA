@@ -26,6 +26,7 @@ from ..utils.config_models import (
     AlimaConfig
 )
 from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
+from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
 
 
 class ProviderTestWorker(QThread):
@@ -569,29 +570,6 @@ class ProviderEditDialog(QDialog):
         )
 
 
-class ModelFetchWorker(QThread):
-    """Background worker to fetch model lists for all providers without blocking the UI - Claude Generated"""
-
-    models_fetched = pyqtSignal(dict)  # provider_name -> [model_names]
-
-    def __init__(self, detection_service, providers: list):
-        super().__init__()
-        self.detection_service = detection_service
-        self.providers = providers
-        self.logger = logging.getLogger(__name__)
-
-    def run(self):
-        """Fetch models for each provider sequentially in background - Claude Generated"""
-        result = {}
-        for prov in self.providers:
-            try:
-                result[prov] = self.detection_service.get_available_models(prov)
-            except Exception as e:
-                self.logger.warning(f"ModelFetchWorker: failed to fetch models for {prov}: {e}")
-                result[prov] = []
-        self.models_fetched.emit(result)
-
-
 class UnifiedProviderTab(QWidget):
     """
     Unified Provider Configuration Tab - Claude Generated
@@ -947,7 +925,7 @@ class UnifiedProviderTab(QWidget):
         """Start background worker to fetch model lists without blocking the UI - Claude Generated"""
         if not self._cached_providers:
             return
-        self._model_fetch_worker = ModelFetchWorker(self._detection_service, list(self._cached_providers))
+        self._model_fetch_worker = ModelLoadWorker(self._detection_service, list(self._cached_providers))
         self._model_fetch_worker.models_fetched.connect(self._on_models_fetched)
         self._model_fetch_worker.start()
         self.logger.debug("Started background model fetch for all providers")
