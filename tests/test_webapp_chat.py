@@ -66,7 +66,7 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
                 return ("resolved-provider", "resolved-model")
 
             with mock.patch.object(appmod.AppContext, "get_services", return_value=services), \
-                 mock.patch.object(appmod, "PipelineManager", return_value=mock.MagicMock()), \
+                 mock.patch("src.webapp.routers.agent.PipelineManager", return_value=mock.MagicMock()), \
                  mock.patch("src.core.headless_agent.HeadlessAgentRunner", return_value=mock.MagicMock()), \
                  mock.patch("src.core.headless_agent.resolve_provider_model", side_effect=fake_resolve):
                 runner, pm, provider, model = appmod._build_session_agent_runner(session, req)
@@ -177,7 +177,7 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
                 return (provider, model)
 
             with mock.patch.object(appmod.AppContext, "get_services", return_value=services), \
-                 mock.patch.object(appmod, "PipelineManager", return_value=mock.MagicMock()), \
+                 mock.patch("src.webapp.routers.agent.PipelineManager", return_value=mock.MagicMock()), \
                  mock.patch("src.core.headless_agent.HeadlessAgentRunner", return_value=mock.MagicMock()), \
                  mock.patch("src.core.headless_agent.resolve_provider_model", side_effect=fake_resolve):
                 runner, pm, provider, model = appmod._build_session_agent_runner(session, req)
