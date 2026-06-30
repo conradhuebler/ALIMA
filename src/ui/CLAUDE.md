@@ -28,6 +28,11 @@
 
 ## [Variable Section - Short-term Information]
 
+### F-5 god-file split (June 30)
+- ✅ **`pipeline_chat_panel` 1923→698** — leaf widgets → `chat_input_widgets.py`; repetition bar → `repetition_warning_bar.py`; behavior → `PipelineLogMixin` / `ChatAgentMixin` / `BusEventMixin` (`_chat_panel_*.py`). Verbatim moves, reachable via MRO; `bus.subscribe` wiring stays in `__init__`.
+- **Mixin pattern** (new here): for a single god-*class* with no embeddable sub-widgets, split methods into behavioral mixins — zero call-site changes, existing stub tests pass unchanged.
+- Remaining F-5: `pipeline_tab` 2882, `main_window` 2650.
+
 ### Findings — `ProviderModelSelector` adoption (decide when working through cleanup)
 Shared `provider_model_selector.ProviderModelSelector` is used by `unified_provider_tab`, `image_analysis_tab`, `pipeline_chat_panel`, `pipeline_tab`, and now `single_step_dialog` (migrated June 2026). The remaining builders of their own provider/model combos are **not** clean dedup — each has an *intentional* behavior difference, so adopting the selector would change UX. Decide deliberately (not as "cleanup"):
 - **`comprehensive_settings_dialog`**: `load_providers` intentionally lists the 4 common providers (ollama/gemini/openai/anthropic) **plus** enabled ones; the selector shows **enabled-only**. Also has a separate `custom_model_input`. → adoption shrinks the provider list.
