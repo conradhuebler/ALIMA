@@ -30,6 +30,7 @@ import json
 import logging
 
 from ..core.pipeline_manager import PipelineConfig
+from .workers import ModelLoadWorker  # Shared async model loader (F-7) - Claude Generated
 from ..llm.llm_service import LlmService
 from ..llm.prompt_service import PromptService
 from ..utils.config_models import (
@@ -144,6 +145,12 @@ class HybridStepConfigWidget(QWidget):
         self.step_id = step_id
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
+        # Async model detection (F-7): strong refs to in-flight workers + the
+        # provider whose load is current + an optional model to restore once
+        # populated (for refresh / config-load). - Claude Generated
+        self._model_workers = set()
+        self._pending_provider = None
+        self._pending_restore_model = None
         
         # Initialize with default step config - Claude Generated
         self.step_config = PipelineStepConfig(
@@ -588,7 +595,11 @@ class HybridStepConfigWidget(QWidget):
                 if provider_to_select:
                     index = self.provider_combo.findText(provider_to_select)
                     if index >= 0:
+                        # Block the signal so only the explicit call below loads
+                        # the models once (the connected slot would double it).
+                        self.provider_combo.blockSignals(True)
                         self.provider_combo.setCurrentIndex(index)
+                        self.provider_combo.blockSignals(False)
                     self._on_provider_changed(provider_to_select)
                 
         except Exception as e:
@@ -623,14 +634,12 @@ class HybridStepConfigWidget(QWidget):
         if current_provider:
             index = self.provider_combo.findText(current_provider)
             if index >= 0:
+                self.provider_combo.blockSignals(True)
                 self.provider_combo.setCurrentIndex(index)
-                self._on_provider_changed(current_provider)
-                
-                # Try to restore model selection
-                if current_model:
-                    model_index = self.model_combo.findText(current_model)
-                    if model_index >= 0:
-                        self.model_combo.setCurrentIndex(model_index)
+                self.provider_combo.blockSignals(False)
+                # The model is restored asynchronously once the new list is
+                # populated (see _on_provider_models_loaded).
+                self._on_provider_changed(current_provider, restore_model=current_model or None)
         
         # Update status
         self._validate_configuration()
@@ -726,80 +735,117 @@ class HybridStepConfigWidget(QWidget):
 
         return model_to_select
 
-    def _on_provider_changed(self, provider: str):
-        """Handle provider change with visual baseline highlighting - Claude Generated"""
+    def _on_provider_changed(self, provider: str, restore_model: Optional[str] = None):
+        """Handle provider change — detect models off the UI thread - Claude Generated
+
+        Live model detection runs in the shared ModelLoadWorker so switching the
+        provider no longer freezes the dialog; the result is handled in
+        :meth:`_on_provider_models_loaded`. ``restore_model`` (refresh / config-load)
+        is selected once the list is populated, mirroring the former synchronous
+        post-call restore.
+        """
         if not provider:
             return
+        if not self.config_manager:
+            self._on_manual_config_changed()
+            return
+
+        self._pending_provider = provider
+        self._pending_restore_model = restore_model
+        self.model_combo.clear()
+        self.model_combo.addItem("⏳ Lade Modelle…", None)
+        self.model_combo.setEnabled(False)
+
+        from ..utils.config_manager import ProviderDetectionService
+        detection_service = ProviderDetectionService(self.config_manager)
+        worker = ModelLoadWorker(detection_service, provider, force=True)
+        worker.fetched.connect(self._on_provider_models_loaded)
+        worker.finished.connect(lambda w=worker: self._retire_model_worker(w))
+        self._model_workers.add(worker)
+        worker.start()
+
+    def _retire_model_worker(self, worker) -> None:
+        """Drop the strong ref once the worker thread has finished - Claude Generated"""
+        self._model_workers.discard(worker)
+        worker.deleteLater()
+
+    def _on_provider_models_loaded(self, provider: str, models: list):
+        """Populate the model combo when detection finishes (main thread) - Claude Generated"""
+        # Ignore late results for a provider the user has since switched away from.
+        if provider != self._pending_provider:
+            return
+        restore_model = self._pending_restore_model
+        self._pending_restore_model = None
+        self.model_combo.setEnabled(True)
 
         try:
-            if self.config_manager:
-                from ..utils.config_manager import ProviderDetectionService
-                detection_service = ProviderDetectionService(self.config_manager)
-                models = detection_service.get_available_models(provider, force_check=True)
+            if models:
+                self.logger.debug(f"🔍AVAILABLE_MODELS: provider='{provider}', models={models[:5]}{'...' if len(models) > 5 else ''} (total: {len(models)})")
 
-                if models:
-                    # 🔍 DEBUG: Log available models - Claude Generated
-                    self.logger.debug(f"🔍AVAILABLE_MODELS: provider='{provider}', models={models[:5]}{'...' if len(models) > 5 else ''} (total: {len(models)})")
+                # Populate combo with visual styling for baseline models
+                model_to_select = self._populate_model_combo_with_styling(provider, models)
 
-                    # Populate combo with visual styling for baseline models - Claude Generated
-                    model_to_select = self._populate_model_combo_with_styling(provider, models)
+                # Handle fuzzy matching if exact model not found
+                if model_to_select and model_to_select not in models:
+                    fuzzy_match = self._find_fuzzy_model_match(model_to_select, models)
+                    if fuzzy_match:
+                        model_to_select = fuzzy_match
+                        self.logger.info(f"Using fuzzy match '{fuzzy_match}' for '{model_to_select}'")
 
-                    # Handle fuzzy matching if exact model not found
-                    if model_to_select and model_to_select not in models:
-                        fuzzy_match = self._find_fuzzy_model_match(model_to_select, models)
-                        if fuzzy_match:
-                            model_to_select = fuzzy_match
-                            self.logger.info(f"Using fuzzy match '{fuzzy_match}' for '{model_to_select}'")
+                # Set the selected model in combo (search by UserRole data, not display text)
+                if model_to_select:
+                    for i in range(self.model_combo.count()):
+                        stored_model = self.model_combo.itemData(i, Qt.ItemDataRole.UserRole)
+                        if stored_model == model_to_select:
+                            self.model_combo.setCurrentIndex(i)
+                            self.logger.debug(f"🔍MODEL_SELECTED: '{model_to_select}' at index {i}")
+                            break
 
-                    # Set the selected model in combo (search by UserRole data, not display text)
-                    if model_to_select:
-                        # Find index by matching UserRole data (clean model name)
-                        for i in range(self.model_combo.count()):
-                            stored_model = self.model_combo.itemData(i, Qt.ItemDataRole.UserRole)
-                            if stored_model == model_to_select:
-                                self.model_combo.setCurrentIndex(i)
-                                self.logger.debug(f"🔍MODEL_SELECTED: '{model_to_select}' at index {i}")
-                                break
+                # Apply combo-box level styling based on selected model
+                if model_to_select:
+                    baseline_source = self._get_baseline_source(provider, model_to_select)
 
-                    # Apply combo-box level styling based on selected model
-                    if model_to_select:
-                        baseline_source = self._get_baseline_source(provider, model_to_select)
+                    tooltip_parts = []
+                    if baseline_source == 'task_preference':
+                        tooltip_parts.append(f"🟢 Task Preference: {provider} / {model_to_select}")
+                        tooltip_parts.append(f"Source: Settings → Task Preferences → {self.step_id}")
+                    elif baseline_source == 'provider_preference':
+                        tooltip_parts.append(f"🔵 Provider Preference: {provider} / {model_to_select}")
+                        tooltip_parts.append("Source: Settings → Provider Settings")
+                    else:
+                        tooltip_parts.append(f"Model: {model_to_select}")
+                    self.model_combo.setToolTip("\n".join(tooltip_parts))
 
-                        # Build combo tooltip
-                        tooltip_parts = []
-                        if baseline_source == 'task_preference':
-                            tooltip_parts.append(f"🟢 Task Preference: {provider} / {model_to_select}")
-                            tooltip_parts.append(f"Source: Settings → Task Preferences → {self.step_id}")
-                        elif baseline_source == 'provider_preference':
-                            tooltip_parts.append(f"🔵 Provider Preference: {provider} / {model_to_select}")
-                            tooltip_parts.append("Source: Settings → Provider Settings")
-                        else:
-                            tooltip_parts.append(f"Model: {model_to_select}")
+                    if baseline_source == 'task_preference':
+                        self.model_combo.setStyleSheet(STYLE_TASK_PREFERENCE)
+                        self.provider_combo.setStyleSheet(STYLE_TASK_PREFERENCE)
+                    elif baseline_source == 'provider_preference':
+                        self.model_combo.setStyleSheet(STYLE_PROVIDER_PREFERENCE)
+                        self.provider_combo.setStyleSheet(STYLE_PROVIDER_PREFERENCE)
+                    else:
+                        self.model_combo.setStyleSheet(STYLE_OVERRIDE)
+                        self.provider_combo.setStyleSheet(STYLE_OVERRIDE)
+            else:
+                # Fallback models
+                fallback_models = {
+                    "ollama": ["cogito:32b", "cogito:14b", "llama3:8b"],
+                    "gemini": ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"],
+                    "openai": ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
+                    "anthropic": ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
+                }
+                self.model_combo.clear()
+                for model in fallback_models.get(provider, ["default-model"]):
+                    self.model_combo.addItem(model)
+                    self.model_combo.setItemData(self.model_combo.count() - 1, model, Qt.ItemDataRole.UserRole)
 
-                        self.model_combo.setToolTip("\n".join(tooltip_parts))
-
-                        # Apply combobox-level styling - Claude Generated
-                        if baseline_source == 'task_preference':
-                            self.model_combo.setStyleSheet(STYLE_TASK_PREFERENCE)
-                            self.provider_combo.setStyleSheet(STYLE_TASK_PREFERENCE)
-                        elif baseline_source == 'provider_preference':
-                            self.model_combo.setStyleSheet(STYLE_PROVIDER_PREFERENCE)
-                            self.provider_combo.setStyleSheet(STYLE_PROVIDER_PREFERENCE)
-                        else:
-                            self.model_combo.setStyleSheet(STYLE_OVERRIDE)
-                            self.provider_combo.setStyleSheet(STYLE_OVERRIDE)
+            # Restore a caller-requested model (refresh / config-load) — mirrors the
+            # former synchronous post-call findText/setCurrentText restore.
+            if restore_model:
+                idx = self.model_combo.findText(restore_model)
+                if idx >= 0:
+                    self.model_combo.setCurrentIndex(idx)
                 else:
-                    # Fallback models
-                    fallback_models = {
-                        "ollama": ["cogito:32b", "cogito:14b", "llama3:8b"],
-                        "gemini": ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"],
-                        "openai": ["gpt-4o", "gpt-4", "gpt-3.5-turbo"],
-                        "anthropic": ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
-                    }
-                    self.model_combo.clear()
-                    for model in fallback_models.get(provider, ["default-model"]):
-                        self.model_combo.addItem(model)
-                        self.model_combo.setItemData(self.model_combo.count() - 1, model, Qt.ItemDataRole.UserRole)
+                    self.model_combo.setCurrentText(restore_model)
         except Exception as e:
             self.logger.warning(f"Could not load models for {provider}: {e}")
 
@@ -1431,10 +1477,13 @@ class HybridStepConfigWidget(QWidget):
         
         # Update manual mode controls
         if config.provider:
+            self.provider_combo.blockSignals(True)
             self.provider_combo.setCurrentText(config.provider)
-            # Trigger provider change to populate models including preferred model
-            self._on_provider_changed(config.provider)
-        if config.model:
+            self.provider_combo.blockSignals(False)
+            # Trigger provider change; the saved model is restored asynchronously
+            # once the model list is populated.
+            self._on_provider_changed(config.provider, restore_model=config.model or None)
+        elif config.model:
             self.model_combo.setCurrentText(config.model)
         if config.task:
             self.task_combo.setCurrentText(config.task)

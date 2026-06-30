@@ -92,6 +92,11 @@ class TaskModelSelectionDialog(QDialog):
         self.current_model_info = current_model_info or {}
         self._pending_cache_update = None  # Stores (provider_name, models) for later save
         self.status_label = None  # Will be set in _setup_ui
+        # Async model detection (F-7): keep strong refs to in-flight workers until
+        # they finish, and remember the provider whose load is current so late
+        # results for a switched-away provider are ignored. - Claude Generated
+        self._model_workers = set()
+        self._pending_provider = None
 
         self.setWindowTitle("Select Provider and Model")
         self.setModal(True)
@@ -175,58 +180,79 @@ class TaskModelSelectionDialog(QDialog):
             self.provider_combo.addItems(fallback_providers)
     
     def _load_models(self, provider_name: str):
-        """Load models using two-tier strategy: detected → cached - Claude Generated
+        """Kick off async model detection (two-tier: live → cached) - Claude Generated
 
-        TIER 1: Try live detection from provider
-        TIER 2: Use cached models from config if detection fails
+        TIER 1 (live detection) runs off the UI thread via ModelLoadWorker so
+        switching the provider no longer freezes the dialog; the result is handled
+        in :meth:`_on_models_loaded`, which falls back to TIER 2 (cached) when the
+        live list is empty.
         """
         self.model_combo.clear()
         self.model_combo.setEnabled(True)
 
         if not provider_name or provider_name == "No providers available":
+            self._pending_provider = None
             return
+
+        # Loading placeholder while the (network) detection runs in the background.
+        self._pending_provider = provider_name
+        self.model_combo.addItem("⏳ Lade Modelle…", None)
+        self.model_combo.setEnabled(False)
+        if self.status_label:
+            self.status_label.setText(f"⏳ Detecting models from {provider_name}…")
+
+        detection_service = ProviderDetectionService(self.config_manager)
+        worker = ModelLoadWorker(detection_service, provider_name, force=True)
+        worker.fetched.connect(self._on_models_loaded)
+        worker.finished.connect(lambda w=worker: self._retire_model_worker(w))
+        self._model_workers.add(worker)
+        worker.start()
+
+    def _retire_model_worker(self, worker) -> None:
+        """Drop the strong ref once the worker thread has finished - Claude Generated"""
+        self._model_workers.discard(worker)
+        worker.deleteLater()
+
+    def _on_models_loaded(self, provider_name: str, detected_models: list):
+        """Populate the model combo when detection finishes (main thread) - Claude Generated
+
+        TIER 2 cached fallback runs here when the live list is empty. Late results
+        for a provider the user has since switched away from are ignored.
+        """
+        if provider_name != self._pending_provider:
+            return
+
+        self.model_combo.clear()
+        self.model_combo.setEnabled(True)
 
         models_to_display = []
         detection_success = False
 
-        # TIER 1: Try live detection
-        try:
-            detection_service = ProviderDetectionService(self.config_manager)
-            detected_models = detection_service.get_available_models(provider_name, force_check=True)
-            if detected_models:
-                detected_models = sorted(detected_models, key=lambda s: s.lower())
+        # TIER 1 result (live detection, fetched off-thread)
+        if detected_models:
+            models_to_display = sorted(detected_models, key=lambda s: s.lower())
+            detection_success = True
+            if self.status_label:
+                self.status_label.setText(f"✅ {len(models_to_display)} models detected from {provider_name}")
 
-            if detected_models:
-                models_to_display = detected_models
-                detection_success = True
-                self.status_label.setText(f"✅ {len(detected_models)} models detected from {provider_name}")
-
-        except Exception as e:
-            # Detection failed, will try TIER 2
-            pass
-
-        # TIER 2: Use cached models from config (if TIER 1 failed)
+        # TIER 2: cached models from config (if live detection returned nothing)
         if not models_to_display and self.config_manager:
             cached_models = self._get_cached_models_from_config(provider_name)
             if cached_models:
-                cached_models = sorted(cached_models, key=lambda s: s.lower())
-
-            if cached_models:
-                models_to_display = cached_models
-                self.status_label.setText(f"⚠️ Provider offline - showing {len(cached_models)} cached models")
+                models_to_display = sorted(cached_models, key=lambda s: s.lower())
+                if self.status_label:
+                    self.status_label.setText(f"⚠️ Provider offline - showing {len(models_to_display)} cached models")
 
         # Populate dropdown (no visual distinction between detected and cached)
         if models_to_display:
             for model in models_to_display:
                 self.model_combo.addItem(model, model)
-
-            # Pre-select current model if available
             self._preselect_current_model()
         else:
-            # No models available at all
             self.model_combo.addItem("No models available", None)
             self.model_combo.setEnabled(False)
-            self.status_label.setText(f"❌ No models available for {provider_name}")
+            if self.status_label:
+                self.status_label.setText(f"❌ No models available for {provider_name}")
 
         # Store detected models for later caching (only on dialog OK)
         if detection_success:
