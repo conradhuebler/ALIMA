@@ -203,13 +203,15 @@ class TestAgenticAnalysisBusRendering(unittest.TestCase):
 
             _AlimaStateBus.emit_event = _direct_emit
             try:
-                # Monkeypatch the PipelineManager name in app.py directly; mock.patch
-                # on the origin module can miss because app.py bound the name at
-                # import time and the singleton may already be alive.
-                original_pm = appmod.PipelineManager
-                appmod.PipelineManager = lambda *a, **k: fake_pm
-                with mock.patch("src.webapp.app.resolve_input_to_text", return_value="text"), \
-                     mock.patch("src.webapp.app.AppContext") as mock_ctx:
+                # Monkeypatch the PipelineManager name in the analysis router (where
+                # run_analysis now lives) directly; mock.patch on the origin module can
+                # miss because the module bound the name at import time and the
+                # singleton may already be alive.
+                from src.webapp.routers import analysis as analysismod
+                original_pm = analysismod.PipelineManager
+                analysismod.PipelineManager = lambda *a, **k: fake_pm
+                with mock.patch("src.webapp.routers.analysis.resolve_input_to_text", return_value="text"), \
+                     mock.patch("src.webapp.routers.analysis.AppContext") as mock_ctx:
                     mock_ctx.return_value.get_services.return_value = {
                         "config_manager": mock.MagicMock(),
                         "alima_manager": mock.MagicMock(),
@@ -222,7 +224,7 @@ class TestAgenticAnalysisBusRendering(unittest.TestCase):
                         f"/api/analyze/{sid}",
                         data={"input_type": "text", "content": "abc", "workflow": "alima_v51"},
                     )
-                appmod.PipelineManager = original_pm
+                analysismod.PipelineManager = original_pm
                 self.assertEqual(resp.status_code, 200)
 
                 # Wait for the background thread to finish.

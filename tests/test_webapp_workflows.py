@@ -84,9 +84,9 @@ class TestAgenticAnalyzeParameter(unittest.TestCase):
         appmod.sessions[sid] = appmod.Session(sid)
         try:
             fake_pm = self._fake_pipeline_manager(agentic=False, workflow=None)
-            with mock.patch("src.webapp.app.PipelineManager", return_value=fake_pm), \
-                 mock.patch("src.webapp.app.resolve_input_to_text", return_value="text"), \
-                 mock.patch("src.webapp.app.AppContext") as mock_ctx:
+            with mock.patch("src.webapp.routers.analysis.PipelineManager", return_value=fake_pm), \
+                 mock.patch("src.webapp.routers.analysis.resolve_input_to_text", return_value="text"), \
+                 mock.patch("src.webapp.routers.analysis.AppContext") as mock_ctx:
                 mock_ctx.return_value.get_services.return_value = {
                     "config_manager": mock.MagicMock(),
                     "alima_manager": mock.MagicMock(),
@@ -112,9 +112,9 @@ class TestAgenticAnalyzeParameter(unittest.TestCase):
         appmod.sessions[sid] = appmod.Session(sid)
         try:
             fake_pm = self._fake_pipeline_manager(agentic=False, workflow=None)
-            with mock.patch("src.webapp.app.PipelineManager", return_value=fake_pm), \
-                 mock.patch("src.webapp.app.resolve_input_to_text", return_value="text"), \
-                 mock.patch("src.webapp.app.AppContext") as mock_ctx:
+            with mock.patch("src.webapp.routers.analysis.PipelineManager", return_value=fake_pm), \
+                 mock.patch("src.webapp.routers.analysis.resolve_input_to_text", return_value="text"), \
+                 mock.patch("src.webapp.routers.analysis.AppContext") as mock_ctx:
                 mock_ctx.return_value.get_services.return_value = {
                     "config_manager": mock.MagicMock(),
                     "alima_manager": mock.MagicMock(),

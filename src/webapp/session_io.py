@@ -10,6 +10,7 @@ import logging
 import re
 import unicodedata
 from datetime import datetime
+from typing import Optional
 
 from src.utils.pipeline_utils import PipelineJsonManager
 from src.webapp.session_state import AUTOSAVE_DIR, AUTOSAVE_MAX_AGE_HOURS, Session
@@ -116,3 +117,15 @@ def cleanup_old_autosaves(max_age_hours: int = None):
 
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
+
+
+def _parse_think_override(value: Optional[str]) -> Optional[bool]:
+    """Map a 'default'|'on'|'off' thinking override string to None/True/False - Claude Generated."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v in ("on", "true", "1", "yes", "an"):
+        return True
+    if v in ("off", "false", "0", "no", "aus"):
+        return False
+    return None  # "default" / unknown → leave per-step/task value
