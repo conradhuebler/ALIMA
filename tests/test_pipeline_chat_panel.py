@@ -448,5 +448,66 @@ class TestCancelLifecycle(unittest.TestCase):
         self.assertTrue(any("Abgebrochen" in m for m in stub.system_messages))
 
 
+class TestPipelineLogSummaries(unittest.TestCase):
+    """Pure-string helpers moved to PipelineLogMixin (F-5 split). Reachable as
+    PipelineChatPanel.<name> via the MRO; exercised on a minimal stub."""
+
+    def _stub(self) -> SimpleNamespace:
+        stub = SimpleNamespace()
+        stub._format_dk_search_results = (
+            PipelineChatPanel._format_dk_search_results.__get__(stub)
+        )
+        stub._build_step_summary = PipelineChatPanel._build_step_summary.__get__(stub)
+        return stub
+
+    def test_build_step_summary_keywords_with_verification(self):
+        stub = self._stub()
+        step = SimpleNamespace(
+            step_id="keywords",
+            output_data={
+                "final_keywords": ["Cadmium", "Phytoremediation"],
+                "verification": {
+                    "stats": {"verified_count": 1, "total_extracted": 2},
+                    "rejected": ["Foo (no hit)"],
+                },
+            },
+        )
+        out = stub._build_step_summary(step, "1.2s")
+        self.assertIn("Abgeschlossen in 1.2s", out)
+        self.assertIn("Gefunden: 2 Keywords", out)
+        self.assertIn("1/2 Keywords GND-verifiziert", out)
+        self.assertIn("Foo", out)
+
+    def test_build_step_summary_search(self):
+        stub = self._stub()
+        step = SimpleNamespace(step_id="search", output_data={"search_results": 42})
+        out = stub._build_step_summary(step, "0.5s")
+        self.assertIn("Gefunden: 42 GND-Einträge", out)
+
+    def test_build_step_summary_no_output(self):
+        stub = self._stub()
+        step = SimpleNamespace(step_id="search", output_data=None)
+        self.assertEqual(stub._build_step_summary(step, "9s"), "✅ Abgeschlossen in 9s")
+
+    def test_format_dk_search_results_counts(self):
+        stub = self._stub()
+        out = stub._format_dk_search_results(
+            [
+                {"keyword": "A", "source": "cache", "classifications": [{"c": 1}]},
+                {"keyword": "B", "source": "live", "classifications": []},
+            ]
+        )
+        self.assertIn("2 Keywords", out)
+        self.assertIn("1 erfolgreich", out)
+        self.assertIn("📦 Cache: 1 | 🔍 Live: 1", out)
+
+    def test_format_dk_search_results_empty(self):
+        stub = self._stub()
+        self.assertEqual(
+            stub._format_dk_search_results([]),
+            "Keine Klassifikationen (DK/RVK) gefunden",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
