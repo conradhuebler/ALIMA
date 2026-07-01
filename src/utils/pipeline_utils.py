@@ -28,7 +28,7 @@ from ..core.data_models import (
 )
 from ..core.search_cli import SearchCLI
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
-from ..core.search import SearchCapability, providers_for_capability
+from ..core.search import SearchCapability, enabled_gnd_provider_ids, providers_for_capability
 from ..core.processing_utils import (
     extract_keywords_from_response,
     extract_gnd_system_from_response,
@@ -478,6 +478,25 @@ class PipelineStepExecutor:
                 suggester_types.append(pid)
             elif self.logger:
                 self.logger.warning(f"Unknown suggester: {suggester_name}")
+
+        # Honor the Plugins-tab enable/disable gate: expand "all", then keep only
+        # provider types whose instance is enabled. ``None`` = config unreadable →
+        # keep the requested list unchanged (no silent empty search). - Claude Generated
+        enabled_ids = enabled_gnd_provider_ids()
+        if enabled_ids is not None:
+            expanded = []
+            for pid in suggester_types:
+                expanded.extend(["lobid", "swb", "catalog"] if pid == "all" else [pid])
+            gated = [pid for pid in dict.fromkeys(expanded) if pid in enabled_ids]
+            if gated != suggester_types:
+                dropped = [p for p in dict.fromkeys(expanded) if p not in enabled_ids]
+                if dropped and self.logger:
+                    self.logger.info(f"execute_gnd_search: skipping disabled providers {dropped}")
+                if dropped and stream_callback:
+                    stream_callback(
+                        f"Übersprungene (deaktivierte) Quellen: {', '.join(dropped)}\n", "search"
+                    )
+            suggester_types = gated
 
         # Convert keywords to list if needed
         if isinstance(keywords, str):

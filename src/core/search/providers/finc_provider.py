@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
+from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField, availability_ok
+
 from ..provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from ..registry import register_provider
 
@@ -22,6 +24,45 @@ class FincProvider:
     id = "finc"
     label = "finc (VuFind)"
     capabilities = {SearchCapability.TITLE_RECORDS, SearchCapability.SUBJECT_FACETS}
+
+    @classmethod
+    def config_fields(cls) -> List[ConfigField]:
+        return [
+            ConfigField(
+                key="base_url", label="finc Basis-URL", kind=URL, gates_availability=True,
+                help="VuFind solrproxy-Endpoint; ohne URL ist finc inaktiv.",
+            ),
+            ConfigField(
+                key="web_record_url", label="Web-Record-URL", kind=URL,
+                help="Basis für Katalog-Weblinks (…/Record/<id>).",
+            ),
+            ConfigField(
+                key="institution_filter", label="Institutions-Filter", kind=TEXT,
+                help="Optionaler VuFind-Facet-Filter, z.B. institution:DE-105.",
+            ),
+            ConfigField(key="default_limit", label="Max. Datensätze", kind=INT, default=20),
+            ConfigField(key="timeout", label="Timeout (s)", kind=INT, default=30),
+            ConfigField(
+                key="dk_enabled", label="finc für DK-Suche nutzen", kind=BOOL, default=False,
+                help="Per-Titel udk_raw für die DK-Klassifikationssuche statt Libero/SRU.",
+            ),
+            ConfigField(
+                key="harvest_enabled", label="finc-Subject-Harvest", kind=BOOL, default=False,
+                help="Im Keyword-Schritt finc-Titel ernten und gegen den GND-Cache abgleichen.",
+            ),
+        ]
+
+    @classmethod
+    def doc(cls):
+        from src.core.plugins.schema import PluginDoc
+
+        return PluginDoc(
+            description="finc/VuFind-JSON-Katalog (z.B. TU Freiberg): bibliografische "
+            "Datensätze plus DK/RVK-Klassifikationsverteilung.",
+            input="Suchbegriffe (Titel/Schlagwort/Autor) + optionale Facetten/Filter/Verfügbarkeit.",
+            output="Titel-Datensätze (id, Titel, Autoren, web_url, urls[] …) und/oder "
+            "Facetten-Verteilungen (udk_raw, rvk_facet).",
+        )
 
     @classmethod
     def mcp_tool_specs(cls):
@@ -138,8 +179,8 @@ class FincProvider:
         return self._suggester
 
     def is_available(self, cfg: Any = None) -> bool:
-        # finc is off until a base URL is configured (matches tool_registry gating).
-        return bool(self._config.get("base_url"))
+        # finc is off until a base URL is configured (base_url gates availability).
+        return availability_ok(type(self).config_fields(), self._config)
 
     def _require(self, capability: SearchCapability) -> None:
         if capability not in self.capabilities:

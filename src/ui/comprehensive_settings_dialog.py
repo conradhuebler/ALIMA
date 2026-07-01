@@ -25,7 +25,7 @@ from copy import deepcopy
 from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig, ProviderDetectionService
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
-from .provider_selector import SearchProviderSelectorWidget
+from .plugin_settings_tab import PluginSettingsTab
 from ..utils.config_models import TaskPreference, TaskType
 from ..core.agents.workflow_loader import discover_workflow_files, is_v4_yaml
 
@@ -96,8 +96,7 @@ class ComprehensiveSettingsDialog(QDialog):
             self.alima_manager,
             self
         )
-        self.catalog_tab = self._create_catalog_tab()
-        self.search_provider_tab = SearchProviderSelectorWidget(self)
+        self.plugin_settings_tab = PluginSettingsTab(self)
         self.system_tab = self._create_system_tab()
         self.about_tab = self._create_about_tab()
         
@@ -108,8 +107,7 @@ class ComprehensiveSettingsDialog(QDialog):
         # Add tabs
         self.tab_widget.addTab(self.database_tab, "🗄️ Database")
         self.tab_widget.addTab(self.unified_provider_tab, "🚀 Providers & Models")  # Claude Generated - Unified Tab
-        self.tab_widget.addTab(self.catalog_tab, "📚 Catalog")
-        self.tab_widget.addTab(self.search_provider_tab, "🔌 Search Providers")
+        self.tab_widget.addTab(self.plugin_settings_tab, "🔌 Plugins")
         
         # Task Preferences are now integrated into the unified provider tab
         
@@ -241,237 +239,6 @@ class ComprehensiveSettingsDialog(QDialog):
         return widget
     
     
-    def _create_catalog_tab(self) -> QWidget:
-        """Create catalog configuration tab - Claude Generated"""
-        widget = QWidget()
-        layout = QVBoxLayout()
-        
-        # Catalog Type Selection
-        type_group = QGroupBox("Catalog Type")
-        type_layout = QFormLayout()
-        
-        self.catalog_type_combo = QComboBox()
-        self.catalog_type_combo.addItems(["libero_soap", "marcxml_sru", "auto"])
-        self.catalog_type_combo.setToolTip(
-            "libero_soap: Original Libero SOAP API (requires token)\n"
-            "marcxml_sru: Standard MARC XML via SRU protocol (DNB, K10plus, etc.)\n"
-            "auto: Automatically detect based on configuration"
-        )
-        self.catalog_type_combo.currentTextChanged.connect(self._on_catalog_type_changed)
-        type_layout.addRow("Catalog Type:", self.catalog_type_combo)
-        
-        type_group.setLayout(type_layout)
-        layout.addWidget(type_group)
-        
-        # Libero SOAP settings (original)
-        self.libero_group = QGroupBox("Libero SOAP Configuration")
-        libero_layout = QFormLayout()
-        
-        self.catalog_token = QLineEdit()
-        self.catalog_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self.catalog_token.setToolTip("API token for Libero SOAP catalog access")
-        libero_layout.addRow("Catalog Token:", self.catalog_token)
-
-        self.libero_token_btn = QPushButton("🔑 Token erstellen...")
-        self.libero_token_btn.clicked.connect(self._fetch_libero_token_dialog)
-        libero_layout.addRow("", self.libero_token_btn)
-
-        self.catalog_search_url = QLineEdit()
-        self.catalog_search_url.setToolTip("SOAP search endpoint URL (e.g., https://libero.ub.example.de/libero/LiberoWebServices.CatalogueSearcher.cls)")
-        libero_layout.addRow("SOAP Search URL:", self.catalog_search_url)
-
-        self.catalog_details_url = QLineEdit()
-        self.catalog_details_url.setToolTip("SOAP details endpoint URL (e.g., https://libero.ub.example.de/libero/LiberoWebServices.LibraryAPI.cls)")
-        libero_layout.addRow("SOAP Details URL:", self.catalog_details_url)
-
-        self.catalog_web_search_url = QLineEdit()
-        self.catalog_web_search_url.setToolTip("Web frontend search URL for web-scraping fallback (e.g., https://katalog.ub.example.de/Search/Results). Leave empty to disable web fallback.")
-        libero_layout.addRow("Web Search URL:", self.catalog_web_search_url)
-
-        self.catalog_web_record_url = QLineEdit()
-        self.catalog_web_record_url.setToolTip("Web frontend record base URL for web-scraping fallback (e.g., https://katalog.ub.example.de/Record/). Leave empty to disable web fallback.")
-        libero_layout.addRow("Web Record URL:", self.catalog_web_record_url)
-
-        self.libero_group.setLayout(libero_layout)
-        layout.addWidget(self.libero_group)
-        
-        # MARC XML / SRU settings
-        self.sru_group = QGroupBox("MARC XML / SRU Configuration")
-        sru_layout = QFormLayout()
-        
-        # SRU Preset selector
-        self.sru_preset_combo = QComboBox()
-        self.sru_preset_combo.addItems(["", "dnb", "loc", "gbv", "swb", "k10plus"])
-        self.sru_preset_combo.setToolTip(
-            "Select a preset catalog or leave empty for custom URL:\n"
-            "• dnb: Deutsche Nationalbibliothek\n"
-            "• loc: Library of Congress\n"
-            "• gbv: GBV Gemeinsamer Bibliotheksverbund\n"
-            "• swb: SWB Südwestdeutscher Bibliotheksverbund\n"
-            "• k10plus: K10plus (GBV + SWB combined)"
-        )
-        self.sru_preset_combo.currentTextChanged.connect(self._on_sru_preset_changed)
-        sru_layout.addRow("SRU Preset:", self.sru_preset_combo)
-        
-        # Custom SRU URL (for custom endpoints)
-        self.sru_base_url = QLineEdit()
-        self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
-        self.sru_base_url.setToolTip("SRU endpoint URL (only needed if not using a preset)")
-        sru_layout.addRow("SRU Base URL:", self.sru_base_url)
-        
-        self.sru_database = QLineEdit()
-        self.sru_database.setPlaceholderText("e.g., dnb")
-        self.sru_database.setToolTip("SRU database name (optional, depends on endpoint)")
-        sru_layout.addRow("SRU Database:", self.sru_database)
-        
-        self.sru_schema = QComboBox()
-        self.sru_schema.addItems(["marcxml", "MARC21-xml"])
-        self.sru_schema.setToolTip("Record schema format")
-        sru_layout.addRow("Record Schema:", self.sru_schema)
-        
-        self.sru_max_records = QSpinBox()
-        self.sru_max_records.setRange(1, 500)
-        self.sru_max_records.setValue(50)
-        self.sru_max_records.setToolTip("Maximum records per search (default: 50)")
-        sru_layout.addRow("Max Records:", self.sru_max_records)
-        
-        self.sru_group.setLayout(sru_layout)
-        layout.addWidget(self.sru_group)
-
-        # finc / VuFind-JSON settings - Claude Generated (finc integration, June 2026)
-        # Sits alongside Libero/SRU as a LOCAL catalog backend. When
-        # finc_base_url is set, the FincSuggester takes priority over
-        # Libero for the search_finc MCP tool. finc returns full VuFind
-        # records (not aggregated GND keywords), so it does not replace
-        # SWB/Lobid in gnd_batch_search — see FincSuggester docstring.
-        self.finc_group = QGroupBox("finc / VuFind-JSON Configuration")
-        finc_layout = QFormLayout()
-
-        self.finc_base_url = QLineEdit()
-        self.finc_base_url.setPlaceholderText(
-            "https://finc.example.org/fincsolrproxy/proxy.php"
-        )
-        self.finc_base_url.setToolTip(
-            "Base URL of the finc solrproxy (no trailing slash). The client "
-            "appends /api/v1/search automatically. Leave empty to disable."
-        )
-        finc_layout.addRow("finc Base URL:", self.finc_base_url)
-
-        self.finc_web_record_url = QLineEdit()
-        self.finc_web_record_url.setPlaceholderText(
-            "https://katalog.example.org/Record/"
-        )
-        self.finc_web_record_url.setToolTip(
-            "Web frontend record base URL (with trailing slash). Used to build "
-            "the web_url for each record. Optional — leave empty to omit."
-        )
-        finc_layout.addRow("Web Record URL:", self.finc_web_record_url)
-
-        self.finc_default_limit = QSpinBox()
-        self.finc_default_limit.setRange(1, 100)
-        self.finc_default_limit.setValue(20)
-        self.finc_default_limit.setToolTip(
-            "Maximum records per search (1..100). Default: 20."
-        )
-        finc_layout.addRow("Default Limit:", self.finc_default_limit)
-
-        self.finc_timeout = QSpinBox()
-        self.finc_timeout.setRange(1, 300)
-        self.finc_timeout.setValue(30)
-        self.finc_timeout.setSuffix(" s")
-        self.finc_timeout.setToolTip(
-            "HTTP timeout in seconds. Default: 30."
-        )
-        finc_layout.addRow("Timeout:", self.finc_timeout)
-
-        self.finc_institution_filter = QLineEdit()
-        self.finc_institution_filter.setPlaceholderText("DE-105")
-        self.finc_institution_filter.setToolTip(
-            "Optional default institution facet value, e.g. DE-105. Applied as "
-            "filter[]=institution:\"<value>\" to every search unless overridden "
-            "by the caller."
-        )
-        finc_layout.addRow("Institution Filter:", self.finc_institution_filter)
-
-        self.finc_dk_enabled = QCheckBox("DK-Klassifikationssuche über finc (statt Libero/SRU)")
-        self.finc_dk_enabled.setToolTip(
-            "Wenn aktiviert (und finc Base URL gesetzt), nutzt der DK-Such-Schritt "
-            "finc: Titelliste pro Schlagwort + udk_raw/rvk pro Titel. Sonst bleibt "
-            "Libero/SRU der DK-Backend. finc bleibt unabhängig davon über das "
-            "search_finc-Tool erreichbar."
-        )
-        finc_layout.addRow("DK-Suche:", self.finc_dk_enabled)
-
-        self.finc_harvest_enabled = QCheckBox("Schlagwort-Schritt: finc-Titel ernten + Schlagworte gegen GND-Cache abgleichen")
-        self.finc_harvest_enabled.setToolTip(
-            "Wenn aktiviert (und finc Base URL gesetzt), reichert der Suchschritt "
-            "den GND-Pool mit katalog-gegroundeten Treffern an: pro Schlagwort eine "
-            "finc-Subject-Suche, deren Titel-Schlagworte gegen den lokalen GND-Cache "
-            "abgeglichen werden. Standard aus."
-        )
-        finc_layout.addRow("Schlagwort-Ernte:", self.finc_harvest_enabled)
-
-        self.finc_group.setLayout(finc_layout)
-        layout.addWidget(self.finc_group)
-
-        # Advanced settings
-        advanced_group = QGroupBox("Advanced Settings")
-        advanced_layout = QFormLayout()
-        
-        self.strict_gnd_validation = QCheckBox()
-        self.strict_gnd_validation.setChecked(True)
-        self.strict_gnd_validation.setToolTip(
-            "When enabled, only GND-validated keywords are used in DK search (recommended).\n"
-            "When disabled, plain text keywords are included if GND validation fails."
-        )
-        advanced_layout.addRow("Strict GND Validation:", self.strict_gnd_validation)
-        
-        advanced_group.setLayout(advanced_layout)
-        layout.addWidget(advanced_group)
-        
-        layout.addStretch()
-        widget.setLayout(layout)
-        
-        # Initialize visibility based on default catalog type
-        self._on_catalog_type_changed(self.catalog_type_combo.currentText())
-        
-        return widget
-    
-    def _fetch_libero_token_dialog(self):
-        """Open Libero login dialog and write token into token field - Claude Generated"""
-        from PyQt6.QtWidgets import QMessageBox, QDialog
-        url = self.catalog_search_url.text().strip()
-        if not url:
-            QMessageBox.warning(self, "URL fehlt",
-                                "Bitte zuerst eine Search URL eintragen.")
-            return
-        from .libero_login_dialog import LiberoLoginDialog
-        dialog = LiberoLoginDialog(soap_url=url, parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.catalog_token.setText(dialog.token)
-
-    def _on_catalog_type_changed(self, catalog_type: str):
-        """Handle catalog type selection changes - Claude Generated"""
-        is_libero = catalog_type == "libero_soap"
-        is_sru = catalog_type == "marcxml_sru"
-        is_auto = catalog_type == "auto"
-        
-        # Show/hide relevant groups
-        self.libero_group.setVisible(is_libero or is_auto)
-        self.sru_group.setVisible(is_sru or is_auto)
-    
-    def _on_sru_preset_changed(self, preset: str):
-        """Handle SRU preset selection - disable custom URL fields when preset is selected - Claude Generated"""
-        use_preset = bool(preset)
-        self.sru_base_url.setEnabled(not use_preset)
-        self.sru_database.setEnabled(not use_preset)
-        if use_preset:
-            self.sru_base_url.setPlaceholderText(f"Using preset: {preset}")
-            self.sru_database.setPlaceholderText(f"Using preset: {preset}")
-        else:
-            self.sru_base_url.setPlaceholderText("e.g., https://services.dnb.de/sru/dnb")
-            self.sru_database.setPlaceholderText("e.g., dnb")
-    
     def _create_system_tab(self) -> QWidget:
         """Create system configuration tab - Claude Generated
 
@@ -562,31 +329,6 @@ class ComprehensiveSettingsDialog(QDialog):
         system_group.setLayout(system_layout)
         layout.addWidget(system_group)
 
-        # DOI resolver settings - Claude Generated
-        doi_group = QGroupBox("🔗 DOI-Auflösung")
-        doi_layout = QFormLayout()
-
-        self.contact_email = QLineEdit()
-        self.contact_email.setPlaceholderText("z.B. name@institution.de")
-        self.contact_email.setToolTip(
-            "E-Mail für API-Polite-Pools (Crossref, OpenAlex). Ermöglicht höhere Rate Limits."
-        )
-        doi_layout.addRow("Kontakt-E-Mail:", self.contact_email)
-
-        self.doi_use_crossref = QCheckBox("Crossref (empfohlen – breite Zeitschriften-Abdeckung)")
-        self.doi_use_crossref.setChecked(True)
-        doi_layout.addRow("", self.doi_use_crossref)
-
-        self.doi_use_openalex = QCheckBox("OpenAlex (Fallback – gute Abstract-Abdeckung)")
-        self.doi_use_openalex.setChecked(True)
-        doi_layout.addRow("", self.doi_use_openalex)
-
-        self.doi_use_datacite = QCheckBox("DataCite (Fallback – Datensätze, Berichte, nicht-Zeitschriften)")
-        self.doi_use_datacite.setChecked(True)
-        doi_layout.addRow("", self.doi_use_datacite)
-
-        doi_group.setLayout(doi_layout)
-        layout.addWidget(doi_group)
 
         # Repetition Detection settings - Claude Generated
         repetition_group = QGroupBox("🔄 Repetition Detection")
@@ -749,41 +491,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # Provider lists are now managed by the unified provider tab
         # Dynamic provider population is handled automatically by the UnifiedProviderTab
         
-        # Catalog settings
-        self.catalog_type_combo.setCurrentText(config.catalog.catalog_type)
-        self.catalog_token.setText(config.catalog.catalog_token)
-        self.catalog_search_url.setText(config.catalog.catalog_search_url)
-        self.catalog_details_url.setText(config.catalog.catalog_details_url)
-        self.catalog_web_search_url.setText(getattr(config.catalog, 'catalog_web_search_url', ''))
-        self.catalog_web_record_url.setText(getattr(config.catalog, 'catalog_web_record_url', ''))
-
-        # Search provider enable/disable (F-3 P3) - Claude Generated
-        self.search_provider_tab.load(
-            getattr(config, 'search_provider_config', None)
-        )
-        
-        # SRU settings
-        self.sru_preset_combo.setCurrentText(config.catalog.sru_preset)
-        self.sru_base_url.setText(config.catalog.sru_base_url)
-        self.sru_database.setText(config.catalog.sru_database)
-        self.sru_schema.setCurrentText(config.catalog.sru_schema)
-        self.sru_max_records.setValue(config.catalog.sru_max_records)
-        self.strict_gnd_validation.setChecked(config.catalog.strict_gnd_validation_for_dk_search)
-
-        # finc settings - Claude Generated (finc integration, June 2026)
-        self.finc_base_url.setText(getattr(config.catalog, "finc_base_url", "") or "")
-        self.finc_web_record_url.setText(getattr(config.catalog, "finc_web_record_url", "") or "")
-        self.finc_default_limit.setValue(getattr(config.catalog, "finc_default_limit", 20) or 20)
-        self.finc_timeout.setValue(getattr(config.catalog, "finc_timeout", 30) or 30)
-        self.finc_institution_filter.setText(
-            getattr(config.catalog, "finc_institution_filter", "") or ""
-        )
-        self.finc_dk_enabled.setChecked(bool(getattr(config.catalog, "finc_dk_enabled", False)))
-        self.finc_harvest_enabled.setChecked(bool(getattr(config.catalog, "finc_harvest_enabled", False)))
-
-        # Trigger visibility update
-        self._on_catalog_type_changed(config.catalog.catalog_type)
-        self._on_sru_preset_changed(config.catalog.sru_preset)
+        # Search-provider + input-source config is edited in the Plugins tab.
+        self.plugin_settings_tab.load(config)
         
         # System settings
         self.debug_mode.setChecked(config.system_config.debug)
@@ -797,11 +506,6 @@ class ComprehensiveSettingsDialog(QDialog):
         self.temp_dir.setText(config.system_config.temp_dir)
         self.autosave_dir.setText(config.system_config.autosave_dir)
 
-        # DOI resolver settings - Claude Generated
-        self.contact_email.setText(getattr(config.system_config, 'contact_email', ''))
-        self.doi_use_crossref.setChecked(getattr(config.system_config, 'doi_use_crossref', True))
-        self.doi_use_openalex.setChecked(getattr(config.system_config, 'doi_use_openalex', True))
-        self.doi_use_datacite.setChecked(getattr(config.system_config, 'doi_use_datacite', True))
 
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
@@ -1070,32 +774,9 @@ class ComprehensiveSettingsDialog(QDialog):
         # Provider settings are managed through the unified provider system
         # No need to reconstruct LLMConfig - unified_config is already properly managed
         
-        # Catalog configuration - Claude Generated fix for expanded config structure
-        config.catalog_config = CatalogConfig(
-            catalog_type=self.catalog_type_combo.currentText(),
-            catalog_token=self.catalog_token.text(),
-            catalog_search_url=self.catalog_search_url.text(),
-            catalog_details_url=self.catalog_details_url.text(),
-            catalog_web_search_url=self.catalog_web_search_url.text(),
-            catalog_web_record_url=self.catalog_web_record_url.text(),
-            sru_base_url=self.sru_base_url.text(),
-            sru_database=self.sru_database.text(),
-            sru_schema=self.sru_schema.currentText(),
-            sru_preset=self.sru_preset_combo.currentText(),
-            sru_max_records=self.sru_max_records.value(),
-            strict_gnd_validation_for_dk_search=self.strict_gnd_validation.isChecked(),
-            # finc / VuFind-JSON - Claude Generated (finc integration, June 2026)
-            finc_base_url=self.finc_base_url.text().strip(),
-            finc_web_record_url=self.finc_web_record_url.text().strip(),
-            finc_default_limit=self.finc_default_limit.value(),
-            finc_timeout=self.finc_timeout.value(),
-            finc_institution_filter=self.finc_institution_filter.text().strip(),
-            finc_dk_enabled=self.finc_dk_enabled.isChecked(),
-            finc_harvest_enabled=self.finc_harvest_enabled.isChecked(),
-        )
 
-        # Search provider enable/disable (F-3 P3) - Claude Generated
-        config.search_provider_config = self.search_provider_tab.to_config()
+        # Per-plugin enable/config now lives in config.plugins (applied below,
+        # after all legacy sections are built). - Claude Generated
 
         # System configuration - Claude Generated fix for expanded config structure
         config.system_config = SystemConfig(
@@ -1105,15 +786,19 @@ class ComprehensiveSettingsDialog(QDialog):
             data_dir=self.data_dir.text(),
             temp_dir=self.temp_dir.text(),
             autosave_dir=self.autosave_dir.text(),
-            contact_email=self.contact_email.text().strip(),
-            doi_use_crossref=self.doi_use_crossref.isChecked(),
-            doi_use_openalex=self.doi_use_openalex.isChecked(),
-            doi_use_datacite=self.doi_use_datacite.isChecked(),
             default_workflow=self.default_workflow_combo.currentData(),
+            # DOI-Auflösung (contact_email + doi_use_*) is edited in the Plugins
+            # tab; preserve the loaded values here and let the plugin instances
+            # (via derive-on-save) be authoritative. - Claude Generated
+            contact_email=config.system_config.contact_email,
+            doi_use_crossref=config.system_config.doi_use_crossref,
+            doi_use_openalex=config.system_config.doi_use_openalex,
+            doi_use_datacite=config.system_config.doi_use_datacite,
             # Preserve wizard/system flags that have no UI controls - Claude Generated
             prompts_path=config.system_config.prompts_path,
             first_run_completed=config.system_config.first_run_completed,
-            skip_first_run_check=config.system_config.skip_first_run_check
+            skip_first_run_check=config.system_config.skip_first_run_check,
+            enable_code_plugins=config.system_config.enable_code_plugins,
         )
 
         # UI configuration - Claude Generated (Webcam Feature)
@@ -1141,6 +826,15 @@ class ComprehensiveSettingsDialog(QDialog):
         )
 
         # Task preferences are already up-to-date in config_to_edit from UnifiedProviderTab - Claude Generated (Refactoring)
+
+        # Plugin instances are authoritative and edited only in the Plugins tab
+        # (the Catalog tab + DOI System entries were removed). Apply them; the
+        # derive-on-save in ConfigManager re-mirrors instances → CatalogConfig /
+        # SystemConfig for the legacy readers. - Claude Generated
+        try:
+            self.plugin_settings_tab.apply_to(config)
+        except Exception as e:
+            self.logger.warning(f"Could not apply plugin settings: {e}")
 
         return config
     

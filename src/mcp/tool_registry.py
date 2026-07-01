@@ -367,6 +367,63 @@ class ToolRegistry:
         stats = km.get_database_stats()
         return json.dumps(stats, ensure_ascii=False)
 
+    def _handle_list_plugins(self, category: str = None, include_disabled: bool = False) -> str:
+        """List active plugins (search providers + input sources) with self-docs.
+
+        Answers "which plugins are active?" from the real plugin registry — this is
+        distinct from workflows (``list_workflows``). Secrets are never returned;
+        only the *names* of configured non-secret settings. - Claude Generated"""
+        import src.core.search  # noqa: F401  register search category
+        import src.utils.input_sources  # noqa: F401  register input category
+        from src.core.plugins import get_category, list_categories
+        from src.utils.config_manager import ConfigManager
+
+        try:
+            cfg = (self._config_manager or ConfigManager()).load_config()
+        except Exception as e:
+            return json.dumps({"error": f"config not loadable: {e}"})
+
+        cats = [category] if category else list_categories()
+        out = {}
+        for cat in cats:
+            try:
+                adapter = get_category(cat)
+            except KeyError:
+                continue
+            insts = cfg.instances_for(cat) if include_disabled else cfg.enabled_instances_for(cat)
+            items = []
+            for p in insts:
+                try:
+                    meta = adapter.type_meta(p.provider_id)
+                except Exception:
+                    meta = None
+                cfg_keys = [
+                    k for k, v in (p.settings or {}).items()
+                    if v and not any(s in k.lower() for s in ("token", "key", "secret", "password"))
+                ]
+                items.append({
+                    "instance_id": p.instance_id,
+                    "type": p.provider_id,
+                    "label": p.display_label(),
+                    "enabled": p.enabled,
+                    "is_primary": p.is_primary,
+                    "usage_hint": p.usage_hint,
+                    "capabilities": list(getattr(meta, "capabilities", []) or []),
+                    "description": meta.doc.description if meta else "",
+                    "input": meta.doc.input if meta else "",
+                    "output": meta.doc.output if meta else "",
+                    "configured_settings": cfg_keys,
+                })
+            out[cat] = items
+        return json.dumps(
+            {
+                "plugins": out,
+                "note": "Plugins (search providers + input sources) are distinct from "
+                        "workflows; use list_workflows for workflows.",
+            },
+            ensure_ascii=False,
+        )
+
     # ============================================================
     # Library Tool Handlers
     # ============================================================
@@ -481,18 +538,50 @@ class ToolRegistry:
             ensure_ascii=False,
         )
 
-    def _handle_resolve_doi(self, doi: str) -> str:
-        resolver = self._get_resolver()
-        success, metadata, abstract = resolver.resolve(doi)
-        if not success:
-            return json.dumps({"success": False, "doi": doi, "error": "Resolution failed"})
-        return json.dumps({
-            "success": True, "doi": doi,
-            "metadata": metadata or {},
-            "abstract": abstract or "",
-        }, ensure_ascii=False, default=str)
+    def _enabled_input_settings(self):
+        """Map ``provider_id -> settings`` for enabled input-source instances."""
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            out = {}
+            for p in cm.load_config().enabled_instances_for("input_source"):
+                out.setdefault(p.provider_id, dict(p.settings or {}))
+            return out
+        except Exception:
+            return {}
 
-    def _handle_scrape_url(self, url: str, max_chars: int = 10000) -> str:
+    def _handle_resolve_doi(self, doi: str) -> str:
+        """Return the COMPLETE metadata from every enabled DOI source, plus the
+        first abstract found (convenience). The old handler returned only a curated
+        subset from the first source — this forwards all data each source gives. - Claude Generated"""
+        from src.utils.input_sources import get_input_source
+
+        settings_map = self._enabled_input_settings()
+        doi_types = ["doi_crossref", "doi_openalex", "doi_datacite"]
+        active = [t for t in doi_types if t in settings_map] or doi_types
+
+        sources = {}
+        best_abstract = ""
+        for t in active:
+            short = t.replace("doi_", "")
+            try:
+                src = get_input_source(t)(**settings_map.get(t, {}))
+                res = src.mcp_execute(doi)
+            except Exception as e:
+                res = {"source": short, "success": False, "error": str(e)}
+            sources[short] = res
+            md = res.get("metadata") or {}
+            if not best_abstract:
+                best_abstract = md.get("abstract") or md.get("Abstract") or ""
+        any_ok = any(v.get("success") for v in sources.values())
+        return json.dumps(
+            {"doi": doi, "success": any_ok, "abstract": best_abstract, "sources": sources},
+            ensure_ascii=False, default=str,
+        )
+
+    def _handle_scrape_url(self, url: str, max_chars: int = 0) -> str:
         try:
             import requests
             from bs4 import BeautifulSoup
@@ -532,27 +621,26 @@ class ToolRegistry:
                     except OSError:
                         pass
             soup = BeautifulSoup(resp.content, "html.parser")
-            for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            # Strip only non-content (code); keep the full page text so the tool
+            # forwards everything, not just a main-content guess. - Claude Generated
+            for tag in soup(["script", "style"]):
                 tag.decompose()
             title = (soup.find("title") or soup.find("h1"))
             title_text = title.get_text(strip=True) if title else ""
-            main = soup.find("main") or soup.find("article") or soup.find("div", class_="content")
-            body = soup.find("body")
-            text = ""
-            if main:
-                text = main.get_text(separator="\n", strip=True)
-            elif body:
-                text = body.get_text(separator="\n", strip=True)
-            else:
-                text = soup.get_text(separator="\n", strip=True)
+            body = soup.find("body") or soup
+            text = body.get_text(separator="\n", strip=True)
             import re
             text = re.sub(r"\n\s*\n+", "\n\n", text)
             text = re.sub(r" +", " ", text)
-            if len(text) > max_chars > 0:
+            full_chars = len(text)
+            truncated = False
+            if max_chars and full_chars > max_chars > 0:
                 text = text[:max_chars] + "\n[…truncated]"
+                truncated = True
             return json.dumps({
                 "url": url, "title": title_text,
                 "text": text, "chars": len(text),
+                "full_chars": full_chars, "truncated": truncated,
             }, ensure_ascii=False)
         except requests.RequestException as e:
             return json.dumps({"error": f"Fetch failed: {e}"})
@@ -566,7 +654,7 @@ class ToolRegistry:
     def _handle_read_pdf(
         self,
         path: str,
-        max_chars: int = 20000,
+        max_chars: int = 0,
         ocr_fallback: bool = False,
         provider: Optional[str] = None,
         model: Optional[str] = None,
@@ -1084,22 +1172,102 @@ class ToolRegistry:
     # Library search tools — generated from provider specs (P3)
     # ============================================================
     def _generated_search_tools(self):
-        """Build ``(ToolDefinition, handler)`` for every provider-declared search
-        tool. Schemas + dispatch come from each provider's ``ProviderToolSpec`` —
-        no hand-written ToolDefinition or per-source handler. Providers disabled in
-        ``SearchProviderConfig`` are skipped (config-driven selectability). - Claude Generated"""
+        """Build ``(ToolDefinition, handler)`` for every enabled search *instance*.
+
+        Schemas come from each provider's ``ProviderToolSpec``; tools are emitted
+        per configured instance (``PluginInstanceConfig``) so several instances of
+        one type (e.g. two finc endpoints) each get their own tool. The *primary*
+        instance of a type keeps the canonical tool name + handler (behaviour
+        unchanged from the single-instance case); additional instances get a
+        unique name and a factory-built handler. Each instance's ``usage_hint`` is
+        appended to the tool description so an agent can steer between siblings.
+        Disabled instances/types are skipped (config-driven selectability). - Claude Generated"""
         from src.core.search import provider_tool_specs
 
-        spc = self._search_provider_config()
-        tools = []
+        specs_by_provider = {}
         for spec in provider_tool_specs():
-            if spec.provider_id and not spc.is_enabled(spec.provider_id):
-                continue
-            td = ToolDefinition(
-                name=spec.name, description=spec.description, parameters=spec.parameters
-            )
-            tools.append((td, self._make_search_handler(spec)))
+            specs_by_provider.setdefault(spec.provider_id, []).append(spec)
+
+        # instances grouped per provider type, in config order
+        by_type = {}
+        for inst in self._search_instances():
+            by_type.setdefault(inst.provider_id, []).append(inst)
+
+        tools = []
+        for provider_id, instances in by_type.items():
+            specs = specs_by_provider.get(provider_id)
+            if not specs:
+                continue  # gnd_local/sru declare no MCP tool
+            canonical = self._canonical_instance(instances)
+            for inst in instances:
+                is_canonical = inst is canonical
+                for spec in specs:
+                    if is_canonical:
+                        name = spec.name
+                        handler = self._make_search_handler(spec)
+                    else:
+                        name = self._instance_tool_name(spec.name, inst)
+                        handler = self._make_instance_handler(spec, inst)
+                    tools.append(
+                        (
+                            ToolDefinition(
+                                name=name,
+                                description=self._describe_with_hint(spec.description, inst),
+                                parameters=spec.parameters,
+                            ),
+                            handler,
+                        )
+                    )
         return tools
+
+    def _search_instances(self):
+        """Enabled search-provider instances driving tool generation.
+
+        Primary source: the per-instance ``plugins`` config. If a full config can
+        not be loaded (tests / minimal config managers), fall back to one primary
+        per registered type gated by ``SearchProviderConfig`` — preserving the
+        prior enable/disable semantics. - Claude Generated"""
+        cfg = None
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            cfg = cm.load_config()
+        except Exception:
+            cfg = None
+        if cfg is not None:
+            return cfg.enabled_instances_for("search_provider")
+
+        spc = self._search_provider_config()
+        from src.core.search import list_providers
+        from src.utils.config_models import PluginInstanceConfig
+        return [
+            PluginInstanceConfig(
+                instance_id=pid, category="search_provider", provider_id=pid, is_primary=True
+            )
+            for pid in list_providers()
+            if spc.is_enabled(pid)
+        ]
+
+    @staticmethod
+    def _canonical_instance(instances):
+        """The instance that owns the canonical tool name: the primary, else the first."""
+        for inst in instances:
+            if getattr(inst, "is_primary", False):
+                return inst
+        return instances[0]
+
+    @staticmethod
+    def _instance_tool_name(base_name, inst):
+        import re
+        suffix = re.sub(r"[^a-z0-9]+", "_", str(inst.instance_id).lower()).strip("_")
+        return f"{base_name}_{suffix}" if suffix else base_name
+
+    @staticmethod
+    def _describe_with_hint(description, inst):
+        hint = (getattr(inst, "usage_hint", "") or "").strip()
+        return f"{description}\n\nInstanz-Hinweis: {hint}" if hint else description
 
     def _search_provider_config(self):
         """Load SearchProviderConfig; fall back to all-enabled if config is
@@ -1113,6 +1281,94 @@ class ToolRegistry:
         except Exception:
             from src.utils.config_models import SearchProviderConfig
             return SearchProviderConfig()
+
+    # ============================================================
+    # Input-source tools — generated per enabled input instance
+    # ============================================================
+    def _input_instances(self):
+        """Enabled input-source instances; fall back to one per registered type."""
+        cfg = None
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            cfg = cm.load_config()
+        except Exception:
+            cfg = None
+        if cfg is not None:
+            return cfg.enabled_instances_for("input_source")
+        from src.utils.config_models import PluginInstanceConfig
+        from src.utils.input_sources import list_input_sources
+        return [
+            PluginInstanceConfig(instance_id=sid, category="input_source", provider_id=sid, is_primary=True)
+            for sid in list_input_sources()
+        ]
+
+    def _generated_input_tools(self):
+        """Build ``(ToolDefinition, handler)`` for each enabled input source that
+        declares an ``InputToolSpec`` (e.g. the three DOI resolvers → individually
+        callable so an agent can compare sources). Sources without a spec
+        (text/file/pdf/image/url_fetch) are not exposed here. - Claude Generated"""
+        from src.utils.input_sources import get_input_source
+
+        by_type = {}
+        for inst in self._input_instances():
+            by_type.setdefault(inst.provider_id, []).append(inst)
+
+        tools = []
+        for provider_id, instances in by_type.items():
+            try:
+                cls = get_input_source(provider_id)
+            except KeyError:
+                continue
+            spec_fn = getattr(cls, "mcp_tool_spec", None)
+            spec = spec_fn() if callable(spec_fn) else None
+            if spec is None:
+                continue
+            canonical = self._canonical_instance(instances)
+            for inst in instances:
+                name = spec.name if inst is canonical else self._instance_tool_name(spec.name, inst)
+                td = ToolDefinition(
+                    name=name,
+                    description=self._describe_with_hint(spec.description, inst),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            spec.param: {
+                                "type": "string",
+                                "description": spec.param_description or "Eingabewert",
+                            }
+                        },
+                        "required": [spec.param],
+                    },
+                )
+                tools.append((td, self._make_input_handler(spec, inst)))
+        return tools
+
+    def _make_input_handler(self, spec, inst):
+        def handler(**kwargs):
+            try:
+                from src.utils.input_sources import get_input_source
+
+                value = kwargs.get(spec.param)
+                if value is None and kwargs:
+                    value = next(iter(kwargs.values()))
+                cls = get_input_source(inst.provider_id)
+                try:
+                    source = cls(**dict(inst.settings or {}))
+                except TypeError:
+                    source = cls()
+                if hasattr(source, "mcp_execute"):
+                    return json.dumps(source.mcp_execute(value), ensure_ascii=False, default=str)
+                text, info, method = source.extract(value)
+                return json.dumps(
+                    {"text": text, "source_info": info, "method": method}, ensure_ascii=False
+                )
+            except Exception as exc:
+                return json.dumps({"error": f"{inst.instance_id}: {exc}"})
+
+        return handler
 
     def _make_search_handler(self, spec):
         if spec.result_shape == "gnd_keywords":
@@ -1184,6 +1440,104 @@ class ToolRegistry:
 
         return handler
 
+    def _make_instance_handler(self, spec, inst):
+        """Handler for a *non-primary* search instance: build the provider from its
+        own settings via the factory and serialize the typed result. Fully guarded
+        so a bad config/serialization returns JSON, never crashes the agent. This
+        path is exercised only when the operator adds a second instance of a type,
+        so it cannot regress the default single-instance flow. - Claude Generated"""
+
+        def handler(
+            terms,
+            search_type=None,
+            max_pages=5,
+            max_results=25,
+            filters=None,
+            limit=None,
+            facets=None,
+            **_ignore,
+        ):
+            try:
+                from src.core.search import build_provider
+                from src.core.search.provider import SearchCapability
+
+                provider = build_provider(inst, cache=spec.cached)
+                if not provider.is_available():
+                    return json.dumps(
+                        {"error": spec.unavailable_message or f"{inst.instance_id} not available"}
+                    )
+                terms = list(terms or [])
+                if spec.result_shape == "gnd_keywords":
+                    st = search_type or (spec.default_opts.get("search_type") or "kw")
+                    res = provider.search(SearchCapability.GND_KEYWORDS, terms, search_type=st)
+                    out = {
+                        "source": spec.source_label,
+                        "results": self._serialize_provider_gnd(res, spec),
+                    }
+                    if spec.include_errors:
+                        out["errors"] = dict(res.errors or {})
+                    return json.dumps(out, ensure_ascii=False)
+                # title_records / finc → TITLE_RECORDS
+                st = search_type or ("title" if spec.result_shape == "title_records" else "kw")
+                res = provider.search(
+                    SearchCapability.TITLE_RECORDS,
+                    terms,
+                    search_type=st,
+                    max_results=max_results,
+                    filters=filters,
+                    limit=limit if limit is not None else max_results,
+                    facets=facets,
+                )
+                if spec.result_shape == "finc":
+                    results = res.to_finc_records()
+                else:
+                    results = {
+                        term: [it.record for it in items if it.record is not None]
+                        for term, items in res.per_term.items()
+                    }
+                out = {"source": spec.source_label, "results": results}
+                if spec.include_errors:
+                    out["errors"] = dict(res.errors or {})
+                return json.dumps(out, ensure_ascii=False)
+            except Exception as exc:  # never break the agent on an extra instance
+                return json.dumps({"error": f"{inst.instance_id}: {exc}"})
+
+        return handler
+
+    def _serialize_provider_gnd(self, res, spec):
+        """Serialize a GND-keyword ``ProviderResult`` to the tool's JSON shape."""
+        legacy = res.to_gnd_keywords()
+        if spec.add_gnd_urls:
+            return self._serialize_suggester_results(legacy)
+        return {
+            term: {
+                kw: {k: list(v) if isinstance(v, set) else v for k, v in data.items()}
+                for kw, data in keywords.items()
+            }
+            for term, keywords in legacy.items()
+        }
+
+    def refresh(self):
+        """Rebuild all tools from the *current* config (runtime plugin toggle).
+
+        Clears the tool tables first (so tools of now-disabled plugins actually
+        disappear — ``register`` only overwrites), force-reloads the config cache
+        (so a GUI/disk edit is picked up), resets lazily-built suggesters (so
+        changed endpoints take effect), then re-registers. Lets a running chat
+        agent see plugin enable/disable + config changes without a restart. - Claude Generated"""
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            cm.load_config(force_reload=True)
+        except Exception:
+            pass
+        self._tools.clear()
+        self._handlers.clear()
+        self._suggesters_initialized = False
+        self.register_all_tools()
+
     def register_all_tools(self):
         """Register all available tools with their handlers - Claude Generated"""
         # Knowledge tools
@@ -1197,9 +1551,14 @@ class ToolRegistry:
         self.register(tool_schemas.GET_DB_STATS, self._handle_get_db_stats)
         self.register(tool_schemas.SELECT_FROM_GND_POOL, self._handle_select_from_gnd_pool)
         self.register(tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup)
+        self.register(tool_schemas.LIST_PLUGINS, self._handle_list_plugins)
 
         # Library tools — search tools generated from provider specs (P3)
         for td, handler in self._generated_search_tools():
+            self.register(td, handler)
+        # Input-source tools generated per instance (e.g. the 3 DOI resolvers,
+        # individually callable so an agent can compare sources). - Claude Generated
+        for td, handler in self._generated_input_tools():
             self.register(td, handler)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
         self.register(tool_schemas.SCRAPE_URL, self._handle_scrape_url)

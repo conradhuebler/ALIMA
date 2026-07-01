@@ -18,6 +18,16 @@ class LobidProvider(SuggesterBackedProvider):
     capabilities = {SearchCapability.GND_KEYWORDS}
 
     @classmethod
+    def doc(cls):
+        from src.core.plugins.schema import PluginDoc
+
+        return PluginDoc(
+            description="GND-Schlagwortsuche über die Lobid-API der Deutschen Nationalbibliothek.",
+            input="Ein oder mehrere Suchbegriffe (Schlagwort/Titel/Freitext).",
+            output="GND-Schlagwort-Kandidaten mit GND-IDs, Häufigkeit und DDC-Notationen.",
+        )
+
+    @classmethod
     def mcp_tool_specs(cls):
         return [ProviderToolSpec(
             name="search_lobid",

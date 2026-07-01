@@ -805,54 +805,15 @@ class BatchProcessor:
                 raise RuntimeError(f"Failed to lookup PPN {source.source_value}: {e}")
 
         elif source.source_type == SourceType.URL:
-            # URL web scraping - Claude Generated
+            # URL web scraping via the shared url_fetch input source (Debt D-9). - Claude Generated
             try:
-                import requests
-                from bs4 import BeautifulSoup
+                from .input_sources.url_fetch import scrape_url
 
-                self.logger.info(f"Fetching URL: {source.source_value}")
-
-                # Fetch with timeout and proper headers
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                response = requests.get(source.source_value, timeout=30, headers=headers)
-                response.raise_for_status()
-
-                # Parse HTML
-                soup = BeautifulSoup(response.content, 'html.parser')
-
-                # Remove unwanted tags
-                for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside']):
-                    tag.decompose()
-
-                # Try to find main content (heuristic approach)
-                main_content = soup.find('main') or soup.find('article') or soup.find('div', class_='content')
-
-                if main_content:
-                    text = main_content.get_text(separator='\n', strip=True)
-                else:
-                    # Fallback: get all text from body
-                    body = soup.find('body')
-                    text = body.get_text(separator='\n', strip=True) if body else soup.get_text(separator='\n', strip=True)
-
-                # Clean up excessive whitespace
-                import re
-                text = re.sub(r'\n\s*\n+', '\n\n', text)
-                text = re.sub(r' +', ' ', text)
-
-                if not text or len(text.strip()) < 50:
-                    raise ValueError(f"URL scraping resulted in too little text ({len(text)} chars)")
-
-                self.logger.info(f"URL scraping completed: {len(text)} characters extracted")
+                text = scrape_url(source.source_value, logger=self.logger)
                 return text, None
-
-            except ImportError as e:
+            except ImportError:
                 self.logger.error("Required libraries not installed. Install with: pip install requests beautifulsoup4")
                 raise NotImplementedError("URL processing requires: pip install requests beautifulsoup4")
-            except requests.RequestException as e:
-                self.logger.error(f"Failed to fetch URL: {e}")
-                raise RuntimeError(f"Failed to fetch URL: {e}")
             except Exception as e:
                 self.logger.error(f"URL scraping failed: {e}")
                 raise RuntimeError(f"Failed to scrape URL: {e}")

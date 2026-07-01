@@ -44,7 +44,8 @@ class _FakeGndSuggester:
 class RegistryTest(unittest.TestCase):
     def test_builtin_providers_registered(self):
         self.assertEqual(
-            set(list_providers()), {"lobid", "swb", "catalog", "finc", "gnd_local"}
+            set(list_providers()),
+            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
         )
 
     def test_capability_index_matches_spec(self):
@@ -54,13 +55,14 @@ class RegistryTest(unittest.TestCase):
         )
         self.assertEqual(
             set(providers_for_capability(SearchCapability.TITLE_RECORDS)),
-            {"catalog", "finc"},
+            {"catalog", "finc", "sru"},
         )
         self.assertEqual(
             set(providers_for_capability(SearchCapability.SUBJECT_FACETS)), {"finc"}
         )
         self.assertEqual(
-            set(providers_for_capability(SearchCapability.CLASSIFICATION)), {"catalog"}
+            set(providers_for_capability(SearchCapability.CLASSIFICATION)),
+            {"catalog", "sru"},
         )
 
     def test_get_provider_unknown_raises(self):

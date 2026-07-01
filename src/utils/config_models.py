@@ -822,6 +822,36 @@ class SearchProviderConfig:
 
 
 @dataclass
+class PluginInstanceConfig:
+    """One configured plugin instance (generic across plugin categories) - Claude Generated.
+
+    A single, category-agnostic record for "an installed & configured plugin".
+    ``category`` names the plugin category (``search_provider`` | ``input_source``
+    | …); ``provider_id`` names the *type* within that category (e.g. ``finc``,
+    ``catalog``, ``doi_crossref``) — for a built-in that is the registered type id,
+    for a directory plugin it is the plugin's declared id.
+
+    Multiple instances of one type may coexist (id-based), so ``instance_id`` is
+    the unique key. ``is_primary`` marks the instance used by the classic (single-
+    result) path + the compatibility mirrors; ``usage_hint`` is appended to the
+    generated tool/source description so an agent can steer between siblings.
+    ``settings`` holds the provider-specific values keyed by ``ConfigField.key``.
+    """
+
+    instance_id: str
+    category: str
+    provider_id: str
+    label: str = ""
+    enabled: bool = True
+    is_primary: bool = False
+    usage_hint: str = ""
+    settings: Dict[str, Any] = field(default_factory=dict)
+
+    def display_label(self) -> str:
+        return self.label or self.instance_id or self.provider_id
+
+
+@dataclass
 class PromptConfig:
     """Prompt configuration settings - Claude Generated"""
     prompts_file: str = 'prompts.json'
@@ -859,6 +889,11 @@ class SystemConfig:
     # First-run wizard tracking - Claude Generated
     first_run_completed: bool = False  # Set to true after wizard completion
     skip_first_run_check: bool = False  # Set to true to disable first-run dialog on empty config
+
+    # Plugin system: gate for Tier-2 *code* plugins loaded from the plugin
+    # directory. Default off — declarative (Tier-1) plugins load regardless; code
+    # plugins additionally require this flag AND per-plugin approval. - Claude Generated
+    enable_code_plugins: bool = False
 
     # Default workflow for agentic pipeline runs - Claude Generated
     default_workflow: str = "alima_v51"  # YAML workflow stem used when agentic mode is enabled
@@ -957,6 +992,14 @@ class AlimaConfig:
     # UNIFIED PROVIDER CONFIGURATION - single source of truth
     unified_config: UnifiedProviderConfig = field(default_factory=UnifiedProviderConfig)
 
+    # Generic plugin instances across all categories (search providers, input
+    # sources, …). Authoritative per-instance config; ``catalog_config`` and the
+    # DOI/`system_config` fields hold *derived* compatibility mirrors for the many
+    # legacy readers. Empty on a fresh/legacy config → synthesised on load. - Claude Generated
+    plugins: List["PluginInstanceConfig"] = field(default_factory=list)
+    # Security ledger for Tier-2 code plugins: plugin id -> approved SHA-256 hash. - Claude Generated
+    approved_plugins: Dict[str, str] = field(default_factory=dict)
+
     # Legacy compatibility attributes - will be removed
     @property
     def database(self) -> DatabaseConfig:
@@ -969,6 +1012,29 @@ class AlimaConfig:
     @property
     def system(self) -> SystemConfig:
         return self.system_config
+
+    def instances_for(self, category: str) -> List["PluginInstanceConfig"]:
+        """Return plugin instances of ``category`` (any enabled state). - Claude Generated"""
+        return [p for p in self.plugins if p.category == category]
+
+    def enabled_instances_for(self, category: str) -> List["PluginInstanceConfig"]:
+        """Return the *enabled* plugin instances of ``category``. - Claude Generated"""
+        return [p for p in self.plugins if p.category == category and p.enabled]
+
+    def primary_instance(self, category: str, provider_id: Optional[str] = None):
+        """Return the primary enabled instance for a category (optionally a type).
+
+        Falls back to the first enabled instance when none is flagged primary. - Claude Generated
+        """
+        pool = [
+            p
+            for p in self.enabled_instances_for(category)
+            if provider_id is None or p.provider_id == provider_id
+        ]
+        for p in pool:
+            if p.is_primary:
+                return p
+        return pool[0] if pool else None
 
 
     # Version and metadata

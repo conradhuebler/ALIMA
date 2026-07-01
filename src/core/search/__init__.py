@@ -24,6 +24,10 @@ from .registry import (
 # Side-effect import: register all built-in providers.
 from . import providers as _providers  # noqa: F401,E402
 
+# Side-effect import: the config→provider factory + search plugin-category adapter
+# (self-registers ``SearchProviderCategory`` into the generic plugin framework).
+from .factory import build_enabled, build_provider, enabled_gnd_provider_ids  # noqa: F401,E402
+
 __all__ = [
     "ProviderResult",
     "ProviderToolSpec",
@@ -36,4 +40,7 @@ __all__ = [
     "provider_tool_specs",
     "providers_for_capability",
     "register_provider",
+    "build_provider",
+    "build_enabled",
+    "enabled_gnd_provider_ids",
 ]

@@ -25,6 +25,22 @@ class GndLocalProvider:
         self._config = config or {}
         self._ukm = None
 
+    @classmethod
+    def config_fields(cls):
+        """No user-facing config — uses the singleton UnifiedKnowledgeManager."""
+        return []
+
+    @classmethod
+    def doc(cls):
+        from src.core.plugins.schema import PluginDoc
+
+        return PluginDoc(
+            description="Lokale GND-Datenbank (kein Netzwerk): Schlagwort-Kandidaten "
+            "direkt aus dem gnd_entries-Cache.",
+            input="Suchbegriffe.",
+            output="GND-Schlagwort-Kandidaten aus dem lokalen Cache (mit GND-IDs, DDC).",
+        )
+
     @property
     def ukm(self):
         if self._ukm is None:

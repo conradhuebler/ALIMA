@@ -27,6 +27,10 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 ### Configuration
 - Location: `~/.config/alima/config.json` (unified JSON; legacy migration complete).
 - Sections (dataclasses): `AlimaConfig`, `DatabaseConfig`, `CatalogConfig`, `PromptConfig`, `SystemConfig`, `UIConfig`, `UnifiedProviderConfig`.
+- **Plugin instances** (`AlimaConfig.plugins`, `PluginInstanceConfig`) are the authoritative per-provider/source config; `CatalogConfig` + the DOI `SystemConfig` fields are **derived mirrors** (synthesise-on-load + derive-on-save in `plugin_migration.py`) so legacy readers are untouched. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+
+### Input sources (`input_sources/`)
+- `INPUT_SOURCE_REGISTRY` + `@register_input_source`; `execute_input_extraction` is a registry dispatcher (text/file/pdf/image byte-parity). `url_fetch` (extracted from `batch_processor`) + three separately-configurable DOI plugins (`doi_crossref`/`openalex`/`datacite`) wrapping `UnifiedResolver`.
 - Providers: Ollama, OpenAI-compatible, Gemini, Anthropic; multi-host, priority ordering, task-specific preferences; environment-variable overrides.
 
 ## [Variable Section - Short-term Information]

@@ -6,6 +6,76 @@
 
 ## 2026
 
+### Generic Plugin System — framework + Search & Input categories (July 1, 2026)
+
+Turned ad-hoc extension points into one category-agnostic plugin system. Suite
+`863 → 907 passed` (44 new tests, 0 failures). Spec: [`docs/plugin_system.md`](docs/plugin_system.md).
+
+**Framework (`src/core/plugins/`, Qt-free):** `ConfigField` schema (single source for
+settings form + availability gating), `PluginCategory` adapter registry, `plugin.toml`
+manifest parser, AST security scanner + trust-on-first-use hashing, two-tier directory
+loader. `PluginInstanceConfig` + `AlimaConfig.plugins` are the authoritative per-instance
+store.
+
+**Search category (`src/core/search/`):** every provider now declares `config_fields`
+(so `is_available` is derived from a gating field, killing bespoke overrides);
+`factory.py` `build_provider`/`build_enabled` is the single config→provider site
+(D-1/D-4); new first-class `sru` provider type (D-5); MCP tools generated **per enabled
+instance** (multiple finc endpoints → distinct tools, `usage_hint` in the description),
+the primary keeping the canonical tool name.
+
+**Input category (`src/utils/input_sources/`):** new `INPUT_SOURCE_REGISTRY`;
+`execute_input_extraction` is now a registry dispatcher (text/file/pdf/image byte-parity,
+D-11); the BeautifulSoup scraper extracted from `batch_processor` into `url_fetch`
+(D-9); the DOI resolver split into three separately-configurable plugins
+`doi_crossref`/`doi_openalex`/`doi_datacite` wrapping the shared `UnifiedResolver` (D-10).
+
+**Config migration (facade-preserving):** instances authoritative; `CatalogConfig` +
+DOI `SystemConfig` fields kept as derived mirrors so the ~298 legacy readers are
+untouched. Synthesise-on-load + derive-on-save + reverse-sync for the legacy tabs;
+`load→save→load` is diff-free (`test_plugin_config_roundtrip.py`).
+
+**UI:** `PluginSettingsTab` (category-grouped, per-instance form auto-built from
+`config_fields`, add/duplicate/remove, primary + usage_hint) replaces the checkbox-only
+`SearchProviderSelectorWidget` (removed). It is now the *single* editor for all
+provider/source config: the **Catalog tab** and the **DOI-resolution entries in the System
+tab** were removed (−321 LoC) and their fields folded into the `catalog` plugin
+(token/URLs/`catalog_type`/`strict`) and the three DOI plugins (`contact_email` + toggles);
+values are derived back into the `CatalogConfig`/`SystemConfig` mirrors on save (verified
+build→save→reload). Operator click-test outstanding.
+
+**Directory plugins + security:** Tier-1 declarative (no code) covers all current
+strategies; Tier-2 code plugins gated by `enable_code_plugins` + AST scan + hash-pin +
+approval (`approved_plugins` ledger). Honest limit: consent + tamper-detection, not a
+sandbox.
+
+**Follow-ups (same day):**
+- **Classic-pipeline enable-gate** — `execute_gnd_search` filters its provider list via
+  `enabled_gnd_provider_ids()`, so disabling a provider in the Plugins tab now also
+  drops it from the classic keyword step (was a fixed list). Agentic already gated via
+  per-instance tools; DOI via the `doi_use_*` mirror.
+- **Self-documentation contract** — `PluginDoc(description, input, output)`; every
+  provider/source declares `doc()` (tests enforce completeness). Shown in the settings
+  form + fed to the agent. Directory plugins document themselves in `plugin.toml`.
+- **`list_plugins` MCP tool** — the agent can introspect the real active plugins (with
+  self-docs) instead of conflating them with workflows (`list_workflows`).
+- **Input-source MCP tools per instance** — the three DOI resolvers are now individually
+  callable (`resolve_doi_crossref/openalex/datacite`). They query each source's API
+  **directly** and return the *complete raw metadata record* (success = record found,
+  independent of abstract) — fixes OpenAlex/DataCite dropping their metadata when no
+  abstract was present. `resolve_doi` (merged, abstract-oriented) is unchanged.
+- **Runtime plugin toggle** — `ToolRegistry.refresh()` (clear + reload config +
+  re-register) wired to the settings save, so the chat agent picks up enable/disable +
+  config changes without a restart.
+- **Tool data-passthrough (cut old braids)** — agent tools now forward the *complete*
+  source data instead of the old-pipeline subset: `resolve_doi` aggregates all enabled
+  DOI sources' full records (+ convenience abstract); `scrape_url` returns the full page
+  text (only script/style stripped, `max_chars=0` default); `read_pdf` defaults to no
+  truncation. The GND/catalog search tools still reduce to `{count,gndid,ddc,dk}`
+  (pipeline-pool-coupled) — audited as a WP before change: [`docs/wp_tool_data_passthrough.md`](docs/wp_tool_data_passthrough.md).
+
+Debt register D-1…D-13 recorded in [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
+
 ### Webapp `app.py` God-File-Split → APIRouter (F-6) (June 30, 2026)
 
 `src/webapp/app.py` von **2537 → 240 LoC (−90%)** zerlegt. 8 Commits (je ein

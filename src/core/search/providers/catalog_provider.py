@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
+from src.core.plugins.schema import BOOL, CHOICE, URL, SECRET, ConfigField
+
 from ..provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from ..registry import register_provider
 from ._base import SuggesterBackedProvider
@@ -25,6 +27,53 @@ class CatalogProvider(SuggesterBackedProvider):
         SearchCapability.TITLE_RECORDS,
         SearchCapability.CLASSIFICATION,
     }
+
+    @classmethod
+    def config_fields(cls) -> List[ConfigField]:
+        return [
+            ConfigField(
+                key="token", label="SOAP-Token", kind=SECRET, gates_availability=True,
+                help="Libero SOAP-Authentifizierungstoken; ohne Token ist die Quelle inaktiv.",
+            ),
+            ConfigField(
+                key="catalog_search_url", label="Such-URL (SOAP)", kind=URL,
+                help="Libero CatalogueSearcher-Endpoint.",
+            ),
+            ConfigField(
+                key="catalog_details", label="Detail-URL (SOAP)", kind=URL,
+                help="Libero LibraryAPI-Endpoint für Titel-Details.",
+            ),
+            ConfigField(
+                key="catalog_web_search_url", label="Web-Such-URL (OPAC)", kind=URL,
+                help="Libero Web-OPAC-Suche (BiblioClient-Web-Fallback).",
+            ),
+            ConfigField(
+                key="catalog_web_record_url", label="Web-Record-URL (OPAC)", kind=URL,
+                help="Basis für OPAC-Titel-Weblinks (…/Record/<rsn>).",
+            ),
+            ConfigField(
+                key="catalog_type", label="DK-Backend", kind=CHOICE,
+                choices=["libero_soap", "marcxml_sru", "auto"], default="libero_soap",
+                help="Welches Backend die DK-Suche nutzt: Libero-SOAP, MARC-XML/SRU oder auto.",
+            ),
+            ConfigField(
+                key="strict_gnd_validation_for_dk_search", label="Strikte GND-Validierung (DK)",
+                kind=BOOL, default=True,
+                help="Nur GND-validierte Keywords in die DK-Suche geben (Qualitätskontrolle).",
+            ),
+        ]
+
+    @classmethod
+    def doc(cls):
+        from src.core.plugins.schema import PluginDoc
+
+        return PluginDoc(
+            description="Lokaler Bibliothekskatalog (Libero/SOAP): GND-Schlagworte, "
+            "bibliografische Titel-Datensätze und DK-Klassifikationen.",
+            input="Suchbegriffe bzw. Titel-/Schlagwortanfragen (je nach Capability).",
+            output="GND-Schlagworte, Titel-Datensätze (rsn, Titel, Autoren, web_url …) "
+            "oder DK-Codes.",
+        )
 
     @classmethod
     def mcp_tool_specs(cls):
@@ -97,11 +146,6 @@ class CatalogProvider(SuggesterBackedProvider):
             catalog_details=self._config.get("catalog_details", "") or "",
             debug=self._config.get("debug", False),
         )
-
-    def is_available(self, cfg: Any = None) -> bool:
-        # A catalog token is the practical gate for the SOAP backend (matches the
-        # GUI which only shows the catalog option when a token is configured).
-        return bool(self._config.get("token"))
 
     def search(
         self,

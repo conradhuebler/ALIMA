@@ -20,6 +20,7 @@
 - `PipelineConfigDialog` / `workflow_editor_dialog.py`: pipeline config + form editor for agentic v4 workflow YAML (ruamel round-trip, validates `load_workflow(strict=True)`, saves to `~/.config/alima/workflows/`; engine read-only)
 - `batch_processing_dialog.py`: batch file/directory processing (QThread, progress, continue-on-error)
 - `SettingsDialog` / `PromptEditorDialog`: configuration + prompt template editing
+- `plugin_settings_tab.py` (`PluginSettingsTab`): category-grouped per-plugin config (search + input), auto-built from each plugin's `config_fields`; enable/primary/usage_hint + add/duplicate/remove. Single editor for provider/source config — **the Catalog tab + DOI System entries were removed** (folded into the `catalog` / DOI plugins; derived to `CatalogConfig`/`SystemConfig` on save). Replaced the checkbox-only `provider_selector.py` (deleted). Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
 - `TableWidget`, `Styles`: reusable display/theming (the unused `widgets.py` was removed June 2026)
 
 ### Design Patterns

@@ -50,45 +50,52 @@ def execute_input_extraction(
         else:
             input_type = "text"
     
-    # Handle different input types
+    # Dispatch to the registered input source for this type (registry replaces the
+    # former if/elif — Debt D-11). text/file/pdf/image behave byte-for-byte as
+    # before (their sources call the same helpers below). - Claude Generated
     try:
-        if input_type == "text":
-            # Direct text input
-            return input_source.strip(), "Direkter Text", "text"
-            
-        elif input_type == "file" and os.path.isfile(input_source):
-            # Text file reading
-            try:
-                with open(input_source, 'r', encoding='utf-8') as f:
-                    text = f.read().strip()
-                    filename = os.path.basename(input_source)
-                    return text, f"Textdatei: {filename}", "file_read"
-            except UnicodeDecodeError:
-                # Try different encodings
-                for encoding in ['latin-1', 'cp1252']:
-                    try:
-                        with open(input_source, 'r', encoding=encoding) as f:
-                            text = f.read().strip()
-                            filename = os.path.basename(input_source)
-                            return text, f"Textdatei: {filename} ({encoding})", "file_read"
-                    except UnicodeDecodeError:
-                        continue
-                raise Exception("Datei konnte nicht gelesen werden (Encoding-Problem)")
-                
-        elif input_type == "pdf":
-            return _extract_from_pdf_pipeline(input_source, llm_service, stream_callback, logger)
-            
-        elif input_type == "image":
-            return _extract_from_image_pipeline(input_source, llm_service, stream_callback, logger)
-            
-        else:
+        from .input_sources import INPUT_SOURCE_REGISTRY
+
+        src_cls = INPUT_SOURCE_REGISTRY.get(input_type)
+        if src_cls is None:
             raise Exception(f"Unbekannter Input-Typ: {input_type}")
-            
+        settings = _input_settings_for(input_type)
+        try:
+            source_obj = src_cls(**settings)
+        except TypeError:
+            source_obj = src_cls()
+        return source_obj.extract(
+            input_source,
+            llm_service=llm_service,
+            stream_callback=stream_callback,
+            logger=logger,
+            **kwargs,
+        )
     except Exception as e:
         error_msg = f"Input-Extraktion fehlgeschlagen: {str(e)}"
         if logger:
             logger.error(error_msg)
         raise Exception(error_msg)
+
+
+def _input_settings_for(input_type: str) -> dict:
+    """Instance settings for a configurable input source (url_fetch/doi_*).
+
+    The no-config built-ins (text/file/pdf/image) never touch the config, keeping
+    the hot extraction path allocation-free. - Claude Generated
+    """
+    if input_type in ("text", "file", "pdf", "image"):
+        return {}
+    try:
+        from .config_manager import ConfigManager
+
+        cfg = ConfigManager().load_config()
+        for inst in cfg.enabled_instances_for("input_source"):
+            if inst.provider_id == input_type:
+                return dict(inst.settings or {})
+    except Exception:
+        pass
+    return {}
 
 
 def _extract_from_pdf_pipeline(

@@ -109,6 +109,17 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Tool-Data-Passthrough** 🚧: agenten-facing Tools sollen die *vollständigen*
+  Quelldaten durchreichen, nicht den alten Pipeline-Ausschnitt. DOI-Tools/`resolve_doi`/
+  `scrape_url`/`read_pdf` ✅ done; **`search_finc` ✅ audited — clean** (reicht `raw`
+  komplett durch; 8-Feld-Deckel ist der `fincsolrproxy` server-seitig, keine
+  ALIMA-Änderung; live verifiziert July 1). **`search_lobid` ✅ audited**: Subjekt-
+  Aggregation (Primärdaten) wird komplett durchgereicht (Buckets nur `{key,doc_count}`);
+  gedroppt werden nur die `member`-Resource-Records — aber der Mapping-First-Cache
+  umgeht Live-lobid, daher nicht zuverlässig surfacebar → Operator-Entscheid offen
+  (Empfehlung: Per-Subjekt-Details via `get_gnd_entry`, kein Overload). Offen:
+  **swb/catalog** (+ catalog_titles) — dort echte Per-Record-Reduktion; Pool braucht
+  `{count,gndid,ddc,dk}`, daher volles `record` *zusätzlich*. Spec: [`docs/wp_tool_data_passthrough.md`](docs/wp_tool_data_passthrough.md).
 - **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline F-3 Search-Provider-Plugins + F-4 „Häufigkeit zeigt 1" ✅ DONE (June 29); F-6 webapp `app.py`-Split 2537→240 ✅ DONE (June 30, sandbox-verifiziert); F-5 GUI-God-Files ✅ CODE-COMPLETE (June 30, alle 5 gesplittet, statisch verifiziert — nur Operator-Click-Test-Sign-off offen). Offen: F-5/F-7 nur noch Operator-Click-Test (Refactor war nicht GUI-gated, nur das Sign-off), F-8 opportunistisch (decide-on-touch). Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
 - **TESTED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Operator-Vergleichslauf June 29, 2026: beide Pfade laufen durch, reasonable results (klassisch≠agentisch by design). → bereit für APPROVED (Operator-Entscheid: in Changelog verschieben + hier entfernen).
 

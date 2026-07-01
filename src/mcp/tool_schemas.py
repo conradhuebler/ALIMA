@@ -125,6 +125,32 @@ GET_DB_STATS = ToolDefinition(
     },
 )
 
+LIST_PLUGINS = ToolDefinition(
+    name="list_plugins",
+    description=(
+        "List the active ALIMA *plugins* — the configured search providers and "
+        "input sources, each with its self-description (what it does + input/output). "
+        "Use this to answer 'which plugins/sources are active?' or to choose a source. "
+        "NOTE: plugins are NOT workflows — workflows are orchestrations you run "
+        "(see list_workflows); plugins are the search/input building blocks."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": ["search_provider", "input_source"],
+                "description": "Optional: restrict to one plugin category.",
+            },
+            "include_disabled": {
+                "type": "boolean",
+                "default": False,
+                "description": "Include disabled instances too (default: only active ones).",
+            },
+        },
+    },
+)
+
 RVK_LOOKUP = ToolDefinition(
     name="rvk_lookup",
     description=(
@@ -195,14 +221,15 @@ RESOLVE_DOI = ToolDefinition(
 SCRAPE_URL = ToolDefinition(
     name="scrape_url",
     description=(
-        "Fetch a webpage and extract readable text. Removes scripts, styles, nav. "
-        "Auto-detects PDF Content-Type and routes to read_pdf. Returns cleaned text and title."
+        "Fetch a webpage and return its FULL readable text (only scripts/styles are "
+        "removed — nav/header/footer content is kept). Auto-detects PDF Content-Type and "
+        "routes to read_pdf. Returns text, title, and full_chars/truncated."
     ),
     parameters={
         "type": "object",
         "properties": {
             "url": {"type": "string", "description": "URL to fetch (e.g. 'https://example.com/article')"},
-            "max_chars": {"type": "integer", "default": 10000, "description": "Max characters to return (truncates if longer)"},
+            "max_chars": {"type": "integer", "default": 0, "description": "Max characters to return; 0 = full page (default). Set only to cap very long pages."},
         },
         "required": ["url"],
     },
@@ -219,7 +246,7 @@ READ_PDF = ToolDefinition(
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Absolute or relative path to PDF file"},
-            "max_chars": {"type": "integer", "default": 20000, "description": "Max characters to return (0 = no limit)"},
+            "max_chars": {"type": "integer", "default": 0, "description": "Max characters to return; 0 = no limit (default, returns all extracted text)"},
             "ocr_fallback": {"type": "boolean", "default": False, "description": "Use Vision-LLM OCR if text-layer quality is poor (expensive)"},
             "provider": {"type": "string", "description": "Override Vision provider for OCR fallback"},
             "model": {"type": "string", "description": "Override Vision model for OCR fallback"},
@@ -427,7 +454,7 @@ KNOWLEDGE_TOOLS = [
     SEARCH_GND, GET_GND_ENTRY, GET_GND_BATCH,
     GET_SEARCH_CACHE, GET_DK_CACHE, STORE_SEARCH_RESULT,
     GET_CLASSIFICATION, GET_DB_STATS, SELECT_FROM_GND_POOL,
-    RVK_LOOKUP,
+    RVK_LOOKUP, LIST_PLUGINS,
 ]
 
 def _generated_search_tool_defs():

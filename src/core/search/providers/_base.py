@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
+from src.core.plugins.schema import ConfigField, PluginDoc, availability_ok
+
 from ..provider import ProviderResult, SearchCapability
 
 
@@ -29,6 +31,25 @@ class SuggesterBackedProvider:
         self._config = config or {}
         self._suggester = None
 
+    @classmethod
+    def config_fields(cls) -> List[ConfigField]:
+        """Declarative config schema — one source for the settings form + gating.
+
+        Default: no user-facing config (lobid/swb/gnd_local). Network sources
+        override with their endpoints/tokens.
+        """
+        return []
+
+    @classmethod
+    def doc(cls) -> PluginDoc:
+        """Natural-language self-description (what it does + input/output).
+
+        Every provider must override this — the framework surfaces it in the
+        settings UI and to the agent. The base returns an empty doc so a missing
+        override is detectable (``PluginDoc.is_complete()``).
+        """
+        return PluginDoc()
+
     def _build_suggester(self):  # pragma: no cover - overridden
         raise NotImplementedError
 
@@ -39,8 +60,12 @@ class SuggesterBackedProvider:
         return self._suggester
 
     def is_available(self, cfg: Any = None) -> bool:
-        """Default: always available. Network sources with config gating override."""
-        return True
+        """Available unless a ``gates_availability`` config field is unset.
+
+        Derived from :meth:`config_fields`, so a provider that declares a gating
+        field (e.g. catalog ``token``) needs no bespoke override.
+        """
+        return availability_ok(type(self).config_fields(), self._config)
 
     def _require(self, capability: SearchCapability) -> None:
         if capability not in self.capabilities:

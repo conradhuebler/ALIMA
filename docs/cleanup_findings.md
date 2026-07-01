@@ -5,6 +5,43 @@
 > recommendation so it can be picked up and decided deliberately. Done items are
 > listed for context; details live in `AIChangelog.md` + the linked specs.
 
+## Plugin-System-Refactor Debt-Register (D-1 … D-13, July 1 2026)
+
+Debts found while building the generic plugin system (framework + Search + Input
+categories). Most are *fixed* by that work; a few remain open. Spec:
+[`docs/plugin_system.md`](plugin_system.md), changelog: `AIChangelog.md` (July 1).
+
+- **D-1 ✅** `MetaSuggester.__init__` hardcoded a static catalog-config dict for all
+  providers (finc keys absent) → now built via `src/core/search/factory.py`.
+- **D-2 ✅ (partial)** finc special-cased in `tool_registry._init_suggesters`
+  (`self._finc` + `_handle_search_finc`) → per-instance tool generation added;
+  primary-instance path still uses the hand-written finc handler (kept for its
+  availability/web_url shaping — additional instances use the factory handler).
+- **D-3 ✅** stale `SearchProviderConfig` docstring updated (endpoints now in instances).
+- **D-4 ✅** provider config wired by hand at ≥3 sites → single `build_provider` factory.
+- **D-5 ✅** `CatalogConfig.get_catalog_type()` provider-selection heuristic superseded
+  by `is_primary`/the `sru` provider type (heuristic itself left in place as a
+  now-unused mirror helper; safe to delete once no reader calls it — open sub-item).
+- **D-6 ✅** `save_config` `preserve_unified` merge extended to carry `plugins` +
+  `approved_plugins` (derive-on-save keeps the mirrors exact; round-trip test gates it).
+- **D-7 (open, security)** API keys/tokens still plaintext in `config.json`; plugin
+  settings add more secrets. `ConfigField(secret=True)` is the anchor for a future
+  keyring backend — not done here.
+- **D-8 (open, transitional)** `CatalogConfig`/`SystemConfig` are now *derived mirrors*;
+  the ~298 legacy readers should migrate to the factory/instances over time, then the
+  mirrors can be dropped.
+- **D-9 ✅** URL scraper was inline in `batch_processor` → extracted to
+  `input_sources/url_fetch.py` (`scrape_url`); batch now delegates.
+- **D-10 ✅** monolithic `UnifiedResolver` + `SystemConfig` DOI flags → three separately
+  configurable input-source plugins (`doi_crossref/openalex/datacite`).
+- **D-11 ✅** `execute_input_extraction` if/elif → `INPUT_SOURCE_REGISTRY` dispatch.
+- **D-12 (open)** parallel DOI/metadata paths (`doi_resolver`, `crossref_worker`,
+  `k10plus_resolver`) — consolidation not attempted; noted only.
+- **D-13 (open)** `UnifiedResolver` also does Springer/generic URL crawling (overlaps
+  `url_fetch`); left in the DOI facade for now, consolidate onto `url_fetch` later.
+
+---
+
 ## Prioritization axes
 **Value** (user-facing / maintainability) · **Risk** (regression, esp. GUI which is
 not runtime-testable in the dev sandbox) · **Effort** (size) · **Deps**.

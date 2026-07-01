@@ -333,11 +333,34 @@ class ConfigManager:
 
         self.logger.debug(f"Config path: {self.config_file}")
 
+    @property
+    def plugins_dir(self) -> Path:
+        """Directory scanned for self-contained directory plugins. - Claude Generated"""
+        return Path(self.config_file).parent / "plugins"
+
     def load_config(self, force_reload: bool = False) -> AlimaConfig:
         """Load configuration with unified provider system - Claude Generated"""
         if self._config is None or force_reload:
             self._config = self._load_config_from_file()
+            self._discover_directory_plugins(self._config)
         return self._config
+
+    def _discover_directory_plugins(self, config) -> None:
+        """Merge declarative + already-approved directory plugins into the config.
+
+        Zero cost when the plugins dir is absent; fully guarded so a plugin error
+        never breaks config loading. Code plugins that aren't yet approved are
+        skipped here (no approval UI at load time) — the GUI plugin tab re-runs
+        discovery with an approval dialog. - Claude Generated"""
+        try:
+            pdir = self.plugins_dir
+            if not pdir.is_dir():
+                return
+            from .plugin_discovery import discover_plugins
+
+            discover_plugins(config, plugins_dir=pdir)
+        except Exception as e:
+            self.logger.warning(f"Directory plugin discovery failed: {e}")
 
     def _load_config_from_file(self) -> AlimaConfig:
         """Load configuration from JSON file - Claude Generated"""
@@ -428,6 +451,26 @@ class ConfigManager:
                 self.logger.error(f"❌ {error_msg}")
                 raise ValueError(error_msg)
 
+            # Plugin instances (generic, all categories). If a config predates the
+            # plugin model for a category, synthesise that category's instances from
+            # the legacy mirrors so they stay authoritative. Migrated per-category so
+            # a config saved before a later category was added still upgrades. - Claude Generated
+            from .plugin_migration import (
+                INPUT_CATEGORY,
+                SEARCH_CATEGORY,
+                instance_from_dict,
+                synthesize_input_instances,
+                synthesize_search_instances,
+            )
+
+            raw_plugins = config_data.get("plugins", []) or []
+            plugins = [instance_from_dict(p) for p in raw_plugins if isinstance(p, dict)]
+            if not any(p.category == SEARCH_CATEGORY for p in plugins):
+                plugins += synthesize_search_instances(catalog_config, search_provider_config)
+            if not any(p.category == INPUT_CATEGORY for p in plugins):
+                plugins += synthesize_input_instances(system_config)
+            approved_plugins = dict(config_data.get("approved_plugins", {}) or {})
+
             # Create main config
             config = AlimaConfig(
                 database_config=database_config,
@@ -438,6 +481,8 @@ class ConfigManager:
                 ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
                 chat_config=chat_config,  # Claude Generated (WP10 P-δ.1)
                 unified_config=unified_config,
+                plugins=plugins,  # Claude Generated (plugin system)
+                approved_plugins=approved_plugins,  # Claude Generated (plugin system)
                 config_version=config_data.get("config_version", "2.0")
             )
 
@@ -619,6 +664,32 @@ class ConfigManager:
                 config.unified_config.sync_legacy_from_providers()
             except Exception as e:
                 self.logger.warning(f"Could not normalize provider config: {e}")
+
+            # Plugin instances are authoritative; refresh the CatalogConfig /
+            # provider-gate mirrors from them so the legacy readers stay exact. If
+            # this is a pre-plugin config, seed the instances first. - Claude Generated
+            try:
+                from .plugin_migration import (
+                    INPUT_CATEGORY,
+                    SEARCH_CATEGORY,
+                    derive_input_mirrors,
+                    derive_search_mirrors,
+                    synthesize_input_instances,
+                    synthesize_search_instances,
+                )
+
+                if not any(p.category == SEARCH_CATEGORY for p in config.plugins):
+                    config.plugins += synthesize_search_instances(
+                        config.catalog_config, config.search_provider_config
+                    )
+                if not any(p.category == INPUT_CATEGORY for p in config.plugins):
+                    config.plugins += synthesize_input_instances(config.system_config)
+                derive_search_mirrors(
+                    config.plugins, config.catalog_config, config.search_provider_config
+                )
+                derive_input_mirrors(config.plugins, config.system_config)
+            except Exception as e:
+                self.logger.warning(f"Could not derive plugin mirrors: {e}")
 
             # Convert AlimaConfig to dictionary for serialization
             config_dict = asdict(config)

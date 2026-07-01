@@ -48,11 +48,27 @@ class MainWindowSettingsMixin:
                 self.load_settings()
                 # Aktualisiere alle Komponenten mit neuer Konfiguration
                 self._refresh_components()
+                # Runtime plugin toggle: rebuild the chat agent's tool registry so
+                # enabled/disabled plugins + endpoint changes take effect without a
+                # restart. - Claude Generated
+                self._refresh_plugin_tools()
         except Exception as e:
             self.logger.error(f"Fehler beim Öffnen der Einstellungen: {e}")
             QMessageBox.critical(
                 self, "Fehler", f"Fehler beim Öffnen der Einstellungen: {str(e)}"
             )
+
+    def _refresh_plugin_tools(self):
+        """Rebuild the embedded chat panel's MCP tool registry after a settings
+        save, so plugin enable/disable + config changes apply at runtime. - Claude Generated"""
+        try:
+            panel = getattr(getattr(self, "pipeline_tab", None), "stream_widget", None)
+            reg = getattr(panel, "mcp_registry", None)
+            if reg is not None and hasattr(reg, "refresh"):
+                reg.refresh()
+                self.logger.info("Chat tool registry refreshed after settings change")
+        except Exception as e:
+            self.logger.warning(f"Could not refresh plugin tools: {e}")
 
     def load_settings(self):
         """Lädt die gespeicherten Einstellungen"""

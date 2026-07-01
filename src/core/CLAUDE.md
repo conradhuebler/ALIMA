@@ -12,10 +12,13 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - `DataModels`: Core data structures (AbstractData, AnalysisResult, TaskState, KeywordAnalysisState)
 - `ProcessingUtils`: Text processing and keyword extraction utilities
 
+**Plugin System (`src/core/plugins/`, Qt-free):**
+- Category-agnostic framework: `ConfigField` schema, `PluginCategory` adapter registry, `plugin.toml` manifest + directory loader, AST security scanner + hash-pinning. Concrete categories: search providers + input sources. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+- Search: `@register_provider` + `config_fields` per provider; `search/factory.py` `build_provider` is the single config→provider site (kills 3× hand-wiring). `sru` is a first-class provider type.
+
 **Suggester System:**
-- Located in `suggesters/` subdirectory
-- Plugin-like architecture for different search providers (Lobid, SWB, local catalog, finc) + meta-suggester orchestrator
-- Perspective: capability-based plugin standard — see `docs/search_provider_plugins.md`
+- Located in `suggesters/` subdirectory; wrapped by the capability-based providers (`src/core/search/`).
+- `MetaSuggester` orchestrator; per-provider config now flows from `AlimaConfig.plugins` instances.
 
 **Key Design Patterns:**
 - Signal/slot architecture for asynchronous communication

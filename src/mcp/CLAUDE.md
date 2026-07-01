@@ -7,9 +7,12 @@
 
 ## Tool Sets
 - **Knowledge tools**: Wrap `UnifiedKnowledgeManager` (search_gnd, get_gnd_entry, etc.)
+  - `list_plugins` → introspects the active **plugins** (search providers + input sources) from `AlimaConfig.plugins` with each plugin's self-doc (description + input/output). Distinct from `list_workflows` (workflows ≠ plugins). Handler: `ToolRegistry._handle_list_plugins`.
 - **Library tools**: search_lobid/swb/catalog/catalog_titles/finc + resolve_doi, scrape_url, read_pdf, analyze_image
-  - The 5 search_* tools are **generated** from each provider's `ProviderToolSpec` (`src/core/search/providers`) via `ToolRegistry._generated_search_tools()` — no hand-written schema/handler. Gated by `SearchProviderConfig` (per-provider enable/disable). `_handle_search_finc` kept for its availability/web_url logic, wired via the spec.
+  - The search_* tools are **generated per enabled *instance*** (`AlimaConfig.plugins`, search category) from each provider's `ProviderToolSpec` via `ToolRegistry._generated_search_tools()` — no hand-written schema/handler. The *primary* instance of a type keeps the canonical name (`search_lobid`) + existing handler; additional instances (e.g. a 2nd finc endpoint) get `search_finc_<id>` + a factory-built handler, with the instance `usage_hint` appended to the description. No-config fallback = one primary per registered type gated by `SearchProviderConfig`. `_handle_search_finc` kept for the primary finc's availability/web_url logic.
   - `search_finc` → finc/VuFind-JSON catalog: search by subject / one-or-many titles / author; optional `facets` (e.g. `udk_raw_de105`, `rvk_facet`) for DK/RVK distribution. Config-gated (`finc_base_url`).
+  - **Input-source tools** generated per enabled instance (`ToolRegistry._generated_input_tools`) for sources declaring an `InputToolSpec`: `resolve_doi_crossref/openalex/datacite` — each hits that source's API directly and returns the **complete raw metadata record** (for source comparison), distinct from the merged abstract-oriented `resolve_doi`.
+  - **Runtime toggle**: `ToolRegistry.refresh()` rebuilds all tools from current config (clears + reloads); wired to the settings-save so plugin enable/disable applies without restart.
 - **Pipeline result tools**: Access saved JSON results (list, load, extract keywords/abstract)
 - **Export tools** (P-θ): `export_results` (json/csv/tex/marc), `generate_report` (Jinja2 TeX, optional pdflatex)
 

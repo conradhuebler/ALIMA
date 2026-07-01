@@ -18,6 +18,16 @@ class SwbProvider(SuggesterBackedProvider):
     capabilities = {SearchCapability.GND_KEYWORDS}
 
     @classmethod
+    def doc(cls):
+        from src.core.plugins.schema import PluginDoc
+
+        return PluginDoc(
+            description="GND-Schlagwortsuche im SWB-Verbundkatalog (BSZ).",
+            input="Ein oder mehrere Suchbegriffe (Schlagwort/Titel/Freitext).",
+            output="GND-Schlagwort-Kandidaten mit GND-IDs, Häufigkeit und DDC/DK-Notationen.",
+        )
+
+    @classmethod
     def mcp_tool_specs(cls):
         return [ProviderToolSpec(
             name="search_swb",
