@@ -3,20 +3,26 @@
 **Status**: Snapshot der Code-Inspektion. Soll Annahmen in
 `agentic_ui_workpackages.md` durch Fakten ersetzen.
 
-## 1. Prompts: JSON ist Wahrheit, YAML existiert parallel
-- `prompts.json` ist gewireter Standard:
-  - `pipeline_utils.py:6277` baut `PromptService(prompts_path, …)` mit
-    Default `prompts.json` (`config_models.py:635`).
-  - `AlimaManager.prompt_service` wird damit gefüttert.
-- `prompts.yaml` existiert (29 KB) + `YamlPromptService` ist
-  implementiert (`src/llm/yaml_prompt_service.py`), aber **nirgends
-  importiert/instanziiert** im Wiring-Pfad (`grep -r YamlPromptService`
-  → 0 Treffer außerhalb der eigenen Datei).
-- `prompts.json` und `prompts.yaml` haben **unterschiedlichen Inhalt**
-  (`diff -q` → "verschieden"). Risiko: still drift.
+## 1. Prompts: JSON ist Basis, YAML überschreibt (BEIDE live)
+> **Korrektur (July 1, 2026):** Der ursprüngliche Befund unten ("YAML nirgends
+> importiert, totes Code-Pfad") ist **überholt und falsch**. `YamlPromptService`
+> IST gewired und aktiv.
 
-**Konsequenz für WP3**: nur prompts.json ist relevant. YAML-Variante ist
-totes Code-Pfad oder geplanter Migrationspfad.
+- Aktueller Stand: `PromptService.__init__` (`src/llm/prompt_service.py:19-24`)
+  lädt zuerst `prompts.json` und **merged dann `prompts.yaml` darüber**
+  (`YamlPromptService.merge_into(self)`), plus optional `custom_prompts/*.yaml`
+  (:28-39). YAML-Einträge **gewinnen** für dasselbe `task+model`.
+- Konsequenz: klassische Prompts müssen in **beiden** Dateien gepflegt werden;
+  `prompts.json`↔`prompts.yaml` haben unterschiedlichen Inhalt → **Silent-Drift-Risiko
+  ist real** (siehe Debt-Befund S-17 in `cleanup_findings_second_opinion.md`).
+
+<details><summary>Ursprünglicher (überholter) Befund</summary>
+
+- `prompts.yaml` existiert + `YamlPromptService` implementiert, aber angeblich
+  **nirgends importiert/instanziiert** — das war zum Zeitpunkt des Snapshots
+  entweder falsch oder das Wiring wurde danach ergänzt.
+
+</details>
 
 ## 2. Webapp ist agentic-blind
 - `src/webapp/app.py:993-1006` baut `PipelineConfig` aus
