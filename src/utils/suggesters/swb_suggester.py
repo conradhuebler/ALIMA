@@ -480,6 +480,8 @@ class SWBSuggester(BaseSuggester):
             self.logger.debug(f"URL: {url}")
 
         all_subjects = {}
+        pages = []  # WP2 raw-first: verbatim page HTML for the raw cache - Claude Generated
+        self._last_swb_status = None
         current_url = url
         page_count = 0
         had_error = False  # network/parse failure — result must not be cached - Claude Generated
@@ -495,6 +497,8 @@ class SWBSuggester(BaseSuggester):
 
                 # Decode HTML
                 content = html.unescape(response.text)
+                pages.append(content)  # WP2 raw-first: keep verbatim page HTML - Claude Generated
+                self._last_swb_status = response.status_code
 
                 # Check if it's a single result page
                 is_single_result = self._is_single_result_page(content)
@@ -546,6 +550,18 @@ class SWBSuggester(BaseSuggester):
                 "dk": set(),  # Empty set for DK
             }
 
+        # WP2 raw-first: stash the verbatim pages so the provider fetch seam can
+        # dual-write them to the raw cache. Only on a real (non-cached, non-failed)
+        # fetch — the file-cache hit path above returns before reaching here.
+        # - Claude Generated
+        if pages and not had_error and isinstance(getattr(self, "last_raw", None), dict):
+            self.last_raw[search_term] = json.dumps(
+                {"pages": pages, "url": url, "totalItems": len(results)},
+                ensure_ascii=False,
+            )
+            if isinstance(getattr(self, "last_http_status", None), dict):
+                self.last_http_status[search_term] = self._last_swb_status
+
         # Cache results under the search_type-aware key.
         # Never cache after a network/parse failure: an outage would otherwise
         # be persisted as "no results" for this term - Claude Generated
@@ -596,6 +612,9 @@ class SWBSuggester(BaseSuggester):
         """
         results = {}
         self.last_errors = {}  # fresh error state per search call - Claude Generated
+        # WP2 raw-first: verbatim page HTML per term, populated on a live fetch. - Claude Generated
+        self.last_raw = {}
+        self.last_http_status = {}
 
         for search_term in searches:
             results[search_term] = self.extract_gnd_from_swb(

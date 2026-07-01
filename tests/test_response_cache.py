@@ -61,9 +61,10 @@ class _SeamProvider(_SeamBase):
     label = "Fake Lobid"
     capabilities = {SearchCapability.GND_KEYWORDS} if IMPORT_ERROR is None else set()
 
-    def __init__(self, suggester, **config):
+    def __init__(self, suggester, provider_id="lobid", **config):
         super().__init__(**config)
         self._suggester = suggester
+        self.id = provider_id  # per-instance override of the class attr
 
     def _build_suggester(self):
         return self._suggester
@@ -189,6 +190,21 @@ class RawResponseCacheTest(unittest.TestCase):
         prov._cache_raw = True
         prov._gnd_search(["nope"], None, search_type="kw")
         self.assertIsNone(self.km.get_raw_response("lobid", "nope", {"search_type": "kw"}))
+
+    def test_seam_swb_params_include_max_pages(self):
+        # swb passes both search_type and max_pages → both belong in the key.
+        blob = json.dumps({"pages": ["<html/>"], "totalItems": 3})
+        prov = _SeamProvider(_FakeSuggester({"klima": blob}), provider_id="swb")
+        prov._ukm_ref = self.km
+        prov._cache_raw = True
+        prov._gnd_search(["klima"], None, search_type="kw", max_pages=5)
+        got = self.km.get_raw_response("swb", "klima", {"search_type": "kw", "max_pages": 5})
+        self.assertIsNotNone(got)
+        self.assertEqual(json.loads(got["raw_json"])["totalItems"], 3)
+        # A different max_pages is a distinct cache key → miss.
+        self.assertIsNone(
+            self.km.get_raw_response("swb", "klima", {"search_type": "kw", "max_pages": 9})
+        )
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
