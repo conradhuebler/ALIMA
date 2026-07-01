@@ -130,7 +130,15 @@ class BiblioSuggester(BaseSuggester):
             error_msg = f"BiblioSuggester search failed: {str(e)}"
             self.logger.error(error_msg)
             raise BiblioSuggesterError(error_msg) from e
-    
+
+    def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
+        """Reduce cached catalog records to the ``{subject:{count,gndid,ddc,dk}}`` view.
+
+        Transform-on-read counterpart to :meth:`search` for the WP2 raw cache;
+        delegates to the shared reduction on :class:`BiblioClient`. - Claude Generated
+        """
+        return self.extractor._reduce_records_to_subjects(raw.get("records", []))
+
     def search_titles(
         self,
         search_terms: List[str],

@@ -1449,60 +1449,53 @@ class BiblioClient:
             self.last_raw[search_term] = processed_items  # WP2 raw-first - Claude Generated
             #logger.info(f"Processed {(processed_items)} items for '{search_term}'")
             # CLAUDE TODO -> an diesem Punkte haben wir also die MABs
-            # Convert to suggester format
-            term_subjects = {}
-            
-            logger.debug(f"Processing {len(processed_items)} processed items for '{search_term}'")
-            
-            for i, item in enumerate(processed_items):
-                # Debug: Show what's in each item
-                logger.debug(f"Item {i+1} keys: {list(item.keys())}")
-                
-                # Extract subjects from both regular subjects and MAB subjects
-                subjects = item.get("subjects", []) + item.get("mab_subjects", [])
-                
-                # Enhanced debug logging - Claude Generated (DEBUG level for verbose output)
-                logger.debug(f"Item {i+1}/{len(processed_items)}: '{item.get('title', 'Unknown')}' - Subjects: {len(subjects)}")
-                if subjects:
-                    logger.debug(f"  Regular subjects: {item.get('subjects', [])}")
-                    logger.debug(f"  MAB subjects: {item.get('mab_subjects', [])}")
-                else:
-                    logger.debug(f"  No subjects found - available keys: {list(item.keys())}")
-                
-                # Get classifications
-                classifications = item.get("decimal_classifications", [])
-                ddc_set = set()
-                dk_set = set() #  TODO -thing about, how to realise classification extraction - search_subjects might the wrong pleace at all )  # DK classifications are already extracted
-                
-                # Process each subject
-                for subject in subjects:
-                    subject = subject.strip()
-                    if not subject:
-                        continue
-                        
-                    if subject not in term_subjects:
-                        term_subjects[subject] = {
-                            "count": 1,
-                            "gndid": set(),  # Will be filled by SWB validation later
-                            "ddc": ddc_set.copy(),
-                            "dk": dk_set.copy()
-                        }
-                    else:
-                        term_subjects[subject]["count"] += 1
-                        term_subjects[subject]["ddc"].update(ddc_set)
-                        term_subjects[subject]["dk"].update(dk_set)
-            
-            # Limit subjects per term to prevent excessive results - Claude Generated
-            if len(term_subjects) > 50:
-                logger.debug(f"Limiting subjects for '{search_term}': {len(term_subjects)} -> 50 (top by count)")
-                # Sort by count and take top 50
-                sorted_subjects = sorted(term_subjects.items(), key=lambda x: x[1]["count"], reverse=True)
-                term_subjects = dict(sorted_subjects[:50])
-            
+            # Convert to suggester format (shared reduction — see below).
+            term_subjects = self._reduce_records_to_subjects(processed_items)
             results[search_term] = term_subjects
             logger.debug(f"Found {len(term_subjects)} subjects for '{search_term}'")
 
         return results
+
+    def _reduce_records_to_subjects(
+        self, processed_items: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Reduce parsed catalog records to ``{subject: {count,gndid,ddc,dk}}``.
+
+        Extracted from :meth:`search_subjects` so the same reduction backs both
+        the live path and the WP2 raw-cache transform-on-read. Byte-identical:
+        subjects are the union of ``subjects`` + ``mab_subjects``, ``count`` is
+        the occurrence tally, ``gndid``/``ddc``/``dk`` start empty (gndid filled
+        later by SWB validation), and the result is capped at the top 50 by
+        count. - Claude Generated
+        """
+        term_subjects: Dict[str, Dict[str, Any]] = {}
+        for item in processed_items:
+            subjects = item.get("subjects", []) + item.get("mab_subjects", [])
+            ddc_set = set()
+            dk_set = set()
+            for subject in subjects:
+                subject = subject.strip()
+                if not subject:
+                    continue
+                if subject not in term_subjects:
+                    term_subjects[subject] = {
+                        "count": 1,
+                        "gndid": set(),  # Will be filled by SWB validation later
+                        "ddc": ddc_set.copy(),
+                        "dk": dk_set.copy(),
+                    }
+                else:
+                    term_subjects[subject]["count"] += 1
+                    term_subjects[subject]["ddc"].update(ddc_set)
+                    term_subjects[subject]["dk"].update(dk_set)
+
+        # Limit subjects per term to prevent excessive results - Claude Generated
+        if len(term_subjects) > 50:
+            sorted_subjects = sorted(
+                term_subjects.items(), key=lambda x: x[1]["count"], reverse=True
+            )
+            term_subjects = dict(sorted_subjects[:50])
+        return term_subjects
 
     def search_titles(
         self,

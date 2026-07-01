@@ -576,6 +576,27 @@ class SWBSuggester(BaseSuggester):
 
         return results
 
+    def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
+        """Reduce fetched SWB pages to ``{subject: {count,gndid,ddc,dk}}`` — pure, no I/O.
+
+        Reuses :meth:`_extract_subjects_from_page` per page (pages in order, later
+        pages override on key collision), then formats exactly like the inline
+        extraction in :meth:`extract_gnd_from_swb`. This is the transform-on-read
+        counterpart for the WP2 raw cache. - Claude Generated
+        """
+        all_subjects = {}
+        for content in raw.get("pages", []):
+            all_subjects.update(self._extract_subjects_from_page(content))
+        results = {}
+        for subject_name, gnd_id in all_subjects.items():
+            results[subject_name] = {
+                "count": 1,
+                "gndid": {gnd_id},
+                "ddc": set(),
+                "dk": set(),
+            }
+        return results
+
     def prepare(self, force_download: bool = False) -> None:
         """
         Prepare the suggester. For SWB, this is a no-op as we don't need to download data.
