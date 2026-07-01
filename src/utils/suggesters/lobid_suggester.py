@@ -203,6 +203,10 @@ class LobidSuggester(BaseSuggester):
         """
         result_subjects = dict()
         self.last_errors = {}  # fresh error state per search call - Claude Generated
+        # WP2 raw-first: capture the verbatim response per term before it is
+        # transformed into the reduced aggregation view. - Claude Generated
+        self.last_raw = {}
+        self.last_http_status = {}
 
         for search in searches:
             query = urllib.parse.quote(search)
@@ -211,10 +215,14 @@ class LobidSuggester(BaseSuggester):
             try:
                 with urllib.request.urlopen(url) as response:
                     result = json.load(response)
+                    self.last_http_status[search] = getattr(response, "status", None)
             except Exception as ex:
                 # Missing term in the result dict = source failure, not "no match" - Claude Generated
                 self._record_search_error(search, ex)
                 continue
+
+            # Verbatim response (drops member/totalItems downstream). - Claude Generated
+            self.last_raw[search] = json.dumps(result, ensure_ascii=False)
 
             result_subjects[search] = dict()
 

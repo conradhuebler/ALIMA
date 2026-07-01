@@ -249,6 +249,32 @@ class UnifiedKnowledgeManager:
                 )
             """)
 
+            # 6. Raw source-response cache (WP2 raw-first) — verbatim API/HTML
+            # responses keyed by (source, normalized_query, params_hash). Written
+            # additively alongside the mapping cache; read on demand for the full
+            # agent view and (later) to derive the reduced pool view. - Claude Generated
+            pk_response_cache = dialect.primary_key_def(
+                db_type,
+                ['source', 'normalized_query', 'params_hash'],
+                key_lengths={'source': 64, 'normalized_query': 380, 'params_hash': 64}
+            )
+            self.db_manager.execute_query(f"""
+                CREATE TABLE IF NOT EXISTS search_response_cache (
+                    source {dialect.varchar_type(64)} NOT NULL,
+                    query {dialect.varchar_type(512)} NOT NULL,
+                    normalized_query {dialect.varchar_type(512)} NOT NULL,
+                    params_hash {dialect.varchar_type(64)} NOT NULL,
+                    params_json {dialect.text_type(db_type)},
+                    raw_json {dialect.text_type(db_type)},
+                    http_status INTEGER,
+                    result_count INTEGER DEFAULT 0,
+                    byte_size INTEGER DEFAULT 0,
+                    last_updated {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
+                    created_at {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
+                    {pk_response_cache}
+                )
+            """)
+
             # Create indexes for performance
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_normalized ON search_mappings(normalized_term)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_term ON search_mappings(search_term)")
@@ -259,12 +285,15 @@ class UnifiedKnowledgeManager:
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_updated ON catalog_dk_cache(last_updated)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_chat_mutations_session ON chat_mutations(session_id)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_chat_mutations_created ON chat_mutations(created_at)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_response_cache_normalized ON search_response_cache(normalized_query)")
+            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_response_cache_updated ON search_response_cache(last_updated)")
 
             self.logger.info(f"Unified knowledge database schema initialized ({db_type})")
 
             # Perform schema migration if needed - Claude Generated
             self._migrate_catalog_dk_cache_schema()
             self._migrate_search_mappings_schema()
+            self._migrate_search_response_cache_schema()
 
         except Exception as e:
             self.logger.error(f"Error initializing unified database: {e}")
@@ -294,6 +323,31 @@ class UnifiedKnowledgeManager:
                 self.logger.info("✅ search_mappings migration completed: added gnd_counts")
         except Exception as e:
             self.logger.warning(f"search_mappings gnd_counts migration check failed (non-critical): {e}")
+
+    def _migrate_search_response_cache_schema(self):
+        """Ensure later columns exist on pre-existing search_response_cache tables.
+
+        Additive, idempotent: fresh DBs already have every column from CREATE
+        TABLE, so this is a guarded no-op today — present for forward-compat and
+        dialect symmetry with the other cache migrations. - Claude Generated
+        """
+        try:
+            db_type = self.db_manager.get_db_type()
+            dialect = self.db_manager.get_dialect()
+            query = dialect.get_table_info_query(db_type, 'search_response_cache')
+            rows = self.db_manager.fetch_all(query)
+            columns = dialect.parse_table_info(db_type, rows if rows else [])
+            for col, definition in (("http_status", "INTEGER"),
+                                    ("byte_size", "INTEGER DEFAULT 0")):
+                if columns and col not in columns:
+                    self.logger.info(f"🔄 Migrating search_response_cache: adding {col} column...")
+                    self.db_manager.execute_query(
+                        dialect.alter_table_add_column(
+                            db_type, 'search_response_cache', col, definition
+                        )
+                    )
+        except Exception as e:
+            self.logger.warning(f"search_response_cache migration check failed (non-critical): {e}")
 
     def _migrate_catalog_dk_cache_schema(self):
         """Migrate catalog_dk_cache table - handle schema upgrades - Claude Generated"""
@@ -659,7 +713,136 @@ class UnifiedKnowledgeManager:
         normalized = re.sub(r'[^\w\s]', ' ', term.lower())
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         return normalized
-    
+
+    # === RAW RESPONSE CACHE (WP2 raw-first) === Claude Generated
+
+    @staticmethod
+    def params_hash(params: Optional[Dict[str, Any]] = None) -> str:
+        """Stable short hash of the caching-relevant request params.
+
+        Canonical (sorted-key, tight-separator) JSON → sha256 → first 16 hex
+        chars. Keys whose value is ``None`` are dropped, so an omitted param and
+        an explicit ``None`` hash identically. ``search_type`` etc. MUST be in
+        ``params`` or e.g. ``kw`` vs ``title`` queries would collide.
+        - Claude Generated
+        """
+        clean = {k: v for k, v in (params or {}).items() if v is not None}
+        blob = json.dumps(clean, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+    def store_raw_response(self, source: str, query: str,
+                           params: Optional[Dict[str, Any]] = None,
+                           raw_json: str = "", *,
+                           http_status: Optional[int] = None,
+                           result_count: int = 0,
+                           max_bytes: int = 1_000_000,
+                           max_rows_per_source: int = 5000) -> bool:
+        """Store a verbatim source response, keyed by (source, normalized_query, params_hash).
+
+        Additive write-only cache (WP2 P1). Never raises — a cache failure must
+        never break a live search. Skips oversized blobs (size cap) and prunes
+        the oldest rows per source (soft row cap). - Claude Generated
+        """
+        try:
+            if raw_json is None:
+                return False
+            byte_size = len(raw_json.encode("utf-8"))
+            if byte_size > max_bytes:
+                self.logger.debug(
+                    f"⏭️ Skipping raw-cache write for '{query}' ({source}): "
+                    f"{byte_size} bytes > cap {max_bytes}"
+                )
+                return False
+
+            normalized_query = self._normalize_term(query)
+            phash = self.params_hash(params)
+            params_json = json.dumps(
+                {k: v for k, v in (params or {}).items() if v is not None},
+                sort_keys=True, ensure_ascii=False
+            )
+
+            self.db_manager.execute_query("""
+                INSERT OR REPLACE INTO search_response_cache
+                (source, query, normalized_query, params_hash, params_json,
+                 raw_json, http_status, result_count, byte_size, last_updated, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
+                        COALESCE((SELECT created_at FROM search_response_cache
+                                  WHERE source = ? AND normalized_query = ? AND params_hash = ?),
+                                 CURRENT_TIMESTAMP))
+            """, [
+                source, query, normalized_query, phash, params_json,
+                raw_json, http_status, result_count, byte_size,
+                source, normalized_query, phash,
+            ])
+
+            self._prune_raw_responses(source, max_rows_per_source)
+            return True
+        except Exception as e:
+            self.logger.warning(f"⚠️ raw-cache write failed for '{query}' ({source}): {e}")
+            return False
+
+    def get_raw_response(self, source: str, query: str,
+                         params: Optional[Dict[str, Any]] = None, *,
+                         max_age_hours: Optional[int] = 24) -> Optional[Dict[str, Any]]:
+        """Fetch a cached raw response, or None on miss / stale / error.
+
+        ``max_age_hours=None`` disables the freshness gate. - Claude Generated
+        """
+        try:
+            normalized_query = self._normalize_term(query)
+            phash = self.params_hash(params)
+            row = self.db_manager.fetch_one("""
+                SELECT raw_json, http_status, result_count, last_updated
+                FROM search_response_cache
+                WHERE source = ? AND normalized_query = ? AND params_hash = ?
+            """, [source, normalized_query, phash])
+            if not row:
+                return None
+            if max_age_hours is not None and not self._raw_is_fresh(row['last_updated'], max_age_hours):
+                return None
+            return {
+                "raw_json": row['raw_json'],
+                "http_status": row['http_status'],
+                "result_count": row['result_count'],
+                "last_updated": row['last_updated'],
+            }
+        except Exception as e:
+            self.logger.error(f"Error retrieving raw response for '{query}' ({source}): {e}")
+            return None
+
+    @staticmethod
+    def _raw_is_fresh(last_updated: Any, max_age_hours: int) -> bool:
+        """TTL check mirroring CachingProvider._is_fresh - Claude Generated"""
+        from datetime import timedelta
+        try:
+            if isinstance(last_updated, datetime):
+                ts = last_updated
+            else:
+                ts = datetime.fromisoformat(str(last_updated).replace("Z", "+00:00"))
+            return datetime.now() - ts < timedelta(hours=max_age_hours)
+        except (ValueError, TypeError):
+            return False
+
+    def _prune_raw_responses(self, source: str, max_rows_per_source: int) -> None:
+        """Delete rows for a source older than the Nth-newest (soft row cap).
+
+        Best-effort; ties at the cutoff timestamp are kept, so the table may
+        briefly exceed the cap. Deletes nothing while under the cap (the OFFSET
+        subquery yields NULL). - Claude Generated
+        """
+        try:
+            self.db_manager.execute_query("""
+                DELETE FROM search_response_cache
+                WHERE source = ? AND last_updated < (
+                    SELECT last_updated FROM search_response_cache
+                    WHERE source = ?
+                    ORDER BY last_updated DESC
+                    LIMIT 1 OFFSET ?
+                )
+            """, [source, source, max_rows_per_source])
+        except Exception as e:
+            self.logger.debug(f"raw-cache prune skipped for '{source}': {e}")
+
     # === SEARCH FUNCTIONALITY ===
     
     def search_local_gnd(self, term: str, min_results: int = 3) -> List[GNDEntry]:

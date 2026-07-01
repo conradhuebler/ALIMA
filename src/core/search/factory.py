@@ -31,6 +31,20 @@ logger = logging.getLogger(__name__)
 CATEGORY = "search_provider"
 
 
+def _global_response_cache_enabled() -> bool:
+    """Read the ``SystemConfig.enable_response_cache`` master switch (default True).
+
+    Best-effort — any config-load failure defaults to enabled. - Claude Generated
+    """
+    try:
+        from src.utils.config_manager import ConfigManager
+
+        config = ConfigManager().load_config()
+        return bool(getattr(config.system_config, "enable_response_cache", True))
+    except Exception:
+        return True
+
+
 def build_provider(
     instance: "PluginInstanceConfig",
     *,
@@ -38,14 +52,26 @@ def build_provider(
     ukm: Any = None,
     max_age_hours: int = 24,
     force_update: bool = False,
+    cache_raw: "bool | None" = None,
 ) -> Any:
     """Construct the provider for one instance.
 
     ``cache=True`` wraps GND-keyword providers in :class:`CachingProvider` (the
     mapping-first cache), matching what ``MetaSuggester`` did inline.
+
+    ``cache_raw`` (WP2 raw-first) is injected onto the suggester-backed provider
+    *below* any ``CachingProvider`` wrapper (the dual-write happens at the
+    fetch seam). ``None`` ⇒ read the global master switch.
     """
     cls = get_provider(instance.provider_id)
     provider = cls(**dict(instance.settings or {}))
+    if cache_raw is None:
+        cache_raw = _global_response_cache_enabled()
+    try:
+        provider._cache_raw = cache_raw
+        provider._ukm_ref = ukm
+    except Exception:
+        pass
     if cache and SearchCapability.GND_KEYWORDS in getattr(cls, "capabilities", set()):
         provider = CachingProvider(
             provider, ukm=ukm, max_age_hours=max_age_hours, force_update=force_update
@@ -62,12 +88,14 @@ def build_enabled(
 ) -> Dict[str, Any]:
     """Build ``{instance_id: provider}`` for all enabled instances (skips unknown types)."""
     out: Dict[str, Any] = {}
+    cache_raw = _global_response_cache_enabled()  # resolve once, not per instance
     for inst in instances:
         if not getattr(inst, "enabled", True):
             continue
         try:
             out[inst.instance_id] = build_provider(
-                inst, cache=cache_gnd, ukm=ukm, max_age_hours=max_age_hours
+                inst, cache=cache_gnd, ukm=ukm, max_age_hours=max_age_hours,
+                cache_raw=cache_raw,
             )
         except KeyError:
             logger.warning("Unknown search provider type '%s', skipping instance '%s'",

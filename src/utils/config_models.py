@@ -895,6 +895,11 @@ class SystemConfig:
     # plugins additionally require this flag AND per-plugin approval. - Claude Generated
     enable_code_plugins: bool = False
 
+    # WP2 raw-first response cache master switch. When off, no source response is
+    # written to search_response_cache (sources always fetch live). Per-instance
+    # override lives in PluginInstanceConfig.settings['cache_responses']. - Claude Generated
+    enable_response_cache: bool = True
+
     # Default workflow for agentic pipeline runs - Claude Generated
     default_workflow: str = "alima_v51"  # YAML workflow stem used when agentic mode is enabled
 

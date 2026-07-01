@@ -8,7 +8,7 @@ thin adapters that lazily build the suggester and convert its output to a typed
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.core.plugins.schema import ConfigField, PluginDoc, availability_ok
 
@@ -30,6 +30,11 @@ class SuggesterBackedProvider:
     def __init__(self, **config: Any):
         self._config = config or {}
         self._suggester = None
+        # WP2 raw-first cache: write policy + ukm handle injected by
+        # search.factory.build_provider. Kept off the suggester constructor via
+        # these private attrs. ``_cache_raw`` None ⇒ default-on. - Claude Generated
+        self._cache_raw: Optional[bool] = None
+        self._ukm_ref: Any = None
 
     @classmethod
     def config_fields(cls) -> List[ConfigField]:
@@ -98,4 +103,61 @@ class SuggesterBackedProvider:
         self._wire_progress(progress)
         raw = self.suggester.search(list(query), **suggester_kwargs)
         errors = dict(getattr(self.suggester, "last_errors", {}) or {})
+        self._store_raw_responses(query, suggester_kwargs)
         return ProviderResult.from_gnd_keywords(raw, errors=errors)
+
+    # --- WP2 raw-first dual-write ----------------------------------------
+    def _ukm(self):
+        """Lazily resolve the UnifiedKnowledgeManager singleton - Claude Generated"""
+        if self._ukm_ref is None:
+            from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+
+            self._ukm_ref = UnifiedKnowledgeManager()
+        return self._ukm_ref
+
+    def _cache_raw_enabled(self) -> bool:
+        """Whether raw source responses should be written for this provider.
+
+        Precedence: per-instance ``settings['cache_responses']`` → the value the
+        factory injected (global ``SystemConfig.enable_response_cache``) → True.
+        - Claude Generated
+        """
+        override = self._config.get("cache_responses")
+        if override is not None:
+            return bool(override)
+        if self._cache_raw is not None:
+            return bool(self._cache_raw)
+        return True
+
+    def _store_raw_responses(
+        self, query: List[str], suggester_kwargs: Dict[str, Any]
+    ) -> None:
+        """Dual-write verbatim source responses (WP2 P1). Best-effort, never raises.
+
+        Reads ``suggester.last_raw`` (``{term: raw_json_str}``); providers whose
+        suggester does not yet expose it (pre-P3 swb/catalog) are simply skipped
+        — the seam is additive. - Claude Generated
+        """
+        if not self._cache_raw_enabled():
+            return
+        last_raw = getattr(self.suggester, "last_raw", None)
+        if not last_raw:
+            return
+        last_status = getattr(self.suggester, "last_http_status", {}) or {}
+        params = {
+            k: suggester_kwargs.get(k)
+            for k in ("search_type", "max_pages", "facets")
+            if suggester_kwargs.get(k) is not None
+        }
+        try:
+            ukm = self._ukm()
+        except Exception:
+            return
+        for term in query:
+            blob = last_raw.get(term)
+            if blob is None:
+                continue
+            ukm.store_raw_response(
+                self.id, term, params, blob,
+                http_status=last_status.get(term),
+            )
