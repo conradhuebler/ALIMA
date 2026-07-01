@@ -600,38 +600,7 @@ class PipelineConfigDialog(QDialog):
             # TODO: Implement validation in UnifiedProviderConfig if needed
             # if self.smart_selector:
             #     validation_issues = unified_config.validate_preferences(self.smart_selector.provider_detection_service)
-            # TODO: Re-implement validation block when UnifiedProviderConfig supports validation\n            if False:  # Disabled: any(validation_issues.values()):
-                    # Show validation issues but allow saving
-                    issues_text = ""
-                    for category, issues in validation_issues.items():
-                        if issues:
-                            category_name = category.replace('_', ' ').title()
-                            issues_text += f"**{category_name}:**\n"
-                            for issue in issues[:3]:  # Show first 3 issues
-                                issues_text += f"  • {issue}\n"
-                            if len(issues) > 3:
-                                issues_text += f"  • ... und {len(issues) - 3} weitere\n"
-                            issues_text += "\n"
-                    
-                    reply = QMessageBox.question(
-                        self,
-                        "Konfigurationsvalidierung",
-                        f"⚠️ Einige Provider-Einstellungen haben Probleme:\n\n{issues_text}"
-                        f"Möchten Sie trotzdem speichern? (Auto-Cleanup wird durchgeführt)",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.Yes
-                    )
-                    
-                    if reply == QMessageBox.StandardButton.No:
-                        return
-                    
-                    # Perform auto-cleanup
-                    # TODO: Implement cleanup in UnifiedProviderConfig
-                    # cleanup_report = unified_config.auto_cleanup(self.smart_selector.provider_detection_service)
-                    cleanup_report = {}
-                    if cleanup_report and any(cleanup_report.values()):
-                        self.logger.info("Auto-cleanup performed during provider preferences save")
-            
+
             # Save updated config directly
             self.config_manager.save_config()
             

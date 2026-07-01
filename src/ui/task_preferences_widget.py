@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 
 from ..utils.config_models import TaskPreference, TaskType as UnifiedTaskType
 from ..utils.model_capabilities import get_chunking_threshold
+from .provider_dialogs import TaskModelSelectionDialog
 
 
 class TaskPreferencesWidget(QWidget):

@@ -33,7 +33,7 @@ def display_protocol(json_file: str, steps: List[str]):
     """
     # Check if file exists
     if not os.path.exists(json_file):
-        print(f"Error: File not found: {json_file}")
+        print(f"Error: File not found: {json_file}", file=sys.stderr)
         return
 
     try:
@@ -69,9 +69,9 @@ def display_protocol(json_file: str, steps: List[str]):
         print("\n" + "="*70 + "\n")
 
     except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON file: {e}")
+        print(f"Error: Invalid JSON file: {e}", file=sys.stderr)
     except Exception as e:
-        print(f"Error reading protocol: {e}")
+        print(f"Error reading protocol: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
 
