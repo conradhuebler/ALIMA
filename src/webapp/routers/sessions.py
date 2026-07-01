@@ -48,7 +48,7 @@ async def get_session(session_id: str) -> dict:
         # Session finished, return all remaining unsent tokens
         streaming_tokens = session.get_and_clear_streaming_buffer()
 
-    return {
+    response = {
         "session_id": session.session_id,
         "status": session.status,
         "current_step": session.current_step,
@@ -56,8 +56,17 @@ async def get_session(session_id: str) -> dict:
         "error_message": session.error_message,
         "streaming_tokens": streaming_tokens,  # Include for polling clients
         "render_events": session.get_new_render_events(),  # WP12: shared chrome
-        # results intentionally omitted — polling clients fetch via /api/export/{id}
+        # Full-pipeline results intentionally omitted (can be large) — polling
+        # clients fetch them via /api/export/{id}.
     }
+    # Exception: the extract-only flow (input_type doi/url/pdf/img) polls THIS
+    # endpoint for the extracted text and expects `results.original_abstract`.
+    # Those results are small, so include them here; without this the frontend
+    # reads `undefined` and reports "Keine Textextraktion möglich" even though
+    # extraction succeeded server-side. - Claude Generated
+    if isinstance(session.results, dict) and session.results.get("input_mode") == "extraction_only":
+        response["results"] = make_json_serializable(session.results)
+    return response
 
 
 @router.post("/api/session/{session_id}/clear")
