@@ -1419,6 +1419,8 @@ class BiblioClient:
         libero_map = {"kw": "ku", "title": "k", "freetext": "ku"}
         libero_use = libero_map.get(search_type, "ku")
 
+        # WP2 raw-first: verbatim parsed records per term for the raw cache. - Claude Generated
+        self.last_raw = {}
         results = {}
 
         for search_term in search_terms:
@@ -1444,6 +1446,7 @@ class BiblioClient:
                 
             # Process results to extract subjects
             processed_items = self.process_search_results(search_results, max_items=max_results)
+            self.last_raw[search_term] = processed_items  # WP2 raw-first - Claude Generated
             #logger.info(f"Processed {(processed_items)} items for '{search_term}'")
             # CLAUDE TODO -> an diesem Punkte haben wir also die MABs
             # Convert to suggester format

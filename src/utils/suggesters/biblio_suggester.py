@@ -6,6 +6,7 @@ Lightweight wrapper around BiblioExtractor for pipeline integration.
 Provides unified catalog search and DK classification functionality.
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
@@ -96,9 +97,21 @@ class BiblioSuggester(BaseSuggester):
                 }
             }
         """
+        # WP2 raw-first: verbatim parsed records per term for the raw cache. - Claude Generated
+        self.last_raw = {}
+        self.last_http_status = {}
         try:
             # Use BiblioExtractor's search_subjects method
             results = self.extractor.search_subjects(searches, search_type=search_type)
+            client_raw = getattr(self.extractor, "last_raw", None) or {}
+            for _term, _records in client_raw.items():
+                try:
+                    self.last_raw[_term] = json.dumps(
+                        {"records": _records, "totalItems": len(_records)},
+                        ensure_ascii=False, default=str,
+                    )
+                except (TypeError, ValueError):
+                    continue
             #self.logger.info(f"Search completed for terms: {searches}")
             #self.logger.info(f"Search results: {results}")
                     # Log keys of all entries

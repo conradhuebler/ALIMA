@@ -13,6 +13,7 @@ Covers the additive infrastructure:
 """
 
 import json
+import logging
 import os
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ try:
     from src.utils.config_models import DatabaseConfig
     from src.core.search.providers._base import SuggesterBackedProvider
     from src.core.search.provider import SearchCapability
+    from src.utils.suggesters.biblio_suggester import BiblioSuggester
     IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover
     IMPORT_ERROR = exc
@@ -205,6 +207,53 @@ class RawResponseCacheTest(unittest.TestCase):
         self.assertIsNone(
             self.km.get_raw_response("swb", "klima", {"search_type": "kw", "max_pages": 9})
         )
+
+
+class _FakeBiblioExtractor:
+    """Stand-in BiblioClient exposing last_raw after search_subjects."""
+
+    def __init__(self, last_raw):
+        self._last_raw = last_raw
+
+    def search_subjects(self, searches, search_type="kw"):
+        self.last_raw = self._last_raw
+        return {t: {} for t in searches}
+
+
+class _FakeCurrentTerm:
+    def emit(self, *a, **k):
+        pass
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class BiblioRawPropagationTest(unittest.TestCase):
+    """BiblioSuggester.search must lift the client's parsed records into last_raw."""
+
+    def _fake_self(self, extractor):
+        obj = BiblioSuggester.__new__(BiblioSuggester)  # skip network __init__
+        obj.extractor = extractor
+        obj.logger = logging.getLogger("test_biblio")
+        obj.currentTerm = _FakeCurrentTerm()
+        return obj
+
+    def test_records_propagated_as_json(self):
+        records = {"klima": [{"title": "X", "subjects": ["Klimawandel"]}]}
+        obj = self._fake_self(_FakeBiblioExtractor(records))
+        BiblioSuggester.search(obj, ["klima"], search_type="kw")
+        self.assertIn("klima", obj.last_raw)
+        parsed = json.loads(obj.last_raw["klima"])
+        self.assertEqual(parsed["totalItems"], 1)
+        self.assertEqual(parsed["records"][0]["subjects"], ["Klimawandel"])
+
+    def test_no_client_last_raw_is_safe(self):
+        # An extractor that never sets last_raw must not break search.
+        class _Bare:
+            def search_subjects(self, searches, search_type="kw"):
+                return {t: {} for t in searches}
+
+        obj = self._fake_self(_Bare())
+        BiblioSuggester.search(obj, ["x"])
+        self.assertEqual(obj.last_raw, {})
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
