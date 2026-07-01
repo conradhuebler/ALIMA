@@ -419,4 +419,4 @@ steps:
       dk_classifications: "${steps.classification.dk_classifications}"
 
     outputs:
-      dk_search_results: "result.results"
+      dk_search_results_flattened: "result.results"

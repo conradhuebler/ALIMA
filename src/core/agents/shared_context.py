@@ -126,7 +126,8 @@ class SharedContext(BaseSharedContext):
     missing_concepts_searched: List[str] = field(default_factory=list)  # Already searched terms
     dk_classifications: List[Dict] = field(default_factory=list)
     rvk_classifications: List[Dict] = field(default_factory=list)  # RVK classifications from classification step
-    dk_search_results: List[Dict] = field(default_factory=list)  # DK catalog search results
+    dk_search_results: List[Dict] = field(default_factory=list)  # keyword-centric [{keyword, classifications:[...]}] (data_models contract)
+    dk_search_results_flattened: List[Dict] = field(default_factory=list)  # DK-centric flat/merged [{dk, titles, count, ...}] (set by dk_postprocess) - Claude Generated
     dk_catalog_stats: Dict[str, Any] = field(default_factory=dict)  # Aggregated catalog stats: total_titles, unique_notations, top_notations
 
     # MetaAgent state
@@ -234,20 +235,27 @@ class SharedContext(BaseSharedContext):
                     seen_ddc.add(ddc)
                     initial_gnd_classes.append(ddc)
 
-        # --- dk_search_results_flattened: [{dk, classification_type, titles, count, reasoning}] ---
-        dk_search_results_flattened = []
-        for cls in self.dk_classifications:
-            code = cls.get("code", "")
-            title = cls.get("title", "")
-            reason = cls.get("reason", cls.get("reasoning", ""))
-            if code:
-                dk_search_results_flattened.append({
-                    "dk": code,
-                    "classification_type": "DK",
-                    "titles": [title] if title else [],
-                    "count": int(cls.get("confidence", 0) * 100),
-                    "reasoning": reason,
-                })
+        # --- dk_search_results_flattened: DK-centric flat/merged view ---
+        # Prefer the rich list produced by the dk_postprocess step
+        # (build_dk_search_results — real catalog titles + counts). Fall back to
+        # deriving a thin version from the final classifications when that step
+        # did not run (e.g. pipeline stopped early). - Claude Generated
+        if self.dk_search_results_flattened:
+            dk_search_results_flattened = self.dk_search_results_flattened
+        else:
+            dk_search_results_flattened = []
+            for cls in self.dk_classifications:
+                code = cls.get("code", "")
+                title = cls.get("title", "")
+                reason = cls.get("reason", cls.get("reasoning", ""))
+                if code:
+                    dk_search_results_flattened.append({
+                        "dk": code,
+                        "classification_type": "DK",
+                        "titles": [title] if title else [],
+                        "count": int(cls.get("confidence", 0) * 100),
+                        "reasoning": reason,
+                    })
 
         # --- DK statistics ---
         dk_statistics = None
@@ -564,6 +572,7 @@ class SharedContext(BaseSharedContext):
             "dk_classifications": self.dk_classifications,
             "rvk_classifications": self.rvk_classifications,
             "dk_search_results": self.dk_search_results,
+            "dk_search_results_flattened": self.dk_search_results_flattened,
             "dk_catalog_stats": self.dk_catalog_stats,
             "step_results": self.step_results,
             "quality_scores": self.quality_scores,
@@ -607,6 +616,7 @@ class SharedContext(BaseSharedContext):
         ctx.dk_classifications = data.get("dk_classifications", [])
         ctx.rvk_classifications = data.get("rvk_classifications", [])
         ctx.dk_search_results = data.get("dk_search_results", [])
+        ctx.dk_search_results_flattened = data.get("dk_search_results_flattened", [])
         ctx.dk_catalog_stats = data.get("dk_catalog_stats", {})
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})

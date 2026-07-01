@@ -363,18 +363,13 @@ class PipelineResultFormatter:
     ) -> List[Dict[str, Any]]:
         """Pick the DK-centric result list that actually carries catalog titles - Claude Generated
 
-        The two GUI modes store the rich list (per-DK-code, with real catalog
-        titles + counts) under *different* fields:
-
-        * classic pipeline → ``dk_search_results_flattened`` (``dk_search_results``
-          is keyword-centric, no top-level ``dk``);
-        * agentic pipeline → ``dk_search_results`` (``dk_search_results_flattened``
-          is a thin structure derived from the final classifications — titles are
-          the DK label only, count is confidence×100).
-
-        Returns whichever candidate has the most catalog titles among DK-keyed
-        items, so callers (Pipeline-Tab + Agentic-Chat) get a consistent source
-        regardless of mode.
+        Both pipelines now follow the ``data_models`` contract: the rich
+        DK-centric list (per-DK-code, real catalog titles + counts) lives in
+        ``dk_search_results_flattened`` and ``dk_search_results`` stays
+        keyword-centric. This picker remains defensive — it flattens a
+        keyword-centric candidate and returns whichever has the most catalog
+        titles — so it also handles legacy exports from pre-convergence agentic
+        runs that stored the rich list under ``dk_search_results``.
         """
         def _prep(lst: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
             # A keyword-centric source ({keyword, classifications:[...]}, no

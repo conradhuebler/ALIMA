@@ -822,7 +822,10 @@ def build_dk_search_results(
 ) -> Dict[str, Any]:
     """Merge collected DK cache entries with LLM-assigned classifications.
 
-    Writes to ``context.dk_search_results`` for GUI consumption.
+    Writes the DK-centric flat/merged view to ``context.dk_search_results_flattened``
+    (the data_models contract for the flattened field). ``dk_search_results`` stays
+    keyword-centric as set by the dk_collect step — matching the classic pipeline
+    so GUI/webapp render both pipelines identically. - Claude Generated
     """
     dk_entries = dk_entries or []
     dk_classifications = dk_classifications or []
@@ -862,8 +865,8 @@ def build_dk_search_results(
                 "reasoning": cls.get("reason", cls.get("reasoning", "")),
             })
 
-    if context is not None and hasattr(context, "dk_search_results"):
-        context.dk_search_results = results
+    if context is not None and hasattr(context, "dk_search_results_flattened"):
+        context.dk_search_results_flattened = results
 
     return {"results": results, "count": len(results)}
 
