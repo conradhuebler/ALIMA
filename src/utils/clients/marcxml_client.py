@@ -21,12 +21,8 @@ import logging
 import html
 from urllib.parse import urlencode, quote
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
+# Module logger only; basicConfig moved into the __main__ block so importing this
+# client (batch_processor/pipeline_utils) no longer hijacks the root logger. Claude Generated
 logger = logging.getLogger("marcxml_client")
 
 
@@ -802,4 +798,9 @@ def main():
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
     main()

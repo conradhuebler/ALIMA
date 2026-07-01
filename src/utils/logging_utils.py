@@ -5,6 +5,7 @@ Claude Generated - Unified logging system with 4 verbosity levels
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 
@@ -12,7 +13,12 @@ from typing import Optional
 _current_log_level: int = 1
 
 
-def setup_logging(level: int = 1, log_file: str = "alima.log") -> None:
+def setup_logging(
+    level: int = 1,
+    log_file: str = "alima.log",
+    max_bytes: int = 10 * 1024 * 1024,
+    backup_count: int = 5,
+) -> None:
     """
     Configure centralized logging for ALIMA application.
     Claude Generated
@@ -24,6 +30,8 @@ def setup_logging(level: int = 1, log_file: str = "alima.log") -> None:
             - 2 (Debug): DEBUG level for ALIMA code
             - 3 (Verbose): DEBUG + third-party libraries debug
         log_file: Path to log file (default: alima.log)
+        max_bytes: Rotate the log file once it reaches this size (default 10 MiB).
+        backup_count: Number of rotated log files to keep (default 5).
     """
     global _current_log_level
     _current_log_level = level
@@ -66,7 +74,12 @@ def setup_logging(level: int = 1, log_file: str = "alima.log") -> None:
 
     # File handler (persistent log)
     try:
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         file_handler.setLevel(logging.DEBUG)  # Always log DEBUG to file
         file_formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s",

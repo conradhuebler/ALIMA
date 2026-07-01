@@ -3,8 +3,8 @@ import rdflib
 from rdflib import Graph, Namespace
 import logging
 
-# Logging konfigurieren
-logging.basicConfig(level=logging.INFO)
+# Module logger; central config is set by setup_logging() in the app entrypoints.
+# No module-level basicConfig here (it hijacked the root logger on import). Claude Generated
 logger = logging.getLogger(__name__)
 
 
