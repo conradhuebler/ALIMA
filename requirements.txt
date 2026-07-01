@@ -27,7 +27,7 @@ fastuuid==0.14.0
 filelock==3.25.2
 frozenlist==1.8.0
 fsspec==2026.2.0
-google.genai
+google-genai==2.8.0
 greenlet==3.3.2
 grpcio==1.78.0
 grpcio-status==1.71.2
