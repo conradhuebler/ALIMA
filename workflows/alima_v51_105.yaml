@@ -57,7 +57,9 @@ meta_agent:
       - 'classification' gelaufen UND 'DK-Codes (Ist)' nicht leer → nur noch
         Abschluss-Steps (z.B. 'dk_postprocess'), dann 'finish'. 'classification'
         NICHT ohne einen konkreten, benannten Mangel wiederholen.
-      - Fehlende Konzepte gemeldet und search bereits gelaufen → 'search' (erneut).
+      - Fehlende Konzepte als 'offen, noch nicht gesucht' markiert → 'search' (erneut, einmalig).
+      - Fehlende Konzepte als 'alle bereits gesucht' markiert → NICHT erneut 'search',
+        sondern mit 'dk_collect'/'classification' fortfahren.
 
   # Reflection quality gate — the PRESENCE of this block switches it on.
   # model/provider empty = workflow's main model. `rules:` is appended to the

@@ -330,6 +330,26 @@ class MetaAgent:
         # keeps re-running it. - Claude Generated
         dk_list = getattr(context, "dk_classifications", []) or []
         dk_codes = ", ".join(str(c.get("code", "")) for c in dk_list if c.get("code"))
+        # Only advertise missing concepts the planner can still act on. Once they
+        # have been searched (missing_concepts_searched) or the re-search budget
+        # (max_missing_reruns) is spent, telling the planner they are still
+        # "missing" makes it loop selection→search→selection forever until
+        # max_cycles. Report outstanding vs already-searched explicitly. - Claude Generated
+        missing_all = getattr(context, "missing_concepts", []) or []
+        searched = set(getattr(context, "missing_concepts_searched", []) or [])
+        outstanding = [c for c in missing_all if c not in searched]
+        budget_left = getattr(context, "_missing_reruns_done", 0) < getattr(
+            context, "max_missing_reruns", 1
+        )
+        if outstanding and budget_left:
+            missing_line = f"- Fehlende Konzepte (offen, noch nicht gesucht): {outstanding}\n"
+        elif missing_all:
+            missing_line = (
+                "- Fehlende Konzepte: alle bereits gesucht — NICHT erneut 'search', "
+                "mit dk_collect/classification fortfahren\n"
+            )
+        else:
+            missing_line = "- Fehlende Konzepte: keine\n"
         state_text = (
             f"- Abstract: {(getattr(context, 'abstract', '') or '')[:80]}...\n"
             f"- Extrahierte Keywords: {len(getattr(context, 'extracted_keywords', []))}\n"
@@ -338,7 +358,7 @@ class MetaAgent:
             f"- DK-Klassifikationen: {len(dk_list)}\n"
             f"- DK-Codes (Ist): {dk_codes or 'keine'}\n"
             f"{catalog_summary}"
-            f"- Fehlende Konzepte: {getattr(context, 'missing_concepts', []) or 'keine'}\n"
+            f"{missing_line}"
         )
 
         # Resolve planning prompts from workflow YAML (meta_agent block or prompts block)
