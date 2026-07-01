@@ -1567,27 +1567,49 @@ class AlimaWebapp {
             }
         }
 
-        // Display DK search results summary
+        // Display DK search results summary. Two shapes exist:
+        //  - classic: keyword-centric [{keyword, classifications:[{titles}]}]
+        //  - agentic: flat dk-centric [{keyword:"", dk, titles, count}] (one
+        //    entry per notation). The old code assumed the classic shape and
+        //    spammed "unbekannt: 0 Klassifikationen" per flat entry. - Claude Generated
         if (results.dk_search_results && results.dk_search_results.length > 0) {
             this.appendStreamText(`\n[${this.getTime()}] DK-Suche:`);
-            results.dk_search_results.forEach(result => {
-                const keyword = result.keyword || 'unbekannt';
-                const classifications = Array.isArray(result.classifications) ? result.classifications : [];
+            const entries = results.dk_search_results;
+            const keywordCentric = entries.some(e => Array.isArray(e.classifications));
+            if (keywordCentric) {
+                entries.forEach(result => {
+                    const keyword = result.keyword || 'unbekannt';
+                    const classifications = Array.isArray(result.classifications) ? result.classifications : [];
+                    const titleSet = new Set();
+                    classifications.forEach(cls => {
+                        const titles = Array.isArray(cls.titles) ? cls.titles : [];
+                        titles.forEach(title => {
+                            const clean = String(title || '').trim();
+                            if (clean) titleSet.add(clean);
+                        });
+                    });
+
+                    if (titleSet.size > 0) {
+                        this.appendStreamText(`  ${keyword}: ${titleSet.size} Titel`);
+                    } else {
+                        this.appendStreamText(`  ${keyword}: ${classifications.length} Klassifikationen`);
+                    }
+                });
+            } else {
+                // Flat dk-centric shape: summarize once instead of per notation.
+                const dkSet = new Set();
                 const titleSet = new Set();
-                classifications.forEach(cls => {
-                    const titles = Array.isArray(cls.titles) ? cls.titles : [];
+                entries.forEach(e => {
+                    const dk = String(e.dk || e.code || '').trim();
+                    if (dk) dkSet.add(dk);
+                    const titles = Array.isArray(e.titles) ? e.titles : (e.title ? [e.title] : []);
                     titles.forEach(title => {
                         const clean = String(title || '').trim();
                         if (clean) titleSet.add(clean);
                     });
                 });
-
-                if (titleSet.size > 0) {
-                    this.appendStreamText(`  ${keyword}: ${titleSet.size} Titel`);
-                } else {
-                    this.appendStreamText(`  ${keyword}: ${classifications.length} Klassifikationen`);
-                }
-            });
+                this.appendStreamText(`  ${dkSet.size} Notationen aus ${titleSet.size} Titeln`);
+            }
         }
 
         // Populate summary panel
