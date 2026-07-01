@@ -191,5 +191,51 @@ class RawResponseCacheTest(unittest.TestCase):
         self.assertIsNone(self.km.get_raw_response("lobid", "nope", {"search_type": "kw"}))
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class AgentViewSurfacingTest(unittest.TestCase):
+    """P2 transform-on-read: the MCP handler attaches member/totalItems from the raw cache."""
+
+    def setUp(self):
+        UnifiedKnowledgeManager.reset()
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.km = UnifiedKnowledgeManager(database_config=_sqlite_config(self.tmp.name))
+
+    def tearDown(self):
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
+
+    def test_attach_agent_view_from_raw_cache(self):
+        from src.mcp.tool_registry import ToolRegistry
+
+        blob = json.dumps({"totalItems": 77, "member": [{"title": "X"}], "aggregation": {}})
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, blob)
+        reg = ToolRegistry()
+        out = {"source": "lobid", "results": {}}
+        reg._attach_agent_view(out, "lobid", ["wasser"], "kw")
+        self.assertIn("agent_view", out)
+        self.assertEqual(out["agent_view"]["wasser"]["totalItems"], 77)
+        self.assertEqual(len(out["agent_view"]["wasser"]["member"]), 1)
+
+    def test_attach_agent_view_noop_for_unsupported_source(self):
+        from src.mcp.tool_registry import ToolRegistry
+
+        reg = ToolRegistry()
+        out = {"source": "catalog", "results": {}}
+        reg._attach_agent_view(out, None, ["x"], "kw")  # catalog: raw_id None
+        self.assertNotIn("agent_view", out)
+
+    def test_attach_agent_view_miss_omits_term(self):
+        from src.mcp.tool_registry import ToolRegistry
+
+        reg = ToolRegistry()
+        out = {"source": "lobid", "results": {}}
+        reg._attach_agent_view(out, "lobid", ["never-cached"], "kw")
+        self.assertNotIn("agent_view", out)
+
+
 if __name__ == "__main__":
     unittest.main()

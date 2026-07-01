@@ -1,0 +1,13 @@
+{
+  "totalItems": 1234,
+  "member": [
+    {"id": "https://lobid.org/resources/abc#!", "title": "Wasser und Klima"}
+  ],
+  "aggregation": {
+    "subject.componentList.id": [
+      {"key": "https://d-nb.info/gnd/4064937-4", "doc_count": 47},
+      {"key": "https://d-nb.info/gnd/4064938-6", "doc_count": 50},
+      {"key": "https://d-nb.info/gnd/4030550-8", "doc_count": 12}
+    ]
+  }
+}

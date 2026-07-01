@@ -1422,9 +1422,52 @@ class ToolRegistry:
             out = {"source": spec.source_label, "results": serialized}
             if spec.include_errors:
                 out["errors"] = dict(getattr(inst, "last_errors", {}) or {})
+            self._attach_agent_view(out, raw_id, terms, search_type)
             return json.dumps(out, ensure_ascii=False)
 
         return handler
+
+    @staticmethod
+    def _agent_view_deriver(source):
+        """Map a source id to its raw→agent-view function (None if unsupported).
+
+        Transform-on-read dispatch for the WP2 raw cache. Lazy import to avoid a
+        Qt/suggester import at module load. - Claude Generated
+        """
+        if source == "lobid":
+            from src.utils.suggesters.lobid_suggester import LobidSuggester
+            return LobidSuggester.transform_agent_view
+        return None
+
+    def _attach_agent_view(self, out, source, terms, search_type):
+        """Surface the full source view (member/totalItems) from the raw cache.
+
+        Transform-on-read consumer of the WP2 raw cache: best-effort and additive
+        — the reduced ``results`` block is untouched, and a raw miss simply omits
+        the term. Only sources with an agent-view deriver participate; on the
+        default cached path the raw was written by the fetch seam (miss) or exists
+        from a prior fetch (mapping hit). - Claude Generated
+        """
+        deriver = self._agent_view_deriver(source)
+        if deriver is None:
+            return
+        try:
+            km = self._get_knowledge_manager()
+        except Exception:
+            return
+        params = {"search_type": search_type}
+        view = {}
+        for term in terms:
+            cached = km.get_raw_response(source, term, params)
+            if not cached:
+                continue
+            try:
+                raw = json.loads(cached["raw_json"])
+            except (ValueError, TypeError):
+                continue
+            view[term] = deriver(raw)
+        if view:
+            out["agent_view"] = view
 
     def _make_title_records_handler(self, spec):
         def handler(terms, search_type="title", max_results=25, **_ignore):

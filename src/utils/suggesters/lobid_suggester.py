@@ -182,81 +182,100 @@ class LobidSuggester(BaseSuggester):
             q = query
         return f"https://lobid.org/resources/search?q={q}&format=json&aggregations=subject.componentList.id"
 
-    def _get_results(self, searches: List[str], search_type: str = "kw") -> Dict[str, Dict[str, Dict[str, Any]]]:
+    def fetch(self, query: str, search_type: str = "kw") -> Dict[str, Any]:
+        """Fetch the verbatim lobid response for one term — I/O only, no transform.
+
+        Records the HTTP status in ``_last_fetch_status``. Raises on
+        network/parse error; callers turn that into a per-term source failure.
+        Split out of ``_get_results`` for the WP2 raw-first cache. - Claude Generated
         """
-        Get search results from lobid.org.
+        encoded = urllib.parse.quote(query)
+        url = self._get_search_url(encoded, search_type=search_type)
+        with urllib.request.urlopen(url) as response:
+            result = json.load(response)
+            self._last_fetch_status = getattr(response, "status", None)
+        return result
 
-        Args:
-            searches: List of search terms
-            search_type: Query mode — see :meth:`_get_search_url`.
+    def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
+        """Reduce a raw lobid response to the ``{subject: {count,gndid,ddc,dk}}`` view.
 
-        Returns:
-            Dictionary with structure:
-            {
-                search_term: {
-                    keyword: {
-                        "count": int,
-                        "gndid": set
-                    }
+        Pure (no I/O). This is the exact former parsing body — the reduced output
+        is byte-identical to the pre-split behaviour (locked by a regression
+        test). ``search_type`` only affected the URL (in :meth:`fetch`); it is
+        accepted here for a uniform transform signature. - Claude Generated
+        """
+        subjects: Dict[str, Dict[str, Any]] = {}
+        for entry in raw.get("aggregation", {}).get("subject.componentList.id", []):
+            key = entry["key"].split("/")[-1]
+            try:
+                subject = self.gnd_subjects[key]
+            except KeyError:
+                if self.debug:
+                    self.logger.debug(
+                        f"No subject found for GND ID '{key}', will use '{entry['key']}'"
+                    )
+                subject = entry["key"].removeprefix("https://d-nb.info/gnd/")
+            except Exception as ex:
+                raise LobidSuggesterError(ex_to_str(ex))
+
+            count = entry["doc_count"]
+            gnd_id = entry["key"].removeprefix("https://d-nb.info/gnd/")
+
+            # Add to results, creating a new entry or updating an existing one
+            if subject in subjects:
+                subjects[subject]["gndid"].add(gnd_id)
+                # Update count if the new one is higher
+                if count > subjects[subject]["count"]:
+                    subjects[subject]["count"] = count
+            else:
+                subjects[subject] = {
+                    "count": count,
+                    "gndid": {gnd_id},
+                    "ddc": set(),
+                    "dk": set(),
                 }
-            }
+        return subjects
+
+    @staticmethod
+    def transform_agent_view(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Full agent-facing view: the data the reduced pool view discards.
+
+        ``totalItems`` + the ``member`` resource records that the
+        aggregation-only pool transform drops (WP2 tool-data passthrough).
+        - Claude Generated
+        """
+        return {
+            "totalItems": raw.get("totalItems"),
+            "member": raw.get("member", []),
+        }
+
+    def _get_results(self, searches: List[str], search_type: str = "kw") -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Fetch + transform each term; capture the verbatim response for the raw cache.
+
+        Composition of :meth:`fetch` (I/O) and :meth:`transform` (pure); the
+        public reduced output is unchanged. Result structure::
+
+            {search_term: {keyword: {"count": int, "gndid": set,
+                                     "ddc": set, "dk": set}}}
+        - Claude Generated
         """
         result_subjects = dict()
         self.last_errors = {}  # fresh error state per search call - Claude Generated
-        # WP2 raw-first: capture the verbatim response per term before it is
-        # transformed into the reduced aggregation view. - Claude Generated
+        # WP2 raw-first: verbatim response per term, captured before transform. - Claude Generated
         self.last_raw = {}
         self.last_http_status = {}
 
         for search in searches:
-            query = urllib.parse.quote(search)
-            url = self._get_search_url(query, search_type=search_type)
-
             try:
-                with urllib.request.urlopen(url) as response:
-                    result = json.load(response)
-                    self.last_http_status[search] = getattr(response, "status", None)
+                raw = self.fetch(search, search_type=search_type)
             except Exception as ex:
                 # Missing term in the result dict = source failure, not "no match" - Claude Generated
                 self._record_search_error(search, ex)
                 continue
 
-            # Verbatim response (drops member/totalItems downstream). - Claude Generated
-            self.last_raw[search] = json.dumps(result, ensure_ascii=False)
-
-            result_subjects[search] = dict()
-
-            for entry in result.get("aggregation", {}).get(
-                "subject.componentList.id", []
-            ):
-                key = entry["key"].split("/")[-1]
-                try:
-                    subject = self.gnd_subjects[key]
-                except KeyError:
-                    if self.debug:
-                        self.logger.debug(
-                            f"No subject found for GND ID '{key}', will use '{entry['key']}'"
-                        )
-                    subject = entry["key"].removeprefix("https://d-nb.info/gnd/")
-                except Exception as ex:
-                    raise LobidSuggesterError(ex_to_str(ex))
-
-                count = entry["doc_count"]
-                gnd_id = entry["key"].removeprefix("https://d-nb.info/gnd/")
-
-                # Add to results, creating a new entry or updating an existing one
-                if subject in result_subjects[search]:
-                    result_subjects[search][subject]["gndid"].add(gnd_id)
-                    # Update count if the new one is higher
-                    if count > result_subjects[search][subject]["count"]:
-                        result_subjects[search][subject]["count"] = count
-                else:
-                    result_subjects[search][subject] = {
-                        "count": count,
-                        "gndid": {gnd_id},
-                        "ddc": set(),
-                        "dk": set(),
-                    }
+            self.last_raw[search] = json.dumps(raw, ensure_ascii=False)
+            self.last_http_status[search] = self._last_fetch_status
+            result_subjects[search] = self.transform(raw, search_type=search_type)
 
             # Signal that we've processed this term
             self.currentTerm.emit(search)
