@@ -32,6 +32,7 @@ class StepConfig:
     id: str
     type: str
     enabled: bool = True
+    description: str = ""  # human-readable step purpose (from YAML) - Claude Generated
     depends_on: List[str] = field(default_factory=list)
     inputs: Dict[str, Any] = field(default_factory=dict)
     outputs: Dict[str, str] = field(default_factory=dict)

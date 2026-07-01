@@ -185,6 +185,7 @@ def parse_steps(
             id=step_id,
             type=step_type,
             enabled=bool(step.get("enabled", True)),
+            description=str(step.get("description", "") or ""),
             depends_on=list(step.get("depends_on", []) or []),
             inputs=dict(step.get("inputs", {}) or {}),
             outputs=dict(step.get("outputs", {}) or {}),
