@@ -258,6 +258,7 @@ alima_presets_*.json
 *~
 *.aux
 *.log
+*.log.*
 tmp/
 blob/
 dk_cache/
