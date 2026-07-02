@@ -460,15 +460,18 @@ class PipelineStepExecutor:
         catalog_token: str = None,
         catalog_search_url: str = None,
         catalog_details_url: str = None,
-        aggregate_from_raw: bool = True,
+        aggregate_from_raw: Optional[bool] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Execute GND search step with automatic catalog detection - Claude Generated
 
         WP2 P4.4b: by default the reduced ``{term:{title:{...}}}`` result is derived
         from the raw response cache (single source of truth) via
-        ``SearchCLI.search_from_raw``. Pass ``aggregate_from_raw=False`` to fall back
-        to the legacy mapping-first ``SearchCLI.search``.
+        ``SearchCLI.search_from_raw``. ``aggregate_from_raw=None`` (default) reads the
+        ``SystemConfig.aggregate_from_raw`` toggle; pass an explicit bool to override.
         """
+        if aggregate_from_raw is None:
+            from src.core.search.aggregate import default_aggregate_from_raw
+            aggregate_from_raw = default_aggregate_from_raw()
 
         if suggesters is None:
             suggesters = ["lobid", "swb"]

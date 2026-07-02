@@ -900,6 +900,11 @@ class SystemConfig:
     # override lives in PluginInstanceConfig.settings['cache_responses']. - Claude Generated
     enable_response_cache: bool = True
 
+    # WP2 raw-first read path: when True (default), both pipelines derive the GND
+    # pool from the raw cache via aggregate_gnd_results; False = legacy mapping-first
+    # aggregation. Rollback toggle for the P4 convergence. - Claude Generated
+    aggregate_from_raw: bool = True
+
     # Default workflow for agentic pipeline runs - Claude Generated
     default_workflow: str = "alima_v51"  # YAML workflow stem used when agentic mode is enabled
 

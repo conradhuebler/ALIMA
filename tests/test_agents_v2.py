@@ -687,7 +687,8 @@ class TestAlimaClassicMigration(unittest.TestCase):
         tool_registry.execute.side_effect = _exec
         ctx = SharedContext(abstract="a")
 
-        out = fn(keywords=["kw1", "kw2"], tool_registry=tool_registry, context=ctx)
+        out = fn(keywords=["kw1", "kw2"], tool_registry=tool_registry, context=ctx,
+                 config={"aggregate_from_raw": True})  # explicit → config-independent
         titles = {e["title"] for e in out["entries"]}
         self.assertEqual(titles, {"Titel1", "Titel2"})
         t1 = next(e for e in out["entries"] if e["title"] == "Titel1")

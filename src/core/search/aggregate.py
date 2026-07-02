@@ -36,6 +36,22 @@ logger = logging.getLogger(__name__)
 TransformMap = Dict[str, Callable[[Dict[str, Any]], Dict[str, Dict[str, Any]]]]
 
 
+def default_aggregate_from_raw() -> bool:
+    """Global default for the raw-first pool read path (``SystemConfig.aggregate_from_raw``).
+
+    Both pipelines fall back to this when no explicit per-call override is given, so
+    an operator can flip the P4 convergence from config/GUI. Any config-load failure
+    defaults to True (converged). - Claude Generated
+    """
+    try:
+        from src.utils.config_manager import ConfigManager
+
+        cfg = ConfigManager().load_config()
+        return bool(getattr(cfg.system_config, "aggregate_from_raw", True))
+    except Exception:
+        return True
+
+
 def _reduced_from_mapping(
     ukm: Any, source: str, term: str, max_age_hours: Optional[int]
 ) -> Optional[Dict[str, Dict[str, Any]]]:

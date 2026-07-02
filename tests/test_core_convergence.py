@@ -79,6 +79,16 @@ def _hit(gnd_id, count):
 
 class TestGndBatchSearchConvergence(unittest.TestCase):
 
+    def setUp(self):
+        # Deterministic: don't depend on the user's SystemConfig.aggregate_from_raw.
+        self._agg_patch = patch(
+            "src.core.search.aggregate.default_aggregate_from_raw", return_value=True
+        )
+        self._agg_patch.start()
+
+    def tearDown(self):
+        self._agg_patch.stop()
+
     def test_source_count_ranking(self):
         """Entries confirmed by multiple sources rank first."""
         reg = _FakeRegistry(

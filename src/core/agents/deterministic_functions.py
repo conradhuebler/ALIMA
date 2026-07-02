@@ -71,9 +71,14 @@ def gnd_batch_search(
         source_tools = config.get("source_tool_map", source_tools)
 
     # WP2 P4.4: build the pool from the raw response cache via aggregate_gnd_results
-    # (single source of truth). Set config['aggregate_from_raw'] = False to fall
-    # back to the legacy inline aggregation of the tools' reduced results. - Claude Generated
-    aggregate_from_raw = config.get("aggregate_from_raw", True) if config else True
+    # (single source of truth). Step config wins; otherwise the global
+    # SystemConfig.aggregate_from_raw toggle. Set to False for the legacy inline
+    # aggregation of the tools' reduced results. - Claude Generated
+    from src.core.search.aggregate import default_aggregate_from_raw
+    if config and "aggregate_from_raw" in config:
+        aggregate_from_raw = config.get("aggregate_from_raw")
+    else:
+        aggregate_from_raw = default_aggregate_from_raw()
 
     # Accept both ["term1","term2"] and [{"term":"t1"}, {"keyword":"t2"}, {"title":"t3"}].
     # Non-empty dict keys tried in order: term > keyword > title > label.

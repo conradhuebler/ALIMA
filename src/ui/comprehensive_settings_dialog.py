@@ -263,6 +263,22 @@ class ComprehensiveSettingsDialog(QDialog):
         self.debug_mode = QCheckBox("Enable debug mode")
         system_layout.addRow("Debug:", self.debug_mode)
 
+        # WP2 raw-first response cache toggles - Claude Generated
+        self.enable_response_cache = QCheckBox("Cache source responses (raw-first)")
+        self.enable_response_cache.setToolTip(
+            "Store API/HTML responses verbatim in search_response_cache "
+            "(lobid/swb/catalog/finc + DOI). Master switch for the raw cache."
+        )
+        system_layout.addRow("Response-Cache:", self.enable_response_cache)
+
+        self.aggregate_from_raw = QCheckBox("Build GND pool from raw (aggregate)")
+        self.aggregate_from_raw.setToolTip(
+            "Both pipelines derive the GND pool (counter + provenance) from the raw "
+            "cache via aggregate_gnd_results. Uncheck to fall back to the legacy "
+            "mapping-first aggregation."
+        )
+        system_layout.addRow("Aggregate:", self.aggregate_from_raw)
+
         # Webcam input option - Claude Generated
         self.enable_webcam_input = QCheckBox("📷 Enable webcam capture in Pipeline tab")
         self.enable_webcam_input.setToolTip("Enable/disable the webcam button for capturing images directly from camera")
@@ -496,6 +512,12 @@ class ComprehensiveSettingsDialog(QDialog):
         
         # System settings
         self.debug_mode.setChecked(config.system_config.debug)
+        self.enable_response_cache.setChecked(
+            getattr(config.system_config, "enable_response_cache", True)
+        )
+        self.aggregate_from_raw.setChecked(
+            getattr(config.system_config, "aggregate_from_raw", True)
+        )
         self.log_level.setCurrentText(config.system_config.log_level)
         default_workflow = getattr(config.system_config, "default_workflow", "alima_v51") or "alima_v51"
         idx = self.default_workflow_combo.findData(default_workflow)
@@ -799,6 +821,8 @@ class ComprehensiveSettingsDialog(QDialog):
             first_run_completed=config.system_config.first_run_completed,
             skip_first_run_check=config.system_config.skip_first_run_check,
             enable_code_plugins=config.system_config.enable_code_plugins,
+            enable_response_cache=self.enable_response_cache.isChecked(),
+            aggregate_from_raw=self.aggregate_from_raw.isChecked(),
         )
 
         # UI configuration - Claude Generated (Webcam Feature)

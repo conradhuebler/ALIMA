@@ -127,7 +127,8 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # 2. Act: Call the method we are testing
         search_results = self.executor.execute_gnd_search(
             keywords=keywords,
-            suggesters=suggesters
+            suggesters=suggesters,
+            aggregate_from_raw=True,  # explicit → independent of SystemConfig
         )
 
         # 3. Assert: Check if the results are correct

@@ -165,6 +165,32 @@ class AggregateMcpToolTest(unittest.TestCase):
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class DefaultAggregateToggleTest(unittest.TestCase):
+    """default_aggregate_from_raw reads SystemConfig.aggregate_from_raw (toggle)."""
+
+    def test_reads_config_flag(self):
+        from unittest.mock import patch, MagicMock
+        from src.core.search.aggregate import default_aggregate_from_raw
+
+        cfg = MagicMock()
+        cfg.system_config.aggregate_from_raw = False
+        with patch("src.utils.config_manager.ConfigManager") as CM:
+            CM.return_value.load_config.return_value = cfg
+            self.assertFalse(default_aggregate_from_raw())
+        cfg.system_config.aggregate_from_raw = True
+        with patch("src.utils.config_manager.ConfigManager") as CM:
+            CM.return_value.load_config.return_value = cfg
+            self.assertTrue(default_aggregate_from_raw())
+
+    def test_defaults_true_on_error(self):
+        from unittest.mock import patch
+        from src.core.search.aggregate import default_aggregate_from_raw
+
+        with patch("src.utils.config_manager.ConfigManager", side_effect=Exception("boom")):
+            self.assertTrue(default_aggregate_from_raw())
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class NestedFromAggregateTest(unittest.TestCase):
     """Reshape the ranked pool back to the classic {term:{title:{...}}} contract."""
 
