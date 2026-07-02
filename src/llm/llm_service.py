@@ -1031,6 +1031,13 @@ class LlmService(QObject):
         Returns:
             Generated text response (str) or a generator if streaming.
         """
+        # Treat the seed=0 sentinel (the classic default) as "no seed": don't send
+        # it to providers that forbid `seed` (e.g. Mistral → HTTP 422), and match
+        # the agent path which defaults seed=None. Explicit non-zero seeds (e.g. 42)
+        # are unaffected. - Claude Generated
+        if not seed:
+            seed = None
+
         # Map legacy provider names to actual configured providers - Claude Generated
         provider = self._map_provider_name(provider)
 
@@ -2281,6 +2288,11 @@ class LlmService(QObject):
             AgentResponse with content and/or tool_calls
         """
         from src.core.data_models import AgentResponse, ToolCall, StopReason
+
+        # Treat the seed=0 sentinel as "no seed" (see generate_response). Providers
+        # like Mistral reject a `seed` field. - Claude Generated
+        if not seed:
+            seed = None
 
         # Map legacy provider names
         provider = self._map_provider_name(provider)

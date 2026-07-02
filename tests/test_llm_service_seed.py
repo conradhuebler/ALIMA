@@ -127,6 +127,59 @@ class TestGenerateWithToolsSeedDispatch(unittest.TestCase):
         args, _ = target.call_args
         self.assertEqual(args[7], 11)
 
+    def test_seed_zero_normalized_to_none(self):
+        """seed=0 (classic default sentinel) must reach the handler as None so it
+        is not sent to providers that reject `seed` (e.g. Mistral 422)."""
+        svc, target = self._patched_service("_generate_openai_compatible", "_generate_openai_with_tools")
+        svc.generate_with_tools(
+            provider="fake", model="ministral-14b-2512",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=[], temperature=0.5, top_p=0.9, max_tokens=128,
+            seed=0,
+        )
+        args, _ = target.call_args
+        self.assertIsNone(args[7], f"seed=0 must normalize to None; got args={args}")
+
+
+class TestGenerateResponseSeedNormalization(unittest.TestCase):
+    """generate_response() (classic text path) normalizes the seed=0 sentinel."""
+
+    def setUp(self):
+        from src.llm.llm_service import LlmService
+        self.LlmService = LlmService
+
+    def _svc(self, generator):
+        svc = MagicMock(spec=self.LlmService)
+        svc.generate_response = self.LlmService.generate_response.__get__(svc, self.LlmService)
+        svc._map_provider_name = lambda p: p
+        svc._ensure_provider_initialized = lambda p: True
+        svc._init_watchdog = lambda: None
+        svc.logger = MagicMock()
+        svc.clients = {"fake": object()}
+        svc.supported_providers = {"fake": {"generator": generator}}
+        return svc
+
+    def test_seed_zero_to_none(self):
+        gen = MagicMock(return_value=iter(["x"]))
+        svc = self._svc(gen)
+        svc.generate_response(
+            provider="fake", model="ministral-14b-2512", prompt="hi",
+            request_id="r1", seed=0, stream=True,
+        )
+        args, _ = gen.call_args
+        # non-ollama generator: model, prompt, temperature, p_value, seed, image, system, stream
+        self.assertIsNone(args[4], f"seed=0 must normalize to None; got args={args}")
+
+    def test_explicit_seed_preserved(self):
+        gen = MagicMock(return_value=iter(["x"]))
+        svc = self._svc(gen)
+        svc.generate_response(
+            provider="fake", model="gpt-4o-mini", prompt="hi",
+            request_id="r1", seed=42, stream=True,
+        )
+        args, _ = gen.call_args
+        self.assertEqual(args[4], 42)
+
 
 class TestOllamaOptionsCarrySeed(unittest.TestCase):
     """`options['seed']` is populated when seed!=None in Ollama-native handler."""
