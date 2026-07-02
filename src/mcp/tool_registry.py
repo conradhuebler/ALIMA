@@ -1370,6 +1370,54 @@ class ToolRegistry:
 
         return handler
 
+    def _source_transform(self, source):
+        """Resolve a GND-keyword source id to its ``transform(raw)`` callable.
+
+        Reuses the already-built suggesters (lobid/swb via MetaSuggester,
+        catalog = BiblioSuggester). Returns None if that source is unavailable.
+        - Claude Generated
+        """
+        try:
+            if source == "lobid" and self._lobid is not None:
+                return self._lobid.raw_suggester("lobid").transform
+            if source == "swb" and self._swb is not None:
+                return self._swb.raw_suggester("swb").transform
+            if source == "catalog" and self._biblio is not None:
+                return self._biblio.transform
+        except Exception as e:
+            logger.debug(f"transform for '{source}' unavailable: {e}")
+        return None
+
+    def _handle_aggregate_gnd_results(self, terms, sources=None, search_type="kw", max_pages=5):
+        """Aggregate cached raw responses into a ranked pool (counter + provenance).
+
+        Transform-on-read consumer of the WP2 raw cache: derives the pipeline view
+        from raw via each source's transform + gnd_search_core. - Claude Generated
+        """
+        self._init_suggesters()
+        from src.core.search.aggregate import aggregate_gnd_results
+
+        sources = sources or ["lobid", "swb", "catalog"]
+        km = self._get_knowledge_manager()
+
+        transform_by_source = {}
+        params_by_source = {}
+        for src in sources:
+            transform = self._source_transform(src)
+            if transform is None:
+                continue
+            transform_by_source[src] = transform
+            params = {"search_type": search_type}
+            if src == "swb":
+                params["max_pages"] = max_pages
+            params_by_source[src] = params
+
+        out = aggregate_gnd_results(
+            terms, list(transform_by_source.keys()), km, transform_by_source,
+            params_by_source=params_by_source,
+        )
+        return json.dumps(out, ensure_ascii=False, default=str)
+
     def _make_search_handler(self, spec):
         if spec.result_shape == "gnd_keywords":
             return self._make_gnd_keywords_handler(spec)
@@ -1594,6 +1642,7 @@ class ToolRegistry:
         self.register(tool_schemas.GET_DB_STATS, self._handle_get_db_stats)
         self.register(tool_schemas.SELECT_FROM_GND_POOL, self._handle_select_from_gnd_pool)
         self.register(tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup)
+        self.register(tool_schemas.AGGREGATE_GND_RESULTS, self._handle_aggregate_gnd_results)
         self.register(tool_schemas.LIST_PLUGINS, self._handle_list_plugins)
 
         # Library tools — search tools generated from provider specs (P3)
@@ -1637,9 +1686,11 @@ class ToolRegistry:
                 (tool_schemas.GET_CLASSIFICATION, self._handle_get_classification),
                 (tool_schemas.GET_DB_STATS, self._handle_get_db_stats),
                 (tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup),
+                (tool_schemas.AGGREGATE_GND_RESULTS, self._handle_aggregate_gnd_results),
             ],
             "library": [
                 *self._generated_search_tools(),
+                (tool_schemas.AGGREGATE_GND_RESULTS, self._handle_aggregate_gnd_results),
                 (tool_schemas.RESOLVE_DOI, self._handle_resolve_doi),
                 (tool_schemas.SCRAPE_URL, self._handle_scrape_url),
                 (tool_schemas.READ_PDF, self._handle_read_pdf),

@@ -99,5 +99,48 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(out["pool"], [])
 
 
+class _FakeSuggester:
+    def transform(self, raw):
+        return {"Wasser": {"count": 9, "gndid": {"g1"}, "ddc": set(), "dk": set()}}
+
+
+class _FakeMeta:
+    def raw_suggester(self, pid=None):
+        return _FakeSuggester()
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class AggregateMcpToolTest(unittest.TestCase):
+    """The aggregate_gnd_results MCP handler wires suggesters → engine (no network)."""
+
+    def setUp(self):
+        UnifiedKnowledgeManager.reset()
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.km = UnifiedKnowledgeManager(database_config=_sqlite_config(self.tmp.name))
+
+    def tearDown(self):
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
+
+    def test_handler_builds_pool_json(self):
+        from src.mcp.tool_registry import ToolRegistry
+
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+        reg = ToolRegistry()
+        reg._suggesters_initialized = True  # skip network suggester init
+        reg._lobid = _FakeMeta()
+        reg._swb = None
+        reg._biblio = None
+        out = json.loads(reg._handle_aggregate_gnd_results(["wasser"], sources=["lobid"]))
+        self.assertEqual(out["pool"][0]["title"], "Wasser")
+        self.assertEqual(out["pool"][0]["count"], 1)          # count-landmine
+        self.assertEqual(out["pool"][0]["display_count"], 9)   # real Häufigkeit
+        self.assertEqual(out["pool"][0]["sources"], ["lobid"])
+
+
 if __name__ == "__main__":
     unittest.main()

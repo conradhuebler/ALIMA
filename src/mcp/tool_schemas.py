@@ -66,6 +66,45 @@ GET_SEARCH_CACHE = ToolDefinition(
     },
 )
 
+AGGREGATE_GND_RESULTS = ToolDefinition(
+    name="aggregate_gnd_results",
+    description=(
+        "Aggregate the cached raw responses of the GND-keyword sources "
+        "(lobid/swb/catalog) for the given terms into one ranked pool with counter "
+        "statistics (Häufigkeit as 'display_count') and provenance ('sources' + "
+        "'source_count' = which sources confirmed each keyword). Reads the raw "
+        "response cache (single source of truth) — run the search_* tools first to "
+        "populate it. Returns {pool:[...], sources:[...], missing:{source:[terms]}}."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Search terms to aggregate",
+            },
+            "sources": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Source ids to include (default: lobid, swb, catalog)",
+                "default": [],
+            },
+            "search_type": {
+                "type": "string",
+                "description": "Search mode the raw was fetched with (default 'kw')",
+                "default": "kw",
+            },
+            "max_pages": {
+                "type": "integer",
+                "description": "swb max_pages the raw was fetched with (default 5)",
+                "default": 5,
+            },
+        },
+        "required": ["terms"],
+    },
+)
+
 GET_DK_CACHE = ToolDefinition(
     name="get_dk_cache",
     description="Get cached DK classification results from catalog search for a term.",
