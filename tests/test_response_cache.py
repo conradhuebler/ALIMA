@@ -208,6 +208,20 @@ class RawResponseCacheTest(unittest.TestCase):
             self.km.get_raw_response("swb", "klima", {"search_type": "kw", "max_pages": 9})
         )
 
+    def test_clear_search_cache_clears_mappings_and_raw(self):
+        # Both the mapping index and the raw cache must be cleared, and the call
+        # must succeed (no bogus commit_transaction → "no transaction is active").
+        self.km.update_search_mapping("wasser", "lobid", found_gnd_ids=["g1"],
+                                      gnd_counts={"g1": 5})
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+        ok, msg = self.km.clear_search_cache()
+        self.assertTrue(ok, msg)
+        self.assertIsNone(self.km.get_search_mapping("wasser", "lobid"))
+        self.assertIsNone(
+            self.km.get_raw_response("lobid", "wasser", {"search_type": "kw"},
+                                     max_age_hours=None)
+        )
+
 
 class _FakeBiblioExtractor:
     """Stand-in BiblioClient exposing last_raw after search_subjects."""

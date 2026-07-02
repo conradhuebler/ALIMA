@@ -907,6 +907,8 @@ class UnifiedKnowledgeManager:
         """Clear all data for fresh start - Claude Generated"""
         try:
             self.db_manager.execute_query("DELETE FROM search_mappings")
+            self.db_manager.execute_query("DELETE FROM search_response_cache")
+            self.db_manager.execute_query("DELETE FROM catalog_dk_cache")
             self.db_manager.execute_query("DELETE FROM classifications")
             self.db_manager.execute_query("DELETE FROM gnd_entries")
 
@@ -917,28 +919,36 @@ class UnifiedKnowledgeManager:
             raise
 
     def clear_search_cache(self) -> tuple[bool, str]:
-        """Clear only search mappings cache while preserving GND entries and classifications - Claude Generated
+        """Clear the GND search caches (mapping + raw response) — Claude Generated
 
-        This removes old/cached search results without losing the knowledge base.
-        Useful for cleaning up malformed cache entries from schema migrations.
+        Removes cached search results — BOTH the mapping-first index
+        (``search_mappings``) AND the WP2 raw response cache
+        (``search_response_cache``) — so the next search re-fetches live. GND
+        entries and classifications (the knowledge base) are preserved.
+
+        Clearing the raw cache too is essential: since the pool is derived from
+        raw (P4), leaving it would keep serving cached results.
 
         Returns:
             tuple[bool, str]: (success, message)
         """
         try:
-            # Execute DELETE query
+            # ``execute_query`` runs in QtSql autocommit mode (no explicit
+            # transaction), so each DELETE is committed on exec. Do NOT call
+            # commit_transaction() here — there is no active transaction, which
+            # raises "cannot commit - no transaction is active". - Claude Generated
             self.db_manager.execute_query("DELETE FROM search_mappings")
+            self.db_manager.execute_query("DELETE FROM search_response_cache")
 
-            # FIX: Ensure transaction is committed before next operations - Claude Generated
-            # This prevents QtSql timing/state issues when immediately inserting after delete
-            self.db_manager.commit_transaction()
+            m = self.db_manager.fetch_one("SELECT COUNT(*) AS n FROM search_mappings")
+            r = self.db_manager.fetch_one("SELECT COUNT(*) AS n FROM search_response_cache")
+            remaining_m = (m or {}).get("n", 0)
+            remaining_r = (r or {}).get("n", 0)
 
-            # Count remaining entries to verify (optional)
-            query = "SELECT COUNT(*) FROM search_mappings"
-            result = self.db_manager.fetch_one(query)
-            remaining = result[0] if result else 0
-
-            success_msg = f"✅ Search cache cleared. {remaining} entries remaining."
+            success_msg = (
+                f"✅ Search cache cleared (mappings + raw responses). "
+                f"{remaining_m} mappings, {remaining_r} raw responses remaining."
+            )
             self.logger.info(success_msg)
 
             return True, success_msg
@@ -1009,8 +1019,8 @@ class UnifiedKnowledgeManager:
                     self.logger.warning(f"⚠️ Could not parse classifications for '{search_term}': {e}")
                     continue
 
-            # Commit changes
-            self.db_manager.commit_transaction()
+            # execute_query autocommits (QtSql autocommit mode) — no explicit
+            # transaction is open, so don't call commit_transaction(). - Claude Generated
 
             success_msg = f"✅ Cleaned {cleaned_count} malformed entries ({updated_entries} entries updated/deleted)"
             self.logger.info(success_msg)
