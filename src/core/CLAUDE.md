@@ -41,6 +41,13 @@ The `src/core/` directory contains the fundamental business logic and data manag
 ## [Variable Section - Short-term Information]
 
 ### Current Issues
+- ✅ **Raw-First Response Cache (WP2, July 2)**: `search_response_cache` speichert die
+  Quell-Antwort verbatim; `aggregate_gnd_results` (`src/core/search/aggregate.py`)
+  leitet Pool + Counter (`display_count`) + Provenienz (`sources`/`source_count`) aus
+  raw ab (**raw-first mit Mapping-Fallback**). Beide Pipelines nutzen es als Read-Pfad
+  (`gnd_batch_search`, `SearchCLI.search_from_raw`), rollback via `aggregate_from_raw`.
+  Count-Landmine bleibt (Pool-`count=1`). ⚠️ Klassisch default-on, aber GUI-Verifikation
+  offen. Spec: [`docs/wp_raw_response_cache.md`](../../docs/wp_raw_response_cache.md).
 - ✅ **F-4 GND „Häufigkeit zeigt 1" (gelöst June 29)**: Mapping-Cache speichert jetzt
   Per-GND-ID-Counts (`gnd_counts`); Cache-Treffer behalten Pool-`count=1`
   (Ranking/Chunking unverändert — Count-Landmine) und tragen ein separates

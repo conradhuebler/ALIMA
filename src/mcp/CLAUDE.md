@@ -7,6 +7,12 @@
 
 ## Tool Sets
 - **Knowledge tools**: Wrap `UnifiedKnowledgeManager` (search_gnd, get_gnd_entry, etc.)
+  - `aggregate_gnd_results` (WP2) → ranked GND pool with counter (`display_count`) +
+    provenance (`sources`/`source_count`) derived from the **raw response cache**
+    (`src/core/search/aggregate.py`, raw-first + mapping fallback). `search_lobid`
+    also returns an additive `agent_view` (member/totalItems) via transform-on-read.
+    Input tools read-through the raw cache when `InputToolSpec.cacheable`. Spec:
+    [`docs/wp_raw_response_cache.md`](../../docs/wp_raw_response_cache.md).
   - `list_plugins` → introspects the active **plugins** (search providers + input sources) from `AlimaConfig.plugins` with each plugin's self-doc (description + input/output). Distinct from `list_workflows` (workflows ≠ plugins). Handler: `ToolRegistry._handle_list_plugins`.
 - **Library tools**: search_lobid/swb/catalog/catalog_titles/finc + resolve_doi, scrape_url, read_pdf, analyze_image
   - The search_* tools are **generated per enabled *instance*** (`AlimaConfig.plugins`, search category) from each provider's `ProviderToolSpec` via `ToolRegistry._generated_search_tools()` — no hand-written schema/handler. The *primary* instance of a type keeps the canonical name (`search_lobid`) + existing handler; additional instances (e.g. a 2nd finc endpoint) get `search_finc_<id>` + a factory-built handler, with the instance `usage_hint` appended to the description. No-config fallback = one primary per registered type gated by `SearchProviderConfig`. `_handle_search_finc` kept for the primary finc's availability/web_url logic.

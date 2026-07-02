@@ -109,6 +109,12 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP2 Raw-First Response Cache** ✅ (July 2, P1–P5): source responses cached verbatim
+  (`search_response_cache`); pool + counter (`display_count`) + provenance derived from
+  raw via `aggregate_gnd_results` (raw-first + mapping fallback); both pipelines converged
+  (rollback `aggregate_from_raw`); `search_lobid` `agent_view` (member/totalItems); input
+  tools `cacheable`. ⚠️ **Klassisch default-on, GUI/Webapp-Verifikation + Vergleichslauf
+  offen** (Operator). Spec: [`docs/wp_raw_response_cache.md`](docs/wp_raw_response_cache.md).
 - **WP Tool-Data-Passthrough** 🚧: agenten-facing Tools sollen die *vollständigen*
   Quelldaten durchreichen, nicht den alten Pipeline-Ausschnitt. DOI-Tools/`resolve_doi`/
   `scrape_url`/`read_pdf` ✅ done; **`search_finc` ✅ audited — clean** (reicht `raw`

@@ -6,6 +6,31 @@
 
 ## 2026
 
+### Raw-First Response Cache (WP2, P1–P5) (July 2, 2026)
+
+Cache the source response **verbatim**, derive the reduced pool view on read
+("Fetch ≠ Transform"). Suite `919 → 956 passed`, 10 skipped, 0 failures. Spec:
+[`docs/wp_raw_response_cache.md`](docs/wp_raw_response_cache.md).
+
+- **Infra (`UnifiedKnowledgeManager`):** `search_response_cache` table (dialect-safe
+  composite PK) + `params_hash`/`store_raw_response`/`get_raw_response` (size cap 1 MB,
+  soft row cap, 24 h TTL). `SystemConfig.enable_response_cache` master switch
+  (+ per-instance `settings['cache_responses']`).
+- **Capture seam:** `SuggesterBackedProvider._gnd_search` dual-writes each source's
+  `last_raw`; `factory.build_provider` injects the policy. lobid/swb/catalog + finc +
+  catalog-titles all populate raw.
+- **Fetch/transform split:** `LobidSuggester`/`SWBSuggester`/`BiblioSuggester` expose a
+  pure `transform(raw)`; lobid also `transform_agent_view` → `search_lobid` gains an
+  additive `agent_view` (member/totalItems).
+- **Aggregation (`src/core/search/aggregate.py`) + `aggregate_gnd_results` MCP tool:**
+  counter (`display_count`) + provenance (`sources`/`source_count`) derived from raw,
+  **raw-first with mapping fallback**. Both pipelines converged onto it
+  (`gnd_batch_search`, `SearchCLI.search_from_raw`), rollback via `aggregate_from_raw`.
+  Count-landmine preserved (pool count = 1, real count in `display_count`).
+- **Input tools:** `InputToolSpec.cacheable` + DOI read-through cache.
+- **Caveat:** classic convergence is default-on but only test-green — GUI/Webapp visual
+  verification + a comparison lauf are still pending.
+
 ### Generic Plugin System — framework + Search & Input categories (July 1, 2026)
 
 Turned ad-hoc extension points into one category-agnostic plugin system. Suite

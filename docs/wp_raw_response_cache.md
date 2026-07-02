@@ -1,8 +1,39 @@
 # WP: Raw-First Response Cache (Fetch ≠ Transform)
 
-> **Status:** 🚧 Design (July 1, 2026). Operator decision: **raw-first
-> re-architecture** — cache the source response verbatim, derive everything else on
-> read. Phased + facade-preserving (suite green per phase), like the plugin work.
+> **Status:** ✅ IMPLEMENTED (July 2, 2026), P1–P5. Suite green (956 passed, 10
+> skipped). Operator decision: **raw-first re-architecture** — cache the source
+> response verbatim, derive everything else on read. Delivered phased +
+> facade-preserving (suite green per phase).
+>
+> **Operator refinement (July 2):** the reduction+counter+provenance is an
+> *integrable tool* — the agent eats raw JSON; the *pipeline* needs the aufbereitete
+> view. Both pipelines now derive their pool from `aggregate_gnd_results`.
+>
+> ## What shipped
+> - **P1** raw infra: `search_response_cache` table + UKM `params_hash` /
+>   `store_raw_response` / `get_raw_response` (size cap 1 MB, soft row cap 5000, TTL
+>   24 h); dual-write at `SuggesterBackedProvider._gnd_search` (the one shared fetch
+>   seam) + factory injection; `SystemConfig.enable_response_cache` master switch
+>   (+ per-instance `settings['cache_responses']`).
+> - **P2** lobid `fetch()`/`transform()`/`transform_agent_view()` split; `search_lobid`
+>   gains an additive `agent_view` (member/totalItems) via transform-on-read.
+> - **P3** swb (page HTML) + catalog (parsed records) capture `last_raw` → seam
+>   dual-writes them.
+> - **P4** `aggregate_gnd_results` engine (`src/core/search/aggregate.py`) + MCP tool:
+>   counter (`display_count`) + provenance (`sources`/`source_count`) derived from raw,
+>   **raw-first with mapping fallback** (size-capped/pruned/pre-WP2 terms not dropped);
+>   count-landmine preserved (pool count = 1). Both `gnd_batch_search` (agentic) and
+>   `execute_gnd_search`→`SearchCLI.search_from_raw` (classic) converged onto it,
+>   rollback-flagged (`aggregate_from_raw`, default True).
+> - **P5** finc + catalog-title record raw capture; `InputToolSpec.cacheable` + DOI
+>   read-through cache.
+>
+> **Caveat (conservative):** the classic convergence is default-on but only
+> *test*-green — **not** GUI/Webapp visually verified; the converged path always
+> reports pool count = 1 (real count in `display_count`), consistent with the cached
+> path but a change from first-fetch. Needs an operator GUI run + comparison lauf.
+>
+> Original design below (retained for reference).
 
 ## Problem
 

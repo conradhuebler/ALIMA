@@ -60,6 +60,16 @@ The `suggesters/` directory implements a plugin-like system for integrating diff
 
 ## [Variable Section - Short-term Information]
 
+### ✅ WP2 Raw-First Cache (July 2)
+- Each GND-keyword suggester now separates **fetch** from **transform**: a pure
+  `transform(raw)` (`LobidSuggester`/`SWBSuggester`/`BiblioSuggester`) reduces the
+  verbatim response to `{subject:{count,gndid,ddc,dk}}`; lobid also
+  `transform_agent_view` (member/totalItems).
+- Suggesters expose `last_raw` (`{term: raw_json}`) so the provider fetch seam
+  (`SuggesterBackedProvider._gnd_search`) dual-writes it to `search_response_cache`.
+- Pool/counter/provenance are derived from raw via `aggregate_gnd_results`
+  (`src/core/search/aggregate.py`). Spec: [`docs/wp_raw_response_cache.md`](../../../docs/wp_raw_response_cache.md).
+
 ### Recent Enhancements (Claude Generated)
 1. **Enhanced Error Handling**: Improved exception management across all suggesters
 2. **Caching Optimization**: Better cache hit rates and reduced API calls
