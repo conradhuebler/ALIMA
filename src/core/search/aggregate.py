@@ -36,6 +36,49 @@ logger = logging.getLogger(__name__)
 TransformMap = Dict[str, Callable[[Dict[str, Any]], Dict[str, Dict[str, Any]]]]
 
 
+def _reduced_from_mapping(
+    ukm: Any, source: str, term: str, max_age_hours: Optional[int]
+) -> Optional[Dict[str, Dict[str, Any]]]:
+    """Fallback reduced view from the mapping index when raw is unavailable.
+
+    Raw can be absent even with a fresh mapping — a size-capped/pruned raw blob or
+    pre-WP2 data. Dropping those terms would silently lose results, so we
+    reconstruct the reduced view from the mapping exactly like
+    ``CachingProvider._items_from_cache`` (dedup by ``gnd_entries`` title, real
+    count from ``gnd_counts``). Returns None on miss/stale. - Claude Generated
+    """
+    try:
+        mapping = ukm.get_search_mapping(term, source)
+    except Exception:
+        return None
+    if mapping is None:
+        return None
+    if max_age_hours is not None and not ukm._raw_is_fresh(
+        getattr(mapping, "last_updated", None), max_age_hours
+    ):
+        return None
+    gnd_counts = getattr(mapping, "gnd_counts", {}) or {}
+    by_title: Dict[str, Dict[str, Any]] = {}
+    for gnd_id in getattr(mapping, "found_gnd_ids", []) or []:
+        fact = ukm.get_gnd_fact(gnd_id)
+        if not fact:
+            continue
+        title = fact.title
+        cnt = gnd_counts.get(gnd_id)
+        if title in by_title:
+            by_title[title]["gndid"].add(gnd_id)
+            if cnt is not None:
+                by_title[title]["count"] = max(by_title[title]["count"], int(cnt))
+        else:
+            by_title[title] = {
+                "count": int(cnt) if cnt is not None else 1,
+                "gndid": {gnd_id},
+                "ddc": set(),
+                "dk": set(),
+            }
+    return by_title or None
+
+
 def _to_cache_hit_shape(reduced: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Rewrite a reduced view to mapping-cache-hit semantics (count-landmine).
 
@@ -82,17 +125,19 @@ def aggregate_gnd_results(
         params = params_by_source.get(source, {})
         for term in terms:
             cached = ukm.get_raw_response(source, term, params, max_age_hours=max_age_hours)
-            if not cached:
+            reduced: Optional[Dict[str, Dict[str, Any]]] = None
+            if cached:
+                try:
+                    reduced = transform(json.loads(cached["raw_json"]))
+                except Exception as exc:  # bad blob must not sink the aggregation
+                    logger.warning("transform failed for '%s' (%s): %s", term, source, exc)
+                    reduced = None
+            if reduced is None:
+                # Raw absent/stale/unparsable → fall back to the mapping index so
+                # size-capped / pruned / pre-WP2 terms are not silently dropped.
+                reduced = _reduced_from_mapping(ukm, source, term, max_age_hours)
+            if reduced is None:
                 missing.setdefault(source, []).append(term)
-                continue
-            try:
-                raw = json.loads(cached["raw_json"])
-            except (ValueError, TypeError):
-                continue
-            try:
-                reduced = transform(raw)
-            except Exception as exc:  # a bad blob must not sink the whole aggregation
-                logger.warning("transform failed for '%s' (%s): %s", term, source, exc)
                 continue
             new_data = parse_batch_response({"results": {term: _to_cache_hit_shape(reduced)}})
             for title in new_data:
@@ -107,3 +152,30 @@ def aggregate_gnd_results(
         "missing": missing,
         "terms_map": {title: sorted(t) for title, t in terms_map.items()},
     }
+
+
+def nested_from_aggregate(agg: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Reshape an aggregate result to the classic nested ``{term:{title:{...}}}`` view.
+
+    Inverts ``terms_map`` (title→terms) so each search term maps to its confirmed
+    titles with the reduced fields in the suggester shape (``gndid``/``ddc``/``dk``
+    as fresh sets, ``count``, optional ``display_count``). This is the classic
+    GUI/CLI/Webapp contract, now derived from the raw-first pool. - Claude Generated
+    """
+    by_title = {e.get("title"): e for e in agg.get("pool", [])}
+    nested: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for title, terms in (agg.get("terms_map") or {}).items():
+        entry = by_title.get(title)
+        if entry is None:
+            continue
+        for term in terms:
+            reduced = {
+                "count": entry.get("count", 1),
+                "gndid": set(entry.get("gnd_ids", [])),
+                "ddc": set(entry.get("ddc_codes", [])),
+                "dk": set(entry.get("dk_codes", [])),
+            }
+            if entry.get("display_count") is not None:
+                reduced["display_count"] = entry["display_count"]
+            nested.setdefault(term, {})[title] = reduced
+    return nested

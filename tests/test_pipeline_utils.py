@@ -110,7 +110,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # MagicMock supports context-manager protocol (needed for `with SearchCLI(...) as x:`)
         mock_search_cli_instance = MagicMock()
         mock_search_cli_instance.__enter__.return_value = mock_search_cli_instance
-        mock_search_cli_instance.search.return_value = {
+        nested = {
             "Machine Learning": {
                 "Maschinelles Lernen": {"count": 100, "gndid": {"4037877-9"}},
             },
@@ -118,6 +118,10 @@ class TestPipelineStepExecutor(unittest.TestCase):
                 "Künstliche Intelligenz": {"count": 120, "gndid": {"4033597-0"}},
             },
         }
+        # Default path is now search_from_raw (WP2 P4.4b, raw-derived); both are
+        # stubbed so the test is agnostic to the flag.
+        mock_search_cli_instance.search.return_value = nested
+        mock_search_cli_instance.search_from_raw.return_value = nested
         MockSearchCLI.return_value = mock_search_cli_instance # Configure the mock class to return our mock instance
 
         # 2. Act: Call the method we are testing
@@ -134,11 +138,11 @@ class TestPipelineStepExecutor(unittest.TestCase):
             catalog_search_url="",
             catalog_details_url=""
         )
-        # WIP executes search per-keyword inside the with-block, so the mock
-        # is called once per keyword — assert at least one call with the
-        # first keyword rather than the full list.
-        self.assertGreaterEqual(mock_search_cli_instance.search.call_count, 1)
-        first_call_kwargs = mock_search_cli_instance.search.call_args_list[0].kwargs
+        # Executes search per-keyword inside the with-block, so the mock is called
+        # once per keyword — assert at least one call with the first keyword. The
+        # default converged path uses search_from_raw. - Claude Generated
+        self.assertGreaterEqual(mock_search_cli_instance.search_from_raw.call_count, 1)
+        first_call_kwargs = mock_search_cli_instance.search_from_raw.call_args_list[0].kwargs
         self.assertIn("Machine Learning", first_call_kwargs.get("search_terms", []))
 
         # Check the processed output of our method

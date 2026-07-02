@@ -82,6 +82,10 @@ class _FakeSearchCLI:
             for term in search_terms
         }
 
+    # WP2 P4.4b: execute_gnd_search now calls search_from_raw by default; the
+    # fake returns the same canned hits (raw-derivation is covered elsewhere).
+    search_from_raw = search
+
 
 class TestClassicPipelineEndToEnd(unittest.TestCase):
     """All classic steps chained: initialisation → search → keywords."""

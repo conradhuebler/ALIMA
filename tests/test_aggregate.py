@@ -77,6 +77,25 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(out["terms_map"]["Wasser"], ["wasser"])
         self.assertEqual(out["terms_map"]["Klima"], ["wasser"])
 
+    def test_mapping_fallback_when_raw_absent(self):
+        # No raw stored, but a fresh mapping + gnd facts exist → aggregate must
+        # fall back to the mapping index (size-capped/pruned/pre-WP2 case).
+        self.km.store_gnd_fact("g1", {"title": "Wasser", "description": "",
+                                      "synonyms": "", "ddcs": ""})
+        self.km.update_search_mapping("wasser", "swb", found_gnd_ids=["g1"],
+                                      gnd_counts={"g1": 12})
+        out = aggregate_gnd_results(
+            ["wasser"], ["swb"], self.km,
+            {"swb": lambda raw: {}},  # transform never called (no raw)
+            params_by_source={"swb": {"search_type": "kw", "max_pages": 5}},
+        )
+        self.assertEqual(len(out["pool"]), 1)
+        e = out["pool"][0]
+        self.assertEqual(e["title"], "Wasser")
+        self.assertEqual(e["count"], 1)           # count-landmine
+        self.assertEqual(e["display_count"], 12)  # real count from gnd_counts
+        self.assertEqual(out["missing"], {})       # fallback covered it
+
     def test_missing_raw_recorded(self):
         out = aggregate_gnd_results(
             ["x"], ["lobid"], self.km, {"lobid": lambda raw: {}},
@@ -143,6 +162,82 @@ class AggregateMcpToolTest(unittest.TestCase):
         self.assertEqual(out["pool"][0]["count"], 1)          # count-landmine
         self.assertEqual(out["pool"][0]["display_count"], 9)   # real Häufigkeit
         self.assertEqual(out["pool"][0]["sources"], ["lobid"])
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class NestedFromAggregateTest(unittest.TestCase):
+    """Reshape the ranked pool back to the classic {term:{title:{...}}} contract."""
+
+    def test_reshape_and_fresh_sets(self):
+        from src.core.search.aggregate import nested_from_aggregate
+
+        agg = {
+            "pool": [
+                {"title": "Wasser", "gnd_ids": ["g1"], "ddc_codes": ["540"],
+                 "dk_codes": [], "count": 1, "display_count": 9},
+            ],
+            "terms_map": {"Wasser": ["wasser", "h2o"]},
+        }
+        nested = nested_from_aggregate(agg)
+        self.assertEqual(set(nested.keys()), {"wasser", "h2o"})
+        w = nested["wasser"]["Wasser"]
+        self.assertEqual(w["gndid"], {"g1"})
+        self.assertEqual(w["ddc"], {"540"})
+        self.assertEqual(w["count"], 1)
+        self.assertEqual(w["display_count"], 9)
+        # Sets are per-term copies (no shared mutation across terms).
+        w["gndid"].add("x")
+        self.assertNotIn("x", nested["h2o"]["Wasser"]["gndid"])
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class SearchFromRawTest(unittest.TestCase):
+    """Classic SearchCLI.search_from_raw derives the nested view from raw."""
+
+    def setUp(self):
+        UnifiedKnowledgeManager.reset()
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.km = UnifiedKnowledgeManager(database_config=_sqlite_config(self.tmp.name))
+
+    def tearDown(self):
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
+
+    def test_search_from_raw_nested_shape(self):
+        from unittest.mock import patch
+        from src.core.search_cli import SearchCLI
+
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+
+        class _Sugg:
+            def transform(self, raw):
+                return {"Wasser": {"count": 7, "gndid": {"g1"}, "ddc": set(), "dk": set()}}
+
+        class _Meta:
+            last_errors: dict = {}
+
+            def __init__(self, **kw):
+                pass
+
+            def search(self, terms):
+                return {}
+
+            def raw_suggester(self, pid=None):
+                return _Sugg()
+
+        with patch("src.core.search_cli.MetaSuggester", _Meta):
+            cli = SearchCLI(self.km)
+            nested = cli.search_from_raw(["wasser"], ["lobid"])
+
+        self.assertIn("Wasser", nested["wasser"])
+        w = nested["wasser"]["Wasser"]
+        self.assertEqual(w["count"], 1)           # count-landmine
+        self.assertEqual(w["display_count"], 7)   # real count
+        self.assertEqual(w["gndid"], {"g1"})
 
 
 if __name__ == "__main__":
