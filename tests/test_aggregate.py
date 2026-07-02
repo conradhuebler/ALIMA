@@ -73,6 +73,9 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(by_title["Klima"]["count"], 1)
         self.assertEqual(by_title["Klima"]["display_count"], 1)
         self.assertEqual(out["missing"], {})
+        # terms_map records which query produced each title (per-keyword display).
+        self.assertEqual(out["terms_map"]["Wasser"], ["wasser"])
+        self.assertEqual(out["terms_map"]["Klima"], ["wasser"])
 
     def test_missing_raw_recorded(self):
         out = aggregate_gnd_results(

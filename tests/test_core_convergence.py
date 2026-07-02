@@ -37,9 +37,40 @@ class _FakeRegistry:
             if self._lobid_error:
                 return json.dumps({"error": self._lobid_error})
             return json.dumps({"results": self._lobid, "errors": {}})
+        if tool == "aggregate_gnd_results":
+            # Mirror the real aggregate engine over the canned reduced results
+            # (WP2 P4.4: gnd_batch_search now builds the pool from raw). The tools
+            # above "populate raw"; here we reproduce the engine deterministically.
+            return json.dumps(self._aggregate(args.get("terms", []), args.get("sources", [])))
         if tool == "get_gnd_batch":
             return json.dumps({"entries": {}})
         raise RuntimeError(f"unexpected tool: {tool}")
+
+    def _aggregate(self, terms, sources):
+        from src.core.gnd_search_core import merge_into_pool, parse_batch_response, rank_pool
+        from src.core.search.aggregate import _to_cache_hit_shape
+
+        data_by_source = {"swb": self._swb, "lobid": self._lobid}
+        pool = {}
+        src_index = {}
+        terms_map = {}
+        for source in sources:
+            per_term = data_by_source.get(source, {})
+            for term in terms:
+                reduced = per_term.get(term, {})
+                if not reduced:
+                    continue
+                nd = parse_batch_response({"results": {term: _to_cache_hit_shape(reduced)}})
+                for title in nd:
+                    src_index.setdefault(title.lower(), set()).add(source)
+                    terms_map.setdefault(title, set()).add(term)
+                merge_into_pool(pool, nd)
+        return {
+            "pool": rank_pool(pool, src_index),
+            "sources": list(sources),
+            "missing": {},
+            "terms_map": {t: sorted(v) for t, v in terms_map.items()},
+        }
 
 
 def _hit(gnd_id, count):

@@ -606,8 +606,8 @@ class TestAlimaClassicMigration(unittest.TestCase):
         # Every merged item carries a non-empty canonical ``keyword`` field.
         self.assertTrue(all(p.get("keyword") for p in picked))
 
-    def test_gnd_batch_search_fn(self):
-        """gnd_batch_search: parses SWB/Lobid batch responses, merges pool, enriches."""
+    def test_gnd_batch_search_fn_legacy(self):
+        """Legacy path (aggregate_from_raw=False): parse SWB/Lobid results, merge, enrich."""
         from src.core.agents.registry import get_tool_fn
         fn = get_tool_fn("gnd_batch_search")
 
@@ -636,6 +636,7 @@ class TestAlimaClassicMigration(unittest.TestCase):
             keywords=["kw1", "kw2"],
             tool_registry=tool_registry,
             context=ctx,
+            config={"aggregate_from_raw": False},
         )
         titles = {e["title"] for e in out["entries"]}
         self.assertEqual(titles, {"Titel1", "Titel2"})
@@ -648,6 +649,60 @@ class TestAlimaClassicMigration(unittest.TestCase):
         self.assertEqual(len(ctx.gnd_entries), 2)
         # 3 tool calls (swb, lobid, get_gnd_batch)
         self.assertEqual(out["tool_calls"], 3)
+
+    def test_gnd_batch_search_fn_aggregate_from_raw(self):
+        """Default path: pool comes from aggregate_gnd_results (raw), then enrich."""
+        from src.core.agents.registry import get_tool_fn
+        fn = get_tool_fn("gnd_batch_search")
+
+        tool_registry = MagicMock()
+
+        def _exec(tool, args):
+            if tool in ("search_swb", "search_lobid"):
+                # Tools succeed (populate raw); their reduced results are ignored
+                # by the aggregate path.
+                return json.dumps({"results": {}})
+            if tool == "aggregate_gnd_results":
+                return json.dumps({
+                    "pool": [
+                        {"title": "Titel1", "gnd_ids": ["123-4", "999-9"], "gnd_id": "123-4",
+                         "ddc_codes": ["540"], "dk_codes": ["DK1"], "count": 1,
+                         "display_count": 5, "description": "", "synonyms": [],
+                         "sources": ["lobid", "swb"], "source_count": 2},
+                        {"title": "Titel2", "gnd_ids": ["456-7"], "gnd_id": "456-7",
+                         "ddc_codes": [], "dk_codes": [], "count": 1, "display_count": 2,
+                         "description": "", "synonyms": [],
+                         "sources": ["lobid"], "source_count": 1},
+                    ],
+                    "sources": ["swb", "lobid"],
+                    "missing": {},
+                    "terms_map": {"Titel1": ["kw1"], "Titel2": ["kw2"]},
+                })
+            if tool == "get_gnd_batch":
+                return json.dumps({"entries": {
+                    "123-4": {"description": "desc1", "synonyms": ["syn1"]},
+                }})
+            return "{}"
+
+        tool_registry.execute.side_effect = _exec
+        ctx = SharedContext(abstract="a")
+
+        out = fn(keywords=["kw1", "kw2"], tool_registry=tool_registry, context=ctx)
+        titles = {e["title"] for e in out["entries"]}
+        self.assertEqual(titles, {"Titel1", "Titel2"})
+        t1 = next(e for e in out["entries"] if e["title"] == "Titel1")
+        self.assertEqual(set(t1["gnd_ids"]), {"123-4", "999-9"})
+        # Count-landmine: pool count 1, real Häufigkeit in display_count.
+        self.assertEqual(t1["count"], 1)
+        self.assertEqual(t1["display_count"], 5)
+        self.assertEqual(t1["source_count"], 2)
+        # Enrichment applied to the aggregated entries.
+        self.assertEqual(t1["description"], "desc1")
+        self.assertEqual(len(ctx.gnd_entries), 2)
+        # per-keyword mapping lifted from the aggregate terms_map.
+        self.assertEqual(ctx.gnd_entries_per_keyword.get("kw1"), ["Titel1"])
+        # 4 tool calls (swb, lobid, aggregate, get_gnd_batch).
+        self.assertEqual(out["tool_calls"], 4)
 
 
 class TestPoCWorkflows(unittest.TestCase):

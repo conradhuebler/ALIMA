@@ -65,12 +65,13 @@ def aggregate_gnd_results(
     """Build the ranked GND pool (counter + provenance) from the raw cache.
 
     Returns ``{"pool": [ranked entries], "sources": [...], "missing":
-    {source: [terms with no cached raw]}}``. Sources with no injected transform
-    are skipped. Never raises on a single bad blob (it is skipped). Raw is the
-    single source of truth. - Claude Generated
+    {source: [terms with no cached raw]}, "terms_map": {title: [terms]}}``.
+    Sources with no injected transform are skipped. Never raises on a single bad
+    blob (it is skipped). Raw is the single source of truth. - Claude Generated
     """
     pool: Dict[str, Dict[str, Any]] = {}
     src_index: Dict[str, set] = {}
+    terms_map: Dict[str, set] = {}
     missing: Dict[str, List[str]] = {}
     params_by_source = params_by_source or {}
 
@@ -96,7 +97,13 @@ def aggregate_gnd_results(
             new_data = parse_batch_response({"results": {term: _to_cache_hit_shape(reduced)}})
             for title in new_data:
                 src_index.setdefault(title.lower(), set()).add(source)
+                terms_map.setdefault(title, set()).add(term)
             merge_into_pool(pool, new_data)
 
     ranked = rank_pool(pool, src_index)
-    return {"pool": ranked, "sources": list(sources), "missing": missing}
+    return {
+        "pool": ranked,
+        "sources": list(sources),
+        "missing": missing,
+        "terms_map": {title: sorted(t) for title, t in terms_map.items()},
+    }

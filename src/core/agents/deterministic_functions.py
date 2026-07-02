@@ -70,6 +70,11 @@ def gnd_batch_search(
     if config:
         source_tools = config.get("source_tool_map", source_tools)
 
+    # WP2 P4.4: build the pool from the raw response cache via aggregate_gnd_results
+    # (single source of truth). Set config['aggregate_from_raw'] = False to fall
+    # back to the legacy inline aggregation of the tools' reduced results. - Claude Generated
+    aggregate_from_raw = config.get("aggregate_from_raw", True) if config else True
+
     # Accept both ["term1","term2"] and [{"term":"t1"}, {"keyword":"t2"}, {"title":"t3"}].
     # Non-empty dict keys tried in order: term > keyword > title > label.
     def _coerce(k: Any) -> Optional[str]:
@@ -132,13 +137,15 @@ def gnd_batch_search(
                     f"leere Treffer dafür sind NICHT bestätigt\n"
                 )
             data, terms_map = parse_batch_response_with_terms(payload)
-            for key in data:
-                src_index.setdefault(key.lower(), set()).add(src)
-            merge_into_pool(pool, data)
-            # Track term-to-title mapping for per-keyword display
-            for title, terms in terms_map.items():
-                for term in terms:
-                    entries_per_keyword.setdefault(term, []).append(title)
+            if not aggregate_from_raw:
+                # Legacy inline aggregation from the tool's reduced results.
+                for key in data:
+                    src_index.setdefault(key.lower(), set()).add(src)
+                merge_into_pool(pool, data)
+                # Track term-to-title mapping for per-keyword display
+                for title, terms in terms_map.items():
+                    for term in terms:
+                        entries_per_keyword.setdefault(term, []).append(title)
             # Log per-keyword hit counts
             if stream_callback:
                 stream_callback(f"  🌐 {src}: {len(data)} hits\n")
@@ -158,25 +165,51 @@ def gnd_batch_search(
             if stream_callback:
                 stream_callback(f"  ❌ {src}: Quelle fehlgeschlagen — {e}\n")
 
-    # Fail loudly instead of continuing with a silently empty pool - Claude Generated
+    # Fail loudly if EVERY attempted source failed - Claude Generated
     if attempted_sources and len(source_errors) == len(attempted_sources):
         raise RuntimeError(
             f"gnd_batch_search: alle Quellen fehlgeschlagen: {source_errors}"
         )
-    if not pool and source_errors:
+
+    # WP2 P4.4: derive the ranked pool from the raw cache (single source of truth)
+    # via aggregate_gnd_results — the per-source tool calls above populated the raw
+    # cache. Counter (display_count) + provenance (sources/source_count) come from
+    # raw; the count-landmine (pool count = 1) is applied by the engine. - Claude Generated
+    if aggregate_from_raw:
+        ok_sources = [s for s in attempted_sources if s not in source_errors]
+        agg: Dict[str, Any] = {}
+        if ok_sources:
+            try:
+                agg_raw = tool_registry.execute(
+                    "aggregate_gnd_results", {"terms": keywords, "sources": ok_sources}
+                )
+                tool_calls += 1
+                agg = json.loads(agg_raw) if isinstance(agg_raw, str) else (agg_raw or {})
+            except Exception as e:
+                logger.warning(f"gnd_batch_search: aggregate_gnd_results failed: {e}")
+        entries: List[Dict[str, Any]] = list(agg.get("pool") or [])
+        for title, terms in (agg.get("terms_map") or {}).items():
+            for term in terms:
+                entries_per_keyword.setdefault(term, []).append(title)
+    else:
+        # Legacy inline path: attach source provenance and rank. See
+        # gnd_search_core.rank_pool and its count-landmine note. - Claude Generated
+        entries = rank_pool(pool, src_index)
+
+    if not entries and source_errors:
         raise RuntimeError(
             f"gnd_batch_search: keine GND-Treffer und Quellfehler aufgetreten "
             f"(Ergebnis unvollständig): {source_errors}"
         )
-    if not pool and stream_callback:
+    if not entries and stream_callback:
         stream_callback(
             f"⚠️ gnd_batch_search: 0 Treffer für {len(keywords)} Keywords "
             f"(keine Quellfehler — echte Nulltreffer)\n"
         )
 
-    if enrich_from_local_db and pool:
+    if enrich_from_local_db and entries:
         all_ids: Set[str] = set()
-        for entry in pool.values():
+        for entry in entries:
             all_ids.update(entry.get("gnd_ids", []))
         if all_ids:
             try:
@@ -190,7 +223,7 @@ def gnd_batch_search(
                     }
                     for gid, e in (ed.get("entries") or {}).items()
                 }
-                for entry in pool.values():
+                for entry in entries:
                     for gid in entry.get("gnd_ids", []):
                         r = enrich.get(gid)
                         if not r:
@@ -202,11 +235,6 @@ def gnd_batch_search(
                         break
             except Exception as e:
                 logger.warning(f"gnd_batch_search: get_gnd_batch enrichment failed: {e}")
-
-    # Attach source provenance and rank (multi-source confirmations first, then
-    # hit count) — the ordering the selection prompt relies on; see
-    # gnd_search_core.rank_pool and its count-landmine note. - Claude Generated
-    entries: List[Dict[str, Any]] = rank_pool(pool, src_index)
 
     if context is not None and hasattr(context, "gnd_entries"):
         existing_titles = {e.get("title", "").lower() for e in context.gnd_entries}
