@@ -37,6 +37,10 @@ class InputToolSpec:
     description: str
     param: str = "source"
     param_description: str = ""
+    # WP2 raw-first: whether this source's responses may be cached (verbatim) in
+    # search_response_cache. DOI metadata is stable → cacheable; a live web scrape
+    # can set this False. Also gated by SystemConfig.enable_response_cache. - Claude Generated
+    cacheable: bool = True
 
 
 @runtime_checkable

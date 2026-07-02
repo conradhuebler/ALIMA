@@ -8,6 +8,7 @@ thin adapters that lazily build the suggester and convert its output to a typed
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, Dict, List, Optional
 
 from src.core.plugins.schema import ConfigField, PluginDoc, availability_ok
@@ -161,3 +162,31 @@ class SuggesterBackedProvider:
                 self.id, term, params, blob,
                 http_status=last_status.get(term),
             )
+
+    def _store_records_raw(
+        self, source: str, query: List[str], params: Dict[str, Any], raw_by_term: Any
+    ) -> None:
+        """Dual-write a record-search response (``{term: [records]}``) to the raw cache.
+
+        For record searches (title records) where the raw is the returned record
+        list per term rather than a suggester ``last_raw`` blob. Best-effort, never
+        raises. - Claude Generated
+        """
+        if not self._cache_raw_enabled():
+            return
+        try:
+            ukm = self._ukm()
+        except Exception:
+            return
+        for term in query:
+            recs = (raw_by_term or {}).get(term)
+            if recs is None:
+                continue
+            try:
+                blob = json.dumps(
+                    {"records": recs, "totalItems": len(recs)},
+                    ensure_ascii=False, default=str,
+                )
+            except (TypeError, ValueError):
+                continue
+            ukm.store_raw_response(source, term, params, blob)

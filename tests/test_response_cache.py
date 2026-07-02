@@ -302,5 +302,135 @@ class AgentViewSurfacingTest(unittest.TestCase):
         self.assertNotIn("agent_view", out)
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class RecordRawCaptureTest(unittest.TestCase):
+    """finc + catalog-title record searches also populate the raw cache (P5)."""
+
+    def setUp(self):
+        UnifiedKnowledgeManager.reset()
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.km = UnifiedKnowledgeManager(database_config=_sqlite_config(self.tmp.name))
+
+    def tearDown(self):
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
+
+    def test_catalog_titles_raw_stored(self):
+        from src.core.search.providers.catalog_provider import CatalogProvider
+
+        class _FakeBiblio:
+            def search_titles(self, terms, search_type="title", max_results=25):
+                return {t: [{"title": "Rec1"}, {"title": "Rec2"}] for t in terms}
+
+        prov = CatalogProvider()
+        prov._suggester = _FakeBiblio()
+        prov._ukm_ref = self.km
+        prov._cache_raw = True
+        prov.search(SearchCapability.TITLE_RECORDS, ["wasser"], search_type="title")
+        got = self.km.get_raw_response("catalog_titles", "wasser", {"search_type": "title"})
+        self.assertIsNotNone(got)
+        self.assertEqual(json.loads(got["raw_json"])["totalItems"], 2)
+
+    def test_finc_raw_stored(self):
+        from src.core.search.providers.finc_provider import FincProvider
+
+        class _FakeFinc:
+            last_errors = {}
+
+            def search(self, terms, **kw):
+                return {t: {"records": [{"id": "1"}], "facets": {}} for t in terms}
+
+        prov = FincProvider()
+        prov._suggester = _FakeFinc()
+        prov._ukm_ref = self.km
+        prov._cache_raw = True
+        prov.search(SearchCapability.SUBJECT_FACETS, ["wasser"], search_type="kw",
+                    facets=["udk_raw_de105"])
+        got = self.km.get_raw_response(
+            "finc", "wasser", {"search_type": "kw", "facets": ["udk_raw_de105"]}
+        )
+        self.assertIsNotNone(got)
+        self.assertEqual(json.loads(got["raw_json"])["records"][0]["id"], "1")
+
+
+class _DoiInst:
+    provider_id = "doi_crossref"
+    instance_id = "doi_crossref"
+    settings: dict = {}
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class InputToolCacheTest(unittest.TestCase):
+    """Input tools (e.g. DOI) read-through the raw cache when cacheable (P5)."""
+
+    def setUp(self):
+        UnifiedKnowledgeManager.reset()
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.km = UnifiedKnowledgeManager(database_config=_sqlite_config(self.tmp.name))
+
+    def tearDown(self):
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
+
+    def _handler(self, spec):
+        from src.mcp.tool_registry import ToolRegistry
+
+        reg = ToolRegistry()
+        reg._response_cache_enabled = lambda: True  # deterministic (no real config)
+        return reg._make_input_handler(spec, _DoiInst())
+
+    def test_read_through_caches(self):
+        from unittest.mock import patch
+        from src.utils.input_sources.registry import InputToolSpec
+
+        calls = {"n": 0}
+
+        class _FakeSource:
+            def __init__(self, **kw):
+                pass
+
+            def mcp_execute(self, value):
+                calls["n"] += 1
+                return {"doi": value, "title": "Rec"}
+
+        spec = InputToolSpec(name="resolve_doi_crossref", description="d", param="doi")
+        handler = self._handler(spec)
+        with patch("src.utils.input_sources.get_input_source", return_value=_FakeSource):
+            r1 = json.loads(handler(doi="10.1/x"))
+            r2 = json.loads(handler(doi="10.1/x"))
+        self.assertEqual(r1["title"], "Rec")
+        self.assertEqual(r2["title"], "Rec")
+        self.assertEqual(calls["n"], 1)  # second call served from cache
+
+    def test_not_cacheable_bypasses(self):
+        from unittest.mock import patch
+        from src.utils.input_sources.registry import InputToolSpec
+
+        calls = {"n": 0}
+
+        class _FakeSource:
+            def __init__(self, **kw):
+                pass
+
+            def mcp_execute(self, value):
+                calls["n"] += 1
+                return {"doi": value}
+
+        spec = InputToolSpec(name="x", description="d", param="doi", cacheable=False)
+        handler = self._handler(spec)
+        with patch("src.utils.input_sources.get_input_source", return_value=_FakeSource):
+            handler(doi="10.1/y")
+            handler(doi="10.1/y")
+        self.assertEqual(calls["n"], 2)  # never cached
+
+
 if __name__ == "__main__":
     unittest.main()

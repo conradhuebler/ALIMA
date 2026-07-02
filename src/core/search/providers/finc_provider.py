@@ -9,6 +9,7 @@ the requested capability from the same payload.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField, availability_ok
@@ -161,6 +162,39 @@ class FincProvider:
     def __init__(self, **config: Any):
         self._config = config or {}
         self._suggester = None
+        # WP2 raw-first cache injection points (set by search.factory). - Claude Generated
+        self._cache_raw = None
+        self._ukm_ref = None
+
+    def _ukm(self):
+        if self._ukm_ref is None:
+            from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+
+            self._ukm_ref = UnifiedKnowledgeManager()
+        return self._ukm_ref
+
+    def _store_finc_raw(self, query, params, raw):
+        """Dual-write the per-term finc payload to the raw cache. Best-effort. - Claude Generated"""
+        override = self._config.get("cache_responses")
+        if override is not None:
+            enabled = bool(override)
+        else:
+            enabled = self._cache_raw if self._cache_raw is not None else True
+        if not enabled:
+            return
+        try:
+            ukm = self._ukm()
+        except Exception:
+            return
+        for term in query:
+            entry = (raw or {}).get(term)
+            if entry is None:
+                continue
+            try:
+                blob = json.dumps(entry, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                continue
+            ukm.store_raw_response("finc", term, params, blob)
 
     def _build_suggester(self):
         from src.utils.suggesters.finc_suggester import FincSuggester
@@ -215,6 +249,10 @@ class FincProvider:
             facets=facets,
         )
         errors = dict(getattr(self.suggester, "last_errors", {}) or {})
+        facet_params = {"search_type": search_type}
+        if facets:
+            facet_params["facets"] = facets
+        self._store_finc_raw(list(query), facet_params, raw)
         if capability is SearchCapability.TITLE_RECORDS:
             return ProviderResult.from_finc_records(raw, errors=errors)
         return _facets_from_finc_dict(raw, errors=errors)

@@ -165,6 +165,9 @@ class CatalogProvider(SuggesterBackedProvider):
             raw = self.suggester.search_titles(
                 list(query), search_type=search_type, max_results=max_results
             )
+            self._store_records_raw(
+                "catalog_titles", list(query), {"search_type": search_type}, raw
+            )
             return _title_records_from_term_lists(raw)
         # CLASSIFICATION
         results = self.suggester.extract_dk_classifications(list(query))

@@ -1346,6 +1346,17 @@ class ToolRegistry:
                 tools.append((td, self._make_input_handler(spec, inst)))
         return tools
 
+    def _response_cache_enabled(self) -> bool:
+        """Read the SystemConfig.enable_response_cache master switch (default True)."""
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            return bool(getattr(cm.load_config().system_config, "enable_response_cache", True))
+        except Exception:
+            return True
+
     def _make_input_handler(self, spec, inst):
         def handler(**kwargs):
             try:
@@ -1354,17 +1365,40 @@ class ToolRegistry:
                 value = kwargs.get(spec.param)
                 if value is None and kwargs:
                     value = next(iter(kwargs.values()))
+                # WP2 P5: cache the verbatim source response (e.g. DOI metadata).
+                # Read-through, gated by the tool's `cacheable` + the master switch.
+                cacheable = (
+                    getattr(spec, "cacheable", True)
+                    and value
+                    and self._response_cache_enabled()
+                )
+                if cacheable:
+                    hit = self._get_knowledge_manager().get_raw_response(
+                        inst.provider_id, str(value), {}
+                    )
+                    if hit:
+                        return hit["raw_json"]
                 cls = get_input_source(inst.provider_id)
                 try:
                     source = cls(**dict(inst.settings or {}))
                 except TypeError:
                     source = cls()
                 if hasattr(source, "mcp_execute"):
-                    return json.dumps(source.mcp_execute(value), ensure_ascii=False, default=str)
-                text, info, method = source.extract(value)
-                return json.dumps(
-                    {"text": text, "source_info": info, "method": method}, ensure_ascii=False
-                )
+                    result = json.dumps(source.mcp_execute(value), ensure_ascii=False, default=str)
+                else:
+                    text, info, method = source.extract(value)
+                    result = json.dumps(
+                        {"text": text, "source_info": info, "method": method}, ensure_ascii=False
+                    )
+                # Don't cache error payloads (they should be retried, not pinned).
+                if cacheable and '"error"' not in result:
+                    try:
+                        self._get_knowledge_manager().store_raw_response(
+                            inst.provider_id, str(value), {}, result
+                        )
+                    except Exception:
+                        pass
+                return result
             except Exception as exc:
                 return json.dumps({"error": f"{inst.instance_id}: {exc}"})
 
