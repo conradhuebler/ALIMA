@@ -5,11 +5,12 @@
 
 ## Where we are
 
-- **Branch `agent`, HEAD `0225912`.** Suite: **962 passed, 10 skipped, 0 failed**
+- **Branch `agent`, HEAD `8dacde1`.** Suite: **965 passed, 10 skipped, 0 failed**
   (`.venv/bin/python -m pytest tests/`).
-- **Working tree clean** except untracked local `.claude/` (never commit) and this doc.
-- WP2 (Raw-First Response Cache) is **implemented P1–P5** and committed (13 commits,
-  `330a8c1` → `0225912`), plus a config/GUI toggle and two follow-up fixes.
+- **Working tree clean** except untracked local `.claude/` (never commit).
+- WP2 (Raw-First Response Cache) is **implemented P1–P5** and committed
+  (`330a8c1` → `0225912`), plus a config/GUI toggle, two follow-up fixes, and
+  raw-path hardening (`c35d105`, `8dacde1`).
 
 ## What shipped this session
 
@@ -55,17 +56,21 @@
   selected keywords. "Ran through" ≠ "results equivalent/better". This is the check that
   would validate the P4 convergence.
 
-## Known edge-case risks (follow-up WP only if leaning on the raw path hard)
+## Edge-case risks
 
-- **Params brittleness:** raw is keyed by the default `search_type="kw"`/`max_pages=5`;
-  a non-default search stores raw under different params than the reader looks up → raw
-  miss → mapping fallback (no data loss, but the raw path is effectively default-only).
-- **swb size-cap fallback:** swb pages > 1 MB skip the raw write; the mapping fallback
-  then needs `gnd_entries` facts for the gndids — swb doesn't store facts, so such a
-  term can still yield nothing if no other source stored its facts.
-- **Raw-vs-fallback titles:** raw titles come from the suggester transform, fallback
-  titles from `gnd_entries.title`; if they ever differ the pool won't merge them
-  (possible duplicate entry). Not observed, not verified.
+- ✅ **Params brittleness (fixed, `8dacde1`):** `raw_cache_params_for()` in
+  `provider.py` is now the single source of truth for cache-key params (seam + all
+  readers), and the non-default MCP search path dual-writes raw → non-default searches
+  (title / custom `max_pages`) populate + hit raw instead of missing.
+- ✅ **swb size-cap silent loss (fixed, `c35d105`):** swb now caches its compact
+  reduced view (always under the 1 MB cap, carries subject titles) instead of verbatim
+  HTML → no size-cap skip, no `gnd_entries`-fact dependency on read.
+- **Raw-vs-fallback titles (residual, left as-is):** raw titles come from the suggester
+  transform, mapping-fallback titles from `gnd_entries.title`; if they ever differ the
+  pool won't merge them (possible duplicate entry). Now largely moot for swb (its raw
+  always fits → transform path, not fallback); only a theoretical concern for
+  lobid/catalog in the rarer fallback path. Not observed, not verified — no speculative
+  code added.
 
 ## Gotchas / conventions
 
