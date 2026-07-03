@@ -41,6 +41,21 @@ class SwbTransformTest(unittest.TestCase):
     def test_empty_pages(self):
         self.assertEqual(SWBSuggester.transform(_FakeSwb({}), {"pages": []}), {})
 
+    def test_subjects_shape_roundtrip(self):
+        # The compact {"subjects": …} form extract_gnd_from_swb now writes (small,
+        # always under the size cap, carries titles) must round-trip through
+        # transform back to the reduced view — no gnd_entries facts needed.
+        results = {"Wasser": {"count": 1, "gndid": {"g1", "g2"}, "ddc": {"540"}, "dk": set()}}
+        blob = {
+            "subjects": {
+                subj: {"count": d["count"], "gndid": sorted(d["gndid"]),
+                       "ddc": sorted(d["ddc"]), "dk": sorted(d["dk"])}
+                for subj, d in results.items()
+            }
+        }
+        got = SWBSuggester.transform(SWBSuggester.__new__(SWBSuggester), blob)
+        self.assertEqual(got, results)
+
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class CatalogReduceTest(unittest.TestCase):

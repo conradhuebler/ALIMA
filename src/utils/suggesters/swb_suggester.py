@@ -480,7 +480,6 @@ class SWBSuggester(BaseSuggester):
             self.logger.debug(f"URL: {url}")
 
         all_subjects = {}
-        pages = []  # WP2 raw-first: verbatim page HTML for the raw cache - Claude Generated
         self._last_swb_status = None
         current_url = url
         page_count = 0
@@ -497,7 +496,6 @@ class SWBSuggester(BaseSuggester):
 
                 # Decode HTML
                 content = html.unescape(response.text)
-                pages.append(content)  # WP2 raw-first: keep verbatim page HTML - Claude Generated
                 self._last_swb_status = response.status_code
 
                 # Check if it's a single result page
@@ -550,13 +548,28 @@ class SWBSuggester(BaseSuggester):
                 "dk": set(),  # Empty set for DK
             }
 
-        # WP2 raw-first: stash the verbatim pages so the provider fetch seam can
-        # dual-write them to the raw cache. Only on a real (non-cached, non-failed)
-        # fetch — the file-cache hit path above returns before reaching here.
-        # - Claude Generated
-        if pages and not had_error and isinstance(getattr(self, "last_raw", None), dict):
+        # WP2: stash the REDUCED subject view (not the verbatim HTML pages) for the
+        # provider fetch seam to dual-write. The reduced view is small (always under
+        # the raw-cache size cap) and carries the swb subject titles, so a later
+        # transform-on-read never depends on gnd_entries facts — unlike raw HTML,
+        # which can exceed the cap and be skipped (→ silently lost swb results). Only
+        # on a real (non-cached, non-failed) fetch; the file-cache hit path returns
+        # before here. - Claude Generated
+        if not had_error and isinstance(getattr(self, "last_raw", None), dict):
             self.last_raw[search_term] = json.dumps(
-                {"pages": pages, "url": url, "totalItems": len(results)},
+                {
+                    "subjects": {
+                        subj: {
+                            "count": data["count"],
+                            "gndid": sorted(data["gndid"]),
+                            "ddc": sorted(data["ddc"]),
+                            "dk": sorted(data["dk"]),
+                        }
+                        for subj, data in results.items()
+                    },
+                    "url": url,
+                    "totalItems": len(results),
+                },
                 ensure_ascii=False,
             )
             if isinstance(getattr(self, "last_http_status", None), dict):
@@ -577,15 +590,30 @@ class SWBSuggester(BaseSuggester):
         return results
 
     def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
-        """Reduce fetched SWB pages to ``{subject: {count,gndid,ddc,dk}}`` — pure, no I/O.
+        """Reduce a cached SWB response to ``{subject: {count,gndid,ddc,dk}}`` — pure.
 
-        Reuses :meth:`_extract_subjects_from_page` per page (pages in order, later
-        pages override on key collision), then formats exactly like the inline
-        extraction in :meth:`extract_gnd_from_swb`. This is the transform-on-read
-        counterpart for the WP2 raw cache. - Claude Generated
+        Two cached shapes (transform-on-read counterpart for the WP2 raw cache):
+        * ``{"subjects": {...}}`` — the current compact form written by
+          :meth:`extract_gnd_from_swb`; reconstruct the code ``set``s. Small, always
+          cached, and carries the subject titles (no gnd_entries-fact dependency).
+        * ``{"pages": [...]}`` — the legacy verbatim-HTML form; re-extract via
+          :meth:`_extract_subjects_from_page` (kept for older cached rows).
+        - Claude Generated
         """
+        if isinstance(raw, dict) and "subjects" in raw:
+            out: Dict[str, Dict[str, Any]] = {}
+            for subj, data in (raw.get("subjects") or {}).items():
+                data = data or {}
+                out[subj] = {
+                    "count": data.get("count", 1),
+                    "gndid": set(data.get("gndid", [])),
+                    "ddc": set(data.get("ddc", [])),
+                    "dk": set(data.get("dk", [])),
+                }
+            return out
+
         all_subjects = {}
-        for content in raw.get("pages", []):
+        for content in (raw or {}).get("pages", []):
             all_subjects.update(self._extract_subjects_from_page(content))
         results = {}
         for subject_name, gnd_id in all_subjects.items():
