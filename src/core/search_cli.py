@@ -93,6 +93,7 @@ class SearchCLI:
         surfaces source failures. - Claude Generated
         """
         from .search.aggregate import aggregate_gnd_results, nested_from_aggregate
+        from .search.provider import raw_cache_params_for
 
         self.last_errors = {}
         transform_by_source: Dict[str, Any] = {}
@@ -115,10 +116,7 @@ class SearchCLI:
                 )
                 if transform is not None:
                     transform_by_source[suggester_type] = transform
-                    params = {"search_type": "kw"}
-                    if suggester_type == "swb":
-                        params["max_pages"] = 5
-                    params_by_source[suggester_type] = params
+                    params_by_source[suggester_type] = raw_cache_params_for(suggester_type)
                     ok_types.append(suggester_type)
             except Exception as e:
                 self.logger.error(

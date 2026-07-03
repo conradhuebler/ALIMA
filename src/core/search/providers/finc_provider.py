@@ -249,10 +249,10 @@ class FincProvider:
             facets=facets,
         )
         errors = dict(getattr(self.suggester, "last_errors", {}) or {})
-        facet_params = {"search_type": search_type}
-        if facets:
-            facet_params["facets"] = facets
-        self._store_finc_raw(list(query), facet_params, raw)
+        from ..provider import raw_cache_params_for
+        self._store_finc_raw(
+            list(query), raw_cache_params_for("finc", search_type=search_type, facets=facets), raw
+        )
         if capability is SearchCapability.TITLE_RECORDS:
             return ProviderResult.from_finc_records(raw, errors=errors)
         return _facets_from_finc_dict(raw, errors=errors)

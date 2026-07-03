@@ -222,6 +222,45 @@ class RawResponseCacheTest(unittest.TestCase):
                                      max_age_hours=None)
         )
 
+    def test_store_suggester_raw_non_default(self):
+        # The non-default MCP search path (bare raw_suggester, bypasses the seam)
+        # must still populate raw, keyed by the same params a reader would use.
+        from src.mcp.tool_registry import ToolRegistry
+
+        class _Sugg:
+            last_raw = {"wasser": '{"m": 1}'}
+            last_http_status = {"wasser": 200}
+
+        reg = ToolRegistry()
+        reg._store_suggester_raw("lobid", ["wasser"], {"search_type": "title"}, _Sugg())
+        got = self.km.get_raw_response("lobid", "wasser", {"search_type": "title"})
+        self.assertIsNotNone(got)
+        self.assertEqual(json.loads(got["raw_json"])["m"], 1)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class RawCacheParamsTest(unittest.TestCase):
+    """raw_cache_params_for is the single source of truth for cache-key params."""
+
+    def test_per_source_keys(self):
+        from src.core.search.provider import raw_cache_params_for
+
+        # lobid ignores max_pages; a non-default search_type is kept.
+        self.assertEqual(raw_cache_params_for("lobid", search_type="title"),
+                         {"search_type": "title"})
+        self.assertEqual(raw_cache_params_for("lobid", search_type="kw", max_pages=9),
+                         {"search_type": "kw"})
+        # swb keys on max_pages too.
+        self.assertEqual(raw_cache_params_for("swb", search_type="kw", max_pages=9),
+                         {"search_type": "kw", "max_pages": 9})
+        # finc keys on its facet set; None facets dropped.
+        self.assertEqual(raw_cache_params_for("finc", search_type="kw", facets=["udk"]),
+                         {"search_type": "kw", "facets": ["udk"]})
+        self.assertEqual(raw_cache_params_for("finc", search_type="kw"),
+                         {"search_type": "kw"})
+        # Unknown source → search_type only.
+        self.assertEqual(raw_cache_params_for("mystery"), {"search_type": "kw"})
+
 
 class _FakeBiblioExtractor:
     """Stand-in BiblioClient exposing last_raw after search_subjects."""

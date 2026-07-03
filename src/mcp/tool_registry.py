@@ -1430,6 +1430,7 @@ class ToolRegistry:
         """
         self._init_suggesters()
         from src.core.search.aggregate import aggregate_gnd_results
+        from src.core.search.provider import raw_cache_params_for
 
         sources = sources or ["lobid", "swb", "catalog"]
         km = self._get_knowledge_manager()
@@ -1441,10 +1442,9 @@ class ToolRegistry:
             if transform is None:
                 continue
             transform_by_source[src] = transform
-            params = {"search_type": search_type}
-            if src == "swb":
-                params["max_pages"] = max_pages
-            params_by_source[src] = params
+            params_by_source[src] = raw_cache_params_for(
+                src, search_type=search_type, max_pages=max_pages
+            )
 
         out = aggregate_gnd_results(
             terms, list(transform_by_source.keys()), km, transform_by_source,
@@ -1489,7 +1489,12 @@ class ToolRegistry:
                     kw = {"search_type": search_type}
                     if "max_pages" in spec.default_opts:
                         kw["max_pages"] = max_pages
-                    results = inst.raw_suggester(raw_id).search(terms, **kw)
+                    sugg = inst.raw_suggester(raw_id)
+                    results = sugg.search(terms, **kw)
+                    # The raw_suggester path bypasses the provider fetch seam →
+                    # dual-write raw here so non-default searches (title / custom
+                    # max_pages) also populate the raw cache. - Claude Generated
+                    self._store_suggester_raw(raw_id, terms, kw, sugg)
             else:
                 results = inst.search(terms, search_type=search_type)
             if spec.add_gnd_urls:
@@ -1550,6 +1555,32 @@ class ToolRegistry:
             view[term] = deriver(raw)
         if view:
             out["agent_view"] = view
+
+    def _store_suggester_raw(self, source, terms, kw, suggester):
+        """Dual-write raw for the non-default MCP GND-keyword path (which uses the
+        bare raw_suggester and bypasses the provider seam). Best-effort; keys the
+        cache via the shared raw_cache_params_for so it matches the readers.
+        - Claude Generated
+        """
+        last_raw = getattr(suggester, "last_raw", None)
+        if not last_raw:
+            return
+        from src.core.search.provider import raw_cache_params_for
+
+        params = raw_cache_params_for(
+            source, search_type=kw.get("search_type", "kw"),
+            max_pages=kw.get("max_pages", 5),
+        )
+        try:
+            km = self._get_knowledge_manager()
+        except Exception:
+            return
+        last_status = getattr(suggester, "last_http_status", {}) or {}
+        for term in terms:
+            blob = last_raw.get(term)
+            if blob is None:
+                continue
+            km.store_raw_response(source, term, params, blob, http_status=last_status.get(term))
 
     def _make_title_records_handler(self, spec):
         def handler(terms, search_type="title", max_results=25, **_ignore):

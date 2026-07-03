@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.core.plugins.schema import ConfigField, PluginDoc, availability_ok
 
-from ..provider import ProviderResult, SearchCapability
+from ..provider import ProviderResult, SearchCapability, raw_cache_params_for
 
 
 class SuggesterBackedProvider:
@@ -145,11 +145,12 @@ class SuggesterBackedProvider:
         if not last_raw:
             return
         last_status = getattr(self.suggester, "last_http_status", {}) or {}
-        params = {
-            k: suggester_kwargs.get(k)
-            for k in ("search_type", "max_pages", "facets")
-            if suggester_kwargs.get(k) is not None
-        }
+        params = raw_cache_params_for(
+            self.id,
+            search_type=suggester_kwargs.get("search_type", "kw"),
+            max_pages=suggester_kwargs.get("max_pages", 5),
+            facets=suggester_kwargs.get("facets"),
+        )
         try:
             ukm = self._ukm()
         except Exception:

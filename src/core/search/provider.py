@@ -24,6 +24,38 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, runtime_checkable
 
 
+# WP2 raw cache: which request params are part of a source's cache key. Single
+# source of truth for BOTH the write seam and every reader, so they can never
+# drift (a mismatch → raw miss → mapping fallback). lobid ignores max_pages; swb
+# pages on it; finc keys on its facet set. - Claude Generated
+_SOURCE_PARAM_KEYS: Dict[str, tuple] = {
+    "lobid": ("search_type",),
+    "swb": ("search_type", "max_pages"),
+    "catalog": ("search_type",),
+    "catalog_titles": ("search_type",),
+    "finc": ("search_type", "facets"),
+}
+
+
+def raw_cache_params_for(
+    source: str,
+    *,
+    search_type: str = "kw",
+    max_pages: Optional[int] = 5,
+    facets: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Canonical ``search_response_cache`` params for a source.
+
+    The write seam and the aggregate/pipeline readers all build the cache-key
+    params through this one function, so a non-default search (``title``, a custom
+    ``max_pages``) is looked up under exactly the key it was stored with instead of
+    silently missing. Keys with ``None`` values are dropped. - Claude Generated
+    """
+    keys = _SOURCE_PARAM_KEYS.get(source, ("search_type",))
+    values: Dict[str, Any] = {"search_type": search_type, "max_pages": max_pages, "facets": facets}
+    return {k: values[k] for k in keys if values.get(k) is not None}
+
+
 class SearchCapability(Enum):
     """What a search source can do. A provider may declare several."""
 
