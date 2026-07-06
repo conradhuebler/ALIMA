@@ -154,7 +154,7 @@ class ToolRegistry:
         except Exception as e:
             logger.warning(f"SWB MetaSuggester init failed: {e}")
         try:
-            from src.utils.suggesters.biblio_suggester import BiblioSuggester
+            from src.core.search.providers.catalog.suggester import BiblioSuggester
             cat_cfg = None
             if self._config_manager is not None:
                 try:
@@ -168,8 +168,19 @@ class ToolRegistry:
                 except Exception as e:
                     logger.debug(f"ConfigManager fallback failed: {e}")
             if cat_cfg is not None:
+                # Env override for the catalog secret (legacy-mirror path parity
+                # with factory.build_provider). - Claude Generated
+                import os as _os
+
+                from src.core.plugins.schema import env_var_name
+
+                token = (
+                    _os.environ.get(env_var_name("catalog", "token"))
+                    or getattr(cat_cfg, "catalog_token", "")
+                    or ""
+                )
                 self._biblio = BiblioSuggester(
-                    token=getattr(cat_cfg, "catalog_token", "") or "",
+                    token=token,
                     catalog_search_url=getattr(cat_cfg, "catalog_search_url", "") or "",
                     catalog_details=getattr(cat_cfg, "catalog_details_url", "") or "",
                 )
@@ -191,7 +202,7 @@ class ToolRegistry:
         # (TU Freiberg finc solrproxy). Operator decision June 2026:
         # "finc oberste Priorität, dann libero". - Claude Generated
         try:
-            from src.utils.suggesters.finc_suggester import FincSuggester
+            from src.core.search.providers.finc.suggester import FincSuggester
             finc_cfg = cat_cfg
             if finc_cfg is None and self._config_manager is not None:
                 try:
@@ -397,9 +408,17 @@ class ToolRegistry:
                     meta = adapter.type_meta(p.provider_id)
                 except Exception:
                     meta = None
+                # Schema-based secret exclusion (ConfigField.secret) with the
+                # name-heuristic kept as fallback for unknown keys. - Claude Generated
+                secret_keys = {
+                    f.key for f in (getattr(meta, "config_fields", []) or [])
+                    if getattr(f, "secret", False)
+                }
                 cfg_keys = [
                     k for k, v in (p.settings or {}).items()
-                    if v and not any(s in k.lower() for s in ("token", "key", "secret", "password"))
+                    if v
+                    and k not in secret_keys
+                    and not any(s in k.lower() for s in ("token", "key", "secret", "password"))
                 ]
                 items.append({
                     "instance_id": p.instance_id,
@@ -588,9 +607,18 @@ class ToolRegistry:
         except ImportError:
             return json.dumps({"error": "requests + beautifulsoup4 required"})
         try:
-            resp = requests.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }, timeout=30)
+            # LLM-supplied URL → strict SSRF guard (net_guard), redirects
+            # re-checked per hop, body capped. - Claude Generated
+            from src.utils.net_guard import fetch_guarded, url_fetch_guard_settings
+
+            guard = url_fetch_guard_settings()
+            resp = fetch_guarded(
+                url,
+                allowlist=guard["allowlist"],
+                timeout=30,
+                max_bytes=int(guard["max_bytes"]),
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
             resp.raise_for_status()
             content_type = (resp.headers.get("Content-Type") or "").lower()
             looks_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
@@ -1193,7 +1221,15 @@ class ToolRegistry:
         for inst in self._search_instances():
             by_type.setdefault(inst.provider_id, []).append(inst)
 
+        # Types whose canonical handlers are hand-wired to the built-in
+        # suggesters (_gnd_search_instance / _handle_search_finc). Any other
+        # type — i.e. a loaded code plugin — must use the generic factory-built
+        # handler even when canonical, otherwise it would answer with the wrong
+        # backend or "not available". - Claude Generated
+        hand_wired = {"lobid", "swb", "catalog", "finc"}
+
         tools = []
+        used_names = set()
         for provider_id, instances in by_type.items():
             specs = specs_by_provider.get(provider_id)
             if not specs:
@@ -1202,12 +1238,28 @@ class ToolRegistry:
             for inst in instances:
                 is_canonical = inst is canonical
                 for spec in specs:
-                    if is_canonical:
+                    if is_canonical and provider_id in hand_wired:
                         name = spec.name
                         handler = self._make_search_handler(spec)
+                    elif is_canonical:
+                        name = spec.name
+                        handler = self._make_instance_handler(spec, inst)
                     else:
                         name = self._instance_tool_name(spec.name, inst)
                         handler = self._make_instance_handler(spec, inst)
+                    if name in used_names:
+                        # Cross-type collision: a copied code plugin whose
+                        # mcp_tool_specs kept the blueprint's tool name must not
+                        # shadow the built-in — suffix it instead. - Claude Generated
+                        name = self._instance_tool_name(spec.name, inst)
+                        handler = self._make_instance_handler(spec, inst)
+                        if name in used_names:
+                            logger.warning(
+                                "Skipping duplicate generated tool '%s' (instance '%s')",
+                                name, inst.instance_id,
+                            )
+                            continue
+                    used_names.add(name)
                     tools.append(
                         (
                             ToolDefinition(
@@ -1522,7 +1574,7 @@ class ToolRegistry:
         Qt/suggester import at module load. - Claude Generated
         """
         if source == "lobid":
-            from src.utils.suggesters.lobid_suggester import LobidSuggester
+            from src.core.search.providers.lobid.suggester import LobidSuggester
             return LobidSuggester.transform_agent_view
         return None
 

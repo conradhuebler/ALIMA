@@ -26,23 +26,43 @@ def scrape_url(
     timeout: int = 30,
     min_chars: int = 50,
     logger: Any = None,
+    allowlist: Any = None,
+    max_bytes: Any = None,
 ) -> str:
     """Fetch ``url`` and return cleaned main-content text.
 
     Verbatim behaviour of the former ``batch_processor`` URL branch (heuristic
     main/article/div.content extraction, tag stripping, whitespace cleanup, and
     the < ``min_chars`` guard), just parameterised.
+
+    The URL is runtime-supplied (LLM tool / batch input), so the fetch goes
+    through the strict SSRF guard (``net_guard.fetch_guarded``): http(s) only,
+    no private/loopback targets unless allowlisted, redirects re-checked per
+    hop, body capped. ``allowlist``/``max_bytes`` default to
+    ``SystemConfig.url_fetch_allowlist`` / ``url_fetch_max_bytes``. - Claude Generated
     """
     import requests
     from bs4 import BeautifulSoup
 
+    from src.utils.net_guard import fetch_guarded, url_fetch_guard_settings
+
+    if allowlist is None or max_bytes is None:
+        guard = url_fetch_guard_settings()
+        allowlist = guard["allowlist"] if allowlist is None else allowlist
+        max_bytes = guard["max_bytes"] if max_bytes is None else max_bytes
+
     if logger:
         logger.info(f"Fetching URL: {url}")
-    headers = {"User-Agent": user_agent}
     try:
-        response = requests.get(url, timeout=timeout, headers=headers)
+        response = fetch_guarded(
+            url,
+            allowlist=allowlist,
+            timeout=timeout,
+            max_bytes=int(max_bytes),
+            user_agent=user_agent,
+        )
         response.raise_for_status()
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError, RuntimeError) as e:
         if logger:
             logger.error(f"Failed to fetch URL: {e}")
         raise RuntimeError(f"Failed to fetch URL: {e}")

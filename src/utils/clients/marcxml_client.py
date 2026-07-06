@@ -226,10 +226,19 @@ class MarcXmlClient:
             params["x-database"] = self.database
         
         url = f"{self.sru_base_url}?{urlencode(params)}"
-        
+
         if self.debug:
             logger.debug(f"SRU request URL: {url}")
-        
+
+        try:
+            # Operator-configured endpoint: cheap scheme gate only. - Claude Generated
+            from src.utils.net_guard import require_http_url
+
+            require_http_url(url, what="SRU base URL")
+        except ValueError as exc:
+            logger.error(str(exc))
+            return []
+
         try:
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()

@@ -160,7 +160,7 @@ class TestSwbNetworkFailureNotCached(unittest.TestCase):
     in the cache as 'no results for this term'."""
 
     def _make_suggester(self, tmpdir):
-        from src.utils.suggesters.swb_suggester import SWBSuggester
+        from src.core.search.providers.swb.suggester import SWBSuggester
 
         return SWBSuggester(data_dir=tmpdir, debug=False)
 
@@ -170,7 +170,7 @@ class TestSwbNetworkFailureNotCached(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             suggester = self._make_suggester(tmpdir)
             with patch(
-                "src.utils.suggesters.swb_suggester.requests.get",
+                "src.core.search.providers.swb.suggester.requests.get",
                 side_effect=requests.exceptions.ConnectionError("API down"),
             ):
                 results = suggester.search(["Limnologie"])
@@ -188,7 +188,7 @@ class TestSwbNetworkFailureNotCached(unittest.TestCase):
             fake_response.text = "<html>nothing relevant</html>"
             fake_response.raise_for_status = Mock()
             with patch(
-                "src.utils.suggesters.swb_suggester.requests.get",
+                "src.core.search.providers.swb.suggester.requests.get",
                 return_value=fake_response,
             ):
                 suggester.search(["Limnologie"])

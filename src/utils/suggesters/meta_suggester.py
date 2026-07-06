@@ -94,13 +94,19 @@ class MetaSuggester(BaseSuggester):
         # id -> underlying BaseSuggester (compat: direct access / prepare / MCP)
         self.suggesters: Dict[str, Any] = {}
 
+        from src.core.plugins.schema import apply_env_overrides
+
         for pid in self.provider_ids:
             try:
                 cls = get_provider(pid)
             except KeyError:
                 self.logger.warning(f"Unknown provider '{pid}', skipping")
                 continue
-            inst = cls(**provider_config)
+            # Secret settings may be overridden per env var (classic-path parity
+            # with factory.build_provider; primary instances have
+            # instance_id == provider_id by migration convention). - Claude Generated
+            fields = cls.config_fields() if hasattr(cls, "config_fields") else []
+            inst = cls(**apply_env_overrides(pid, provider_config, fields))
             raw = getattr(inst, "suggester", None)
             if raw is not None:
                 self.suggesters[pid] = raw

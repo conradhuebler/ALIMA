@@ -217,7 +217,9 @@ class _CategoryPanel(QWidget):
 
         meta = self._adapter.type_meta(inst.provider_id)
         for fld in meta.config_fields:
-            w = self._make_field_widget(fld, inst.settings.get(fld.key, fld.default))
+            w = self._make_field_widget(
+                fld, inst.settings.get(fld.key, fld.default), instance_id=inst.instance_id
+            )
             self._field_widgets[fld.key] = w
             label = f"{fld.label} *" if fld.required else fld.label
             self.form_layout.addRow(label, w)
@@ -227,7 +229,7 @@ class _CategoryPanel(QWidget):
                 hint.setStyleSheet("color: gray; font-size: 10px;")
                 self.form_layout.addRow("", hint)
 
-    def _make_field_widget(self, fld, value) -> QWidget:
+    def _make_field_widget(self, fld, value, instance_id: str = "") -> QWidget:
         if fld.kind == BOOL:
             w = QCheckBox()
             w.setChecked(bool(value))
@@ -251,6 +253,19 @@ class _CategoryPanel(QWidget):
         w = QLineEdit("" if value is None else str(value))
         if fld.kind == SECRET:
             w.setEchoMode(QLineEdit.EchoMode.Password)
+            # Surface an active env-var override (runtime wins over the stored
+            # value; the stored value stays editable). - Claude Generated
+            import os
+
+            from src.core.plugins.schema import env_var_name
+
+            var = env_var_name(instance_id, fld.key)
+            if os.environ.get(var):
+                w.setPlaceholderText(f"überschrieben durch Umgebungsvariable {var}")
+                w.setToolTip(
+                    f"Zur Laufzeit gewinnt die Umgebungsvariable {var}; der hier "
+                    "gespeicherte Wert wird dann ignoriert."
+                )
         return w
 
     def _read_field_widget(self, fld, w):
@@ -309,11 +324,38 @@ class PluginSettingsTab(QWidget):
             self._tabs.addTab(panel, _CATEGORY_LABELS.get(cat, cat))
         layout.addWidget(self._tabs)
 
+        # Directory-plugin rescan with the Tier-2 approval dialog (config load
+        # runs headless = deny; this button is the interactive path). The
+        # enable_code_plugins master gate lives here too (was config.json-only).
+        # - Claude Generated
+        scan_row = QHBoxLayout()
+        self._code_plugins_cb = QCheckBox("Code-Plugins (Tier 2) erlauben")
+        self._code_plugins_cb.setToolTip(
+            "Master-Schalter für Code-Plugins aus ~/.config/alima/plugins/.\n"
+            "Zusätzlich erfordert jedes Code-Plugin eine einzelne Freigabe\n"
+            "(Security-Scan + Hash). Freigegebene Plugins laufen in-process\n"
+            "mit vollen Rechten — kein Sandbox. Deklarative Plugins (nur\n"
+            "plugin.toml) laden unabhängig von diesem Schalter."
+        )
+        scan_row.addWidget(self._code_plugins_cb)
+        self._scan_btn = QPushButton("📂 Plugin-Verzeichnis scannen…")
+        self._scan_btn.setToolTip(
+            "Scannt ~/.config/alima/plugins/ erneut; nicht freigegebene "
+            "Code-Plugins werden mit Scan-Findings zur Freigabe angezeigt."
+        )
+        self._scan_btn.clicked.connect(self._rescan_plugins)
+        scan_row.addWidget(self._scan_btn)
+        scan_row.addStretch(1)
+        layout.addLayout(scan_row)
+
     def load(self, config) -> None:
         """Populate every category panel from ``config.plugins``."""
         plugins = list(getattr(config, "plugins", []) or [])
         for cat, panel in self._panels.items():
             panel.load([p for p in plugins if p.category == cat])
+        self._code_plugins_cb.setChecked(
+            bool(getattr(getattr(config, "system_config", None), "enable_code_plugins", False))
+        )
 
     def apply_to(self, config) -> None:
         """Write the edited instances back into ``config.plugins`` (authoritative)."""
@@ -324,3 +366,104 @@ class PluginSettingsTab(QWidget):
         # Preserve instances of any category this tab doesn't manage.
         other = [p for p in (getattr(config, "plugins", []) or []) if p.category not in managed]
         config.plugins = collected + other
+        if getattr(config, "system_config", None) is not None:
+            config.system_config.enable_code_plugins = self._code_plugins_cb.isChecked()
+        self._warn_on_operator_urls(collected)
+
+    def _rescan_plugins(self) -> None:
+        """Re-run directory discovery with the interactive approval gate - Claude Generated."""
+        from src.utils.config_manager import ConfigManager
+        from src.utils.plugin_discovery import discover_plugins
+
+        cm = ConfigManager()
+        config = cm.load_config()
+        # The checkbox governs the scan live (persisted on settings save).
+        enable_code = self._code_plugins_cb.isChecked()
+        result = discover_plugins(
+            config,
+            plugins_dir=cm.plugins_dir,
+            approve_cb=self._approval_dialog,
+            enable_code_plugins=enable_code,
+            persist=lambda: cm.save_config(config),
+        )
+        if result is None:
+            QMessageBox.information(
+                self, "Plugin-Verzeichnis",
+                f"Kein Plugin-Verzeichnis gefunden:\n{cm.plugins_dir}",
+            )
+            return
+        self.load(config)  # reflect freshly merged instances/types
+        lines = []
+        for p in result.plugins:
+            mark = {"loaded": "✅", "blocked": "⛔", "denied": "🚫", "error": "❌"}.get(p.status, "•")
+            detail = f" — {p.detail}" if p.detail else ""
+            lines.append(f"{mark} {p.manifest.id} [{p.status}]{detail}")
+        if not lines:
+            lines = ["(keine Plugins im Verzeichnis)"]
+        if not enable_code and any(p.status == "blocked" for p in result.plugins):
+            lines.append("")
+            lines.append("Hinweis: Code-Plugins sind deaktiviert (enable_code_plugins).")
+        QMessageBox.information(self, "Plugin-Scan", "\n".join(lines))
+
+    def _approval_dialog(self, manifest, findings, digest) -> bool:
+        """Tier-2 consent dialog: manifest + severity-sorted findings + hash - Claude Generated.
+
+        Default is decline; approval pins the SHA-256 (any file change re-prompts).
+        """
+        by_sev = {"high": 0, "medium": 0, "low": 0}
+        for f in findings:
+            by_sev[f.severity] = by_sev.get(f.severity, 0) + 1
+        summary = ", ".join(f"{n}× {sev}" for sev, n in by_sev.items() if n) or "keine Findings"
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Code-Plugin freigeben?")
+        box.setText(
+            f"<b>{manifest.label}</b> (id: <code>{manifest.id}</code>, "
+            f"Kategorie: {manifest.category})<br>"
+            f"Quelle: <code>{manifest.source_dir}</code><br><br>"
+            f"Security-Scan: <b>{summary}</b><br><br>"
+            "⚠️ Nach Freigabe läuft dieses Plugin <b>in-process mit vollen "
+            "Rechten</b> — der Scan ist eine Abschreckung, <b>kein Sandbox</b>. "
+            "Nur freigeben, wenn Sie der Quelle vertrauen.<br>"
+            "Jede Dateiänderung erfordert eine erneute Freigabe (Hash-Pinning)."
+        )
+        detail_lines = [str(f) for f in findings] or ["(keine Findings)"]
+        detail_lines += ["", f"SHA-256: {digest}"]
+        box.setDetailedText("\n".join(detail_lines))
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        box.button(QMessageBox.StandardButton.Yes).setText("Freigeben")
+        box.button(QMessageBox.StandardButton.No).setText("Ablehnen")
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def _warn_on_operator_urls(self, instances: List[PluginInstanceConfig]) -> None:
+        """Sanity warnings for configured base URLs (never blocks the save) - Claude Generated.
+
+        Uses ``net_guard.check_operator_url`` posture (a): scheme/parseability
+        only — intranet endpoints are legitimate and are NOT flagged.
+        """
+        from src.core.plugins.schema import URL
+        from src.utils.net_guard import check_operator_url
+
+        warnings: List[str] = []
+        for inst in instances:
+            if not getattr(inst, "enabled", True):
+                continue
+            try:
+                fields = get_category(inst.category).config_fields(inst.provider_id)
+            except Exception:
+                continue
+            for fld in fields:
+                if fld.kind != URL:
+                    continue
+                value = (inst.settings or {}).get(fld.key)
+                for msg in check_operator_url(str(value or "")):
+                    warnings.append(f"[{inst.label or inst.instance_id}] {msg}")
+        if warnings:
+            QMessageBox.warning(
+                self,
+                "Plugin-URLs prüfen",
+                "Gespeichert. Hinweise zu konfigurierten Endpunkten:\n\n"
+                + "\n".join(f"• {w}" for w in warnings),
+            )

@@ -3,6 +3,7 @@
 
 import gzip
 import json
+import shutil
 import urllib.request
 import urllib.parse
 import ssl
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Set, Optional, Union
 from pprint import pprint
 
-from .base_suggester import BaseSuggester, BaseSuggesterError
+from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
 
 
 def ex_to_str(ex):
@@ -117,8 +118,12 @@ class LobidSuggester(BaseSuggester):
             )
             urllib.request.install_opener(opener)
 
-            # Now download with proper SSL handling
-            urllib.request.urlretrieve(self.GND_URL, self.subjects_file_gz)
+            # Now download with proper SSL handling; explicit socket timeout so a
+            # stalled dump download can not hang forever. - Claude Generated
+            with opener.open(self.GND_URL, timeout=60) as response, open(
+                self.subjects_file_gz, "wb"
+            ) as out:
+                shutil.copyfileobj(response, out)
         except Exception as ex:
             raise LobidSuggesterError(ex_to_str(ex))
 
@@ -191,7 +196,7 @@ class LobidSuggester(BaseSuggester):
         """
         encoded = urllib.parse.quote(query)
         url = self._get_search_url(encoded, search_type=search_type)
-        with urllib.request.urlopen(url) as response:
+        with urllib.request.urlopen(url, timeout=30) as response:
             result = json.load(response)
             self._last_fetch_status = getattr(response, "status", None)
         return result

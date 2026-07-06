@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from ..provider import ProviderResult, ResultItem, SearchCapability
-from ..registry import register_provider
+from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
+from src.core.search.registry import register_provider
 
 
 @register_provider

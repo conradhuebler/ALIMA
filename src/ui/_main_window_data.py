@@ -459,7 +459,7 @@ class MainWindowDataMixin:
         from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QVBoxLayout, QDialog, QLabel, QTextEdit, QPushButton
         from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
         from PyQt6.QtGui import QCursor, QFont
-        from ..core.suggesters.lobid_suggester import LobidSuggester
+        from ..core.search.providers.lobid.suggester import LobidSuggester
         from pathlib import Path
         import time
         

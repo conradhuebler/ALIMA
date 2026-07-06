@@ -17,6 +17,8 @@ a leaf: nothing here imports back into the plugin framework.
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -92,7 +94,14 @@ class ConfigField:
                 return bool(value)
         except (TypeError, ValueError):
             return self.default
-        return value  # text/secret/url/choice pass through as str-ish
+        # text/secret/url/choice are string-typed: coerce stray scalars so a
+        # mis-typed config value (e.g. TOML int) can not leak a non-str into
+        # provider constructors. - Claude Generated
+        if not isinstance(value, str):
+            value = str(value)
+        if self.kind == CHOICE and self.choices and value not in self.choices:
+            return self.default
+        return value
 
     def is_satisfied(self, value: Any) -> bool:
         """Whether ``value`` counts as "set" for gating/required checks."""
@@ -165,3 +174,35 @@ def availability_ok(fields: List[ConfigField], settings: Optional[Dict[str, Any]
         if fld.gates_availability and not fld.is_satisfied(settings.get(fld.key)):
             return False
     return True
+
+
+def env_var_name(instance_id: str, key: str) -> str:
+    """Env-var name overriding a secret setting: ``ALIMA_PLUGIN_<ID>_<KEY>``.
+
+    Non-alphanumeric characters map to ``_``, uppercased — e.g. instance
+    ``catalog`` field ``token`` → ``ALIMA_PLUGIN_CATALOG_TOKEN``. - Claude Generated
+    """
+    clean = lambda s: re.sub(r"[^A-Za-z0-9]+", "_", str(s)).strip("_").upper()  # noqa: E731
+    return f"ALIMA_PLUGIN_{clean(instance_id)}_{clean(key)}"
+
+
+def apply_env_overrides(
+    instance_id: str,
+    settings: Optional[Dict[str, Any]],
+    fields: List[ConfigField],
+) -> Dict[str, Any]:
+    """Return ``settings`` with each *secret* field overridden by its env var.
+
+    Runtime-only: called at provider/source construction, never at config
+    load/save — an env-supplied secret can therefore never be persisted into
+    ``config.json`` or the legacy mirrors. The input dict is not mutated.
+    - Claude Generated
+    """
+    out = dict(settings or {})
+    for fld in fields:
+        if not fld.secret:
+            continue
+        env_val = os.environ.get(env_var_name(instance_id, fld.key))
+        if env_val:
+            out[fld.key] = env_val
+    return out

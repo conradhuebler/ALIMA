@@ -1,0 +1,20 @@
+# Real, loadable code-plugin manifest — blueprint for SRU/MARC-XML-Endpunkte
+# (DNB, K10plus, LoC, eigene). To make this YOUR plugin: rename `id` here AND
+# the class `id` attribute in provider.py (they must match).
+
+[plugin]
+id = "sru"
+label = "SRU (MARC-XML)"
+category = "search_provider"
+type = "code"
+api_version = "1"
+capabilities = ["title_records", "classification"]
+
+[entry]
+module = "provider.py"
+class = "SruProvider"
+
+[doc]
+description = "SRU-Suche (MARC-XML): Titel-Datensätze und Klassifikationen von konfigurierbaren SRU-Endpunkten (DNB, K10plus, …)."
+input = "Suchbegriff + Suchtyp (keyword/title/author/subject/isbn); Endpoint per Preset oder base_url."
+output = "Geparste MARC-Records (Titel, Autoren, Klassifikationen …)."

@@ -14,8 +14,8 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField, availability_ok
 
-from ..provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
-from ..registry import register_provider
+from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
+from src.core.search.registry import register_provider
 
 
 @register_provider
@@ -197,7 +197,7 @@ class FincProvider:
             ukm.store_raw_response("finc", term, params, blob)
 
     def _build_suggester(self):
-        from src.utils.suggesters.finc_suggester import FincSuggester
+        from .suggester import FincSuggester
 
         return FincSuggester(
             base_url=self._config.get("base_url", "") or "",
@@ -249,7 +249,7 @@ class FincProvider:
             facets=facets,
         )
         errors = dict(getattr(self.suggester, "last_errors", {}) or {})
-        from ..provider import raw_cache_params_for
+        from src.core.search.provider import raw_cache_params_for
         self._store_finc_raw(
             list(query), raw_cache_params_for("finc", search_type=search_type, facets=facets), raw
         )

@@ -895,6 +895,13 @@ class SystemConfig:
     # plugins additionally require this flag AND per-plugin approval. - Claude Generated
     enable_code_plugins: bool = False
 
+    # SSRF guard for runtime-supplied URL fetches (scrape_url tool, URL input):
+    # hosts listed here may resolve to private/intranet addresses; all others
+    # must resolve public (see src/utils/net_guard.py). Operator-configured
+    # provider base URLs are NOT affected by this guard. - Claude Generated
+    url_fetch_allowlist: List[str] = field(default_factory=list)
+    url_fetch_max_bytes: int = 10_000_000
+
     # WP2 raw-first response cache master switch. When off, no source response is
     # written to search_response_cache (sources always fetch live). Per-instance
     # override lives in PluginInstanceConfig.settings['cache_responses']. - Claude Generated

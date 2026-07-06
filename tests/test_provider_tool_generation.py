@@ -158,3 +158,72 @@ class ProviderConfigGatingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class CodePluginToolGenerationTest(unittest.TestCase):
+    """A loaded code-plugin copy must get a working, non-shadowing tool - Claude Generated.
+
+    Regression (July 6): an un-adapted blueprint copy keeps the built-in's
+    ProviderToolSpec name (e.g. ``search_lobid``). It must be suffixed instead of
+    silently shadowing the built-in tool, and its canonical handler must be the
+    generic factory-built one (the hand-wired handlers only know built-in types).
+    """
+
+    def setUp(self):
+        from src.core.search.registry import PROVIDER_REGISTRY
+        from src.core.search.providers.lobid.provider import LobidProvider
+
+        class LobidCopy(LobidProvider):
+            id = "lobid_copy"
+
+        self._copy_cls = LobidCopy
+        PROVIDER_REGISTRY["lobid_copy"] = LobidCopy
+
+    def tearDown(self):
+        from src.core.search.registry import PROVIDER_REGISTRY
+
+        PROVIDER_REGISTRY.pop("lobid_copy", None)
+
+    def _registry_with_instances(self):
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
+            PluginInstanceConfig("lobid_copy", "search_provider", "lobid_copy", enabled=True),
+        ]
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = types.SimpleNamespace(load_config=lambda: cfg)
+        return reg
+
+    def test_copy_tool_is_suffixed_not_shadowing(self):
+        reg = self._registry_with_instances()
+        tools = reg._generated_search_tools()
+        names = [td.name for td, _ in tools]
+        self.assertEqual(names.count("search_lobid"), 1)
+        self.assertIn("search_lobid_lobid_copy", names)
+
+    def test_copy_handler_uses_its_own_provider_class(self):
+        from unittest.mock import patch
+
+        reg = self._registry_with_instances()
+        handlers = {td.name: h for td, h in reg._generated_search_tools()}
+        built = {}
+
+        def fake_build(inst, **kw):
+            from src.core.search.registry import get_provider
+
+            cls = get_provider(inst.provider_id)
+            built["cls"] = cls
+
+            class _Stub:
+                def is_available(self):
+                    return False
+
+            return _Stub()
+
+        with patch("src.core.search.build_provider", side_effect=fake_build):
+            out = handlers["search_lobid_lobid_copy"](["t"])
+        self.assertIs(built["cls"], self._copy_cls)
+        self.assertIn("error", json.loads(out))  # unavailable stub → guarded JSON

@@ -1,0 +1,20 @@
+# Real, loadable code-plugin manifest — minimal blueprint for a network-less
+# provider (reads the local knowledge DB instead of an API). To make this YOUR
+# plugin: rename `id` here AND the class `id` attribute in provider.py.
+
+[plugin]
+id = "gnd_local"
+label = "Lokale GND-DB"
+category = "search_provider"
+type = "code"
+api_version = "1"
+capabilities = ["gnd_keywords"]
+
+[entry]
+module = "provider.py"
+class = "GndLocalProvider"
+
+[doc]
+description = "GND-Schlagwort-Kandidaten direkt aus der lokalen gnd_entries-Tabelle (kein Netzwerk)."
+input = "Ein oder mehrere Suchbegriffe."
+output = "GND-Schlagwort-Kandidaten mit GND-IDs aus dem lokalen Bestand."

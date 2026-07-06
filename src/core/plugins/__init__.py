@@ -31,9 +31,11 @@ from .schema import (
     SECRET,
     TEXT,
     URL,
+    apply_env_overrides,
     availability_ok,
     coerce_settings,
     defaults,
+    env_var_name,
 )
 
 __all__ = [
@@ -49,6 +51,8 @@ __all__ = [
     "defaults",
     "coerce_settings",
     "availability_ok",
+    "env_var_name",
+    "apply_env_overrides",
     # category
     "PluginCategory",
     "PluginTypeMeta",

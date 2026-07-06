@@ -109,6 +109,15 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Plugin-Blueprints + Security-Härtung** ✅ CODE-COMPLETE (July 6): alle 6
+  Built-in-Provider sind self-contained, kopierbare Plugin-Dirs
+  (`src/core/search/providers/<name>/` mit plugin.toml + README); Loader lädt
+  Multi-File-Plugins; Härtung: Symlink-Verbot, Hash über alle Dateien (⚠️ einmalige
+  Re-Approval bestehender Code-Plugins), entry-Validierung, `net_guard`
+  (SSRF/Timeouts), Secrets-Env-Override (`ALIMA_PLUGIN_<ID>_<KEY>`). E2E:
+  `test_plugin_blueprint_e2e.py`. Offen: Operator-GUI-Click-Test (Plugin-Tab:
+  Secret-Placeholder, URL-Warndialog, Approval-Dialog). Guide:
+  [`docs/plugin_authoring.md`](docs/plugin_authoring.md).
 - **WP2 Raw-First Response Cache** ✅ (July 2, P1–P5): source responses cached verbatim
   (`search_response_cache`); pool + counter (`display_count`) + provenance derived from
   raw via `aggregate_gnd_results` (raw-first + mapping fallback); both pipelines converged

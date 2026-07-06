@@ -11,8 +11,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 
-from .base_suggester import BaseSuggester, BaseSuggesterError
-from ..clients.biblio_client import BiblioClient
+from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
+from src.utils.clients.biblio_client import BiblioClient
 
 
 class BiblioSuggesterError(BaseSuggesterError):

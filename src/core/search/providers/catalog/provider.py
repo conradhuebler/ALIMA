@@ -11,9 +11,9 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, CHOICE, URL, SECRET, ConfigField
 
-from ..provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
-from ..registry import register_provider
-from ._base import SuggesterBackedProvider
+from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
+from src.core.search.registry import register_provider
+from src.core.search.provider_base import SuggesterBackedProvider
 
 
 @register_provider
@@ -138,7 +138,7 @@ class CatalogProvider(SuggesterBackedProvider):
         ]
 
     def _build_suggester(self):
-        from src.utils.suggesters.biblio_suggester import BiblioSuggester
+        from .suggester import BiblioSuggester
 
         return BiblioSuggester(
             token=self._config.get("token", "") or "",
@@ -165,7 +165,7 @@ class CatalogProvider(SuggesterBackedProvider):
             raw = self.suggester.search_titles(
                 list(query), search_type=search_type, max_results=max_results
             )
-            from ..provider import raw_cache_params_for
+            from src.core.search.provider import raw_cache_params_for
             self._store_records_raw(
                 "catalog_titles", list(query),
                 raw_cache_params_for("catalog_titles", search_type=search_type), raw,

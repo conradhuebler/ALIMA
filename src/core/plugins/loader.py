@@ -17,8 +17,10 @@ merge + save.
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import logging
+import sys
+import types
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -61,29 +63,123 @@ class LoadResult:
         return [p for p in self.plugins if p.status == "loaded"]
 
 
-def _import_class_from_file(py_file: Path, class_name: str) -> type:
-    """Import ``class_name`` from an arbitrary ``.py`` file (in-process, unsandboxed)."""
-    spec = importlib.util.spec_from_file_location(f"alima_plugin_{py_file.stem}", py_file)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load module spec for {py_file}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not hasattr(module, class_name):
-        raise ImportError(f"{py_file.name} has no class '{class_name}'")
-    return getattr(module, class_name)
+def _plugin_package_name(plugin_id: str) -> str:
+    """The synthetic ``sys.modules`` package name for one plugin id - Claude Generated"""
+    return "alima_plugin_" + plugin_id.replace("-", "_")
 
 
-def _instance_from_declarative(manifest: PluginManifest) -> "Any":
-    """Build a PluginInstanceConfig from a declarative manifest (no code)."""
+def _static_class_id(entry_file: Path, class_name: str) -> Optional[str]:
+    """AST-read the literal ``id = "..."`` from the entry class, without executing
+    any plugin code. ``None`` when the file/class/attribute can't be read
+    statically (dynamic ids fall back to the post-import check). - Claude Generated
+    """
+    try:
+        import ast
+
+        tree = ast.parse(entry_file.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            for stmt in node.body:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == "id" for t in stmt.targets)
+                    and isinstance(stmt.value, ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                ):
+                    return stmt.value.value
+    return None
+
+
+def _import_entry_class(plugin_dir: Path, manifest: PluginManifest) -> type:
+    """Load a plugin dir as a synthetic package, return the entry class - Claude Generated.
+
+    Package-style loading: a stub package ``alima_plugin_<id>`` with
+    ``__path__ = [plugin_dir]`` is placed in ``sys.modules``, then the entry
+    module is imported as a submodule — so a multi-file plugin can use
+    single-level relative imports (``from .suggester import X``). The plugin's
+    ``__init__.py`` is *never* executed (it is built-in-mode glue only).
+
+    Hardening (still in-process and unsandboxed, see module docstring):
+    the entry file must not be a symlink and must resolve to a file directly
+    inside the plugin dir; the loaded class's ``id`` must equal the manifest id;
+    a failed import removes every partially-registered ``alima_plugin_<id>*``
+    module from ``sys.modules``.
+    """
+    root = Path(plugin_dir).resolve()
+    entry = Path(plugin_dir) / manifest.entry_module
+    if entry.is_symlink():
+        raise ImportError(f"entry module '{manifest.entry_module}' is a symlink — not allowed")
+    resolved = entry.resolve()
+    if not resolved.is_file() or resolved.parent != root:
+        raise ImportError(
+            f"entry module '{manifest.entry_module}' not found inside the plugin directory"
+        )
+    # Pre-import consistency: a blueprint copy where only plugin.toml was
+    # renamed would otherwise run @register_provider with the OLD class id and
+    # blow up on the registry collision — detect the mismatch statically and
+    # refuse BEFORE executing any plugin code. - Claude Generated
+    static_id = _static_class_id(resolved, manifest.entry_class)
+    if static_id is not None and static_id != manifest.id:
+        raise ImportError(
+            f"{manifest.entry_module}: class '{manifest.entry_class}' still has "
+            f"id = \"{static_id}\", but plugin.toml says id = \"{manifest.id}\" — "
+            f"set the class attribute to id = \"{manifest.id}\" (both must be "
+            "identical; nothing was imported)"
+        )
+    pkg_name = _plugin_package_name(manifest.id)
+    module_name = f"{pkg_name}.{resolved.stem}"
+    module = sys.modules.get(module_name)
+    if module is None:
+        pkg = types.ModuleType(pkg_name)
+        pkg.__path__ = [str(root)]  # anchors `from .x import y` inside the dir
+        pkg.__package__ = pkg_name
+        sys.modules[pkg_name] = pkg
+        try:
+            module = importlib.import_module(module_name)
+        except BaseException:
+            for name in [
+                m for m in sys.modules if m == pkg_name or m.startswith(pkg_name + ".")
+            ]:
+                sys.modules.pop(name, None)
+            raise
+    cls = getattr(module, manifest.entry_class, None)
+    if cls is None:
+        raise ImportError(f"{manifest.entry_module} has no class '{manifest.entry_class}'")
+    if not isinstance(cls, type):
+        raise ImportError(
+            f"'{manifest.entry_class}' in {manifest.entry_module} is not a class"
+        )
+    cls_id = getattr(cls, "id", None)
+    if cls_id != manifest.id:
+        raise ImportError(
+            f"plugin class id '{cls_id}' does not match manifest id '{manifest.id}' — "
+            "rename the class `id` attribute to match plugin.toml"
+        )
+    return cls
+
+
+def _seed_instance(manifest: PluginManifest, type_id: str) -> "Any":
+    """Build the PluginInstanceConfig for a discovered plugin - Claude Generated.
+
+    Declarative: ``type_id`` is the built-in ``kind``. Code: ``type_id`` is the
+    freshly registered type — without this seed a loaded code plugin would be
+    invisible (no list entry, no MCP tool), since everything downstream is
+    instance-driven.
+    """
     from src.utils.config_models import PluginInstanceConfig  # lazy: avoid cycle
 
     category = get_category(manifest.category)
-    fields = category.config_fields(manifest.kind)
+    try:
+        fields = category.config_fields(type_id)
+    except Exception:
+        fields = []
     settings = coerce_settings(fields, manifest.settings)
     return PluginInstanceConfig(
         instance_id=manifest.id,
         category=manifest.category,
-        provider_id=manifest.kind,
+        provider_id=type_id,
         label=manifest.label,
         enabled=True,
         is_primary=False,
@@ -140,7 +236,7 @@ def discover(
                     )
                 )
                 continue
-            result.instances.append(_instance_from_declarative(manifest))
+            result.instances.append(_seed_instance(manifest, manifest.kind))
             result.plugins.append(LoadedPlugin(manifest=manifest, status="loaded"))
             continue
 
@@ -160,6 +256,9 @@ def discover(
         digest = hash_dir(sub)
         if _LOADED_CODE_PLUGINS.get(manifest.id) == digest:
             # Already imported+registered in this process at this exact hash.
+            # Re-seed the instance so a config that lost it heals (dedup is the
+            # caller's job). - Claude Generated
+            result.instances.append(_seed_instance(manifest, manifest.id))
             result.plugins.append(
                 LoadedPlugin(manifest=manifest, status="loaded", detail="already loaded", findings=findings)
             )
@@ -179,16 +278,26 @@ def discover(
             approved[manifest.id] = digest  # trust-on-first-use; caller persists
 
         try:
-            cls = _import_class_from_file(sub / manifest.entry_module, manifest.entry_class)
+            cls = _import_entry_class(sub, manifest)
             type_id = category.register_code_type(cls)
             _LOADED_CODE_PLUGINS[manifest.id] = digest
         except Exception as exc:  # import or registration failure
             logger.exception("Code plugin '%s' failed to load", manifest.id)
+            detail = str(exc)
+            if isinstance(exc, ValueError) and "already registered" in detail:
+                detail += (
+                    " — the plugin id collides with an existing type; rename the "
+                    "plugin id (in plugin.toml AND the class `id` attribute)"
+                )
             result.plugins.append(
-                LoadedPlugin(manifest=manifest, status="error", detail=str(exc), findings=findings)
+                LoadedPlugin(manifest=manifest, status="error", detail=detail, findings=findings)
             )
             continue
 
+        # Seed the instance for the new type — this is what makes the plugin
+        # visible (settings list) and usable (MCP tools are per-instance).
+        # - Claude Generated
+        result.instances.append(_seed_instance(manifest, type_id))
         result.plugins.append(
             LoadedPlugin(manifest=manifest, status="loaded", findings=findings, type_id=type_id)
         )
@@ -201,5 +310,7 @@ def _stub_manifest(name: str) -> PluginManifest:
 
 
 def _reset_for_tests() -> None:
-    """Clear the process-level loaded-code-plugin cache (tests only)."""
+    """Clear the loaded-code-plugin cache + synthetic plugin modules (tests only)."""
     _LOADED_CODE_PLUGINS.clear()
+    for name in [m for m in sys.modules if m.startswith("alima_plugin_")]:
+        sys.modules.pop(name, None)

@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Set, Optional, Union
 from bs4 import BeautifulSoup
 
-from .base_suggester import BaseSuggester, BaseSuggesterError
+from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
+
+# Every SWB HTTP request carries this timeout — a hung endpoint must not hang
+# the pipeline (project HTTP convention). - Claude Generated
+REQUEST_TIMEOUT_S = 15
 
 
 class SWBSuggesterError(BaseSuggesterError):
@@ -491,7 +495,7 @@ class SWBSuggester(BaseSuggester):
                 self.logger.debug(f"\nProcessing page {page_count}: {current_url}")
 
             try:
-                response = requests.get(current_url)
+                response = requests.get(current_url, timeout=REQUEST_TIMEOUT_S)
                 response.raise_for_status()
 
                 # Decode HTML

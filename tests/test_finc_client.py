@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from src.mcp.tool_registry import ToolRegistry
 from src.utils.clients.finc_client import FincClient
-from src.utils.suggesters.finc_suggester import FincSuggester
+from src.core.search.providers.finc.suggester import FincSuggester
 
 
 # --------------------------------------------------------------------------

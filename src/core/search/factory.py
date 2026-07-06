@@ -30,6 +30,30 @@ logger = logging.getLogger(__name__)
 
 CATEGORY = "search_provider"
 
+# Operator-URL warnings already emitted this process (anti-spam: build_provider
+# runs per search operation). - Claude Generated
+_warned_operator_urls: set = set()
+
+
+def _warn_operator_urls(cls: type, instance: "PluginInstanceConfig") -> None:
+    """Log net_guard posture-(a) warnings for URL-kind settings, once each - Claude Generated"""
+    try:
+        from src.core.plugins.schema import URL
+        from src.utils.net_guard import check_operator_url
+
+        fields = cls.config_fields() if hasattr(cls, "config_fields") else []
+        for fld in fields:
+            if getattr(fld, "kind", None) != URL:
+                continue
+            value = str((instance.settings or {}).get(fld.key) or "")
+            for msg in check_operator_url(value):
+                key = (instance.instance_id, fld.key, msg)
+                if key not in _warned_operator_urls:
+                    _warned_operator_urls.add(key)
+                    logger.warning("Plugin '%s': %s", instance.instance_id, msg)
+    except Exception:
+        pass
+
 
 def _global_response_cache_enabled() -> bool:
     """Read the ``SystemConfig.enable_response_cache`` master switch (default True).
@@ -64,7 +88,14 @@ def build_provider(
     fetch seam). ``None`` ⇒ read the global master switch.
     """
     cls = get_provider(instance.provider_id)
-    provider = cls(**dict(instance.settings or {}))
+    _warn_operator_urls(cls, instance)
+    # Secret settings may be overridden per env var (ALIMA_PLUGIN_<ID>_<KEY>) —
+    # runtime-only, never persisted. - Claude Generated
+    from src.core.plugins.schema import apply_env_overrides
+
+    fields = cls.config_fields() if hasattr(cls, "config_fields") else []
+    settings = apply_env_overrides(instance.instance_id, instance.settings, fields)
+    provider = cls(**settings)
     if cache_raw is None:
         cache_raw = _global_response_cache_enabled()
     try:

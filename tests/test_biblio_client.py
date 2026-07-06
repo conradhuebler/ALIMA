@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch, MagicMock
 import xml.etree.ElementTree as ET
 
 from src.utils.clients.biblio_client import BiblioClient
-from src.utils.suggesters.biblio_suggester import BiblioSuggester
+from src.core.search.providers.catalog.suggester import BiblioSuggester
 
 
 # Mock XML response for testing (based on real Libero SOAP response structure)

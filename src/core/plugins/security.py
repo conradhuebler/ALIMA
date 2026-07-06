@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Tuple
 
 # Modules whose mere import is worth flagging, grouped by severity.
 _HIGH_IMPORTS: Set[str] = {
@@ -36,6 +37,10 @@ _LOW_IMPORTS: Set[str] = {
 
 # Bare builtin calls that execute code / touch the environment.
 _HIGH_CALLS: Set[str] = {"eval", "exec", "compile", "__import__"}
+
+# ``requests.<verb>()`` calls that must carry an explicit ``timeout=`` kwarg
+# (project HTTP convention — a hung endpoint must not hang the pipeline).
+_HTTP_VERB_ATTRS: Set[str] = {"get", "post", "put", "patch", "delete", "head", "request"}
 
 # ``module.attr`` call chains worth flagging (matched on the trailing attr with a
 # known dangerous root name).
@@ -103,6 +108,16 @@ class _RiskVisitor(ast.NodeVisitor):
             pair = (func.value.id, func.attr)
             if pair in _HIGH_ATTR_CALLS:
                 self._add("high", f"calls '{pair[0]}.{pair[1]}()'", node)
+            elif (
+                func.value.id == "requests"
+                and func.attr in _HTTP_VERB_ATTRS
+                and not any(kw.arg == "timeout" for kw in node.keywords)
+            ):
+                self._add(
+                    "medium",
+                    f"calls 'requests.{func.attr}()' without an explicit timeout",
+                    node,
+                )
         self.generic_visit(node)
 
     @staticmethod
@@ -129,35 +144,77 @@ def scan_source(source: str, *, filename: str = "<plugin>") -> List[ScanFinding]
     return sorted(visitor.findings, key=lambda f: (order.get(f.severity, 3), f.lineno))
 
 
-def scan_dir(plugin_dir: Path) -> List[ScanFinding]:
-    """Scan every ``*.py`` under ``plugin_dir`` and merge findings."""
+def iter_plugin_files(plugin_dir: Path) -> Tuple[List[Path], List[Path]]:
+    """Regular files + symlinks under ``plugin_dir``; symlinks are never followed.
+
+    Skips ``__pycache__`` and hidden directories plus ``*.pyc`` noise. Symlinks
+    (file or directory) are returned separately: they are excluded from hashing
+    and scanning — a symlink can point outside the plugin dir, so callers flag
+    them instead of trusting their content. - Claude Generated
+    """
     plugin_dir = Path(plugin_dir)
+    files: List[Path] = []
+    symlinks: List[Path] = []
+    for root, dirnames, filenames in os.walk(plugin_dir, followlinks=False):
+        rootp = Path(root)
+        kept_dirs = []
+        for d in dirnames:
+            dp = rootp / d
+            if dp.is_symlink():
+                symlinks.append(dp)
+            elif d == "__pycache__" or d.startswith("."):
+                continue
+            else:
+                kept_dirs.append(d)
+        dirnames[:] = kept_dirs
+        for f in filenames:
+            fp = rootp / f
+            if fp.is_symlink():
+                symlinks.append(fp)
+            elif not f.endswith(".pyc"):
+                files.append(fp)
+    return sorted(files), sorted(symlinks)
+
+
+def scan_dir(plugin_dir: Path) -> List[ScanFinding]:
+    """Scan every ``*.py`` under ``plugin_dir`` and merge findings.
+
+    Any symlink in the plugin dir is itself a high finding: it is excluded from
+    the trust hash and may point outside the directory the operator approves.
+    """
+    plugin_dir = Path(plugin_dir)
+    files, symlinks = iter_plugin_files(plugin_dir)
     findings: List[ScanFinding] = []
-    for py in sorted(plugin_dir.rglob("*.py")):
+    for link in symlinks:
+        rel = link.relative_to(plugin_dir).as_posix()
+        findings.append(
+            ScanFinding(
+                "high",
+                f"contains symlink '{rel}' — excluded from the trust hash, may point outside the plugin dir",
+                0,
+            )
+        )
+    for py in files:
+        if py.suffix != ".py":
+            continue
         findings.extend(
             scan_source(py.read_text(encoding="utf-8", errors="replace"), filename=str(py))
         )
     return findings
 
 
-def _plugin_files(plugin_dir: Path) -> List[Path]:
-    """Files that participate in the trust hash: code + manifests."""
-    plugin_dir = Path(plugin_dir)
-    out: List[Path] = []
-    for pattern in ("*.py", "*.toml", "*.yaml", "*.yml", "*.json"):
-        out.extend(plugin_dir.rglob(pattern))
-    return sorted(set(out))
-
-
 def hash_dir(plugin_dir: Path) -> str:
     """SHA-256 over the plugin's files (path + bytes), for trust-on-first-use.
 
-    Paths are included relative to ``plugin_dir`` so a rename is a change too.
-    Deterministic across runs (sorted file order).
+    Covers **all** regular files (code, manifests, data — a plugin's data files
+    are part of what the operator approves); symlinks are excluded (flagged by
+    :func:`scan_dir` instead). Paths are included relative to ``plugin_dir`` so
+    a rename is a change too. Deterministic across runs (sorted file order).
     """
     plugin_dir = Path(plugin_dir)
+    files, _symlinks = iter_plugin_files(plugin_dir)
     h = hashlib.sha256()
-    for f in _plugin_files(plugin_dir):
+    for f in files:
         rel = f.relative_to(plugin_dir).as_posix()
         h.update(rel.encode("utf-8"))
         h.update(b"\0")

@@ -36,7 +36,13 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 ## [Variable Section - Short-term Information]
 
 ### Known state — API keys in plaintext
-`~/.config/alima/config.json` stores provider API keys unencrypted. Encryption/keyring is a separate (security, platform-dependent) package — recorded here so it is not mistaken for an oversight.
+`~/.config/alima/config.json` stores provider API keys unencrypted. Encryption/keyring is a separate (security, platform-dependent) package — recorded here so it is not mistaken for an oversight. Mitigation (July 6): plugin SECRET fields can be supplied per env var `ALIMA_PLUGIN_<INSTANCE_ID>_<KEY>` (runtime-only, never persisted); legacy mirror readers do not see env overrides.
+
+### net_guard (July 6)
+`net_guard.py` — two-posture URL validation: `check_operator_url`/`require_http_url` for operator-configured endpoints (scheme gate, intranet allowed) and `assert_public_http_url`/`fetch_guarded` (strict SSRF guard, redirect-per-hop, size cap) for runtime/LLM-supplied URLs (`url_fetch`, MCP `scrape_url`). Exceptions: `SystemConfig.url_fetch_allowlist`.
+
+### Suggester relocation (July 6)
+`lobid/swb/biblio/finc`-Suggester moved into their plugin dirs (`src/core/search/providers/<name>/suggester.py`); `src/utils/suggesters/` keeps only `base_suggester.py` (shared contract) + `meta_suggester.py` (orchestrator). Shared transport clients stay in `src/utils/clients/`.
 
 ### WIP: DK Classification Splitting
 Split the DK list into equal halves for parallel LLM classification, merge with dedup (top 15). `execute_dk_classification_split()` in `pipeline_utils.py`, gated by `enable_dk_splitting` + `dk_split_threshold`. Details: `docs/dk_classification_splitting.md`.

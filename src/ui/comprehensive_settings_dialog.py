@@ -820,6 +820,8 @@ class ComprehensiveSettingsDialog(QDialog):
             prompts_path=config.system_config.prompts_path,
             first_run_completed=config.system_config.first_run_completed,
             skip_first_run_check=config.system_config.skip_first_run_check,
+            # enable_code_plugins is edited in the Plugins tab; its apply_to()
+            # runs after this construction and overwrites the value. - Claude Generated
             enable_code_plugins=config.system_config.enable_code_plugins,
             enable_response_cache=self.enable_response_cache.isChecked(),
             aggregate_from_raw=self.aggregate_from_raw.isChecked(),

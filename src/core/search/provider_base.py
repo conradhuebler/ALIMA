@@ -4,6 +4,11 @@ The lobid / swb / catalog sources already implement the GND-keyword
 ``search(terms, ...) -> {term: {keyword: {...}}}`` contract; these providers are
 thin adapters that lazily build the suggester and convert its output to a typed
 :class:`ProviderResult`. Behaviour is unchanged (P1 is facade-preserving).
+
+Public plugin API: third-party GND-keyword plugins subclass
+``SuggesterBackedProvider`` via the absolute import
+``from src.core.search.provider_base import SuggesterBackedProvider`` — see
+``docs/plugin_authoring.md`` and the ``providers/lobid/`` blueprint dir.
 """
 
 from __future__ import annotations
@@ -13,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.core.plugins.schema import ConfigField, PluginDoc, availability_ok
 
-from ..provider import ProviderResult, SearchCapability, raw_cache_params_for
+from src.core.search.provider import ProviderResult, SearchCapability, raw_cache_params_for
 
 
 class SuggesterBackedProvider:

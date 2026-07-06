@@ -13,7 +13,7 @@ import os
 import unittest
 
 try:
-    from src.utils.suggesters.lobid_suggester import LobidSuggester
+    from src.core.search.providers.lobid.suggester import LobidSuggester
     IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover
     IMPORT_ERROR = exc

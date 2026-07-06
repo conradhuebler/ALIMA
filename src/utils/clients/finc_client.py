@@ -164,6 +164,20 @@ class FincClient:
             }
 
         url = f"{self.base_url}{self.SEARCH_PATH}"
+        try:
+            # Operator-configured endpoint: cheap scheme gate only (intranet OK,
+            # file:// etc. rejected). - Claude Generated
+            from src.utils.net_guard import require_http_url
+
+            require_http_url(url, what="finc base URL")
+        except ValueError as exc:
+            return {
+                "status": "ERROR",
+                "resultCount": 0,
+                "records": [],
+                "facets": {},
+                "error": str(exc),
+            }
         # limit=0 is a valid facet-only request; None means "use the default".
         if limit is None:
             effective_limit = self.default_limit

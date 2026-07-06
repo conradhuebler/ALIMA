@@ -1,0 +1,21 @@
+# Real, loadable code-plugin manifest — this built-in dir doubles as the
+# copyable blueprint for SOAP-/Token-basierte Katalog-Plugins (Libero). To make
+# this YOUR plugin: rename `id` here AND the class `id` attribute in
+# provider.py (they must match).
+
+[plugin]
+id = "catalog"
+label = "Katalog (Libero)"
+category = "search_provider"
+type = "code"
+api_version = "1"
+capabilities = ["gnd_keywords", "title_records", "classification"]
+
+[entry]
+module = "provider.py"
+class = "CatalogProvider"
+
+[doc]
+description = "Lokaler Bibliothekskatalog (Libero/SOAP): GND-Schlagworte, bibliografische Titel-Datensätze und DK-Klassifikationen."
+input = "Suchbegriffe bzw. Titel-/Schlagwortanfragen (je nach Capability)."
+output = "GND-Schlagworte, Titel-Datensätze (rsn, Titel, Autoren, web_url …) oder DK-Notationen."

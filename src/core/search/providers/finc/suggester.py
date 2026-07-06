@@ -23,8 +23,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .base_suggester import BaseSuggester, BaseSuggesterError
-from ..clients.finc_client import FincClient
+from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
+from src.utils.clients.finc_client import FincClient
 
 
 class FincSuggesterError(BaseSuggesterError):

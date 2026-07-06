@@ -21,9 +21,9 @@ import unittest
 try:
     from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
     from src.utils.config_models import DatabaseConfig
-    from src.core.search.providers._base import SuggesterBackedProvider
+    from src.core.search.provider_base import SuggesterBackedProvider
     from src.core.search.provider import SearchCapability
-    from src.utils.suggesters.biblio_suggester import BiblioSuggester
+    from src.core.search.providers.catalog.suggester import BiblioSuggester
     IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover
     IMPORT_ERROR = exc
@@ -373,7 +373,7 @@ class RecordRawCaptureTest(unittest.TestCase):
             pass
 
     def test_catalog_titles_raw_stored(self):
-        from src.core.search.providers.catalog_provider import CatalogProvider
+        from src.core.search.providers.catalog.provider import CatalogProvider
 
         class _FakeBiblio:
             def search_titles(self, terms, search_type="title", max_results=25):
@@ -389,7 +389,7 @@ class RecordRawCaptureTest(unittest.TestCase):
         self.assertEqual(json.loads(got["raw_json"])["totalItems"], 2)
 
     def test_finc_raw_stored(self):
-        from src.core.search.providers.finc_provider import FincProvider
+        from src.core.search.providers.finc.provider import FincProvider
 
         class _FakeFinc:
             last_errors = {}

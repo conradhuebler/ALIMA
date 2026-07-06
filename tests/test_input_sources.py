@@ -61,20 +61,39 @@ class DispatchParityTest(unittest.TestCase):
 
 
 class UrlFetchTest(unittest.TestCase):
+    """scrape_url now routes through net_guard.fetch_guarded (SSRF guard):
+    mock the guard's response surface + a public DNS resolution. - Claude Generated"""
+
     def _resp(self, html: str):
-        return types.SimpleNamespace(content=html.encode("utf-8"), raise_for_status=lambda: None)
+        body = html.encode("utf-8")
+        return types.SimpleNamespace(
+            status_code=200,
+            headers={},
+            iter_content=lambda chunk_size: iter([body]),
+            close=lambda: None,
+        )
+
+    def _public_dns(self):
+        return patch("socket.getaddrinfo", lambda *a, **kw: [(2, 1, 6, "", ("93.184.216.34", 80))])
 
     def test_scrape_main_content(self):
         html = "<html><body><main>" + ("Wort " * 30) + "</main><nav>skip</nav></body></html>"
-        with patch("requests.get", return_value=self._resp(html)):
-            text = scrape_url("http://x", min_chars=10)
+        with self._public_dns(), patch("requests.get", return_value=self._resp(html)):
+            text = scrape_url("http://x", min_chars=10, allowlist=[], max_bytes=10_000_000)
         self.assertIn("Wort", text)
         self.assertNotIn("skip", text)
 
     def test_too_little_text_raises(self):
-        with patch("requests.get", return_value=self._resp("<html><body><main>hi</main></body></html>")):
+        with self._public_dns(), patch(
+            "requests.get", return_value=self._resp("<html><body><main>hi</main></body></html>")
+        ):
             with self.assertRaises(ValueError):
-                scrape_url("http://x", min_chars=50)
+                scrape_url("http://x", min_chars=50, allowlist=[], max_bytes=10_000_000)
+
+    def test_private_target_blocked(self):
+        with patch("socket.getaddrinfo", lambda *a, **kw: [(2, 1, 6, "", ("127.0.0.1", 80))]):
+            with self.assertRaises(RuntimeError):
+                scrape_url("http://internal.host/x", allowlist=[], max_bytes=10_000_000)
 
     def test_source_can_handle(self):
         src = get_input_source("url_fetch")()

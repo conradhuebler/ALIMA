@@ -1,0 +1,21 @@
+# Real, loadable code-plugin manifest — this built-in dir doubles as the
+# copyable blueprint for VuFind-/JSON-API-Katalog-Plugins (Records + Facetten
+# statt GND-Keywords). To make this YOUR plugin: rename `id` here AND the class
+# `id` attribute in provider.py (they must match).
+
+[plugin]
+id = "finc"
+label = "finc (VuFind)"
+category = "search_provider"
+type = "code"
+api_version = "1"
+capabilities = ["title_records", "subject_facets"]
+
+[entry]
+module = "provider.py"
+class = "FincProvider"
+
+[doc]
+description = "finc/VuFind-Katalogsuche: bibliografische Titel-Datensätze und Klassifikations-Facetten (DK/RVK-Verteilungen)."
+input = "Suchanfrage (Subject/Titel/Autor/Freitext), optional Facetten-Namen."
+output = "Titel-Records (id, Titel, Autoren, Subjects, web_url …) bzw. Facetten-Verteilungen."

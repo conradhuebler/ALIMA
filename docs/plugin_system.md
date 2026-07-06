@@ -1,9 +1,13 @@
 # Generic Plugin System
 
-> **Status:** ✅ Implemented (July 1, 2026). Category-agnostic framework in
+> **Status:** ✅ Implemented (July 1, 2026); **hardened + self-contained
+> blueprint dirs** (July 6, 2026). Category-agnostic framework in
 > `src/core/plugins/`, with two concrete categories: **search providers**
 > (`src/core/search/`) and **input sources** (`src/utils/input_sources/`).
-> Suite: `907 passed`. GUI (`PluginSettingsTab`) is operator-click-test-gated.
+> Every built-in search provider is now a copyable plugin directory
+> (`src/core/search/providers/<name>/` with plugin.toml + README) — authoring
+> guide: [`plugin_authoring.md`](plugin_authoring.md).
+> GUI (`PluginSettingsTab`) is operator-click-test-gated.
 
 ## Motivation
 
@@ -84,12 +88,53 @@ zero cost when the dir is absent).
 - **Tier 2 — code (experimental, consent-gated).** A Python class implementing the
   category contract. Gated by, in order: `SystemConfig.enable_code_plugins` (default
   `False`) → AST scan (`security.scan_dir` flags process/network/filesystem/dynamic-code
-  use) → SHA-256 trust-on-first-use → explicit operator approval (`approve_cb`) → import.
+  use, `requests` calls without timeout, and any symlink) → SHA-256 trust-on-first-use →
+  explicit operator approval (`approve_cb`) → import.
   Approved hashes are stored in `AlimaConfig.approved_plugins`; a changed hash re-prompts.
+
+### Hardening (July 2026)
+
+- **Multi-file package loading**: the loader mounts the plugin dir as a synthetic
+  package `alima_plugin_<id>` and imports only the manifest's entry module —
+  single-level relative imports (`from .suggester import X`) work; the plugin's
+  `__init__.py` is never executed. Failed imports clean up `sys.modules`.
+- **Entry rules**: `entry.module` must be exactly one top-level `NAME.py`
+  (no subpaths, not `__init__.py`, no symlink); `entry.class` must be a valid
+  identifier; the loaded class's `id` attribute must equal the manifest id
+  (an un-renamed blueprint copy is rejected with a rename hint).
+- **Trust hash covers all regular files** (code + manifests + data), relative
+  paths included; symlinks are excluded from the hash and reported as high
+  findings (they can point outside the approved dir). Widening the coverage
+  invalidated pre-existing approvals once (intentional re-approval).
+- **Id collisions** with built-ins/registered types fail loudly (`status="error"`)
+  and leave the registry untouched.
+- **Secrets**: `ConfigField(kind=SECRET)` values can be overridden at runtime via
+  `ALIMA_PLUGIN_<INSTANCE_ID>_<KEY>` env vars (applied only at provider/source
+  construction — never persisted to config.json/mirrors); GUI masks + shows the
+  active override; `list_plugins` excludes secret keys schema-based.
+- **Network**: `src/utils/net_guard.py` — operator-configured base URLs get a
+  scheme gate (`require_http_url`, intranet allowed) + save-time warnings;
+  runtime/LLM-supplied URLs (`scrape_url`, URL input) go through `fetch_guarded`
+  (public-address check per redirect hop, size cap,
+  `SystemConfig.url_fetch_allowlist` for intranet exceptions). Residual risk
+  (DNS rebinding) documented in the module.
 
 > **Honest limit (conservative-assessment rule).** Tier-2 is *informed consent +
 > tamper-detection, not a sandbox*. An approved plugin is imported in-process with full
 > privileges; the AST scan is a deterrent, not a proof. Prefer Tier-1 for anything shared.
+> Headless contexts (webapp/CLI without an approval callback) always deny code plugins.
+
+### Built-in dirs are the blueprints
+
+Every built-in search provider lives in a self-contained dir
+`src/core/search/providers/<name>/` (`plugin.toml` + `README.md` + `provider.py`
+[+ `suggester.py`]). The same dir, copied to `~/.config/alima/plugins/` and
+renamed (manifest `id` **and** class `id`), loads through the Tier-2 path —
+proven by `tests/test_plugin_blueprint_e2e.py`. Import rule: framework imports
+absolute, intra-plugin imports single-level relative. Shared transport clients
+(`src/utils/clients/`) deliberately stay shared (multi-consumer; see the
+per-plugin READMEs). `SuggesterBackedProvider` is public API at
+`src/core/search/provider_base.py`.
 
 ### Manifest example
 

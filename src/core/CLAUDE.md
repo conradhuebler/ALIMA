@@ -13,8 +13,9 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - `ProcessingUtils`: Text processing and keyword extraction utilities
 
 **Plugin System (`src/core/plugins/`, Qt-free):**
-- Category-agnostic framework: `ConfigField` schema, `PluginCategory` adapter registry, `plugin.toml` manifest + directory loader, AST security scanner + hash-pinning. Concrete categories: search providers + input sources. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+- Category-agnostic framework: `ConfigField` schema, `PluginCategory` adapter registry, `plugin.toml` manifest + directory loader (multi-file package loading), AST security scanner + hash-pinning (all files, symlinks rejected). Concrete categories: search providers + input sources. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md), Authoring: [`docs/plugin_authoring.md`](../../docs/plugin_authoring.md).
 - Search: `@register_provider` + `config_fields` per provider; `search/factory.py` `build_provider` is the single config→provider site (kills 3× hand-wiring). `sru` is a first-class provider type.
+- ✅ **Self-contained blueprint dirs (July 6)** — each built-in provider is a copyable plugin dir `search/providers/<name>/` (plugin.toml + README + provider [+ suggester]); `SuggesterBackedProvider` is public API (`search/provider_base.py`); secret settings env-overridable (`ALIMA_PLUGIN_<ID>_<KEY>`); URL/SSRF guards in `src/utils/net_guard.py`. E2E: `tests/test_plugin_blueprint_e2e.py`.
 
 **Suggester System:**
 - Located in `suggesters/` subdirectory; wrapped by the capability-based providers (`src/core/search/`).

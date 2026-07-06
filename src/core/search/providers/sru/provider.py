@@ -19,8 +19,8 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import CHOICE, INT, TEXT, URL, ConfigField
 
-from ..provider import ProviderResult, ResultItem, SearchCapability
-from ..registry import register_provider
+from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
+from src.core.search.registry import register_provider
 
 _PRESETS = ["", "dnb", "loc", "gbv", "swb", "k10plus"]
 _SCHEMAS = ["marcxml", "MARC21-xml"]

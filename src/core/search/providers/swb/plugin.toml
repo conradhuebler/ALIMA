@@ -1,0 +1,21 @@
+# Real, loadable code-plugin manifest — this built-in dir doubles as a
+# copyable blueprint (HTML-scraping variant of a GND-keyword plugin). To make
+# this YOUR plugin: rename `id` here AND the class `id` attribute in
+# provider.py (they must match).
+
+[plugin]
+id = "swb"
+label = "SWB (BSZ)"
+category = "search_provider"
+type = "code"
+api_version = "1"
+capabilities = ["gnd_keywords"]
+
+[entry]
+module = "provider.py"
+class = "SwbProvider"
+
+[doc]
+description = "GND-Schlagwortsuche im SWB-Verbundkatalog (BSZ)."
+input = "Ein oder mehrere Suchbegriffe (Schlagwort/Titel/Freitext)."
+output = "GND-Schlagwort-Kandidaten mit GND-IDs, Häufigkeit und DDC/DK-Notationen."

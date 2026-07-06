@@ -6,6 +6,65 @@
 
 ## 2026
 
+### Plugin-System: Self-contained Blueprint-Dirs + Security-Härtung (July 6, 2026)
+
+Operator-Auftrag: robustes, sicheres Plugin-System — Built-ins als kopierbare
+Blaupausen, Sicherheitsevaluation + Härtung. Suite `965 → 1009 passed` (0 fail).
+Specs: [`docs/plugin_system.md`](docs/plugin_system.md) (aktualisiert), neu:
+[`docs/plugin_authoring.md`](docs/plugin_authoring.md).
+
+- **Loader (`src/core/plugins/loader.py`):** Multi-File-Code-Plugins via
+  synthetischem Package `alima_plugin_<id>` (`__path__`-Mount, nur entry-Modul
+  wird ausgeführt, `sys.modules`-Cleanup bei Fehlimport); entry-Datei-Containment
+  (kein Symlink, resolved im Plugin-Dir); Konsistenz-Check Klassen-`id` ==
+  Manifest-`id`; id-Kollision → freundlicher Rename-Hinweis.
+- **Security (`security.py`):** `iter_plugin_files` (folgt nie Symlinks, skip
+  `__pycache__`/hidden/`*.pyc`); `hash_dir` über **alle** regulären Dateien
+  (⚠️ invalidiert bestehende Approvals einmalig → Re-Approval-Prompt); Symlink =
+  High-Finding; `requests.*` ohne `timeout` = Medium-Finding.
+- **Manifest (`manifest.py`):** `entry.module` genau eine Top-Level-`NAME.py`
+  (nicht `__init__.py`), `entry.class` muss Identifier sein.
+- **net_guard (neu, `src/utils/net_guard.py`):** Zwei-Posture-URL-Validierung —
+  Operator-URLs: Schema-Gate + Warnungen (Settings-Save-Dialog +
+  Factory-Log, Intranet erlaubt); Laufzeit-/LLM-URLs: `fetch_guarded`
+  (public-only per Redirect-Hop, Size-Cap, `SystemConfig.url_fetch_allowlist`/
+  `url_fetch_max_bytes`). Verdrahtet: `url_fetch.scrape_url`, MCP `scrape_url`,
+  finc-/marcxml-Client (`require_http_url`). Timeouts: swb `requests.get`
+  (15 s), lobid `urlopen`/Dump-Download.
+- **Secrets:** `ALIMA_PLUGIN_<INSTANCE_ID>_<KEY>`-Env-Override für
+  `ConfigField(secret)` — nur zur Konstruktionszeit (`factory.build_provider`,
+  `InputSourceCategory.build`, `MetaSuggester.__init__`, `_init_suggesters`-
+  Catalog-Token), nie persistiert; GUI-Placeholder zeigt aktiven Override;
+  `list_plugins` maskiert schemabasiert. Lücke dokumentiert: Legacy-Mirror-Leser.
+- **Restructure:** jede Built-in-Anbindung ist ein self-contained Plugin-Dir
+  `src/core/search/providers/{lobid,swb,catalog,finc,sru,gnd_local}/` mit
+  `plugin.toml` (echtes Code-Manifest, testvalidiert) + `README.md` (Copy-
+  Anleitung) + `provider.py` [+ `suggester.py` = ehem. `lobid_suggester`/
+  `swb_suggester`/`biblio_suggester`/`finc_suggester` aus `src/utils/suggesters/`].
+  Import-Regel: Framework absolut, intra-Plugin relativ. `_base.py` →
+  `src/core/search/provider_base.py` (öffentliche API). Shared Clients bleiben
+  in `src/utils/clients/` (Multi-Consumer). Nebenbefund gefixt: toter Import
+  `_main_window_data.py:462`.
+- **Tests (+44):** `test_plugins.py` erweitert (Multi-File, Symlinks, Hash-
+  Abdeckung, entry-Validierung, Kollision, sys.modules-Cleanup, headless-deny);
+  neu `test_net_guard.py`, `test_plugin_secrets.py`,
+  `test_builtin_plugin_manifests.py` (alle 6 Manifeste konsistent),
+  `test_plugin_blueprint_e2e.py` (copytree → rename → discover → search =
+  der Operator-Workflow). `ConfigField.coerce` typsicher (str-Cast, CHOICE-
+  Validierung).
+- **Operator-Click-Test-Fixes (July 6, nachmittags; Suite → 1014 passed):**
+  (1) GUI: `enable_code_plugins`-Checkbox + Scan-Button + Approval-Dialog im
+  Plugins-Tab (existierten nicht; config-load bleibt headless=deny).
+  (2) Loader prüft Klassen-id **statisch per AST vor dem Import** — „nur
+  plugin.toml umbenannt" bricht jetzt mit präzisem Hinweis ab, ohne Code
+  auszuführen. (3) Loader **seedet für Code-Plugins eine Instanz** (vorher nur
+  Typ-Registrierung → Plugin unsichtbar, keine Tools); `[settings]` im Manifest
+  jetzt auch für Tier 2. (4) Tool-Generierung: Kopien mit unverändertem
+  Spec-Namen werden suffigiert statt das Built-in zu überschatten; kanonische
+  Handler fremder Typen laufen über den generischen Factory-Pfad
+  (hand-wired nur lobid/swb/catalog/finc).
+
+
 ### Raw-First Response Cache (WP2, P1–P5) (July 2, 2026)
 
 Cache the source response **verbatim**, derive the reduced pool view on read

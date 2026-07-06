@@ -31,6 +31,10 @@ SUPPORTED_API_VERSIONS = {"1"}
 _DECLARATIVE = "declarative"
 _CODE = "code"
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# entry.module: exactly one top-level importable module file inside the plugin
+# dir — no subpaths, no `__init__.py` (that file is built-in-mode glue and is
+# never executed by the loader). - Claude Generated
+_ENTRY_MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.py$")
 
 
 class ManifestError(ValueError):
@@ -120,25 +124,35 @@ def parse_manifest(data: Dict[str, Any], *, source_dir: Optional[Path] = None) -
         source_dir=Path(source_dir) if source_dir else None,
     )
 
+    # [settings] seeds the instance for BOTH tiers (declarative: the built-in
+    # type's values; code: initial values for the new type). - Claude Generated
+    settings = data.get("settings", plugin.get("settings", {})) or {}
+    if not isinstance(settings, dict):
+        raise ManifestError("'settings' must be a table/mapping")
+    manifest.settings = dict(settings)
+
     if ptype == _DECLARATIVE:
         kind = plugin.get("kind")
         if not kind or not isinstance(kind, str):
             raise ManifestError("declarative plugin requires a string 'kind' (built-in type id)")
         manifest.kind = kind
-        settings = data.get("settings", plugin.get("settings", {})) or {}
-        if not isinstance(settings, dict):
-            raise ManifestError("'settings' must be a table/mapping")
-        manifest.settings = dict(settings)
     else:  # code
         entry = data.get("entry", plugin.get("entry", {})) or {}
         module = entry.get("module")
         cls = entry.get("class")
         if not module or not cls:
             raise ManifestError("code plugin requires [entry] with 'module' and 'class'")
-        if ".." in str(module) or Path(str(module)).is_absolute():
-            raise ManifestError("entry.module must be a relative path inside the plugin dir")
-        manifest.entry_module = str(module)
-        manifest.entry_class = str(cls)
+        module = str(module)
+        cls = str(cls)
+        if not _ENTRY_MODULE_RE.match(module) or module == "__init__.py":
+            raise ManifestError(
+                f"entry.module '{module}' invalid — must be a single top-level module "
+                "file like 'provider.py' (no subdirectories, not __init__.py)"
+            )
+        if not cls.isidentifier():
+            raise ManifestError(f"entry.class '{cls}' is not a valid Python identifier")
+        manifest.entry_module = module
+        manifest.entry_class = cls
 
     return manifest
 

@@ -13,8 +13,8 @@ No network — suggesters/clients are exercised via ``__new__`` / fake ``self``.
 import unittest
 
 try:
-    from src.utils.suggesters.swb_suggester import SWBSuggester
-    from src.utils.suggesters.biblio_suggester import BiblioSuggester
+    from src.core.search.providers.swb.suggester import SWBSuggester
+    from src.core.search.providers.catalog.suggester import BiblioSuggester
     from src.utils.clients.biblio_client import BiblioClient
     IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover
