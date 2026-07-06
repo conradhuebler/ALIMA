@@ -128,14 +128,17 @@ When documenting implemented features, the AI must apply these rules:
   + GUI-`find_keywords` weiter auf `lobid`/`swb` verdrahtet. Offen:
   Operator-GUI-Sign-off (`examples/plugins_poc/README.md` §Verifikation).
   Guide: [`docs/plugin_authoring.md`](docs/plugin_authoring.md) §10.
-- **WP Institutional Bundles** ✅ (July 6): `alima bundle {build,install,list,remove}`
-  + GUI-Gruppe im Plugin-Tab — Einrichtungen rollen Plugins + beratendes
-  Config-Profil gebündelt aus. Qt-frei in `src/utils/bundle.py` (CLI:
+- **WP Institutional Bundles** ✅ (July 6): `alima bundle
+  {build,install,export,list,remove}` + GUI-Gruppe im Plugin-Tab — Einrichtungen
+  rollen Plugins + beratendes Config-Profil gebündelt aus; `export` erfasst die
+  laufende Einstellung (Secrets gestrippt+deklariert, synthetische declarative
+  Instanzen mit eindeutiger id, `--plugin`-Auswahl, Code-Plugin setzt
+  `enable_code_plugins`). Qt-frei in `src/utils/bundle.py` (CLI:
   `cli/commands/bundle_cmd.py`, GUI: `ui/plugin_settings_tab.py`), Provenienz-Ledger
   `AlimaConfig.installed_bundles` für präzises remove, `profile.json`-Whitelist
   schützt `unified_config`/Secrets (fail-closed), Per-User-Secrets nur deklariert
   (env-Override). Beispiel `examples/bundles/demo_institution/`, Tests
-  `test_bundle.py`. Advisory, kein Lock/Signing/Auto-Update (bewusst). Doc:
+  `test_bundle.py` (14). Advisory, kein Lock/Signing/Auto-Update (bewusst). Doc:
   [`docs/institutional_bundles.md`](docs/institutional_bundles.md).
 - **WP2 Raw-First Response Cache** ✅ (July 2, P1–P5): source responses cached verbatim
   (`search_response_cache`); pool + counter (`display_count`) + provenance derived from

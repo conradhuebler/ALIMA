@@ -190,6 +190,206 @@ def build_bundle(src_dir: str | Path, out_path: Optional[str | Path] = None) -> 
 
 
 # ---------------------------------------------------------------------------
+# export (admin side, capture a live install as a distributable bundle)
+# ---------------------------------------------------------------------------
+def _toml_scalar(v: Any) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_toml_scalar(x) for x in v) + "]"
+    s = str(v).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{s}"'
+
+
+def _emit_table(header: str, data: Dict[str, Any]) -> str:
+    lines = [f"[{header}]"]
+    for k, v in data.items():
+        lines.append(f"{k} = {_toml_scalar(v)}")
+    return "\n".join(lines) + "\n"
+
+
+def _find_plugin_dir(plugins_dir: Path, plugin_id: str) -> Optional[Path]:
+    """The installed plugin dir whose plugin.toml id == ``plugin_id`` (or None)."""
+    if not plugins_dir.is_dir():
+        return None
+    for d in sorted(p for p in plugins_dir.iterdir() if p.is_dir()):
+        if (d / "plugin.toml").is_file() and _plugin_id(d) == plugin_id:
+            return d
+    return None
+
+
+def export_bundle(
+    dest: str | Path,
+    *,
+    bundle_id: str,
+    version: str = "1.0",
+    label: str = "",
+    institution: str = "",
+    instance_ids: Optional[List[str]] = None,
+    config_manager: Any = None,
+) -> Path:
+    """Capture the current machine's search-provider setup as an install-ready bundle.
+
+    Each selected instance becomes either a copy of its installed plugin dir (if
+    one exists) or a synthesized **declarative** plugin.toml (kind = provider type).
+    Secret fields are **stripped** from the shipped settings and declared under
+    ``[secrets]`` instead — the bundle never carries tokens/keys. The profile
+    captures the current provider enable/disable state + whitelisted, non-default
+    system settings. ``dest`` ending in ``.zip`` produces a zip. - Claude Generated"""
+    from src.core.plugins import get_category
+    from src.utils.config_manager import ConfigManager
+    from src.utils.plugin_discovery import _ensure_categories
+
+    if not _ID_RE.match(bundle_id or ""):
+        raise BundleError(f"invalid bundle id '{bundle_id}'")
+    # Register the search/input categories so config_fields() (secret detection)
+    # works even when export runs before anything imported src.core.search. Without
+    # this, secret stripping silently no-ops. - Claude Generated
+    _ensure_categories()
+
+    cm = config_manager or ConfigManager()
+    config = cm.load_config()
+    plugins_dir = cm.plugins_dir
+
+    search = [p for p in config.plugins if p.category == "search_provider"]
+    if instance_ids is not None:
+        want = set(instance_ids)
+        selected = [p for p in search if p.instance_id in want]
+    else:
+        selected = [p for p in search if p.enabled]
+    if not selected:
+        raise BundleError("no search-provider instances selected for export")
+
+    dest = Path(dest)
+    as_zip = dest.suffix == ".zip"
+    tmp: Optional[tempfile.TemporaryDirectory] = None
+    if as_zip:
+        tmp = tempfile.TemporaryDirectory(prefix="alima_export_")
+        stage = Path(tmp.name) / bundle_id
+    else:
+        stage = dest
+    try:
+        (stage / "plugins").mkdir(parents=True, exist_ok=True)
+        required_secrets: List[Dict[str, str]] = []
+        seen_secret = set()
+        has_code_plugin = False
+
+        def _declare_secrets(provider_id: str, plugin_id: str) -> None:
+            try:
+                fields = get_category("search_provider").config_fields(provider_id)
+            except Exception:
+                fields = []
+            for f in fields:
+                if getattr(f, "secret", False):
+                    dedup = (plugin_id, f.key)
+                    if dedup not in seen_secret:
+                        seen_secret.add(dedup)
+                        required_secrets.append(
+                            {"plugin": plugin_id, "key": f.key, "hint": getattr(f, "help", "") or ""}
+                        )
+
+        for inst in selected:
+            existing = _find_plugin_dir(plugins_dir, inst.instance_id)
+            if existing is not None:
+                # copy the exact installed dir (declarative or code; secret-free —
+                # secrets live in instance settings/env, never in the dir).
+                shutil.copytree(
+                    existing, stage / "plugins" / existing.name,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                if _plugin_is_code(existing):
+                    has_code_plugin = True
+                _declare_secrets(inst.provider_id, inst.instance_id)
+                continue
+
+            # Synthesize a declarative instance from a built-in kind, minus secrets.
+            try:
+                fields = get_category("search_provider").config_fields(inst.provider_id)
+            except Exception:
+                fields = []
+            secret_keys = {f.key for f in fields if getattr(f, "secret", False)}
+            settings = {
+                k: v for k, v in (inst.settings or {}).items()
+                if k not in secret_keys and v not in (None, "")
+            }
+            if not settings:
+                # Nothing meaningful to ship (e.g. lobid/swb have no config); the
+                # target's built-in works out of the box. Skip (its enable/disable
+                # state is still captured in the profile). - Claude Generated
+                continue
+            # Distinct id so it does not collide with the target's synthesized
+            # built-in instance (same instance_id would be dedup-dropped on install,
+            # losing the shipped settings). - Claude Generated
+            new_id = f"{bundle_id}_{inst.instance_id}"
+            pdir = stage / "plugins" / new_id
+            pdir.mkdir(parents=True, exist_ok=True)
+            body = _emit_table("plugin", {
+                "id": new_id,
+                "label": inst.label or new_id,
+                "category": "search_provider",
+                "type": "declarative",
+                "kind": inst.provider_id,
+            })
+            body += "\n" + _emit_table("settings", settings)
+            (pdir / "plugin.toml").write_text(body, encoding="utf-8")
+            _declare_secrets(inst.provider_id, new_id)
+
+        # profile: disabled provider types + non-default whitelisted system keys.
+        # Derive the disabled set from instance state (authoritative), not the
+        # possibly-underived mirror. - Claude Generated
+        profile: Dict[str, Any] = {}
+        disabled = {p.provider_id: False for p in search if not p.enabled}
+        if disabled:
+            profile["search_provider_config"] = {"providers": disabled}
+        from src.utils.config_models import SystemConfig
+
+        defaults = SystemConfig()
+        sysc = {}
+        for k in SYSTEM_ALLOWED_KEYS:
+            cur = getattr(config.system_config, k, None)
+            if cur != getattr(defaults, k, None):
+                sysc[k] = cur
+        if has_code_plugin:
+            # A shipped code plugin only loads on the target when Tier-2 is enabled;
+            # persist that in the profile so it survives an app restart (install
+            # alone would load it once, then it would be blocked). - Claude Generated
+            sysc["enable_code_plugins"] = True
+        if sysc:
+            profile["system_config"] = sysc
+        if profile:
+            (stage / "profile.json").write_text(
+                json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+        # bundle.toml
+        toml = _emit_table("bundle", {
+            "id": bundle_id,
+            "version": version,
+            "label": label or bundle_id,
+            "institution": institution,
+            "alima_min_version": "",
+        })
+        if required_secrets:
+            lines = ["\n[secrets]", "required = ["]
+            for s in required_secrets:
+                lines.append(
+                    f'  {{ plugin = {_toml_scalar(s["plugin"])}, key = {_toml_scalar(s["key"])}, '
+                    f'hint = {_toml_scalar(s["hint"])} }},'
+                )
+            lines.append("]")
+            toml += "\n".join(lines) + "\n"
+        (stage / "bundle.toml").write_text(toml, encoding="utf-8")
+
+        # write approvals.json (+ zip) so the export is install-ready
+        return build_bundle(stage, dest if as_zip else None)
+    finally:
+        if tmp is not None:
+            tmp.cleanup()
+
+
+# ---------------------------------------------------------------------------
 # install (workstation side)
 # ---------------------------------------------------------------------------
 def _resolve_source(path: Path) -> Tuple[Path, Optional[tempfile.TemporaryDirectory]]:

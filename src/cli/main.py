@@ -351,6 +351,14 @@ def create_argument_parser():
     bundle_sub.add_parser("list", help="List installed bundles.")
     bundle_remove = bundle_sub.add_parser("remove", help="Remove an installed bundle by id.")
     bundle_remove.add_argument("id", help="Installed bundle id")
+    bundle_export = bundle_sub.add_parser("export", help="Export the current setup as a bundle (admin).")
+    bundle_export.add_argument("id", help="Bundle id for the export (e.g. ub-freiberg)")
+    bundle_export.add_argument("-o", "--output", required=True, help="Output directory or .zip path")
+    bundle_export.add_argument("--version", default="1.0", help="Bundle version (default 1.0)")
+    bundle_export.add_argument("--label", default="", help="Human-readable label")
+    bundle_export.add_argument("--institution", default="", help="Institution name")
+    bundle_export.add_argument("--plugin", action="append", dest="plugins", metavar="INSTANCE_ID",
+                               help="Only export this instance id (repeatable). Default: all enabled.")
 
     # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated
     workflow_parser = subparsers.add_parser(

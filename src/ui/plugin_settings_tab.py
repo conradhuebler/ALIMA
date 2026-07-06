@@ -21,6 +21,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -303,6 +305,47 @@ class _CategoryPanel(QWidget):
         self._refresh_list()
 
 
+class _ExportBundleDialog(QDialog):
+    """Collect bundle meta + a checklist of which search instances to export - Claude Generated."""
+
+    def __init__(self, instances, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Bundle exportieren")
+        v = QVBoxLayout(self)
+        form = QFormLayout()
+        self.id_edit = QLineEdit()
+        self.id_edit.setPlaceholderText("z. B. ub-freiberg")
+        self.label_edit = QLineEdit()
+        self.institution_edit = QLineEdit()
+        form.addRow("Bundle-ID:", self.id_edit)
+        form.addRow("Label:", self.label_edit)
+        form.addRow("Institution:", self.institution_edit)
+        v.addLayout(form)
+        v.addWidget(QLabel("Zu exportierende Suchquellen (Secrets werden entfernt):"))
+        self.list = QListWidget()
+        for iid, label in instances:
+            item = QListWidgetItem(f"{iid}  —  {label}" if label else iid)
+            item.setData(Qt.ItemDataRole.UserRole, iid)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            self.list.addItem(item)
+        v.addWidget(self.list)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        v.addWidget(buttons)
+
+    def selected_instance_ids(self) -> List[str]:
+        out = []
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                out.append(item.data(Qt.ItemDataRole.UserRole))
+        return out
+
+
 class PluginSettingsTab(QWidget):
     """Top-level plugins tab: one sub-tab per registered plugin category."""
 
@@ -394,6 +437,7 @@ class PluginSettingsTab(QWidget):
         for text, slot in (
             ("Installieren…", self._install_bundle_clicked),
             ("Entfernen", self._remove_bundle_clicked),
+            ("Exportieren…", self._export_bundle_clicked),
             ("Aktualisieren", self._refresh_bundles),
         ):
             btn = QPushButton(text)
@@ -489,6 +533,51 @@ class PluginSettingsTab(QWidget):
         self.load(ConfigManager().load_config())
         self._refresh_bundles()
         QMessageBox.information(self, "Bundle entfernt", f"'{bid}' entfernt.")
+
+    def _export_bundle_clicked(self) -> None:
+        from src.utils import bundle as bundle_mod
+        from src.utils.config_manager import ConfigManager
+
+        config = ConfigManager().load_config()
+        instances = [
+            (p.instance_id, p.label) for p in config.plugins
+            if p.category == "search_provider" and getattr(p, "enabled", True)
+        ]
+        if not instances:
+            QMessageBox.information(
+                self, "Bundle exportieren", "Keine aktivierten Suchquellen zum Export."
+            )
+            return
+        dlg = _ExportBundleDialog(instances, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        bid = dlg.id_edit.text().strip()
+        selected = dlg.selected_instance_ids()
+        if not bid:
+            QMessageBox.information(self, "Bundle exportieren", "Bundle-ID fehlt.")
+            return
+        if not selected:
+            QMessageBox.information(self, "Bundle exportieren", "Keine Quelle ausgewählt.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Bundle speichern", f"{bid}.zip", "Bundle (*.zip)"
+        )
+        if not path:
+            return
+        try:
+            out = bundle_mod.export_bundle(
+                path, bundle_id=bid, label=dlg.label_edit.text().strip(),
+                institution=dlg.institution_edit.text().strip(), instance_ids=selected,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Bundle exportieren", f"Fehlgeschlagen:\n{exc}")
+            return
+        QMessageBox.information(
+            self, "Bundle exportiert",
+            f"Exportiert:\n{out}\n\nExportiert wird der zuletzt gespeicherte Stand "
+            "(Einstellungen vorher speichern). Secrets wurden entfernt und nur "
+            "deklariert — Endpunkte/IDs vor Verteilung prüfen.",
+        )
 
     def _rescan_plugins(self) -> None:
         """Re-run directory discovery with the interactive approval gate - Claude Generated."""

@@ -50,6 +50,20 @@ def _handle_install(args) -> int:
     return 0
 
 
+def _handle_export(args) -> int:
+    out = bundle_mod.export_bundle(
+        args.output,
+        bundle_id=args.id,
+        version=args.version,
+        label=args.label,
+        institution=args.institution,
+        instance_ids=getattr(args, "plugins", None),
+    )
+    print(f"✅ Exported current setup → {out}")
+    print("   (Secrets wurden entfernt und nur deklariert — vor Verteilung prüfen.)")
+    return 0
+
+
 def _handle_list(args) -> int:
     bundles = bundle_mod.list_bundles()
     if not bundles:
@@ -75,6 +89,7 @@ def handle_bundle(args, logger: logging.Logger) -> int:
     handlers = {
         "build": _handle_build,
         "install": _handle_install,
+        "export": _handle_export,
         "list": _handle_list,
         "remove": _handle_remove,
     }

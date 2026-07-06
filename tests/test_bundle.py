@@ -179,6 +179,105 @@ class BundleTest(unittest.TestCase):
         with self.assertRaises(B.BundleError):
             B.remove_bundle("nope", config_manager=self.cm)
 
+    # -- export (admin side) ------------------------------------------------
+    def _config_with_configured_catalog(self):
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(
+                "catalog", "search_provider", "catalog", label="My Catalog",
+                enabled=True, is_primary=True,
+                settings={"token": "SEKRET", "catalog_search_url": "https://x.example/s"},
+            ),
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
+            PluginInstanceConfig("swb", "search_provider", "swb", enabled=False, is_primary=True),
+        ]
+        return cfg
+
+    def test_export_strips_secret_and_captures_profile(self):
+        import tomllib
+
+        cm = _FakeCM(self._config_with_configured_catalog(), self.plugins_dir)
+        out = B.export_bundle(self.tmp / "exp", bundle_id="testx", label="X", config_manager=cm)
+
+        # catalog exported under a distinct id, URLs kept, token stripped
+        pl = (out / "plugins" / "testx_catalog" / "plugin.toml").read_text()
+        self.assertIn("catalog_search_url", pl)
+        self.assertNotIn("SEKRET", pl)
+        self.assertNotIn("token", pl)
+        # lobid has no settings → skipped (no empty declarative)
+        self.assertFalse((out / "plugins" / "testx_lobid").exists())
+        # secret declared in bundle.toml
+        meta = tomllib.loads((out / "bundle.toml").read_text())
+        req = meta["secrets"]["required"]
+        self.assertEqual(req[0]["plugin"], "testx_catalog")
+        self.assertEqual(req[0]["key"], "token")
+        # profile captures the disabled swb type
+        profile = json.loads((out / "profile.json").read_text())
+        self.assertEqual(profile["search_provider_config"]["providers"], {"swb": False})
+        # no secret leaked anywhere in the bundle
+        for f in out.rglob("*"):
+            if f.is_file():
+                self.assertNotIn("SEKRET", f.read_text(errors="replace"))
+
+    def test_export_then_install_roundtrip(self):
+        cm_src = _FakeCM(self._config_with_configured_catalog(), self.plugins_dir)
+        out = B.export_bundle(self.tmp / "exp", bundle_id="testx", config_manager=cm_src)
+
+        # install the exported bundle onto a fresh machine
+        from src.utils.config_models import AlimaConfig
+
+        fresh = AlimaConfig()
+        fresh.plugins = synthesize_search_instances(fresh.catalog_config, fresh.search_provider_config)
+        cm_dst = _FakeCM(fresh, self.tmp / "dst_plugins")
+        report = B.install_bundle(out, config_manager=cm_dst)
+
+        cfg = cm_dst.load_config()
+        cat = next((p for p in cfg.plugins if p.instance_id == "testx_catalog"), None)
+        self.assertIsNotNone(cat)
+        self.assertEqual(cat.settings.get("catalog_search_url"), "https://x.example/s")
+        self.assertFalse(cat.settings.get("token"))  # secret not shipped
+        self.assertFalse(cfg.search_provider_config.is_enabled("swb"))  # profile applied
+        self.assertTrue(any(not s["satisfied"] for s in report.required_secrets))
+
+    def test_export_selects_only_named_instances(self):
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig("catalog", "search_provider", "catalog", enabled=True,
+                                 is_primary=True, settings={"catalog_search_url": "https://c.example"}),
+            PluginInstanceConfig("finc", "search_provider", "finc", enabled=True,
+                                 is_primary=True, settings={"base_url": "https://f.example"}),
+        ]
+        cm = _FakeCM(cfg, self.plugins_dir)
+        out = B.export_bundle(self.tmp / "exp", bundle_id="sel", instance_ids=["catalog"],
+                              config_manager=cm)
+        exported = sorted(p.name for p in (out / "plugins").iterdir())
+        self.assertEqual(exported, ["sel_catalog"])  # finc excluded
+
+    def test_export_code_plugin_persists_enable_flag(self):
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        # a code plugin dir already installed in the plugins dir
+        pdir = self.plugins_dir / "mycode"
+        _write(pdir / "plugin.toml",
+               '[plugin]\nid = "mycode"\nlabel = "My Code"\ncategory = "search_provider"\n'
+               'type = "code"\n[entry]\nmodule = "provider.py"\nclass = "X"\n')
+        _write(pdir / "provider.py", "class X:\n    id = 'mycode'\n")
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig("mycode", "search_provider", "mycode", enabled=True, is_primary=True)
+        ]
+        cm = _FakeCM(cfg, self.plugins_dir)
+        out = B.export_bundle(self.tmp / "expc", bundle_id="cb", config_manager=cm)
+
+        self.assertTrue((out / "plugins" / "mycode" / "provider.py").is_file())  # code copied
+        profile = json.loads((out / "profile.json").read_text())
+        self.assertTrue(profile["system_config"]["enable_code_plugins"])  # survives restart
+
     # -- config field serialization ----------------------------------------
     def test_installed_bundles_survives_serialization(self):
         cfg = AlimaConfig()
