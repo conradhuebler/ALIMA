@@ -1,0 +1,14 @@
+# Declarative (Tier-1) instance of the built-in `sru` provider using a known
+# preset — the institution's preferred title/classification backend. No secret.
+
+[plugin]
+id = "ub_sru_k10plus"
+label = "K10plus (SRU/MARC-XML)"
+category = "search_provider"
+type = "declarative"
+kind = "sru"
+
+[settings]
+preset = "k10plus"
+schema = "marcxml"
+max_records = 50

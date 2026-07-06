@@ -1,0 +1,18 @@
+# Example institutional ALIMA bundle — copy + adapt for your library.
+# Built with:  alima bundle build examples/bundles/demo_institution -o demo.zip
+# Installed with:  alima bundle install demo.zip
+
+[bundle]
+id = "demo_institution"
+version = "2026.1"
+label = "Demo-Bibliothek – ALIMA-Profil"
+institution = "Demo Universitätsbibliothek"
+# Advisory min-version; the installer only warns when it can determine the running version.
+alima_min_version = ""
+
+# Per-user secrets the bundle NEEDS but never ships. After install the operator
+# fills them in the GUI (Plugins tab) or via the env override printed below.
+[secrets]
+required = [
+  { plugin = "ub_catalog", key = "token", hint = "Persönlicher Libero-SOAP-Token (ALIMA_PLUGIN_UB_CATALOG_TOKEN)" },
+]

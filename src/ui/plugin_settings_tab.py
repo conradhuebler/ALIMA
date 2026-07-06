@@ -17,9 +17,11 @@ from __future__ import annotations
 import copy
 from typing import Dict, List, Optional
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -348,6 +350,8 @@ class PluginSettingsTab(QWidget):
         scan_row.addStretch(1)
         layout.addLayout(scan_row)
 
+        layout.addWidget(self._build_bundle_group())
+
     def load(self, config) -> None:
         """Populate every category panel from ``config.plugins``."""
         plugins = list(getattr(config, "plugins", []) or [])
@@ -369,6 +373,122 @@ class PluginSettingsTab(QWidget):
         if getattr(config, "system_config", None) is not None:
             config.system_config.enable_code_plugins = self._code_plugins_cb.isChecked()
         self._warn_on_operator_urls(collected)
+
+    # ---- Institutional bundles (plugins + advisory profile) --------------
+    def _build_bundle_group(self) -> QGroupBox:
+        """Install / list / remove / export institutional bundles - Claude Generated."""
+        box = QGroupBox("📦 Bundles — Einrichtungs-Deployment")
+        v = QVBoxLayout(box)
+        hint = QLabel(
+            "Plugins + beratendes Config-Profil gebündelt installieren oder die "
+            "aktuelle Einrichtung exportieren. Secrets werden nur deklariert, nie "
+            "mitgeliefert (per-User via GUI/ENV nachtragen)."
+        )
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        self._bundle_list = QListWidget()
+        v.addWidget(self._bundle_list)
+
+        row = QHBoxLayout()
+        for text, slot in (
+            ("Installieren…", self._install_bundle_clicked),
+            ("Entfernen", self._remove_bundle_clicked),
+            ("Aktualisieren", self._refresh_bundles),
+        ):
+            btn = QPushButton(text)
+            btn.clicked.connect(slot)
+            row.addWidget(btn)
+        v.addLayout(row)
+        self._refresh_bundles()
+        return box
+
+    def _refresh_bundles(self) -> None:
+        from src.utils import bundle as bundle_mod
+
+        self._bundle_list.clear()
+        try:
+            bundles = bundle_mod.list_bundles()
+        except Exception as exc:  # never let a bad config break the tab
+            self._bundle_list.addItem(f"(Fehler beim Laden: {exc})")
+            return
+        if not bundles:
+            self._bundle_list.addItem("(keine Bundles installiert)")
+            return
+        for b in bundles:
+            plugins = ", ".join(b["plugins"]) or "—"
+            item = QListWidgetItem(f"{b['id']}  v{b['version']}  [{b['label']}] — {plugins}")
+            item.setData(Qt.ItemDataRole.UserRole, b["id"])
+            self._bundle_list.addItem(item)
+
+    def _format_install_report(self, report) -> str:
+        lines = [f"Bundle '{report.bundle_id}' v{report.version} installiert."]
+        for pid, status, sev in report.plugins:
+            extra = "" if sev in ("none", "") else f"  [Scan: {sev}]"
+            lines.append(f"  {'✅' if status == 'loaded' else '❌'} {pid} ({status}){extra}")
+        if report.profile_keys:
+            lines.append(f"Profil (beratend): {', '.join(report.profile_keys)}")
+        if report.integrity_mismatches:
+            lines.append(f"⚠️ Integritäts-Abweichung: {', '.join(report.integrity_mismatches)}")
+        unmet = [s for s in report.required_secrets if not s["satisfied"]]
+        for s in report.required_secrets:
+            state = "gesetzt" if s["satisfied"] else "FEHLT"
+            lines.append(f"Secret [{state}]: {s['plugin']}.{s['key']} (env {s['env_var']})")
+        if unmet:
+            lines.append("→ Offene Secrets im Plugin-Formular oben oder per ENV nachtragen.")
+        for w in report.warnings:
+            lines.append(f"⚠️ {w}")
+        return "\n".join(lines)
+
+    def _install_bundle_clicked(self) -> None:
+        from src.utils import bundle as bundle_mod
+        from src.utils.config_manager import ConfigManager
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Bundle wählen (.zip)", "", "Bundle (*.zip);;Alle Dateien (*)"
+        )
+        if not path:
+            return
+        confirm = QMessageBox.question(
+            self, "Bundle installieren?",
+            f"Bundle installieren?\n\n{path}\n\nEnthaltene Code-Plugins werden "
+            "freigegeben und laufen in-process mit vollen Rechten. Nur bei "
+            "vertrauenswürdiger Quelle fortfahren.",
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            report = bundle_mod.install_bundle(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Bundle-Installation", f"Fehlgeschlagen:\n{exc}")
+            return
+        self.load(ConfigManager().load_config())  # reflect newly seeded instances
+        self._refresh_bundles()
+        QMessageBox.information(self, "Bundle installiert", self._format_install_report(report))
+
+    def _remove_bundle_clicked(self) -> None:
+        from src.utils import bundle as bundle_mod
+        from src.utils.config_manager import ConfigManager
+
+        item = self._bundle_list.currentItem()
+        bid = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not bid:
+            QMessageBox.information(self, "Bundle entfernen", "Kein Bundle ausgewählt.")
+            return
+        if QMessageBox.question(
+            self, "Bundle entfernen?",
+            f"Bundle '{bid}' entfernen?\nInstanzen, Freigaben und Plugin-Dateien "
+            "werden zurückgesetzt (eigene Änderungen an anderen Keys bleiben).",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            bundle_mod.remove_bundle(bid)
+        except Exception as exc:
+            QMessageBox.critical(self, "Bundle entfernen", f"Fehlgeschlagen:\n{exc}")
+            return
+        self.load(ConfigManager().load_config())
+        self._refresh_bundles()
+        QMessageBox.information(self, "Bundle entfernt", f"'{bid}' entfernt.")
 
     def _rescan_plugins(self) -> None:
         """Re-run directory discovery with the interactive approval gate - Claude Generated."""

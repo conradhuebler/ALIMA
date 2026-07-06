@@ -1016,6 +1016,10 @@ class AlimaConfig:
     plugins: List["PluginInstanceConfig"] = field(default_factory=list)
     # Security ledger for Tier-2 code plugins: plugin id -> approved SHA-256 hash. - Claude Generated
     approved_plugins: Dict[str, str] = field(default_factory=dict)
+    # Institutional bundle ledger: bundle id -> provenance record ({version,
+    # plugin_ids, instance_ids, profile_keys, installed_at}) so an installed
+    # bundle can be listed and removed precisely (advisory install). - Claude Generated
+    installed_bundles: Dict[str, Any] = field(default_factory=dict)
 
     # Legacy compatibility attributes - will be removed
     @property

@@ -1,0 +1,17 @@
+# Declarative (Tier-1) instance of the built-in `catalog` provider: ships the
+# institution's endpoints, NOT the token (that is a per-user secret — see
+# ../../bundle.toml [secrets]). No code, so it loads without enable_code_plugins.
+
+[plugin]
+id = "ub_catalog"
+label = "Demo-Bibliothek Katalog (Libero)"
+category = "search_provider"
+type = "declarative"
+kind = "catalog"
+
+[settings]
+catalog_search_url = "https://opac.demo-ub.example/soap/search"
+catalog_details = "https://opac.demo-ub.example/soap/details"
+catalog_web_search_url = "https://opac.demo-ub.example/libero/WebopacOpenURL.cls"
+catalog_web_record_url = "https://opac.demo-ub.example/libero/detail.cls"
+catalog_type = "libero"

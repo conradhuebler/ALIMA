@@ -30,6 +30,7 @@ from src.cli.commands import (
     setup_cmd,
     workflow_cmd,
     agent_cmd,
+    bundle_cmd,
 )
 
 
@@ -37,7 +38,7 @@ from src.cli.commands import (
 _SETUP_EXEMPT_COMMANDS = {
     "setup", "list-models", "list-providers", "test-providers",
     "list-models-detailed", "dnb-import", "clear-cache", "migrate-db",
-    "db-config", "workflows",
+    "db-config", "workflows", "bundle",
 }
 
 
@@ -336,6 +337,21 @@ def create_argument_parser():
     migrate_import_parser.add_argument("--clear", action="store_true", help="Clear destination before import")
     migrate_import_parser.add_argument("--dry-run", action="store_true", help="Validate without importing")
 
+    # Institutional bundle commands (plugins + advisory config profile) - Claude Generated
+    bundle_parser = subparsers.add_parser(
+        "bundle",
+        help="Deploy institutional bundles (plugins + advisory config profile).",
+    )
+    bundle_sub = bundle_parser.add_subparsers(dest="bundle_action", help="Bundle actions")
+    bundle_build = bundle_sub.add_parser("build", help="Validate a bundle dir + write approvals.json (admin).")
+    bundle_build.add_argument("source", help="Path to the bundle directory")
+    bundle_build.add_argument("-o", "--output", help="Write a .zip artifact instead of building in place")
+    bundle_install = bundle_sub.add_parser("install", help="Install a bundle (directory or .zip) into this config.")
+    bundle_install.add_argument("path", help="Path to the bundle directory or .zip")
+    bundle_sub.add_parser("list", help="List installed bundles.")
+    bundle_remove = bundle_sub.add_parser("remove", help="Remove an installed bundle by id.")
+    bundle_remove.add_argument("id", help="Installed bundle id")
+
     # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated
     workflow_parser = subparsers.add_parser(
         "workflow",
@@ -484,6 +500,8 @@ def main():
             sys.exit(workflow_cmd.handle_workflows_list(args, logger))
         else:
             parser.print_help()
+    elif args.command == "bundle":
+        sys.exit(bundle_cmd.handle_bundle(args, logger))
     else:
         parser.print_help()
 

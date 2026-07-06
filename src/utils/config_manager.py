@@ -470,6 +470,7 @@ class ConfigManager:
             if not any(p.category == INPUT_CATEGORY for p in plugins):
                 plugins += synthesize_input_instances(system_config)
             approved_plugins = dict(config_data.get("approved_plugins", {}) or {})
+            installed_bundles = dict(config_data.get("installed_bundles", {}) or {})
 
             # Create main config
             config = AlimaConfig(
@@ -483,6 +484,7 @@ class ConfigManager:
                 unified_config=unified_config,
                 plugins=plugins,  # Claude Generated (plugin system)
                 approved_plugins=approved_plugins,  # Claude Generated (plugin system)
+                installed_bundles=installed_bundles,  # Claude Generated (institutional bundles)
                 config_version=config_data.get("config_version", "2.0")
             )
 

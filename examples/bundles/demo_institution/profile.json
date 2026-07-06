@@ -1,0 +1,11 @@
+{
+  "search_provider_config": {
+    "providers": {
+      "swb": false
+    }
+  },
+  "system_config": {
+    "url_fetch_allowlist": ["opac.demo-ub.example", "sru.k10plus.de"],
+    "enable_response_cache": true
+  }
+}
