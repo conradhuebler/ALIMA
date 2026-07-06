@@ -118,6 +118,16 @@ When documenting implemented features, the AI must apply these rules:
   `test_plugin_blueprint_e2e.py`. Offen: Operator-GUI-Click-Test (Plugin-Tab:
   Secret-Placeholder, URL-Warndialog, Approval-Dialog). Guide:
   [`docs/plugin_authoring.md`](docs/plugin_authoring.md).
+- **WP Own-Plugins-Only POC** ✅ CODE-COMPLETE (July 6): alle 6 Built-ins als
+  kopierbare `poc_*`-Plugins nachbaubar + Built-ins abschaltbar → App läuft nur
+  auf eigenen Plugins. Deployer/Generator `examples/plugins_poc/deploy_poc.py`
+  (nur `id` umbenannt, Tool-Namen/`source_label` bleiben), klassischer
+  Leer-Schnittmengen-Fallback in `execute_gnd_search`, E2E
+  `test_all_external_plugins_poc.py` (agentisch+klassisch grün). Grenzen:
+  Built-in-*Klassen* bleiben registriert (nur Instanzen/Tools aus), WP2-Raw-Cache
+  + GUI-`find_keywords` weiter auf `lobid`/`swb` verdrahtet. Offen:
+  Operator-GUI-Sign-off (`examples/plugins_poc/README.md` §Verifikation).
+  Guide: [`docs/plugin_authoring.md`](docs/plugin_authoring.md) §10.
 - **WP2 Raw-First Response Cache** ✅ (July 2, P1–P5): source responses cached verbatim
   (`search_response_cache`); pool + counter (`display_count`) + provenance derived from
   raw via `aggregate_gnd_results` (raw-first + mapping fallback); both pipelines converged

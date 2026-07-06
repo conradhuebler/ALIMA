@@ -153,3 +153,45 @@ Verzeichnis nach `tmp/plugins/` kopieren, id umbenennen,
 `status == "loaded"` prüfen, Provider aus `get_provider(<id>)` instanziieren
 und `search()` gegen einen Fake-Client asserten. Framework-Grenzfälle
 (Symlinks, id-Kollision, Multi-File-Import) deckt `tests/test_plugins.py` ab.
+
+## 10. Komplett auf eigenen Plugins fahren (Built-ins aus)
+
+Der Proof-of-Concept `examples/plugins_poc/` erzeugt aus **allen 6** Built-in-
+Providern kopierbare `poc_*`-Plugins, gibt sie headless frei und schaltet die
+Built-ins ab — die App läuft dann ausschließlich über eigene Plugins:
+
+```bash
+python examples/plugins_poc/deploy_poc.py            # deploy + Built-ins aus
+python examples/plugins_poc/deploy_poc.py --revert   # Built-ins wiederherstellen
+python examples/plugins_poc/deploy_poc.py --keep-builtins   # daneben (Built-ins bleiben)
+```
+
+Der Generator benennt **nur die `id`** um (`id = "lobid"` → `id = "poc_lobid"` in
+`plugin.toml` **und** Provider-Klasse). Tool-Namen (`search_lobid` …),
+`source_label` und Klassenname bleiben unverändert — genau deshalb greifen die
+klassische Pipeline, die deterministischen Agentik-Funktionen (rufen Tools über
+den Namen auf) und die Raw-Cache-Provenienz weiter.
+
+**Beide Frontends laufen auf eigenen Plugins** (`tests/test_all_external_plugins_poc.py`):
+- *Agentisch/MCP*: `_generated_search_tools()` baut Tools aus den **aktivierten
+  Instanzen**; eine deaktivierte Built-in-Instanz verschwindet, die gleichnamige
+  `poc_*`-Instanz bedient das Tool über den generischen Factory-Handler.
+- *Klassisch*: `execute_gnd_search` hat einen Leer-Schnittmengen-Fallback
+  (`src/utils/pipeline_utils.py`) — wenn keine der angeforderten Quellen aktiv
+  ist, aber andere GND-Provider laufen, nutzt es die aktive Menge statt leer zu
+  suchen.
+
+**Ehrliche Grenzen des POC** (keine stillen „läuft schon"):
+- Die Built-in-**Klassen** bleiben registriert (self-register beim Import); der
+  POC deaktiviert nur ihre **Instanzen/Tools**, er entlädt keinen Code. „Nur
+  eigene" gilt auf Instanz-/Tool-Ebene, nicht auf Import-Ebene.
+- Die WP2-Raw-Cache-Aggregation (`_source_transform`/`aggregate_gnd_results` in
+  `tool_registry.py`) ist auf Built-in-Quellnamen (`"lobid"`, `"swb"`) verdrahtet
+  und nutzt die Built-in-Klasse (identischer Transform-Code) — nicht über die
+  `poc_*`-Instanzen geroutet.
+- Der eigenständige GUI-Tab „Find Keywords" (`find_keywords.py`) instanziiert
+  `MetaSuggester(providers="lobid")` direkt; der De-Hardcode deckt den klassischen
+  Pfad **über `pipeline_utils`** ab (CLI, Pipeline-Tab, agentisch-klassisch), nicht
+  diesen separaten Tab.
+
+Bedien-Ablauf + GUI-Sign-off: `examples/plugins_poc/README.md`.

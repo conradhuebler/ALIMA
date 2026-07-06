@@ -498,7 +498,26 @@ class PipelineStepExecutor:
             for pid in suggester_types:
                 expanded.extend(["lobid", "swb", "catalog"] if pid == "all" else [pid])
             gated = [pid for pid in dict.fromkeys(expanded) if pid in enabled_ids]
-            if gated != suggester_types:
+            if not gated and enabled_ids:
+                # None of the requested sources is enabled, but other GND
+                # providers are — e.g. the built-ins were disabled and the
+                # keyword search is served entirely by own/external plugins
+                # (poc_lobid …). Use the enabled set instead of silently
+                # searching nothing (the requested list holds only the retired
+                # default ids that no live instance matches). - Claude Generated
+                gated = list(enabled_ids)
+                if self.logger:
+                    self.logger.info(
+                        "execute_gnd_search: requested %s all disabled → "
+                        "falling back to enabled providers %s",
+                        suggester_types, gated,
+                    )
+                if stream_callback:
+                    stream_callback(
+                        f"Angeforderte Quellen deaktiviert → nutze aktive Plugins: "
+                        f"{', '.join(gated)}\n", "search"
+                    )
+            elif gated != suggester_types:
                 dropped = [p for p in dict.fromkeys(expanded) if p not in enabled_ids]
                 if dropped and self.logger:
                     self.logger.info(f"execute_gnd_search: skipping disabled providers {dropped}")
