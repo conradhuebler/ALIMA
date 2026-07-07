@@ -83,6 +83,12 @@ class SruProvider:
             self._client = self._build_client()
         return self._client
 
+    def dk_extractor(self, **_ignore: Any):
+        """Return the MarcXmlClient backing the ``CLASSIFICATION`` capability — the
+        classic DK step's ``extract_dk_classifications_for_keywords`` backend
+        (SRU/MARC-XML). - Claude Generated"""
+        return self.client
+
     def is_available(self, cfg: Any = None) -> bool:
         # Available once either a preset or a custom base URL is configured (OR
         # semantics, so a single gating field cannot express it).

@@ -410,6 +410,7 @@ class SharedContext(BaseSharedContext):
         state.dk_statistics = dk_statistics
         if rvk_provenance:
             state.rvk_provenance = rvk_provenance
+        state.report_markdown = (self.extra or {}).get("report_markdown", "") or ""
         return state
 
     @classmethod

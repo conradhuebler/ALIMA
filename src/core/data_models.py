@@ -101,6 +101,7 @@ class KeywordAnalysisState:
     dk_statistics: Optional[Dict[str, Any]] = None  # Deduplication metrics and frequency statistics - Claude Generated Step 6
     dk_llm_analysis: Optional[LlmKeywordAnalysis] = None  # For LLM classification details (AbstractTab view) - Claude Generated
     dk_classifications: List[str] = field(default_factory=list)  # Legacy alias for final DK/RVK classification strings - Claude Generated
+    report_markdown: str = ""  # Generic workflow-report Markdown (e.g. title_list_search's duplicate table), rendered as an HTML block in the GUI - Claude Generated
 
     # Iterative refinement support - Claude Generated
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata

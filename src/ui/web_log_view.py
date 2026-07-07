@@ -107,6 +107,17 @@ class _LogPage(QWebEnginePage):
             return False
         return True
 
+    # No createWindow() override: all links rendered into this view are
+    # first-party HTML (UnifiedMessageRenderer/its markdown/marker helpers),
+    # none of which set target="_blank" — see unified_message_renderer.py.
+    # A target="_blank" anchor would trigger createWindow() instead of
+    # acceptNavigationRequest (QWebEngineView is a real browser engine and
+    # tries to open an actual new tab), which isn't wired to anything here
+    # and would silently do nothing — that's the actual bug fixed by NOT
+    # emitting target="_blank" in the first place, rather than trying to
+    # intercept the new-window path (a urlChanged/temp-page idiom was tried
+    # and discarded: it double-fired in testing). - Claude Generated
+
 
 class WebLogView(QWidget):
     """QWebEngineView wrapper exposing a thin append/stream/collapse API."""

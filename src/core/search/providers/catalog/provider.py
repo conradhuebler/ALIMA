@@ -105,13 +105,21 @@ class CatalogProvider(SuggesterBackedProvider):
                 name="search_catalog_titles",
                 capability=SearchCapability.TITLE_RECORDS,
                 description=(
-                    "Search bibliographic catalog for book records by title or keyword. "
-                    "Returns per-query lists of records (rsn, title, authors, year, "
-                    "dk_codes, rvk_codes, subjects). No GND/SWB/Lobid enrichment — "
-                    "pure catalog hits intended for title-list workflows. Each record "
-                    "includes `web_url` (catalog web link for that RSN) when a web "
-                    "record URL is configured. Always cite records as Markdown links: "
-                    "[title](web_url). Omit the link only when web_url is absent."
+                    "Search bibliographic catalog for book records by title or keyword — "
+                    "direct SOAP query against the library's own Libero system. Slower "
+                    "than search_finc (one sequential SOAP call per term, with a rate-limit "
+                    "delay), so prefer search_finc first when it is available; use this "
+                    "as the fallback/cross-check when search_finc has no hits (its index "
+                    "may not cover every older or print-only holding), or when finc isn't "
+                    "configured at all. Returns per-query lists of records (rsn, title, "
+                    "authors, year, dk_codes, rvk_codes, subjects) — year/publication here "
+                    "is authoritative, straight from the library's own MAB catalog record. "
+                    "No full-text/e-resource link capability (no resource_url) and no "
+                    "GND/SWB/Lobid enrichment — pure catalog hits intended for title-list "
+                    "workflows. Each record includes `web_url` (catalog web link for that "
+                    "RSN) when a web record URL is configured. Always cite records as "
+                    "Markdown links: [title](web_url). Omit the link only when web_url is "
+                    "absent."
                 ),
                 parameters={
                     "type": "object",
@@ -144,8 +152,16 @@ class CatalogProvider(SuggesterBackedProvider):
             token=self._config.get("token", "") or "",
             catalog_search_url=self._config.get("catalog_search_url", "") or "",
             catalog_details=self._config.get("catalog_details", "") or "",
+            web_search_url=self._config.get("catalog_web_search_url", "") or "",
+            web_record_url=self._config.get("catalog_web_record_url", "") or "",
             debug=self._config.get("debug", False),
         )
+
+    def dk_extractor(self, **_ignore: Any):
+        """Return the BiblioClient backing the ``CLASSIFICATION`` capability — the
+        classic DK step's ``extract_dk_classifications_for_keywords`` backend
+        (Libero SOAP + web fallback). - Claude Generated"""
+        return self.suggester.extractor
 
     def search(
         self,

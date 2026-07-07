@@ -258,6 +258,15 @@ class PipelineLogMixin:
                     ausw_html, kind="dk_statistics", plain_text=ausw_plain
                 )
 
+        # Generic convention: any workflow that populates extra.report_markdown
+        # (e.g. title_list_search's render_report step) gets it rendered as an
+        # actual HTML table here, instead of the unrendered pipe-table text
+        # that streams into the log during execution. Keyed off the field's
+        # presence, not the workflow name. - Claude Generated
+        report_markdown = getattr(analysis_state, "report_markdown", "") if analysis_state else ""
+        if report_markdown:
+            self._renderer.render_markdown_block(report_markdown, kind="workflow_report")
+
         # Auto-load chat context for the just-finished pipeline.
         try:
             self.load_context(analysis_state)

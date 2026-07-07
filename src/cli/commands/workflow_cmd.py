@@ -145,6 +145,14 @@ def handle_workflow(args, config_manager, llm_service, log: logging.Logger) -> i
     only_step: Optional[str] = getattr(args, "only_step", None) or None
     report = executor.run(wf, ctx, only_step=only_step, stop_on_error=True)
 
+    # Generic convention: any workflow that populates extra.report_markdown
+    # (e.g. title_list_search's render_report step) gets a human-readable
+    # summary printed here, instead of operators having to read the raw JSON
+    # dump below. Not workflow-specific — keyed off the field's presence. - Claude Generated
+    report_markdown = ctx.extra.get("report_markdown") if isinstance(getattr(ctx, "extra", None), dict) else None
+    if report_markdown:
+        print("\n" + report_markdown + "\n")
+
     out = {
         "workflow": wf.name,
         "success": report.success,

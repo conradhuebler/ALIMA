@@ -24,7 +24,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
-from src.utils.clients.finc_client import FincClient
+
+from .finc_client import FincClient  # vendored in-plugin so this dir is self-contained
 
 
 class FincSuggesterError(BaseSuggesterError):

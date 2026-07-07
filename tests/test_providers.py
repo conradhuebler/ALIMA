@@ -62,7 +62,7 @@ class RegistryTest(unittest.TestCase):
         )
         self.assertEqual(
             set(providers_for_capability(SearchCapability.CLASSIFICATION)),
-            {"catalog", "sru"},
+            {"catalog", "sru", "finc"},
         )
 
     def test_get_provider_unknown_raises(self):

@@ -769,7 +769,7 @@ class CatalogConfig:
     sru_max_records: int = 50  # Maximum records per search
 
     # finc / VuFind-JSON catalog configuration - Claude Generated
-    # Used by FincClient (src/utils/clients/finc_client.py) to talk to a local
+    # Used by FincClient (src/core/search/providers/finc/finc_client.py) to talk to a local
     # finc/VuFind instance (e.g. TU Freiberg finc solrproxy). Sits alongside
     # Libero/SRU; priority is set in tool_registry._init_suggesters and
     # pipeline_utils.execute_dk_search (finc is preferred when configured).

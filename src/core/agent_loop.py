@@ -215,7 +215,7 @@ class AgentLoop:
                     # info twice.
                     tool_type = self._get_tool_type_label(tc.name)
                     if self._status_cb and not self.on_tool_call:
-                        args_preview = _truncate_args(tc.arguments, 60)
+                        args_preview = _truncate_args(tc.arguments, 120)
                         self._status_cb(f"\n  🔧 {tool_type}: {tc.name}({args_preview})")
 
                     # P-δ.3 hook: notify before tool dispatch
@@ -237,12 +237,21 @@ class AgentLoop:
                         except Exception:
                             logger.exception("on_tool_result hook raised")
 
-                    # Log tool call
+                    # Log tool call. result_full carries the complete,
+                    # untruncated tool result (result_preview stays capped at
+                    # 500 chars for display) so deterministic steps can parse
+                    # a tool's real output directly instead of trusting the
+                    # LLM to correctly retype it into a final JSON answer —
+                    # for a long list of tool results, that transcription is
+                    # lossy and produces the exact "found it last time, not
+                    # this time" inconsistency deterministic extraction
+                    # avoids entirely. - Claude Generated
                     log_entry = {
                         "iteration": iteration,
                         "tool": tc.name,
                         "arguments": tc.arguments,
                         "result_preview": result_str[:500],
+                        "result_full": result_str,
                         "duration_s": round(tool_duration, 2),
                     }
                     tool_log.append(log_entry)
@@ -438,9 +447,28 @@ class AgentLoop:
         }
 
 
-def _truncate_args(args: Dict[str, Any], max_len: int = 80) -> str:
-    """Truncate arguments for logging."""
-    s = json.dumps(args, ensure_ascii=False)
+def _truncate_args(args: Dict[str, Any], max_len: int = 150) -> str:
+    """Format tool-call arguments for logging.
+
+    A list value (e.g. `terms` with dozens of book titles) gets a "N items:
+    first, second, …" preview instead of json.dumps()-then-truncate, which
+    used to cut off mid-way through the FIRST element and hide that there
+    even were more — e.g. `search_finc(terms=['The Fraying Bonds of Peace –
+    Economic …)` told an operator nothing about how many titles were
+    actually being searched. - Claude Generated
+    """
+    parts = []
+    for k, v in (args or {}).items():
+        if isinstance(v, list) and v:
+            preview = ", ".join(
+                (str(item)[:30] + "…") if len(str(item)) > 30 else str(item)
+                for item in v[:2]
+            )
+            more = ", …" if len(v) > 2 else ""
+            parts.append(f"{k}=[{len(v)}: {preview}{more}]")
+        else:
+            parts.append(f"{k}={v!r}")
+    s = ", ".join(parts)
     if len(s) > max_len:
         return s[:max_len] + "..."
     return s

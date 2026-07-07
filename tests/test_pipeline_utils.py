@@ -299,7 +299,10 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertEqual(final_keywords, ["KW1 (GND-ID: 1)"])
 
     @patch('src.utils.config_manager.ConfigManager.get_catalog_config')
-    @patch('src.utils.clients.biblio_client.BiblioClient')  # WIP imports locally inside execute_dk_search
+    # execute_dk_search now resolves the DK extractor via the capability resolver
+    # (search/factory.resolve_dk_extractor → CatalogProvider → BiblioSuggester),
+    # so BiblioClient is constructed in the suggester — patch it there. - Claude Generated
+    @patch('src.core.search.providers.catalog.suggester.BiblioClient')
     def test_execute_dk_search(self, MockBiblioClient, mock_get_catalog_config):
         """Test the DK search step of the pipeline (Libero/BiblioClient path)."""
         # Pin a non-finc Libero catalog config so this test exercises the

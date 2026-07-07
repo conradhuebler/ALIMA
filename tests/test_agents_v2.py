@@ -243,6 +243,50 @@ class TestLLMAgentStep(unittest.TestCase):
         self.assertIn("Bibliothek und Toxikologie.", kwargs["user_prompt"])
         self.assertEqual(kwargs["temperature"], 0.4)
 
+    def test_repeat_threshold_configurable_from_yaml(self):
+        # Real reported bug: AgentLoop's default repeat_threshold (3) only
+        # blocks the 3rd identical tool call, so a step whose model calls a
+        # slow tool twice with identical arguments wastefully executes both
+        # — a step needs to be able to tighten this. - Claude Generated
+        ctx = SharedContext(abstract="x", provider="test", model="test-model")
+        fake_loop = MagicMock()
+        fake_loop.run.return_value = _agent_result('{"ok": true}')
+
+        with patch(
+            "src.core.agents.steps.llm_agent_step.AgentLoop", return_value=fake_loop
+        ) as mock_agent_loop_cls:
+            cfg = StepConfig(
+                id="search", type="llm_agent",
+                inputs={}, outputs={},
+                raw={
+                    "system_prompt": "sys", "user_prompt": "user",
+                    "llm": {"repeat_threshold": 2},
+                },
+            )
+            step = LLMAgentStep(cfg, llm_service=MagicMock(), tool_registry=MagicMock())
+            step.execute(ctx)
+
+        _, ctor_kwargs = mock_agent_loop_cls.call_args
+        self.assertEqual(ctor_kwargs["repeat_threshold"], 2)
+
+    def test_repeat_threshold_defaults_to_three_when_unset(self):
+        ctx = SharedContext(abstract="x", provider="test", model="test-model")
+        fake_loop = MagicMock()
+        fake_loop.run.return_value = _agent_result('{"ok": true}')
+
+        with patch(
+            "src.core.agents.steps.llm_agent_step.AgentLoop", return_value=fake_loop
+        ) as mock_agent_loop_cls:
+            cfg = StepConfig(
+                id="s", type="llm_agent", inputs={}, outputs={},
+                raw={"system_prompt": "sys", "user_prompt": "user", "llm": {}},
+            )
+            step = LLMAgentStep(cfg, llm_service=MagicMock(), tool_registry=MagicMock())
+            step.execute(ctx)
+
+        _, ctor_kwargs = mock_agent_loop_cls.call_args
+        self.assertEqual(ctor_kwargs["repeat_threshold"], 3)
+
     def test_tool_preset_expansion(self):
         cfg = StepConfig(id="s", type="llm_agent", raw={"tools": {"preset": "gnd"}})
         step = LLMAgentStep(cfg)
@@ -921,6 +965,57 @@ class TestCliWorkflowDispatch(unittest.TestCase):
             self.assertEqual(len(report["steps"]), 1)
             extra = report["context"]["extra"]
             self.assertIn("metadata", extra)
+
+    def test_handle_workflow_prints_report_markdown_before_json(self):
+        """Generic extra.report_markdown convention (title_list_search's
+        render_report and any future workflow adopting it) — the CLI must
+        print it as human-readable text before the JSON dump. - Claude Generated
+        """
+        import io
+        from contextlib import redirect_stdout
+        from src.cli.commands import workflow_cmd
+        from src.core.agents.registry import register_tool_fn, TOOL_FN_REGISTRY
+
+        self._fn_snap = dict(TOOL_FN_REGISTRY)
+        self.addCleanup(lambda: (TOOL_FN_REGISTRY.clear(), TOOL_FN_REGISTRY.update(self._fn_snap)))
+
+        @register_tool_fn("_test_make_markdown_report")
+        def _make_report(**kwargs):
+            return {"markdown": "**Zusammenfassung:** 1 neu (von 1 Titeln)"}
+
+        with tempfile.TemporaryDirectory() as td:
+            wf_path = Path(td) / "mini_report_workflow.yaml"
+            wf_path.write_text(textwrap.dedent("""
+                name: "Mini Report Workflow"
+                version: "4.0"
+                steps:
+                  - id: render
+                    type: deterministic
+                    function: _test_make_markdown_report
+                    outputs:
+                      extra.report_markdown: "result.markdown"
+            """))
+            args = self._ns(
+                name=str(wf_path),
+                input="{}", input_file=None, output=None,
+                provider="", model="", temperature=None,
+                only_step=None, quiet=True,
+            )
+            buf = io.StringIO()
+            with patch("src.cli.commands.workflow_cmd.create_caching_registry",
+                       return_value=MagicMock()):
+                with redirect_stdout(buf):
+                    rc = workflow_cmd.handle_workflow(
+                        args, config_manager=MagicMock(), llm_service=MagicMock(),
+                        log=MagicMock(),
+                    )
+            self.assertEqual(rc, 0)
+            output = buf.getvalue()
+            markdown_pos = output.find("Zusammenfassung")
+            json_pos = output.find('"workflow"')
+            self.assertNotEqual(markdown_pos, -1, "report_markdown was not printed")
+            self.assertNotEqual(json_pos, -1, "JSON dump missing")
+            self.assertLess(markdown_pos, json_pos, "markdown must print BEFORE the JSON dump")
 
     def test_handle_workflow_unknown_name(self):
         from src.cli.commands import workflow_cmd

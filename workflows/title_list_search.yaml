@@ -1,17 +1,38 @@
 name: "Title List Catalog Search"
-version: "4.3"
-description: "LLM extracts rich bibliographic records (title, authors, ISBN, publisher, year) from free text, catalog queried by title, LLM performs metadata-aware duplicate analysis."
+version: "4.4"
+description: "LLM extracts rich bibliographic records (title, authors, ISBN, publisher, year) from free text, an agent searches the catalog (finc first, Libero as fallback), LLM performs metadata-aware duplicate analysis, deterministic step renders a Markdown table."
 
 settings:
+  # Determinism hardening was attempted here twice and reverted both times —
+  # LLM sampling parameters are not safely portable across providers without
+  # per-provider capability checks that don't exist in LlmService:
+  #   1. A fixed non-zero seed: Mistral's API hard-rejects the `seed` field
+  #      outright (HTTP 422 "extra_forbidden", confirmed live).
+  #   2. temperature: 0.0 + top_p: 0.1: at least one provider (HTTP 400,
+  #      error code 3054, confirmed live) enforces "top_p must be 1 when
+  #      using greedy sampling" — i.e. temperature=0 puts it into a mode
+  #      that then REQUIRES top_p=1, the opposite of what "harden via
+  #      tighter top_p" was going for.
+  # A workflow YAML can't know the operator's provider in advance, so tuning
+  # sampling params for determinism isn't safe here. The actually-portable
+  # hardening for this workflow is the deterministic post-processing step
+  # (harden_analysis / apply_deterministic_overrides) — pure Python, no LLM
+  # API parameters, works identically regardless of provider.
   temperature: 0.1
-  max_tokens: 2048
-  seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
+  max_tokens: 4096
+  seed: null
 
 # Input contract: free-form text via ${abstract}. LLM extracts titles *with*
-# available metadata (authors, ISBN, publisher, year); catalog is queried in
-# title-mode (Libero 'k'); a second LLM pass compares wishlist metadata
-# against catalog hits to find duplicates — including cases where the
-# publisher re-released a book under a new ISBN.
+# available metadata (authors, ISBN, publisher, year); an agent then searches
+# the catalog per title (finc first — fast, structured year/publisher/
+# edition/isbn/full-text link; search_catalog_titles/Libero as fallback for
+# titles finc doesn't have); a second LLM pass compares wishlist metadata
+# against catalog hits to find duplicates vs. new editions; a final
+# deterministic step renders the result as a Markdown table.
+#
+# Every LLM step here declares `salvage: {required: true}` — a step whose
+# JSON parsing fails now aborts the workflow instead of silently continuing
+# with empty data (see llm_agent_step.py's salvage/required/retry mechanism).
 #
 # Use via GUI (workflow dropdown) or CLI:
 #   alima workflow title_list_search --input '{"abstract": "1. Mikroplastik ...\n2. Cadmium ..."}'
@@ -29,9 +50,35 @@ steps:
     outputs:
       extra.titles: "response.titles"
 
+    # Observed real failure: models (e.g. GWDG/gemma) sometimes ignore the
+    # "JSON only" instruction and answer with a plain repeated
+    # "Title\nPublisher-or-ISBN\nYear" line listing instead. title_triples
+    # regex-recovers that specific pattern; retry gives the model one more
+    # attempt with a stricter prompt; required aborts the step (instead of
+    # silently continuing with an empty wishlist) if both still fail.
+    salvage:
+      field: titles
+      type: title_triples
+      retry: true
+      required: true
+
     llm:
+      # temperature: 0.0 + top_p: 0.1 was tried for determinism hardening and
+      # reverted — at least one provider rejects that combination outright
+      # (HTTP 400 "top_p must be 1 when using greedy sampling"). See the
+      # top-level settings: block comment for the full story.
       temperature: 0.1
-      max_tokens: 2048
+      # Raised from 4096 after a live run: a full ~28-title extraction with
+      # authors/isbn/publisher/year needs more headroom than that, especially
+      # for tokenizers less efficient on mixed English/German text with
+      # umlauts/dashes/curly quotes — a retry attempt was observed producing
+      # correctly-keyed {"titles": [...]} JSON that still got cut off
+      # mid-array at 4096. Raised again to 16384 after a real run with ~60
+      # titles. If lists grow much further this may still need true
+      # text-chunking of the input (not yet implemented — this step's input
+      # is raw free text, not a list, so the existing chunking: mechanism
+      # doesn't apply directly).
+      max_tokens: 16384
       max_iterations: 1
 
     tools: []
@@ -67,64 +114,161 @@ steps:
       ```
 
   - id: search
-    type: deterministic
-    function: catalog_title_search
-    description: "Titel-Suche im Bibliothekskatalog (Libero use='k'). Reine Buchdatensätze."
+    type: llm_agent
+    description: "Agent sucht pro Titel im Katalog: finc zuerst (schnell, vollständige Metadaten), Libero als Fallback für finc-Fehltreffer."
     enabled: true
     depends_on: [extract_titles]
 
     inputs:
-      queries: "${extra.titles}"
+      wishlist: "${extra.titles}"
+
+    tools: [search_finc, search_catalog_titles]
+
+    llm:
+      temperature: 0.1
+      # Only needs to hold reasoning + a brief closing remark now — the
+      # actual data comes from extract_catalog_hits (deterministic, reads
+      # this step's own tool_log), not from this step's final text. Used to
+      # be 8192 when the agent had to retype every hit into JSON itself;
+      # that was the root cause of a real observed bug: for a long
+      # wishlist, the agent would sometimes drop a title's hit when
+      # recompiling the answer, so the same title showed a catalog match in
+      # one run and "no hits" in another even though finc/Libero themselves
+      # hadn't changed. Not asking it to transcribe anything removes that
+      # failure mode structurally rather than papering over it. Kept
+      # generous anyway (headroom for verbose multi-turn reasoning traces
+      # some models produce around tool calls). - Claude Generated
+      max_tokens: 4096
+      # >1 so the agent can call search_finc, then search_catalog_titles for
+      # any misses, before its closing remark.
+      max_iterations: 10
+      # Observed live: the model called search_finc twice in a row with
+      # IDENTICAL terms (and same again for search_catalog_titles) —
+      # AgentLoop's default repeat_threshold (3) only blocks the 3rd
+      # identical call, so both wasteful repeats still executed in full
+      # (search_catalog_titles is the slow one: one SOAP call per term,
+      # sequential). Block on the 2nd attempt instead — there's no
+      # legitimate reason to call either tool twice with the same terms in
+      # this workflow. - Claude Generated
+      repeat_threshold: 2
+
+    system_prompt: |
+      Du suchst für jeden Titel der Wunschliste im Bibliothekskatalog nach
+      passenden Datensätzen (identische Auflage, andere Auflage, oder gar
+      nicht vorhanden).
+
+      Werkzeuge:
+      - search_finc: schnell (EIN Aufruf reicht, alle Titel gleichzeitig in
+        `terms`, search_type="title"). Liefert pro Treffer: title, authors,
+        publisher, edition, year (echtes, strukturiertes Erscheinungsjahr —
+        kein Rätselraten), isbn, web_url (Katalog-Link), resource_url
+        (Volltext-/DOI-Link, falls vorhanden). Rufe dies IMMER ZUERST für
+        die komplette Wunschliste auf. Nutze `limit=5`, um die Trefferliste
+        pro Titel kompakt zu halten.
+      - search_catalog_titles: langsamer (SOAP, ein Aufruf je Titel im
+        Hintergrund). finc deckt bereits ALLES ab (lokal + Fernleihe/andere
+        Einrichtungen, gedruckt + elektronisch) und ist daher grundsätzlich
+        vollständiger als der lokale Libero-Katalog — nicht umgekehrt.
+        Rufe search_catalog_titles trotzdem NUR für die Titel auf, für die
+        search_finc KEINEN Treffer lieferte (terms = nur die fehlenden
+        Titel), als reine Rückfallebene für den seltenen Fall einer
+        Indexierungslücke in finc. Auch hier `max_results=5`.
+
+      Deine Werkzeug-Ergebnisse werden automatisch weiterverarbeitet — du
+      musst sie NICHT selbst zusammenfassen oder in JSON umschreiben.
+      Antworte am Ende nur kurz, dass die Suche abgeschlossen ist.
+
+    user_prompt: |
+      **Wunschliste:**
+      {wishlist}
+
+      Suche jeden Titel (Feld `title`) im Katalog wie oben beschrieben.
+
+  - id: extract_catalog_hits
+    type: deterministic
+    function: extract_catalog_hits_from_tool_log
+    description: "Katalog-Treffer deterministisch aus den Tool-Aufrufen des search-Schritts extrahieren (nicht aus einer vom Modell zusammengestellten Antwort — vermeidet Transkriptionsfehler/Auslassungen bei langen Listen)."
+    enabled: true
+    depends_on: [search]
+
+    inputs:
+      tool_log: "${steps.search.tool_log}"
 
     outputs:
       extra.catalog_hits: "result.hits"
-      extra.catalog_tool_calls: "result.tool_calls"
 
-    config:
-      search_type: title
-      max_results: 25
-
-  - id: analyze_duplicates
-    type: llm_agent
-    description: "Duplikatanalyse: Wunschliste-Metadaten vs. Katalog-Treffer (titelbasiert, ISBN-unabhängig)."
+  - id: group_hits
+    type: deterministic
+    function: group_catalog_hits_by_title
+    description: "Katalog-Treffer den Wunschlisten-Titeln zuordnen (reine Python-Gruppierung, kein LLM)."
     enabled: true
-    depends_on: [search]
+    depends_on: [extract_catalog_hits]
 
     inputs:
       wishlist: "${extra.titles}"
       catalog_hits: "${extra.catalog_hits}"
 
     outputs:
+      extra.wishlist_with_hits: "result.combined"
+
+    config:
+      max_matches_per_title: 8
+
+  - id: analyze_duplicates
+    type: llm_agent
+    description: "Duplikatanalyse: Wunschliste-Metadaten vs. Katalog-Treffer (bereits pro Titel gruppiert)."
+    enabled: true
+    depends_on: [group_hits]
+
+    inputs:
+      items: "${extra.wishlist_with_hits}"
+
+    # Chunked: a full 20-30-title analysis with per-title reasoning + matches
+    # would need ~5000-9000 output tokens single-shot — the same silent-
+    # truncation failure as extract_titles, just via token starvation.
+    # chunk_size 6 / max_tokens 4096 was a starting estimate that a live run
+    # (~60 titles, some with several matches each) confirmed too tight —
+    # chunk 2/10 was genuinely truncated mid-array (correctly caught by the
+    # max_tokens-truncation check + required, aborting loudly instead of
+    # silently dropping that chunk). Tightened chunk_size and raised
+    # max_tokens for real headroom; a title with many matches (several
+    # editions, each with full author/publisher/isbn/match_reason) can still
+    # be token-heavy even at chunk_size 4.
+    chunking:
+      enabled: true
+      chunk_size: 4
+      chunk_field: items
+      merge_key: analysis
+      dedup_field: input_title
+
+    salvage:
+      field: analysis
+      required: true
+
+    outputs:
       extra.duplicate_analysis: "response.analysis"
-      extra.duplicate_summary: "response.summary"
 
     llm:
       temperature: 0.1
-      max_tokens: 4096
+      max_tokens: 16384
       max_iterations: 1
 
     tools: []
 
     system_prompt: |
-      Du bist Erwerbungsbibliothekar. Deine Aufgabe: prüfe für jeden Titel
-      der Wunschliste, wie er sich zum Bestand verhält. Unterscheide
-      klar zwischen echten Duplikaten (identische Auflage) und Neuauflagen
-      (neue Auflage desselben Werks) – Neuauflagen sind KEINE Duplikate,
-      sondern eigenständige Erwerbungen.
+      Du bist Erwerbungsbibliothekar. Dir liegt zu jedem Wunschlisten-Titel
+      eine Liste `catalog_matches` vor (bereits nach Titel gefiltert, aus
+      finc bzw. Libero). Deine Aufgabe: prüfe für jeden Titel, wie er sich
+      zum Bestand verhält. Unterscheide klar zwischen echten Duplikaten
+      (identische Auflage) und Neuauflagen (neue Auflage desselben Werks) –
+      Neuauflagen sind KEINE Duplikate, sondern eigenständige Erwerbungen.
 
-      Zu jedem Wunschlisten-Titel liegen Metadaten vor (Autor, ISBN, Verlag,
-      Jahr, soweit aus dem Quelltext erkennbar). Zu jedem Katalog-Treffer
-      liegen RSN, Titel, Autoren, ISBN, Publikationsangabe, Jahr,
-      Klassifikationen vor. Die Katalog-Treffer sind über das Feld `query`
-      dem auslösenden Wunschlisten-Titel zugeordnet.
-
-      Bewertung pro Wunschlisten-Eintrag:
-      1. Filtere Katalog-Treffer mit passendem `query`.
-      2. Vergleiche Titel + Autor zuerst; gleicher Werktitel = gleiches Werk.
-      3. Prüfe DANACH, ob es sich um dieselbe Auflage oder eine neue Auflage
-         handelt: Jahr und Auflagenangabe (Publikation, Untertitel, "2. Aufl.",
-         "überarbeitete Auflage") sind entscheidend.
-      4. Status vergeben:
+      Bewertung pro Eintrag:
+      1. Vergleiche Titel + Autor zuerst; gleicher Werktitel = gleiches Werk.
+      2. Prüfe DANACH, ob es sich um dieselbe Auflage oder eine neue Auflage
+         handelt: `year` und `edition` (beide strukturiert aus dem Katalog,
+         nicht geraten) sind entscheidend.
+      3. Status vergeben:
          - "duplicate"         IDENTISCHE Auflage bereits im Bestand:
                                gleicher Titel, gleicher Autor, gleiches Jahr
                                ODER unveränderter Nachdruck. Nur hier.
@@ -137,10 +281,26 @@ steps:
                                (z.B. Jahresangabe fehlt). Nur bei echter
                                Unsicherheit nutzen; im Zweifel
                                "different_edition".
-         - "new"               Treffer sind inhaltlich andere Werke
-                               (gleicher oder ähnlicher Titel, aber anderer
-                               Autor/Kontext).
-         - "no_match"          Keine passenden Katalog-Treffer vorhanden.
+         - "related_work"      Treffer behandelt/rezensiert/diskutiert das
+                               Wunschlisten-Werk, ist aber KEINE Ausgabe davon
+                               — z.B. eine Rezension, ein Aufsatz oder
+                               Sammelband-Beitrag ÜBER das Buch. Erkennbar an:
+                               `formats` zeigt einen Artikel-Typ (z.B.
+                               "ElectronicArticle", "Article") statt Buch/
+                               eBook, UND/ODER der Wunschlisten-Autor taucht
+                               im Treffer nur als einer von mehreren
+                               Mitwirkenden auf (nicht als alleiniger/
+                               primärer Autor) — typisch für einen
+                               Rezensions-/Diskussionsbeitrag, bei dem das
+                               Werk selbst als Thema (nicht als Textkörper)
+                               dient. Titel kann dabei identisch aussehen
+                               (Rezensionen tragen oft den Buchtitel), das
+                               ist selbst KEIN Hinweis auf "duplicate".
+         - "new"               Treffer sind inhaltlich andere, unverwandte
+                               Werke (gleicher oder ähnlicher Titel, aber
+                               anderer Autor/Kontext/Thema — keine erkennbare
+                               Beziehung zum Wunschlisten-Werk).
+         - "no_match"          `catalog_matches` ist leer.
 
       Faustregeln:
       * Mehrere Auflagen im Bestand + Wunsch nach neuer Auflage ⇒
@@ -151,6 +311,10 @@ steps:
         allein widerlegt aber kein Duplikat.
       * Wunschliste enthält Jahr in der Zukunft oder nach neuestem Bestand
         ⇒ in der Regel "different_edition" (angekündigte Neuauflage).
+      * Identischer Titel + `formats` = Artikel/Rezension + Wunschlisten-
+        Autor nicht alleiniger Autor des Treffers ⇒ "related_work", NICHT
+        "no_match" — der Treffer ist relevant genug, um sichtbar zu bleiben,
+        aber eindeutig keine Ausgabe des gesuchten Werks.
 
       Beispiel (entscheidend):
         Bestand: Thiel, "Einführung X", 2016 / 2019 / 2023
@@ -159,23 +323,17 @@ steps:
            reasoning = "Werk bereits in 3 Auflagen im Bestand; 2026 ist
            angekündigte Neuauflage und damit eigenständige Erwerbung."
 
-      Ausgabeformat: Zu jedem Katalog-Treffer (matches[]) ergänze das Feld
-      `web_url` mit dem Direktlink in den Katalogdatensatz. Übernimm den Wert
-      EXAKT aus dem `web_url`-Feld des Katalog-Treffers, den das Tool
-      `search_catalog_titles` geliefert hat (Schema:
-      `https://katalog.ub.tu-freiberg.de/Record/0-{RSN}`). Den Wert NIEMALS
-      selbst konstruieren, umschreiben oder halluzinieren. Fehlt `web_url`
-      im Tool-Output, gib das Feld als leeren String aus.
+      Ausgabeformat: Übernimm `web_url` und `resource_url` (Volltext-/
+      DOI-Link, falls vorhanden) EXAKT aus den `catalog_matches`-Einträgen.
+      NIEMALS selbst konstruieren, umschreiben oder halluzinieren. Fehlt ein
+      Wert, gib das Feld als leeren String aus.
 
       Antworte ausschließlich mit gültigem JSON (kein Markdown, keine
       Erklärung außerhalb des JSON).
 
     user_prompt: |
-      **Wunschliste (aus Quelltext extrahiert, mit Metadaten):**
-      {wishlist}
-
-      **Katalog-Treffer (aus Libero, `query` verweist auf Wunschlisten-Titel):**
-      {catalog_hits}
+      **Titel mit Katalog-Treffern (bereits pro Titel gruppiert):**
+      {items}
 
       Gib reines JSON zurück in genau dieser Struktur:
       ```json
@@ -189,22 +347,50 @@ steps:
               "publisher": "",
               "year": ""
             },
-            "status": "duplicate|likely_duplicate|different_edition|new|no_match",
+            "status": "duplicate|likely_duplicate|different_edition|related_work|new|no_match",
             "matches": [
               {
                 "rsn": "",
-                "web_url": "https://katalog.ub.tu-freiberg.de/Record/0-{rsn}",
+                "web_url": "",
+                "resource_url": "",
                 "title": "",
                 "authors": [],
-                "isbn": "",
-                "publication": "",
+                "publisher": "",
+                "edition": "",
                 "year": "",
-                "match_reason": "Kurze Begründung (Titel+Autor identisch, abweichende ISBN)"
+                "isbn": "",
+                "formats": [],
+                "match_reason": "Kurze Begründung (Titel+Autor identisch, abweichendes Jahr; oder: Rezension/Aufsatz zum Werk, kein Duplikat)"
               }
             ],
             "reasoning": "Gesamtbegründung, warum dieser Status vergeben wurde."
           }
-        ],
-        "summary": "N Duplikate, M wahrscheinlich doppelt, K neue Auflage, L neu, P nicht gefunden."
+        ]
       }
       ```
+
+  - id: harden_analysis
+    type: deterministic
+    function: apply_deterministic_overrides
+    description: "Deterministische Nachkorrektur: exakte ISBN-Übereinstimmung erzwingt Status=duplicate (reduziert Modell-/Lauf-Varianz für den einen eindeutig regelbasierten Fall)."
+    enabled: true
+    depends_on: [analyze_duplicates]
+
+    inputs:
+      analysis: "${extra.duplicate_analysis}"
+
+    outputs:
+      extra.duplicate_analysis: "result.analysis"
+
+  - id: render_report
+    type: deterministic
+    function: format_duplicate_report
+    description: "Markdown-Tabellenbericht aus der Duplikatanalyse erzeugen (ersetzt den rohen JSON-Dump im Log)."
+    enabled: true
+    depends_on: [harden_analysis]
+
+    inputs:
+      analysis: "${extra.duplicate_analysis}"
+
+    outputs:
+      extra.report_markdown: "result.markdown"

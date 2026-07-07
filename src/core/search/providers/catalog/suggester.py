@@ -35,32 +35,42 @@ class BiblioSuggester(BaseSuggester):
         debug: bool = False,
         catalog_search_url: str = "",
         catalog_details: str = "",
+        web_search_url: str = "",
+        web_record_url: str = "",
     ):
         """
         Initialize the BiblioSuggester.
-        
+
         Args:
             data_dir: Directory to store cached data
             token: Authentication token for the library API
             debug: Whether to enable debug output
             catalog_search_url: SOAP search endpoint URL
             catalog_details: SOAP details endpoint URL
+            web_search_url: Web frontend search URL (BiblioClient web fallback)
+            web_record_url: Web frontend record base URL, used to build each
+                title record's catalog ``web_url`` (…/Record/<rsn>)
         """
         super().__init__(data_dir, debug)
-        
-        # Initialize BiblioExtractor with provided configuration - Claude Generated
+
+        # Initialize BiblioExtractor with provided configuration. URLs are
+        # passed through the constructor (not set post-hoc) so BiblioClient's
+        # own enable_web_fallback computation (gated on a real web_search_url)
+        # is correct — previously web_search_url/web_record_url weren't
+        # forwarded at all here, only in the primary ToolRegistry._init_suggesters
+        # wiring, so any *secondary* catalog instance built through this
+        # plugin's _build_suggester() silently got an empty web_url and no
+        # web fallback. - Claude Generated
         self.extractor = BiblioClient(
             token=token or "",  # Ensure string, not None
             debug=debug,
-            enable_web_fallback=True  # Claude Generated - Enable web fallback
+            enable_web_fallback=True,  # Claude Generated - Enable web fallback
+            soap_search_url=catalog_search_url or "",
+            soap_details_url=catalog_details or "",
+            web_search_url=web_search_url or "",
+            web_record_url=web_record_url or "",
         )
-        
-        # Set URLs if provided
-        if catalog_search_url:
-            self.extractor.SEARCH_URL = catalog_search_url
-        if catalog_details:
-            self.extractor.DETAILS_URL = catalog_details
-            
+
         self.logger = logging.getLogger("biblio_suggester")
         if debug:
             self.logger.setLevel(logging.DEBUG)

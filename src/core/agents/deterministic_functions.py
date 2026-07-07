@@ -1126,6 +1126,246 @@ def catalog_title_search(
     return {"hits": hits, "queries": queries, "tool_calls": tool_calls}
 
 
+def _flatten_finc_authors(authors: Any) -> List[str]:
+    """finc/VuFind authors are a dict of role-buckets (primary/secondary/...);
+    flatten to a plain name list for the shared catalog_hits shape."""
+    if not isinstance(authors, dict):
+        return []
+    names: List[str] = []
+    for key in ("primary", "secondary", "corporate"):
+        bucket = authors.get(key)
+        if isinstance(bucket, dict):
+            names.extend(bucket.keys())
+        elif isinstance(bucket, list):
+            names.extend(str(n) for n in bucket)
+    return names
+
+
+def _extract_finc_hits_from_result(raw: str) -> List[Dict[str, Any]]:
+    """Parse a raw ``search_finc`` tool-call JSON string into the shared
+    catalog_hits shape (query/source/rsn/web_url/resource_url/title/
+    authors/publisher/edition/year/isbn/formats). Envelope:
+    ``{"source": "finc", "results": {term: {"records": [...], ...}}}`` —
+    verified against tool_registry._handle_search_finc. ``formats`` (e.g.
+    ["eBook"] vs ["ElectronicArticle"]) is the key signal
+    ``analyze_duplicates`` uses to tell an actual edition of the wishlist
+    title apart from a journal article/review *about* it. Defensive: any
+    parse/shape failure yields [] rather than raising, since a malformed
+    tool result here should not take down the whole workflow. - Claude Generated
+    """
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(data, dict) or "error" in data:
+        return []
+    hits: List[Dict[str, Any]] = []
+    for term, term_data in (data.get("results") or {}).items():
+        records = (term_data or {}).get("records", []) if isinstance(term_data, dict) else []
+        for rec in records or []:
+            if not isinstance(rec, dict):
+                continue
+            hits.append({
+                "query": term,
+                "source": "finc",
+                "rsn": rec.get("id", ""),
+                "web_url": rec.get("web_url", ""),
+                "resource_url": rec.get("resource_url", ""),
+                "title": rec.get("title", ""),
+                "authors": _flatten_finc_authors(rec.get("authors")),
+                "publisher": rec.get("publisher", ""),
+                "edition": rec.get("edition", ""),
+                "year": rec.get("year", ""),
+                "isbn": rec.get("isbn", ""),
+                "formats": list(rec.get("formats") or []),
+            })
+    return hits
+
+
+def _extract_catalog_titles_hits_from_result(raw: str) -> List[Dict[str, Any]]:
+    """Parse a raw ``search_catalog_titles`` tool-call JSON string into the
+    shared catalog_hits shape. Envelope: ``{"source": "catalog_titles",
+    "results": {term: [record, ...]}}`` — verified against
+    tool_registry._make_title_records_handler / BiblioClient.search_titles.
+    No resource_url/edition here — Libero has no full-text-link concept and
+    no separate edition field (kept empty, never fabricated). - Claude Generated
+    """
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(data, dict) or "error" in data:
+        return []
+    hits: List[Dict[str, Any]] = []
+    for term, records in (data.get("results") or {}).items():
+        for rec in records or []:
+            if not isinstance(rec, dict):
+                continue
+            hits.append({
+                "query": term,
+                "source": "catalog",
+                "rsn": rec.get("rsn", ""),
+                "web_url": rec.get("web_url", ""),
+                "resource_url": "",
+                "title": rec.get("title", ""),
+                "authors": list(rec.get("authors") or []),
+                "publisher": rec.get("publication", ""),
+                "edition": "",
+                "year": rec.get("year", ""),
+                "isbn": rec.get("isbn", ""),
+                "formats": [],  # not exposed by BiblioClient.search_titles's record shape
+            })
+    return hits
+
+
+@register_tool_fn("extract_catalog_hits_from_tool_log")
+def extract_catalog_hits_from_tool_log(
+    tool_log: List[Dict[str, Any]],
+    *,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Deterministically extract catalog_hits from the search step's own
+    tool-call results, instead of trusting the agent to correctly retype
+    everything it saw into its final JSON answer.
+
+    Root-cause fix for a real, observed inconsistency: for a long wishlist,
+    an LLM manually recompiling dozens of tool-returned records into one
+    JSON blob can (and does) drop entries between runs — the same title
+    would show a catalog hit in one run and "no hits" in another, even
+    though the underlying finc/Libero data didn't change. The tool call's
+    own JSON response already *is* the data verbatim and complete — no
+    transcription needed once it's captured (see agent_loop.py's
+    ``result_full`` on each tool_log entry). - Claude Generated
+
+    Returns:
+        ``{"hits": [...]}`` — same per-hit shape
+        :func:`group_catalog_hits_by_title` already expects.
+    """
+    hits: List[Dict[str, Any]] = []
+    for entry in tool_log or []:
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("result_full") or entry.get("result_preview") or ""
+        tool_name = entry.get("tool")
+        if tool_name == "search_finc":
+            hits.extend(_extract_finc_hits_from_result(raw))
+        elif tool_name == "search_catalog_titles":
+            hits.extend(_extract_catalog_titles_hits_from_result(raw))
+    if stream_callback:
+        stream_callback(
+            f"✅ 'search' (deterministisch aus Tool-Ergebnissen extrahiert): "
+            f"{len(hits)} catalog_hits\n"
+        )
+    return {"hits": hits}
+
+
+@register_tool_fn("group_catalog_hits_by_title")
+def group_catalog_hits_by_title(
+    wishlist: List[Any],
+    catalog_hits: List[Dict[str, Any]],
+    *,
+    max_matches_per_title: int = 8,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Pure bookkeeping: group flat, query-tagged catalog hits per wishlist title.
+
+    Pairs each wishlist entry (``extract_titles`` output) with the
+    ``catalog_hits`` whose ``query`` field matches its title, producing one
+    self-contained ``{...wishlist_item, "catalog_matches": [...]}`` record
+    per title. Needed for ``analyze_duplicates``'s chunking (``LLMAgentStep
+    ._run_chunked`` only slices a single ``chunk_field`` — feeding it the
+    wishlist and the flat, unfiltered catalog_hits list separately would
+    repeat every hit into every chunk's prompt). No LLM call, no network —
+    the actual catalog data collection already happened in the ``search``
+    step (an agent-driven tool-calling step); this only reshapes it. - Claude Generated
+
+    Returns:
+        ``{"combined": [{...wishlist_item, "catalog_matches": [...]}]}``
+    """
+    if config:
+        max_matches_per_title = config.get("max_matches_per_title", max_matches_per_title)
+
+    by_query: Dict[str, List[Dict[str, Any]]] = {}
+    for hit in catalog_hits or []:
+        if not isinstance(hit, dict):
+            continue
+        by_query.setdefault(str(hit.get("query", "")), []).append(hit)
+
+    combined: List[Dict[str, Any]] = []
+    for item in wishlist or []:
+        if isinstance(item, dict):
+            title = str(item.get("title", ""))
+            entry = dict(item)
+        else:
+            title = str(item)
+            entry = {"title": title}
+        entry["catalog_matches"] = by_query.get(title, [])[:max_matches_per_title]
+        combined.append(entry)
+
+    if stream_callback:
+        with_hits = sum(1 for c in combined if c["catalog_matches"])
+        stream_callback(
+            f"✅ 'group_hits': {with_hits} von {len(combined)} Titeln haben "
+            f"mindestens einen Katalogtreffer\n"
+        )
+
+    return {"combined": combined}
+
+
+@register_tool_fn("apply_deterministic_overrides")
+def apply_deterministic_overrides(
+    analysis: List[Dict[str, Any]],
+    *,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Enforce unambiguous business rules the LLM may apply inconsistently
+    across runs/models — currently: exact ISBN identity forces
+    ``status="duplicate"``. The ``analyze_duplicates`` prompt already states
+    this rule, but trusting a model to apply a prose rule consistently on
+    every run is exactly the kind of incidental variance this step removes
+    for the one clearly rule-based case; genuinely ambiguous judgment calls
+    (title/author/year similarity without an ISBN) still go through the LLM
+    unchanged. All formatting/matching logic lives in
+    :mod:`src.utils.duplicate_report_formatter` so it stays unit-testable
+    without the agents/registry machinery. - Claude Generated
+    """
+    from src.utils.duplicate_report_formatter import apply_isbn_duplicate_override
+
+    result = apply_isbn_duplicate_override(analysis or [])
+    if result["overridden_count"] and stream_callback:
+        stream_callback(
+            f"🔒 {result['overridden_count']} Status-Korrektur(en) durch exakte "
+            f"ISBN-Übereinstimmung (deterministisch, nicht vom Modell)\n"
+        )
+    return {"analysis": result["analysis"]}
+
+
+@register_tool_fn("format_duplicate_report")
+def format_duplicate_report(
+    analysis: List[Dict[str, Any]],
+    *,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Render ``extra.duplicate_analysis`` as a Markdown table and stream it.
+
+    Replaces the raw-JSON-blob-in-the-log output of the ``title_list_search``
+    workflow with a transparent, per-title table (status, matched editions,
+    catalog + full-text links). All formatting logic lives in
+    :mod:`src.utils.duplicate_report_formatter` so it stays unit-testable
+    without the agents/registry machinery. - Claude Generated
+    """
+    from src.utils.duplicate_report_formatter import format_duplicate_report_markdown
+
+    markdown = format_duplicate_report_markdown(analysis or [])
+    if stream_callback:
+        stream_callback("\n" + markdown + "\n")
+    return {"markdown": markdown}
+
+
 # ============================================================
 # gnd_entry_lookup — Best-match single-keyword GND lookup
 # ============================================================

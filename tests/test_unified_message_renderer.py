@@ -343,6 +343,46 @@ class TestHtmlBlock(RendererTestBase):
         self.assertEqual(len(self.renderer.history), 0)
 
 
+class TestMarkdownBlock(RendererTestBase):
+    """render_markdown_block: Markdown → actual HTML (e.g. a real <table>),
+    not the unrendered pipe-table text the GUI pipeline log previously showed
+    for workflow reports (title_list_search's duplicate-check table). - Claude Generated"""
+
+    def test_table_renders_as_html_table(self):
+        md = "| A | B |\n|---|---|\n| x | y |"
+        self.renderer.render_markdown_block(md, kind="workflow_report")
+        html = self.view.to_html()
+        self.assertIn("<table>", html)
+        self.assertIn("<td>x</td>", html)
+
+    def test_link_renders_as_anchor(self):
+        md = "[Katalog](https://katalog.example/Record/0-1)"
+        self.renderer.render_markdown_block(md)
+        html = self.view.to_html()
+        self.assertIn('<a href="https://katalog.example/Record/0-1"', html)
+        self.assertIn(">Katalog</a>", html)
+
+    def test_empty_markdown_is_noop(self):
+        self.renderer.render_markdown_block("")
+        self.assertEqual(len(self.renderer.history), 0)
+
+    def test_history_records_kind_and_plain_text(self):
+        md = "**Zusammenfassung:** 1 neu"
+        self.renderer.render_markdown_block(md, kind="workflow_report")
+        self.assertEqual(len(self.renderer.history), 1)
+        entry = self.renderer.history[0]
+        self.assertEqual(entry.metadata["kind"], "workflow_report")
+        self.assertEqual(entry.content, md)
+
+    def test_markdown_it_failure_falls_back_to_escaped_text(self):
+        md = "<script>alert(1)</script> plain text"
+        with patch("markdown_it.MarkdownIt.render", side_effect=RuntimeError("boom")):
+            self.renderer.render_markdown_block(md)
+        html = self.view.to_html()
+        self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
+
 class TestCollapsible(RendererTestBase):
 
     def test_collapsible_collapsed_state(self):

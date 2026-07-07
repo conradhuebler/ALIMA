@@ -124,32 +124,179 @@ class LLMAgentStep(BaseStep):
             # LLM hard failure — fail the step instead of parsing the error
             # string as if it were a model answer - Claude Generated
             raise RuntimeError(f"LLM call failed: {result.error}")
-        parsed = _extract_json(result.content)
 
-        # Recover a structured field from raw text if the model botched the JSON
-        # schema (opt-in via the step's YAML `salvage:` block). - Claude Generated
-        salvage_cfg = raw_cfg.get("salvage")
-        before = parsed.get(salvage_cfg["field"]) if (isinstance(parsed, dict) and salvage_cfg) else None
-        parsed = _apply_salvage(parsed, result.content, salvage_cfg)
-        if salvage_cfg and not before and isinstance(parsed, dict) and parsed.get(salvage_cfg.get("field")):
-            n = len(parsed[salvage_cfg["field"]])
-            if self.stream_callback:
-                self.stream_callback(
-                    f"🛟 Salvage: {n} '{salvage_cfg['field']}' aus Rohtext gerettet "
-                    f"(JSON-Schema vom Modell verfehlt)\n"
-                )
-            logger.warning(
-                f"LLMAgentStep '{self.step_id}': salvaged {n} '{salvage_cfg['field']}' "
-                f"entries from non-JSON output"
-            )
-
+        # Log the raw response BEFORE parsing/salvage/retry/required, so that
+        # if `required: true` raises below, the actual text that failed to
+        # parse is still visible in the log/diagnostics instead of vanishing
+        # along with the exception — otherwise a hard-fail is exactly as
+        # opaque as the silent failure it replaces. - Claude Generated
         _log_response(self.step_id, result.content)
+
+        salvage_cfg = raw_cfg.get("salvage")
+        parsed, result = self._parse_with_salvage_and_retry(
+            result, salvage_cfg, system_prompt, user_prompt, tool_names, params,
+        )
+        self._announce_field_count(salvage_cfg, parsed)
+
         return {
             "response": parsed,
             "response_text": result.content,
             "iterations": getattr(result, "iterations", 1),
             "tool_log": getattr(result, "tool_log", []),
         }
+
+    def _parse_with_salvage_and_retry(
+        self,
+        result: Any,
+        salvage_cfg: Optional[Dict[str, Any]],
+        system_prompt: str,
+        user_prompt: str,
+        tool_names: List[str],
+        params: Dict[str, Any],
+    ) -> tuple:
+        """Parse the LLM response as JSON, apply salvage, and — per the step's
+        YAML ``salvage:`` block — optionally retry once with a stricter prompt
+        and/or hard-fail if the declared field is still empty.
+
+        Every layer downstream (``BaseStep._write``, ``context_path.resolve_value``,
+        deterministic step functions treating ``None``/``[]`` as "nothing to
+        search") currently swallows a JSON-parse failure silently, so a step
+        whose output is load-bearing for the rest of the workflow should
+        declare ``required: true`` here rather than let empty data propagate
+        unnoticed. Returns ``(parsed, result)`` — ``result`` is the retry's
+        ``AgentResult`` if a retry happened and produced usable data, else the
+        original. - Claude Generated
+        """
+        parsed = _extract_json(result.content)
+        parsed = self._salvage_and_warn(parsed, result.content, salvage_cfg)
+        field = salvage_cfg.get("field") if salvage_cfg else None
+        # Presence, not truthiness: {"catalog_hits": []} is a legitimate,
+        # well-formed "found nothing" answer (e.g. no wishlist title exists
+        # in the catalog) and must NOT be treated the same as parsing failing
+        # outright ({} with the key missing entirely). Conflating the two
+        # would hard-fail a step for a perfectly valid empty result. - Claude Generated
+        got_field = bool(field) and isinstance(parsed, dict) and field in parsed
+
+        # Checked regardless of whether retry is configured — a step with
+        # `required: true` but no `retry` (e.g. the search step's
+        # catalog_hits) deserves the same truncation-vs-prose diagnosis
+        # before it hard-fails below. - Claude Generated
+        if salvage_cfg and not got_field:
+            self._warn_if_max_tokens_truncated(self.step_id, parsed, result)
+
+        if salvage_cfg and salvage_cfg.get("retry") and not got_field:
+            retry_system = system_prompt + (
+                "\n\nACHTUNG: Deine letzte Antwort enthielt kein gültiges JSON "
+                f"für das Feld '{field}'. Antworte dieses Mal AUSSCHLIESSLICH "
+                "mit dem angeforderten JSON-Objekt — kein Fließtext, kein "
+                "Markdown-Codeblock, keine Erklärung davor oder danach."
+            )
+            if self.stream_callback:
+                self.stream_callback(
+                    f"🔁 '{self.step_id}': JSON-Schema verfehlt, Retry mit verschärftem Prompt …\n"
+                )
+            retry_result = self._invoke_loop(retry_system, user_prompt, tool_names, params)
+            if not getattr(retry_result, "error", None):
+                _log_response(f"{self.step_id}[retry]", retry_result.content)
+                retry_parsed = _extract_json(retry_result.content)
+                retry_parsed = self._salvage_and_warn(retry_parsed, retry_result.content, salvage_cfg)
+                retry_got_field = (
+                    bool(field) and isinstance(retry_parsed, dict) and field in retry_parsed
+                )
+                if retry_got_field:
+                    parsed, result, got_field = retry_parsed, retry_result, True
+                else:
+                    # The retry itself can ALSO be cut off by max_tokens — a
+                    # real observed case: the model produced a correctly-keyed
+                    # {"titles": [...]} on retry (visible in the log, well
+                    # past the point where prose-vs-JSON was the issue) but
+                    # still failed the required-check because the response
+                    # was truncated mid-array. Without this check that case
+                    # silently collapsed into the same generic "still empty"
+                    # error as a genuine formatting failure. - Claude Generated
+                    self._warn_if_max_tokens_truncated(
+                        f"{self.step_id}[retry]", retry_parsed, retry_result
+                    )
+
+        if salvage_cfg and salvage_cfg.get("required") and not got_field:
+            raise RuntimeError(
+                f"LLMAgentStep '{self.step_id}': required field '{field}' is still "
+                f"empty after JSON parsing"
+                + (" + salvage" if salvage_cfg.get("type") else "")
+                + (" + retry" if salvage_cfg.get("retry") else "")
+                + " — aborting instead of continuing with empty data"
+            )
+        return parsed, result
+
+    def _warn_if_max_tokens_truncated(
+        self, label: str, parsed: Dict[str, Any], result: Any
+    ) -> None:
+        """Distinguish "model answered in prose" from "model was cut off
+        mid-JSON by max_tokens" — both collapse into the same empty
+        ``parsed``, but operators need to fix different things (raise
+        ``max_tokens`` vs. fix the prompt/model) depending on which
+        occurred. Called for both the original attempt and (if it also
+        failed) the retry attempt — a retry can be truncated too, and
+        without checking there it silently looked like a generic parsing
+        failure even when the raw response showed a correctly-keyed JSON
+        object cut off partway through. - Claude Generated
+        """
+        if parsed or getattr(result, "stop_reason", "") != "max_tokens":
+            return
+        msg = (
+            f"⚠️ '{label}': Antwort durch max_tokens abgeschnitten — "
+            f"JSON unvollständig. max_tokens erhöhen oder chunking aktivieren.\n"
+        )
+        if self.stream_callback:
+            self.stream_callback(msg)
+        logger.warning(msg.strip())
+
+    def _announce_field_count(
+        self, salvage_cfg: Optional[Dict[str, Any]], parsed: Dict[str, Any]
+    ) -> None:
+        """Stream a one-line "✅ field: N entries" summary for any step that
+        declares ``salvage.field`` and produced a list — cheap, generic
+        transparency (e.g. "28 titles extracted", "24 catalog_hits found")
+        visible right when that step finishes, instead of only discoverable
+        at the very end via the final report or by reading raw JSON. Fires
+        for every step with a declared salvage field, not just this
+        workflow's. - Claude Generated
+        """
+        if not salvage_cfg or not self.stream_callback:
+            return
+        field = salvage_cfg.get("field")
+        if not field or not isinstance(parsed, dict):
+            return
+        value = parsed.get(field)
+        if isinstance(value, list):
+            self.stream_callback(f"✅ '{self.step_id}': {len(value)} '{field}'-Eintrag(e)\n")
+
+    def _salvage_and_warn(
+        self,
+        parsed: Dict[str, Any],
+        raw_text: str,
+        salvage_cfg: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Apply ``_apply_salvage`` and stream/log a notice when it actually
+        recovered something (never fires on well-formed JSON). - Claude Generated
+        """
+        if not salvage_cfg:
+            return parsed
+        field = salvage_cfg.get("field")
+        before = parsed.get(field) if isinstance(parsed, dict) else None
+        parsed = _apply_salvage(parsed, raw_text, salvage_cfg)
+        if not before and isinstance(parsed, dict) and parsed.get(field):
+            n = len(parsed[field])
+            if self.stream_callback:
+                self.stream_callback(
+                    f"🛟 Salvage: {n} '{field}' aus Rohtext gerettet "
+                    f"(JSON-Schema vom Modell verfehlt)\n"
+                )
+            logger.warning(
+                f"LLMAgentStep '{self.step_id}': salvaged {n} '{field}' "
+                f"entries from non-JSON output"
+            )
+        return parsed
 
     def _run_chunked(
         self,
@@ -199,6 +346,7 @@ class LLMAgentStep(BaseStep):
         total = len(chunks)
         merge_key = chunk_cfg.get("merge_key", "keywords")
         dedup_field = chunk_cfg.get("dedup_field", "title")
+        salvage_cfg = raw_cfg.get("salvage")
         max_merged = chunk_cfg.get("max_merged")  # optional cap on merged output size
 
         provider = params.get("provider", "")
@@ -255,11 +403,29 @@ class LLMAgentStep(BaseStep):
                     f"LLM call failed in chunk {idx}/{total}: {result.error}"
                 )
             parsed = _extract_json(result.content)
+            parsed = self._salvage_and_warn(parsed, result.content, salvage_cfg)
             total_iterations += getattr(result, "iterations", 1)
             per_chunk.append({"index": idx, "response": parsed})
             _log_response(f"{self.step_id}[chunk {idx}/{total}]", result.content)
+            self._warn_if_max_tokens_truncated(f"{self.step_id}[chunk {idx}/{total}]", parsed, result)
 
             chunk_items = parsed.get(merge_key, []) if isinstance(parsed, dict) else []
+            # Presence, not truthiness — a chunk that legitimately analyzed
+            # its items as "no matches for any of these" is a valid empty
+            # list, distinct from JSON parsing failing outright (merge_key
+            # missing entirely). See _parse_with_salvage_and_retry. - Claude Generated
+            chunk_has_key = isinstance(parsed, dict) and merge_key in parsed
+            if salvage_cfg and salvage_cfg.get("required") and not chunk_has_key:
+                # Same silent-failure class as the single-shot path: a chunk
+                # whose JSON parsing failed would otherwise just contribute 0
+                # items with no trace, quietly dropping those titles/keywords
+                # from the merged result. - Claude Generated
+                raise RuntimeError(
+                    f"LLMAgentStep '{self.step_id}': chunk {idx}/{total} produced "
+                    f"no '{merge_key}' items after JSON parsing"
+                    + (" + salvage" if salvage_cfg.get("type") else "")
+                    + " — aborting instead of silently dropping this chunk's items"
+                )
             if isinstance(chunk_items, list):
                 for it in chunk_items:
                     key: Any
@@ -295,6 +461,8 @@ class LLMAgentStep(BaseStep):
             merged = merged[:max_merged]
 
         response = {merge_key: merged}
+        if self.stream_callback:
+            self.stream_callback(f"✅ '{self.step_id}': {len(merged)} '{merge_key}'-Eintrag(e) (gesamt)\n")
         return {
             "response": response,
             "response_text": json.dumps(response, ensure_ascii=False),
@@ -382,6 +550,13 @@ class LLMAgentStep(BaseStep):
             "provider": getattr(context, "provider", "") or "",
             "model": getattr(context, "model", "") or "",
             "seed": seed_val,
+            # AgentLoop's own default (3) only blocks on the 3rd identical
+            # tool call — a 2nd identical call still executes. Configurable
+            # per-step since a step with expensive/slow tools (e.g. a
+            # sequential-per-term SOAP search) benefits from blocking on the
+            # very first repeat, while a step that legitimately needs a few
+            # retries with the same args (rare) can raise it back up. - Claude Generated
+            "repeat_threshold": int(llm_cfg.get("repeat_threshold", 3)),
         }
 
     def _invoke_loop(
@@ -447,6 +622,7 @@ class LLMAgentStep(BaseStep):
             stream_callback=self.stream_callback,
             on_tool_call=_emit_tool_called,
             on_tool_result=_emit_tool_result,
+            repeat_threshold=params.get("repeat_threshold", 3),
         )
         return loop.run(
             system_prompt=system_prompt,
@@ -684,6 +860,56 @@ def _salvage_codes(raw_text: str) -> List[Dict[str, str]]:
     return out
 
 
+# Salvage title/publisher-or-isbn/year triples from non-JSON output. Observed
+# real failure mode for extract_titles-style steps: the model ignores the
+# JSON-only instruction and instead answers with a plain repeated
+# "Title\nPublisher\nYear" listing (no braces at all, so _extract_json finds
+# nothing). Verified against an actual failing run's raw output: 28/28 titles
+# recovered correctly, including entries where the "publisher" line is
+# actually an ISBN. - Claude Generated
+_YEAR_LINE_RE = re.compile(r"^(19|20)\d{2}$")
+_ISBN_LINE_RE = re.compile(r"^97[89][\d\-]{10,17}$")
+
+
+def _salvage_title_triples(raw_text: str) -> List[Dict[str, Any]]:
+    """Recover ``[{"title", "publisher", "isbn", "year", "authors": []}, …]``
+    from a plain title/publisher-or-isbn/year line-triple listing.
+
+    Best-effort heuristic, not a general-purpose parser: a line-triple only
+    matches when the third line is a bare 4-digit year (1500-2099) and
+    neither of the first two lines is itself a bare year. ``[]`` if nothing
+    matches — never partially guesses.
+    """
+    lines = [line.strip() for line in (raw_text or "").splitlines() if line.strip()]
+    out: List[Dict[str, Any]] = []
+    i = 0
+    while i + 2 < len(lines):
+        title, mid, year_line = lines[i], lines[i + 1], lines[i + 2]
+        if (
+            _YEAR_LINE_RE.match(year_line)
+            and not _YEAR_LINE_RE.match(title)
+            and not _YEAR_LINE_RE.match(mid)
+        ):
+            entry: Dict[str, Any] = {"title": title, "authors": [], "year": year_line}
+            if _ISBN_LINE_RE.match(mid.replace(" ", "")):
+                entry["isbn"] = mid
+                entry["publisher"] = ""
+            else:
+                entry["isbn"] = ""
+                entry["publisher"] = mid
+            out.append(entry)
+            i += 3
+        else:
+            i += 1
+    return out
+
+
+_SALVAGE_TYPES = {
+    "codes": _salvage_codes,
+    "title_triples": _salvage_title_triples,
+}
+
+
 def _apply_salvage(
     parsed: Dict[str, Any],
     raw_text: str,
@@ -691,9 +917,11 @@ def _apply_salvage(
 ) -> Dict[str, Any]:
     """Recover a structured field from raw text when JSON extraction missed it.
 
-    Opt-in via the step's YAML ``salvage: {field: ..., type: codes}`` block.
-    Only fires when ``parsed[field]`` is empty, so well-formed JSON is never
-    overwritten. - Claude Generated
+    Opt-in via the step's YAML ``salvage: {field: ..., type: codes|title_triples}``
+    block. Only fires when ``parsed[field]`` is empty, so well-formed JSON is
+    never overwritten. ``type`` must be explicit — a ``salvage:`` block with
+    only ``required``/``retry`` (no ``type``) performs no text-recovery, just
+    the empty-field check/retry those keys control. - Claude Generated
     """
     if not salvage_cfg or not isinstance(salvage_cfg, dict):
         return parsed
@@ -702,8 +930,9 @@ def _apply_salvage(
         return parsed
     if isinstance(parsed, dict) and parsed.get(field):
         return parsed  # JSON parsing already produced it
-    if salvage_cfg.get("type", "codes") == "codes":
-        recovered = _salvage_codes(raw_text)
+    salvage_fn = _SALVAGE_TYPES.get(salvage_cfg.get("type"))
+    if salvage_fn:
+        recovered = salvage_fn(raw_text)
         if recovered:
             base = dict(parsed) if isinstance(parsed, dict) else {}
             base[field] = recovered

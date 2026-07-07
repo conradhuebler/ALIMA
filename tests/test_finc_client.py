@@ -299,6 +299,125 @@ class TestFincClientUnit(unittest.TestCase):
             result = client.search("python")
         self.assertEqual(result["facets"], {})
 
+    def test_get_records_single_id(self):
+        client = FincClient(
+            base_url="https://dobby.example/proxy.php",
+            web_record_url="https://katalog.example/Record/",
+        )
+        payload = {
+            "status": "OK", "resultCount": 1,
+            "records": [MOCK_OK_PAYLOAD["records"][0]],
+        }
+        with patch.object(client.session, "get", return_value=_make_mock_response(payload)) as mock_get:
+            result = client.get_records(["0-1025700295"])
+        self.assertEqual(result["status"], "OK")
+        self.assertEqual(len(result["records"]), 1)
+        self.assertEqual(result["records"][0]["id"], "0-1025700295")
+        self.assertEqual(result["records"][0]["web_url"], "https://katalog.example/Record/0-1025700295")
+        url = mock_get.call_args.args[0]
+        params = mock_get.call_args.kwargs["params"]
+        self.assertEqual(url, "https://dobby.example/proxy.php/api/v1/record")
+        id_entries = [v for k, v in params if k == "id"]
+        self.assertEqual(id_entries, ["0-1025700295"])
+
+    def test_get_records_multiple_ids_use_id_array_param(self):
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        with patch.object(client.session, "get", return_value=_make_mock_response(MOCK_OK_PAYLOAD)) as mock_get:
+            client.get_records(["0-1", "0-2"])
+        params = mock_get.call_args.kwargs["params"]
+        id_entries = [v for k, v in params if k == "id[]"]
+        self.assertEqual(id_entries, ["0-1", "0-2"])
+        self.assertEqual([v for k, v in params if k == "id"], [])
+
+    def test_get_records_empty_ids_returns_clean_error(self):
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        with patch.object(client.session, "get") as mock_get:
+            result = client.get_records([])
+        self.assertEqual(result["status"], "ERROR")
+        self.assertIn("non-empty", result["error"])
+        mock_get.assert_not_called()
+
+    def test_get_records_not_configured(self):
+        client = FincClient(base_url="")
+        result = client.get_records(["0-1"])
+        self.assertEqual(result["status"], "ERROR")
+        self.assertIn("not configured", result["error"])
+
+    def test_get_records_sends_field_params(self):
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        with patch.object(client.session, "get", return_value=_make_mock_response(MOCK_OK_PAYLOAD)) as mock_get:
+            client.get_records(["0-1"])
+        params = mock_get.call_args.kwargs["params"]
+        field_entries = [v for k, v in params if k == "field[]"]
+        self.assertEqual(list(field_entries), list(FincClient.DEFAULT_FIELDS))
+
+    def test_normalize_record_extracts_enriched_fields(self):
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        raw = {
+            "id": "0-1878699474",
+            "title": "Cadmium Toxicity Mitigation",
+            "edition": "1st ed. 2024.",
+            "publishers": ["Springer Nature Switzerland", ": Imprint: Springer"],
+            "publicationDates": ["2024.", ", 2024."],
+            "cleanIsbn": "3031473906",
+            "isbns": ["9783031473906"],
+            "cleanDoi": "10.1007/978-3-031-47390-6",
+            "urls": [
+                {"url": "https://doi.org/10.1007/978-3-031-47390-6"},
+                {"url": "https://swbplus.bsz-bw.de/bsz1878699474cov.jpg"},
+            ],
+        }
+        rec = client._normalize_record(raw)
+        self.assertEqual(rec["year"], "2024")
+        self.assertEqual(rec["publisher"], "Springer Nature Switzerland; : Imprint: Springer")
+        self.assertEqual(rec["edition"], "1st ed. 2024.")
+        self.assertEqual(rec["isbn"], "3031473906")
+        # cleanDoi preferred over the cover-image url
+        self.assertEqual(rec["resource_url"], "https://doi.org/10.1007/978-3-031-47390-6")
+
+    def test_normalize_record_handles_article_index_shape(self):
+        # Article-index entries have edition as an empty list, no cleanIsbn/isbns. - Claude Generated
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        raw = {
+            "id": "ai-49-xyz", "title": "Some Article",
+            "edition": [], "publishers": ["Springer"],
+            "publicationDates": ["2025."],
+            "urls": [{"url": "https://doi.org/10.1007/s42729-025-02223-3"}],
+        }
+        rec = client._normalize_record(raw)
+        self.assertEqual(rec["edition"], "")
+        self.assertEqual(rec["isbn"], "")
+        self.assertEqual(rec["year"], "2025")
+        self.assertEqual(rec["resource_url"], "https://doi.org/10.1007/s42729-025-02223-3")
+
+    def test_discover_fields_parses_swagger_schema(self):
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        swagger_payload = {
+            "components": {
+                "schemas": {
+                    "Record": {
+                        "properties": {
+                            "id": {"description": "Record unique ID"},
+                            "publicationDates": {"description": "Publication dates"},
+                        }
+                    }
+                }
+            }
+        }
+        with patch.object(client.session, "get", return_value=_make_mock_response(swagger_payload)) as mock_get:
+            fields = client.discover_fields()
+        self.assertEqual(fields["id"], "Record unique ID")
+        self.assertEqual(fields["publicationDates"], "Publication dates")
+        url = mock_get.call_args.args[0]
+        self.assertEqual(url, "https://dobby.example/proxy.php/api?swagger")
+
+    def test_discover_fields_returns_empty_on_failure(self):
+        client = FincClient(base_url="https://dobby.example/proxy.php")
+        with patch.object(client.session, "get", side_effect=Exception("boom")):
+            self.assertEqual(client.discover_fields(), {})
+        # Not configured at all
+        self.assertEqual(FincClient(base_url="").discover_fields(), {})
+
     def test_normalize_dk_value(self):
         self.assertEqual(FincClient.normalize_dk_value("dk 530.145"), "DK 530.145")
         self.assertEqual(FincClient.normalize_dk_value("DK 681.3"), "DK 681.3")

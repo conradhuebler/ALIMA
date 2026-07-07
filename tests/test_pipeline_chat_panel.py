@@ -124,6 +124,23 @@ class TestFormatToolArgs(unittest.TestCase):
         self.assertIn("q='", out)
         self.assertIn("…", out)
 
+    def test_long_list_shows_count_and_preview_not_raw_repr_cutoff(self):
+        # Real reported bug: search_finc(terms=[30 long titles]) rendered as
+        # "terms=['The Fraying Bonds of Peace – Economic …" — a crude
+        # repr()-truncation that hid there even were more titles. - Claude Generated
+        terms = [f"Book Title Number {i} With Some Extra Words" for i in range(30)]
+        out = PipelineChatPanel._format_tool_args({"terms": terms, "search_type": "title", "limit": 5})
+        self.assertIn("terms=[30:", out)
+        self.assertIn("search_type='title'", out)
+
+    def test_short_list_shown_fully_without_ellipsis_marker(self):
+        out = PipelineChatPanel._format_tool_args({"terms": ["A", "B"]})
+        self.assertEqual(out, "terms=[2: A, B]")
+
+    def test_empty_list_does_not_crash(self):
+        out = PipelineChatPanel._format_tool_args({"terms": []})
+        self.assertIn("terms=", out)
+
 
 class TestBusToolHandlers(unittest.TestCase):
 
@@ -507,6 +524,58 @@ class TestPipelineLogSummaries(unittest.TestCase):
             stub._format_dk_search_results([]),
             "Keine Klassifikationen (DK/RVK) gefunden",
         )
+
+
+class TestOnPipelineCompletedReportMarkdown(unittest.TestCase):
+    """on_pipeline_completed must render extra.report_markdown (surfaced via
+    KeywordAnalysisState.report_markdown) as an actual HTML table — the bug
+    reported live: the GUI chat log couldn't render the workflow's Markdown
+    table, only unrendered pipe-text. - Claude Generated"""
+
+    def _stub(self) -> SimpleNamespace:
+        markdown_calls: list = []
+
+        class FakeRenderer:
+            def render_markdown_block(self, markdown_text, *, kind=None):
+                markdown_calls.append((markdown_text, kind))
+            def render_html_block(self, html, *, kind=None, plain_text=""):
+                pass
+
+        stub = SimpleNamespace(
+            logger=MagicMock(),
+            _renderer=FakeRenderer(),
+            add_pipeline_message=MagicMock(),
+            load_context=MagicMock(),
+        )
+        stub.markdown_calls = markdown_calls
+        stub.on_pipeline_completed = PipelineChatPanel.on_pipeline_completed.__get__(stub)
+        return stub
+
+    def _make_state(self, report_markdown=""):
+        return KeywordAnalysisState(
+            original_abstract="", initial_keywords=[], search_suggesters_used=[],
+            report_markdown=report_markdown,
+        )
+
+    def test_report_markdown_present_renders_as_markdown_block(self):
+        stub = self._stub()
+        state = self._make_state("| Titel | Status |\n|---|---|\n| A | neu |")
+        stub.on_pipeline_completed(state)
+        self.assertEqual(len(stub.markdown_calls), 1)
+        text, kind = stub.markdown_calls[0]
+        self.assertIn("| A | neu |", text)
+        self.assertEqual(kind, "workflow_report")
+
+    def test_report_markdown_empty_renders_nothing(self):
+        stub = self._stub()
+        state = self._make_state("")
+        stub.on_pipeline_completed(state)
+        self.assertEqual(stub.markdown_calls, [])
+
+    def test_none_analysis_state_does_not_raise(self):
+        stub = self._stub()
+        stub.on_pipeline_completed(None)
+        self.assertEqual(stub.markdown_calls, [])
 
 
 if __name__ == "__main__":

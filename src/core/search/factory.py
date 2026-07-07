@@ -161,6 +161,135 @@ def enabled_gnd_provider_ids(config: Any = None) -> "list | None":
         return None
 
 
+# Built-in provider ids — lets a *custom* CLASSIFICATION plugin take precedence
+# over the Libero default while preserving the finc→SRU→Libero order for the
+# built-ins. - Claude Generated
+_BUILTIN_PROVIDER_IDS = {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"}
+
+
+def _call_dk_extractor(provider: Any, *, logger_: Any, stream_callback: Any) -> Any:
+    """Call ``provider.dk_extractor`` tolerating extractors that don't accept the
+    optional logger/stream kwargs (built-ins accept+ignore them). - Claude Generated"""
+    try:
+        return provider.dk_extractor(logger_=logger_, stream_callback=stream_callback)
+    except TypeError:
+        return provider.dk_extractor()
+
+
+def _custom_classification_extractor(config: Any, *, logger_: Any, stream_callback: Any) -> Any:
+    """First enabled *non-built-in* CLASSIFICATION-capable provider's DK extractor.
+
+    The extension point behind the classic DK step: a library without finc/Libero
+    can ship its own DK/RVK catalog plugin (declaring ``CLASSIFICATION`` + a
+    ``dk_extractor()``) and it is picked up here — no core change. ``None`` when
+    there is no such plugin (or the config can't be read). - Claude Generated
+    """
+    if config is None:
+        return None
+    try:
+        instances = config.enabled_instances_for("search_provider")
+    except Exception:
+        return None
+    for inst in instances:
+        pid = getattr(inst, "provider_id", "")
+        if pid in _BUILTIN_PROVIDER_IDS:
+            continue
+        try:
+            cls = get_provider(pid)
+        except KeyError:
+            continue
+        if SearchCapability.CLASSIFICATION not in getattr(cls, "capabilities", set()):
+            continue
+        try:
+            provider = build_provider(inst)
+        except Exception:
+            logger.warning("Failed to build custom DK provider '%s'", pid, exc_info=True)
+            continue
+        if not hasattr(provider, "dk_extractor"):
+            continue
+        try:
+            if hasattr(provider, "is_available") and not provider.is_available():
+                continue
+        except Exception:
+            pass
+        return _call_dk_extractor(provider, logger_=logger_, stream_callback=stream_callback)
+    return None
+
+
+def resolve_dk_extractor(
+    *,
+    config: Any = None,
+    logger_: Any = None,
+    stream_callback: Any = None,
+    debug: bool = False,
+    finc_base_url: str = "",
+    finc_web_record_url: str = "",
+    finc_institution_filter: str = "",
+    finc_timeout: int = 30,
+    finc_default_limit: int = 50,
+    finc_dk_enabled: bool = False,
+    catalog_type: str = "libero_soap",
+    sru_preset: str = "",
+    sru_base_url: str = "",
+    sru_max_records: int = 50,
+    catalog_token: str = "",
+    catalog_search_url: str = "",
+    catalog_details_url: str = "",
+    catalog_web_search_url: str = "",
+    catalog_web_record_url: str = "",
+) -> Any:
+    """Resolve the DK/RVK extractor for the classic DK step from the active
+    CLASSIFICATION-capable search providers — the D-4 hand-wired site this
+    module's docstring names.
+
+    Precedence (preserves the operator's June-2026 order, now capability-driven
+    instead of an if-elif over client classes):
+
+    1. **finc** — opt-in (``finc_dk_enabled`` + a real ``finc_base_url``);
+    2. **custom plugin** — any enabled non-built-in provider declaring
+       ``CLASSIFICATION`` (the extensibility point for other libraries);
+    3. **SRU / MARC-XML** — when ``catalog_type == "marcxml_sru"``;
+    4. **Libero SOAP** — default.
+
+    Returns an object implementing the shared
+    ``extract_dk_classifications_for_keywords`` contract, built via the provider
+    layer so it is byte-equivalent to the former direct client construction. - Claude Generated
+    """
+    # 1. finc (opt-in DK source).
+    if finc_dk_enabled and isinstance(finc_base_url, str) and finc_base_url.strip():
+        prov = get_provider("finc")(
+            base_url=finc_base_url,
+            web_record_url=finc_web_record_url or "",
+            institution_filter=finc_institution_filter or "",
+            timeout=int(finc_timeout or 30),
+            default_limit=int(finc_default_limit or 50),
+        )
+        return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
+    # 2. Custom (non-built-in) CLASSIFICATION plugin.
+    ext = _custom_classification_extractor(config, logger_=logger_, stream_callback=stream_callback)
+    if ext is not None:
+        return ext
+    # 3. SRU / MARC-XML.
+    if catalog_type == "marcxml_sru":
+        prov = get_provider("sru")(
+            preset=sru_preset or "",
+            base_url=(sru_base_url if not sru_preset else ""),
+            max_records=int(sru_max_records or 50),
+            debug=debug,
+        )
+        return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
+    # 4. Libero SOAP (default).
+    prov = get_provider("catalog")(
+        token=catalog_token or "",
+        catalog_search_url=catalog_search_url or "",
+        catalog_details=catalog_details_url or "",
+        catalog_web_search_url=catalog_web_search_url or "",
+        catalog_web_record_url=catalog_web_record_url or "",
+        debug=debug,
+    )
+    return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
+
+
 class SearchProviderCategory(PluginCategory):
     """Bridges ``PROVIDER_REGISTRY`` to the generic plugin framework."""
 

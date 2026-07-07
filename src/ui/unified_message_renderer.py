@@ -387,7 +387,12 @@ class UnifiedMessageRenderer:
                 return display  # feature disabled or malformed → display only
             url = f"{self._catalog_web_base}/0-{rsn}"
             return (
-                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                # No target="_blank": that routes through QWebEnginePage
+                # .createWindow() instead of acceptNavigationRequest(), which
+                # isn't wired to anything here — the click would silently do
+                # nothing. Same-window clicks are already correctly
+                # intercepted and opened via QDesktopServices. - Claude Generated
+                f'<a href="{url}" rel="noopener noreferrer" '
                 f'style="color: #5af; text-decoration: underline;">'
                 f"{display}</a>"
             )
@@ -412,7 +417,8 @@ class UnifiedMessageRenderer:
             if not url.startswith(("http://", "https://")):
                 return display
             return (
-                f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
+                # No target="_blank" — see _replace_cat_markers. - Claude Generated
+                f'<a href="{url}" rel="noopener noreferrer" '
                 f'style="color: #5af; text-decoration: underline;">'
                 f"{display}</a>"
             )
@@ -440,10 +446,12 @@ class UnifiedMessageRenderer:
         def _sub(match: "re.Match[str]") -> str:
             href = match.group(1)
             after = match.group(2)
-            # Add target="_blank" to every external/catalog link so ALIMA stays
-            # open in its own tab. Local anchors / mutation links are skipped.
-            if 'target="' not in after and 'target=' not in after:
-                after = f'{after} target="_blank" rel="noopener noreferrer"'
+            # No target="_blank": that was meant to keep ALIMA's own tab
+            # focused, but target="_blank" routes through QWebEnginePage
+            # .createWindow() instead of acceptNavigationRequest() — which
+            # isn't wired to anything in this app, so the click silently did
+            # nothing. Same-window clicks are already correctly intercepted
+            # and opened via QDesktopServices.openUrl(). - Claude Generated
 
             # Local catalog URL → mark as cat-link (book icon via CSS)
             if any(href.startswith(h) for h in hosts):
@@ -730,6 +738,34 @@ class UnifiedMessageRenderer:
         """Emit a typing-hide event."""
         self.transport.send(ev.typing(active=False))
 
+    def render_markdown_block(
+        self, markdown_text: str, *, kind: Optional[str] = None
+    ) -> None:
+        """Render a Markdown string (e.g. a GFM table) as a trusted HTML block.
+
+        For content produced by ALIMA's own formatters — not raw LLM/user
+        text, so no CAT/CLINK marker handling is needed here (that's
+        :meth:`finalize_assistant_bubble`'s job for the interactive chat
+        path). E.g. the ``title_list_search`` workflow's duplicate-check
+        report was previously only visible as unrendered pipe-table text in
+        the pipeline log; this renders it as an actual ``<table>``. Falls
+        back to escaped preformatted text if markdown-it fails, so a
+        rendering hiccup can't break the run. - Claude Generated
+        """
+        if not markdown_text:
+            return
+        try:
+            from markdown_it import MarkdownIt
+
+            md_html = MarkdownIt("commonmark", {"breaks": True}).enable("table").render(markdown_text)
+            html = f'<div style="color: #e9edef; font-size: 10pt;">{md_html}</div>'
+        except Exception:
+            html = (
+                '<pre style="color: #e9edef; font-size: 10pt; white-space: pre-wrap;">'
+                f"{self._escape_html(markdown_text)}</pre>"
+            )
+        self.render_html_block(html, kind=kind, plain_text=markdown_text)
+
     def render_html_block(
         self, html: str, *, kind: Optional[str] = None, plain_text: str = ""
     ) -> None:
@@ -960,11 +996,24 @@ class UnifiedMessageRenderer:
             return ""
         parts = []
         for k, v in args.items():
-            sv = repr(v)
-            if len(sv) > 40:
-                sv = sv[:40] + "…"
+            if isinstance(v, list) and v:
+                # A crude repr()-then-truncate on a long list (e.g. `terms`
+                # with dozens of book titles) used to cut off mid-way
+                # through the FIRST element and hide that there even were
+                # more — showing "N: item1, item2, …" is actually
+                # informative instead of a near-empty fragment. - Claude Generated
+                preview = ", ".join(
+                    (str(item)[:30] + "…") if len(str(item)) > 30 else str(item)
+                    for item in v[:2]
+                )
+                more = ", …" if len(v) > 2 else ""
+                sv = f"[{len(v)}: {preview}{more}]"
+            else:
+                sv = repr(v)
+                if len(sv) > 40:
+                    sv = sv[:40] + "…"
             parts.append(f"{k}={sv}")
         joined = ", ".join(parts)
-        if len(joined) > 80:
-            joined = joined[:80] + "…"
+        if len(joined) > 120:
+            joined = joined[:120] + "…"
         return joined

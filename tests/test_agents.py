@@ -83,6 +83,20 @@ class TestSharedContext(unittest.TestCase):
         self.assertIn("AN", state.rvk_provenance)
         self.assertIn("Schlagwortketten", state.final_llm_analysis.response_full_text)
 
+    def test_to_keyword_analysis_state_carries_report_markdown(self):
+        # title_list_search's render_report step writes extra.report_markdown;
+        # to_keyword_analysis_state() must surface it so the GUI's
+        # on_pipeline_completed can render it as an HTML table. - Claude Generated
+        ctx = make_shared_context()
+        ctx.extra = {"report_markdown": "| Title | Status |\n|---|---|\n| A | new |"}
+        state = ctx.to_keyword_analysis_state()
+        self.assertEqual(state.report_markdown, "| Title | Status |\n|---|---|\n| A | new |")
+
+    def test_to_keyword_analysis_state_report_markdown_defaults_empty(self):
+        ctx = make_shared_context()
+        state = ctx.to_keyword_analysis_state()
+        self.assertEqual(state.report_markdown, "")
+
     def test_get_summary_returns_correct_counts(self):
         ctx = make_shared_context()
         ctx.extracted_keywords = ["A", "B", "C"]

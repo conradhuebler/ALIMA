@@ -4524,63 +4524,52 @@ class PipelineStepExecutor:
                     stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
                 catalog_token = ""  # Empty token triggers automatic web fallback
 
-            # finc / VuFind-JSON is the PREFERRED DK source when configured
-            # (operator decision June 2026: "finc oberste Priorität, dann
-            # libero"). It returns the same keyword-centric shape via the
-            # BiblioClient-compatible FincCatalogClient, so the per-keyword loop
-            # below is unchanged; Libero/SRU remain the fallback when finc is
-            # unset. - Claude Generated
-            # finc DK is opt-in: requires a real finc_base_url AND the explicit
-            # finc_dk_enabled flag. The isinstance check also guards against a
-            # Mock catalog_config in tests and the '' default. - Claude Generated
-            finc_base_url = getattr(catalog_config, 'finc_base_url', '') if 'catalog_config' in dir() else ''
-            finc_dk_enabled = bool(getattr(catalog_config, 'finc_dk_enabled', False) if 'catalog_config' in dir() else False)
-            if finc_dk_enabled and isinstance(finc_base_url, str) and finc_base_url.strip():
-                from .clients.finc_catalog_client import FincCatalogClient
-                finc_cb = (lambda m: stream_callback(m, "dk_search")) if stream_callback else None
-                extractor = FincCatalogClient(
-                    base_url=finc_base_url,
-                    web_record_url=getattr(catalog_config, 'finc_web_record_url', '') or '',
-                    institution_filter=getattr(catalog_config, 'finc_institution_filter', '') or '',
-                    timeout=getattr(catalog_config, 'finc_timeout', 30) or 30,
-                    max_titles_per_keyword=getattr(catalog_config, 'finc_default_limit', 50) or 50,
-                    logger_=self.logger,
-                    stream_callback=finc_cb,
-                )
-                if self.logger:
-                    self.logger.info("Using finc catalog client (preferred DK source)")
-                if stream_callback:
-                    stream_callback("Verwende finc-Katalog für DK-Suche (Titelliste + udk_raw pro Titel)\n", "dk_search")
-            elif catalog_type == 'marcxml_sru':
-                # Use MARC XML SRU client - Claude Generated
-                from .clients.marcxml_client import MarcXmlClient
-                sru_preset = getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else ''
-                sru_base_url = getattr(catalog_config, 'sru_base_url', '') if 'catalog_config' in dir() else ''
-                sru_max_records = getattr(catalog_config, 'sru_max_records', 50) if 'catalog_config' in dir() else 50
+            # DK/RVK source resolved from the active CLASSIFICATION-capable search
+            # providers (finc opt-in → custom plugin → SRU/Libero), replacing the
+            # former hand-wired FincCatalogClient/MarcXmlClient/BiblioClient
+            # if-elif (the D-4 site in search/factory.py). Precedence preserves
+            # the operator's June-2026 order; any catalog plugin declaring the
+            # CLASSIFICATION capability + a dk_extractor() becomes a DK source with
+            # no change here. finc DK stays opt-in (finc_dk_enabled + a real URL).
+            # All extractors share the extract_dk_classifications_for_keywords
+            # contract, so the per-keyword loop below is unchanged. - Claude Generated
+            from src.core.search.factory import resolve_dk_extractor
 
-                extractor = MarcXmlClient(
-                    preset=sru_preset if sru_preset else '',
-                    sru_base_url=sru_base_url if not sru_preset else '',
-                    max_records=sru_max_records,
-                    debug=self.logger.level <= 10 if self.logger else False
-                )
-                if self.logger:
-                    self.logger.info(f"Using MARC XML SRU client (preset: {sru_preset or 'custom'})")
-                if stream_callback:
-                    stream_callback(f"Verwende MARC XML SRU ({sru_preset or sru_base_url})\n", "dk_search")
-            else:
-                # Use original Libero SOAP client
-                from .clients.biblio_client import BiblioClient
-
-                extractor = BiblioClient(
-                    token=catalog_token or "",  # Ensure string, not None
-                    debug=self.logger.level <= 10 if self.logger else False,
-                    enable_web_fallback=True,  # Claude Generated - Explicitly enable web fallback
-                    soap_search_url=catalog_search_url or "",  # Claude Generated - from CatalogConfig
-                    soap_details_url=catalog_details_url or "",  # Claude Generated - from CatalogConfig
-                    web_search_url=catalog_web_search_url or "",  # Claude Generated - from CatalogConfig
-                    web_record_url=catalog_web_record_url or "",  # Claude Generated - from CatalogConfig
-                )
+            try:
+                _full_config = config_manager.load_config()
+            except Exception:
+                _full_config = None
+            extractor = resolve_dk_extractor(
+                config=_full_config,
+                logger_=self.logger,
+                stream_callback=(lambda m: stream_callback(m, "dk_search")) if stream_callback else None,
+                debug=(self.logger.level <= 10) if self.logger else False,
+                finc_base_url=getattr(catalog_config, 'finc_base_url', '') if 'catalog_config' in dir() else '',
+                finc_web_record_url=getattr(catalog_config, 'finc_web_record_url', '') or '' if 'catalog_config' in dir() else '',
+                finc_institution_filter=getattr(catalog_config, 'finc_institution_filter', '') or '' if 'catalog_config' in dir() else '',
+                finc_timeout=getattr(catalog_config, 'finc_timeout', 30) or 30 if 'catalog_config' in dir() else 30,
+                finc_default_limit=getattr(catalog_config, 'finc_default_limit', 50) or 50 if 'catalog_config' in dir() else 50,
+                finc_dk_enabled=bool(getattr(catalog_config, 'finc_dk_enabled', False)) if 'catalog_config' in dir() else False,
+                catalog_type=catalog_type,
+                sru_preset=getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else '',
+                sru_base_url=getattr(catalog_config, 'sru_base_url', '') if 'catalog_config' in dir() else '',
+                sru_max_records=getattr(catalog_config, 'sru_max_records', 50) if 'catalog_config' in dir() else 50,
+                catalog_token=catalog_token,
+                catalog_search_url=catalog_search_url,
+                catalog_details_url=catalog_details_url,
+                catalog_web_search_url=catalog_web_search_url,
+                catalog_web_record_url=catalog_web_record_url,
+            )
+            # Preserve the old per-source progress line. - Claude Generated
+            _dk_src_label = {
+                "FincCatalogClient": "finc-Katalog (Titelliste + udk_raw pro Titel)",
+                "MarcXmlClient": "MARC XML SRU",
+                "BiblioClient": "Libero-Katalog",
+            }.get(type(extractor).__name__, type(extractor).__name__)
+            if self.logger:
+                self.logger.info(f"DK source resolved: {type(extractor).__name__}")
+            if stream_callback:
+                stream_callback(f"Verwende {_dk_src_label} für DK-Suche\n", "dk_search")
 
         except Exception as e:
             error_msg = f"Catalog client initialization failed: {e}"
@@ -4800,7 +4789,16 @@ class PipelineStepExecutor:
         # IMPORTANT: Loop over keywords individually to provide per-keyword status feedback
         # This replaces the old single-batch call with individual keyword searches
         try:
-            from .clients.marcxml_client import MarcXmlClient
+            import inspect
+            # Not every extractor accepts force_update (MarcXmlClient and custom
+            # DK plugins don't) — detect once and pass it only when supported, so
+            # any CLASSIFICATION-capable provider's extractor works here. - Claude Generated
+            try:
+                _dk_accepts_force = "force_update" in inspect.signature(
+                    extractor.extract_dk_classifications_for_keywords
+                ).parameters
+            except (TypeError, ValueError):
+                _dk_accepts_force = False
 
             dk_search_results = []
             success_count = 0
@@ -4831,18 +4829,11 @@ class PipelineStepExecutor:
                     )
 
                 try:
-                    # Search THIS keyword only (not all keywords)
-                    if isinstance(extractor, MarcXmlClient):
-                        kw_results = extractor.extract_dk_classifications_for_keywords(
-                            keywords=[keyword],  # Single keyword
-                            max_results=max_results,
-                        )
-                    else:
-                        kw_results = extractor.extract_dk_classifications_for_keywords(
-                            keywords=[keyword],  # Single keyword
-                            max_results=max_results,
-                            force_update=force_update,
-                        )
+                    # Search THIS keyword only (not all keywords).
+                    _dk_kwargs = {"keywords": [keyword], "max_results": max_results}
+                    if _dk_accepts_force:
+                        _dk_kwargs["force_update"] = force_update
+                    kw_results = extractor.extract_dk_classifications_for_keywords(**_dk_kwargs)
 
                     # Analyze result for THIS keyword
                     if kw_results and len(kw_results) > 0:

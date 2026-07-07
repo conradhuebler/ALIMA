@@ -24,7 +24,11 @@ class FincProvider:
 
     id = "finc"
     label = "finc (VuFind)"
-    capabilities = {SearchCapability.TITLE_RECORDS, SearchCapability.SUBJECT_FACETS}
+    capabilities = {
+        SearchCapability.TITLE_RECORDS,
+        SearchCapability.SUBJECT_FACETS,
+        SearchCapability.CLASSIFICATION,
+    }
 
     @classmethod
     def config_fields(cls) -> List[ConfigField]:
@@ -59,10 +63,12 @@ class FincProvider:
 
         return PluginDoc(
             description="finc/VuFind-JSON-Katalog (z.B. TU Freiberg): bibliografische "
-            "Datensätze plus DK/RVK-Klassifikationsverteilung.",
+            "Datensätze (inkl. Verlag/Auflage/Jahr/ISBN) plus DK/RVK-Klassifikationsverteilung. "
+            "Schnell und meist ausreichend; deckt aber ggf. nicht jeden älteren/gedruckten "
+            "Bestand ab (Fallback: catalog/search_catalog_titles).",
             input="Suchbegriffe (Titel/Schlagwort/Autor) + optionale Facetten/Filter/Verfügbarkeit.",
-            output="Titel-Datensätze (id, Titel, Autoren, web_url, urls[] …) und/oder "
-            "Facetten-Verteilungen (udk_raw, rvk_facet).",
+            output="Titel-Datensätze (id, Titel, Autoren, Verlag, Auflage, Jahr, ISBN, web_url, "
+            "resource_url, urls[] …) und/oder Facetten-Verteilungen (udk_raw, rvk_facet).",
         )
 
     @classmethod
@@ -72,16 +78,25 @@ class FincProvider:
             capability=SearchCapability.TITLE_RECORDS,
             description=(
                 "Search a finc / VuFind-JSON library catalog (e.g. TU Freiberg finc "
-                "solrproxy) for full bibliographic records. Preferred over search_catalog "
-                "when the institution runs a finc instance. Choose the search axis via "
+                "solrproxy) for full bibliographic records — fast (one HTTP call covers "
+                "all `terms`) and usually sufficient on its own; try this before "
+                "search_catalog_titles, not after. Choose the search axis via "
                 "`search_type`: by subject/keyword, by title (one OR many — pass several "
                 "titles in `terms` to look them all up in one call), or by author. "
                 "`terms` is searched independently and the results are keyed per term. "
                 "Each record has id, title, authors, subjects, formats, languages, series, "
-                "web_url, and urls[]. The web_url is always the direct catalog record link "
-                "(e.g. https://katalog.ub.tu-freiberg.de/Record/0-1025700295). "
-                "urls[] may additionally contain DOI links, publisher pages, or open-access "
-                "copies — cite them when relevant (e.g. full-text link alongside catalog link). "
+                "publisher, edition, year (structured publication year — use this for "
+                "duplicate/edition comparisons), isbn, web_url, resource_url, and urls[]. "
+                "The web_url is always the direct catalog record link (e.g. "
+                "https://katalog.ub.tu-freiberg.de/Record/0-1025700295). resource_url is "
+                "the full-text/DOI link when one exists (empty otherwise — never "
+                "fabricated); urls[] holds the underlying candidates (DOI links, "
+                "publisher pages, open-access copies, cover images). Cite resource_url "
+                "alongside the catalog link when present. "
+                "Caveat: finc's index may not include every older or print-only holding — "
+                "if a title genuinely isn't found here, try search_catalog_titles (direct "
+                "Libero/SOAP catalog search) as a fallback before concluding it's absent "
+                "from the collection. "
                 "Use `facets` (e.g. [\"udk_raw_de105\",\"rvk_facet\"]) to also "
                 "get the DK/RVK classification distribution, and `filters` to scope by "
                 "facet (VuFind syntax, e.g. {\"institution\": \"DE-105\"} or "
@@ -236,6 +251,10 @@ class FincProvider:
         **opts: Any,
     ) -> ProviderResult:
         self._require(capability)
+        if capability is SearchCapability.CLASSIFICATION:
+            # DK/RVK extraction is a keyword→classifications operation that does
+            # not run the title/facet suggester; delegate to the extractor. - Claude Generated
+            return self._classification_search(list(query), progress=progress, **opts)
         if progress is not None:
             try:
                 self.suggester.currentTerm.connect(progress)
@@ -256,6 +275,70 @@ class FincProvider:
         if capability is SearchCapability.TITLE_RECORDS:
             return ProviderResult.from_finc_records(raw, errors=errors)
         return _facets_from_finc_dict(raw, errors=errors)
+
+    def dk_extractor(
+        self,
+        *,
+        logger_: Any = None,
+        stream_callback: Optional[Callable[[str], None]] = None,
+        knowledge_manager: Any = None,
+    ):
+        """Return the finc DK/RVK extractor backing the ``CLASSIFICATION`` capability.
+
+        Implements the shared ``extract_dk_classifications_for_keywords`` contract
+        that the classic DK step (``execute_dk_search``) consumes, built from this
+        provider's own config — so a copied-out finc plugin supplies DK/RVK with
+        no core wiring. The ``FincCatalogClient`` lives inside this plugin dir
+        (self-contained). - Claude Generated
+        """
+        from .finc_catalog_client import FincCatalogClient
+
+        return FincCatalogClient(
+            base_url=self._config.get("base_url", "") or "",
+            web_record_url=self._config.get("web_record_url", "") or "",
+            institution_filter=self._config.get("institution_filter", "") or "",
+            timeout=int(self._config.get("timeout", 30) or 30),
+            max_titles_per_keyword=int(self._config.get("default_limit", 50) or 50),
+            logger_=logger_,
+            stream_callback=stream_callback,
+            knowledge_manager=knowledge_manager,
+        )
+
+    def _classification_search(
+        self, query: List[str], *, progress: Optional[Callable[[str], None]] = None,
+        max_results: int = 50, force_update: bool = False, **_opts: Any,
+    ) -> ProviderResult:
+        """``search(CLASSIFICATION)`` path: delegate to the DK extractor and shape
+        the keyword-centric output into a ``CLASSIFICATION`` result. - Claude Generated"""
+        cb = progress if callable(progress) else None
+        results = self.dk_extractor(stream_callback=cb).extract_dk_classifications_for_keywords(
+            list(query), max_results=int(max_results or 50), force_update=bool(force_update),
+        )
+        return _classification_from_kw_results(results)
+
+
+def _classification_from_kw_results(kw_results: list) -> ProviderResult:
+    """Convert the shared ``extract_dk_classifications_for_keywords`` output
+    (``[{keyword, source, classifications: [{dk, type, count, …}]}]``) into a
+    ``CLASSIFICATION`` result, keyed per keyword. The full per-code source dict
+    is preserved in ``extra`` so nothing is lost. - Claude Generated
+    """
+    per_term: dict = {}
+    for kw in kw_results or []:
+        kw = kw or {}
+        term = str(kw.get("keyword", "") or "_all")
+        for c in kw.get("classifications", []) or []:
+            c = c or {}
+            code = str(c.get("dk", "") or c.get("code", ""))
+            per_term.setdefault(term, []).append(
+                ResultItem(
+                    code=code,
+                    label=str(c.get("type", "") or code),
+                    count=int(c.get("count", 0) or 0),
+                    extra=dict(c),
+                )
+            )
+    return ProviderResult(SearchCapability.CLASSIFICATION, per_term=per_term)
 
 
 def _facets_from_finc_dict(raw: dict, errors: Optional[dict] = None) -> ProviderResult:

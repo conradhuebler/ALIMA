@@ -17,9 +17,12 @@ typed attribute on SharedContext, so downstream steps can read them via
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -200,6 +203,14 @@ def _write(context: Any, step_id: str, dest: str, value: Any) -> None:
       else              → stored under ``context.extra[<dest>]``.
     """
     if value is None:
+        # Silent by design for the common case (many steps legitimately have
+        # an unset optional output) — but previously left zero trace even
+        # when the source path resolved to nothing because upstream JSON
+        # parsing failed. debug (not warning) to avoid spamming every
+        # workflow's log for routine empty-optional-output steps. - Claude Generated
+        logger.debug(
+            "BaseStep '%s': output '%s' resolved to None — not written", step_id, dest
+        )
         return
     parts = dest.split(".")
     root = parts[0]
