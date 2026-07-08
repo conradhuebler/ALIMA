@@ -1460,6 +1460,111 @@ class ToolRegistry:
 
         return handler
 
+    def _lookup_instances(self):
+        """Enabled lookup-plugin instances; fall back to one per registered type.
+
+        Lookups are a new category, so existing configs have no lookup instances →
+        fall back on an *empty* list (not just on load failure). - Claude Generated"""
+        import src.utils.lookups  # noqa: F401 — registers the category + plugins
+        from src.utils.lookups import list_lookups
+
+        cfg = self._alima_config()
+        if cfg is not None:
+            insts = cfg.enabled_instances_for("lookup")
+            if insts:
+                return insts
+        from src.utils.config_models import PluginInstanceConfig
+
+        return [
+            PluginInstanceConfig(instance_id=lid, category="lookup", provider_id=lid, is_primary=True)
+            for lid in list_lookups()
+        ]
+
+    def _generated_lookup_tools(self):
+        """Build ``(ToolDefinition, handler)`` for each enabled lookup plugin's
+        ``LookupToolSpec`` (e.g. rvk_search / rvk_validate). - Claude Generated"""
+        import src.utils.lookups  # noqa: F401
+        from src.utils.lookups import lookup_tool_specs
+
+        specs_by_provider = {}
+        for spec in lookup_tool_specs():
+            specs_by_provider.setdefault(spec.provider_id, []).append(spec)
+
+        by_type = {}
+        for inst in self._lookup_instances():
+            by_type.setdefault(inst.provider_id, []).append(inst)
+
+        tools = []
+        used = set()
+        for provider_id, instances in by_type.items():
+            specs = specs_by_provider.get(provider_id)
+            if not specs:
+                continue
+            canonical = self._canonical_instance(instances)
+            for inst in instances:
+                for spec in specs:
+                    name = spec.name if inst is canonical else self._instance_tool_name(spec.name, inst)
+                    if name in used:
+                        name = self._instance_tool_name(spec.name, inst)
+                        if name in used:
+                            continue
+                    used.add(name)
+                    tools.append((
+                        ToolDefinition(
+                            name=name,
+                            description=self._describe_with_hint(spec.description, inst),
+                            parameters=spec.parameters,
+                        ),
+                        self._make_lookup_handler(spec, inst),
+                    ))
+        return tools
+
+    def _make_lookup_handler(self, spec, inst):
+        """Handler for a lookup tool: build the plugin, call its method, and cache
+        the raw response (gated by the per-plugin cache setting). - Claude Generated"""
+        def handler(**kwargs):
+            try:
+                from src.core.plugins.category import get_category
+                from src.core.plugins.schema import cache_pref_enabled
+
+                # Only pass the args this tool declares (avoid TypeErrors from
+                # stray kwargs the LLM/harness may add). - Claude Generated
+                props = (spec.parameters or {}).get("properties", {})
+                args = {k: v for k, v in kwargs.items() if k in props and v is not None}
+
+                key = args.get(spec.cache_key_param) if spec.cache_key_param else None
+                cache_params = {k: v for k, v in args.items() if k != spec.cache_key_param}
+                cacheable = (
+                    bool(key)
+                    and spec.cacheable
+                    and cache_pref_enabled(
+                        (inst.settings or {}).get("cache_responses"),
+                        global_enabled=self._response_cache_enabled(),
+                    )
+                )
+                if cacheable:
+                    hit = self._get_knowledge_manager().get_raw_response(
+                        spec.name, str(key), cache_params
+                    )
+                    if hit:
+                        return hit["raw_json"]
+
+                plugin = get_category("lookup").build(inst)
+                result = getattr(plugin, spec.method)(**args)
+                out = json.dumps(result, ensure_ascii=False, default=str)
+                if cacheable and '"error"' not in out:
+                    try:
+                        self._get_knowledge_manager().store_raw_response(
+                            spec.name, str(key), cache_params, out
+                        )
+                    except Exception:
+                        pass
+                return out
+            except Exception as exc:
+                return json.dumps({"error": f"{inst.instance_id}: {exc}"})
+
+        return handler
+
     def _source_transform(self, source):
         """Resolve a GND-keyword source id to its ``transform(raw)`` callable.
 
@@ -1803,6 +1908,9 @@ class ToolRegistry:
         # Input-source tools generated per instance (e.g. the 3 DOI resolvers,
         # individually callable so an agent can compare sources). - Claude Generated
         for td, handler in self._generated_input_tools():
+            self.register(td, handler)
+        # Lookup tools (RVK-API …) — the third plugin category. - Claude Generated
+        for td, handler in self._generated_lookup_tools():
             self.register(td, handler)
         self.register(tool_schemas.RESOLVE_DOI, self._handle_resolve_doi)
         self.register(tool_schemas.SCRAPE_URL, self._handle_scrape_url)

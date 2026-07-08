@@ -47,12 +47,14 @@ from src.utils.config_models import PluginInstanceConfig
 _CATEGORY_LABELS = {
     "search_provider": "🔎 Suchquellen",
     "input_source": "📥 Input-Quellen",
+    "lookup": "🔖 Lookups (API)",
 }
 
 
 def _ensure_categories() -> None:
     import src.core.search  # noqa: F401
     import src.utils.input_sources  # noqa: F401
+    import src.utils.lookups  # noqa: F401
 
 
 class _CategoryPanel(QWidget):

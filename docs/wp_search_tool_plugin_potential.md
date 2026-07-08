@@ -89,17 +89,39 @@ Operator note: the global `enable_response_cache` is **off** in the current conf
 set it on (or a plugin's `cache_responses` to `on`) to actually cache raw. Tests:
 `test_gnd_cache_warming.py`, `test_cache_setting.py`. Suite 1159 passed.
 
-## Phase B — cut the braids (breaking; plan+confirm each)
+## Phase B — cut the braids (operator-scoped)
 
-5. `rvk_lookup` → a classification-lookup plugin; `scrape_url` → fold into
-   `url_fetch`; `resolve_doi`/`k10plus` → plugin or explicit composition tool.
-6. Formalize a **"plugin tool vs core tool" split** (external-API plugins vs local
-   DB/pipeline/export) so "everything is a plugin" does not over-reach into the DB.
-7. A **new `lookup`/`enrichment` category** (or the `CLASSIFICATION` capability) for
-   RVK/DK — they return codes, not rankable records, so they don't fit
-   `search_provider`.
+Operator scope (July 8): k10plus→input plugin · unify URL-fetch core · RVK client→
+lookup plugin · **add a new `lookup` category** + formalize external-API=plugin /
+local=core. (Did *not* drop `scrape_url`.)
+
+### B4+B3 ✅ DONE — new `lookup` category + RVK-API plugin
+- `src/utils/lookups/` — third plugin category (`registry.py` `@register_lookup` +
+  `LookupToolSpec`; `category.py` `LookupCategory` adapter, self-registers +
+  injects the standard `cache_field`; `rvk.py` `RvkLookup` wrapping
+  `RvkApiClient`). Tools **`rvk_search`** (keyword→ranked notations) + **`rvk_validate`**
+  (notation→label+ancestors), generated via `ToolRegistry._generated_lookup_tools`
+  (mirrors input-tool generation) and **raw-cached** through the same per-plugin
+  `cache_responses` gate → realizes "cache any search" for lookups. The composed
+  **`rvk_lookup` core tool stays unchanged** (pipeline anchor machinery). GUI
+  auto-discovers the category (`list_categories`) + label. Verified live
+  (Biologie→AN 94700, `rvk_validate` WI 1000). Tests: `test_lookup_plugins.py` (6).
+- **plugin-tool vs core-tool boundary:** external-API interactions become plugins
+  (search_provider / input_source / **lookup**), cached + per-plugin-toggleable;
+  local DB/pipeline/export + composed tools (`rvk_lookup`, `resolve_doi`) stay core.
+
+### Remaining Phase B
+- **B2 — unify URL-fetch core:** *already substantially shared* — both `scrape_url`
+  (MCP) and the `url_fetch` input source fetch through `net_guard.fetch_guarded` +
+  `url_fetch_guard_settings`. The only divergence is content shaping (full-page+PDF
+  vs main-content heuristic), which is intentional. Low-value; optional small
+  dedup of the guard-settings boilerplate.
+- **B1 — k10plus → input plugin:** bigger than a DOI plugin — `k10plus_resolver`
+  is a *Paketsigel (package-seal) harvester* (Siegel→records via K10plus SRU) woven
+  into batch/CLI/GUI. Plugin-izing = expose it as an input-source tool
+  (`fetch_k10plus_package`) while the direct batch usages stay. Deferred as the next
+  concrete step.
 
 ### What breaks
-- Plugin-izing `rvk_lookup`/`scrape_url`/`resolve_doi` changes tool names +
-  registration → chat prompts, workflow YAMLs, tests referencing those names.
-- The plugin/core split may move some tool schemas between registries.
+- New lookup tools (`rvk_search`/`rvk_validate`) are additive — nothing broke.
+- B1 adds a tool; no rename. B2 (if done) is internal dedup, non-breaking.
