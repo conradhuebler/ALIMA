@@ -299,7 +299,7 @@ class SearchProviderCategory(PluginCategory):
         return list_providers()
 
     def type_meta(self, type_id: str) -> PluginTypeMeta:
-        from src.core.plugins.schema import PluginDoc
+        from src.core.plugins.schema import PluginDoc, cache_field
 
         cls = get_provider(type_id)
         caps = sorted(c.value for c in getattr(cls, "capabilities", set()))
@@ -309,7 +309,8 @@ class SearchProviderCategory(PluginCategory):
             type_id=type_id,
             label=getattr(cls, "label", type_id),
             category=self.name,
-            config_fields=list(fields),
+            # Standard per-plugin cache toggle appended to every provider's form.
+            config_fields=list(fields) + [cache_field()],
             capabilities=caps,
             builtin=True,
             doc=doc,

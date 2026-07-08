@@ -124,16 +124,17 @@ class SuggesterBackedProvider:
     def _cache_raw_enabled(self) -> bool:
         """Whether raw source responses should be written for this provider.
 
-        Precedence: per-instance ``settings['cache_responses']`` → the value the
-        factory injected (global ``SystemConfig.enable_response_cache``) → True.
+        The per-instance ``cache_responses`` setting (tri-state ``auto``/``on``/
+        ``off``, or a legacy bool) governs; ``auto``/absent follows the factory-
+        injected global (``SystemConfig.enable_response_cache``) → default True.
         - Claude Generated
         """
-        override = self._config.get("cache_responses")
-        if override is not None:
-            return bool(override)
-        if self._cache_raw is not None:
-            return bool(self._cache_raw)
-        return True
+        from src.core.plugins.schema import cache_pref_enabled
+
+        global_default = self._cache_raw if self._cache_raw is not None else True
+        return cache_pref_enabled(
+            self._config.get("cache_responses"), global_enabled=global_default
+        )
 
     def _store_raw_responses(
         self, query: List[str], suggester_kwargs: Dict[str, Any]

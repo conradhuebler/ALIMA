@@ -154,13 +154,19 @@ class CachingProvider:
 
         # Write-back: store the GND IDs and their real counts for display restore.
         gnd_counts = {}
+        titles_by_id = {}
         for it in items:
             for gnd_id in it.gnd_ids:
                 gnd_counts[gnd_id] = max(gnd_counts.get(gnd_id, 0), int(it.count or 0))
+                titles_by_id.setdefault(gnd_id, it.label)
         self.ukm.update_search_mapping(
             term,
             self.id,
             found_gnd_ids=list(gnd_counts.keys()),
             gnd_counts=gnd_counts,
         )
+        # Warm minimal facts (gnd_id → title) so a cache hit resolves titles via
+        # get_gnd_fact instead of dropping every id, and search_local_gnd sees the
+        # term. INSERT OR IGNORE never clobbers an enriched fact. - Claude Generated
+        self.ukm.warm_gnd_entries(titles_by_id)
         return items, None

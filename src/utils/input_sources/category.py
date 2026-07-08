@@ -26,7 +26,7 @@ class InputSourceCategory(PluginCategory):
         return list_input_sources()
 
     def type_meta(self, type_id: str) -> PluginTypeMeta:
-        from src.core.plugins.schema import PluginDoc
+        from src.core.plugins.schema import PluginDoc, cache_field
 
         cls = get_input_source(type_id)
         fields = cls.config_fields() if hasattr(cls, "config_fields") else []
@@ -35,7 +35,8 @@ class InputSourceCategory(PluginCategory):
             type_id=type_id,
             label=getattr(cls, "label", type_id),
             category=self.name,
-            config_fields=list(fields),
+            # Standard per-plugin cache toggle appended to every source's form.
+            config_fields=list(fields) + [cache_field()],
             capabilities=[],
             builtin=True,
             doc=doc,

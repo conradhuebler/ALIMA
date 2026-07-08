@@ -206,3 +206,43 @@ def apply_env_overrides(
         if env_val:
             out[fld.key] = env_val
     return out
+
+
+# --- Standard per-plugin raw-response cache toggle ------------------------- #
+CACHE_RESPONSES_KEY = "cache_responses"
+
+
+def cache_field() -> "ConfigField":
+    """The standard per-plugin cache toggle, injected into every plugin's settings
+    form by the category adapters (search + input).
+
+    Tri-state: ``auto`` (follow the global ``enable_response_cache`` switch), ``on``
+    (always cache this plugin's raw responses), ``off`` (never). Read at execution
+    via :func:`cache_pref_enabled`. - Claude Generated"""
+    return ConfigField(
+        key=CACHE_RESPONSES_KEY,
+        label="Antworten cachen",
+        kind=CHOICE,
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Rohantworten dieses Plugins im lokalen Response-Cache speichern. "
+        "'auto' folgt dem globalen Cache-Schalter; 'on'/'off' überschreibt ihn "
+        "für dieses Plugin.",
+    )
+
+
+def cache_pref_enabled(value: Any, *, global_enabled: bool) -> bool:
+    """Interpret a plugin's ``cache_responses`` setting → effective on/off.
+
+    Accepts the tri-state string (``auto``/``on``/``off``) or a legacy bool.
+    ``auto``/absent falls back to ``global_enabled``. - Claude Generated"""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return global_enabled
+    v = str(value).strip().lower()
+    if v in ("on", "true", "1", "yes"):
+        return True
+    if v in ("off", "false", "0", "no"):
+        return False
+    return global_enabled

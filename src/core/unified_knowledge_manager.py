@@ -492,7 +492,33 @@ class UnifiedKnowledgeManager:
         except Exception as e:
             self.logger.error(f"Error storing GND fact {gnd_id}: {e}")
             raise
-    
+
+    def warm_gnd_entries(self, titles_by_id: Dict[str, str]) -> None:
+        """Seed minimal GND facts (gnd_id → title) from a search - Claude Generated.
+
+        ``INSERT OR IGNORE``: a brand-new gnd_id is added with just its title; an
+        existing row (e.g. one already enriched with description/DDCs via
+        ``store_gnd_fact``'s ``INSERT OR REPLACE``) is left untouched — never
+        clobbered. This lets a *standalone* GND search warm the shared knowledge DB
+        so mapping-cache hits (``CachingProvider._items_from_cache`` resolves titles
+        via ``get_gnd_fact``) and ``search_local_gnd`` see terms that were searched
+        online. Best-effort; a single bad id never sinks the batch.
+        """
+        for gnd_id, title in (titles_by_id or {}).items():
+            if not gnd_id or not title:
+                continue
+            try:
+                self.db_manager.execute_query(
+                    """
+                    INSERT OR IGNORE INTO gnd_entries
+                    (gnd_id, title, description, synonyms, ddcs, ppn, updated_at)
+                    VALUES (?, ?, '', '', '', '', CURRENT_TIMESTAMP)
+                    """,
+                    [gnd_id, title],
+                )
+            except Exception as e:
+                self.logger.debug(f"warm_gnd_entries skip {gnd_id}: {e}")
+
     def get_gnd_fact(self, gnd_id: str) -> Optional[GNDEntry]:
         """Retrieve GND fact by ID - Claude Generated"""
         try:
@@ -870,7 +896,10 @@ class UnifiedKnowledgeManager:
                     updated_at=row['updated_at']
                 ))
 
-            return entries[:min_results] if len(entries) >= min_results else []
+            # Return whatever local hits exist (capped), rather than discarding
+            # 1–2 valid matches when fewer than min_results — a partial local hit
+            # still beats an empty answer for the agent. - Claude Generated
+            return entries[:min_results]
 
         except Exception as e:
             self.logger.error(f"Error in local GND search: {e}")

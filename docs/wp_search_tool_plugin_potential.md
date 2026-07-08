@@ -65,23 +65,29 @@ half-exists: `SuggesterBackedProvider._cache_raw_enabled()` already reads a per-
 instance `cache_responses` override, but there is **no `ConfigField`** for it (not
 editable), and input tools use a static `InputToolSpec.cacheable`, not a setting.
 
-## Phase A — foundation (non-breaking)
+## Phase A — foundation (non-breaking) ✅ DONE (July 8, commit)
 
-1. **Warm facts at the shared write seam.** New
-   `UnifiedKnowledgeManager.warm_gnd_entries({gnd_id: title})` using
-   `INSERT OR IGNORE` (never clobbers a richer enrichment fact — unlike
-   `store_gnd_fact`'s `INSERT OR REPLACE`). Call it from `CachingProvider._live_search`
-   where `gnd_counts` is already built → every GND provider + both pipelines warm the
-   shared local knowledge DB. Fixes F1.
-2. **Fix F2** — return the found local entries even when fewer than `min_results`.
-3. **Generalize raw-caching** to the tool-execution layer so any API tool
-   (`rvk_lookup`, `scrape_url`, …) caches its raw response, not just plugin-generated
-   ones.
-4. **Per-plugin `cache_responses` setting** — a standard BOOL `ConfigField` on every
-   plugin, read at execution (search + input), surfaced in the plugin settings tab.
+1. ✅ **Warm facts at the shared write seam.**
+   `UnifiedKnowledgeManager.warm_gnd_entries({gnd_id: title})` (`INSERT OR IGNORE`,
+   never clobbers a richer enrichment fact) called from `CachingProvider._live_search`
+   where `gnd_counts` is built → every GND provider + both pipelines warm the shared
+   local knowledge DB. **Fixes F1** (verified: cache hit 0→49; `search_gnd` finds a
+   just-searched term; enriched fact preserved).
+2. ✅ **Fixed F2** — `search_local_gnd` returns partial local hits instead of `[]`.
+3. ⏭️ **Generalize raw-caching to the hardcoded API tools** (`rvk_lookup`,
+   `scrape_url`) **folded into Phase B** — those tools become plugins there and inherit
+   caching via the plugin path, so doing it now would be throwaway. Plugin tools
+   (search + input) already cache, now governed per-plugin (item 4).
+4. ✅ **Per-plugin `cache_responses` setting** — a standard tri-state `ConfigField`
+   (`auto`/`on`/`off`, `schema.cache_field()` + `cache_pref_enabled()`) injected into
+   both category forms (`SearchProviderCategory`/`InputSourceCategory.type_meta`), read
+   at execution (search: `SuggesterBackedProvider._cache_raw_enabled`; input:
+   `_make_input_handler`). `auto` follows the global `enable_response_cache`. GUI form
+   is schema-driven → renders automatically. Tests: `test_cache_setting.py`.
 
-Verification: full suite green + a live cache-hit parity check (2nd search returns
-the same items; `search_gnd` finds a just-searched term).
+Operator note: the global `enable_response_cache` is **off** in the current config —
+set it on (or a plugin's `cache_responses` to `on`) to actually cache raw. Tests:
+`test_gnd_cache_warming.py`, `test_cache_setting.py`. Suite 1159 passed.
 
 ## Phase B — cut the braids (breaking; plan+confirm each)
 

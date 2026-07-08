@@ -1416,11 +1416,17 @@ class ToolRegistry:
                 if value is None and kwargs:
                     value = next(iter(kwargs.values()))
                 # WP2 P5: cache the verbatim source response (e.g. DOI metadata).
-                # Read-through, gated by the tool's `cacheable` + the master switch.
+                # Gated by the tool's `cacheable`, the master switch, and the
+                # per-plugin `cache_responses` setting (auto/on/off). - Claude Generated
+                from src.core.plugins.schema import cache_pref_enabled
+
                 cacheable = (
-                    getattr(spec, "cacheable", True)
-                    and value
-                    and self._response_cache_enabled()
+                    bool(value)
+                    and getattr(spec, "cacheable", True)
+                    and cache_pref_enabled(
+                        (inst.settings or {}).get("cache_responses"),
+                        global_enabled=self._response_cache_enabled(),
+                    )
                 )
                 if cacheable:
                     hit = self._get_knowledge_manager().get_raw_response(
