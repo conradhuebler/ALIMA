@@ -109,6 +109,17 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP GND-Suche vereinheitlicht / MetaSuggester retired** ✅ CODE-COMPLETE (July 8):
+  ein Single-Entry `src/core/search/service.py` (`search_gnd_keywords` /
+  `resolve_gnd_instances`) baut alle Provider über `factory.build_provider` aus
+  `PluginInstanceConfig`; Klassik (`SearchCLI`), MCP (`ToolRegistry._provider_for` +
+  `_source_transform`) und GUI (`find_keywords`) konvergiert; `meta_suggester.py`
+  gelöscht (`grep "MetaSuggester("`→0). Live gegen lobid verifiziert (Klassik
+  live/merge + raw-first, MCP-Tools, agentisches `aggregate_gnd_results`); Suite
+  1152 grün. Defaults: lobid+swb zero-config, catalog/finc `is_available()`-gated
+  Blueprints, gnd_local offline. **Residual:** finc-MCP-Handler bleibt
+  `CatalogConfig`-basiert. **Offen:** Operator-Click-Test `find_keywords` (GUI nicht
+  headless verifizierbar). Doc: [`AIChangelog.md`](AIChangelog.md) (July 8).
 - **WP Plugin-Blueprints + Security-Härtung** ✅ CODE-COMPLETE (July 6): alle 6
   Built-in-Provider sind self-contained, kopierbare Plugin-Dirs
   (`src/core/search/providers/<name>/` mit plugin.toml + README); Loader lädt

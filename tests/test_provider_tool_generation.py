@@ -22,29 +22,44 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
 
 class _Raw:
-    def __init__(self, out):
+    """Fake underlying suggester: records search kwargs, returns canned output. - Claude Generated"""
+
+    def __init__(self, out, titles=None):
         self.out = out
+        self.titles = titles if titles is not None else {"t": [{"title": "B", "id": "1"}]}
         self.last_errors = {}
+        self.last_raw = {}
         self.recorded = None
 
     def search(self, terms, **kw):
         self.recorded = kw
         return self.out
 
+    def search_titles(self, terms, search_type="title", max_results=25):
+        return self.titles
 
-class _Meta:
-    """Mock MetaSuggester: cached .search(terms) + raw_suggester()."""
 
-    def __init__(self, cached_out, raw_out):
-        self._cached = cached_out
-        self.raw = _Raw(raw_out)
-        self.last_errors = {"lobid:term": "boom"}
+class _FakeProvider:
+    """Fake factory provider seeded into ToolRegistry._provider_cache (no network).
 
-    def search(self, terms):
-        return self._cached
+    Serves both cache keys: the ``search(capability, terms)`` path (default cached
+    tool) returns a typed ProviderResult; ``.suggester`` returns the raw stub for
+    the non-default / catalog passthrough. - Claude Generated"""
 
-    def raw_suggester(self, pid=None):
-        return self.raw
+    def __init__(self, gnd_result, raw, available=True):
+        self._gnd_result = gnd_result
+        self._raw = _Raw(raw)
+        self._available = available
+
+    def is_available(self, cfg=None):
+        return self._available
+
+    def search(self, capability, terms, **kw):
+        return self._gnd_result
+
+    @property
+    def suggester(self):
+        return self._raw
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
@@ -53,16 +68,47 @@ class GeneratedSearchToolTest(unittest.TestCase):
     RAW = {"t": {"KwRaw": {"count": 2, "gndid": {"4055747-6"}, "ddc": set(), "dk": set()}}}
 
     def _registry(self):
-        reg = ToolRegistry()
-        reg._suggesters_initialized = True
-        reg._lobid = _Meta(self.GND, self.RAW)
-        reg._swb = _Meta(self.GND, self.RAW)
-        reg._biblio = types.SimpleNamespace(
-            search=lambda terms, search_type="kw": self.GND,
-            search_titles=lambda terms, search_type="title", max_results=25: {"t": [{"title": "B", "id": "1"}]},
-            last_errors={},
+        from unittest.mock import MagicMock
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig, SearchProviderConfig
+        from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
+            PluginInstanceConfig("swb", "search_provider", "swb", enabled=True, is_primary=True),
+            PluginInstanceConfig("catalog", "search_provider", "catalog", enabled=True, is_primary=True),
+            PluginInstanceConfig("finc", "search_provider", "finc", enabled=True, is_primary=True),
+        ]
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = types.SimpleNamespace(
+            load_config=lambda **k: cfg,
+            get_search_provider_config=lambda: SearchProviderConfig(),
         )
-        reg._finc = _Raw({"t": {"records": [], "result_count": 0, "facets": {}, "errors": []}})
+        reg._tools = {}
+        reg._handlers = {}
+        reg._suggesters_initialized = True
+        reg._finc = None
+        km = MagicMock()
+        km.get_raw_response.return_value = None
+        reg._knowledge_manager = km
+        reg._provider_cache = {}
+
+        def _gnd_result(errors=None):
+            return ProviderResult(
+                SearchCapability.GND_KEYWORDS,
+                per_term={"t": [ResultItem(label="Kw", gnd_ids={"4074335-4"}, count=5, ddc={"333"})]},
+                errors=errors or {},
+            )
+
+        fakes = {
+            "lobid": _FakeProvider(_gnd_result({"term": "boom"}), self.RAW),
+            "swb": _FakeProvider(_gnd_result({"term": "boom"}), self.RAW),
+            "catalog": _FakeProvider(_gnd_result(), self.GND),
+        }
+        for pid, fake in fakes.items():
+            reg._provider_cache[(pid, True)] = fake
+            reg._provider_cache[(pid, False)] = fake
+        reg._fakes = fakes
         return reg
 
     def _handlers(self, reg):
@@ -87,20 +133,20 @@ class GeneratedSearchToolTest(unittest.TestCase):
         reg = self._registry()
         out = json.loads(self._handlers(reg)["search_lobid"](terms=["t"], search_type="kw"))
         self.assertEqual(out["source"], "lobid")
-        self.assertIn("Kw", out["results"]["t"])          # came from cached .search()
+        self.assertIn("Kw", out["results"]["t"])          # came from the cached provider
         self.assertIn("gnd_urls", out["results"]["t"]["Kw"])  # gnd_url enrichment
         self.assertEqual(out["errors"], {"lobid:term": "boom"})
 
     def test_lobid_non_default_uses_raw_suggester(self):
         reg = self._registry()
         out = json.loads(self._handlers(reg)["search_lobid"](terms=["t"], search_type="title"))
-        self.assertIn("KwRaw", out["results"]["t"])  # came from raw_suggester()
-        self.assertEqual(reg._lobid.raw.recorded, {"search_type": "title"})
+        self.assertIn("KwRaw", out["results"]["t"])  # came from the raw suggester
+        self.assertEqual(reg._fakes["lobid"].suggester.recorded, {"search_type": "title"})
 
     def test_swb_non_default_passes_max_pages_to_raw(self):
         reg = self._registry()
         self._handlers(reg)["search_swb"](terms=["t"], search_type="kw", max_pages=3)
-        self.assertEqual(reg._swb.raw.recorded, {"search_type": "kw", "max_pages": 3})
+        self.assertEqual(reg._fakes["swb"].suggester.recorded, {"search_type": "kw", "max_pages": 3})
 
     def test_catalog_has_no_gnd_urls_and_no_errors_block(self):
         reg = self._registry()
@@ -118,7 +164,7 @@ class GeneratedSearchToolTest(unittest.TestCase):
 
     def test_unavailable_source_message(self):
         reg = self._registry()
-        reg._biblio = None
+        reg._fakes["catalog"]._available = False  # token-less catalog → unavailable
         out = json.loads(self._handlers(reg)["search_catalog"](terms=["t"]))
         self.assertEqual(out["error"], "BiblioSuggester not available")
 

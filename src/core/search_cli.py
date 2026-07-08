@@ -1,7 +1,6 @@
 import logging
 from typing import List, Dict, Any
 
-from ..utils.suggesters.meta_suggester import MetaSuggester
 from .gnd_search_core import merge_code_entry
 from .unified_knowledge_manager import UnifiedKnowledgeManager
 
@@ -48,88 +47,59 @@ class SearchCLI:
         self._active_suggesters.clear()
         self.logger.debug("SearchCLI closed and resources released")
 
+    def _catalog_overrides(self) -> Dict[str, Dict[str, Any]]:
+        """Overlay the explicit catalog token/URLs (owned by the pipeline) onto the
+        resolved catalog instance settings; empty values are ignored by the resolver
+        so config-provided values win when the pipeline passes nothing. - Claude Generated"""
+        return {
+            "catalog": {
+                "token": self.catalog_token,
+                "catalog_search_url": self.catalog_search_url,
+                "catalog_details": self.catalog_details_url,
+            }
+        }
+
     def search(
         self, search_terms: List[str], suggester_types: List[str]
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        combined_results = {}
-        self.last_errors = {}
+        """Mapping-first GND-keyword search via the unified provider service.
 
-        for suggester_type in suggester_types:
-            self.logger.debug(f"Searching with {suggester_type} suggester")
+        Thin adapter: resolves the requested provider ids to instances (overlaying
+        the pipeline's explicit catalog config) and delegates the build/search/merge
+        to ``src.core.search.service``. - Claude Generated
+        """
+        from .search.service import resolve_gnd_instances, search_gnd_keywords
 
-            try:
-                suggester = MetaSuggester(
-                    providers=suggester_type,
-                    debug=False,
-                    catalog_token=self.catalog_token,
-                    catalog_search_url=self.catalog_search_url,
-                    catalog_details=self.catalog_details_url,
-                )
-
-                results = suggester.search(search_terms)
-                self.merge_results(combined_results, results)
-                # Propagate per-term source failures to callers - Claude Generated
-                self.last_errors.update(getattr(suggester, "last_errors", {}))
-
-            except Exception as e:
-                self.logger.error(
-                    f"Error searching with {suggester_type} suggester: {e}"
-                )
-                for term in search_terms:
-                    self.last_errors[f"{suggester_type}:{term}"] = str(e)
-
-        return combined_results
+        instances = resolve_gnd_instances(
+            suggester_types, overrides=self._catalog_overrides()
+        )
+        results, self.last_errors = search_gnd_keywords(
+            search_terms, instances, cache=True, aggregate_from_raw=False,
+            ukm=self.cache_manager,
+        )
+        return results
 
     def search_from_raw(
         self, search_terms: List[str], suggester_types: List[str]
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Fetch (populating the raw cache) then derive the nested result from raw.
 
-        WP2 P4.4b convergence: same signature/return shape as :meth:`search`, but
-        the reduced ``{term:{title:{...}}}`` view is derived from the raw response
-        cache (single source of truth) via the shared aggregate engine (raw-first,
-        mapping fallback). The per-source ``MetaSuggester.search`` still runs — it
-        performs the live fetch that writes raw through the provider seam and
-        surfaces source failures. - Claude Generated
+        WP2 P4.4b convergence: same signature/return shape as :meth:`search`, but the
+        reduced ``{term:{title:{...}}}`` view is derived from the raw response cache
+        (single source of truth) via the shared aggregate engine (raw-first, mapping
+        fallback). The per-source search still runs — it performs the live fetch that
+        writes raw through the provider seam and surfaces source failures. - Claude Generated
         """
-        from .search.aggregate import aggregate_gnd_results, nested_from_aggregate
-        from .search.provider import raw_cache_params_for
+        from .search.service import resolve_gnd_instances, search_gnd_keywords
 
-        self.last_errors = {}
-        transform_by_source: Dict[str, Any] = {}
-        params_by_source: Dict[str, Dict[str, Any]] = {}
-        ok_types: List[str] = []
-
-        for suggester_type in suggester_types:
-            try:
-                suggester = MetaSuggester(
-                    providers=suggester_type,
-                    debug=False,
-                    catalog_token=self.catalog_token,
-                    catalog_search_url=self.catalog_search_url,
-                    catalog_details=self.catalog_details_url,
-                )
-                suggester.search(search_terms)  # live fetch → writes raw via seam
-                self.last_errors.update(getattr(suggester, "last_errors", {}))
-                transform = getattr(
-                    suggester.raw_suggester(suggester_type), "transform", None
-                )
-                if transform is not None:
-                    transform_by_source[suggester_type] = transform
-                    params_by_source[suggester_type] = raw_cache_params_for(suggester_type)
-                    ok_types.append(suggester_type)
-            except Exception as e:
-                self.logger.error(
-                    f"Error searching with {suggester_type} suggester: {e}"
-                )
-                for term in search_terms:
-                    self.last_errors[f"{suggester_type}:{term}"] = str(e)
-
-        agg = aggregate_gnd_results(
-            search_terms, ok_types, self.cache_manager, transform_by_source,
-            params_by_source=params_by_source,
+        instances = resolve_gnd_instances(
+            suggester_types, overrides=self._catalog_overrides()
         )
-        return nested_from_aggregate(agg)
+        results, self.last_errors = search_gnd_keywords(
+            search_terms, instances, cache=True, aggregate_from_raw=True,
+            ukm=self.cache_manager,
+        )
+        return results
 
     def merge_results(self, combined_results, new_results):
         for search_term, term_results in new_results.items():

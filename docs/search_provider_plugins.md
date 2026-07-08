@@ -1,5 +1,19 @@
 # Search Provider Plugin System (Design / Implemented)
 
+> **Update (July 8, 2026): construction unified on the factory; MetaSuggester retired.**
+> A single GND-keyword entry point `src/core/search/service.py`
+> (`search_gnd_keywords` / `resolve_gnd_instances` / `underlying_suggester`) now
+> builds every provider through `factory.build_provider` from the authoritative
+> `PluginInstanceConfig`. All three former construction sites converge on it —
+> classic `SearchCLI`, the MCP `ToolRegistry` primaries (`_provider_for`), and the
+> GUI `find_keywords` standalone/manual search (which no longer bypasses the WP2 raw
+> cache). `src/utils/suggesters/meta_suggester.py` is deleted. **Defaults vs
+> blueprints:** lobid + swb are the zero-config web defaults (oGND = lobid); catalog
+> (Libero) + finc are enabled-but-`is_available()`-gated blueprints (token /
+> base_url); gnd_local is the offline option. One residual: finc's MCP handler
+> (`_handle_search_finc`) still reads `CatalogConfig` (institution-specific). See
+> `AIChangelog.md` (July 8, 2026).
+
 > **Status:** ✅ Implemented (June 29, 2026) in `src/core/search/` — P1+P2+P3 per the
 > migration plan below. Commits `5061801` (P1), `35bc487` (P2 + F-4), `85900e2`
 > (P3 MCP generation), + `SearchProviderConfig`/GUI selector. `SuggesterType` is

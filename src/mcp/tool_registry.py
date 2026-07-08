@@ -55,9 +55,12 @@ class ToolRegistry:
         self._llm_service = llm_service
         self._knowledge_manager = None
         self._suggesters_initialized = False
-        self._lobid = None
-        self._swb = None
-        self._biblio = None
+        # GND-keyword + catalog sources now build through the search factory from
+        # PluginInstanceConfig (retires the MetaSuggester primaries + the
+        # CatalogConfig mirror). Built providers are memoised per (instance_id,
+        # cache) here; ``refresh()`` clears it. finc keeps its own attribute (its
+        # handler + tests still drive ``_finc`` via ``_init_suggesters``). - Claude Generated
+        self._provider_cache: Dict[tuple, Any] = {}
         self._finc = None
         self._resolver = None
         self._presets: Dict[str, List[str]] = {}
@@ -135,69 +138,28 @@ class ToolRegistry:
         return self._knowledge_manager
 
     def _init_suggesters(self):
-        """Lazy-init suggester instances.
+        """Lazy-init the finc suggester (its handler + web_url reconstruction).
 
-        Lobid/SWB are wrapped in MetaSuggester so the mapping-first cache
-        (UnifiedKnowledgeManager.search_with_mappings_first, incl. write-back)
-        applies exactly as in the classic pipeline path - Claude Generated
+        lobid/swb/catalog now build through the search factory per call
+        (``_provider_for`` / the unified service) — MetaSuggester and the
+        BiblioSuggester-from-CatalogConfig mirror are retired. finc keeps its own
+        CatalogConfig-derived construction here (institution-specific, heavily
+        pinned by ``test_finc_client``). - Claude Generated
         """
         if self._suggesters_initialized:
             return
-        try:
-            from src.utils.suggesters.meta_suggester import MetaSuggester
-            self._lobid = MetaSuggester(providers="lobid")
-        except Exception as e:
-            logger.warning(f"Lobid MetaSuggester init failed: {e}")
-        try:
-            from src.utils.suggesters.meta_suggester import MetaSuggester
-            self._swb = MetaSuggester(providers="swb")
-        except Exception as e:
-            logger.warning(f"SWB MetaSuggester init failed: {e}")
-        try:
-            from src.core.search.providers.catalog.suggester import BiblioSuggester
-            cat_cfg = None
-            if self._config_manager is not None:
-                try:
-                    cat_cfg = self._config_manager.get_catalog_config()
-                except Exception as e:
-                    logger.debug(f"catalog_config unavailable: {e}")
-            if cat_cfg is None:
-                try:
-                    from src.utils.config_manager import ConfigManager
-                    cat_cfg = ConfigManager().get_catalog_config()
-                except Exception as e:
-                    logger.debug(f"ConfigManager fallback failed: {e}")
-            if cat_cfg is not None:
-                # Env override for the catalog secret (legacy-mirror path parity
-                # with factory.build_provider). - Claude Generated
-                import os as _os
-
-                from src.core.plugins.schema import env_var_name
-
-                token = (
-                    _os.environ.get(env_var_name("catalog", "token"))
-                    or getattr(cat_cfg, "catalog_token", "")
-                    or ""
-                )
-                self._biblio = BiblioSuggester(
-                    token=token,
-                    catalog_search_url=getattr(cat_cfg, "catalog_search_url", "") or "",
-                    catalog_details=getattr(cat_cfg, "catalog_details_url", "") or "",
-                )
-                try:
-                    web_search = getattr(cat_cfg, "catalog_web_search_url", "") or ""
-                    web_record = getattr(cat_cfg, "catalog_web_record_url", "") or ""
-                    if web_search:
-                        self._biblio.extractor.WEB_SEARCH_URL = web_search
-                        self._biblio.extractor.enable_web_fallback = True
-                    if web_record:
-                        self._biblio.extractor.WEB_RECORD_BASE_URL = web_record
-                except Exception as e:
-                    logger.debug(f"web fallback URL wiring failed: {e}")
-            else:
-                self._biblio = BiblioSuggester()
-        except Exception as e:
-            logger.warning(f"BiblioSuggester init failed: {e}")
+        cat_cfg = None
+        if self._config_manager is not None:
+            try:
+                cat_cfg = self._config_manager.get_catalog_config()
+            except Exception as e:
+                logger.debug(f"catalog_config unavailable: {e}")
+        if cat_cfg is None:
+            try:
+                from src.utils.config_manager import ConfigManager
+                cat_cfg = ConfigManager().get_catalog_config()
+            except Exception as e:
+                logger.debug(f"ConfigManager fallback failed: {e}")
         # finc / VuFind-JSON client. Preferred over Libero when configured
         # (TU Freiberg finc solrproxy). Operator decision June 2026:
         # "finc oberste Priorität, dann libero". - Claude Generated
@@ -234,6 +196,41 @@ class ToolRegistry:
         except Exception as e:
             logger.warning(f"FincSuggester init failed: {e}")
         self._suggesters_initialized = True
+
+    def _alima_config(self):
+        """Load the full AlimaConfig via the injected config manager (else global).
+        Returns None on failure. - Claude Generated"""
+        try:
+            cm = self._config_manager
+            if cm is None:
+                from src.utils.config_manager import ConfigManager
+                cm = ConfigManager()
+            return cm.load_config()
+        except Exception:
+            return None
+
+    def _instance_for(self, provider_id):
+        """Resolve the primary configured instance for a search-provider type
+        (synthesising a default when the config knows nothing about it). - Claude Generated"""
+        from src.core.search.service import resolve_gnd_instances
+
+        for inst in resolve_gnd_instances([provider_id], config=self._alima_config()):
+            if inst.provider_id == provider_id:
+                return inst
+        return None
+
+    def _provider_for(self, inst, cache=False):
+        """Build (and memoise) the factory provider for an instance. - Claude Generated"""
+        if getattr(self, "_provider_cache", None) is None:
+            self._provider_cache = {}
+        key = (getattr(inst, "instance_id", getattr(inst, "provider_id", "?")), bool(cache))
+        provider = self._provider_cache.get(key)
+        if provider is None:
+            from src.core.search.factory import build_provider
+
+            provider = build_provider(inst, cache=cache, ukm=self._get_knowledge_manager())
+            self._provider_cache[key] = provider
+        return provider
 
     def _get_resolver(self):
         """Lazy-init DOI resolver."""
@@ -1221,11 +1218,12 @@ class ToolRegistry:
         for inst in self._search_instances():
             by_type.setdefault(inst.provider_id, []).append(inst)
 
-        # Types whose canonical handlers are hand-wired to the built-in
-        # suggesters (_gnd_search_instance / _handle_search_finc). Any other
-        # type — i.e. a loaded code plugin — must use the generic factory-built
-        # handler even when canonical, otherwise it would answer with the wrong
-        # backend or "not available". - Claude Generated
+        # Types whose canonical handlers carry built-in nuances (gnd_url
+        # enrichment, agent_view, non-default raw passthrough, finc web_url) —
+        # ``_make_search_handler`` (factory-backed) / ``_handle_search_finc``. Any
+        # other type — i.e. a loaded code plugin — must use the generic
+        # instance handler even when canonical, otherwise it would answer with
+        # the wrong backend or "not available". - Claude Generated
         hand_wired = {"lobid", "swb", "catalog", "finc"}
 
         tools = []
@@ -1240,7 +1238,7 @@ class ToolRegistry:
                 for spec in specs:
                     if is_canonical and provider_id in hand_wired:
                         name = spec.name
-                        handler = self._make_search_handler(spec)
+                        handler = self._make_search_handler(spec, inst)
                     elif is_canonical:
                         name = spec.name
                         handler = self._make_instance_handler(spec, inst)
@@ -1459,17 +1457,19 @@ class ToolRegistry:
     def _source_transform(self, source):
         """Resolve a GND-keyword source id to its ``transform(raw)`` callable.
 
-        Reuses the already-built suggesters (lobid/swb via MetaSuggester,
-        catalog = BiblioSuggester). Returns None if that source is unavailable.
+        Builds the source's provider through the factory and reads the pure
+        ``transform`` off its underlying suggester (the transform is config-
+        independent). Returns None if that source is unknown/unavailable.
         - Claude Generated
         """
         try:
-            if source == "lobid" and self._lobid is not None:
-                return self._lobid.raw_suggester("lobid").transform
-            if source == "swb" and self._swb is not None:
-                return self._swb.raw_suggester("swb").transform
-            if source == "catalog" and self._biblio is not None:
-                return self._biblio.transform
+            from src.core.search.service import underlying_suggester
+
+            inst = self._instance_for(source)
+            if inst is None:
+                return None
+            sugg = underlying_suggester(self._provider_for(inst, cache=False))
+            return getattr(sugg, "transform", None)
         except Exception as e:
             logger.debug(f"transform for '{source}' unavailable: {e}")
         return None
@@ -1504,51 +1504,65 @@ class ToolRegistry:
         )
         return json.dumps(out, ensure_ascii=False, default=str)
 
-    def _make_search_handler(self, spec):
+    def _make_search_handler(self, spec, inst):
         if spec.result_shape == "gnd_keywords":
-            return self._make_gnd_keywords_handler(spec)
+            return self._make_gnd_keywords_handler(spec, inst)
         if spec.result_shape == "title_records":
-            return self._make_title_records_handler(spec)
+            return self._make_title_records_handler(spec, inst)
         if spec.result_shape == "finc":
             return self._handle_search_finc  # rich availability/web_url logic
         raise ValueError(
             f"Unknown result_shape '{spec.result_shape}' for tool {spec.name}"
         )
 
-    def _gnd_search_instance(self, spec):
-        """(instance, raw_id) for a GND-keyword tool; raw_id None ⇒ no mapping cache."""
-        return {
-            "search_lobid": (self._lobid, "lobid"),
-            "search_swb": (self._swb, "swb"),
-            "search_catalog": (self._biblio, None),
-        }.get(spec.name, (None, None))
+    def _make_gnd_keywords_handler(self, spec, inst):
+        """GND-keyword tool handler built on the search factory (no MetaSuggester).
 
-    def _make_gnd_keywords_handler(self, spec):
+        Default cached options use the factory's mapping-first ``CachingProvider``
+        exactly as the classic pipeline; any non-default option (title /
+        custom max_pages) bypasses the cache through the raw suggester (with the
+        WP2 dual-write). Non-cached providers (catalog) go straight to the raw
+        suggester. - Claude Generated
+        """
         def handler(terms, search_type="kw", max_pages=5, **_ignore):
-            self._init_suggesters()
-            inst, raw_id = self._gnd_search_instance(spec)
-            if inst is None:
-                return json.dumps({"error": spec.unavailable_message or f"{spec.source_label} not available"})
-            if spec.cached:
-                # Default options use the mapping-first cache; any non-default
-                # option bypasses it via the raw child suggester (parity with the
-                # former hand-written handlers). - Claude Generated
-                opts = {"search_type": search_type, "max_pages": max_pages}
-                is_default = all(opts.get(k) == v for k, v in spec.default_opts.items())
-                if is_default:
-                    results = inst.search(terms)
+            from src.core.search.provider import SearchCapability
+            from src.core.search.service import underlying_suggester
+
+            raw_id = spec.provider_id if spec.cached else None
+            try:
+                base_provider = self._provider_for(inst, cache=False)
+                if hasattr(base_provider, "is_available") and not base_provider.is_available():
+                    return json.dumps(
+                        {"error": spec.unavailable_message or f"{spec.source_label} not available"}
+                    )
+                if spec.cached:
+                    opts = {"search_type": search_type, "max_pages": max_pages}
+                    is_default = all(opts.get(k) == v for k, v in spec.default_opts.items())
+                    if is_default:
+                        res = self._provider_for(inst, cache=True).search(
+                            SearchCapability.GND_KEYWORDS, list(terms)
+                        )
+                        results = res.to_gnd_keywords()
+                        errors = {
+                            f"{spec.provider_id}:{t}": m for t, m in (res.errors or {}).items()
+                        }
+                    else:
+                        kw = {"search_type": search_type}
+                        if "max_pages" in spec.default_opts:
+                            kw["max_pages"] = max_pages
+                        sugg = underlying_suggester(base_provider)
+                        results = sugg.search(list(terms), **kw)
+                        # Bypasses the provider fetch seam → dual-write raw here so
+                        # non-default searches also populate the raw cache. - Claude Generated
+                        self._store_suggester_raw(spec.provider_id, terms, kw, sugg)
+                        errors = {}
                 else:
-                    kw = {"search_type": search_type}
-                    if "max_pages" in spec.default_opts:
-                        kw["max_pages"] = max_pages
-                    sugg = inst.raw_suggester(raw_id)
-                    results = sugg.search(terms, **kw)
-                    # The raw_suggester path bypasses the provider fetch seam →
-                    # dual-write raw here so non-default searches (title / custom
-                    # max_pages) also populate the raw cache. - Claude Generated
-                    self._store_suggester_raw(raw_id, terms, kw, sugg)
-            else:
-                results = inst.search(terms, search_type=search_type)
+                    sugg = underlying_suggester(base_provider)
+                    results = sugg.search(list(terms), search_type=search_type)
+                    errors = dict(getattr(sugg, "last_errors", {}) or {})
+            except Exception as exc:
+                logger.error("search tool '%s' failed: %s", spec.name, exc)
+                return json.dumps({"error": str(exc)})
             if spec.add_gnd_urls:
                 serialized = self._serialize_suggester_results(results)
             else:
@@ -1560,7 +1574,7 @@ class ToolRegistry:
                     }
             out = {"source": spec.source_label, "results": serialized}
             if spec.include_errors:
-                out["errors"] = dict(getattr(inst, "last_errors", {}) or {})
+                out["errors"] = errors
             self._attach_agent_view(out, raw_id, terms, search_type)
             return json.dumps(out, ensure_ascii=False)
 
@@ -1634,14 +1648,28 @@ class ToolRegistry:
                 continue
             km.store_raw_response(source, term, params, blob, http_status=last_status.get(term))
 
-    def _make_title_records_handler(self, spec):
+    def _make_title_records_handler(self, spec, inst):
+        """Catalog title-records handler built on the search factory (no mirror). - Claude Generated"""
         def handler(terms, search_type="title", max_results=25, **_ignore):
-            self._init_suggesters()
-            if self._biblio is None:
-                return json.dumps({"error": spec.unavailable_message or "catalog not available"})
-            results = self._biblio.search_titles(
-                terms, search_type=search_type, max_results=max_results
-            )
+            from src.core.search.service import underlying_suggester
+
+            try:
+                provider = self._provider_for(inst, cache=False)
+                if hasattr(provider, "is_available") and not provider.is_available():
+                    return json.dumps(
+                        {"error": spec.unavailable_message or "catalog not available"}
+                    )
+                sugg = underlying_suggester(provider)
+                if sugg is None:
+                    return json.dumps(
+                        {"error": spec.unavailable_message or "catalog not available"}
+                    )
+                results = sugg.search_titles(
+                    list(terms), search_type=search_type, max_results=max_results
+                )
+            except Exception as exc:
+                logger.error("search tool '%s' failed: %s", spec.name, exc)
+                return json.dumps({"error": str(exc)})
             return json.dumps(
                 {"source": spec.source_label, "results": results}, ensure_ascii=False
             )
@@ -1744,6 +1772,7 @@ class ToolRegistry:
         self._tools.clear()
         self._handlers.clear()
         self._suggesters_initialized = False
+        self._provider_cache = {}
         self.register_all_tools()
 
     def register_all_tools(self):

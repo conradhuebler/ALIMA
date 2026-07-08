@@ -6,6 +6,45 @@
 
 ## 2026
 
+### GND-Suche vereinheitlicht: MetaSuggester retired (July 8, 2026)
+
+Operator-Auftrag: die fragmentierten Such-Anbindungen zusammenführen — Pipeline
+*und* Agentik holen ihre Daten über *einen* Provider-Weg (die Factory), nicht mehr
+über die alte MetaSuggester-Infrastruktur. Suite `1145 → 1152 passed` (0 fail).
+
+- **Neuer Single-Entry `src/core/search/service.py`** — `search_gnd_keywords(terms,
+  instances, *, cache, aggregate_from_raw, …)` + `resolve_gnd_instances(ids)` +
+  `underlying_suggester()`. Baut Provider über `factory.build_provider` aus der
+  autoritativen `PluginInstanceConfig`, merged quellenübergreifend, erhält den
+  WP2-Raw-Seam (live/merge **und** raw-first, byte-kompatibel zu
+  `SearchCLI.search_from_raw`). `resolve_gnd_instances` ist das *eine* Enable/
+  Disable-Gate (respektiert deaktivierte Instanzen, synthetisiert nur unbekannte
+  ids, Overlay für den Klassik-Catalog-Token).
+- **Merge-Atom vereinheitlicht** — `gnd_search_core.merge_code_entry` bekommt
+  `display_count_field` (max-Merge, F-4); MetaSuggesters Spezial-Merge gefaltet.
+- **Klassik (`SearchCLI`)** delegiert an den Service (dünner Adapter, behält
+  Catalog-Token/URL-Wiring + Context-Manager). Live verifiziert gegen lobid:
+  live/merge `count=139`, raw-first `count=1`+`display_count=139`, Raw-Cache 71 940 B.
+- **MCP (`ToolRegistry`)** — `_init_suggesters`-Primaries (lobid/swb = MetaSuggester,
+  catalog = BiblioSuggester-aus-`CatalogConfig`) ersetzt durch factory-gebaute
+  Provider (`_provider_for`, memoisiert). `_source_transform` (agentisches
+  `aggregate_gnd_results`) liest die Transforms von denselben Providern. Live
+  verifiziert: search_lobid (100 kw + gnd_urls + errors), title-Passthrough,
+  aggregate_gnd_results (Pool 100, count-landmine + provenance). **Residual:** finc
+  (`_handle_search_finc` + `_init_suggesters._finc`) bleibt `CatalogConfig`-basiert
+  (institutionsspezifisch, `test_finc_client` pinnt es) — nutzte nie MetaSuggester.
+- **GUI (`find_keywords`)** Standalone- + Manuell-Suche gehen jetzt über den Service
+  → schließt den einzigen Pfad, der bisher den Raw-Cache umging. (Operator-Click-Test
+  offen — GUI nicht headless verifizierbar.)
+- **`src/utils/suggesters/meta_suggester.py` gelöscht.** `grep "MetaSuggester("` → 0.
+  `BaseSuggester` bleibt (Per-Source-Contract).
+- **Defaults/Blueprints** (bestätigt, kein Code nötig): lobid + swb zero-config
+  Default; libero/catalog + finc sind enabled-but-`is_available()`-gated Blueprints;
+  gnd_local offline. Service-Fallback (Config unlesbar) = `["lobid","swb"]`.
+- Tests: neu `test_gnd_search_service.py` (7); angepasst `test_aggregate.py`,
+  `test_provider_tool_generation.py` (Mocks am Factory-Seam statt an
+  `_lobid`/`_swb`/`_biblio`).
+
 ### Plugin-System: Self-contained Blueprint-Dirs + Security-Härtung (July 6, 2026)
 
 Operator-Auftrag: robustes, sicheres Plugin-System — Built-ins als kopierbare

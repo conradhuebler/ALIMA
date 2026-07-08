@@ -27,7 +27,6 @@ import sys
 import json
 from pathlib import Path
 
-from ..utils.suggesters.meta_suggester import MetaSuggester
 from ..core.search_cli import SearchCLI
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..utils.config_models import PipelineStepConfig, PipelineMode
@@ -464,56 +463,26 @@ class SearchTab(QWidget):
             self.progressBar.setMaximum(100)
             self.progressBar.setValue(10)
 
-            # Determine single provider id (one MetaSuggester per primary source)
-            # IMPORTANT: Don't use "all" to avoid triggering catalog DK lookups outside pipeline
-            if len(suggester_types) == 1:
-                selected_type = suggester_types[0]
-            elif "lobid" in suggester_types and "swb" in suggester_types:
-                # Both Lobid and SWB: Use Lobid as primary, manually merge SWB below
-                selected_type = "lobid"
-                self.use_swb_fallback = True
-            elif "lobid" in suggester_types:
-                selected_type = "lobid"
-                self.use_swb_fallback = False
-            elif "swb" in suggester_types:
-                selected_type = "swb"
-                self.use_swb_fallback = False
-            else:
-                selected_type = "lobid"  # Fallback
-                self.use_swb_fallback = False
+            # Standalone search now uses the unified provider service — the same
+            # path as the pipeline (mapping-first cache + WP2 raw cache), so it no
+            # longer bypasses the raw cache the way the old direct MetaSuggester
+            # did. All selected sources are searched + merged in one call. - Claude Generated
+            from src.core.search.service import resolve_gnd_instances, search_gnd_keywords
 
-            self.logger.info(f"Using suggester type: {selected_type}, SWB fallback: {self.use_swb_fallback}")
+            instances = resolve_gnd_instances(suggester_types)
+            self.logger.info(f"Using providers: {[i.provider_id for i in instances]}")
 
-            # Create MetaSuggester with selected provider
-            self.logger.info("Creating MetaSuggester...")
-            meta_suggester = MetaSuggester(
-                providers=selected_type
-            )
-            self.logger.info("MetaSuggester created successfully")
-
-            # Perform search (search() expects a list of terms)
             self.status_label.setText(f"Suche nach {len(search_terms)} Begriff(en)...")
             QApplication.processEvents()
 
             self.progressBar.setValue(30)
             self.logger.info("Starting search...")
-            combined_results = meta_suggester.search(search_terms)
+            combined_results, search_errors = search_gnd_keywords(
+                search_terms, instances, cache=True,
+            )
+            if search_errors:
+                self.logger.warning(f"Source failures: {sorted(search_errors)}")
             self.logger.info(f"Search completed, got {len(combined_results)} results")
-
-            # If both Lobid and SWB selected, merge SWB results
-            if self.use_swb_fallback and "swb" in suggester_types:
-                self.progressBar.setValue(50)
-                self.logger.info("Adding SWB results...")
-                swb_suggester = MetaSuggester(providers="swb")
-                swb_results = swb_suggester.search(search_terms)
-
-                # Merge results
-                for term, term_results in swb_results.items():
-                    if term not in combined_results:
-                        combined_results[term] = {}
-                    combined_results[term].update(term_results)
-
-                self.logger.info(f"After SWB merge: {len(combined_results)} results")
 
             self.progressBar.setValue(80)
 
@@ -1332,19 +1301,13 @@ class SearchTab(QWidget):
             # Direct suggester usage - simpler than pipeline
             search_terms = self.extract_search_terms(search_term)
 
-            # Use Lobid + SWB for manual searches (NOT Catalog to avoid DK lookups)
-            lobid_suggester = MetaSuggester(providers="lobid")
-            all_results = lobid_suggester.search(search_terms)
+            # Lobid + SWB via the unified provider service (not Catalog — avoids DK
+            # lookups); one merged call that populates the shared caches. - Claude Generated
+            from src.core.search.service import resolve_gnd_instances, search_gnd_keywords
 
-            # Also search SWB and merge
-            swb_suggester = MetaSuggester(providers="swb")
-            swb_results = swb_suggester.search(search_terms)
-
-            # Merge SWB results into Lobid results
-            for term, term_results in swb_results.items():
-                if term not in all_results:
-                    all_results[term] = {}
-                all_results[term].update(term_results)
+            all_results, _errors = search_gnd_keywords(
+                search_terms, resolve_gnd_instances(["lobid", "swb"]), cache=True,
+            )
 
             added_count = 0
             for term, results in all_results.items():

@@ -126,8 +126,14 @@ class _FakeSuggester:
         return {"Wasser": {"count": 9, "gndid": {"g1"}, "ddc": set(), "dk": set()}}
 
 
-class _FakeMeta:
-    def raw_suggester(self, pid=None):
+class _FakeProvider:
+    """Factory-provider stub whose underlying suggester carries a canned transform.
+
+    Seeded into ``ToolRegistry._provider_cache`` so ``_source_transform`` resolves
+    it without building a real (network) provider. - Claude Generated"""
+
+    @property
+    def suggester(self):
         return _FakeSuggester()
 
 
@@ -154,9 +160,9 @@ class AggregateMcpToolTest(unittest.TestCase):
         self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
         reg = ToolRegistry()
         reg._suggesters_initialized = True  # skip network suggester init
-        reg._lobid = _FakeMeta()
-        reg._swb = None
-        reg._biblio = None
+        # Seed the factory provider so _source_transform reads the canned transform
+        # off the underlying suggester (no network build). - Claude Generated
+        reg._provider_cache = {("lobid", False): _FakeProvider()}
         out = json.loads(reg._handle_aggregate_gnd_results(["wasser"], sources=["lobid"]))
         self.assertEqual(out["pool"][0]["title"], "Wasser")
         self.assertEqual(out["pool"][0]["count"], 1)          # count-landmine
@@ -234,30 +240,43 @@ class SearchFromRawTest(unittest.TestCase):
             pass
 
     def test_search_from_raw_nested_shape(self):
-        from unittest.mock import patch
+        """SearchCLI.search_from_raw derives the nested view from the raw cache
+        through the unified provider service (no MetaSuggester). - Claude Generated"""
         from src.core.search_cli import SearchCLI
+        from src.core.search.provider import ProviderResult, SearchCapability
+        from src.core.search.registry import PROVIDER_REGISTRY
 
-        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+        self.km.store_raw_response("fake_l", "wasser", {"search_type": "kw"}, "{}")
 
         class _Sugg:
-            def transform(self, raw):
+            @staticmethod
+            def transform(raw):
                 return {"Wasser": {"count": 7, "gndid": {"g1"}, "ddc": set(), "dk": set()}}
 
-        class _Meta:
-            last_errors: dict = {}
+        class _FakeGnd:
+            id = "fake_l"
+            label = "fake_l"
+            capabilities = {SearchCapability.GND_KEYWORDS}
 
-            def __init__(self, **kw):
+            def __init__(self, **config):
                 pass
 
-            def search(self, terms):
-                return {}
+            def is_available(self, cfg=None):
+                return True
 
-            def raw_suggester(self, pid=None):
+            def search(self, capability, query, *, progress=None, **opts):
+                return ProviderResult.from_gnd_keywords({t: {} for t in query})
+
+            @property
+            def suggester(self):
                 return _Sugg()
 
-        with patch("src.core.search_cli.MetaSuggester", _Meta):
+        PROVIDER_REGISTRY["fake_l"] = _FakeGnd
+        try:
             cli = SearchCLI(self.km)
-            nested = cli.search_from_raw(["wasser"], ["lobid"])
+            nested = cli.search_from_raw(["wasser"], ["fake_l"])
+        finally:
+            PROVIDER_REGISTRY.pop("fake_l", None)
 
         self.assertIn("Wasser", nested["wasser"])
         w = nested["wasser"]["Wasser"]

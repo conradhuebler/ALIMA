@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +33,33 @@ def merge_code_entry(
     source: Dict[str, Any],
     code_fields: Sequence[str],
     count_field: str = "count",
+    display_count_field: Optional[str] = None,
 ) -> None:
     """Merge one search entry into another in place — the shared merge-atom.
 
-    Used by both the classic nested merge (``SearchCLI.merge_results``, where the
-    code fields are ``set``s) and the agentic pool merge (``merge_into_pool``,
-    where they are ``list``s). The container type of ``target[field]`` is
-    preserved: ``set`` → ``set.update``; ``list`` → order-preserving dedup append.
+    Used by both the classic nested merge (``SearchCLI.merge_results`` /
+    ``search.service`` cross-source merge, where the code fields are ``set``s) and
+    the agentic pool merge (``merge_into_pool``, where they are ``list``s). The
+    container type of ``target[field]`` is preserved: ``set`` → ``set.update``;
+    ``list`` → order-preserving dedup append.
 
     ``count`` is combined with ``max`` (never summed) — this is the count-semantics
     the selection/chunking ranking relies on; see the module docstring.
+
+    ``display_count_field`` (opt-in) max-merges the display-only F-4 count across
+    sources — the single-merge home for what ``MetaSuggester._merge_suggester_results``
+    did inline. Only carried when a source provides it (display-only, never ranked).
+    - Claude Generated
     """
     if count_field:
         target[count_field] = max(
             target.get(count_field, 0) or 0, source.get(count_field, 0) or 0
         )
+    if display_count_field:
+        dc = source.get(display_count_field)
+        if dc is not None:
+            cur = target.get(display_count_field)
+            target[display_count_field] = int(dc) if cur is None else max(int(cur), int(dc))
     for field in code_fields:
         new_vals: Iterable[Any] = source.get(field) or []
         existing = target.get(field)

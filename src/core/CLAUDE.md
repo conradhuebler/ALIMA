@@ -18,9 +18,9 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - ✅ **DK/RVK source is capability-driven (July 7)** — classic `execute_dk_search` picks its extractor via `factory.resolve_dk_extractor` from the enabled `CLASSIFICATION`-capable providers (finc opt-in → custom plugin → SRU/Libero), each exposing `dk_extractor()` (shared `extract_dk_classifications_for_keywords` contract). Any catalog plugin declaring `CLASSIFICATION` becomes a DK source with no core edit (completes the D-4 hand-wired site). Tests: `tests/test_dk_extractor_resolver.py`.
 - ✅ **Self-contained blueprint dirs (July 6)** — each built-in provider is a copyable plugin dir `search/providers/<name>/` (plugin.toml + README + provider [+ suggester]); `SuggesterBackedProvider` is public API (`search/provider_base.py`); secret settings env-overridable (`ALIMA_PLUGIN_<ID>_<KEY>`); URL/SSRF guards in `src/utils/net_guard.py`. E2E: `tests/test_plugin_blueprint_e2e.py`.
 
-**Suggester System:**
-- Located in `suggesters/` subdirectory; wrapped by the capability-based providers (`src/core/search/`).
-- `MetaSuggester` orchestrator; per-provider config now flows from `AlimaConfig.plugins` instances.
+**GND-keyword search:**
+- Unified entry point `src/core/search/service.py` (`search_gnd_keywords` / `resolve_gnd_instances`): builds providers via `factory.build_provider` from `AlimaConfig.plugins` instances, merges, preserves the WP2 raw seam. Classic (`SearchCLI`), MCP (`ToolRegistry`), GUI (`find_keywords`) all route through it. **`MetaSuggester` retired July 8.**
+- `BaseSuggester` (in `suggesters/`) is the per-source contract, wrapped by the capability-based providers (`src/core/search/`).
 
 **Key Design Patterns:**
 - Signal/slot architecture for asynchronous communication
