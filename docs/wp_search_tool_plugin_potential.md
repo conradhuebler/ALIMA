@@ -117,13 +117,20 @@ content) and the MCP `scrape_url` tool (full-page + PDF detection) now call it; 
 two divergent content-shapings stay (intentional). Non-breaking; verified live
 (Wikipedia: url_fetch 139k chars main-content; MCP tool title + truncation).
 
-### Remaining Phase B
-- **B1 — k10plus → input plugin:** bigger than a DOI plugin — `k10plus_resolver`
-  is a *Paketsigel (package-seal) harvester* (Siegel→records via K10plus SRU) woven
-  into batch/CLI/GUI. Plugin-izing = expose it as an input-source tool
-  (`fetch_k10plus_package`) while the direct batch usages stay. Deferred as the next
-  concrete step.
+### B1 ✅ DONE — k10plus as a lookup plugin
+`k10plus_resolver` is a *Paketsigel harvester* (Siegel → many records) — a one→many
+API query that `input_source` (one→one text `extract`) cannot model, so it went into
+the **`lookup`** category (same shape as RVK) instead of `input_source` (operator
+decision July 8). `src/utils/lookups/k10plus.py` `K10PlusLookup` → tool
+**`k10plus_package`** (siegel → records, capped by `max_records`, raw-cached). The
+direct batch usages (`pipeline_cmd.fetch_dois_for_siegel`, batch dialog) stay.
+Tested mocked (a live harvest fetches *all* records → large/slow; live verification
+needs an operator Siegel). Tests: `test_lookup_plugins.py` (8 total).
 
-### What breaks
-- New lookup tools (`rvk_search`/`rvk_validate`) are additive — nothing broke.
-- B1 adds a tool; no rename. B2 (if done) is internal dedup, non-breaking.
+## Phase B complete (July 8)
+lookup category + RVK · URL-fetch core · k10plus lookup — all committed, additive
+(no agent-facing tool renamed). Suite 1167 passed.
+
+### What broke
+- Nothing agent-facing: all new tools (`rvk_search`/`rvk_validate`/`k10plus_package`)
+  are additive; `rvk_lookup`/`resolve_doi`/`scrape_url` kept their names + behavior.

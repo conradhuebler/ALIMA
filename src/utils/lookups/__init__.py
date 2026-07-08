@@ -15,6 +15,7 @@ from .registry import (  # noqa: F401
 )
 from . import category  # noqa: F401 — registers LookupCategory
 from . import rvk  # noqa: F401 — registers the rvk_api lookup
+from . import k10plus  # noqa: F401 — registers the k10plus lookup
 
 __all__ = [
     "LOOKUP_REGISTRY",

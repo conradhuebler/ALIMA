@@ -141,5 +141,27 @@ class LookupToolHandlerTest(unittest.TestCase):
         self.assertEqual(out["hits"], ["X"])            # bogus filtered, no TypeError
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class K10PlusLookupTest(unittest.TestCase):
+    """k10plus package harvester as a lookup tool (mocked SRU — no network). - Claude Generated"""
+
+    def test_fetch_package_caps_and_serializes(self):
+        from unittest.mock import patch
+        from src.utils.k10plus_resolver import K10PlusRecord
+        from src.utils.lookups.k10plus import K10PlusLookup
+
+        recs = [K10PlusRecord(ppn=f"p{i}", title=f"T{i}", doi=f"10.x/{i}") for i in range(5)]
+        with patch("src.utils.k10plus_resolver.fetch_records_for_siegel", return_value=recs):
+            out = K10PlusLookup(max_records=3).fetch_package("ZDB-2-CMS")
+        self.assertEqual(out["total"], 5)
+        self.assertEqual(out["returned"], 3)            # capped
+        self.assertEqual(out["records"][0]["title"], "T0")
+        self.assertEqual(out["records"][0]["ppn"], "p0")
+
+    def test_tool_generated(self):
+        reg = ToolRegistry(); reg.register_all_tools()
+        self.assertIn("k10plus_package", reg.get_tool_names())
+
+
 if __name__ == "__main__":
     unittest.main()
