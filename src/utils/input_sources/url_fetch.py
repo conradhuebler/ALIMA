@@ -19,6 +19,36 @@ from .registry import register_input_source
 _DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 
+def fetch_guarded_response(
+    url: str,
+    *,
+    user_agent: str = _DEFAULT_UA,
+    timeout: int = 30,
+    allowlist: Any = None,
+    max_bytes: Any = None,
+):
+    """The single guarded HTTP-fetch entry point for runtime/LLM-supplied URLs.
+
+    Returns the raw (SSRF-guarded, size-capped, redirect-re-checked) ``requests``
+    response so callers can shape it themselves — HTML main-content text
+    (:func:`scrape_url`), or full-page text + PDF detection (the MCP ``scrape_url``
+    tool). ``allowlist``/``max_bytes`` default to ``SystemConfig.url_fetch_*``.
+    - Claude Generated
+    """
+    from src.utils.net_guard import fetch_guarded, url_fetch_guard_settings
+
+    if allowlist is None or max_bytes is None:
+        guard = url_fetch_guard_settings()
+        allowlist = guard["allowlist"] if allowlist is None else allowlist
+        max_bytes = guard["max_bytes"] if max_bytes is None else max_bytes
+    resp = fetch_guarded(
+        url, allowlist=allowlist, timeout=timeout, max_bytes=int(max_bytes),
+        user_agent=user_agent,
+    )
+    resp.raise_for_status()
+    return resp
+
+
 def scrape_url(
     url: str,
     *,
@@ -44,24 +74,13 @@ def scrape_url(
     import requests
     from bs4 import BeautifulSoup
 
-    from src.utils.net_guard import fetch_guarded, url_fetch_guard_settings
-
-    if allowlist is None or max_bytes is None:
-        guard = url_fetch_guard_settings()
-        allowlist = guard["allowlist"] if allowlist is None else allowlist
-        max_bytes = guard["max_bytes"] if max_bytes is None else max_bytes
-
     if logger:
         logger.info(f"Fetching URL: {url}")
     try:
-        response = fetch_guarded(
-            url,
-            allowlist=allowlist,
-            timeout=timeout,
-            max_bytes=int(max_bytes),
-            user_agent=user_agent,
+        response = fetch_guarded_response(
+            url, user_agent=user_agent, timeout=timeout,
+            allowlist=allowlist, max_bytes=max_bytes,
         )
-        response.raise_for_status()
     except (requests.RequestException, ValueError, RuntimeError) as e:
         if logger:
             logger.error(f"Failed to fetch URL: {e}")

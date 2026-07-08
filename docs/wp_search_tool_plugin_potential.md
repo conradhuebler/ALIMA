@@ -110,12 +110,14 @@ local=core. (Did *not* drop `scrape_url`.)
   (search_provider / input_source / **lookup**), cached + per-plugin-toggleable;
   local DB/pipeline/export + composed tools (`rvk_lookup`, `resolve_doi`) stay core.
 
+### B2 ✅ DONE — one guarded URL-fetch primitive
+Extracted `url_fetch.fetch_guarded_response()` — the single SSRF-guarded fetch entry
+point (net_guard + guard-settings resolution). Both `url_fetch.scrape_url` (main-
+content) and the MCP `scrape_url` tool (full-page + PDF detection) now call it; the
+two divergent content-shapings stay (intentional). Non-breaking; verified live
+(Wikipedia: url_fetch 139k chars main-content; MCP tool title + truncation).
+
 ### Remaining Phase B
-- **B2 — unify URL-fetch core:** *already substantially shared* — both `scrape_url`
-  (MCP) and the `url_fetch` input source fetch through `net_guard.fetch_guarded` +
-  `url_fetch_guard_settings`. The only divergence is content shaping (full-page+PDF
-  vs main-content heuristic), which is intentional. Low-value; optional small
-  dedup of the guard-settings boilerplate.
 - **B1 — k10plus → input plugin:** bigger than a DOI plugin — `k10plus_resolver`
   is a *Paketsigel (package-seal) harvester* (Siegel→records via K10plus SRU) woven
   into batch/CLI/GUI. Plugin-izing = expose it as an input-source tool

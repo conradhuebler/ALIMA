@@ -604,19 +604,12 @@ class ToolRegistry:
         except ImportError:
             return json.dumps({"error": "requests + beautifulsoup4 required"})
         try:
-            # LLM-supplied URL → strict SSRF guard (net_guard), redirects
-            # re-checked per hop, body capped. - Claude Generated
-            from src.utils.net_guard import fetch_guarded, url_fetch_guard_settings
+            # LLM-supplied URL → the shared guarded fetch (net_guard: strict SSRF
+            # guard, redirects re-checked per hop, body capped) used by the
+            # url_fetch input source too. - Claude Generated
+            from src.utils.input_sources.url_fetch import fetch_guarded_response
 
-            guard = url_fetch_guard_settings()
-            resp = fetch_guarded(
-                url,
-                allowlist=guard["allowlist"],
-                timeout=30,
-                max_bytes=int(guard["max_bytes"]),
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
-            resp.raise_for_status()
+            resp = fetch_guarded_response(url, timeout=30)
             content_type = (resp.headers.get("Content-Type") or "").lower()
             looks_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
             if looks_pdf:
