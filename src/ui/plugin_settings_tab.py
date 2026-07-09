@@ -50,6 +50,18 @@ _CATEGORY_LABELS = {
     "lookup": "🔖 Lookups (API)",
 }
 
+# Per-type actions rendered as buttons at the bottom of an instance form.
+# Key: (category, provider_id) → list of (button_label, callback(panel, inst, parent)).
+# Lets a plugin type expose an interactive action (e.g. the webindex crawl)
+# without the generic form hardcoding it. - Claude Generated
+_TYPE_ACTIONS: Dict[tuple, list] = {}
+
+
+def register_type_action(category: str, provider_id: str, label: str,
+                         callback) -> None:
+    """Register a per-instance action button for a plugin type - Claude Generated."""
+    _TYPE_ACTIONS.setdefault((category, provider_id), []).append((label, callback))
+
 
 def _ensure_categories() -> None:
     import src.core.search  # noqa: F401
@@ -234,6 +246,22 @@ class _CategoryPanel(QWidget):
                 hint.setWordWrap(True)
                 hint.setStyleSheet("color: gray; font-size: 10px;")
                 self.form_layout.addRow("", hint)
+
+        # Per-type action buttons (e.g. webindex "Seite indizieren"). The form is
+        # flushed first so the action sees the just-edited settings. - Claude Generated
+        actions = _TYPE_ACTIONS.get((self.category, inst.provider_id), [])
+        for btn_label, cb in actions:
+            btn = QPushButton(btn_label)
+            btn.clicked.connect(lambda _checked, c=cb: self._run_type_action(c))
+            self.form_layout.addRow(btn)
+
+    def _run_type_action(self, callback) -> None:
+        """Flush the form, then run a registered per-type action on the current
+        instance (the callback receives the flushed instance + this panel)."""
+        self._flush_form()
+        if not (0 <= self._current_row < len(self._instances)):
+            return
+        callback(self._instances[self._current_row], parent=self.window())
 
     def _make_field_widget(self, fld, value, instance_id: str = "") -> QWidget:
         if fld.kind == BOOL:
@@ -678,3 +706,16 @@ class PluginSettingsTab(QWidget):
                 "Gespeichert. Hinweise zu konfigurierten Endpunkten:\n\n"
                 + "\n".join(f"• {w}" for w in warnings),
             )
+
+
+# Register the webindex crawl action onto the per-type action registry. Done at
+# module load (idempotent — register_type_action appends) so the "Seite indizieren"
+# button appears on the webindex lookup instance form. - Claude Generated
+try:
+    from . import webindex_crawl
+    webindex_crawl.register(register_type_action)
+except Exception:  # noqa: BLE001 — optional UI action must not break the tab
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "webindex crawl action could not be registered", exc_info=True
+    )

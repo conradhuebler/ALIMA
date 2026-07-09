@@ -459,9 +459,9 @@ class ConfigManager:
                 INPUT_CATEGORY,
                 LOOKUP_CATEGORY,
                 SEARCH_CATEGORY,
+                ensure_lookup_instances,
                 instance_from_dict,
                 synthesize_input_instances,
-                synthesize_lookup_instances,
                 synthesize_search_instances,
             )
 
@@ -471,8 +471,7 @@ class ConfigManager:
                 plugins += synthesize_search_instances(catalog_config, search_provider_config)
             if not any(p.category == INPUT_CATEGORY for p in plugins):
                 plugins += synthesize_input_instances(system_config)
-            if not any(p.category == LOOKUP_CATEGORY for p in plugins):
-                plugins += synthesize_lookup_instances()
+            ensure_lookup_instances(plugins)
             approved_plugins = dict(config_data.get("approved_plugins", {}) or {})
             installed_bundles = dict(config_data.get("installed_bundles", {}) or {})
 
@@ -681,8 +680,8 @@ class ConfigManager:
                     SEARCH_CATEGORY,
                     derive_input_mirrors,
                     derive_search_mirrors,
+                    ensure_lookup_instances,
                     synthesize_input_instances,
-                    synthesize_lookup_instances,
                     synthesize_search_instances,
                 )
 
@@ -692,8 +691,7 @@ class ConfigManager:
                     )
                 if not any(p.category == INPUT_CATEGORY for p in config.plugins):
                     config.plugins += synthesize_input_instances(config.system_config)
-                if not any(p.category == LOOKUP_CATEGORY for p in config.plugins):
-                    config.plugins += synthesize_lookup_instances()
+                ensure_lookup_instances(config.plugins)
                 derive_search_mirrors(
                     config.plugins, config.catalog_config, config.search_provider_config
                 )

@@ -31,6 +31,7 @@ from src.cli.commands import (
     workflow_cmd,
     agent_cmd,
     bundle_cmd,
+    webindex_cmd,
 )
 
 
@@ -38,7 +39,7 @@ from src.cli.commands import (
 _SETUP_EXEMPT_COMMANDS = {
     "setup", "list-models", "list-providers", "test-providers",
     "list-models-detailed", "dnb-import", "clear-cache", "migrate-db",
-    "db-config", "workflows", "bundle",
+    "db-config", "workflows", "bundle", "webindex",
 }
 
 
@@ -412,6 +413,41 @@ def create_argument_parser():
     setup_parser.add_argument("--skip-gnd", action="store_true", help="Skip GND database download option")
     setup_parser.add_argument("--force", action="store_true", help="Force setup wizard even if config exists")
 
+    # Webindex (website-RAG) commands - Claude Generated
+    webindex_parser = subparsers.add_parser(
+        "webindex",
+        help="Crawl a website into the keyword index + retrieval (RAG chatbot source).",
+    )
+    webindex_sub = webindex_parser.add_subparsers(dest="webindex_action", help="Webindex actions")
+    wi_crawl = webindex_sub.add_parser("crawl", help="Crawl a base URL into the index DB.")
+    wi_crawl.add_argument("--base-url", help="Root URL to crawl (children only; overrides instance base_url)")
+    wi_crawl.add_argument("--instance", help="webindex plugin instance id whose settings to use")
+    wi_crawl.add_argument("--db-path", help="Override the webindex DB path")
+    wi_crawl.add_argument("--max-depth", type=int, default=2, help="BFS depth (0 = root only)")
+    wi_crawl.add_argument("--max-pages", type=int, default=50, help="Max pages to visit")
+    wi_crawl.add_argument("--include", help="Regex a URL must match to be indexed")
+    wi_crawl.add_argument("--exclude", help="Regex a URL must NOT match to be indexed")
+    wi_crawl.add_argument("--timeout", type=int, default=20, help="Per-fetch timeout (s)")
+    wi_crawl.add_argument("--user-agent", default="ALIMA-webindex", help="User-Agent string")
+    wi_crawl.add_argument("--min-chars", type=int, default=50, help="Min extracted text chars to index a page")
+    wi_crawl.add_argument("--max-keywords", type=int, default=15, help="Max LLM-extracted keywords per page")
+    wi_crawl.add_argument("--provider", help="LLM provider for keyword extraction (needs --model)")
+    wi_crawl.add_argument("--model", help="LLM model for keyword extraction (needs --provider)")
+    wi_crawl.add_argument("--dry-run", action="store_true", help="Discover URLs without writing to the DB")
+    wi_stats = webindex_sub.add_parser("stats", help="Show index stats (pages/keywords/last fetch).")
+    wi_stats.add_argument("--instance", help="webindex plugin instance id")
+    wi_stats.add_argument("--db-path", help="Override the webindex DB path")
+    wi_kw = webindex_sub.add_parser("list-keywords", help="Browse the central keyword catalogue.")
+    wi_kw.add_argument("--instance", help="webindex plugin instance id")
+    wi_kw.add_argument("--db-path", help="Override the webindex DB path")
+    wi_kw.add_argument("--limit", type=int, default=200, help="Max keywords to list")
+    wi_kw.add_argument("--contains", default="", help="Case-insensitive substring filter")
+    wi_search = webindex_sub.add_parser("search", help="Run a retrieval query against the index.")
+    wi_search.add_argument("query", help="Natural-language question / keywords")
+    wi_search.add_argument("--instance", help="webindex plugin instance id")
+    wi_search.add_argument("--db-path", help="Override the webindex DB path")
+    wi_search.add_argument("--max-results", type=int, default=0, help="Max hits (0 = instance default)")
+
     return parser
 
 
@@ -510,6 +546,8 @@ def main():
             parser.print_help()
     elif args.command == "bundle":
         sys.exit(bundle_cmd.handle_bundle(args, logger))
+    elif args.command == "webindex":
+        sys.exit(webindex_cmd.handle_webindex(args, logger))
     else:
         parser.print_help()
 

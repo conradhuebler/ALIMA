@@ -316,6 +316,58 @@ class LookupSeedingTest(unittest.TestCase):
         self.assertIn("rvk_api", lookup_ids)
         self.assertIn("k10plus", lookup_ids)
 
+    def test_synthesize_missing_backfills_new_type_only(self):
+        """Existing lookup instances ⇒ only the not-yet-present type is backfilled."""
+        from src.utils.config_models import PluginInstanceConfig
+        from src.utils.plugin_migration import (
+            synthesize_missing_lookup_instances, LOOKUP_CATEGORY,
+        )
+
+        existing = [
+            PluginInstanceConfig("rvk_api", LOOKUP_CATEGORY, "rvk_api",
+                                 label="RVK", enabled=True, is_primary=True, settings={}),
+            PluginInstanceConfig("k10plus", LOOKUP_CATEGORY, "k10plus",
+                                 label="K10", enabled=True, is_primary=True, settings={}),
+        ]
+        added = synthesize_missing_lookup_instances(existing)
+        added_ids = {i.provider_id for i in added}
+        self.assertNotIn("rvk_api", added_ids)   # already present → not re-added
+        self.assertNotIn("k10plus", added_ids)
+        self.assertIn("webindex", added_ids)    # newly-registered → backfilled
+        for i in added:
+            self.assertTrue(i.enabled)
+            self.assertEqual(i.category, LOOKUP_CATEGORY)
+
+    def test_load_config_backfills_new_lookup_type(self):
+        """A config that already has lookup instances still gains a newly-registered
+        type (the former all-or-nothing gate stranded it in the type combobox)."""
+        from src.utils.config_manager import ConfigManager
+        from src.utils.plugin_migration import LOOKUP_CATEGORY
+
+        cm = ConfigManager.__new__(ConfigManager)
+        import logging
+        cm.logger = logging.getLogger("test")
+        data = {
+            "unified_config": {
+                "providers": [
+                    {"name": "local", "provider_type": "ollama", "host": "localhost", "enabled": True}
+                ]
+            },
+            # Simulate a config saved before webindex existed: lookup instances
+            # for the older types only.
+            "plugins": [
+                {"instance_id": "rvk_api", "category": "lookup", "provider_id": "rvk_api",
+                 "label": "RVK-API", "enabled": True, "is_primary": True, "settings": {}},
+                {"instance_id": "k10plus", "category": "lookup", "provider_id": "k10plus",
+                 "label": "K10", "enabled": True, "is_primary": True, "settings": {}},
+            ],
+        }
+        cfg = cm._parse_config(data)
+        lookup = {p.provider_id for p in cfg.plugins if p.category == LOOKUP_CATEGORY}
+        self.assertIn("rvk_api", lookup)       # preserved
+        self.assertIn("k10plus", lookup)       # preserved
+        self.assertIn("webindex", lookup)      # backfilled
+
 
 if __name__ == "__main__":
     unittest.main()

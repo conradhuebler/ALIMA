@@ -241,6 +241,55 @@ def synthesize_lookup_instances() -> List:
     return instances
 
 
+def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List:
+    """Backfill default instances for lookup types registered *after* the category
+    was first migrated - Claude Generated.
+
+    The category-synthesis gate (``if not any(p.category == LOOKUP_CATEGORY …)``)
+    is all-or-nothing: once a config has *any* lookup instance (rvk_api/k10plus/dnb
+    from an earlier session), a newly-registered lookup plugin (e.g. ``webindex``)
+    is never synthesised — it shows only in the type combobox, never in the
+    instance list. This adds one enabled primary instance per registered lookup
+    type that has no instance yet, leaving operator-configured instances intact.
+    """
+    from src.utils.config_models import PluginInstanceConfig
+    from src.utils.lookups import get_lookup, list_lookups
+
+    present = {p.provider_id for p in existing_lookup_instances}
+    out: List = []
+    for lid in list_lookups():
+        if lid in present:
+            continue
+        cls = get_lookup(lid)
+        out.append(
+            PluginInstanceConfig(
+                instance_id=lid,
+                category=LOOKUP_CATEGORY,
+                provider_id=lid,
+                label=getattr(cls, "label", lid),
+                enabled=True,
+                is_primary=True,
+                settings={},
+            )
+        )
+    return out
+
+
+def ensure_lookup_instances(plugins: List) -> None:
+    """Make sure every registered lookup type has at least one instance - Claude Generated.
+
+    Seed the whole category when absent (first migration), otherwise backfill
+    types registered later (e.g. a new lookup plugin added in a later release).
+    Mutates ``plugins`` in place. Replaces the former all-or-nothing category gate,
+    which left newly-registered lookups stranded in the type combobox.
+    """
+    lookup = [p for p in plugins if p.category == LOOKUP_CATEGORY]
+    if not lookup:
+        plugins += synthesize_lookup_instances()
+    else:
+        plugins += synthesize_missing_lookup_instances(lookup)
+
+
 # ---------------------------------------------------------------------------
 # Reverse sync — capture edits made in the legacy Catalog/System tabs into the
 # primary instances, so those tabs keep working alongside the new Plugins tab

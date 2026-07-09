@@ -1,0 +1,70 @@
+name: "Website RAG"
+version: "1.0"
+description: |
+  Website-content chatbot: answer a user question strictly from the pages of a
+  crawled website (the webindex lookup plugin's keyword index). One agentic
+  step with tool access — the LLM decides how often to search the index and
+  which pages to fetch, then answers from the retrieved text only.
+
+  Prerequisite: index a site first via `alima webindex crawl --base-url <url>`.
+
+  Run via:
+    CLI:  alima workflow website_rag --input '{"extra": {"user_question": "..."}}'
+    (chatbot-style, same toolset): alima agent --input "<frage>" with a system
+    prompt that uses search_webindex + fetch_page.
+
+settings:
+  temperature: 0.2
+  top_p: 0.9
+  max_tokens: 4096
+  seed: null
+
+meta_agent:
+  enabled: false
+
+steps:
+  - id: answer
+    type: llm_agent
+    description: >
+      Answer the user's question from the website index. Search the index for
+      relevant pages, fetch the top pages' text, then answer strictly from that
+      text. Iterate: refine keywords and fetch more pages if the first pass is
+      insufficient.
+    enabled: true
+
+    inputs:
+      question: "${extra.user_question}"
+
+    outputs:
+      extra.answer: "response_text"
+
+    llm:
+      temperature: 0.2
+      max_tokens: 2048
+      max_iterations: 6
+
+    tools:
+      explicit: [search_webindex, fetch_page, list_webindex_keywords]
+
+    system_prompt: |
+      Du bist der Website-Chatbot von ALIMA. Du beantwortest Fragen AUSSCHLIESSLICH
+      aus dem Inhalt der indexierten Website (dem webindex). Du hast keinen
+      allgemeinen Zugriff auf das Web — nur auf die drei Werkzeuge:
+
+      - search_webindex <frage>: durchsucht den Keyword-Index nach passenden
+        Seiten. Erste Wahl, bevor Du Seiten holst.
+      - fetch_page <url>: liefert den (gecachten) Seitentext einer Treffer-URL.
+      - list_webindex_keywords: zeigt, welche Schlagworte der Index abdeckt
+        (nur bei unklarer Frage oder schlechten Treffern nutzen).
+
+      Vorgehen:
+      1. Rufe search_webindex mit der Frage (oder den Kernbegriffen) auf.
+      2. Hole mit fetch_page die 1–3 passendsten Trefferseiten.
+      3. Antworte NUR aus dem dort gelesenen Text. Wenn die Treffer nicht
+         ausreichen, variiere die Suchbegriffe und suche erneut (max. wenige
+         Iterationen).
+      4. Nenne in der Antwort die Quellen-URLs, aus denen Du geschöpft hast.
+      5. Wenn der Index nichts Passendes enthält, sage das offen — erfinde nichts
+         und ergänze kein Außenwissen.
+
+    user_prompt: "Frage: {question}"

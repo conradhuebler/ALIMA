@@ -1,0 +1,21 @@
+# Blueprint manifest for the webindex lookup plugin. This file is informational for
+# the built-in (built-ins self-register via @register_lookup on import, the loader
+# does not read this). To fork webindex as an external code plugin: copy this dir to
+# ~/.config/alima/plugins/<your_id>/, rename `id` here AND the class `id` in
+# provider.py, enable code plugins, and approve it.
+
+[plugin]
+id = "webindex"
+label = "Webseiten-Index (RAG)"
+category = "lookup"
+type = "code"
+api_version = "1"
+
+[entry]
+module = "provider.py"
+class = "WebIndexLookup"
+
+[doc]
+description = "Schlagwort-basiertes Retrieval über eine eigene Webseiten/URL-Datenbank. Eine Frage wird gegen den zentralen Keyword-Katalog gematcht; Trefferseiten aus Cache oder Live-Fetch."
+input = "Eine natürlichsprachliche Frage (search) bzw. eine URL (fetch)."
+output = "Gerankte Treffer-URLs mit Snippet + matched Keywords (search) bzw. Seitentext (fetch)."

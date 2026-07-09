@@ -109,6 +109,25 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Website-RAG-Chatbot (`webindex`-Lookup-Plugin)** ✅ CODE-COMPLETE
+  (July 9): ALIMA als Chatbot für Webseiteninhalte. Eigenes Plugin hält eine DB
+  über alle URLs einer konfigurierten Haupt-URL + eine **zentral synchronisierte
+  Keyword-Tabelle**; Retrieval = Frage → Keyword-Match gegen `page_keywords`
+  → gerankte Trefferseiten (Cache oder Live-Fetch) → Text → Antwort.
+  Lookup-Plugin `src/utils/lookups/webindex/` (`store.py` eigene `webindex.db`
+  nach `LocalGndStore`-Muster; `indexer.py` BeautifulSoup-Crawler mit injiziertem
+  `keyword_extractor`; `provider.py` Tools `search_webindex`/`fetch_page`/
+  `list_webindex_keywords`; `keywords.py` Model-Auflösung + Extractor-Glue).
+  Indizieren: GUI-Button „Seite indizieren …" (`_TYPE_ACTIONS`-Registry +
+  `WebIndexCrawlWorker` in `src/ui/webindex_crawl.py`) ODER CLI
+  `alima webindex crawl/stats/list-keywords/search`. Keyword-Standprompt lebt als
+  Workflow `workflows/webindex_keywords.yaml` (tool-less `llm_agent`, **nicht**
+  prompts.json — veraltet); Antwort-Prompt `workflows/website_rag.yaml`.
+  Model: CLI-Flags → Instanz `llm_provider`/`llm_model` → globaler agentic Default.
+  Tests netzfrei (`test_webindex_{store,indexer,lookup,keywords,crawl_ui}.py`, 51),
+  Suite 1231 grün. **Offen:** Operator-E2E gegen echte Biblio-URL + Sign-off.
+  Sub-CLAUDE:
+  [`src/utils/lookups/webindex/CLAUDE.md`](src/utils/lookups/webindex/CLAUDE.md).
 - **WP GND-Suche vereinheitlicht / MetaSuggester retired** ✅ CODE-COMPLETE (July 8):
   ein Single-Entry `src/core/search/service.py` (`search_gnd_keywords` /
   `resolve_gnd_instances`) baut alle Provider über `factory.build_provider` aus

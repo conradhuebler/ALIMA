@@ -1,0 +1,50 @@
+name: "Webindex Keywords"
+version: "1.0"
+description: |
+  Per-page keyword extraction for the webindex crawl. A tool-less single-step
+  workflow that turns one page's text into a JSON keyword list. Driven by the
+  indexer (one run per crawled page); provider/model are set on the SharedContext
+  by the caller (instance llm_provider/llm_model, CLI flags, or the global ALIMA
+  default). This YAML is the editable "standprompt" for website keyword analysis
+  (prompts.json is deprecated; prompts live in workflows).
+
+settings:
+  temperature: 0.2
+  max_tokens: 1024
+  seed: null
+
+meta_agent:
+  enabled: false
+
+steps:
+  - id: extract
+    type: llm_agent
+    description: "Extract up to N subject keywords from one page's text as JSON."
+    enabled: true
+
+    inputs:
+      text: "${extra.page_text}"
+      max_keywords: "${extra.max_keywords}"
+
+    outputs:
+      extra.keywords: "response.keywords"
+
+    llm:
+      temperature: 0.2
+      top_p: 0.9
+      max_tokens: 1024
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      Du extrahierst Schlagworte aus Websitetext. Gib bis zu {max_keywords} kurze,
+      einzelne Schlagworte (DE oder EN, je nach Seitensprache) zurück, die den
+      inhaltlichen Kern der Seite beschreiben — keine ganzen Sätze, keine Navigations-
+      oder Footer-Begriffe (Impressum, Datenschutzerklärung, Suche, Login o.ä.).
+      Antworte AUSSCHLIESSLICH als JSON-Objekt der Form:
+      {"keywords": ["Fernleihe", "Katalog", "Öffnungszeiten"]}
+
+    user_prompt: |
+      Seitentext:
+      {text}
