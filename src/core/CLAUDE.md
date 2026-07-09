@@ -38,7 +38,7 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - **LLM Services**: Interfaces with `src/llm/` for AI-powered analysis
 - **UI Components**: Provides data and services to `src/ui/` layer
 - **Configuration**: Uses `src/utils/config_manager.py` for settings management
-- **External APIs**: Lobid, SWB, Crossref (`crossref_worker.py`, used by the DOI resolver), local/finc catalogs
+- **External APIs**: Lobid, SWB, Crossref/OpenAlex/DataCite (DOI input-source plugins + `doi_resolver.py`), local/finc catalogs
 
 ## [Variable Section - Short-term Information]
 

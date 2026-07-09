@@ -115,6 +115,11 @@ class DatabaseConfig:
     # SQLite specific - THIS IS THE SINGLE SOURCE OF TRUTH FOR DB PATH
     sqlite_path: str = field(default_factory=get_default_db_path)
 
+    # Plugin-owned local GND authority copy (WP Phase C1c). Separate SQLite file so
+    # the local `gnd_entries` copy is independent of the search cache. Empty →
+    # resolved to a sibling `gnd_local.db` of `sqlite_path`. - Claude Generated
+    gnd_local_path: str = ''
+
     # MySQL/MariaDB specific
     host: str = 'localhost'
     port: int = 3306

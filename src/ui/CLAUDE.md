@@ -14,7 +14,7 @@
 - `AnalysisReviewTab`: analysis review + result management (JSON import/export, auto-receive)
 - `DkAnalysisUnifiedTab`: unified DK-Zuordnung + DK-Statistik + UB-Suche (inherits `AbstractTab`)
 - `ImageAnalysisTab`: Vision-LLM image analysis
-- Crossref: DOI lookup via `src/core/crossref_worker.py` (the standalone Crossref tab was removed)
+- DOI lookup: via the DOI input-source plugins / `src/utils/doi_resolver.py` (the standalone Crossref tab + `crossref_worker.py` were removed)
 
 **Supporting Components:**
 - `PipelineConfigDialog` / `workflow_editor_dialog.py`: pipeline config + form editor for agentic v4 workflow YAML (ruamel round-trip, validates `load_workflow(strict=True)`, saves to `~/.config/alima/workflows/`; engine read-only)

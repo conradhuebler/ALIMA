@@ -1,8 +1,11 @@
 """Local GND database search provider - Claude Generated.
 
 Wraps ``UnifiedKnowledgeManager.search_local_gnd`` (no network). GND-keyword
-candidates straight from the local ``gnd_entries`` table — not cache-wrapped
-(it *is* the local store).
+candidates come straight from the ``gnd_entries`` table in the plugin-owned local
+GND store (``gnd_local.db``, WP Phase C1c) — a database physically separate from
+the search cache and filled only by deliberate bulk import + enrichment. Not
+cache-wrapped (it *is* the local store). The DB path is
+``DatabaseConfig.gnd_local_path`` (default: a sibling of the main DB).
 """
 
 from __future__ import annotations
@@ -36,9 +39,10 @@ class GndLocalProvider:
 
         return PluginDoc(
             description="Lokale GND-Datenbank (kein Netzwerk): Schlagwort-Kandidaten "
-            "direkt aus dem gnd_entries-Cache.",
+            "direkt aus der eigenständigen lokalen GND-DB (gnd_local.db), unabhängig "
+            "vom Such-Cache; befüllt nur durch bewussten Import/Enrichment.",
             input="Suchbegriffe.",
-            output="GND-Schlagwort-Kandidaten aus dem lokalen Cache (mit GND-IDs, DDC).",
+            output="GND-Schlagwort-Kandidaten aus der lokalen GND-DB (mit GND-IDs, DDC).",
         )
 
     @property

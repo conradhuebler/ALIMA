@@ -158,7 +158,8 @@ class PipelineStepExecutor:
         self.cache_manager = cache_manager
         self.logger = logger
         self.config_manager = config_manager
-        
+
+
         # Initialize SmartProviderSelector if config_manager available
         self.smart_selector = None
         if config_manager:
@@ -170,6 +171,20 @@ class PipelineStepExecutor:
                 if logger:
                     logger.warning(f"Failed to initialize SmartProviderSelector: {e}")
                     logger.info("Falling back to config-based provider selection")
+
+    def _alima_config_for_cache(self):
+        """Load the AlimaConfig (or None) for per-plugin cache-setting lookups - Claude Generated.
+
+        Used to gate raw-response caching of direct lookup calls (e.g. the RVK anchor)
+        on the plugin's ``cache_responses`` setting. Best-effort; never raises.
+        """
+        cm = getattr(self, "config_manager", None)
+        if cm is None:
+            return None
+        try:
+            return cm.load_config()
+        except Exception:
+            return None
 
     def _resolve_provider_smart(self, provider: str, model: str, task_type: str, prefer_fast: bool = False, task_name: str = None, step_id: str = None) -> tuple[str, str]:
         """Intelligent provider/model resolution with proper fallback chain - Claude Generated
@@ -2349,14 +2364,24 @@ class PipelineStepExecutor:
     ) -> List[Dict[str, Any]]:
         """Build keyword-centric RVK candidates from the official RVK API."""
         from .clients.rvk_api_client import RvkApiClient
+        from .lookups.cache import cached_call, lookup_cache_enabled
 
         rvk_client = RvkApiClient()
+        # Reuse the WP2 raw cache (F3): RVK API results are cached under the same
+        # `rvk_search` key the agent tool uses, gated by the rvk_api plugin's
+        # `cache_responses` setting. - Claude Generated
+        _km = getattr(self, "cache_manager", None)
+        _rvk_cache_on = lookup_cache_enabled(self._alima_config_for_cache(), "rvk_api")
         keyword_results = []
 
         for keyword in keywords:
             clean_keyword = canonicalize_keyword(keyword)
             try:
-                candidates = rvk_client.search_keyword(clean_keyword, max_results=max_results_per_keyword)
+                candidates = cached_call(
+                    _km, _rvk_cache_on, "rvk_search", clean_keyword,
+                    {"max_results": max_results_per_keyword},
+                    lambda kw=clean_keyword: rvk_client.search_keyword(kw, max_results=max_results_per_keyword),
+                )
             except Exception as exc:
                 if self.logger:
                     self.logger.warning(f"RVK API fallback failed for '{clean_keyword}': {exc}")
@@ -2437,6 +2462,12 @@ class PipelineStepExecutor:
     ) -> List[Dict[str, Any]]:
         """Validate catalog-derived RVK candidates and drop only obvious artifacts."""
         from .clients.rvk_api_client import RvkApiClient
+        from .lookups.cache import cached_call, lookup_cache_enabled
+
+        # Persist RVK notation validations in the WP2 raw cache (F3), sharing the
+        # `rvk_validate` key with the agent tool. - Claude Generated
+        _km = getattr(self, "cache_manager", None)
+        _rvk_cache_on = lookup_cache_enabled(self._alima_config_for_cache(), "rvk_api")
 
         validation_cache: Dict[str, Dict[str, Any]] = {}
         cleaned_results: List[Dict[str, Any]] = []
@@ -2648,8 +2679,11 @@ class PipelineStepExecutor:
             )
 
         def _validate_code(code: str) -> Tuple[str, Dict[str, Any]]:
-            client = RvkApiClient(timeout=4)
-            return code, client.validate_notation(code)
+            result = cached_call(
+                _km, _rvk_cache_on, "rvk_validate", code, {},
+                lambda c=code: RvkApiClient(timeout=4).validate_notation(c),
+            )
+            return code, result
 
         if selected_codes:
             max_workers = min(8, len(selected_codes))

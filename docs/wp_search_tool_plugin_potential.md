@@ -1,11 +1,15 @@
 # WP: Every API search = a cached plugin/tool (analysis + plan)
 
-> **Status:** Analysis + plan (July 8, 2026). Operator direction: (1) the raw data
-> of *any* search is written to the cache; (2) every search against an API/website
-> is a standalone plugin exposed as a tool; (3) whether a plugin is cached is a
-> per-plugin setting. Legacy breakage is acceptable ("alte Zöpfe abschneiden").
-> Prerequisite done: GND search unified on the provider path, MetaSuggester retired
-> (see `AIChangelog.md`, July 8).
+> **Status:** Phases A + B + C code-complete (July 9, 2026; suite 1177). Operator
+> direction: (1) the raw data of *any* search is written to the cache; (2) every
+> search against an API/website is a standalone plugin exposed as a tool; (3) whether
+> a plugin is cached is a per-plugin setting. Legacy breakage is acceptable ("alte
+> Zöpfe abschneiden"). Prerequisite done: GND search unified on the provider path,
+> MetaSuggester retired (see `AIChangelog.md`, July 8). Phase C additionally
+> **decoupled the local GND copy into its own plugin-owned DB** (`gnd_local.db`),
+> independent of the search cache. **Open (operator):** GUI click-tests (lookup list
+> populated, DNB-sync), a live before/after search comparison, and one-time
+> `gnd_local.db` migration sanity on the production DB.
 
 ## Current landscape
 
@@ -134,3 +138,77 @@ lookup category + RVK · URL-fetch core · k10plus lookup — all committed, add
 ### What broke
 - Nothing agent-facing: all new tools (`rvk_search`/`rvk_validate`/`k10plus_package`)
   are additive; `rvk_lookup`/`resolve_doi`/`scrape_url` kept their names + behavior.
+
+## Phase C — decouple local GND-DB from cache · seed lookups · finish migration (July 9)
+
+Operator review after Phase B surfaced three residuals; all addressed here. Suite
+1177 passed.
+
+### C1 — the local GND copy is now a plugin-owned database, independent of the cache
+The former A1 fix warmed search results into the shared `gnd_entries` facts table, so
+a standalone search silently seeded the local GND copy (facts DB and search cache were
+intermixed in one file). Operator decision: the local GND-keyword copy must be its own
+DB, filled **only** by deliberate import/enrichment.
+- **C1a** — `search_mappings` gained a denormalized `titles` (`{gnd_id: title}`) column
+  (idempotent ALTER). `CachingProvider._items_from_cache` rebuilds cache hits from the
+  mapping's own titles instead of reading `gnd_entries` (`get_gnd_fact`). A pre-C1a row
+  (GND IDs but no titles) is treated as a miss → re-fetched live. So **F1 stays fixed
+  without touching the local GND store**.
+- **C1b** — `warm_gnd_entries` removed (call in `caching.py` + the UKM method). A search
+  no longer writes into the local authority copy.
+- **C1c** — new **`LocalGndStore`** (`src/core/search/providers/gnd_local/store.py`)
+  owns the `gnd_entries` table in its own SQLite file (`gnd_local.db`, path
+  `DatabaseConfig.gnd_local_path`, default a sibling of the main DB). `UnifiedKnowledgeManager`
+  keeps its GND-fact API but routes every `gnd_entries` query through the store's
+  `DatabaseManager` (distinct `connection_name` → no per-thread connection collision).
+  Bulk import (`insert_gnd_entry` → `store_gnd_fact`) and `search_local_gnd` land in the
+  store automatically. A **one-time, non-destructive ATTACH-based migration** copies a
+  legacy same-file `gnd_entries` table into `gnd_local.db` on first init (idempotent;
+  the legacy table is left in place). `clear_search_cache` no longer risks the authority
+  copy — it is a different DB.
+
+**Intentional behavior change (caveat):** `search_gnd`/`gnd_local` no longer surface
+terms that were *only* searched online — the local copy reflects what was imported. This
+is the operator's chosen tradeoff, not a regression.
+
+### C2 — lookup instances are seeded (fixes the empty GUI list)
+The Plugins-tab combobox lists plugin *types* (registry); the list shows configured
+*instances* (`config.plugins`). Search/input were auto-seeded but lookups were not, so
+the lookup list was empty. Added `synthesize_lookup_instances()` (built dynamically from
+`LOOKUP_REGISTRY`) + a `LOOKUP_CATEGORY` guard at config load/save
+(`config_manager.py`). The lookup list now shows `rvk_api`/`k10plus`/`dnb` out of the
+box, each with the editable per-instance `cache_responses` field.
+
+### C3 — remaining external-API fetchers migrated
+- **C3a — DNB → lookup plugin.** New `src/utils/lookups/dnb.py` `DnbLookup` wrapping
+  `dnb_utils.get_dnb_classification` (now takes a `timeout`), tool `dnb_classification`
+  (gnd_id → DDC/classification), raw-cached + per-plugin toggle. The GUI DNB-sync
+  (`workers.py` `DNBSyncWorker`, `find_keywords.update_entry`) routes through it (single
+  DNB code path; agent tool is cached).
+- **C3b — RVK inherits the raw cache (F3).** New shared helper
+  `src/utils/lookups/cache.py` (`lookup_cache_enabled` + `cached_call`) reuses the WP2
+  raw cache the same way the tool handler does, but caches the *full* result so callers
+  keep their data shape. The RVK anchor's `search_keyword`/`validate_notation` calls in
+  `pipeline_utils.py` now cache under the same `rvk_search`/`rvk_validate` keys the agent
+  tools use (shared entries), gated by the `rvk_api` plugin's `cache_responses`. The
+  composed `rvk_lookup` tool name/behavior is unchanged; `RvkMarcIndex` stays direct (no
+  plugin wrapper — flagged follow-up).
+  - **k10plus (operator direction):** a K10plus package is too large for the DB raw
+    cache and its callers need full `K10PlusRecord` objects. Instead of the DB cache,
+    k10plus keeps a **directory cache** — now a per-plugin setting: the `K10PlusLookup`
+    plugin gained a `cache_dir` `ConfigField`, wired through `fetch_package`. The direct
+    CLI/GUI batch callers keep their existing file cache unchanged. (A general "cache
+    capability" abstraction across plugin categories is a possible future step.)
+- **C3c — dead code removed.** `crossref_worker.py` (never instantiated),
+  `print_abstracts.py` (standalone), `ToolRegistry._get_resolver`/`_resolver` (never
+  called), empty `data/metasuggester/` dirs; stale `core/CLAUDE.md` + `ui/CLAUDE.md`
+  crossref notes fixed.
+
+### What broke (Phase C)
+- Two tests updated to the new architecture (intended): `test_search.py` (gnd_entries now
+  in the separate store DB), `test_caching_provider.py` (title-less rows are a miss).
+- `test_gnd_cache_warming.py` retargeted from "warming" to cache self-resolution +
+  store separation. New tests: `test_lookup_plugins.py` (DNB, seeding, raw-cache helper).
+- No agent-facing tool renamed. Migration is non-destructive (legacy `gnd_entries` table
+  left in place). Note: first launch after upgrade runs the one-time ATTACH copy of the
+  local GND copy into `gnd_local.db`.

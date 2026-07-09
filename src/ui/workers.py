@@ -258,8 +258,11 @@ class DNBSyncWorker(QThread):
 
     def run(self):
         """Execute batch DNB sync in background thread - Claude Generated"""
-        from ..core.dnb_utils import get_dnb_classification
+        # Route DNB access through the lookup plugin (single DNB code path; the same
+        # plugin backs the agent-facing, cached `dnb_classification` tool). - Claude Generated
+        from ..utils.lookups.dnb import DnbLookup
 
+        dnb_lookup = DnbLookup()
         success = 0
         errors = 0
         total = len(self.gnd_ids)
@@ -269,7 +272,7 @@ class DNBSyncWorker(QThread):
         for i, gnd_id in enumerate(self.gnd_ids):
             try:
                 # Fetch DNB classification
-                dnb_class = get_dnb_classification(gnd_id)
+                dnb_class = dnb_lookup.classify(gnd_id)
 
                 if dnb_class and dnb_class.get("status") == "success":
                     # Extract data

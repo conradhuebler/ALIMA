@@ -62,7 +62,6 @@ class ToolRegistry:
         # handler + tests still drive ``_finc`` via ``_init_suggesters``). - Claude Generated
         self._provider_cache: Dict[tuple, Any] = {}
         self._finc = None
-        self._resolver = None
         self._presets: Dict[str, List[str]] = {}
         self._load_default_presets()
 
@@ -231,13 +230,6 @@ class ToolRegistry:
             provider = build_provider(inst, cache=cache, ukm=self._get_knowledge_manager())
             self._provider_cache[key] = provider
         return provider
-
-    def _get_resolver(self):
-        """Lazy-init DOI resolver."""
-        if self._resolver is None:
-            from src.utils.doi_resolver import UnifiedResolver
-            self._resolver = UnifiedResolver()
-        return self._resolver
 
     def _get_autosave_dir(self) -> str:
         """Get pipeline results directory."""

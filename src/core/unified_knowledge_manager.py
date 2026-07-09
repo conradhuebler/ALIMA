@@ -58,6 +58,11 @@ class SearchMapping:
     # from the pool/ranking count, which a cache hit still reports as 1. Empty for
     # rows written before the column existed. - Claude Generated
     gnd_counts: Dict[str, int] = field(default_factory=dict)
+    # Denormalized per-GND-ID titles (WP Phase C1a): {gnd_id: title}. Lets a cache
+    # hit rebuild items without reading the (now separate) local GND store. Empty
+    # for rows written before the column existed → those rows are treated as a
+    # cache miss on read. - Claude Generated
+    titles: Dict[str, str] = field(default_factory=dict)
 
 
 class UnifiedKnowledgeManager:
@@ -114,11 +119,29 @@ class UnifiedKnowledgeManager:
         self.db_path = database_config.sqlite_path
 
         self.db_manager = DatabaseManager(database_config, f"unified_knowledge_{id(self)}")
+        # Plugin-owned local GND authority store in its own SQLite file (WP Phase
+        # C1c): the local `gnd_entries` copy is physically separate from the search
+        # cache. Distinct connection_name keeps per-thread connections isolated. - Claude Generated
+        from src.core.search.providers.gnd_local.store import LocalGndStore
+        self.local_gnd = LocalGndStore(database_config, f"gnd_local_{id(self)}")
         self._init_database()
+        # One-time, non-destructive migration of a legacy same-file gnd_entries
+        # table (older single-DB installs) into the separate store.
+        if str(database_config.db_type).lower() in ("sqlite", "sqlite3"):
+            self.local_gnd.migrate_from_legacy(database_config.sqlite_path)
         self.db_fallback_notice = getattr(self.db_manager, 'db_fallback_notice', None)
 
         # Mark as initialized - Claude Generated
         UnifiedKnowledgeManager._initialized = True
+
+    @property
+    def _gnd_db(self) -> DatabaseManager:
+        """DatabaseManager for the plugin-owned local GND store (gnd_entries).
+
+        Every ``gnd_entries`` query in this class routes through here so the local
+        authority copy lives in its own DB, independent of the search cache. - Claude Generated
+        """
+        return self.local_gnd.db_manager
 
     @classmethod
     def get_instance(cls, database_config: Optional[DatabaseConfig] = None) -> "UnifiedKnowledgeManager":
@@ -148,6 +171,12 @@ class UnifiedKnowledgeManager:
                     cls.logger.info("✅ Database connection closed")
                 except Exception as e:
                     logging.getLogger(__name__).warning(f"⚠️ Error closing database: {e}")
+                try:
+                    local_gnd = getattr(cls._instance, "local_gnd", None)
+                    if local_gnd is not None:
+                        local_gnd.close()
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"⚠️ Error closing local GND store: {e}")
             cls._instance = None
             cls._initialized = False
     
@@ -166,20 +195,9 @@ class UnifiedKnowledgeManager:
 
             # === FACTS TABLES (Immutable truths) ===
 
-            # 1. GND entries (facts only, no search terms)
-            # Using VARCHAR for PRIMARY KEY (compatible with SQLite and MySQL/MariaDB)
-            self.db_manager.execute_query(f"""
-                CREATE TABLE IF NOT EXISTS gnd_entries (
-                    gnd_id {dialect.varchar_type(512)} PRIMARY KEY,
-                    title {dialect.text_type(db_type)} NOT NULL,
-                    description {dialect.text_type(db_type)},
-                    synonyms {dialect.text_type(db_type)},
-                    ddcs {dialect.text_type(db_type)},
-                    ppn {dialect.text_type(db_type)},
-                    created_at {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
-                    updated_at {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            # 1. GND entries (facts) now live in the plugin-owned local GND store
+            # (`gnd_local.db`, WP Phase C1c) — created there, not here, so the local
+            # authority copy is independent of this search-cache DB. - Claude Generated
 
             # 2. DK/RVK classifications (facts only, no keywords)
             self.db_manager.execute_query(f"""
@@ -210,6 +228,7 @@ class UnifiedKnowledgeManager:
                     found_gnd_ids {dialect.text_type(db_type)},
                     found_classifications {dialect.text_type(db_type)},
                     gnd_counts {dialect.text_type(db_type)},
+                    titles {dialect.text_type(db_type)},
                     result_count INTEGER DEFAULT 0,
                     last_updated {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
                     created_at {dialect.timestamp_type(db_type)} DEFAULT CURRENT_TIMESTAMP,
@@ -278,7 +297,7 @@ class UnifiedKnowledgeManager:
             # Create indexes for performance
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_normalized ON search_mappings(normalized_term)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_search_term ON search_mappings(search_term)")
-            self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_gnd_title ON gnd_entries(title)")
+            # idx_gnd_title lives in the plugin-owned local GND store (WP Phase C1c).
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_code ON classifications(code)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_classifications_type ON classifications(type)")
             self.db_manager.execute_query("CREATE INDEX IF NOT EXISTS idx_catalog_normalized ON catalog_dk_cache(normalized_term)")
@@ -300,11 +319,16 @@ class UnifiedKnowledgeManager:
             raise
 
     def _migrate_search_mappings_schema(self):
-        """Add the F-4 ``gnd_counts`` column to existing search_mappings tables.
+        """Add later columns to existing search_mappings tables.
 
-        Additive, idempotent: fresh DBs already have the column from CREATE TABLE;
-        older DBs get it via ALTER. Existing rows keep NULL → display falls back to
-        the pool count (1 for cache hits). - Claude Generated
+        Additive, idempotent: fresh DBs already have the columns from CREATE TABLE;
+        older DBs get them via ALTER.
+        - ``gnd_counts`` (F-4): existing rows keep NULL → display falls back to the
+          pool count (1 for cache hits).
+        - ``titles`` (WP Phase C1a): denormalized ``{gnd_id: title}`` so cache hits
+          resolve titles from the mapping row itself instead of the (now separate)
+          local GND store. Existing rows keep NULL → treated as a miss on read.
+        - Claude Generated
         """
         try:
             db_type = self.db_manager.get_db_type()
@@ -312,17 +336,18 @@ class UnifiedKnowledgeManager:
             query = dialect.get_table_info_query(db_type, 'search_mappings')
             rows = self.db_manager.fetch_all(query)
             columns = dialect.parse_table_info(db_type, rows if rows else [])
-            if "gnd_counts" not in columns:
-                self.logger.info("🔄 Migrating search_mappings: adding gnd_counts column (F-4)...")
-                self.db_manager.execute_query(
-                    dialect.alter_table_add_column(
-                        db_type, 'search_mappings', 'gnd_counts',
-                        dialect.text_type(db_type)
+            for col in ("gnd_counts", "titles"):
+                if columns and col not in columns:
+                    self.logger.info(f"🔄 Migrating search_mappings: adding {col} column...")
+                    self.db_manager.execute_query(
+                        dialect.alter_table_add_column(
+                            db_type, 'search_mappings', col,
+                            dialect.text_type(db_type)
+                        )
                     )
-                )
-                self.logger.info("✅ search_mappings migration completed: added gnd_counts")
+                    self.logger.info(f"✅ search_mappings migration completed: added {col}")
         except Exception as e:
-            self.logger.warning(f"search_mappings gnd_counts migration check failed (non-critical): {e}")
+            self.logger.warning(f"search_mappings migration check failed (non-critical): {e}")
 
     def _migrate_search_response_cache_schema(self):
         """Ensure later columns exist on pre-existing search_response_cache tables.
@@ -476,7 +501,7 @@ class UnifiedKnowledgeManager:
     def store_gnd_fact(self, gnd_id: str, gnd_data: Dict[str, Any]):
         """Store GND entry as immutable fact - Claude Generated"""
         try:
-            self.db_manager.execute_query("""
+            self._gnd_db.execute_query("""
                 INSERT OR REPLACE INTO gnd_entries
                 (gnd_id, title, description, synonyms, ddcs, ppn, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -493,36 +518,17 @@ class UnifiedKnowledgeManager:
             self.logger.error(f"Error storing GND fact {gnd_id}: {e}")
             raise
 
-    def warm_gnd_entries(self, titles_by_id: Dict[str, str]) -> None:
-        """Seed minimal GND facts (gnd_id → title) from a search - Claude Generated.
-
-        ``INSERT OR IGNORE``: a brand-new gnd_id is added with just its title; an
-        existing row (e.g. one already enriched with description/DDCs via
-        ``store_gnd_fact``'s ``INSERT OR REPLACE``) is left untouched — never
-        clobbered. This lets a *standalone* GND search warm the shared knowledge DB
-        so mapping-cache hits (``CachingProvider._items_from_cache`` resolves titles
-        via ``get_gnd_fact``) and ``search_local_gnd`` see terms that were searched
-        online. Best-effort; a single bad id never sinks the batch.
-        """
-        for gnd_id, title in (titles_by_id or {}).items():
-            if not gnd_id or not title:
-                continue
-            try:
-                self.db_manager.execute_query(
-                    """
-                    INSERT OR IGNORE INTO gnd_entries
-                    (gnd_id, title, description, synonyms, ddcs, ppn, updated_at)
-                    VALUES (?, ?, '', '', '', '', CURRENT_TIMESTAMP)
-                    """,
-                    [gnd_id, title],
-                )
-            except Exception as e:
-                self.logger.debug(f"warm_gnd_entries skip {gnd_id}: {e}")
+    # NOTE (WP Phase C1): the former ``warm_gnd_entries`` seam is removed. A search
+    # no longer writes stubs into the local GND store — cache hits resolve titles
+    # from the denormalized ``search_mappings.titles`` column (see
+    # ``CachingProvider``), keeping the plugin-owned local GND copy independent of
+    # the search cache. The local copy is filled only by deliberate import /
+    # enrichment. - Claude Generated
 
     def get_gnd_fact(self, gnd_id: str) -> Optional[GNDEntry]:
         """Retrieve GND fact by ID - Claude Generated"""
         try:
-            row = self.db_manager.fetch_one(
+            row = self._gnd_db.fetch_one(
                 "SELECT * FROM gnd_entries WHERE gnd_id = ?", [gnd_id]
             )
 
@@ -574,7 +580,7 @@ class UnifiedKnowledgeManager:
                     placeholders = ','.join(['?'] * len(chunk))
                     query = f"SELECT * FROM gnd_entries WHERE gnd_id IN ({placeholders})"
 
-                    rows = self.db_manager.fetch_all(query, chunk)
+                    rows = self._gnd_db.fetch_all(query, chunk)
 
                     for row in rows:
                         try:
@@ -681,6 +687,7 @@ class UnifiedKnowledgeManager:
                     last_updated=row['last_updated'],
                     created_at=row['created_at'],
                     gnd_counts=json.loads((row.get('gnd_counts') if hasattr(row, 'get') else None) or '{}'),
+                    titles=json.loads((row.get('titles') if hasattr(row, 'get') else None) or '{}'),
                 )
             return None
 
@@ -691,12 +698,17 @@ class UnifiedKnowledgeManager:
     def update_search_mapping(self, search_term: str, suggester_type: str,
                             found_gnd_ids: List[str] = None,
                             found_classifications: List[Dict[str, str]] = None,
-                            gnd_counts: Dict[str, int] = None):
+                            gnd_counts: Dict[str, int] = None,
+                            titles: Dict[str, str] = None):
         """Update or create search mapping - Claude Generated (Fixed PyQt6 QtSql subquery issue)
 
         ``gnd_counts`` (F-4): optional ``{gnd_id: count}`` display-only hit counts
         persisted alongside the GND-ID list, so a later cache hit can restore the
         real Häufigkeit without touching the pool/ranking count.
+
+        ``titles`` (WP Phase C1a): optional ``{gnd_id: title}`` denormalized into the
+        mapping row so a later cache hit rebuilds items without reading the (now
+        separate, plugin-owned) local GND store.
         """
         try:
             normalized_term = self._normalize_term(search_term)
@@ -710,8 +722,8 @@ class UnifiedKnowledgeManager:
             self.db_manager.execute_query("""
                 INSERT OR REPLACE INTO search_mappings
                 (search_term, normalized_term, suggester_type, found_gnd_ids,
-                 found_classifications, gnd_counts, result_count, last_updated, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, COALESCE(?, CURRENT_TIMESTAMP))
+                 found_classifications, gnd_counts, titles, result_count, last_updated, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, COALESCE(?, CURRENT_TIMESTAMP))
             """, [
                 search_term,
                 normalized_term,
@@ -719,6 +731,7 @@ class UnifiedKnowledgeManager:
                 json.dumps(found_gnd_ids or []),
                 json.dumps(found_classifications or []),
                 json.dumps(gnd_counts or {}),
+                json.dumps(titles or {}),
                 len(found_gnd_ids or []) + len(found_classifications or []),
                 created_at_value  # Pre-fetched value instead of subquery
             ])
@@ -878,7 +891,7 @@ class UnifiedKnowledgeManager:
             entries = []
 
             # Exact title match first
-            rows = self.db_manager.fetch_all("""
+            rows = self._gnd_db.fetch_all("""
                 SELECT * FROM gnd_entries
                 WHERE title LIKE ? OR title LIKE ?
                 LIMIT ?
@@ -913,7 +926,7 @@ class UnifiedKnowledgeManager:
             stats = {}
 
             # Count facts
-            stats['gnd_entries_count'] = self.db_manager.fetch_scalar(
+            stats['gnd_entries_count'] = self._gnd_db.fetch_scalar(
                 "SELECT COUNT(*) FROM gnd_entries"
             )
 
@@ -939,7 +952,7 @@ class UnifiedKnowledgeManager:
             self.db_manager.execute_query("DELETE FROM search_response_cache")
             self.db_manager.execute_query("DELETE FROM catalog_dk_cache")
             self.db_manager.execute_query("DELETE FROM classifications")
-            self.db_manager.execute_query("DELETE FROM gnd_entries")
+            self._gnd_db.execute_query("DELETE FROM gnd_entries")
 
             self.logger.info("Database cleared for fresh start")
 
@@ -1093,7 +1106,7 @@ class UnifiedKnowledgeManager:
         """CacheManager compatibility - Claude Generated"""
         try:
             entries = {}
-            rows = self.db_manager.fetch_all("SELECT * FROM gnd_entries")
+            rows = self._gnd_db.fetch_all("SELECT * FROM gnd_entries")
 
             for row in rows:
                 entries[row['gnd_id']] = {
@@ -1164,7 +1177,7 @@ class UnifiedKnowledgeManager:
         MODIFIED: Now includes catalog_dk_cache statistics"""
         try:
             # Count entries across all tables
-            gnd_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM gnd_entries")
+            gnd_count = self._gnd_db.fetch_scalar("SELECT COUNT(*) FROM gnd_entries")
             classification_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM classifications")
             mapping_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM search_mappings")
             catalog_cache_count = self.db_manager.fetch_scalar("SELECT COUNT(*) FROM catalog_dk_cache")
@@ -1699,7 +1712,7 @@ class UnifiedKnowledgeManager:
             self.logger.debug(f"Searching GND by title: '{keyword_text}'")
 
             # Exact match on title (case-insensitive)
-            exact_match = self.db_manager.fetch_one(
+            exact_match = self._gnd_db.fetch_one(
                 "SELECT gnd_id, title, synonyms FROM gnd_entries WHERE LOWER(title) = ?",
                 [keyword_lower]
             )
@@ -1713,7 +1726,7 @@ class UnifiedKnowledgeManager:
                 }]
 
             # Fallback: Check if keyword appears in synonyms (semicolon-separated)
-            synonym_matches = self.db_manager.fetch_all(
+            synonym_matches = self._gnd_db.fetch_all(
                 """SELECT gnd_id, title, synonyms FROM gnd_entries
                    WHERE synonyms LIKE ?""",
                 [f"%{keyword_lower}%"]

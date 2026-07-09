@@ -87,10 +87,29 @@ class CachingProvider:
     ) -> Tuple[List[ResultItem], Optional[str]]:
         if not self.force_update:
             mapping = self.ukm.get_search_mapping(term, self.id)
-            if mapping is not None and self._is_fresh(mapping.last_updated):
+            if (
+                mapping is not None
+                and self._is_fresh(mapping.last_updated)
+                and self._has_titles(mapping)
+            ):
                 logger.debug("cache hit for '%s' (%s)", term, self.id)
                 return self._items_from_cache(mapping), None
         return self._live_search(term, progress, **opts)
+
+    @staticmethod
+    def _has_titles(mapping: Any) -> bool:
+        """Whether the mapping can rebuild items on its own (WP Phase C1a).
+
+        Titles are denormalized into the mapping row; a row with GND IDs but no
+        titles predates C1a and must be re-fetched live (we no longer read the
+        separate local GND store to resolve them). An empty-result row (no GND IDs)
+        is a legitimate 'no hits' cache entry and stays a hit.
+        """
+        gnd_ids = getattr(mapping, "found_gnd_ids", []) or []
+        if not gnd_ids:
+            return True
+        titles = getattr(mapping, "titles", {}) or {}
+        return any(titles.get(g) for g in gnd_ids)
 
     def _is_fresh(self, last_updated: Any) -> bool:
         try:
@@ -107,16 +126,21 @@ class CachingProvider:
     def _items_from_cache(self, mapping: Any) -> List[ResultItem]:
         """Rebuild GND-keyword items from a cached mapping (dedup by title).
 
+        Titles come from the mapping's own denormalized ``titles`` map (WP Phase
+        C1a) — the cache no longer reads the separate local GND store, so a
+        standalone search never depends on (or pollutes) the local authority copy.
+        IDs without a stored title are dropped.
+
         Pool ``count`` stays 1 (landmine); ``display_count`` is the stored real
         count (``None`` when not stored → display falls back to 1).
         """
         gnd_counts = getattr(mapping, "gnd_counts", {}) or {}
+        titles_map = getattr(mapping, "titles", {}) or {}
         by_title = {}
         for gnd_id in mapping.found_gnd_ids:
-            fact = self.ukm.get_gnd_fact(gnd_id)
-            if not fact:
+            title = titles_map.get(gnd_id)
+            if not title:
                 continue
-            title = fact.title
             stored = gnd_counts.get(gnd_id)
             if title in by_title:
                 by_title[title].gnd_ids.add(gnd_id)
@@ -159,14 +183,15 @@ class CachingProvider:
             for gnd_id in it.gnd_ids:
                 gnd_counts[gnd_id] = max(gnd_counts.get(gnd_id, 0), int(it.count or 0))
                 titles_by_id.setdefault(gnd_id, it.label)
+        # Denormalize titles into the mapping row (WP Phase C1a) so a later cache
+        # hit rebuilds items on its own. The cache is self-contained: a standalone
+        # search no longer writes into the local GND store (no more warm_gnd_entries),
+        # keeping the plugin-owned local GND copy independent of the search cache.
         self.ukm.update_search_mapping(
             term,
             self.id,
             found_gnd_ids=list(gnd_counts.keys()),
             gnd_counts=gnd_counts,
+            titles=titles_by_id,
         )
-        # Warm minimal facts (gnd_id → title) so a cache hit resolves titles via
-        # get_gnd_fact instead of dropping every id, and search_local_gnd sees the
-        # term. INSERT OR IGNORE never clobbers an enriched fact. - Claude Generated
-        self.ukm.warm_gnd_entries(titles_by_id)
         return items, None

@@ -205,6 +205,43 @@ def derive_input_mirrors(plugins: List, system_config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Lookups (RVK / k10plus / DNB … — external-authority query plugins)
+# ---------------------------------------------------------------------------
+
+LOOKUP_CATEGORY = "lookup"
+
+
+def synthesize_lookup_instances() -> List:
+    """Create one primary instance per registered lookup plugin - Claude Generated.
+
+    Unlike search/input, lookups have **no legacy config section** to mirror, so the
+    instance list is built directly from the live ``LOOKUP_REGISTRY`` (importing the
+    package self-registers the built-in lookups). Every lookup gets a single, enabled,
+    primary instance so the Plugins-tab list is populated out of the box (previously
+    only the type combobox was filled — the list stayed empty because nothing seeded
+    ``config.plugins`` for this category).
+    """
+    from src.utils.config_models import PluginInstanceConfig
+    from src.utils.lookups import get_lookup, list_lookups
+
+    instances: List = []
+    for lid in list_lookups():
+        cls = get_lookup(lid)
+        instances.append(
+            PluginInstanceConfig(
+                instance_id=lid,
+                category=LOOKUP_CATEGORY,
+                provider_id=lid,
+                label=getattr(cls, "label", lid),
+                enabled=True,
+                is_primary=True,
+                settings={},
+            )
+        )
+    return instances
+
+
+# ---------------------------------------------------------------------------
 # Reverse sync — capture edits made in the legacy Catalog/System tabs into the
 # primary instances, so those tabs keep working alongside the new Plugins tab
 # (the derive-on-save then re-mirrors, a no-op when values already match). - Claude Generated

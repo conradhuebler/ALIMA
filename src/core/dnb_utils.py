@@ -8,12 +8,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_dnb_classification(gnd_id):
+def get_dnb_classification(gnd_id, timeout=10):
     """
     Liest Klassifikationsinformationen aus den RDF-Daten der DNB.
 
     Args:
         gnd_id (str): GND-ID des Eintrags
+        timeout (int): HTTP-Timeout in Sekunden (default 10)
 
     Returns:
         dict: Dictionary mit Klassifikationsinformationen oder None bei Fehler
@@ -38,7 +39,7 @@ def get_dnb_classification(gnd_id):
 
         # HTTP-Anfrage mit Timeout
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=timeout)
             response.raise_for_status()
         except requests.RequestException as e:
             logger.error(f"Fehler bei HTTP-Anfrage für GND {gnd_id}: {str(e)}")

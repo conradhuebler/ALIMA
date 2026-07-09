@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, List
 
-from src.core.plugins.schema import INT, ConfigField, PluginDoc
+from src.core.plugins.schema import INT, TEXT, ConfigField, PluginDoc
 
 from .registry import LookupToolSpec, register_lookup
 
@@ -26,7 +26,13 @@ class K10PlusLookup:
 
     @classmethod
     def config_fields(cls) -> List[ConfigField]:
-        return [ConfigField(key="max_records", label="Max. Datensätze", kind=INT, default=50)]
+        return [
+            ConfigField(key="max_records", label="Max. Datensätze", kind=INT, default=50),
+            # A K10plus package can hold thousands of records — too large for the DB
+            # raw cache, so this plugin caches raw XML to a directory instead (its
+            # "cache capability"). Empty → no dir cache. - Claude Generated
+            ConfigField(key="cache_dir", label="Cache-Verzeichnis (raw XML)", kind=TEXT, default=""),
+        ]
 
     @classmethod
     def doc(cls) -> PluginDoc:
@@ -63,6 +69,9 @@ class K10PlusLookup:
         from src.utils.k10plus_resolver import fetch_records_for_siegel
 
         cap = int(max_records if max_records is not None else self._config.get("max_records", 50) or 50)
-        records = fetch_records_for_siegel(str(siegel))
+        # Directory cache of raw XML (the plugin's cache capability) — reused by the
+        # CLI/GUI batch callers too. Empty setting → no dir cache. - Claude Generated
+        cache_dir = self._config.get("cache_dir") or None
+        records = fetch_records_for_siegel(str(siegel), cache_dir=cache_dir)
         recs = [asdict(r) for r in records[:cap]]
         return {"siegel": siegel, "total": len(records), "returned": len(recs), "records": recs}

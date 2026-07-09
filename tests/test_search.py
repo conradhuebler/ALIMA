@@ -43,8 +43,15 @@ class TestUnifiedKnowledgeManager(unittest.TestCase):
     def test_schema_tables_exist(self):
         tables = self.km.db_manager.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
         names = {t['name'] for t in tables}
-        for expected in ('gnd_entries', 'classifications', 'search_mappings', 'catalog_dk_cache'):
+        for expected in ('classifications', 'search_mappings', 'catalog_dk_cache'):
             self.assertIn(expected, names)
+        # WP Phase C1c: gnd_entries lives in the plugin-owned local GND store, a
+        # separate DB — not the cache DB.
+        self.assertNotIn('gnd_entries', names)
+        local_tables = self.km.local_gnd.db_manager.fetch_all(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+        self.assertIn('gnd_entries', {t['name'] for t in local_tables})
 
     def test_store_and_retrieve_gnd_fact(self):
         self.km.store_gnd_fact("4123456-7", {"title": "Testschlagwort", "description": "", "synonyms": "", "ddcs": ""})

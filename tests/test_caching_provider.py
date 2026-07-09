@@ -79,6 +79,7 @@ class CachingProviderTest(unittest.TestCase):
         rows = self.km.db_manager.fetch_all("PRAGMA table_info(search_mappings)")
         cols = {r["name"] for r in rows}
         self.assertIn("gnd_counts", cols)
+        self.assertIn("titles", cols)  # WP Phase C1a denormalized titles column
 
     def test_miss_then_hit_restores_display_count(self):
         inner = _FakeProvider(
@@ -106,14 +107,31 @@ class CachingProviderTest(unittest.TestCase):
         self.assertEqual(item2.count, 1)          # POOL count stays 1 (landmine)
         self.assertEqual(item2.display_count, 47)  # display-only real count restored
 
-    def test_old_row_without_counts_falls_back(self):
-        # Simulate a pre-F-4 cache row (no gnd_counts).
-        self.km.update_search_mapping("klima", "lobid", found_gnd_ids=["g2"])
+    def test_row_with_titles_but_no_counts_falls_back(self):
+        # A cache row carrying denormalized titles but no gnd_counts (e.g. a
+        # pre-F-4-style row upgraded to C1a titles) is still a hit; display_count
+        # falls back to None → the display layer uses the pool count.
+        self.km.update_search_mapping(
+            "klima", "lobid", found_gnd_ids=["g2"], titles={"g2": "Klima"}
+        )
         cp = CachingProvider(_FakeProvider({}), ukm=self.km)
         res = cp.search(SearchCapability.GND_KEYWORDS, ["klima"])
         item = res.per_term["klima"][0]
+        self.assertEqual(item.label, "Klima")     # resolved from the mapping's titles
         self.assertEqual(item.count, 1)
         self.assertIsNone(item.display_count)  # → display falls back to pool count
+
+    def test_pre_c1a_row_without_titles_is_a_miss(self):
+        # A legacy row with GND IDs but no denormalized titles is treated as a miss
+        # (the cache no longer reads the local GND store to resolve titles).
+        self.km.update_search_mapping("klima", "lobid", found_gnd_ids=["g2"])
+        inner = _FakeProvider(
+            {"klima": [ResultItem(label="Klima", gnd_ids={"g2"}, count=9)]}
+        )
+        cp = CachingProvider(inner, ukm=self.km)
+        res = cp.search(SearchCapability.GND_KEYWORDS, ["klima"])
+        self.assertEqual(inner.calls, [["klima"]])  # re-fetched live
+        self.assertEqual(res.per_term["klima"][0].count, 9)
 
     def test_source_failure_not_cached(self):
         inner = _FakeProvider({"x": []}, errors={"x": "network down"})
