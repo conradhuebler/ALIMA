@@ -6,6 +6,38 @@
 
 ## 2026
 
+### Lookup-Plugins: Einbindung in Pipeline + Agent (WP Phase D, July 10, 2026)
+
+Die Lookup-Plugins (rvk_api/k10plus/dnb — aus WP Phasen B/C, dort + im WP-Doc
+`docs/wp_search_tool_plugin_potential.md` dokumentiert; die Phasen A–C + webindex
+wurden im Changelog bisher nicht nachgezogen, sie leben im WP-Doc + git `4dfd5f2…6094d1a`)
+waren nur vom Chat-Agent automatisch erreichbar. Phase D schließt die Einbindung:
+**ein Aufrufpfad je Quelle** für Pipeline, CLI, GUI und Workflow-Agent. Suite
+`1231 → 1241 passed` (0 fail).
+
+- **Ein Konstruktionspunkt** — neu `src/utils/lookups/resolve.py` `build_lookup(config,id)`:
+  baut dasselbe konfigurierte Plugin wie der Tool-Handler (`get_category("lookup").build`),
+  Instanz-Auswahl gespiegelt von `ToolRegistry._lookup_instances`, `config=None` → Auto-
+  Load. Re-exportiert über `lookups/__init__.py`.
+- **Workflow-Agent** — neues Preset `lookup` (+ rvk in `classification`) in
+  `src/mcp/default_presets.yaml` (+ Fallback in `llm_agent_step.py`); dieselben Tools,
+  die der Chat-Agent automatisch hat. Presets filtern nur die bereits registrierten Tools.
+- **Pipeline-RVK** — `_build_rvk_api_fallback_results` + `_validate_catalog_rvk_candidates`
+  (`pipeline_utils.py`) übers `rvk_api`-Plugin statt `RvkApiClient()` direkt; WP2-Cache-
+  Keys unverändert. Validierungs-Timeout war hart 4s → jetzt per-Instanz-konfigurierbar.
+- **k10plus** — `K10PlusLookup.fetch_records()` (ungedeckelt, `List[K10PlusRecord]`) als
+  einziger Harvest-Kern; `fetch_package` = JSON+Cap-Wrapper. CLI `batch --siegel`
+  (`pipeline_cmd.py`) + GUI `SiegelFetchWorker` (`batch_processing_dialog.py`) routen
+  darüber (GUI ungedeckelt, CLI zieht `.doi`); kehrt „direct batch usages stay" um. CLI
+  ohne `--siegel-cache-dir` nutzt jetzt den Plugin-`cache_dir`.
+- **DNB-GUI** — `DNBSyncWorker` + `find_keywords.update_entry`: `DnbLookup()` →
+  `build_lookup(None,"dnb")` (Konstruktions-Parität).
+- Tests: `test_lookup_plugins.py` +10; netzfreie Laufzeit-Verifikation aller Nahtstellen
+  (RVK-Pipeline-Methode, k10plus-DOI, Preset→Registry, DNB-GUI).
+- Residual: `fetch_dois_for_siegel` bleibt ungenutzter Compat-Wrapper; `RvkMarcIndex`
+  weiter direkt; deaktivierte Instanz → synthetische Default-Instanz. **Offen:** Commit
+  + GUI-Sign-off.
+
 ### GND-Suche vereinheitlicht: MetaSuggester retired (July 8, 2026)
 
 Operator-Auftrag: die fragmentierten Such-Anbindungen zusammenführen — Pipeline

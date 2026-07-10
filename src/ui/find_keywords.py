@@ -826,7 +826,7 @@ class SearchTab(QWidget):
         """Aktualisiert einen GND-Eintrag mit Daten aus der DNB"""
         # Route DNB access through the lookup plugin (single DNB code path; the same
         # plugin backs the agent-facing, cached `dnb_classification` tool). - Claude Generated
-        from ..utils.lookups.dnb import DnbLookup
+        from ..utils.lookups.resolve import build_lookup
 
         try:
             # Status aktualisieren
@@ -840,7 +840,7 @@ class SearchTab(QWidget):
             QApplication.processEvents()
 
             # Hole DNB-Klassifikation
-            dnb_class = DnbLookup().classify(gnd_id)
+            dnb_class = build_lookup(None, "dnb").classify(gnd_id)
 
             # Fortschritt anzeigen
             if self.progressBar.isVisible():

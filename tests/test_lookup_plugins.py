@@ -369,5 +369,132 @@ class LookupSeedingTest(unittest.TestCase):
         self.assertIn("webindex", lookup)      # backfilled
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class BuildLookupResolverTest(unittest.TestCase):
+    """Single construction path shared by pipeline/CLI/GUI and the agent tool."""
+
+    def test_resolve_synthetic_when_no_config(self):
+        from src.utils.lookups.resolve import resolve_lookup_instance
+
+        inst = resolve_lookup_instance(None, "rvk_api")
+        self.assertEqual(inst.provider_id, "rvk_api")
+        self.assertEqual(inst.category, "lookup")
+
+    def test_resolve_prefers_enabled_config_instance(self):
+        from src.utils.lookups.resolve import resolve_lookup_instance
+
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+            settings={"timeout": 3},
+        )]
+        inst = resolve_lookup_instance(cfg, "rvk_api")
+        self.assertEqual(inst.settings.get("timeout"), 3)
+
+    def test_resolve_falls_back_when_instance_disabled(self):
+        from src.utils.lookups.resolve import resolve_lookup_instance
+
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "rvk_api", "lookup", "rvk_api", enabled=False, is_primary=True,
+            settings={"timeout": 3},
+        )]
+        inst = resolve_lookup_instance(cfg, "rvk_api")
+        # disabled → not matched → synthetic default (no per-instance settings)
+        self.assertNotEqual(inst.settings.get("timeout"), 3)
+
+    def test_build_lookup_honors_per_instance_config(self):
+        from src.utils.lookups.resolve import build_lookup
+
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+            settings={"timeout": 3},
+        )]
+        plugin = build_lookup(cfg, "rvk_api")
+        self.assertEqual(int(plugin._config.get("timeout")), 3)
+
+    def test_build_lookup_rvk_contract_for_pipeline(self):
+        """The pipeline consumes ``search_keyword(...)['results']`` /
+        ``validate_notation(...)['result']`` — lock that shape."""
+        from unittest.mock import patch
+
+        from src.utils.lookups.resolve import build_lookup
+
+        with patch("src.utils.clients.rvk_api_client.RvkApiClient") as MC:
+            MC.return_value.search_keyword.return_value = [{"notation": "AN 94700"}]
+            MC.return_value.validate_notation.return_value = {"valid": True, "label": "x"}
+            plugin = build_lookup(None, "rvk_api")
+            out = plugin.search_keyword("Biologie", max_results=6)
+            self.assertEqual(out["results"], [{"notation": "AN 94700"}])
+            v = plugin.validate_notation("AN 94700")
+            self.assertEqual(v["result"], {"valid": True, "label": "x"})
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class K10PlusFetchRecordsTest(unittest.TestCase):
+    """P3: ``fetch_records`` is the single uncapped harvest path; ``fetch_package``
+    is the JSON tool wrapper (asdict + cap) on top of it."""
+
+    def test_fetch_records_uncapped_dataclasses(self):
+        from unittest.mock import patch
+
+        from src.utils.k10plus_resolver import K10PlusRecord
+        from src.utils.lookups.k10plus import K10PlusLookup
+
+        recs = [K10PlusRecord(ppn=f"p{i}", title=f"T{i}", doi=f"10.x/{i}") for i in range(5)]
+        with patch("src.utils.k10plus_resolver.fetch_records_for_siegel", return_value=recs) as m:
+            out = K10PlusLookup(max_records=3).fetch_records("ZDB-2-CMS")
+        self.assertEqual(len(out), 5)                         # not capped
+        self.assertIsInstance(out[0], K10PlusRecord)          # dataclass objects
+        m.assert_called_once()
+
+    def test_fetch_records_explicit_cache_dir_overrides_config(self):
+        from unittest.mock import patch
+
+        from src.utils.lookups.k10plus import K10PlusLookup
+
+        with patch("src.utils.k10plus_resolver.fetch_records_for_siegel", return_value=[]) as m:
+            K10PlusLookup(cache_dir="/from/config").fetch_records("X", cache_dir="/explicit")
+        self.assertEqual(m.call_args.kwargs["cache_dir"], "/explicit")
+
+    def test_fetch_package_delegates_to_fetch_records(self):
+        from unittest.mock import patch
+
+        from src.utils.k10plus_resolver import K10PlusRecord
+        from src.utils.lookups.k10plus import K10PlusLookup
+
+        recs = [K10PlusRecord(ppn=f"p{i}", title=f"T{i}") for i in range(5)]
+        plugin = K10PlusLookup(max_records=2)
+        with patch.object(plugin, "fetch_records", return_value=recs) as m:
+            out = plugin.fetch_package("ZDB-2-CMS")
+        m.assert_called_once()
+        self.assertEqual(out["total"], 5)
+        self.assertEqual(out["returned"], 2)                 # cap applied in the wrapper
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class LookupPresetTest(unittest.TestCase):
+    """P1: workflow agent reaches the lookup tools via presets (same tools the chat
+    agent gets automatically)."""
+
+    def test_lookup_preset_resolves_to_registered_tools(self):
+        reg = ToolRegistry(); reg.register_all_tools()
+        preset = reg.get_preset("lookup")
+        self.assertEqual(
+            set(preset),
+            {"rvk_search", "rvk_validate", "k10plus_package", "dnb_classification"},
+        )
+        names = set(reg.get_tool_names())
+        for t in preset:
+            self.assertIn(t, names)   # every preset tool is an actual registered tool
+
+    def test_classification_preset_includes_rvk(self):
+        reg = ToolRegistry(); reg.register_all_tools()
+        preset = reg.get_preset("classification")
+        self.assertIn("rvk_search", preset)
+        self.assertIn("rvk_validate", preset)
+
+
 if __name__ == "__main__":
     unittest.main()

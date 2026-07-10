@@ -9,11 +9,16 @@ usages (`pipeline_cmd.fetch_dois_for_siegel`, the batch dialog) stay untouched.
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import TYPE_CHECKING, Any, Callable, List, Optional
 
 from src.core.plugins.schema import INT, TEXT, ConfigField, PluginDoc
 
 from .registry import LookupToolSpec, register_lookup
+
+if TYPE_CHECKING:  # pragma: no cover
+    import logging
+
+    from src.utils.k10plus_resolver import K10PlusRecord
 
 
 @register_lookup
@@ -63,15 +68,32 @@ class K10PlusLookup:
             cache_key_param="siegel",
         )]
 
+    def fetch_records(
+        self,
+        siegel: str,
+        cache_dir: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        logger: "Optional[logging.Logger]" = None,
+    ) -> "List[K10PlusRecord]":
+        """All records of a Paketsigel as ``K10PlusRecord`` objects (uncapped) - Claude Generated.
+
+        The single K10plus harvest entry point: the CLI/GUI batch callers and the
+        JSON ``fetch_package`` tool wrapper both go through here, so there is one
+        call path per source. ``cache_dir`` overrides the per-instance setting when
+        given (``None`` → fall back to the plugin's configured ``cache_dir``); the
+        result is *not* capped — capping is a tool-boundary concern (``fetch_package``).
+        """
+        from src.utils.k10plus_resolver import fetch_records_for_siegel
+
+        cd = cache_dir if cache_dir is not None else (self._config.get("cache_dir") or None)
+        return fetch_records_for_siegel(
+            str(siegel), cache_dir=cd, progress_callback=progress_callback, logger=logger
+        )
+
     def fetch_package(self, siegel: str, max_records: int = None) -> dict:
         from dataclasses import asdict
 
-        from src.utils.k10plus_resolver import fetch_records_for_siegel
-
         cap = int(max_records if max_records is not None else self._config.get("max_records", 50) or 50)
-        # Directory cache of raw XML (the plugin's cache capability) — reused by the
-        # CLI/GUI batch callers too. Empty setting → no dir cache. - Claude Generated
-        cache_dir = self._config.get("cache_dir") or None
-        records = fetch_records_for_siegel(str(siegel), cache_dir=cache_dir)
+        records = self.fetch_records(siegel)
         recs = [asdict(r) for r in records[:cap]]
         return {"siegel": siegel, "total": len(records), "returned": len(recs), "records": recs}

@@ -39,12 +39,15 @@ class SiegelFetchWorker(StoppableWorker):
 
     def run(self):
         try:
-            from ..utils.k10plus_resolver import fetch_records_for_siegel
+            # Route through the k10plus lookup plugin (single harvest path, shared
+            # with the agent tool + CLI); explicit cache_dir wins. - Claude Generated
+            from ..utils.lookups.resolve import build_lookup
 
             def _progress(current, total, msg):
                 self.progress.emit(current, total, msg)
 
-            records = fetch_records_for_siegel(
+            k10 = build_lookup(None, "k10plus")
+            records = k10.fetch_records(
                 self.siegel,
                 cache_dir=self.cache_dir or None,
                 progress_callback=_progress,

@@ -18,6 +18,7 @@ from . import rvk  # noqa: F401 — registers the rvk_api lookup
 from . import k10plus  # noqa: F401 — registers the k10plus lookup
 from . import dnb  # noqa: F401 — registers the dnb lookup
 from . import webindex  # noqa: F401 — registers the webindex lookup (website RAG)
+from .resolve import build_lookup, resolve_lookup_instance  # noqa: F401
 
 __all__ = [
     "LOOKUP_REGISTRY",
@@ -26,4 +27,6 @@ __all__ = [
     "list_lookups",
     "lookup_tool_specs",
     "register_lookup",
+    "build_lookup",
+    "resolve_lookup_instance",
 ]

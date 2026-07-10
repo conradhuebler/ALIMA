@@ -62,7 +62,11 @@ logger = logging.getLogger(__name__)
 _TOOL_PRESETS_FALLBACK: Dict[str, List[str]] = {
     "library": ["search_gnd", "search_lobid", "search_swb", "get_search_cache"],
     "gnd": ["search_gnd", "get_gnd_entry", "get_gnd_batch"],
-    "classification": ["get_dk_cache", "get_classification", "search_catalog"],
+    "classification": [
+        "get_dk_cache", "get_classification", "search_catalog",
+        "rvk_search", "rvk_validate",
+    ],
+    "lookup": ["rvk_search", "rvk_validate", "k10plus_package", "dnb_classification"],
     "none": [],
 }
 

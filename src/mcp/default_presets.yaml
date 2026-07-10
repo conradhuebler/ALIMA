@@ -21,6 +21,16 @@ classification:
   - get_dk_cache
   - get_classification
   - search_catalog
+  - rvk_search
+  - rvk_validate
+
+# External-authority lookup plugins (rvk_api / k10plus / dnb) — the same tools the
+# chat agent gets automatically, made available to workflow steps that opt in.
+lookup:
+  - rvk_search
+  - rvk_validate
+  - k10plus_package
+  - dnb_classification
 
 # Empty preset (no tools)
 none: []

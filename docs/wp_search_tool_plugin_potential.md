@@ -1,6 +1,6 @@
 # WP: Every API search = a cached plugin/tool (analysis + plan)
 
-> **Status:** Phases A + B + C code-complete (July 9, 2026; suite 1177). Operator
+> **Status:** Phases A + B + C + D code-complete (Phase D July 10, 2026; suite 1241). Operator
 > direction: (1) the raw data of *any* search is written to the cache; (2) every
 > search against an API/website is a standalone plugin exposed as a tool; (3) whether
 > a plugin is cached is a per-plugin setting. Legacy breakage is acceptable ("alte
@@ -212,3 +212,64 @@ box, each with the editable per-instance `cache_responses` field.
 - No agent-facing tool renamed. Migration is non-destructive (legacy `gnd_entries` table
   left in place). Note: first launch after upgrade runs the one-time ATTACH copy of the
   local GND copy into `gnd_local.db`.
+
+## Phase D — Einbindung in Pipeline + Agent (July 10, 2026)
+
+Nach A–C existierten die Lookup-Plugins (rvk_api/k10plus/dnb), waren aber nur vom
+**Chat-Agent** automatisch erreichbar (`register_all_tools()` + `AgentLoop.run(tools=[])`).
+Der **Workflow-Agent** listete sie in keinem Preset, und **klassische Pipeline/CLI/GUI**
+riefen die unterliegenden Clients direkt (`RvkApiClient`, `fetch_*_for_siegel`, bare
+`DnbLookup()`). Operator-Direktive: alle drei Quellen über *einen* Pfad. Suite
+`1231 → 1241 passed` (0 fail).
+
+### D0 — ein Konstruktionspunkt: `build_lookup`
+Neu `src/utils/lookups/resolve.py`: `build_lookup(config, id)` baut dasselbe
+konfigurierte Plugin-Objekt wie der Tool-Handler (`get_category("lookup").build(inst)`);
+Instanz-Auswahl gespiegelt von `ToolRegistry._lookup_instances` (enabled Config-Instanz,
+sonst synthetische Primär-Instanz; `config=None` → Auto-Load via ConfigManager). Pipeline/
+CLI/GUI **und** Agent-Tool teilen die Konstruktion und honorieren per-Instanz-Settings +
+Env-Overrides. Ein deaktivierter Instanz-Datensatz fällt auf die synthetische Default-
+Instanz zurück → ein Pipeline-Anchor (RVK) bricht nie.
+
+### D1 — Workflow-Agent erreicht die Lookup-Tools
+`src/mcp/default_presets.yaml`: neues Preset `lookup` (rvk_search/rvk_validate/
+k10plus_package/dnb_classification); `classification` um rvk_search/rvk_validate ergänzt.
+Fallback-Presets in `llm_agent_step._TOOL_PRESETS_FALLBACK` gespiegelt. Die Tools sind
+bereits via `_generated_lookup_tools()` registriert — Presets filtern nur.
+
+### D2 — RVK-Anchor der Pipeline übers Plugin
+`pipeline_utils.py` `_build_rvk_api_fallback_results` + `_validate_catalog_rvk_candidates`
+bauen `build_lookup(config, "rvk_api")` statt `RvkApiClient()` direkt; nutzen
+`.search_keyword(...)["results"]` / `.validate_notation(...)["result"]`. WP2-Cache-Keys
+(`rvk_search`/`rvk_validate`) + Werteform unverändert. **Verhaltensänderung:** der
+Validierungs-Timeout war hart 4s, nutzt jetzt den Plugin-Timeout (Default 8s); RVK
+honoriert jetzt die per-Instanz-`rvk_api`-Config.
+
+### D3 — k10plus: ein Harvest-Kern
+`K10PlusLookup` bekam `fetch_records() -> List[K10PlusRecord]` (**ungedeckelt**) als
+einzigen Harvest-Einstieg; `fetch_package` ist der JSON+Cap-Tool-Wrapper darüber. CLI
+`batch --siegel` (`pipeline_cmd.py`) und GUI `SiegelFetchWorker`
+(`batch_processing_dialog.py`) routen über `plugin.fetch_records(...)` (GUI ungedeckelt,
+CLI zieht `.doi`). Kehrt die frühere „direct batch usages stay"-Entscheidung (B1/C3b)
+bewusst um (Operator July 10). **Verhaltensänderung:** CLI ohne `--siegel-cache-dir`
+fällt jetzt auf den Plugin-`cache_dir` zurück (vorher: kein Cache).
+
+### D4 — DNB-GUI übers Plugin
+`workers.py` `DNBSyncWorker` + `find_keywords.update_entry`: bare `DnbLookup()` →
+`build_lookup(None, "dnb")` (Konstruktions-Parität + Env-Overrides; kein Pipeline-Pfad,
+DNB ist GUI-Sync + Agent-Tool).
+
+### Tests + Verifikation
+`test_lookup_plugins.py` +10 (Resolver/Instanz-Auswahl, k10plus `fetch_records`/
+`fetch_package`-Split, RVK-Vertragsform `["results"]`/`["result"]`, Preset→Registry).
+Netzfrei durchgefahren: echte RVK-Pipeline-Methode übers Plugin (per-Instanz-`timeout=3`
+geehrt, Notation `AN 94700`), k10plus CLI-DOI-Extraktion, Preset→registrierte Tools,
+DNB-GUI. Suite `1241 passed / 10 skipped / 0 fail`.
+
+### Residual
+- `fetch_dois_for_siegel` (`k10plus_resolver`) bleibt als ungenutzter Backward-Compat-
+  Wrapper (kein Aufrufer mehr).
+- Deaktivierte Lookup-Instanz → synthetische Default-Instanz (Settings der deaktivierten
+  Instanz ignoriert).
+- `RvkMarcIndex` weiterhin direkt (unverändert, wie in C3b markiert).
+- **Offen (Operator):** Commit + GUI-Sign-off (k10plus-Batch-Dialog, DNB-Sync-Click-Test).

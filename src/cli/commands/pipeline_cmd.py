@@ -406,7 +406,7 @@ def handle_batch(args, config_manager: ConfigManager, llm_service: LlmService,
         if not args.output_dir:
             logger.error("--output-dir is required when using --siegel")
             return
-        from src.utils.k10plus_resolver import fetch_dois_for_siegel
+        from src.utils.lookups.resolve import build_lookup
         import tempfile
 
         def _siegel_progress(current, total, msg):
@@ -414,12 +414,16 @@ def handle_batch(args, config_manager: ConfigManager, llm_service: LlmService,
 
         logger.info(f"Fetching DOIs for Paketsigel '{args.siegel}' ...")
         try:
-            dois = fetch_dois_for_siegel(
+            # Route through the k10plus lookup plugin (single harvest path, shared
+            # with the agent tool); extract DOIs from the full records. - Claude Generated
+            k10 = build_lookup(config_manager.load_config(), "k10plus")
+            records = k10.fetch_records(
                 args.siegel,
                 cache_dir=getattr(args, "siegel_cache_dir", None),
                 progress_callback=_siegel_progress,
                 logger=logger,
             )
+            dois = [r.doi for r in records if r.doi]
         except Exception as exc:
             logger.error(f"Failed to fetch DOIs for siegel '{args.siegel}': {exc}")
             return

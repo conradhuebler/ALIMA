@@ -109,6 +109,18 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Lookup-Plugin-Integration (Pipeline+Agent) — Phase D** ✅ CODE-COMPLETE
+  (July 10): rvk_api/k10plus/dnb liefen bisher nur im Chat-Agent; jetzt *ein*
+  Aufrufpfad je Quelle. Geteilter `build_lookup(config,id)`
+  (`src/utils/lookups/resolve.py`, spiegelt `ToolRegistry._lookup_instances`);
+  Workflow-Preset `lookup` + rvk in `classification` (`default_presets.yaml`);
+  klassische Pipeline-RVK (`pipeline_utils.py`) + CLI/GUI-k10plus-Batch + DNB-GUI
+  routen übers Plugin (k10plus: neuer uncapped `fetch_records`-Kern, `fetch_package`
+  = Cap-Wrapper). Tests `test_lookup_plugins.py` +10, Suite 1241 grün.
+  Verhaltensänderung: RVK-Validierungs-Timeout 4s→Plugin-Default, CLI-Siegel nutzt
+  Plugin-`cache_dir`. Doc: `docs/wp_search_tool_plugin_potential.md` Phase D +
+  `AIChangelog.md` (July 10). **Offen:** Operator-Commit + GUI-Sign-off (k10plus-
+  Batch-Dialog, DNB-Sync-Click-Test).
 - **WP Website-RAG-Chatbot (`webindex`-Lookup-Plugin)** ✅ CODE-COMPLETE
   (July 9): ALIMA als Chatbot für Webseiteninhalte. Eigenes Plugin hält eine DB
   über alle URLs einer konfigurierten Haupt-URL + eine **zentral synchronisierte

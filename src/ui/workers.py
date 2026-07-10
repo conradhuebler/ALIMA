@@ -260,9 +260,9 @@ class DNBSyncWorker(QThread):
         """Execute batch DNB sync in background thread - Claude Generated"""
         # Route DNB access through the lookup plugin (single DNB code path; the same
         # plugin backs the agent-facing, cached `dnb_classification` tool). - Claude Generated
-        from ..utils.lookups.dnb import DnbLookup
+        from ..utils.lookups.resolve import build_lookup
 
-        dnb_lookup = DnbLookup()
+        dnb_lookup = build_lookup(None, "dnb")
         success = 0
         errors = 0
         total = len(self.gnd_ids)
