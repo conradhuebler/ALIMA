@@ -109,6 +109,28 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Data-Flow-Vereinheitlichung (`BibRecord`) + Counter-Bug** 🔴 ANALYSIERT,
+  ENTSCHEIDUNG OFFEN (July 10): zwei verifizierte Analysen zeigen — das Plugin-System hat
+  die *Verrohrung* vereinheitlicht, nicht die *Daten*. (1) **Feldnamen-Audit**: ALIMA
+  transportiert Round-Trip-Rename-Shims (`gnd_search_core.py:116-128` ↔
+  `aggregate.py:188-193`), duale DOI-Shapes (Capitalized vs snake_case), `ddc` mit 3
+  Werttypen, Klassifikation in 4 Kodierungen → `BibRecord` gerechtfertigt; Draft
+  unterspezifiziert `authors`-Typ / URL-Rollen / `count`-Konvention. (2) **Counter-Bug**
+  („Pipeline≠Agent-Häufigkeit, nach wie vor"): `SharedContext.to_keyword_analysis_state`
+  (`shared_context.py:295-298`) + `state_bridge._flatten_search_results` droppen
+  `count`/`display_count` → agentische Häufigkeit persistiert als 0, klassisch echt; Fix
+  ~2 Edits, landmine-sicher. **Entscheidung f. neue Session:** (a) Counter-Bug als
+  Quick-Win zuerst, dann (b) `BibRecord`-WP P0 (F-1-Collapse via bestehendes
+  `ResultItem`). Docs: [`docs/wp_gnd_counter_divergence.md`](docs/wp_gnd_counter_divergence.md),
+  [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md) (Findings +
+  Decision point). Beide verifiziert, **kein Code geschrieben.**
+- **Doku-Drift / Vision-Standortbestimmung** (July 10, aus Vision-Analyse): mehrere
+  Future-Tasks unten sind faktisch erledigt, aber nicht abgeräumt — Chat-Agent P-δ.4→P-ι
+  (`docs/chat_agent_roadmap.md`, alle ✅ Mai 2026) steht noch als Future #6; WP13 (#9)
+  DONE `93ccc19`; Search-Plugins (#10) done bis Click-Test. `chat_agent_roadmap.md` selbst
+  stale: „Anthropic/Gemini deferred" vs. #7 „Anthropic done, nur Gemini offen". Größter
+  *unbegonnener* Architektur-Vision-Punkt: Agentic Hauptagent (#5, `main_agent:`-Block).
+  Größter *inhaltlicher* Gap: Daten-Achse (Eintrag oben). Aufräumen ist billig, lohnt sich.
 - **WP Lookup-Plugin-Integration (Pipeline+Agent) — Phase D** ✅ CODE-COMPLETE
   (July 10): rvk_api/k10plus/dnb liefen bisher nur im Chat-Agent; jetzt *ein*
   Aufrufpfad je Quelle. Geteilter `build_lookup(config,id)`
