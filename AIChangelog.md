@@ -10,8 +10,7 @@
 
 Die Lookup-Plugins (rvk_api/k10plus/dnb — aus WP Phasen B/C, dort + im WP-Doc
 `docs/wp_search_tool_plugin_potential.md` dokumentiert; die Phasen A–C + webindex
-wurden im Changelog bisher nicht nachgezogen, sie leben im WP-Doc + git `4dfd5f2…6094d1a`)
-waren nur vom Chat-Agent automatisch erreichbar. Phase D schließt die Einbindung:
+sind unten nachgezogen) waren nur vom Chat-Agent automatisch erreichbar. Phase D schließt die Einbindung:
 **ein Aufrufpfad je Quelle** für Pipeline, CLI, GUI und Workflow-Agent. Suite
 `1231 → 1241 passed` (0 fail).
 
@@ -37,6 +36,95 @@ waren nur vom Chat-Agent automatisch erreichbar. Phase D schließt die Einbindun
 - Residual: `fetch_dois_for_siegel` bleibt ungenutzter Compat-Wrapper; `RvkMarcIndex`
   weiter direkt; deaktivierte Instanz → synthetische Default-Instanz. **Offen:** Commit
   + GUI-Sign-off.
+
+### webindex: Website-RAG-Chatbot als Lookup-Plugin (July 9, 2026)
+
+ALIMA als Chatbot für Webseiteninhalte (commit `6094d1a`). Suite `→ 1231 passed`.
+
+- **Lookup-Plugin `src/utils/lookups/webindex/`**: eigene `webindex.db` (`store.py`
+  nach `LocalGndStore`-Muster), BeautifulSoup-Crawler (`indexer.py`) mit injiziertem
+  Keyword-Extractor, `provider.py` Tools `search_webindex` / `fetch_page` /
+  `list_webindex_keywords`. Retrieval: Frage → Keyword-Match gegen `page_keywords` →
+  gerankte Trefferseiten (Cache oder Live-Fetch) → Text → Antwort. Reuse der geteilten
+  `fetch_guarded_response`- (Phase B) + `pdf_extractor.extract_text`-Primitive.
+- Indizieren: GUI-Button „Seite indizieren …" (`_TYPE_ACTIONS`-Registry +
+  `WebIndexCrawlWorker` in `src/ui/webindex_crawl.py`) ODER CLI
+  `alima webindex crawl/stats/list-keywords/search` (`cli/commands/webindex_cmd.py`,
+  treibt store/indexer/provider direkt, nicht über die ToolRegistry).
+- Prompts als Workflows: Keyword-Standprompt `workflows/webindex_keywords.yaml`
+  (tool-less `llm_agent`, **nicht** prompts.json), Antwort-Prompt
+  `workflows/website_rag.yaml` — der einzige Workflow, der die webindex-Tools listet.
+- Tests netzfrei (`test_webindex_{store,indexer,lookup,keywords,crawl_ui}.py`, 51).
+- Sub-CLAUDE: `src/utils/lookups/webindex/CLAUDE.md`. **Offen:** Operator-E2E gegen
+  echte Biblio-URL.
+
+### Lokale GND-DB vom Cache entkoppelt + Lookups geseedet + DNB-Plugin (WP Phase C, July 9, 2026)
+
+Operator-Review nach Phase B: drei Residuen adressiert. Commit `e7eb824` (24 Dateien).
+Suite `→ 1177/1178 passed`.
+
+- **C1 — lokale GND-Kopie ist jetzt eine plugin-eigene DB.** Neuer `LocalGndStore`
+  (`src/core/search/providers/gnd_local/store.py`) besitzt die `gnd_entries`-Tabelle in
+  eigener Datei `gnd_local.db` (Pfad `DatabaseConfig.gnd_local_path`); der
+  `UnifiedKnowledgeManager` behält seine GND-Fact-API, routet aber jede `gnd_entries`-
+  Query über den Store (eigener `connection_name` → keine Per-Thread-Kollision).
+  `search_mappings` bekam eine denormalisierte `titles`-Spalte;
+  `CachingProvider._items_from_cache` baut Cache-Treffer daraus statt aus `get_gnd_fact`,
+  und `warm_gnd_entries` wurde **entfernt** → F1 bleibt gefixt, ohne die Autoritäts-Kopie
+  zu berühren. Einmalige non-destruktive ATTACH-Migration der Legacy-Same-File-Tabelle.
+  **Verhaltensänderung:** `search_gnd`/`gnd_local` zeigen keine nur-online-gesuchten
+  Terme mehr (bewusster Operator-Tradeoff).
+- **C2 — Lookup-Instanzen geseedet** (`synthesize_lookup_instances` in
+  `plugin_migration.py` + `ensure_lookup_instances`-Guard): die Plugins-Tab-Liste zeigt
+  `rvk_api`/`k10plus`/`dnb` out-of-the-box (war leer, weil nur die Typ-Combobox gefüllt war).
+- **C3 — restliche externe API-Fetcher migriert:** DNB → Lookup-Plugin
+  (`src/utils/lookups/dnb.py` `DnbLookup`, Tool `dnb_classification`, raw-cached; GUI-DNB-
+  Sync routet durch); RVK erbt den Raw-Cache über den neuen Helper
+  `src/utils/lookups/cache.py` (`lookup_cache_enabled` + `cached_call`, shared
+  `rvk_search`/`rvk_validate`-Keys); k10plus bekam ein `cache_dir`-Verzeichnis-Cache-
+  Setting. Dead code entfernt (`crossref_worker.py`, `print_abstracts.py`, tote
+  Resolver-Refs); stale crossref-Notizen in `core/CLAUDE.md` + `ui/CLAUDE.md` gefixt.
+
+### Lookup-Kategorie + RVK/k10plus-Plugins + URL-Fetch-Kern (WP Phase B, July 8, 2026)
+
+„Alte Zöpfe abschneiden": externe-API-Zugriffe werden Plugins. Additiv (kein
+agent-facing Tool umbenannt). Suite `→ 1167 passed`.
+
+- **Neue dritte Plugin-Kategorie `lookup`** (`src/utils/lookups/`, commit `a773a2c`) neben
+  search_provider + input_source: `registry.py` (`@register_lookup` + `LookupToolSpec`),
+  `category.py` (`LookupCategory`-Adapter, self-registers + injiziert das `cache_field`).
+  Grenze formalisiert: externe-API-Interaktion = Plugin (cached, per-Plugin-toggle);
+  lokale DB / Pipeline / Export + komponierte Tools (`rvk_lookup`, `resolve_doi`) = Core.
+- **RVK-API-Plugin** (`rvk.py` `RvkLookup`, id `rvk_api`) wrappt `RvkApiClient` → Tools
+  `rvk_search` (Schlagwort→gerankte Notationen) + `rvk_validate` (Notation→Label+Ahnen),
+  generiert via `ToolRegistry._generated_lookup_tools`, raw-gecacht über den per-Plugin-
+  Gate. Der komponierte `rvk_lookup`-Core-Tool bleibt unverändert. Live: Biologie→AN 94700.
+- **Ein geführter URL-Fetch-Kern** (commit `29b4ce4`): `url_fetch.fetch_guarded_response()`
+  als einziger SSRF-geschützter Fetch-Einstieg (net_guard + Guard-Settings-Auflösung);
+  sowohl `url_fetch.scrape_url` (Main-Content) als auch der MCP-`scrape_url`-Tool
+  (Full-Page + PDF-Detektion) rufen ihn; die zwei Content-Shapings bleiben.
+- **k10plus als Lookup-Plugin** (commit `a205e79`): `K10PlusLookup` → Tool
+  `k10plus_package` (Siegel→Records, one→many-Query, deshalb `lookup` statt
+  `input_source`), raw-cached; die direkten Batch-Aufrufer blieben zunächst (erst
+  Phase D über das Plugin geroutet). Tests: `test_lookup_plugins.py`.
+
+### Plugin-Cache-Fundament: GND-Warming + per-Plugin cache_responses (WP Phase A, July 8, 2026)
+
+Non-breaking Fundament für „cache jede Suche, per-Plugin schaltbar" (commit `4dfd5f2`).
+Suite `→ 1159 passed`.
+
+- **F1 gefixt (eine Suche vergiftete ihren eigenen Cache):**
+  `UnifiedKnowledgeManager.warm_gnd_entries` am geteilten Write-Seam
+  (`CachingProvider._live_search`) füllt die lokale GND-Wissens-DB aus jeder GND-Suche
+  (`INSERT OR IGNORE`, überschreibt keine reichere Enrichment-Fact) → Cache-Treffer
+  0→49 verifiziert. *(Phase C1 ersetzt dieses Warming später durch eine denormalisierte
+  `titles`-Spalte und entkoppelt den lokalen GND-Store — siehe oben.)*
+- **F2 gefixt:** `search_local_gnd` liefert Teil-Treffer statt `[]` bei < min_results.
+- **Per-Plugin `cache_responses`** — Tri-State-`ConfigField` (auto/on/off,
+  `schema.cache_field()` + `cache_pref_enabled()`) in beide Kategorie-Formulare injiziert,
+  bei Ausführung gelesen (Search: `SuggesterBackedProvider._cache_raw_enabled`; Input:
+  `_make_input_handler`); `auto` folgt dem globalen `enable_response_cache` (per Default
+  aus). Tests: `test_gnd_cache_warming.py`, `test_cache_setting.py`.
 
 ### GND-Suche vereinheitlicht: MetaSuggester retired (July 8, 2026)
 
