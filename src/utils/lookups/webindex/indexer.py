@@ -131,6 +131,109 @@ def _extract_meta_keywords(soup) -> List[Tuple[str, str]]:
     return out
 
 
+# --- person extraction ----------------------------------------------------- #
+# Matches an obfuscated "spamspan"-style email (a well-known CMS/Drupal anti-
+# scraping pattern: local-part and domain each in their own span, with literal
+# "[dot]" markers instead of ".") - Claude Generated.
+_EMAIL_OBFUSCATION_CLASS = "spamspan"
+_PHONE_RE = re.compile(r"(\+?\d[\d\s\-/]{6,}\d)")
+
+
+def _deobfuscate_spamspan(span) -> str:
+    """Reconstruct a plain email address from a spamspan-obfuscated span.
+
+    Returns "" if the expected inner structure (``span.u`` local-part,
+    ``span.d`` domain) is missing — never guesses. - Claude Generated
+    """
+    user = span.find("span", class_="u")
+    domain = span.find("span", class_="d")
+    if not user or not domain:
+        return ""
+    user_text = re.sub(r"\s*\[dot\]\s*", ".", user.get_text())
+    domain_text = re.sub(r"\s*\[dot\]\s*", ".", domain.get_text())
+    user_text = user_text.strip()
+    domain_text = domain_text.strip()
+    if not user_text or not domain_text:
+        return ""
+    return f"{user_text}@{domain_text}"
+
+
+def _extract_people(soup) -> List[Dict[str, str]]:
+    """Deterministic person-record extraction from staff/team pages.
+
+    Finds every obfuscated email (spamspan) or plain ``mailto:`` link, then
+    reads the name from the nearest ``<strong>`` in the same table row/paragraph
+    and the role/phone from the surrounding text. Purely structural — no LLM,
+    no invented fields; a record with no discoverable name is dropped rather
+    than guessed. This exists because the chat agent previously answered
+    "is X UB staff?" / "what's their email?" by pattern-matching prose, which
+    both missed real staff and fabricated plausible-looking emails. - Claude
+    Generated
+    """
+    people: List[Dict[str, str]] = []
+    seen_containers = set()
+
+    email_spans = soup.find_all("span", class_=_EMAIL_OBFUSCATION_CLASS)
+    for span in email_spans:
+        email = _deobfuscate_spamspan(span)
+        if not email:
+            continue
+        # The row (table) or paragraph (accordion-style) holding this contact.
+        container = span.find_parent("tr") or span.find_parent("p")
+        if container is None:
+            continue
+        if id(container) in seen_containers:
+            continue
+        seen_containers.add(id(container))
+
+        name_cell = container.find("td") if container.name == "tr" else container
+        strong = name_cell.find("strong") if name_cell else None
+        if strong is None:
+            continue  # no reliable name anchor — skip rather than guess
+
+        # The full name often continues as plain text after </strong> on the
+        # same line (e.g. "<strong>Nagel</strong>, Stefanie Dr." in a table
+        # cell, vs. "<strong>Dr. Meyer, Julia</strong>" alone in the accordion
+        # layout) — take everything in name_cell up to the first <br>, not just
+        # the <strong> text, or the surname-only match would miss "Stefanie"
+        # entirely and break find_person("Stefanie Nagel"). - Claude Generated
+        first_br = name_cell.find("br")
+        if first_br is not None:
+            name_parts = [str(s) for s in first_br.find_previous_siblings(string=True)][::-1]
+            name = (strong.get_text(strip=True) + " " + " ".join(
+                p.strip() for p in name_parts if p.strip()
+            )).strip()
+        else:
+            name = name_cell.get_text(strip=True)
+        if not name:
+            name = strong.get_text(strip=True)
+        if not name:
+            continue
+
+        full_text = container.get_text(separator="|", strip=True)
+        phone_m = _PHONE_RE.search(full_text)
+        phone = phone_m.group(1).strip() if phone_m else ""
+
+        # Role = the text segment right after the name, before phone/email
+        # fragments (e.g. "Direktorin" between "Dr. Meyer, Julia" and the
+        # phone number). Best-effort: empty string if nothing distinct found.
+        segments = [s.strip() for s in full_text.split("|") if s.strip()]
+        role = ""
+        try:
+            name_idx = segments.index(name)
+            for seg in segments[name_idx + 1:]:
+                if _PHONE_RE.search(seg) or "@" in seg or "[at]" in seg.lower():
+                    break
+                role = seg
+                break
+        except ValueError:
+            pass
+
+        people.append({"name": name, "role": role, "email": email, "phone": phone})
+
+    return people
+
+
 def _extract_llm_keywords(
     text: str,
     keyword_extractor: Optional[Callable[[str, int], List[str]]],
@@ -266,6 +369,7 @@ def crawl_site(
         looks_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
 
         meta_pairs: List[Tuple[str, str]] = []
+        people: List[Dict[str, str]] = []
         try:
             if looks_pdf:
                 title, text, child_urls = _index_pdf(url, content, fetch_timeout)
@@ -273,6 +377,7 @@ def crawl_site(
                 soup = BeautifulSoup(content, "html.parser")
                 title, text = _extract_main_text(soup)
                 meta_pairs = _extract_meta_keywords(soup)
+                people = _extract_people(soup)
                 child_urls = (
                     _discover_child_links(soup, base_url) if depth < max_depth else []
                 )
@@ -308,9 +413,13 @@ def crawl_site(
                 max_keywords=max_keywords,
             )
             store.set_page_keywords(url, links)
+            store.set_page_people(url, people)
             pages_indexed += 1
             indexed_urls.append(url)
-            logger.info(f"Indexed {url} ({len(text)} chars, {len(links)} keywords)")
+            logger.info(
+                f"Indexed {url} ({len(text)} chars, {len(links)} keywords, "
+                f"{len(people)} people)"
+            )
 
         if progress_callback:
             progress_callback(url, {"depth": depth, "chars": len(text), "status": status})

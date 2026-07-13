@@ -122,6 +122,27 @@ class CrawlSiteTest(unittest.TestCase):
         self.assertIn("universitätsbibliothek — startseite", kw)
         self.assertIn("willkommen bei der universitätsbibliothek", kw)
 
+    def test_spamspan_staff_page_extracts_people(self):
+        """Real staff pages obfuscate emails via the 'spamspan' pattern (local-part
+        and domain each in their own span, '[dot]' instead of '.'); people must be
+        extracted with real contact data, not from prose guessing. - Claude Generated"""
+        serves = {BASE: ("staff.html", "text/html", 200)}
+        indexer.crawl_site(
+            self.store, base_url=BASE, max_depth=0, max_pages=5, min_chars=10,
+            fetch_func=_make_fetch(serves),
+        )
+        hits = self.store.find_people("Stefanie Nagel")
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["email"], "Stefanie.Nagel@ub.example.de")
+
+        hits2 = self.store.find_people("Julia Meyer")
+        self.assertEqual(len(hits2), 1)
+        self.assertEqual(hits2[0]["email"], "Julia.Meyer@ub.example.de")
+        self.assertEqual(hits2[0]["role"], "Direktorin")
+        self.assertEqual(hits2[0]["phone"], "+49 3731 39-2949")
+
+        self.assertEqual(self.store.find_people("Nichtvorhanden Person"), [])
+
     def test_llm_keywords_added_with_boost(self):
         def extractor(text, max_keywords):
             return ["Erwerbung", "Lizenzierung"]

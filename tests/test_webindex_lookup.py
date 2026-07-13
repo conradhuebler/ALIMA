@@ -53,10 +53,15 @@ class WebIndexLookupTest(unittest.TestCase):
     # --- tool specs / registration -------------------------------------- #
     def test_tools_registered(self):
         names = {s.name for s in lookup_tool_specs() if s.provider_id == "webindex"}
-        self.assertEqual(names, {"search_webindex", "fetch_page", "list_webindex_keywords"})
+        self.assertEqual(
+            names,
+            {"search_webindex", "fetch_page", "list_webindex_keywords", "find_person"},
+        )
         # method names match the spec so the generated handler dispatches correctly.
         methods = {s.method for s in lookup_tool_specs() if s.provider_id == "webindex"}
-        self.assertEqual(methods, {"search_keyword", "fetch_page", "list_keywords"})
+        self.assertEqual(
+            methods, {"search_keyword", "fetch_page", "list_keywords", "find_person"}
+        )
 
     def test_built_via_category(self):
         """LookupCategory.build constructs the plugin from a PluginInstanceConfig."""

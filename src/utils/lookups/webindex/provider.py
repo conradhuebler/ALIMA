@@ -196,6 +196,28 @@ class WebIndexLookup:
                 cache_key_param="",
                 cacheable=False,
             ),
+            LookupToolSpec(
+                name="find_person",
+                description="Look up a person by name in the structured staff/team "
+                "records extracted from indexed pages (name, role, email, phone). "
+                "Use this — not search_webindex prose matching — to answer 'does X "
+                "work here?' or 'what's X's email/phone?'. Returns an empty list if "
+                "the person is not in any indexed staff page; that means 'not found "
+                "in the index', not 'does not exist' — every field returned is taken "
+                "verbatim from the page, never fabricated.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string",
+                                 "description": "Full or partial name, any word order "
+                                 "(e.g. 'Stefanie Nagel' matches a stored 'Nagel, Stefanie')"},
+                        "max_results": {"type": "integer", "default": 10},
+                    },
+                    "required": ["name"],
+                },
+                method="find_person",
+                cache_key_param="name",
+            ),
         ]
 
     # --- tool methods (called by the generated handler) ------------------- #
@@ -251,6 +273,23 @@ class WebIndexLookup:
             "keywords": [
                 {"keyword": r.get("keyword"), "display": r.get("display"),
                  "page_count": int(r.get("page_count") or 0)}
+                for r in rows
+            ],
+        }
+
+    def find_person(self, name: str, max_results: int = 10) -> dict:
+        rows = self._store.find_people(str(name or ""), max_results=int(max_results or 10))
+        return {
+            "query": str(name),
+            "count": len(rows),
+            "people": [
+                {
+                    "name": r.get("name") or "",
+                    "role": r.get("role") or "",
+                    "email": r.get("email") or "",
+                    "phone": r.get("phone") or "",
+                    "page_url": r.get("page_url") or "",
+                }
                 for r in rows
             ],
         }

@@ -130,6 +130,31 @@ class WebIndexStore:
         self.db_manager.execute_query(
             "CREATE INDEX IF NOT EXISTS idx_pk_page ON page_keywords(page_url)"
         )
+        # Structured person records extracted from staff/team pages (e.g. a
+        # "Nachname, Vorname | Rolle | Telefon | E-Mail" table). Deliberately
+        # separate from the free-text `pages`/`page_keywords` index: the chat
+        # agent must answer "does X work here?" / "what's their email?" from an
+        # exact structured lookup, not by re-deriving it from prose (which is
+        # where prior hallucinated/mismatched contact data came from). One row
+        # per (page_url, name) — a re-index wholesale-replaces a page's rows,
+        # mirroring `set_page_keywords`. - Claude Generated
+        pk_people = dialect.primary_key_def(
+            db_type, ["page_url", "name"],
+            key_lengths={"page_url": 2048, "name": 256},
+        )
+        self.db_manager.execute_query(f"""
+            CREATE TABLE IF NOT EXISTS people (
+                page_url {dialect.varchar_type(2048)} NOT NULL,
+                name {dialect.varchar_type(256)} NOT NULL,
+                role {dialect.varchar_type(512)},
+                email {dialect.varchar_type(256)},
+                phone {dialect.varchar_type(64)},
+                {pk_people}
+            )
+        """)
+        self.db_manager.execute_query(
+            "CREATE INDEX IF NOT EXISTS idx_people_name ON people(name)"
+        )
 
     # --- writes ----------------------------------------------------------- #
     def upsert_page(
@@ -256,6 +281,64 @@ class WebIndexStore:
             })
         return out
 
+    def set_page_people(self, url: str, people: Sequence[Dict[str, str]]) -> None:
+        """Replace a page's person records wholesale (mirrors `set_page_keywords`).
+
+        ``people`` entries: ``{"name", "role", "email", "phone"}`` (email/phone/role
+        optional, empty string if absent — never fabricated by the caller). - Claude
+        Generated
+        """
+        self.db_manager.begin_transaction()
+        try:
+            self.db_manager.execute_query(
+                "DELETE FROM people WHERE page_url = ?", [url]
+            )
+            for p in people:
+                name = str(p.get("name") or "").strip()
+                if not name:
+                    continue
+                self.db_manager.execute_query(
+                    """
+                    INSERT OR REPLACE INTO people
+                    (page_url, name, role, email, phone) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        url, name,
+                        str(p.get("role") or "").strip(),
+                        str(p.get("email") or "").strip(),
+                        str(p.get("phone") or "").strip(),
+                    ],
+                )
+            self.db_manager.commit_transaction()
+        except Exception:
+            try:
+                self.db_manager.rollback_transaction()
+            except Exception:
+                pass
+            raise
+
+    def find_people(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Case-insensitive substring match over person names (token order-independent:
+        e.g. "Stefanie Nagel" matches a stored "Nagel, Stefanie"). - Claude Generated
+        """
+        q = str(query or "").strip()
+        if not q:
+            return []
+        tokens = [t for t in re.split(r"\s+", q) if t]
+        if not tokens:
+            return []
+        conditions = " AND ".join(["LOWER(name) LIKE ?"] * len(tokens))
+        params = [f"%{t.lower()}%" for t in tokens]
+        rows = self.db_manager.fetch_all(
+            f"""
+            SELECT page_url, name, role, email, phone FROM people
+            WHERE {conditions}
+            LIMIT ?
+            """,
+            params + [max(0, int(max_results or 0))],
+        )
+        return rows or []
+
     def list_keywords(self, limit: int = 200, contains: str = "") -> List[Dict[str, Any]]:
         """Browse the central keyword catalogue (display form + per-keyword page
         count). ``contains`` filters case-insensitively. - Claude Generated"""
@@ -290,12 +373,14 @@ class WebIndexStore:
         pages = int(self.db_manager.fetch_scalar("SELECT COUNT(*) FROM pages") or 0)
         keywords = int(self.db_manager.fetch_scalar("SELECT COUNT(*) FROM keywords") or 0)
         links = int(self.db_manager.fetch_scalar("SELECT COUNT(*) FROM page_keywords") or 0)
+        people = int(self.db_manager.fetch_scalar("SELECT COUNT(*) FROM people") or 0)
         last = self.db_manager.fetch_scalar("SELECT MAX(fetched_at) FROM pages")
         return {
             "db_path": self.path,
             "pages": pages,
             "keywords": keywords,
             "page_keywords": links,
+            "people": people,
             "last_fetched": last,
         }
 
