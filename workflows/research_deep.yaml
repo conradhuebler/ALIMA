@@ -1,0 +1,80 @@
+name: "Deep Research"
+version: "1.0"
+description: |
+  Advanced investigative research across web and library domains.
+  Specializes in "Discovery Chains": finding entities on the web and
+  verifying/analyzing them in the library catalogs.
+
+  Example: "Which subject specialists are still publishing?"
+  -> Search Web for names -> Verify via GND -> Search Catalog for recent works.
+
+settings:
+  temperature: 0.1
+  top_p: 0.9
+  max_tokens: 4096
+
+meta_agent:
+  enabled: false
+
+steps:
+  - id: investigate
+    type: llm_agent
+    description: "Perform multi-domain research by chaining web and catalog tools."
+    enabled: true
+
+    inputs:
+      question: "${extra.user_question}"
+
+    outputs:
+      extra.answer: "response_text"
+
+    llm:
+      temperature: 0.1
+      max_tokens: 4096
+      max_iterations: 15 # High iteration limit for discovery loops
+
+    tools:
+      explicit: [
+        search_webindex,
+        fetch_page,
+        aggregate_gnd_results,
+        search_finc,
+        search_lobid,
+        search_swb,
+        get_gnd_entry
+      ]
+
+    system_prompt: |
+      Du bist der ALIMA Deep-Research-Agent. Deine Aufgabe ist es, komplexe Forschungsfragen zu beantworten, indem Du Informationen aus unterschiedlichen Domänen (Webseite $\leftrightarrow$ GND $\leftrightarrow$ Katalog) verknüpfst.
+
+      ### Die Strategie: Die Entdeckungskette (Discovery Chain)
+      Du arbeitest nicht linear, sondern in einem iterativen Entdeckungszyklus:
+
+      1. **Dekonstruktion & Planung**:
+         Analysiere die Frage: Welche Entitäten (Personen, Institutionen, Werke) muss ich identifizieren, um die Antwort zu finden? Wo liegen diese Informationen wahrscheinlich?
+         *Beispiel: "Wer publiziert noch?" $\rightarrow$ Ich brauche erst die Namen der Referenten (Web), dann deren Publikationshistorie (Katalog).*
+
+      2. **Web-Harvesting (Informelle Phase)**:
+         Nutze `search_webindex` und `fetch_page`, um Namen, Rollen oder aktuelle Zustände zu finden. Webdaten sind oft aktuell, aber unpräzise.
+         *Ziel: Eine Liste von Kandidaten-Entitäten (z.B. Namen von Personen).*
+
+      3. **Identitäts-Fixierung (Normalisierungs-Phase)**:
+ la
+         Überführe gefundene Namen über `aggregate_gnd_results` in GND-IDs. Dies ist der entscheidende Schritt, um Verwechslungen auszuschließen und eine präzise Katalogsuche zu ermöglichen.
+
+      4. **Katalog-Validierung (Formale Phase)**:
+         Nutze die GND-IDs oder präzise Namen in `search_finc`, `search_lobid` oder `search_swb`, um harte Belege (Publikationen, Bestände, Jahreszahlen) zu finden.
+
+      5. **Synthese & Verifikation**:
+         Verknüpfe die informellen Web-Daten mit den formalen Katalog-Belegen. Eine Antwort ist erst valide, wenn sie durch eine dieser Ketten belegt ist.
+
+      ### Goldene Regeln für die Tool-Nutzung:
+      - **Web $\rightarrow$ Katalog**: Wenn Du auf einer Webseite einen Namen findest, ist der nächste logische Schritt IMMER eine Suche im Katalog/GND, um die bibliographische Aktivität zu prüfen.
+      - **GND als Anker**: Nutze GND-IDs immer dann, wenn sie verfügbar sind, anstatt nur mit Namen zu suchen.
+      - **FINC-Spezifik**: Suchen im FINC-Katalog erfolgen AUSSCHLIESSLICH über Namen/Titel, NICHT über GND-IDs. Wenn Du eine GND-ID hast, hole erst den Namen via `get_gnd_entry`, bevor Du FINC abfragst.
+      - **Iterative Verfeinerung**: Wenn der Katalog neue Hinweise liefert (z.B. ein neues Institut), kehre zurück zum Web, um diesen Kontext zu prüfen.
+      - **Transparenz**: Dokumentiere Deine Kette in der Antwort: "Auf Seite X gefunden $\rightarrow$ GND ID Y $\rightarrow$ Katalogbeleg Z".
+
+      Antworte präzise, belegend und analytisch. Wenn keine Verbindung zwischen den Domänen gefunden wird, benenne das Problem genau.
+
+    user_prompt: "Forschungsfrage: {question}"

@@ -949,6 +949,38 @@ class ToolRegistry:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def _handle_execute_workflow(self, workflow_id: str, inputs: Dict[str, Any] = None) -> str:
+        """Executes a named v4 workflow and returns the execution report. - Claude Generated"""
+        try:
+            from src.core.agents.workflow_loader import load_workflow
+            from src.core.agents.workflow_executor import WorkflowExecutor
+            from src.core.agents.shared_context import SharedContext
+
+            # 1. Load the workflow definition
+            workflow = load_workflow(workflow_id)
+            if workflow is None:
+                return json.dumps({"error": f"Workflow '{workflow_id}' not found"})
+
+            # 2. Setup context
+            context = SharedContext()
+            if inputs:
+                context.update(inputs)
+
+            # 3. Execute the workflow
+            # We reuse the current registry for any tools the sub-workflow needs.
+            executor = WorkflowExecutor(
+                llm_service=self._llm_service,
+                tool_registry=self
+            )
+            report = executor.run(workflow, context)
+
+            # Return the report. report is an ExecutionReport object.
+            from dataclasses import asdict
+            return json.dumps(asdict(report), ensure_ascii=False, default=str)
+        except Exception as e:
+            logger.error(f"execute_workflow failed for {workflow_id}: {e}")
+            return json.dumps({"error": str(e)})
+
     def _handle_select_from_gnd_pool(
         self,
         abstract: str,
@@ -1915,6 +1947,7 @@ class ToolRegistry:
         # Workflow tools
         self.register(tool_schemas.LIST_WORKFLOWS, self._handle_list_workflows)
         self.register(tool_schemas.GET_WORKFLOW, self._handle_get_workflow)
+        self.register(tool_schemas.EXECUTE_WORKFLOW, self._handle_execute_workflow)
 
         logger.info(f"Registered {len(self._tools)} MCP tools")
 

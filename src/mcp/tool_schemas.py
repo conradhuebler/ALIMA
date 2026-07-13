@@ -484,6 +484,28 @@ GET_WORKFLOW = ToolDefinition(
     },
 )
 
+EXECUTE_WORKFLOW = ToolDefinition(
+    name="execute_workflow",
+    description=(
+        "Execute a named agentic v4 workflow. Returns the workflow's final execution report "
+        "as a JSON string. Use this to delegate complex, multi-step tasks to specialized workflows."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "workflow_id": {
+                "type": "string",
+                "description": "Name of the workflow (e.g. 'research_deep', 'catalog_search').",
+            },
+            "inputs": {
+                "type": "object",
+                "description": "Input parameters to inject into the workflow context. Keys should match the required inputs of the workflow's first steps.",
+            },
+        },
+        "required": ["workflow_id"],
+    },
+)
+
 
 # ============================================================
 # Tool Sets (grouped for agent use)
