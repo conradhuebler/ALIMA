@@ -279,13 +279,18 @@ class ChatAgentMixin:
 
         # Mode-aware prompt assembly + tier + language/history directives - Claude Generated
         mode = detect_mode(text, self.current_context)
+        self._append_system_message(f"🧭 Modus: {mode} (auto-erkannt)")
         history = list(self.session.messages[-CHAT_HISTORY_WINDOW:])
         history_truncated = len(self.session.messages) > len(history)
         compact = resolve_prompt_compact(
             getattr(chat_config, "system_prompt_tier", "auto"), model
         )
         effective_system_prompt = apply_chat_directives(
-            self.system_prompt or build_system_prompt(mode=mode, compact=compact),
+            self.system_prompt or build_system_prompt(
+                mode=mode,
+                compact=compact,
+                institution_context=getattr(chat_config, "institution_context", ""),
+            ),
             language=self.chat_language,
             history_truncated=history_truncated,
         )

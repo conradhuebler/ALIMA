@@ -226,13 +226,21 @@ class HeadlessAgentRunner:
         effective_mode = self.mode
         if effective_mode == "auto":
             effective_mode = detect_mode(user_message, context_str)
+        if on_status is not None:
+            auto_suffix = " (auto-erkannt)" if self.mode == "auto" else ""
+            try:
+                on_status(f"🧭 Modus: {effective_mode}{auto_suffix}\n")
+            except Exception:
+                logger.debug("on_status callback failed for mode line", exc_info=True)
 
         # Pick the prompt tier (compact for small/code models) - Claude Generated
         compact = resolve_prompt_compact(
             getattr(self.chat_config, "system_prompt_tier", "auto"), model
         )
         system_prompt = self.system_prompt or build_system_prompt(
-            mode=effective_mode, compact=compact
+            mode=effective_mode,
+            compact=compact,
+            institution_context=getattr(self.chat_config, "institution_context", ""),
         )
         # Append language + history-window directives (shared with the GUI). - Claude Generated
         system_prompt = apply_chat_directives(

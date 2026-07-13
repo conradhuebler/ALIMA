@@ -345,6 +345,25 @@ class ComprehensiveSettingsDialog(QDialog):
         system_group.setLayout(system_layout)
         layout.addWidget(system_group)
 
+        # Chat-Agent settings — Claude Generated
+        chat_group = QGroupBox("💬 Chat-Agent")
+        chat_layout = QFormLayout()
+
+        self.chat_institution_context = QTextEdit()
+        self.chat_institution_context.setMaximumHeight(70)
+        self.chat_institution_context.setToolTip(
+            "Wird jedem Chat-System-Prompt vorangestellt, um dem Agenten Identität "
+            "und Kontext zu geben, z.B. 'Du bist der Chatbot der Universitätsbibliothek "
+            "XYZ.' Leer = keine institutionelle Rahmung."
+        )
+        self.chat_institution_context.setPlaceholderText(
+            "z.B. Du bist der Chatbot der Universitätsbibliothek XYZ."
+        )
+        chat_layout.addRow("Institutionskontext:", self.chat_institution_context)
+
+        chat_group.setLayout(chat_layout)
+        layout.addWidget(chat_group)
+
 
         # Repetition Detection settings - Claude Generated
         repetition_group = QGroupBox("🔄 Repetition Detection")
@@ -527,6 +546,12 @@ class ComprehensiveSettingsDialog(QDialog):
         self.data_dir.setText(config.system_config.data_dir)
         self.temp_dir.setText(config.system_config.temp_dir)
         self.autosave_dir.setText(config.system_config.autosave_dir)
+
+        # Chat-Agent settings - Claude Generated
+        chat_cfg = getattr(config, "chat_config", None)
+        self.chat_institution_context.setPlainText(
+            getattr(chat_cfg, "institution_context", "") if chat_cfg else ""
+        )
 
 
         # UI settings - Claude Generated
@@ -826,6 +851,14 @@ class ComprehensiveSettingsDialog(QDialog):
             enable_response_cache=self.enable_response_cache.isChecked(),
             aggregate_from_raw=self.aggregate_from_raw.isChecked(),
         )
+
+        # Chat-Agent configuration — preserve all other ChatConfig fields (they
+        # have no UI here; e.g. the persisted default provider/model combo,
+        # autonomous_pipeline) and only update institution_context. - Claude Generated
+        if getattr(config, "chat_config", None) is None:
+            from ..utils.config_models import ChatConfig
+            config.chat_config = ChatConfig()
+        config.chat_config.institution_context = self.chat_institution_context.toPlainText().strip()
 
         # UI configuration - Claude Generated (Webcam Feature)
         from ..utils.config_models import UIConfig, RepetitionDetectionConfig

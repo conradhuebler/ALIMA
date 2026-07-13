@@ -983,6 +983,11 @@ class ChatConfig:
     no_cache_writes: bool = True
     temperature: float = 0.5
     system_prompt_override: str = ""
+    # Institutional context prepended to every chat system prompt (e.g. "Du bist
+    # der Chatbot der Universitätsbibliothek XYZ."). Lets an operator brand/scope
+    # the agent without touching code; empty = no institutional framing. Distinct
+    # from `system_prompt_override`, which replaces the whole prompt. - Claude Generated
+    institution_context: str = ""
     # Chat system-prompt tier: 'auto' (compact for small/code models, full
     # otherwise), 'compact' (always short), 'full' (always long). The full
     # ruleset can overwhelm small/code models into empty/wrong answers. - Claude Generated

@@ -62,6 +62,17 @@ SHARED_RULES = (
     "- `search_catalog` / `search_catalog_titles` (Libero) NUR als\n"
     "  Fallback, wenn `search_finc` nichts liefert oder nicht\n"
     "  verfügbar ist.\n\n"
+    "Institutionelle Services & Abläufe (ZWINGEND `search_webindex` nutzen,\n"
+    "in JEDEM Modus, auch als Nebenaspekt einer anderen Frage):\n"
+    "- Fragen zu UB-Diensten/Abläufen (z.B. 'Wie bekomme ich neue Bücher/\n"
+    "  einen Anschaffungsvorschlag?', 'Wie funktioniert Fernleihe?', 'Welche\n"
+    "  Datenbanken gibt es?', 'Wie kann ich publizieren/Open Access?') NIE\n"
+    "  aus dem Training beantworten, auch wenn der Ablauf plausibel klingt.\n"
+    "  Rufe `search_webindex` (ggf. `fetch_page`) auf, um die tatsächliche\n"
+    "  Seite der Institution zu finden, und verlinke sie: [Seitentitel](url).\n"
+    "  Ein beschriebener Ablauf OHNE Link aus der eigenen Webseite ist eine\n"
+    "  Erfindung — die reale Seiten-URL MUSS genannt werden, nicht nur der\n"
+    "  Prozess in eigenen Worten.\n\n"
     "Autorensuche & Namensvetter (ZWINGEND):\n"
     "- Eine Autorensuche liefert ALLE Treffer mit passendem\n"
     "  Namensbestandteil — auch ANDERE Personen mit gleichem\n"
@@ -71,8 +82,15 @@ SHARED_RULES = (
     "  Autor in Vor- UND Nachname mit dem gesuchten Namen übereinstimmt.\n"
     "- Mische NIEMALS verschiedene Personen mit gleichem Nachnamen\n"
     "  (z.B. 'Richard Neubert' ≠ 'Richard Peter' ≠ 'Eberhard Neubert').\n"
-    "- Setze bei Autorensuchen den vollen Namen in Anführungszeichen\n"
-    "  (z.B. terms=['\"Richard Neubert\"']).\n"
+    "- WICHTIG (Namensreihenfolge): Das Autorenfeld im Katalog ist oft\n"
+    "  invertiert gespeichert ('Nachname, Vorname'). Setze den Namen bei\n"
+    "  `search_type='author'` daher NICHT in Anführungszeichen — eine\n"
+    "  Anführungszeichen-Phrase verlangt exakte Wortfolge und schlägt bei\n"
+    "  invertierter Speicherung fehl (0 Treffer trotz vorhandener Person).\n"
+    "  Suche stattdessen ohne Anführungszeichen (reihenfolgeunabhängige\n"
+    "  Token-Suche) und filtere die Treffer danach selbst nach Vor- UND\n"
+    "  Nachname. Anführungszeichen sind nur bei `search_type='title'`\n"
+    "  sinnvoll (feste Wortfolge).\n"
     "- Bei Unsicherheit nenne den vollständigen Autornamen des\n"
     "  Treffers, damit der Nutzer die Zuordnung prüfen kann.\n\n"
     "Treffer-Darstellung:\n"
@@ -179,7 +197,36 @@ MODE_SUCHE = (
     "- Nutze `resolve_doi`, `read_pdf`, `analyze_image`, `scrape_url`\n"
     "  bei Bedarf, um Materialien zu untersuchen.\n"
     "- Formuliere Suchergebnisse übersichtlich: Titel, Autor, Jahr,\n"
-    "  DK-Codes, GND-ID (als Link via `url`).\n"
+    "  DK-Codes, GND-ID (als Link via `url`).\n\n"
+    "Rollen-/Gruppen-Fragen (Discovery-Chain — SELBSTSTÄNDIG ausführen):\n"
+    "- Fragen wie 'Welche Fachreferenten publizieren?', 'Wer arbeitet an\n"
+    "  der UB?' oder 'Wer arbeitet an der UB und veröffentlicht noch?'\n"
+    "  sind KEIN Grund, nach mehr Kontext zu fragen oder nur eine Website-\n"
+    "  URL zum Selbernachschauen zu nennen — sie sind ein Zwei-Schritt-\n"
+    "  Auftrag, den du SELBST vollständig ausführst:\n"
+    "  1. Namen ermitteln (PERSONAL steht NICHT im Katalog, sondern auf\n"
+    "     der Webseite): rufe `search_webindex` (ggf. `fetch_page`) auf\n"
+    "     der Institutions-Webseite auf, um die Namen der gesuchten\n"
+    "     Personengruppe zu finden (z.B. Team-/Mitarbeiterseite der UB).\n"
+    "     `search_finc`/`search_catalog` NIEMALS als ersten Schritt für\n"
+    "     eine Personal-Frage nutzen — ein Katalog kennt nur Publikationen,\n"
+    "     keine Mitarbeiterlisten. Liefert `search_finc` mit dem\n"
+    "     Institutionsnamen keine Personen, ist das KEIN Fehlschlag, der\n"
+    "     dich stoppen sollte — es ist der erwartete Beweis, dass jetzt\n"
+    "     `search_webindex` dran ist.\n"
+    "  2. Publikationen pro Person (NUR wenn nach Publikationen gefragt\n"
+    "     ist): für JEDEN in Schritt 1 gefundenen Namen einzeln\n"
+    "     `search_finc(terms=['Vorname Nachname'], search_type='author')`\n"
+    "     aufrufen (siehe Namensreihenfolge-Hinweis oben — KEINE\n"
+    "     Anführungszeichen bei author-Suchen) und die Treffer nach\n"
+    "     Vor- UND Nachname filtern (Namensvetter-Regel oben).\n"
+    "  - Frage NUR zurück, wenn Schritt 1 (die Websuche selbst, nicht ein\n"
+    "    vorheriger Katalog-Fehlschlag) keine Namen liefert.\n"
+    "  - Nenne eine Website-URL NUR als letzten Ausweg, nachdem\n"
+    "    `search_webindex`/`fetch_page` selbst keine Namen ergeben haben —\n"
+    "    nicht als Ersatz dafür, die Suche selbst durchzuführen.\n"
+    "  - `list_workflows`/`list_available_data` lösen diese Aufgabe NICHT\n"
+    "    und sind hier der falsche erste Schritt.\n"
     "- Links/Identifier: Siehe SHARED_RULES (gilt hier zwingend).\n"
     "  GND-Treffer → [Begriff](url) (d-nb.info). Katalogtreffer mit `web_url`\n"
     "  → [Titel](web_url); Katalogtreffer nur mit numerischer `rsn` →\n"
@@ -314,21 +361,30 @@ def build_system_prompt(
     mode: str = "general",
     context_hint: str = "",
     compact: bool = False,
+    institution_context: str = "",
 ) -> str:
     """Assemble mode-specific system prompt.
 
     Args:
         mode: One of 'verschlagwortung', 'suche', 'general'.
         context_hint: Optional context string to append (e.g. current work).
-        compact: Use the short ruleset (for small/code models). - Claude Generated
+        compact: Use the short ruleset (for small/code models).
+        institution_context: Optional operator-configured framing (e.g. "Du bist
+            der Chatbot der Universitätsbibliothek XYZ."), prepended first so the
+            agent's identity/scope is established before the tool rules.
+            Sourced from ``ChatConfig.institution_context``. - Claude Generated
     """
     if mode not in VALID_MODES:
         mode = "general"
 
+    sections = []
+    if institution_context:
+        sections.append(institution_context.strip())
+
     if compact:
-        sections = [SHARED_RULES_COMPACT, "\n" + _MODE_HINT_COMPACT[mode]]
+        sections += [SHARED_RULES_COMPACT, "\n" + _MODE_HINT_COMPACT[mode]]
     else:
-        sections = [SHARED_RULES]
+        sections.append(SHARED_RULES)
         mode_text = {
             "verschlagwortung": MODE_VERSCHLAGWORTUNG,
             "suche": MODE_SUCHE,
@@ -429,6 +485,13 @@ def detect_mode(user_message: str, context_str: str = "") -> str:
         "suche", "finde", "suchen nach", "bücher über",
         "katalogsuche", "titel zu", "gnd-eintrag für",
         "dk-code für", "was gibt es zu",
+        # Rollen-/Gruppen-Discovery (z.B. "welche Fachreferenten
+        # publizieren noch?") — auch ohne das Wort "suche".
+        "publiziert", "publikationen", "veröffentlicht", "veröffentlichungen",
+        "fachreferent", "arbeitet an", "wer arbeitet",
+        # Literaturrecherche-Anfragen (z.B. "brauche Literatur zu X",
+        # "Literatur für meine Masterarbeit").
+        "literatur", "quellen zu", "referenzen zu",
     ]
     if any(t in msg for t in search_triggers):
         return "suche"
