@@ -6,6 +6,36 @@
 
 ## 2026
 
+### Plugin-System-Audit: Quick-Wins + Konvergenz-WP (July 14, 2026)
+
+Drei-Agenten-Audit der Plugin-Umstellung (kritische Bilanz): Konstruktions-Schicht +
+Trust-Modell echt vereinheitlicht; Orchestrierung dreifach, Built-in-Namen-Kopplung
+konzentriert in WP2-Aggregation/finc/RVK/DK-Resolver. Mittlere Brocken als
+priorisiertes WP dokumentiert: [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md)
+(P1 WP2-Entkopplung, P2 finc, P3 RVK-3-Pfade, P4 DK-Resolver, P5 Lookup-Vertrag inkl.
+**vertagtem Disable-Entscheid**, P6/P7 Backlog). Quick-Wins umgesetzt:
+
+- **Toter Code**: `fetch_dois_for_siegel` (`k10plus_resolver.py`, 0 Caller) gelöscht;
+  falscher „stay untouched"-Docstring in `lookups/k10plus.py` korrigiert.
+- **Doc-Drift**: `plugin_authoring.md` (MetaSuggester-Claim), `wp_tool_data_passthrough.md`
+  (stale Suggester-Pfade + Status), `wp_search_tool_plugin_potential.md` (Zeilenref,
+  F3-Status, Residual-Liste) berichtigt.
+- **Lookup-Build-Parität**: `warn_operator_urls` nach `core/plugins/schema.py`
+  extrahiert — Search-Factory **und** `LookupCategory.build` warnen jetzt bei
+  Operator-URLs (webindex `base_url`); Lookup-Plugins im ToolRegistry per Instanz
+  memoisiert (`_lookup_for`, Clear in `refresh()`) — webindex öffnete sonst pro
+  Tool-Call eine neue SQLite-Connection.
+- **GUI-Bypässe**: `SiegelCacheLoadWorker` über neues `K10PlusLookup.load_cached`
+  (Instanz-`cache_dir`-Fallback) statt Direkt-Import; `import_lobid_dnb_data` baut
+  über Factory/`underlying_suggester` — der alte Direktbau schrieb nach `./data/lobid`,
+  ein Verzeichnis, das der Factory-Suggester (`$TMP/alima_data/lobidsuggester`,
+  jetzt `BaseSuggester.default_data_dir()`) nie las; `find_keywords`-Quellen-Checkboxen
+  dynamisch aus `enabled_gnd_provider_ids(available_only=True)` (neuer Parameter,
+  filtert Availability-Gates) — externe Provider erscheinen automatisch, toter
+  `catalog_token`-Loader entfernt.
+- Tests: `test_lookup_plugins.py` +3 (URL-Warnung, Handler-Memoization, `load_cached`).
+  **Offen (Operator):** Click-Test find_keywords-Checkboxen, Lobid-Import, Siegel-Cache-Load.
+
 ### Lookup-Plugins: Einbindung in Pipeline + Agent (WP Phase D, July 10, 2026)
 
 Die Lookup-Plugins (rvk_api/k10plus/dnb — aus WP Phasen B/C, dort + im WP-Doc

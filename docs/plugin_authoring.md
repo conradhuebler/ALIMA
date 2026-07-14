@@ -189,9 +189,10 @@ den Namen auf) und die Raw-Cache-Provenienz weiter.
   `tool_registry.py`) ist auf Built-in-Quellnamen (`"lobid"`, `"swb"`) verdrahtet
   und nutzt die Built-in-Klasse (identischer Transform-Code) — nicht über die
   `poc_*`-Instanzen geroutet.
-- Der eigenständige GUI-Tab „Find Keywords" (`find_keywords.py`) instanziiert
-  `MetaSuggester(providers="lobid")` direkt; der De-Hardcode deckt den klassischen
-  Pfad **über `pipeline_utils`** ab (CLI, Pipeline-Tab, agentisch-klassisch), nicht
-  diesen separaten Tab.
+- Der eigenständige GUI-Tab „Find Keywords" (`find_keywords.py`) sucht seit July 8
+  über `service.search_gnd_keywords` (MetaSuggester ist gelöscht); seit July 14
+  baut er auch seine Quellen-Checkboxen dynamisch aus den aktivierten+verfügbaren
+  GND-Instanzen (`factory.enabled_gnd_provider_ids(available_only=True)`) —
+  `poc_*`-/externe Provider erscheinen dort automatisch (Click-Test offen).
 
 Bedien-Ablauf + GUI-Sign-off: `examples/plugins_poc/README.md`.

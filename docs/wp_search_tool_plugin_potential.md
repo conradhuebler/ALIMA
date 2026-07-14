@@ -25,9 +25,11 @@ So "every API search = a plugin/tool" is already ~70% real — a new GND/DOI sou
 is just a plugin dir.
 
 ### The old braids (external-API access that is NOT a plugin)
-- **`rvk_lookup`** → `ToolRegistry._handle_rvk_lookup` (`tool_registry.py:1086`) →
+- **`rvk_lookup`** → `ToolRegistry._handle_rvk_lookup` (`tool_registry.py:1103`) →
   `rvk_api_client.py` / `rvk_marc_index.py`. Live RVK-classification API, hand-wired,
-  no plugin, no raw cache.
+  no plugin, no raw cache. **Still true post-Phase-D (July 14 audit):** only the
+  `rvk_api` *plugin* calls are cached; the composed `rvk_lookup` core tool runs its
+  own catalog search and bypasses the raw cache (F3 remains open for this tool).
 - **`scrape_url`** → hardcoded handler; overlaps the `url_fetch` input plugin.
 - **`resolve_doi`** (merged) + **`k10plus_resolver.py`** → the 3 DOI *sources* are
   plugins, the merged resolver + k10plus are not.
@@ -127,7 +129,8 @@ API query that `input_source` (one→one text `extract`) cannot model, so it wen
 the **`lookup`** category (same shape as RVK) instead of `input_source` (operator
 decision July 8). `src/utils/lookups/k10plus.py` `K10PlusLookup` → tool
 **`k10plus_package`** (siegel → records, capped by `max_records`, raw-cached). The
-direct batch usages (`pipeline_cmd.fetch_dois_for_siegel`, batch dialog) stay.
+direct batch usages stayed *at the time*; Phase D (D3) later routed them through
+`fetch_records`, and the unused `fetch_dois_for_siegel` wrapper was deleted (July 14).
 Tested mocked (a live harvest fetches *all* records → large/slow; live verification
 needs an operator Siegel). Tests: `test_lookup_plugins.py` (8 total).
 
@@ -267,9 +270,10 @@ geehrt, Notation `AN 94700`), k10plus CLI-DOI-Extraktion, Preset→registrierte 
 DNB-GUI. Suite `1241 passed / 10 skipped / 0 fail`.
 
 ### Residual
-- `fetch_dois_for_siegel` (`k10plus_resolver`) bleibt als ungenutzter Backward-Compat-
-  Wrapper (kein Aufrufer mehr).
+- ~~`fetch_dois_for_siegel` bleibt als ungenutzter Backward-Compat-Wrapper~~ →
+  gelöscht (July 14, Audit-Quick-Win).
 - Deaktivierte Lookup-Instanz → synthetische Default-Instanz (Settings der deaktivierten
-  Instanz ignoriert).
+  Instanz ignoriert). **Offener Entscheidungspunkt**, siehe
+  [`wp_plugin_convergence.md`](wp_plugin_convergence.md).
 - `RvkMarcIndex` weiterhin direkt (unverändert, wie in C3b markiert).
 - **Offen (Operator):** Commit + GUI-Sign-off (k10plus-Batch-Dialog, DNB-Sync-Click-Test).

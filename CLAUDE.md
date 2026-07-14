@@ -109,6 +109,15 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Plugin-Konvergenz (Audit July 14)** 📋 GEPLANT + Quick-Wins ✅ CODE-COMPLETE:
+  kritische Bilanz der Plugin-Umstellung — Konstruktion/Trust-Modell vereinheitlicht,
+  Orchestrierung 3-fach, Built-in-Namen-Kopplung in WP2/finc/RVK/DK-Resolver, Lookup-
+  Vertrag schwächer (Disable-Entscheid vertagt). Priorisiertes WP:
+  [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md). Quick-Wins (toter
+  k10plus-Wrapper, Doc-Drift, Lookup-URL-Warnung+Memo, GUI-Bypässe: Siegel-Cache,
+  Lobid-Import via Factory, find_keywords-Checkboxen dynamisch) umgesetzt, Details
+  `AIChangelog.md` (July 14). **Offen:** Operator-Commit + Click-Tests (find_keywords,
+  Lobid-Import, Siegel-Cache-Load).
 - **WP Data-Flow-Vereinheitlichung (`BibRecord`) + Counter-Bug** 🔴 ANALYSIERT,
   ENTSCHEIDUNG OFFEN (July 10): zwei verifizierte Analysen zeigen — das Plugin-System hat
   die *Verrohrung* vereinheitlicht, nicht die *Daten*. (1) **Feldnamen-Audit**: ALIMA

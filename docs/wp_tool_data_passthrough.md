@@ -1,7 +1,10 @@
 # WP: Tool Data Passthrough — Audit & Cut Old Braids
 
-> **Status:** 🚧 In progress (started July 1, 2026). DOI + web/pdf tools done; the
-> GND/catalog search tools need a consumer-aware audit before change.
+> **Status:** 🚧 In progress (started July 1, 2026; paths refreshed July 14). DOI +
+> web/pdf tools done; lobid/finc audited; **swb/catalog (+ catalog_titles) still open**.
+> Since July 8 the GND search is unified on the provider path (MetaSuggester retired,
+> suggesters vendored into their plugin dirs) — the audit method below is unchanged,
+> only the file locations moved.
 
 ## Principle
 
@@ -47,8 +50,10 @@ data alongside (don't remove the reduced fields).
 | `analyze_image` | Vision LLM | OCR text | inherent (text only) | agent | ✅ n/a |
 | pipeline/workflow/export tools | local | — | — | agent | ✅ n/a |
 
-The reduction for the GND-keyword tools lives in the **suggester layer**
-(`src/utils/suggesters/{lobid,swb,biblio,finc}_suggester.py`) + the serializer
+The reduction for the GND-keyword tools lives in the **suggester layer** — since
+July 6/7 vendored into the plugin dirs
+(`src/core/search/providers/{lobid,swb,catalog,finc}/suggester.py`; only
+`base_suggester.py` remains in `src/utils/suggesters/`) — plus the serializer
 `_serialize_suggester_results` — the audit must check what each suggester keeps vs
 what its upstream API returns, not just the MCP handler.
 
