@@ -76,6 +76,13 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
         except Exception as e:
             raise BaseSuggesterError(f"Could not create data directory: {str(e)}")
 
+    @classmethod
+    def default_data_dir(cls) -> Path:
+        """Data dir used when none is configured — exposed so callers (e.g. the
+        GUI import pre-check) can locate the files of a factory-built suggester
+        without constructing one. - Claude Generated"""
+        return Path(tempfile.gettempdir()) / "alima_data" / cls.__name__.lower()
+
     def _get_data_dir(self, data_dir: Optional[Union[str, Path]] = None) -> Path:
         """
         Get the data directory path.
@@ -88,7 +95,7 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
         """
         if not data_dir:
             # Default to a writable temp/cache location instead of the Python binary path.
-            return Path(tempfile.gettempdir()) / "alima_data" / self.__class__.__name__.lower()
+            return self.default_data_dir()
 
         if isinstance(data_dir, str):
             return Path(data_dir)

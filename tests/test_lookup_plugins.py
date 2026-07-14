@@ -157,6 +157,58 @@ class LookupToolHandlerTest(unittest.TestCase):
         out = json.loads(self._handler(reg)(q="x", n=1, bogus="drop me"))
         self.assertEqual(out["hits"], ["X"])            # bogus filtered, no TypeError
 
+    def test_plugin_build_memoised_across_calls(self):
+        """Two tool calls of one instance reuse a single plugin object (A3). - Claude Generated"""
+        reg = self._registry("off")
+        handler = self._handler(reg)
+        handler(q="a", n=1)
+        self.assertEqual(len(reg._lookup_cache), 1)
+        (key, plugin), = reg._lookup_cache.items()
+        handler(q="b", n=1)
+        self.assertIs(reg._lookup_cache[key], plugin)   # same object, no rebuild
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class LookupBuildParityTest(unittest.TestCase):
+    """LookupCategory.build runs the same operator-URL warning as the search
+    factory (shared ``schema.warn_operator_urls``, A3). - Claude Generated"""
+
+    def tearDown(self):
+        LOOKUP_REGISTRY.pop("url_lk", None)
+
+    def test_build_warns_on_operator_url(self):
+        import logging
+
+        from src.core.plugins.schema import URL, ConfigField
+
+        class _UrlLookup:
+            id = "url_lk"
+            label = "Url"
+
+            def __init__(self, **config):
+                self._config = config
+
+            @classmethod
+            def config_fields(cls):
+                return [ConfigField(key="base_url", label="Basis-URL", kind=URL)]
+
+        LOOKUP_REGISTRY["url_lk"] = _UrlLookup
+        inst = PluginInstanceConfig(
+            "url_lk_warn_test", "lookup", "url_lk", enabled=True,
+            settings={"base_url": "ftp://example.org"},
+        )
+        # Other test modules call logging.disable(CRITICAL) at import — lift the
+        # global disable for the assertion and restore it after. - Claude Generated
+        prev_disable = logging.root.manager.disable
+        logging.disable(logging.NOTSET)
+        try:
+            with self.assertLogs("src.core.plugins.schema", level="WARNING") as cm:
+                plugin = get_category("lookup").build(inst)
+        finally:
+            logging.disable(prev_disable)
+        self.assertIsInstance(plugin, _UrlLookup)
+        self.assertTrue(any("ftp" in msg for msg in cm.output))
+
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class K10PlusLookupTest(unittest.TestCase):
@@ -457,6 +509,21 @@ class K10PlusFetchRecordsTest(unittest.TestCase):
         with patch("src.utils.k10plus_resolver.fetch_records_for_siegel", return_value=[]) as m:
             K10PlusLookup(cache_dir="/from/config").fetch_records("X", cache_dir="/explicit")
         self.assertEqual(m.call_args.kwargs["cache_dir"], "/explicit")
+
+    def test_load_cached_uses_instance_cache_dir(self):
+        """Cache-only read (GUI Siegel-Cache-Load) delegates with the instance
+        cache_dir; explicit cache_dir wins; no dir → empty list. - Claude Generated"""
+        from unittest.mock import patch
+
+        from src.utils.lookups.k10plus import K10PlusLookup
+
+        with patch("src.utils.k10plus_resolver.load_cached_records", return_value=[]) as m:
+            K10PlusLookup(cache_dir="/from/config").load_cached("ZDB-2-CMS")
+            self.assertEqual(m.call_args.args[0], "/from/config")
+            K10PlusLookup(cache_dir="/from/config").load_cached("X", cache_dir="/explicit")
+            self.assertEqual(m.call_args.args[0], "/explicit")
+            self.assertEqual(K10PlusLookup().load_cached("X"), [])  # no dir, no call
+            self.assertEqual(m.call_count, 2)
 
     def test_fetch_package_delegates_to_fetch_records(self):
         from unittest.mock import patch

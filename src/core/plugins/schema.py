@@ -17,10 +17,13 @@ a leaf: nothing here imports back into the plugin framework.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # Field kinds — kept as plain strings so manifests/JSON can name them directly.
 TEXT = "text"
@@ -206,6 +209,37 @@ def apply_env_overrides(
         if env_val:
             out[fld.key] = env_val
     return out
+
+
+# --- Operator-URL warnings (net_guard posture a) --------------------------- #
+# Warnings already emitted this process (anti-spam: build runs per operation).
+_warned_operator_urls: set = set()
+
+
+def warn_operator_urls(cls: type, instance: Any) -> None:
+    """Log net_guard posture-(a) warnings for URL-kind settings, once each.
+
+    Shared by every category's build path (search ``factory.build_provider`` +
+    ``LookupCategory.build``) so an operator-configured endpoint gets the same
+    scheme/plausibility warning regardless of plugin family. Best-effort: never
+    raises; ``net_guard`` is imported lazily to keep this module a leaf.
+    - Claude Generated
+    """
+    try:
+        from src.utils.net_guard import check_operator_url
+
+        fields = cls.config_fields() if hasattr(cls, "config_fields") else []
+        for fld in fields:
+            if getattr(fld, "kind", None) != URL:
+                continue
+            value = str((instance.settings or {}).get(fld.key) or "")
+            for msg in check_operator_url(value):
+                key = (instance.instance_id, fld.key, msg)
+                if key not in _warned_operator_urls:
+                    _warned_operator_urls.add(key)
+                    logger.warning("Plugin '%s': %s", instance.instance_id, msg)
+    except Exception:
+        pass
 
 
 # --- Standard per-plugin raw-response cache toggle ------------------------- #

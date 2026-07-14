@@ -477,16 +477,30 @@ class MainWindowDataMixin:
             def run(self):
                 try:
                     self.progress_updated.emit("🔄 Initialisiere Lobid-Suggester...")
-                    
-                    # Create LobidSuggester instance for DNB import
-                    data_dir = Path("data") / "lobid"
-                    lobid_suggester = LobidSuggester(data_dir=data_dir, debug=self.debug)
-                    
+
+                    # Factory-built provider → the same suggester construction
+                    # (and data_dir) the search path uses. The former direct
+                    # LobidSuggester(data_dir="data/lobid") prepared a directory
+                    # the factory-built search suggester never read. - Claude Generated
+                    from ..core.search.factory import build_provider
+                    from ..core.search.service import resolve_gnd_instances, underlying_suggester
+
+                    instances = resolve_gnd_instances(["lobid"])
+                    if not instances:
+                        self.error_occurred.emit(
+                            "Lobid-Instanz ist deaktiviert (Plugin-Einstellungen)"
+                        )
+                        return
+                    start_time = time.time()
+                    # Suggester construction may already download missing GND
+                    # data (prepare(False) at init) — include it in the timing.
+                    provider = build_provider(instances[0])
+                    lobid_suggester = underlying_suggester(provider)
+                    data_dir = lobid_suggester.data_dir
+
                     self.progress_updated.emit(f"📁 Datenverzeichnis: {data_dir}")
                     self.progress_updated.emit(f"🔄 Erzwungener Download: {self.force_download}")
-                    
-                    start_time = time.time()
-                    
+
                     if self.force_download or not (data_dir / "subjects.json").exists():
                         self.progress_updated.emit("⬇️ Lade GND-Sachbegriffe von DNB herunter...")
                         
@@ -527,9 +541,9 @@ class MainWindowDataMixin:
         if reply != QMessageBox.StandardButton.Yes:
             return
         
-        # Check if data already exists
-        data_dir = Path("data") / "lobid" 
-        subjects_file = data_dir / "subjects.json"
+        # Check if data already exists (same default dir a factory-built
+        # suggester resolves — no construction needed for the path). - Claude Generated
+        subjects_file = LobidSuggester.default_data_dir() / "subjects.json"
         force_download = False
         
         if subjects_file.exists():

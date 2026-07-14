@@ -500,33 +500,3 @@ def fetch_records_for_siegel(
 
     logger.info(f"Siegel '{siegel}': {len(all_records)} records extracted")
     return all_records
-
-
-def fetch_dois_for_siegel(
-    siegel: str,
-    cache_dir: Optional[str] = None,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
-    logger: Optional[logging.Logger] = None,
-) -> List[str]:
-    """
-    Fetch all DOIs associated with a K10Plus Paketsigel via SRU API.
-
-    Backward compatibility wrapper - use fetch_records_for_siegel() for full metadata.
-
-    Args:
-        siegel: Paketsigel identifier, e.g. "ZDB-2-CMS".
-        cache_dir: Optional directory for caching raw XML responses.
-                   None = no caching.
-        progress_callback: Called as (current_page, total_pages, message) during fetch.
-        logger: Optional logger; falls back to module logger if not provided.
-
-    Returns:
-        List of DOI strings (duplicates possible if the catalog has them).
-    """
-    records = fetch_records_for_siegel(
-        siegel=siegel,
-        cache_dir=cache_dir,
-        progress_callback=progress_callback,
-        logger=logger,
-    )
-    return [r.doi for r in records if r.doi]

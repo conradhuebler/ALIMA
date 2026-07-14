@@ -61,6 +61,10 @@ class ToolRegistry:
         # cache) here; ``refresh()`` clears it. finc keeps its own attribute (its
         # handler + tests still drive ``_finc`` via ``_init_suggesters``). - Claude Generated
         self._provider_cache: Dict[tuple, Any] = {}
+        # Lookup plugins likewise memoised per instance (webindex e.g. opens its
+        # own SQLite store — a fresh build per tool call would open a new
+        # connection each time); ``refresh()`` clears it. - Claude Generated
+        self._lookup_cache: Dict[str, Any] = {}
         self._finc = None
         self._presets: Dict[str, List[str]] = {}
         self._load_default_presets()
@@ -230,6 +234,19 @@ class ToolRegistry:
             provider = build_provider(inst, cache=cache, ukm=self._get_knowledge_manager())
             self._provider_cache[key] = provider
         return provider
+
+    def _lookup_for(self, inst):
+        """Build (and memoise) the lookup plugin for an instance. - Claude Generated"""
+        if getattr(self, "_lookup_cache", None) is None:
+            self._lookup_cache = {}
+        key = getattr(inst, "instance_id", getattr(inst, "provider_id", "?"))
+        plugin = self._lookup_cache.get(key)
+        if plugin is None:
+            from src.core.plugins.category import get_category
+
+            plugin = get_category("lookup").build(inst)
+            self._lookup_cache[key] = plugin
+        return plugin
 
     def _get_autosave_dir(self) -> str:
         """Get pipeline results directory."""
@@ -1541,7 +1558,6 @@ class ToolRegistry:
         the raw response (gated by the per-plugin cache setting). - Claude Generated"""
         def handler(**kwargs):
             try:
-                from src.core.plugins.category import get_category
                 from src.core.plugins.schema import cache_pref_enabled
 
                 # Only pass the args this tool declares (avoid TypeErrors from
@@ -1566,7 +1582,7 @@ class ToolRegistry:
                     if hit:
                         return hit["raw_json"]
 
-                plugin = get_category("lookup").build(inst)
+                plugin = self._lookup_for(inst)
                 result = getattr(plugin, spec.method)(**args)
                 out = json.dumps(result, ensure_ascii=False, default=str)
                 if cacheable and '"error"' not in out:
@@ -1901,6 +1917,7 @@ class ToolRegistry:
         self._handlers.clear()
         self._suggesters_initialized = False
         self._provider_cache = {}
+        self._lookup_cache = {}
         self.register_all_tools()
 
     def register_all_tools(self):

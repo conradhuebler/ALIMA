@@ -24,7 +24,6 @@ from typing import Dict, List, Optional
 import logging
 import re
 import sys
-import json
 from pathlib import Path
 
 from ..core.search_cli import SearchCLI
@@ -74,10 +73,6 @@ class SearchTab(QWidget):
         self.gnd_ids = []  # Liste der gefundenen GND-IDs
         self.unkown_terms = []
 
-        self.catalog_token = ""
-        self.catalog_search_url = ""
-        self.catalog_details = ""
-
         # Pipeline integration state tracking - Claude Generated
         self.original_pipeline_state = None
         self.current_display_state = None
@@ -91,9 +86,7 @@ class SearchTab(QWidget):
         if not self.pipeline_manager:
             self.logger.warning("No PipelineManager provided - pipeline integration disabled")
 
-        # Lade den Katalog-Token aus der Konfigurationsdatei
         self.config_file = config_file
-        self._load_catalog_token()
 
         self.init_ui()
 
@@ -188,21 +181,26 @@ class SearchTab(QWidget):
         sources_label.setFont(get_scaled_font(size_delta=-1, bold=True))
         options_layout.addWidget(sources_label)
 
-        self.lobid_button = QCheckBox("Lobid")
-        self.lobid_button.setChecked(True)
-        self.lobid_button.setToolTip("Suche in der Lobid-API (empfohlen)")
-        options_layout.addWidget(self.lobid_button)
+        # Eine Checkbox je aktivierter (+verfügbarer) GND-Quelle aus dem
+        # Plugin-System statt hartkodierter Lobid/SWB/Katalog-Widgets — externe
+        # Provider-Plugins erscheinen hier automatisch. - Claude Generated
+        self.source_checkboxes = {}
+        default_checked = {"lobid", "swb"}
+        for provider_id in self._gnd_source_ids():
+            try:
+                from ..core.search.registry import get_provider
 
-        self.swb_button = QCheckBox("SWB")
-        self.swb_button.setChecked(True)
-        self.swb_button.setToolTip("Suche im Südwestdeutschen Bibliotheksverbund")
-        options_layout.addWidget(self.swb_button)
-
-        self.catalog_button = QCheckBox("Katalog")
-        self.catalog_button.setChecked(False)
-        self.catalog_button.setToolTip("Suche im lokalen Katalog (falls verfügbar)")
-        if self.catalog_token != "":
-            options_layout.addWidget(self.catalog_button)
+                cls = get_provider(provider_id)
+                label = getattr(cls, "label", provider_id)
+                tooltip = cls.doc().description if hasattr(cls, "doc") else ""
+            except Exception:
+                label, tooltip = provider_id, ""
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(provider_id in default_checked)
+            if tooltip:
+                checkbox.setToolTip(tooltip)
+            options_layout.addWidget(checkbox)
+            self.source_checkboxes[provider_id] = checkbox
 
         options_layout.addStretch(1)
 
@@ -365,38 +363,18 @@ class SearchTab(QWidget):
         if hasattr(self, 'status_label'):
             self.status_label.setStyleSheet(get_status_label_styles()["info"])
 
-    def _load_catalog_token(self):
-        """
-        Lädt den Katalog-Token aus der Konfigurationsdatei.
-
-        Returns:
-            str: Katalog-Token oder einen leeren String, wenn nicht gefunden
-        """
-        default_token = ""  # Fallback-Token wenn nicht gefunden
-
+    def _gnd_source_ids(self):
+        """Aktivierte + verfügbare GND-Quellen-Typen (Plugins-Tab-Gate) für die
+        Quellen-Checkboxen; Fallback lobid+swb wenn die Config nicht lesbar ist.
+        - Claude Generated"""
         try:
-            if not self.config_file.exists():
-                self.logger.debug(
-                    f"Konfigurationsdatei nicht gefunden: {self.config_file}"
-                )
-                return default_token
+            from ..core.search.factory import enabled_gnd_provider_ids
 
-            with open(self.config_file, "r", encoding="utf-8") as f:
-                config = json.load(f)
-
-            # Versuche, den Katalog-Token aus verschiedenen möglichen Stellen zu laden
-            if "catalog_token" in config:
-                self.catalog_token = config["catalog_token"]
-
-            if "catalog_search_url" in config:
-                self.catalog_search_url = config["catalog_search_url"]
-
-            if "catalog_details" in config:
-                self.catalog_details = config["catalog_details"]
-
+            ids = enabled_gnd_provider_ids(available_only=True)
+            return ids if ids else ["lobid", "swb"]
         except Exception as e:
-            self.logger.error(f"Fehler beim Laden des Katalog-Tokens: {str(e)}")
-            return default_token
+            self.logger.warning(f"Quellenliste nicht ladbar, Fallback lobid+swb: {e}")
+            return ["lobid", "swb"]
 
     def perform_search(self):
         """Führt die Suche mit den ausgewählten Quellen durch - Claude Generated"""
@@ -440,20 +418,17 @@ class SearchTab(QWidget):
                 return
 
             # Bestimme die zu verwendenden Provider-Ids - Claude Generated
-            suggester_types = []
-            if self.lobid_button.isChecked():
-                suggester_types.append("lobid")
-            if self.swb_button.isChecked():
-                suggester_types.append("swb")
-            if self.catalog_button.isChecked():
-                suggester_types.append("catalog")
+            suggester_types = [
+                pid for pid, cb in self.source_checkboxes.items() if cb.isChecked()
+            ]
 
-            # Wenn keine Quelle ausgewählt wurde, Lobid als Standard verwenden
+            # Wenn keine Quelle ausgewählt wurde, erste aktive Quelle als Standard
             if not suggester_types:
+                fallback = next(iter(self.source_checkboxes), "lobid")
                 self.logger.warning(
-                    "Keine Suchquelle ausgewählt, verwende Lobid als Standard."
+                    f"Keine Suchquelle ausgewählt, verwende {fallback} als Standard."
                 )
-                suggester_types.append("lobid")
+                suggester_types.append(fallback)
 
             self.logger.info(f"Selected suggester types: {suggester_types}")
             self.logger.info(f"Search terms: {search_terms}")
@@ -1304,11 +1279,15 @@ class SearchTab(QWidget):
             search_terms = self.extract_search_terms(search_term)
 
             # Lobid + SWB via the unified provider service (not Catalog — avoids DK
-            # lookups); one merged call that populates the shared caches. - Claude Generated
+            # lookups), gefiltert auf die im Plugin-Tab aktivierten Quellen; one
+            # merged call that populates the shared caches. - Claude Generated
             from src.core.search.service import resolve_gnd_instances, search_gnd_keywords
 
+            manual_ids = [
+                pid for pid in ("lobid", "swb") if pid in self.source_checkboxes
+            ] or list(self.source_checkboxes)[:1] or ["lobid"]
             all_results, _errors = search_gnd_keywords(
-                search_terms, resolve_gnd_instances(["lobid", "swb"]), cache=True,
+                search_terms, resolve_gnd_instances(manual_ids), cache=True,
             )
 
             added_count = 0

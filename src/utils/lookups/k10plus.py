@@ -3,8 +3,9 @@
 Wraps the K10plus package-seal harvester (`src/utils/k10plus_resolver.py`) as a
 lookup plugin exposing one agent tool: a Paketsigel (e.g. ``ZDB-2-CMS``) → its
 bibliographic records via the K10plus SRU/PICA-XML API. Output is capped
-(``max_records``) since a package can hold thousands of records. The direct batch
-usages (`pipeline_cmd.fetch_dois_for_siegel`, the batch dialog) stay untouched.
+(``max_records``) since a package can hold thousands of records. The batch callers
+(CLI siegel harvest, GUI batch dialog) route through ``fetch_records`` as well —
+one call path per source (Phase D).
 """
 
 from __future__ import annotations
@@ -89,6 +90,24 @@ class K10PlusLookup:
         return fetch_records_for_siegel(
             str(siegel), cache_dir=cd, progress_callback=progress_callback, logger=logger
         )
+
+    def load_cached(
+        self,
+        siegel: str,
+        cache_dir: Optional[str] = None,
+        logger: "Optional[logging.Logger]" = None,
+    ) -> "List[K10PlusRecord]":
+        """Cached records of a Paketsigel, no API call - Claude Generated.
+
+        Cache-only read counterpart to :meth:`fetch_records` (same ``cache_dir``
+        fallback to the instance setting); empty list when nothing is cached.
+        """
+        from src.utils.k10plus_resolver import load_cached_records
+
+        cd = cache_dir if cache_dir is not None else (self._config.get("cache_dir") or None)
+        if not cd:
+            return []
+        return load_cached_records(str(cd), str(siegel), logger)
 
     def fetch_package(self, siegel: str, max_records: int = None) -> dict:
         from dataclasses import asdict

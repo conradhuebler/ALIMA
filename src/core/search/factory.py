@@ -30,30 +30,6 @@ logger = logging.getLogger(__name__)
 
 CATEGORY = "search_provider"
 
-# Operator-URL warnings already emitted this process (anti-spam: build_provider
-# runs per search operation). - Claude Generated
-_warned_operator_urls: set = set()
-
-
-def _warn_operator_urls(cls: type, instance: "PluginInstanceConfig") -> None:
-    """Log net_guard posture-(a) warnings for URL-kind settings, once each - Claude Generated"""
-    try:
-        from src.core.plugins.schema import URL
-        from src.utils.net_guard import check_operator_url
-
-        fields = cls.config_fields() if hasattr(cls, "config_fields") else []
-        for fld in fields:
-            if getattr(fld, "kind", None) != URL:
-                continue
-            value = str((instance.settings or {}).get(fld.key) or "")
-            for msg in check_operator_url(value):
-                key = (instance.instance_id, fld.key, msg)
-                if key not in _warned_operator_urls:
-                    _warned_operator_urls.add(key)
-                    logger.warning("Plugin '%s': %s", instance.instance_id, msg)
-    except Exception:
-        pass
-
 
 def _global_response_cache_enabled() -> bool:
     """Read the ``SystemConfig.enable_response_cache`` master switch (default True).
@@ -88,10 +64,11 @@ def build_provider(
     fetch seam). ``None`` ⇒ read the global master switch.
     """
     cls = get_provider(instance.provider_id)
-    _warn_operator_urls(cls, instance)
     # Secret settings may be overridden per env var (ALIMA_PLUGIN_<ID>_<KEY>) —
     # runtime-only, never persisted. - Claude Generated
-    from src.core.plugins.schema import apply_env_overrides
+    from src.core.plugins.schema import apply_env_overrides, warn_operator_urls
+
+    warn_operator_urls(cls, instance)
 
     fields = cls.config_fields() if hasattr(cls, "config_fields") else []
     settings = apply_env_overrides(instance.instance_id, instance.settings, fields)
@@ -134,28 +111,39 @@ def build_enabled(
     return out
 
 
-def enabled_gnd_provider_ids(config: Any = None) -> "list | None":
+def enabled_gnd_provider_ids(
+    config: Any = None, *, available_only: bool = False
+) -> "list | None":
     """Provider *types* (unique) with an enabled GND-keyword instance.
 
     Used to gate the classic keyword search by the Plugins-tab enable/disable
     state (the agentic path is already gated via per-instance tool generation).
-    Returns ``None`` when the config can not be read, so callers keep their own
-    default list instead of silently searching nothing. - Claude Generated
+    ``available_only=True`` additionally drops instances whose availability-gating
+    settings are unsatisfied (e.g. catalog without a token) — the source-selector
+    UIs use it. Returns ``None`` when the config can not be read, so callers keep
+    their own default list instead of silently searching nothing. - Claude Generated
     """
     try:
         if config is None:
             from src.utils.config_manager import ConfigManager
 
             config = ConfigManager().load_config()
+        from src.core.plugins.schema import availability_ok
+
         ids = []
         for inst in config.enabled_instances_for("search_provider"):
             try:
                 cls = get_provider(inst.provider_id)
             except KeyError:
                 continue
-            if SearchCapability.GND_KEYWORDS in getattr(cls, "capabilities", set()):
-                if inst.provider_id not in ids:
-                    ids.append(inst.provider_id)
+            if SearchCapability.GND_KEYWORDS not in getattr(cls, "capabilities", set()):
+                continue
+            if available_only:
+                fields = cls.config_fields() if hasattr(cls, "config_fields") else []
+                if not availability_ok(fields, inst.settings):
+                    continue
+            if inst.provider_id not in ids:
+                ids.append(inst.provider_id)
         return ids
     except Exception:
         return None

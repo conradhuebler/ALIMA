@@ -43,8 +43,9 @@ class LookupCategory(PluginCategory):
 
     def build(self, instance: "PluginInstanceConfig") -> Any:
         cls = get_lookup(instance.provider_id)
-        from src.core.plugins.schema import apply_env_overrides
+        from src.core.plugins.schema import apply_env_overrides, warn_operator_urls
 
+        warn_operator_urls(cls, instance)
         fields = cls.config_fields() if hasattr(cls, "config_fields") else []
         settings = apply_env_overrides(instance.instance_id, instance.settings, fields)
         try:

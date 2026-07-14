@@ -74,10 +74,13 @@ class SiegelCacheLoadWorker(StoppableWorker):
 
     def run(self):
         try:
-            from ..utils.k10plus_resolver import load_cached_records
+            # Cache-only read via the k10plus lookup plugin (same construction
+            # path as harvest + agent tool); explicit cache_dir wins. - Claude Generated
+            from ..utils.lookups.resolve import build_lookup
 
             self.status_message.emit(f"Suche gecachte Dateien für '{self.siegel}'...")
-            records = load_cached_records(self.cache_dir, self.siegel, self.logger)
+            k10 = build_lookup(None, "k10plus")
+            records = k10.load_cached(self.siegel, cache_dir=self.cache_dir or None, logger=self.logger)
 
             if not records:
                 self.error.emit(f"Keine gecachten Daten für '{self.siegel}' gefunden.")
