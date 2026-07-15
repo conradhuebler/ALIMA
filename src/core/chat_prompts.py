@@ -10,6 +10,7 @@ with heuristic detection + explicit /v, /s, /g prefix commands.
 from __future__ import annotations
 
 import re
+from typing import Optional, Set
 
 # ---------------------------------------------------------------------------
 # Shared rules — included in every mode
@@ -55,13 +56,7 @@ SHARED_RULES = (
     "  nutze `get_messages_history` mit passendem `offset` und `last_n`,\n"
     "  um die Ergebnisse zu finden. Du musst nicht nochmal die gleichen\n"
     "  Tools rufen — hole dir die Daten aus deiner eigenen Historie.\n\n"
-    "Katalog-Tool-Wahl:\n"
-    "- Für Katalogsuchen IMMER `search_finc` bevorzugen — es ist\n"
-    "  reichhaltiger (Autoren, Schlagworte, DK/RVK-Facetten,\n"
-    "  Exact-Match per Anführungszeichen, Format-Filter).\n"
-    "- `search_catalog` / `search_catalog_titles` (Libero) NUR als\n"
-    "  Fallback, wenn `search_finc` nichts liefert oder nicht\n"
-    "  verfügbar ist.\n\n"
+    "<<CATALOG_TOOL_RULES>>"
     "Institutionelle Services & Abläufe (ZWINGEND `search_webindex` nutzen,\n"
     "in JEDEM Modus, auch als Nebenaspekt einer anderen Frage):\n"
     "- Fragen zu UB-Diensten/Abläufen (z.B. 'Wie bekomme ich neue Bücher/\n"
@@ -367,8 +362,7 @@ SHARED_RULES_COMPACT = (
     "Regeln:\n"
     "- Nenne nur, was Tools liefern. Erfinde KEINE Titel, Autoren, GND-IDs, "
     "DK-Codes oder URLs. Bei 0 Treffern: sage das ehrlich.\n"
-    "- Katalogsuche: `search_finc` (besser als `search_catalog`/Libero). "
-    "GND: `search_gnd`/`search_lobid`. DK: `get_dk_cache`.\n"
+    "<<CATALOG_TOOL_RULES>>"
     "- Autorensuche: nur Treffer mit exakt passendem Vor- UND Nachnamen; "
     "verschiedene Personen mit gleichem Nachnamen NICHT mischen.\n"
     "- Verlinke Treffer als [Titel](web_url); URLs nur aus Tool-Feldern.\n"
@@ -383,12 +377,107 @@ _MODE_HINT_COMPACT = {
     "general": "Beantworte die Frage; nutze Tools nach Bedarf.",
 }
 
+# Placeholder both rulesets carry where the search-tool guidance goes; substituted
+# by build_system_prompt. Pinned by tests (a typo'd slot would silently drop the
+# rules from the prompt). - Claude Generated
+_CATALOG_RULES_SLOT = "<<CATALOG_TOOL_RULES>>"
+
+# *Live* search tools, in preference order — generated per **enabled instance**, so
+# which of them exist depends on the operator's plugin config. A prompt naming a
+# disabled one makes the model dutifully call a tool that is not there.
+# ``search_gnd`` is deliberately NOT in here: it reads the *local* GND store
+# (``search_local_gnd``), so it stays registered even with every provider off and
+# must not be mistaken for a live source. - Claude Generated
+_CATALOG_TOOL_PREFS = (
+    ("search_finc", "reichhaltig: Autoren, Schlagworte, DK/RVK-Facetten, Exact-Match, Format-Filter"),
+    ("search_catalog", "Libero-Katalog"),
+    ("search_catalog_titles", "Libero-Titelliste"),
+)
+_LIVE_GND_TOOL_PREFS = ("search_lobid", "search_swb")
+_LOCAL_GND_TOOL = "search_gnd"
+
+# No live source: the agent may only read the local store, and a miss there means
+# "not cached locally" — NOT "does not exist". Without this the agent reports
+# "keine Treffer gefunden" for a term that is plainly in the GND, i.e. a plausible
+# but false answer. - Claude Generated
+_NO_LIVE_SOURCE_RULE = (
+    "Suchquellen — EINGESCHRÄNKT (ZWINGEND beachten):\n"
+    "- Es ist KEINE Live-Katalog-/GND-Suchquelle aktiviert (der Betreiber hat die\n"
+    "  Such-Plugins deaktiviert). Du kannst NICHT im Katalog oder in der GND suchen.\n"
+    "{local}"
+    "- Sage bei einer Suchanfrage AUSDRÜCKLICH, dass keine Suchquelle konfiguriert\n"
+    "  ist, und empfiehl, die Such-Plugins in den Einstellungen zu aktivieren.\n"
+    "- Formuliere NIEMALS 'keine Treffer gefunden' — das behauptet eine Suche, die\n"
+    "  nie stattgefunden hat, und ist eine Falschauskunft.\n"
+    "- Rate keine Toolnamen und rufe keine Such-Tools auf, die hier nicht stehen.\n\n"
+)
+_NO_LIVE_SOURCE_LOCAL_LINE = (
+    "- Nur `search_gnd` steht bereit; es liest AUSSCHLIESSLICH den lokalen\n"
+    "  GND-Bestand. 0 Treffer dort heißt 'lokal nicht vorhanden', NICHT\n"
+    "  'existiert nicht'.\n"
+)
+
+
+def _catalog_tool_rules(available: Optional[Set[str]], compact: bool = False) -> str:
+    """Tool-choice rules naming only the search tools that are registered.
+
+    ``available=None`` (caller has no registry at hand) keeps the historical static
+    text. Otherwise the block is derived from what is actually registered — see
+    ``_CATALOG_TOOL_PREFS`` for why that matters. - Claude Generated
+    """
+    if available is None:
+        cat = [n for n, _ in _CATALOG_TOOL_PREFS]
+        gnd = list(_LIVE_GND_TOOL_PREFS)
+        has_local = True
+    else:
+        cat = [n for n, _ in _CATALOG_TOOL_PREFS if n in available]
+        gnd = [n for n in _LIVE_GND_TOOL_PREFS if n in available]
+        has_local = _LOCAL_GND_TOOL in available
+
+    if not cat and not gnd:
+        return _NO_LIVE_SOURCE_RULE.format(
+            local=_NO_LIVE_SOURCE_LOCAL_LINE if has_local else ""
+        )
+
+    if has_local:
+        gnd = gnd + [_LOCAL_GND_TOOL]
+
+    if compact:
+        parts = []
+        if cat:
+            first, rest = cat[0], cat[1:]
+            s = f"Katalogsuche: `{first}`"
+            if rest:
+                s += " (bevorzugt), sonst " + "/".join(f"`{n}`" for n in rest)
+            parts.append(s + ".")
+        if gnd:
+            parts.append("GND: " + "/".join(f"`{n}`" for n in gnd) + ".")
+        return "- " + " ".join(parts) + " DK: `get_dk_cache`.\n"
+
+    lines = ["Katalog-Tool-Wahl:"]
+    if cat:
+        first = cat[0]
+        lines.append(
+            f"- Für Katalogsuchen `{first}` bevorzugen — {dict(_CATALOG_TOOL_PREFS)[first]}."
+        )
+        rest = cat[1:]
+        if rest:
+            lines.append(
+                "- " + " / ".join(f"`{n}`" for n in rest) + " NUR als Fallback, wenn"
+                f" `{first}` nichts liefert oder nicht verfügbar ist."
+            )
+    if gnd:
+        lines.append("- GND-Suche: " + " / ".join(f"`{n}`" for n in gnd) + ".")
+    lines.append("- Nur diese Such-Tools existieren; rate keine anderen Toolnamen.")
+    return "\n".join(lines) + "\n\n"
+
 
 def build_system_prompt(
     mode: str = "general",
     context_hint: str = "",
     compact: bool = False,
     institution_context: str = "",
+    available_tools: Optional[Set[str]] = None,
 ) -> str:
     """Assemble mode-specific system prompt.
 
@@ -399,7 +488,12 @@ def build_system_prompt(
         institution_context: Optional operator-configured framing (e.g. "Du bist
             der Chatbot der Universitätsbibliothek XYZ."), prepended first so the
             agent's identity/scope is established before the tool rules.
-            Sourced from ``ChatConfig.institution_context``. - Claude Generated
+            Sourced from ``ChatConfig.institution_context``.
+        available_tools: Registered tool names (e.g. ``ToolRegistry.get_tool_names()``).
+            The search_* tools are generated per *enabled instance*, so the prompt
+            must name only those that exist — else the model dutifully calls a
+            disabled one. ``None`` keeps the static text (back-compat).
+            - Claude Generated
     """
     if mode not in VALID_MODES:
         mode = "general"
@@ -409,9 +503,16 @@ def build_system_prompt(
         sections.append(institution_context.strip())
 
     if compact:
-        sections += [SHARED_RULES_COMPACT, "\n" + _MODE_HINT_COMPACT[mode]]
+        sections += [
+            SHARED_RULES_COMPACT.replace(
+                _CATALOG_RULES_SLOT, _catalog_tool_rules(available_tools, compact=True)
+            ),
+            "\n" + _MODE_HINT_COMPACT[mode],
+        ]
     else:
-        sections.append(SHARED_RULES)
+        sections.append(
+            SHARED_RULES.replace(_CATALOG_RULES_SLOT, _catalog_tool_rules(available_tools))
+        )
         mode_text = {
             "verschlagwortung": MODE_VERSCHLAGWORTUNG,
             "suche": MODE_SUCHE,

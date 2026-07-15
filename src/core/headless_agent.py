@@ -237,10 +237,19 @@ class HeadlessAgentRunner:
         compact = resolve_prompt_compact(
             getattr(self.chat_config, "system_prompt_tier", "auto"), model
         )
+        # Prompt names only the search tools that exist — they are generated per
+        # enabled plugin instance (None on failure → keep the static list).
+        # - Claude Generated
+        try:
+            available_tools = set(self.mcp_registry.get_tool_names())
+        except Exception:
+            logger.debug("tool-name lookup failed; static prompt tool list", exc_info=True)
+            available_tools = None
         system_prompt = self.system_prompt or build_system_prompt(
             mode=effective_mode,
             compact=compact,
             institution_context=getattr(self.chat_config, "institution_context", ""),
+            available_tools=available_tools,
         )
         # Append language + history-window directives (shared with the GUI). - Claude Generated
         system_prompt = apply_chat_directives(

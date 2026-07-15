@@ -1653,6 +1653,25 @@ class ToolRegistry:
             # only logs at debug). Silent on a standard config. - Claude Generated
             logger.info("aggregate_gnd_results: config-derived sources %s", effective)
 
+        if not effective:
+            # An empty pool here is NOT "nothing found" — there was nothing to
+            # aggregate. Returning the plain empty shape lets an agent report
+            # "keine Treffer", i.e. a plausible but false answer. Say why.
+            # ``pool``/``sources`` stay present so structural readers don't KeyError.
+            # - Claude Generated
+            reason = (
+                "no GND search source is enabled (all search plugins disabled in the "
+                "Plugins settings)"
+                if derived_default
+                else f"none of the requested sources resolved to an enabled provider: {sources}"
+            )
+            logger.warning("aggregate_gnd_results: nothing to aggregate — %s", reason)
+            return json.dumps(
+                {"pool": [], "sources": [], "missing": {}, "terms_map": {},
+                 "error": f"Cannot aggregate: {reason}. This is NOT a zero-hit result."},
+                ensure_ascii=False,
+            )
+
         out = aggregate_gnd_results(
             terms, effective, km, transform_by_source,
             params_by_source=params_by_source,

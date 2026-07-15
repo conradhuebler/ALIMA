@@ -281,8 +281,12 @@ class AggregateDefaultSourcesTest(unittest.TestCase):
             out = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
         self.assertEqual(out["sources"], ["lobid", "swb", "catalog"])
 
-    def test_all_sources_disabled_aggregates_nothing(self):
-        """[] means the operator disabled every GND source — respect it."""
+    def _all_disabled_config(self):
+        """The operator's real "everything off" state: instances *present*, disabled.
+
+        Not the same as ``plugins = []`` — an absent section means "no config yet"
+        and resolve_gnd_instances then synthesises enabled defaults (migration path).
+        """
         from src.utils.config_models import AlimaConfig, PluginInstanceConfig
 
         cfg = AlimaConfig()
@@ -290,12 +294,42 @@ class AggregateDefaultSourcesTest(unittest.TestCase):
             PluginInstanceConfig(pid, "search_provider", pid, enabled=False, is_primary=True)
             for pid in ("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
         ]
-        reg = self._registry(cfg)
+        return cfg
+
+    def test_all_sources_disabled_aggregates_nothing(self):
+        """[] means the operator disabled every GND source — respect it.
+
+        And say so: an empty pool with no explanation lets the agent report
+        "keine Treffer", which claims a search that never ran.
+        """
+        reg = self._registry(self._all_disabled_config())
         self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
 
         out = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
         self.assertEqual(out["sources"], [])
         self.assertEqual(out["pool"], [])
+        # cached lobid raw exists, but lobid is disabled → must not be aggregated
+        self.assertIn("error", out)
+        self.assertIn("no GND search source is enabled", out["error"])
+        self.assertIn("NOT a zero-hit result", out["error"])
+
+    def test_explicitly_named_disabled_sources_are_reported(self):
+        """An agent naming a disabled source gets told, not an empty pool."""
+        reg = self._registry(self._all_disabled_config())
+
+        out = json.loads(
+            reg._handle_aggregate_gnd_results(["wasser"], sources=["lobid", "swb"])
+        )
+        self.assertEqual(out["pool"], [])
+        self.assertIn("error", out)
+        self.assertIn("none of the requested sources resolved", out["error"])
+
+    def test_structural_readers_survive_the_error_shape(self):
+        """gnd_batch_search reads pool/terms_map — both must stay present."""
+        reg = self._registry(self._all_disabled_config())
+        out = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
+        for key in ("pool", "sources", "missing", "terms_map"):
+            self.assertIn(key, out)
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")

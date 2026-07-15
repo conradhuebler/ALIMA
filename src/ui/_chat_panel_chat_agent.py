@@ -196,6 +196,21 @@ class ChatAgentMixin:
 
         return ChatConfig()
 
+    def _registered_tool_names(self):
+        """Tool names the agent actually has, for the system prompt.
+
+        The search_* tools are generated per enabled plugin instance, so the prompt
+        must not recommend a disabled one. ``None`` on failure → the prompt keeps
+        its static tool list rather than claiming nothing is available.
+        - Claude Generated"""
+        try:
+            reg = getattr(self, "mcp_registry", None)
+            if reg is not None and hasattr(reg, "get_tool_names"):
+                return set(reg.get_tool_names())
+        except Exception:
+            self.logger.exception("PipelineChatPanel: tool-name lookup failed")
+        return None
+
     # -- Context loading -------------------------------------------------
 
     def load_context(self, analysis_state) -> None:
@@ -290,6 +305,7 @@ class ChatAgentMixin:
                 mode=mode,
                 compact=compact,
                 institution_context=getattr(chat_config, "institution_context", ""),
+                available_tools=self._registered_tool_names(),
             ),
             language=self.chat_language,
             history_truncated=history_truncated,

@@ -6,6 +6,46 @@
 
 ## 2026
 
+### Chat-Agent: Prompt folgt der Plugin-Config; leere Quellenmenge ist kein Nulltreffer (July 15, 2026)
+
+Operator-Report: mit **allen** Such-Plugins deaktiviert rief der Agent `search_finc` und
+`search_catalog_titles` (beide nicht registriert → Fehler, 2 von 30 Iterationen verbrannt)
+und antwortete dann *„Es wurden keine Treffer für Quantenchemie gefunden"* — eine
+plausible, aber falsche Auskunft über einen Begriff, der selbstverständlich in der GND
+steht. Zwei unabhängige Defekte, beide gefixt. Suite `1259 → 1273 passed`.
+
+- **Prompt war config-blind.** `build_system_prompt` kannte die ToolRegistry nie und
+  nannte 23 Toolnamen hart — u.a. „Katalogsuche: `search_finc` (besser als
+  `search_catalog`/Libero)". Die `search_*`-Tools werden aber **pro aktivierter Instanz**
+  generiert. Neu: `available_tools`-Parameter (`ToolRegistry.get_tool_names()`); der
+  Tool-Wahl-Block wird über einen Platzhalter `<<CATALOG_TOOL_RULES>>` in **beide**
+  Regelsätze eingesetzt und nennt nur registrierte Tools. `None` → statischer Text
+  (Back-Compat für `DEFAULT_SYSTEM_PROMPT`). Verdrahtet in GUI-Chat
+  (`_chat_panel_chat_agent`) **und** headless/CLI/HTTP (`headless_agent`).
+  ⚠️ Der auslösende Satz stand im **Compact**-Regelsatz — `mistral-small` matcht den
+  „small"-Marker in `_COMPACT_MODEL_MARKERS`. Ein Fix nur in `SHARED_RULES` hätte den
+  gemeldeten Fall nicht berührt.
+- **`search_gnd` ist keine Live-Quelle.** Es liest `search_local_gnd` (lokaler Bestand)
+  und bleibt registriert, auch wenn jeder Provider aus ist. Ohne Live-Quelle sagt der
+  Prompt jetzt explizit: keine Suchquelle konfiguriert, `search_gnd` liest nur lokal,
+  0 Treffer dort heißt „lokal nicht vorhanden", **nicht** „existiert nicht" — und
+  „keine Treffer gefunden" ist verboten.
+- **`aggregate_gnd_results` bei leerer Quellenmenge**: liefert statt des stillen
+  Leerergebnisses ein `error` („…This is NOT a zero-hit result"), unterschieden nach
+  „keine Quelle aktiviert" vs. „angeforderte Quellen lösen nicht auf". `pool`/`sources`/
+  `missing`/`terms_map` bleiben vorhanden (Strukturleser wie `gnd_batch_search`
+  unberührt).
+- **Tests +14**: neu `test_chat_prompts.py` (erste Tests für die Prompt-Assembly
+  überhaupt) inkl. Rekonstruktion des gemeldeten Laufs + Slot-Mechanik; `test_aggregate`
+  um die drei Leer-Quellen-Fälle erweitert. Dabei aufgefallen: `cfg.plugins = []` heißt
+  für `resolve_gnd_instances` „kein Config-Abschnitt" (→ synthetisiert aktivierte
+  Defaults), **nicht** „alle deaktiviert" — die Tests bilden jetzt den realen Zustand
+  (vorhanden + `enabled=False`) ab. Dieselbe Zweideutigkeit ist der offene
+  P5-Entscheidungspunkt.
+- **Nicht behoben (ehrlich):** `MODE_SUCHE` nennt Toolnamen weiterhin *beschreibend*
+  („nicht allein aus Katalog-Tools … beantworten"); das sind negative Hinweise, keine
+  Aufruf-Direktiven, und sie haben den Fehler nicht ausgelöst.
+
 ### WP Plugin-Konvergenz P1: Built-in-Namen entkoppelt (July 15, 2026)
 
 Erster Schritt des Konvergenz-WP ([`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md)):
