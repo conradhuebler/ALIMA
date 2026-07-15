@@ -1,10 +1,49 @@
 # WP: Plugin-Konvergenz — Orchestrierung, Built-in-Entkopplung, Lookup-Vertrag
 
-> **Status:** 📋 GEPLANT (July 14, 2026) — Findings aus dem Drei-Agenten-Audit der
-> Plugin-Umstellung, alle file:line verifiziert. **Kein Code in diesem WP geschrieben**
-> (die Quick-Wins des Audits — toter k10plus-Wrapper, Doc-Drift, Lookup-URL-Warnung +
-> -Memoization, GUI-Bypässe Siegel-Cache/Lobid-Import/find_keywords-Checkboxen — sind
-> separat umgesetzt, siehe `AIChangelog.md` July 14).
+> **Status:** P1 ✅ CODE-COMPLETE (July 15), P2–P5 📋 GEPLANT + entschieden,
+> P6/P7 Backlog. Findings aus dem Drei-Agenten-Audit der Plugin-Umstellung
+> (July 14). Die Quick-Wins des Audits (toter k10plus-Wrapper, Doc-Drift,
+> Lookup-URL-Warnung + -Memoization, GUI-Bypässe) sind separat umgesetzt, siehe
+> `AIChangelog.md` July 14.
+>
+> ⚠️ **Zeilenrefs unten sind der Stand vom 14. Juli und teils gedriftet** — beim
+> Ausführen neu greppen. Verifiziert am 15. Juli: `_handle_rvk_lookup` ist `:1120`
+> (nicht 1103), Lookup-Cache-Gate `:1556-1599` (nicht 1552-1578),
+> `_lookup_instances` `:1497-1515` (nicht 1480-1498).
+
+## Korrekturen am Befund (July 15, bei der P1-Ausführung verifiziert)
+
+Vier Aussagen dieses Docs haben der Prüfung nicht standgehalten:
+
+1. **Der Aggregate-Default war nie ein Provenienz-Risiko.** Die „Vergleichslauf
+   nötig"-Warnung zu P1 ging davon aus, dass ein abgeleiteter Default die
+   agentische Provenienz ändert. Tut er nicht: `gnd_local` ist zwar
+   `GND_KEYWORDS`-fähig und aktiviert (der Default liefert **vier** Ids), hat aber
+   keinen `.suggester` → `_source_transform` → `None` → der *bestehende* Filter
+   verwirft ihn. Byte-identisch, strukturell und nicht per Config-Glück. Als Test
+   festgenagelt (`test_aggregate.py::AggregateDefaultSourcesTest`), kein manueller
+   Lauf nötig.
+2. **P1s Nutzenversprechen stimmte nur halb.** „`poc_*`-E2E kann dann auch
+   Aggregation/agent_view abdecken" — `agent_view` ja, Aggregation nein: der
+   agentische Einstieg `gnd_batch_search` übergibt `sources` aus der hartkodierten
+   `source_tools`-Map (`deterministic_functions.py:68-71`), unter dem POC sind diese
+   Ids deaktiviert → leerer Pool. Das ist **P6**, nicht P1.
+3. **P3(b) ist ein kwarg, kein Umbau.** Der Raw-Cache-Bypass von `rvk_lookup` ist
+   `cache_manager=None` (`tool_registry.py:1151`); die RVK-Aufrufe darunter sind seit
+   Phase D plugin-geroutet und `cached_call`-gewrappt, sie bekommen nur `km=None`.
+   Kein Werteform-Risiko — aber der Fix *aktiviert* einen schlafenden Konflikt, siehe
+   P3 unten.
+4. **P5 hat zwei Stellen, nicht eine.** Neben `resolve.py:40-42` synthetisiert
+   `_lookup_instances` (`if insts:`) bei „alle deaktiviert" sämtliche Lookup-Typen als
+   enabled zurück. Eine Entscheidung, zwei Fixes.
+
+## Operator-Entscheidungen (July 15)
+
+| Punkt | Entscheid |
+|---|---|
+| **P5 Disable-Semantik** (war vertagt) | **Search-Parität** — Disable gated beide Pfade; Pipeline-Verhaltensänderung, Vergleichslauf nötig |
+| **P3(a) RvkMarcIndex** | offen gelassen — P3 beschränkt sich auf (b) |
+| **P4 `catalog_type`** | **sru bekommt eigenen `dk_enabled`** (symmetrisch zu finc); `catalog_type` wird vestigial (Migration nötig); löst Debt D-5 mit |
 
 ## Befund in einem Satz
 
@@ -17,18 +56,36 @@ uneingelöst.
 
 ## Priorisierte Punkte
 
-### P1 — WP2-Entkopplung von Built-in-Namen (mittel)
-Externe/kopierte Provider bekommen heute weder `agent_view` noch Default-Provenienz:
-- Aggregate-Default `sources or ["lobid","swb","catalog"]` — `tool_registry.py:1615`
-- `_agent_view_deriver`: nur `"lobid"` — `tool_registry.py:1718`
-- Literal-Dispatch `hand_wired = {"lobid","swb","catalog","finc"}` — `tool_registry.py:1244`
-- `_SOURCE_PARAM_KEYS`-Fallback für unbekannte Quellen — `src/core/search/provider.py:31-56`
+### P1 — WP2-Entkopplung von Built-in-Namen ✅ CODE-COMPLETE (July 15)
+Alle vier Built-in-Namen-Kopplungen aufgelöst, jede über einen **bereits vorhandenen**
+Deklarationskanal (Leitregel: die Deklaration muss dort liegen, wo `deploy_poc.py` sie
+beim Kopieren mitnimmt — also im Provider-Dir, nicht in einer zentralen Map):
 
-**Richtung:** Default-Quellen aus den aktivierten GND-Instanzen ableiten
-(`factory.enabled_gnd_provider_ids`); `agent_view`-Deriver + Cache-Param-Keys als
-optionale Provider-Deklaration (`ProviderToolSpec` bzw. Klassen-Attribut) statt
-zentraler id-Maps. **Nutzen:** Plugin-Versprechen einlösen; `poc_*`-E2E kann dann auch
-Aggregation/agent_view abdecken.
+- `_SOURCE_PARAM_KEYS` → Klassenattribut **`raw_cache_param_keys`** (Base-Default
+  `("search_type",)`; nur swb + finc weichen ab — die Map war zu 60% redundant) +
+  Registry-Accessor `raw_cache_param_keys(source)`. *Nicht* `ProviderToolSpec`:
+  `catalog_titles` ist ein source label, keine provider id, und der primäre Writer
+  keyt auf `self.id`. *Nicht* aus `default_opts` ableitbar: catalog deklariert keine.
+- `_agent_view_deriver` → `getattr(underlying_suggester(p), "transform_agent_view")`,
+  wörtlich gespiegelt von `_source_transform`. Ein Bool-Flag hätte nicht gesagt,
+  *welche* Funktion.
+- Aggregate-Default → `enabled_gnd_provider_ids(config=self._alima_config())` mit
+  explizitem `is not None`-Check (`[]` = alle deaktiviert ≠ `None` = Config unlesbar).
+- `hand_wired` gelöscht; canonical → `_make_search_handler` für **alle** Typen (der
+  Pfad ist factory-gestützt, antwortet also aus der eigenen Klasse des Plugins). Das
+  eine `"finc"`-Literal bleibt bewusst *in* `_make_search_handler` stehen → P2 ist
+  eine Löschung. `raise ValueError` bei unbekannter `result_shape` entfernt (war
+  unerreichbar, wurde durch den Edit erreichbar → hätte die *ganze* Tool-Liste
+  gesprengt).
+
+**Mit erledigt:** `_attach_agent_view` baute den Cache-Key von Hand
+(`{"search_type": …}`) statt über `raw_cache_params_for` — passte nur für lobid
+zufällig; `find_keywords` kollabierte `None`/`[]` und erfand an zwei weiteren Stellen
+`"lobid"`, wenn keine Quelle aktiv war.
+
+**Nutzen (ehrlich):** kopierte/externe Provider bekommen `agent_view`, eigene
+Cache-Keys und Default-Provenienz. Die *agentische* Aggregation bleibt POC-untauglich,
+bis P6 die `source_tools`-Map auflöst (siehe Korrektur 2 oben).
 
 ### P2 — finc-Konvergenz (mittel)
 Der primäre `search_finc`-Handler baut weiter aus `CatalogConfig`, nicht aus der

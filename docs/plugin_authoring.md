@@ -136,6 +136,19 @@ Wenn die Quelle gecacht werden soll, stellt der Suggester bereit:
 `SuggesterBackedProvider._gnd_search` übernimmt den Dual-Write; Standalone-
 Provider rufen `ukm.store_raw_response(...)` selbst (Muster: `finc/provider.py`).
 
+Zwei **optionale Deklarationen** steuern, wie die Quelle gecacht und dem Agenten
+gezeigt wird — beide werden per Kopie mitgenommen, es gibt keine zentrale Liste:
+
+- **`raw_cache_param_keys: tuple`** (Klassenattribut, Default `("search_type",)`):
+  welche Request-Parameter zum Cache-Key gehören. Nur nötig, wenn das Ergebnis von
+  mehr als `search_type` abhängt — `swb` deklariert `("search_type", "max_pages")`,
+  `finc` `("search_type", "facets")`. Fehlt die Deklaration bei einer paginierenden
+  Quelle, kollidieren verschiedene Optionssätze auf einem Key (stiller Falschtreffer).
+- **`transform_agent_view(raw) -> dict`** (Static am *Suggester*, optional): liefert
+  die volle Quellsicht (z.B. lobid `{totalItems, member}`), die das Tool additiv als
+  `agent_view` neben dem reduzierten `results`-Block ausgibt. Wer sie deklariert,
+  nimmt teil; wer nicht, nicht. Nur für `.suggester`-gestützte Provider.
+
 ## 8. Sicherheitsmodell — ehrlich
 
 Ein freigegebenes Code-Plugin läuft **in-process mit vollen Rechten**. AST-Scan
@@ -185,10 +198,14 @@ den Namen auf) und die Raw-Cache-Provenienz weiter.
 - Die Built-in-**Klassen** bleiben registriert (self-register beim Import); der
   POC deaktiviert nur ihre **Instanzen/Tools**, er entlädt keinen Code. „Nur
   eigene" gilt auf Instanz-/Tool-Ebene, nicht auf Import-Ebene.
-- Die WP2-Raw-Cache-Aggregation (`_source_transform`/`aggregate_gnd_results` in
-  `tool_registry.py`) ist auf Built-in-Quellnamen (`"lobid"`, `"swb"`) verdrahtet
-  und nutzt die Built-in-Klasse (identischer Transform-Code) — nicht über die
-  `poc_*`-Instanzen geroutet.
+- Die WP2-Raw-Cache-Aggregation ist seit WP P1 **zur Hälfte** gelöst: der Default
+  von `aggregate_gnd_results` wird aus den aktivierten GND-Instanzen abgeleitet und
+  `agent_view` folgt der Deklaration des Providers — beides greift für `poc_*`.
+  **Aber** der agentische Einstieg `gnd_batch_search` übergibt `sources` weiterhin
+  aus einer hartkodierten Map (`{"swb": "search_swb", "lobid": "search_lobid"}`,
+  `deterministic_functions.py`); unter dem POC sind diese Ids deaktiviert → leerer
+  Pool. Bis das behoben ist (WP P6) ist die Aggregation über den Agentenpfad **nicht**
+  POC-tauglich; direkt gerufen funktioniert sie.
 - Der eigenständige GUI-Tab „Find Keywords" (`find_keywords.py`) sucht seit July 8
   über `service.search_gnd_keywords` (MetaSuggester ist gelöscht); seit July 14
   baut er auch seine Quellen-Checkboxen dynamisch aus den aktivierten+verfügbaren

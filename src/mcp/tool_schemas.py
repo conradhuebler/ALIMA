@@ -69,8 +69,8 @@ GET_SEARCH_CACHE = ToolDefinition(
 AGGREGATE_GND_RESULTS = ToolDefinition(
     name="aggregate_gnd_results",
     description=(
-        "Aggregate the cached raw responses of the GND-keyword sources "
-        "(lobid/swb/catalog) for the given terms into one ranked pool with counter "
+        "Aggregate the cached raw responses of the enabled GND-keyword sources "
+        "for the given terms into one ranked pool with counter "
         "statistics (Häufigkeit as 'display_count') and provenance ('sources' + "
         "'source_count' = which sources confirmed each keyword). Reads the raw "
         "response cache (single source of truth) — run the search_* tools first to "
@@ -87,7 +87,11 @@ AGGREGATE_GND_RESULTS = ToolDefinition(
             "sources": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Source ids to include (default: lobid, swb, catalog)",
+                "description": (
+                    "Provider ids to include, as reported by list_plugins ('type' of an "
+                    "instance with the 'gnd_keywords' capability — not the 'source' field "
+                    "of a search_* response). Default: all enabled GND-keyword sources."
+                ),
                 "default": [],
             },
             "search_type": {

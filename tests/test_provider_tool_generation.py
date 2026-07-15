@@ -212,8 +212,11 @@ class CodePluginToolGenerationTest(unittest.TestCase):
 
     Regression (July 6): an un-adapted blueprint copy keeps the built-in's
     ProviderToolSpec name (e.g. ``search_lobid``). It must be suffixed instead of
-    silently shadowing the built-in tool, and its canonical handler must be the
-    generic factory-built one (the hand-wired handlers only know built-in types).
+    silently shadowing the built-in tool, and the collision branch hands it the
+    generic factory-built handler.
+
+    Note the copy here is *not* canonical-with-its-own-name, so it never reaches
+    the nuanced handler — see ``CanonicalCodePluginNuancesTest`` for that path.
     """
 
     def setUp(self):
@@ -273,3 +276,130 @@ class CodePluginToolGenerationTest(unittest.TestCase):
             out = handlers["search_lobid_lobid_copy"](["t"])
         self.assertIs(built["cls"], self._copy_cls)
         self.assertIn("error", json.loads(out))  # unavailable stub → guarded JSON
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class CanonicalCodePluginNuancesTest(unittest.TestCase):
+    """A canonical code plugin gets the nuanced handler too (WP P1) - Claude Generated.
+
+    Before P1 a ``hand_wired = {"lobid","swb","catalog","finc"}`` literal reserved
+    the nuanced handlers (gnd_url enrichment, agent_view, non-default raw
+    passthrough) for built-in ids; any other type fell to the generic handler even
+    when canonical. The nuanced path is factory-backed, so it answers from the
+    plugin's own class — the id test bought nothing.
+
+    ``CodePluginToolGenerationTest`` cannot cover this: its copy keeps the
+    blueprint's tool name, so the *collision* branch forces the generic handler
+    regardless. This one renames the tool.
+    """
+
+    def setUp(self):
+        from src.core.search.provider import ProviderToolSpec, SearchCapability
+        from src.core.search.providers.lobid.provider import LobidProvider
+        from src.core.search.registry import PROVIDER_REGISTRY
+
+        self._saved = dict(PROVIDER_REGISTRY)
+
+        class RenamedCopy(LobidProvider):
+            id = "renamed_copy"
+
+            @classmethod
+            def mcp_tool_specs(cls):
+                return [
+                    ProviderToolSpec(
+                        name="search_renamed",  # no collision → canonical stays canonical
+                        capability=SearchCapability.GND_KEYWORDS,
+                        description="renamed copy",
+                        parameters={"type": "object", "properties": {}},
+                        source_label="renamed",
+                        cached=True,
+                        add_gnd_urls=True,
+                        default_opts={"search_type": "kw", "max_pages": 5},
+                    )
+                ]
+
+        self._cls = RenamedCopy
+        PROVIDER_REGISTRY["renamed_copy"] = RenamedCopy
+
+    def tearDown(self):
+        from src.core.search.registry import PROVIDER_REGISTRY
+
+        PROVIDER_REGISTRY.clear()
+        PROVIDER_REGISTRY.update(self._saved)
+
+    def _registry(self, provider_id="renamed_copy"):
+        from unittest.mock import MagicMock
+
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(provider_id, "search_provider", provider_id,
+                                 enabled=True, is_primary=True)
+        ]
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = types.SimpleNamespace(load_config=lambda: cfg)
+        reg._knowledge_manager = MagicMock()
+        reg._provider_cache = {}
+        return reg
+
+    def test_canonical_copy_gets_the_nuanced_factory_handler(self):
+        from unittest.mock import patch
+
+        reg = self._registry()
+        handlers = {td.name: h for td, h in reg._generated_search_tools()}
+        self.assertIn("search_renamed", handlers)
+
+        built = {}
+
+        def fake_build(inst, **kw):
+            from src.core.search.registry import get_provider
+
+            built["cls"] = get_provider(inst.provider_id)
+
+            class _Stub:
+                def is_available(self):
+                    return False
+
+            return _Stub()
+
+        # _provider_for imports from src.core.search.factory — the nuanced path's
+        # import site, distinct from the generic handler's re-export. - Claude Generated
+        with patch("src.core.search.factory.build_provider", side_effect=fake_build):
+            out = json.loads(handlers["search_renamed"](["t"]))
+
+        self.assertIs(built["cls"], self._cls, "canonical copy did not build its own class")
+        self.assertIn("error", out)
+        self.assertIn("not available", out["error"])
+
+    def test_unknown_result_shape_does_not_break_tool_generation(self):
+        """One odd plugin spec must not take the whole tool list down.
+
+        _make_search_handler used to raise ValueError on an unknown result_shape;
+        unreachable while only built-ins reached it, reachable once every canonical
+        spec does.
+        """
+        from src.core.search.provider import ProviderToolSpec, SearchCapability
+        from src.core.search.providers.lobid.provider import LobidProvider
+        from src.core.search.registry import PROVIDER_REGISTRY
+
+        class OddShape(LobidProvider):
+            id = "odd_shape"
+
+            @classmethod
+            def mcp_tool_specs(cls):
+                return [
+                    ProviderToolSpec(
+                        name="search_odd",
+                        capability=SearchCapability.GND_KEYWORDS,
+                        description="odd",
+                        parameters={"type": "object", "properties": {}},
+                        result_shape="records",  # not a shape the layer knows
+                        source_label="odd",
+                    )
+                ]
+
+        PROVIDER_REGISTRY["odd_shape"] = OddShape
+        reg = self._registry("odd_shape")
+        tools = reg._generated_search_tools()  # must not raise
+        self.assertIn("search_odd", [td.name for td, _ in tools])

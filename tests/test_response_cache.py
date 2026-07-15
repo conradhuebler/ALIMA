@@ -261,6 +261,56 @@ class RawCacheParamsTest(unittest.TestCase):
         # Unknown source → search_type only.
         self.assertEqual(raw_cache_params_for("mystery"), {"search_type": "kw"})
 
+    def test_copied_plugin_inherits_its_key_shape(self):
+        """A copied provider keeps the blueprint's key params - Claude Generated.
+
+        The retired central map was keyed by built-in id, so `poc_swb` fell to the
+        default and its max_pages=3/=5 fetches collided on one cache key.
+        """
+        from src.core.search.provider import raw_cache_params_for
+        from src.core.search.providers.swb.provider import SwbProvider
+        from src.core.search.registry import PROVIDER_REGISTRY, register_provider
+
+        saved = dict(PROVIDER_REGISTRY)
+        try:
+            @register_provider
+            class _PocSwb(SwbProvider):  # what deploy_poc.py generates: id rewritten
+                id = "poc_swb"
+
+            self.assertEqual(
+                raw_cache_params_for("poc_swb", search_type="kw", max_pages=3),
+                {"search_type": "kw", "max_pages": 3},
+            )
+            # …and distinct option sets no longer collide on one key.
+            self.assertNotEqual(
+                raw_cache_params_for("poc_swb", max_pages=3),
+                raw_cache_params_for("poc_swb", max_pages=5),
+            )
+        finally:
+            PROVIDER_REGISTRY.clear()
+            PROVIDER_REGISTRY.update(saved)
+
+    def test_declaration_read_without_provider_package_import(self):
+        """provider.py must resolve keys standalone (registry populated by the
+        parent package) — a stale/empty registry would silently mis-key swb.
+        - Claude Generated"""
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        code = (
+            "from src.core.search.provider import raw_cache_params_for as f;"
+            "print(f('swb', max_pages=9))"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("'max_pages': 9", out.stdout)
+
 
 class _FakeBiblioExtractor:
     """Stand-in BiblioClient exposing last_raw after search_subjects."""
@@ -345,6 +395,100 @@ class AgentViewSurfacingTest(unittest.TestCase):
         out = {"source": "catalog", "results": {}}
         reg._attach_agent_view(out, None, ["x"], "kw")  # catalog: raw_id None
         self.assertNotIn("agent_view", out)
+
+    def test_attach_agent_view_for_copied_plugin(self):
+        """A copied plugin declaring transform_agent_view participates (WP P1).
+
+        The retired id-literal deriver ("if source == 'lobid'") served the built-in
+        only. - Claude Generated
+        """
+        import types as _types
+
+        from src.core.search.providers.lobid.provider import LobidProvider
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+        from src.core.search.registry import PROVIDER_REGISTRY, register_provider
+        from src.mcp.tool_registry import ToolRegistry
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        saved = dict(PROVIDER_REGISTRY)
+        try:
+            @register_provider
+            class _PocLobid(LobidProvider):
+                id = "poc_lobid"
+
+            cfg = AlimaConfig()
+            cfg.plugins = [
+                PluginInstanceConfig("poc_lobid", "search_provider", "poc_lobid",
+                                     enabled=True, is_primary=True)
+            ]
+            blob = json.dumps({"totalItems": 5, "member": [{"title": "Y"}]})
+            self.km.store_raw_response("poc_lobid", "wasser", {"search_type": "kw"}, blob)
+
+            reg = ToolRegistry()
+            reg._config_manager = _types.SimpleNamespace(load_config=lambda: cfg)
+            # Seed the provider so _provider_for never builds the real suggester
+            # (which would prepare GND data on disk). The copy inherits the
+            # blueprint's transform_agent_view — that is what's under test.
+            stub = _types.SimpleNamespace(suggester=LobidSuggester)
+            reg._provider_cache = {("poc_lobid", False): stub}
+
+            out = {"source": "lobid", "results": {}}
+            reg._attach_agent_view(out, "poc_lobid", ["wasser"], "kw")
+            self.assertEqual(out["agent_view"]["wasser"]["totalItems"], 5)
+        finally:
+            PROVIDER_REGISTRY.clear()
+            PROVIDER_REGISTRY.update(saved)
+
+    def test_attach_agent_view_uses_the_sources_own_key_params(self):
+        """The reader must key like the writer: a max_pages-keyed source used to
+        miss against a hand-built {"search_type": …}. - Claude Generated"""
+        import types as _types
+
+        from src.core.search.providers.swb.provider import SwbProvider
+        from src.core.search.registry import PROVIDER_REGISTRY, register_provider
+        from src.mcp.tool_registry import ToolRegistry
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        saved = dict(PROVIDER_REGISTRY)
+        try:
+            class _ViewSuggester:
+                @staticmethod
+                def transform_agent_view(raw):
+                    return {"totalItems": raw.get("totalItems")}
+
+            @register_provider
+            class _PagedProvider(SwbProvider):
+                id = "paged_src"  # inherits raw_cache_param_keys incl. max_pages
+
+                @property
+                def suggester(self):
+                    return _ViewSuggester()
+
+            cfg = AlimaConfig()
+            cfg.plugins = [
+                PluginInstanceConfig("paged_src", "search_provider", "paged_src",
+                                     enabled=True, is_primary=True)
+            ]
+            # Written by the seam under the source's real key (max_pages included).
+            blob = json.dumps({"totalItems": 42})
+            self.km.store_raw_response(
+                "paged_src", "wasser", {"search_type": "kw", "max_pages": 3}, blob
+            )
+            reg = ToolRegistry()
+            reg._config_manager = _types.SimpleNamespace(load_config=lambda: cfg)
+            reg._provider_cache = {("paged_src", False): _PagedProvider()}
+
+            out = {"source": "paged_src", "results": {}}
+            reg._attach_agent_view(out, "paged_src", ["wasser"], "kw", max_pages=3)
+            self.assertEqual(out["agent_view"]["wasser"]["totalItems"], 42)
+
+            # …and a different max_pages must NOT read that entry.
+            other = {"source": "paged_src", "results": {}}
+            reg._attach_agent_view(other, "paged_src", ["wasser"], "kw", max_pages=5)
+            self.assertNotIn("agent_view", other)
+        finally:
+            PROVIDER_REGISTRY.clear()
+            PROVIDER_REGISTRY.update(saved)
 
     def test_attach_agent_view_miss_omits_term(self):
         from src.mcp.tool_registry import ToolRegistry

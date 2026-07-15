@@ -45,6 +45,14 @@ Detection note: the selector's default detection service wraps `LlmService.get_a
 ## [Instructions Block - Operator-Defined Tasks]
 
 ### Future Tasks
+0. **`SearchTab` (`find_keywords.py`) überarbeiten** (Operator, July 15): der Tab ist der
+   letzte Nicht-Pipeline-Sucheinstieg und hängt hinter dem Plugin-System zurück.
+   - **Bug**: Quellen-Checkboxen werden einmalig in `init_ui()` aus
+     `_gnd_source_ids()` gebaut → Plugin-Enable/Disable greift erst nach **Neustart**.
+     `_refresh_plugin_tools` (`_main_window_settings.py:61`) aktualisiert nur die
+     ToolRegistry; ein `SearchTab.refresh_sources()` fehlt und wäre dort einzuhängen.
+   - Umfang der Überarbeitung offen — vor Umbau Zweck klären (vgl. `MEMORY.md`:
+     Pipeline ist der Haupteinstieg).
 1. **Pipeline Configuration UI**: graphical configuration for pipeline steps/models
 2. **Pipeline Templates**: save/load workflow configurations
 3. **Batch Review Table**: enhanced table view for batch results

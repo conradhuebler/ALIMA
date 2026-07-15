@@ -6,6 +6,51 @@
 
 ## 2026
 
+### WP Plugin-Konvergenz P1: Built-in-Namen entkoppelt (July 15, 2026)
+
+Erster Schritt des Konvergenz-WP ([`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md)):
+ein kopiertes/externes Provider-Plugin bekommt jetzt `agent_view`, eigene Raw-Cache-Keys
+und Default-Provenienz — ohne Core-Edit. Alle vier Kopplungen laufen über **vorhandene**
+Deklarationskanäle (Leitregel: was `deploy_poc.py` beim Kopieren mitnimmt, muss im
+Provider-Dir liegen). Suite `1245 → 1259 passed` (0 fail).
+
+- **`_SOURCE_PARAM_KEYS` → Klassenattribut `raw_cache_param_keys`** (`provider_base.py`
+  Default `("search_type",)`; swb `+max_pages`, finc `+facets` — die Map war zu 60%
+  redundant) + Accessor `registry.raw_cache_param_keys(source)`; `raw_cache_params_for`
+  löst darüber auf (lazy import, sonst Zyklus). Byte-identisch für alle sechs Quellen +
+  unbekannte Labels. Geschlossen: `poc_swb` keyte `max_pages=3` und `=5` auf denselben
+  Eintrag.
+- **`_agent_view_deriver`**: `if source == "lobid"` → `getattr(underlying_suggester(p),
+  "transform_agent_view", None)`, exakt gespiegelt von `_source_transform`.
+- **Aggregate-Default**: `sources or ["lobid","swb","catalog"]` →
+  `enabled_gnd_provider_ids(config=self._alima_config())` mit `is not None`-Check.
+  ⚠️ Kein Provenienz-Bruch: der Default liefert bei Standard-Config **vier** Ids
+  (`gnd_local` ist GND-fähig), aber `gnd_local` hat keinen Suggester → der bestehende
+  Transform-Filter verwirft ihn → identische Menge/Ordnung. Als Test festgenagelt.
+  `tool_schemas.py` entsprechend umformuliert (prompt-sichtbar; benennt jetzt
+  `list_plugins` statt einer Id-Liste, und warnt vor `source_label ≠ provider_id`).
+- **`hand_wired` gelöscht**: canonical → `_make_search_handler` für alle Typen; das eine
+  `"finc"`-Literal wandert *hinein* (P2 = Löschung). `raise ValueError` bei unbekannter
+  `result_shape` entfernt — war unerreichbar, wurde durch den Edit erreichbar und hätte
+  die ganze Tool-Liste gesprengt.
+- **Bugs mit erledigt**: `_attach_agent_view` baute den Cache-Key von Hand (passte nur
+  für lobid zufällig); `find_keywords` kollabierte `None`/`[]` (suchte gegen ein
+  explizites Disable) und erfand an zwei weiteren Stellen `"lobid"` ohne aktive Quelle.
+- **Tests +14**: Kopie erbt Key-Shape; `agent_view` für Kopie + max_pages-gekeyte
+  Quelle; Vergleichslauf Default==Literal (netzfrei, ersetzt den im WP geforderten
+  manuellen Lauf); None/`[]` beidseitig; canonical Code-Plugin mit umbenanntem Tool
+  bekommt den nuancierten Handler; unsinnige `result_shape` sprengt die Generierung
+  nicht; erste Tests überhaupt für `find_keywords`-Logik.
+  **`test_all_external_plugins_poc` war nach dem Edit still falsch-grün** (`assertIn
+  ("error")` traf auch den AttributeError-Absturz, `assertTrue(built_ids)` schon durch
+  `poc_finc` allein) → verschärft: beide Patch-Targets, `len(built_ids)`, Fehlertext
+  geprüft.
+- **Doc-Korrektur**: P1s Versprechen „POC-E2E deckt dann Aggregation ab" gilt **nur**
+  direkt gerufen — `gnd_batch_search` übergibt `sources` aus der hartkodierten
+  `source_tools`-Map (P6). In `plugin_authoring.md` + WP-Doc richtiggestellt.
+- **Offen (Operator):** Click-Test `find_keywords` (Quellen-Checkboxen, „keine Quelle
+  aktiv"-Pfad) — headless nicht verifizierbar.
+
 ### Plugin-System-Audit: Quick-Wins + Konvergenz-WP (July 14, 2026)
 
 Drei-Agenten-Audit der Plugin-Umstellung (kritische Bilanz): Konstruktions-Schicht +

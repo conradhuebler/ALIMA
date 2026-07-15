@@ -24,17 +24,11 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, runtime_checkable
 
 
-# WP2 raw cache: which request params are part of a source's cache key. Single
-# source of truth for BOTH the write seam and every reader, so they can never
-# drift (a mismatch → raw miss → mapping fallback). lobid ignores max_pages; swb
-# pages on it; finc keys on its facet set. - Claude Generated
-_SOURCE_PARAM_KEYS: Dict[str, tuple] = {
-    "lobid": ("search_type",),
-    "swb": ("search_type", "max_pages"),
-    "catalog": ("search_type",),
-    "catalog_titles": ("search_type",),
-    "finc": ("search_type", "facets"),
-}
+# WP2 raw cache: which request params are part of a source's cache key. Every
+# source keys on ``search_type``; a provider declaring more (swb pages on
+# ``max_pages``, finc keys on its facet set) says so via the class attribute
+# ``raw_cache_param_keys``, which a copied plugin dir carries with it. - Claude Generated
+_DEFAULT_RAW_CACHE_PARAM_KEYS: tuple = ("search_type",)
 
 
 def raw_cache_params_for(
@@ -49,9 +43,17 @@ def raw_cache_params_for(
     The write seam and the aggregate/pipeline readers all build the cache-key
     params through this one function, so a non-default search (``title``, a custom
     ``max_pages``) is looked up under exactly the key it was stored with instead of
-    silently missing. Keys with ``None`` values are dropped. - Claude Generated
+    silently missing. Keys with ``None`` values are dropped.
+
+    ``source`` is a *cache-source label*: for GND sources it equals the provider id,
+    but a provider may emit others (``catalog_titles``). Labels with no registered
+    provider — and providers declaring nothing — use the default key set.
+    - Claude Generated
     """
-    keys = _SOURCE_PARAM_KEYS.get(source, ("search_type",))
+    # Lazy: registry imports this module, so a top-level import would cycle.
+    from .registry import raw_cache_param_keys
+
+    keys = raw_cache_param_keys(source)
     values: Dict[str, Any] = {"search_type": search_type, "max_pages": max_pages, "facets": facets}
     return {k: values[k] for k in keys if values.get(k) is not None}
 
@@ -236,11 +238,16 @@ class SearchProvider(Protocol):
     registry without instantiation). ``is_available`` gates the provider on its
     config; ``search`` runs one capability. ``progress`` is an optional per-term
     callback (the Qt-free replacement for ``currentTerm``).
+
+    ``raw_cache_param_keys`` is optional (default ``("search_type",)``): the WP2
+    raw-cache key params, declared here rather than in a central map so a copied
+    plugin keeps its own key shape. See :func:`raw_cache_params_for`.
     """
 
     id: str
     label: str
     capabilities: Set[SearchCapability]
+    raw_cache_param_keys: tuple
 
     def is_available(self, cfg: Any = None) -> bool: ...
 

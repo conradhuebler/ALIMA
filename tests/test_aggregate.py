@@ -171,6 +171,134 @@ class AggregateMcpToolTest(unittest.TestCase):
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
+class AggregateDefaultSourcesTest(unittest.TestCase):
+    """The default source list is derived from the enabled instances (WP P1).
+
+    Replaces the hardcoded ``["lobid","swb","catalog"]`` so an external GND plugin
+    reaches the pool's provenance. - Claude Generated
+    """
+
+    def setUp(self):
+        UnifiedKnowledgeManager.reset()
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        self.tmp.close()
+        self.km = UnifiedKnowledgeManager(database_config=_sqlite_config(self.tmp.name))
+
+    def tearDown(self):
+        UnifiedKnowledgeManager.reset()
+        try:
+            os.unlink(self.tmp.name)
+        except OSError:
+            pass
+
+    def _registry(self, cfg):
+        from unittest.mock import MagicMock
+
+        from src.mcp.tool_registry import ToolRegistry
+
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = MagicMock(load_config=lambda: cfg)
+        reg._knowledge_manager = self.km
+        reg._suggesters_initialized = True
+        reg._provider_cache = {
+            ("lobid", False): _FakeProvider(),
+            ("swb", False): _FakeProvider(),
+            ("catalog", False): _FakeProvider(),
+        }
+        return reg
+
+    def _standard_config(self):
+        """All six built-ins enabled — what synthesize_search_instances produces."""
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(pid, "search_provider", pid, enabled=True, is_primary=True)
+            for pid in ("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
+        ]
+        return cfg
+
+    def test_derived_default_matches_the_legacy_literal(self):
+        """The Vergleichslauf: gnd_local is GND-capable and enabled, but has no
+        suggester → the pre-existing transform filter drops it → provenance,
+        order and ranking stay byte-identical to the old hardcoded default."""
+        from src.core.search.factory import enabled_gnd_provider_ids
+
+        cfg = self._standard_config()
+        # Guard against a false green: if the config read failed, the handler would
+        # fall back to the very literal we compare against and this test would pass
+        # while proving nothing. Pin that the derivation really runs — and really
+        # yields a *fourth* id that the transform filter then has to drop.
+        self.assertEqual(
+            enabled_gnd_provider_ids(config=cfg), ["lobid", "swb", "catalog", "gnd_local"]
+        )
+
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+        reg = self._registry(cfg)
+
+        derived = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
+        literal = json.loads(
+            reg._handle_aggregate_gnd_results(["wasser"], sources=["lobid", "swb", "catalog"])
+        )
+        self.assertEqual(derived, literal)
+        self.assertEqual(derived["sources"], ["lobid", "swb", "catalog"])
+
+    def test_external_plugin_joins_the_default(self):
+        """P1's point: a copied plugin reaches the provenance with no core edit."""
+        from src.core.search.providers.lobid.provider import LobidProvider
+        from src.core.search.registry import PROVIDER_REGISTRY, register_provider
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        saved = dict(PROVIDER_REGISTRY)
+        try:
+            @register_provider
+            class _PocLobid(LobidProvider):
+                id = "poc_lobid"
+
+            cfg = AlimaConfig()
+            cfg.plugins = [
+                PluginInstanceConfig("poc_lobid", "search_provider", "poc_lobid",
+                                     enabled=True, is_primary=True)
+            ]
+            self.km.store_raw_response("poc_lobid", "wasser", {"search_type": "kw"}, "{}")
+            reg = self._registry(cfg)
+            reg._provider_cache = {("poc_lobid", False): _FakeProvider()}
+
+            out = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
+            self.assertEqual(out["sources"], ["poc_lobid"])
+            self.assertEqual(out["pool"][0]["sources"], ["poc_lobid"])
+        finally:
+            PROVIDER_REGISTRY.clear()
+            PROVIDER_REGISTRY.update(saved)
+
+    def test_unreadable_config_keeps_the_legacy_default(self):
+        """None (not []) means 'config unreadable' → never search nothing."""
+        from unittest.mock import patch
+
+        reg = self._registry(self._standard_config())
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+        with patch("src.core.search.factory.enabled_gnd_provider_ids", return_value=None):
+            out = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
+        self.assertEqual(out["sources"], ["lobid", "swb", "catalog"])
+
+    def test_all_sources_disabled_aggregates_nothing(self):
+        """[] means the operator disabled every GND source — respect it."""
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(pid, "search_provider", pid, enabled=False, is_primary=True)
+            for pid in ("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
+        ]
+        reg = self._registry(cfg)
+        self.km.store_raw_response("lobid", "wasser", {"search_type": "kw"}, "{}")
+
+        out = json.loads(reg._handle_aggregate_gnd_results(["wasser"]))
+        self.assertEqual(out["sources"], [])
+        self.assertEqual(out["pool"], [])
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class DefaultAggregateToggleTest(unittest.TestCase):
     """default_aggregate_from_raw reads SystemConfig.aggregate_from_raw (toggle)."""
 

@@ -29,6 +29,7 @@ class FincProvider:
         SearchCapability.SUBJECT_FACETS,
         SearchCapability.CLASSIFICATION,
     }
+    raw_cache_param_keys = ("search_type", "facets")  # results depend on the facet set
 
     @classmethod
     def config_fields(cls) -> List[ConfigField]:

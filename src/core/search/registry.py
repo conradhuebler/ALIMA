@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Type
 
-from .provider import SearchCapability, SearchProvider
+from .provider import _DEFAULT_RAW_CACHE_PARAM_KEYS, SearchCapability, SearchProvider
 
 PROVIDER_REGISTRY: Dict[str, Type[SearchProvider]] = {}
 
@@ -61,6 +61,19 @@ def providers_for_capability(capability: SearchCapability) -> List[str]:
         for pid, cls in PROVIDER_REGISTRY.items()
         if capability in getattr(cls, "capabilities", set())
     )
+
+
+def raw_cache_param_keys(source: str) -> tuple:
+    """Return the WP2 raw-cache key params a source declares - Claude Generated.
+
+    ``source`` is a cache-source label; unregistered labels (``catalog_titles``)
+    and providers declaring nothing get the default. Read off the class, so a
+    copied plugin dir keeps its own key shape instead of colliding on the default.
+    """
+    cls = PROVIDER_REGISTRY.get(source)
+    if cls is None:
+        return _DEFAULT_RAW_CACHE_PARAM_KEYS
+    return getattr(cls, "raw_cache_param_keys", _DEFAULT_RAW_CACHE_PARAM_KEYS)
 
 
 def provider_tool_specs() -> List:

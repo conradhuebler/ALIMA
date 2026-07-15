@@ -365,13 +365,17 @@ class SearchTab(QWidget):
 
     def _gnd_source_ids(self):
         """Aktivierte + verfügbare GND-Quellen-Typen (Plugins-Tab-Gate) für die
-        Quellen-Checkboxen; Fallback lobid+swb wenn die Config nicht lesbar ist.
+        Quellen-Checkboxen.
+
+        ``None`` (Config nicht lesbar) → Fallback lobid+swb; eine *leere* Liste
+        heißt dagegen „Operator hat alle GND-Quellen deaktiviert" und bleibt leer —
+        beides zu vermengen würde gegen ein explizites Disable suchen.
         - Claude Generated"""
         try:
             from ..core.search.factory import enabled_gnd_provider_ids
 
             ids = enabled_gnd_provider_ids(available_only=True)
-            return ids if ids else ["lobid", "swb"]
+            return ids if ids is not None else ["lobid", "swb"]
         except Exception as e:
             self.logger.warning(f"Quellenliste nicht ladbar, Fallback lobid+swb: {e}")
             return ["lobid", "swb"]
@@ -417,14 +421,25 @@ class SearchTab(QWidget):
                 self.progressBar.setVisible(False)
                 return
 
+            # Keine Quelle aktiv → nichts zu suchen. Eine Quelle zu erfinden würde
+            # gegen das Plugins-Tab-Gate suchen. - Claude Generated
+            if not self.source_checkboxes:
+                self.status_label.setText(
+                    "Keine GND-Quelle aktiv — im Plugins-Tab aktivieren."
+                )
+                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+                self.search_button.setEnabled(True)
+                self.progressBar.setVisible(False)
+                return
+
             # Bestimme die zu verwendenden Provider-Ids - Claude Generated
             suggester_types = [
                 pid for pid, cb in self.source_checkboxes.items() if cb.isChecked()
             ]
 
-            # Wenn keine Quelle ausgewählt wurde, erste aktive Quelle als Standard
+            # Nichts angehakt → erste *aktive* Quelle als Standard (nie ein Literal)
             if not suggester_types:
-                fallback = next(iter(self.source_checkboxes), "lobid")
+                fallback = next(iter(self.source_checkboxes))
                 self.logger.warning(
                     f"Keine Suchquelle ausgewählt, verwende {fallback} als Standard."
                 )
@@ -1283,9 +1298,15 @@ class SearchTab(QWidget):
             # merged call that populates the shared caches. - Claude Generated
             from src.core.search.service import resolve_gnd_instances, search_gnd_keywords
 
+            # Bevorzugt lobid/swb (billig, keine DK-Lookups), sonst die erste aktive
+            # Quelle. Ohne aktive Quelle nicht suchen statt eine zu erfinden.
+            # - Claude Generated
             manual_ids = [
                 pid for pid in ("lobid", "swb") if pid in self.source_checkboxes
-            ] or list(self.source_checkboxes)[:1] or ["lobid"]
+            ] or list(self.source_checkboxes)[:1]
+            if not manual_ids:
+                self.logger.warning("Keine GND-Quelle aktiv — Suche übersprungen.")
+                return
             all_results, _errors = search_gnd_keywords(
                 search_terms, resolve_gnd_instances(manual_ids), cache=True,
             )

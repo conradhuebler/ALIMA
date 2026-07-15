@@ -16,6 +16,7 @@ class SwbProvider(SuggesterBackedProvider):
     id = "swb"
     label = "SWB (BSZ)"
     capabilities = {SearchCapability.GND_KEYWORDS}
+    raw_cache_param_keys = ("search_type", "max_pages")  # pages on max_pages
 
     @classmethod
     def doc(cls):

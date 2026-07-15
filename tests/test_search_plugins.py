@@ -222,5 +222,36 @@ class InputToolGenerationTest(unittest.TestCase):
         self.assertNotIn("resolve_doi_openalex", tr._tools)  # gone at runtime
 
 
+class GndSourceIdsNoneVsEmptyTest(unittest.TestCase):
+    """The None-vs-[] contract at the find_keywords call site - Claude Generated.
+
+    ``enabled_gnd_provider_ids`` returns None when the config can not be read
+    (callers keep their own default) and [] when the operator disabled every GND
+    source. Collapsing them (``ids if ids else default``) searches the built-ins
+    against an explicit disable. The tab's source-checkbox builder is Qt-free
+    apart from ``self.logger``, so it is callable unbound.
+    """
+
+    def _call(self, return_value):
+        from unittest.mock import MagicMock, patch
+
+        from src.ui.find_keywords import SearchTab
+
+        stub = MagicMock()  # only self.logger is touched
+        with patch(
+            "src.core.search.factory.enabled_gnd_provider_ids", return_value=return_value
+        ):
+            return SearchTab._gnd_source_ids(stub)
+
+    def test_unreadable_config_falls_back(self):
+        self.assertEqual(self._call(None), ["lobid", "swb"])
+
+    def test_empty_means_all_disabled_and_is_respected(self):
+        self.assertEqual(self._call([]), [])
+
+    def test_enabled_ids_pass_through(self):
+        self.assertEqual(self._call(["poc_lobid"]), ["poc_lobid"])
+
+
 if __name__ == "__main__":
     unittest.main()

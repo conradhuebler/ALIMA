@@ -97,7 +97,7 @@ class AllExternalPluginsPocTest(unittest.TestCase):
 
     # -- 2. agentic: canonical tools bound to the own plugins ---------------
     def test_agentic_tools_served_by_own_plugins(self):
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         from src.mcp.tool_registry import ToolRegistry
 
@@ -105,6 +105,11 @@ class AllExternalPluginsPocTest(unittest.TestCase):
         reg = ToolRegistry.__new__(ToolRegistry)
         reg._config_manager = types.SimpleNamespace(load_config=lambda: cfg)
         reg._suggesters_initialized = True
+        # __new__ skips __init__: the nuanced canonical handlers reach the raw
+        # cache, and without these a handler dies on AttributeError and reports it
+        # as {"error": …} — indistinguishable from the guarded stub below. - Claude Generated
+        reg._knowledge_manager = MagicMock()
+        reg._provider_cache = {}
 
         tools = reg._generated_search_tools()
         names = {td.name for td, _ in tools}
@@ -126,15 +131,73 @@ class AllExternalPluginsPocTest(unittest.TestCase):
 
             return _Stub()
 
-        with patch("src.core.search.build_provider", side_effect=fake_build):
-            for name in ("search_lobid", "search_swb", "search_catalog", "search_finc"):
+        checked = ("search_lobid", "search_swb", "search_catalog", "search_finc")
+        # Two patch targets, one per import site: the canonical nuanced handlers go
+        # through _provider_for (`from src.core.search.factory import …`), the
+        # generic one through the re-export (`from src.core.search import …`), which
+        # is bound at import and unaffected by patching the factory. - Claude Generated
+        with patch("src.core.search.build_provider", side_effect=fake_build), patch(
+            "src.core.search.factory.build_provider", side_effect=fake_build
+        ):
+            for name in checked:
                 out = json.loads(handlers[name](["Wasser"]))
-                self.assertIn("error", out)  # unavailable stub is guarded, not crashing
+                # The *guarded* error, not an incidental crash.
+                self.assertIn("error", out)
+                self.assertIn("not available", out["error"], f"{name}: unguarded failure")
 
         # every canonical search tool built an own-plugin provider, never a built-in
-        self.assertTrue(built_ids)
+        self.assertEqual(len(built_ids), len(checked), f"not every tool built a provider: {built_ids}")
         for pid in built_ids:
             self.assertTrue(pid.startswith("poc_"), f"tool routed to built-in '{pid}'")
+
+    # -- 2b. WP2 nuances now reach the own plugins (WP P1) ------------------
+    def test_aggregate_default_and_agent_view_follow_own_plugins(self):
+        """The default source list + agent_view are derived, not id-literals.
+
+        Scope note: this drives ``aggregate_gnd_results`` directly. The *agentic*
+        path (``gnd_batch_search``) still passes ``sources`` from a hardcoded
+        ``{"swb": "search_swb", "lobid": "search_lobid"}`` map in
+        deterministic_functions — under this POC those ids are disabled, so it
+        would return an empty pool. Testing through it would prove the opposite of
+        the truth; that map is WP P6. - Claude Generated
+        """
+        from unittest.mock import MagicMock
+
+        from src.core.search.provider import raw_cache_params_for
+        from src.mcp.tool_registry import ToolRegistry
+
+        cfg = self._external_only_config()
+
+        # agent_view: poc_lobid inherits LobidSuggester.transform_agent_view.
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+
+        km = MagicMock()
+        blob = json.dumps({"totalItems": 12, "member": [{"title": "Z"}]})
+        km.get_raw_response.return_value = {"raw_json": blob}
+
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = types.SimpleNamespace(load_config=lambda: cfg)
+        reg._knowledge_manager = km
+        reg._suggesters_initialized = True
+        reg._provider_cache = {
+            ("poc_lobid", False): types.SimpleNamespace(suggester=LobidSuggester)
+        }
+
+        out = {"source": "lobid", "results": {}}
+        reg._attach_agent_view(out, "poc_lobid", ["wasser"], "kw")
+        self.assertEqual(out["agent_view"]["wasser"]["totalItems"], 12)
+        # …read under the copy's own key, i.e. the copy's own raw entries.
+        km.get_raw_response.assert_called_with(
+            "poc_lobid", "wasser", raw_cache_params_for("poc_lobid", search_type="kw")
+        )
+
+        # aggregate default: derived from the enabled poc_* instances.
+        from src.core.search.factory import enabled_gnd_provider_ids
+
+        ids = enabled_gnd_provider_ids(config=cfg)
+        self.assertTrue(ids, "no GND ids derived from the own-plugins config")
+        for pid in ids:
+            self.assertTrue(pid.startswith("poc_"), f"built-in '{pid}' leaked into the default")
 
     # -- 3. classic: execute_gnd_search follows the enabled own plugins -----
     def test_classic_search_falls_back_to_own_plugins(self):

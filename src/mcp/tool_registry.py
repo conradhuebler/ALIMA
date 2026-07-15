@@ -1252,14 +1252,11 @@ class ToolRegistry:
         for inst in self._search_instances():
             by_type.setdefault(inst.provider_id, []).append(inst)
 
-        # Types whose canonical handlers carry built-in nuances (gnd_url
-        # enrichment, agent_view, non-default raw passthrough, finc web_url) —
-        # ``_make_search_handler`` (factory-backed) / ``_handle_search_finc``. Any
-        # other type — i.e. a loaded code plugin — must use the generic
-        # instance handler even when canonical, otherwise it would answer with
-        # the wrong backend or "not available". - Claude Generated
-        hand_wired = {"lobid", "swb", "catalog", "finc"}
-
+        # Canonical instances get the nuanced handler (gnd_url enrichment,
+        # agent_view, non-default raw passthrough) regardless of type: it is
+        # factory-backed, so it answers from the instance's *own* provider class —
+        # a copied plugin included. ``_handle_search_finc`` is the one exception
+        # that ignores its instance; ``_make_search_handler`` gates it. - Claude Generated
         tools = []
         used_names = set()
         for provider_id, instances in by_type.items():
@@ -1270,12 +1267,9 @@ class ToolRegistry:
             for inst in instances:
                 is_canonical = inst is canonical
                 for spec in specs:
-                    if is_canonical and provider_id in hand_wired:
+                    if is_canonical:
                         name = spec.name
                         handler = self._make_search_handler(spec, inst)
-                    elif is_canonical:
-                        name = spec.name
-                        handler = self._make_instance_handler(spec, inst)
                     else:
                         name = self._instance_tool_name(spec.name, inst)
                         handler = self._make_instance_handler(spec, inst)
@@ -1626,9 +1620,19 @@ class ToolRegistry:
         """
         self._init_suggesters()
         from src.core.search.aggregate import aggregate_gnd_results
+        from src.core.search.factory import enabled_gnd_provider_ids
         from src.core.search.provider import raw_cache_params_for
 
-        sources = sources or ["lobid", "swb", "catalog"]
+        derived_default = False
+        if not sources:
+            # Default = whatever the operator enabled (the Plugins-tab gate that
+            # already governs the classic path + tool generation), so an external
+            # GND plugin appears in the pool's provenance. ``None`` = config
+            # unreadable → keep the legacy list; ``[]`` = every GND source disabled
+            # → aggregate nothing (never collapse those two). - Claude Generated
+            ids = enabled_gnd_provider_ids(config=self._alima_config())
+            sources = ids if ids is not None else ["lobid", "swb", "catalog"]
+            derived_default = ids is not None
         km = self._get_knowledge_manager()
 
         transform_by_source = {}
@@ -1642,22 +1646,36 @@ class ToolRegistry:
                 src, search_type=search_type, max_pages=max_pages
             )
 
+        effective = list(transform_by_source.keys())
+        if derived_default and effective != ["lobid", "swb", "catalog"]:
+            # Provenance/source_count deviates from the historical default — say so
+            # once, else a changed ranking is archaeology (the per-source drop above
+            # only logs at debug). Silent on a standard config. - Claude Generated
+            logger.info("aggregate_gnd_results: config-derived sources %s", effective)
+
         out = aggregate_gnd_results(
-            terms, list(transform_by_source.keys()), km, transform_by_source,
+            terms, effective, km, transform_by_source,
             params_by_source=params_by_source,
         )
         return json.dumps(out, ensure_ascii=False, default=str)
 
     def _make_search_handler(self, spec, inst):
+        """Handler for a canonical instance: the nuanced, factory-backed path.
+
+        Unknown shapes fall through to the generic instance handler rather than
+        raising — every canonical spec reaches this, so one odd plugin must not
+        take the whole tool list down. - Claude Generated
+        """
         if spec.result_shape == "gnd_keywords":
             return self._make_gnd_keywords_handler(spec, inst)
         if spec.result_shape == "title_records":
             return self._make_title_records_handler(spec, inst)
-        if spec.result_shape == "finc":
+        if spec.result_shape == "finc" and spec.provider_id == "finc":
+            # The one handler that ignores `inst` and reads self._finc
+            # (CatalogConfig-built) — a copied finc must not land on the built-in
+            # backend. WP P2 deletes this branch. - Claude Generated
             return self._handle_search_finc  # rich availability/web_url logic
-        raise ValueError(
-            f"Unknown result_shape '{spec.result_shape}' for tool {spec.name}"
-        )
+        return self._make_instance_handler(spec, inst)
 
     def _make_gnd_keywords_handler(self, spec, inst):
         """GND-keyword tool handler built on the search factory (no MetaSuggester).
@@ -1719,24 +1737,35 @@ class ToolRegistry:
             out = {"source": spec.source_label, "results": serialized}
             if spec.include_errors:
                 out["errors"] = errors
-            self._attach_agent_view(out, raw_id, terms, search_type)
+            self._attach_agent_view(out, raw_id, terms, search_type, max_pages=max_pages)
             return json.dumps(out, ensure_ascii=False)
 
         return handler
 
-    @staticmethod
-    def _agent_view_deriver(source):
-        """Map a source id to its raw→agent-view function (None if unsupported).
+    def _agent_view_deriver(self, source):
+        """Resolve a source id to its raw→agent-view function (None if unsupported).
 
-        Transform-on-read dispatch for the WP2 raw cache. Lazy import to avoid a
-        Qt/suggester import at module load. - Claude Generated
+        Transform-on-read dispatch for the WP2 raw cache, resolved exactly like the
+        sibling ``_source_transform``: the provider is built through the factory and
+        the optional ``transform_agent_view`` is read off its underlying suggester.
+        A provider that declares one (incl. a copied plugin) participates; the rest
+        return None. - Claude Generated
         """
-        if source == "lobid":
-            from src.core.search.providers.lobid.suggester import LobidSuggester
-            return LobidSuggester.transform_agent_view
+        if not source:
+            return None
+        try:
+            from src.core.search.service import underlying_suggester
+
+            inst = self._instance_for(source)
+            if inst is None:
+                return None
+            sugg = underlying_suggester(self._provider_for(inst, cache=False))
+            return getattr(sugg, "transform_agent_view", None)
+        except Exception as e:
+            logger.debug(f"agent_view deriver for '{source}' unavailable: {e}")
         return None
 
-    def _attach_agent_view(self, out, source, terms, search_type):
+    def _attach_agent_view(self, out, source, terms, search_type, max_pages=5):
         """Surface the full source view (member/totalItems) from the raw cache.
 
         Transform-on-read consumer of the WP2 raw cache: best-effort and additive
@@ -1745,6 +1774,8 @@ class ToolRegistry:
         default cached path the raw was written by the fetch seam (miss) or exists
         from a prior fetch (mapping hit). - Claude Generated
         """
+        from src.core.search.provider import raw_cache_params_for
+
         deriver = self._agent_view_deriver(source)
         if deriver is None:
             return
@@ -1752,7 +1783,9 @@ class ToolRegistry:
             km = self._get_knowledge_manager()
         except Exception:
             return
-        params = {"search_type": search_type}
+        # Same key the write seam used — a source keying on max_pages/facets would
+        # silently miss against a hand-built {"search_type": …}. - Claude Generated
+        params = raw_cache_params_for(source, search_type=search_type, max_pages=max_pages)
         view = {}
         for term in terms:
             cached = km.get_raw_response(source, term, params)

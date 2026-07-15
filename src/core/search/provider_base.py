@@ -32,6 +32,9 @@ class SuggesterBackedProvider:
     id: str = ""
     label: str = ""
     capabilities: set = set()
+    # WP2 raw-cache key params (see provider.raw_cache_params_for). Override when
+    # the source's results depend on more than ``search_type``. - Claude Generated
+    raw_cache_param_keys: tuple = ("search_type",)
 
     def __init__(self, **config: Any):
         self._config = config or {}
