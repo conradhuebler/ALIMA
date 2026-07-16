@@ -3,9 +3,16 @@
 Brings the SRU/MARC-XML backend (DNB, LoC, GBV, SWB, K10plus, or a custom SRU
 endpoint) into the provider standard as a first-class *type* ``sru``. Historically
 this lived only as ``CatalogConfig.catalog_type == 'marcxml_sru'`` and was wired by
-hand in ``pipeline_utils.execute_dk_search``; as a provider it is config-selectable
-like any other source and its endpoint/preset live in its own instance settings
-(replacing the ``catalog_type``/``get_catalog_type()`` heuristic — Debt D-5).
+hand in ``pipeline_utils.execute_dk_search``; as a provider its endpoint/preset live
+in its own instance settings.
+
+.. warning::
+   This docstring used to claim the ``catalog_type``/``get_catalog_type()`` heuristic
+   was "replaced (Debt D-5)". **That is false** (verified July 16): whether this
+   provider runs as the DK backend is *still* decided by
+   ``CatalogConfig.catalog_type == 'marcxml_sru'`` in ``factory.resolve_dk_extractor``,
+   i.e. by a field on the **catalog** plugin. WP Plugin-Konvergenz **P4** gives ``sru``
+   its own ``dk_enabled`` (symmetric to finc) and makes ``catalog_type`` vestigial.
 
 Wraps :class:`MarcXmlClient`. Declares TITLE_RECORDS (bibliographic records via
 SRU search) and CLASSIFICATION (DK/RVK extraction). No MCP tool is declared: SRU

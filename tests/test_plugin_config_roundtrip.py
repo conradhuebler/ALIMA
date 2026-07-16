@@ -1,6 +1,6 @@
 """End-to-end config migration + round-trip idempotency for the plugin model - Claude Generated.
 
-The highest-risk part of the plugin refactor is that ~298 legacy readers keep
+The highest-risk part of the plugin refactor is that ~53 legacy readers keep
 seeing an exact ``CatalogConfig`` / ``SystemConfig`` mirror. This locks in:
 
 * a pre-plugin config synthesises search + input instances on load, and

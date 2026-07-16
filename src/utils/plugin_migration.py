@@ -1,7 +1,7 @@
 """Migration between the flat legacy config and the per-instance plugin model - Claude Generated.
 
 The authoritative store is ``AlimaConfig.plugins`` (a list of
-:class:`PluginInstanceConfig`). For the ~298 legacy readers, ``CatalogConfig`` (and,
+:class:`PluginInstanceConfig`). For the ~53 legacy readers, ``CatalogConfig`` (and,
 later, DOI ``SystemConfig`` fields) are kept as *derived mirrors*:
 
 * :func:`synthesize_search_instances` — build the initial instance list from a

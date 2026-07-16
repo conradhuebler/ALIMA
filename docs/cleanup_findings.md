@@ -19,17 +19,29 @@ categories). Most are *fixed* by that work; a few remain open. Spec:
   availability/web_url shaping — additional instances use the factory handler).
 - **D-3 ✅** stale `SearchProviderConfig` docstring updated (endpoints now in instances).
 - **D-4 ✅** provider config wired by hand at ≥3 sites → single `build_provider` factory.
-- **D-5 ✅** `CatalogConfig.get_catalog_type()` provider-selection heuristic superseded
-  by `is_primary`/the `sru` provider type (heuristic itself left in place as a
-  now-unused mirror helper; safe to delete once no reader calls it — open sub-item).
+- **D-5 🔴 (open — the ✅ was wrong)** `CatalogConfig.get_catalog_type()` was recorded as
+  "superseded by `is_primary`/the `sru` provider type … now-unused mirror helper". **Verified
+  false July 16:** it is still the *live* DK-backend selector — `pipeline_utils.py:4536` calls
+  it to resolve `catalog_type == 'auto'`, and `factory.resolve_dk_extractor` branches on
+  `catalog_type == "marcxml_sru"`. Its `'auto'` branch is literally `SruProvider.is_available()`
+  written a second time. Resolved by **WP Plugin-Konvergenz P4** (operator decision: `sru` gets
+  its own `dk_enabled`, `catalog_type` becomes vestigial); `get_catalog_type()` survives only as
+  the one-shot migration rule, then dies. Same false claim in
+  `src/core/search/providers/sru/provider.py:5-8`.
 - **D-6 ✅** `save_config` `preserve_unified` merge extended to carry `plugins` +
   `approved_plugins` (derive-on-save keeps the mirrors exact; round-trip test gates it).
 - **D-7 (open, security)** API keys/tokens still plaintext in `config.json`; plugin
   settings add more secrets. `ConfigField(secret=True)` is the anchor for a future
   keyring backend — not done here.
 - **D-8 (open, transitional)** `CatalogConfig`/`SystemConfig` are now *derived mirrors*;
-  the ~298 legacy readers should migrate to the factory/instances over time, then the
-  mirrors can be dropped.
+  the legacy readers should migrate to the factory/instances over time, then the
+  mirrors can be dropped. ⚠️ **The "~298" figure was wrong (recounted July 16): 53 actual
+  attribute reads across 10 files.** 302 counts field-name *string occurrences* — incl.
+  `resolve_dk_extractor`'s 15 kwargs (0 reads), `marcxml_client`'s constructor params
+  (0 reads), `ConfigField` key declarations (the *replacement*), and ~84 wizard **writes**.
+  The dominant cluster is `execute_dk_search` (18) — which **P4 eats**, leaving ~35.
+  `SearchProviderConfig`: 5 production sites. The inflated number is what made this read
+  as un-attemptable; scheduled as **WP Plugin-Konvergenz P7** (gated on P2 + P4).
 - **D-9 ✅** URL scraper was inline in `batch_processor` → extracted to
   `input_sources/url_fetch.py` (`scrape_url`); batch now delegates.
 - **D-10 ✅** monolithic `UnifiedResolver` + `SystemConfig` DOI flags → three separately

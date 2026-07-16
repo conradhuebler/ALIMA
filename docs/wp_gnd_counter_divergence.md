@@ -61,8 +61,17 @@ Mirror the same two-field addition in `state_bridge._flatten_search_results`
 **Why this respects the count-landmine** (the risk to guard): it writes only into the
 **display** structure `KeywordAnalysisState.search_results`. Ranking/chunking reads
 `count`/`source_count` off `context.gnd_entries` inside `rank_pool`/`selection_chunks`,
-which this does **not** touch — pool `count` stays `1` there. `flatten_gnd_hits` already
-does `max(count, display_count)`, so no formatter change is needed.
+which this does **not** touch — pool `count` stays `1` there.
+
+⚠️ **Correction (July 16): "no formatter change is needed" was true only for the GND-Recherche
+table.** `flatten_gnd_hits` (`pipeline_formatters.py:268-273`) does `max(count, display_count)`,
+but **two other display surfaces read bare `count`** with no such guard, so after this fix they
+go `0 → 1` (the pool placeholder), still not the real Häufigkeit:
+- `src/cli/formatters/protocol_formatters.py:430` (`format_step_data(step="search")`) → `Halbleiter:1`
+- `src/ui/analysis_review_tab.py:855` (`populate_search_results`) → column shows `1`
+
+Both have `display_count` in scope via the row dict → fold in `max(count, display_count)`. This
+is part of C1 (4 edits, not 2).
 
 ## Secondary, distinct issue (optional, not this fix)
 

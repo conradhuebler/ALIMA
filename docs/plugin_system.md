@@ -50,7 +50,7 @@ directory loader are already category-agnostic.
 
 ## Config model + facade
 
-Instances are authoritative. For the ~298 legacy readers, `CatalogConfig` and the DOI
+Instances are authoritative. For the ~53 legacy readers, `CatalogConfig` and the DOI
 `SystemConfig` fields are kept as **derived mirrors**:
 
 - **Load** (`config_manager._parse_config`): if a category has no instances yet, they are

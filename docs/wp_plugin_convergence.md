@@ -1,10 +1,17 @@
 # WP: Plugin-Konvergenz — Orchestrierung, Built-in-Entkopplung, Lookup-Vertrag
 
-> **Status:** P1 ✅ CODE-COMPLETE (July 15), P2–P5 📋 GEPLANT + entschieden,
-> P6/P7 Backlog. Findings aus dem Drei-Agenten-Audit der Plugin-Umstellung
-> (July 14). Die Quick-Wins des Audits (toter k10plus-Wrapper, Doc-Drift,
-> Lookup-URL-Warnung + -Memoization, GUI-Bypässe) sind separat umgesetzt, siehe
-> `AIChangelog.md` July 14.
+> **Status:** P1 ✅ COMMITTED (`5360e95`), P2–P5 + P6a + P7 📋 GEPLANT + entschieden,
+> **P6f geschlossen** (Fehlbefund, s.u.). Findings aus dem Drei-Agenten-Audit der
+> Plugin-Umstellung (July 14). Die Quick-Wins des Audits (toter k10plus-Wrapper,
+> Doc-Drift, Lookup-URL-Warnung + -Memoization, GUI-Bypässe) sind separat umgesetzt,
+> siehe `AIChangelog.md` July 14.
+>
+> ⚠️ **Zweite Korrekturrunde July 16** (Code-Verifikation vor der Ausführung): vier
+> **Live-Bugs** gefunden (RVK-Cache-Shape-Kollision → RVK-Codes verschwinden lautlos;
+> `gnd_batch_search` schluckt `agg["error"]` → falsche „echte Nulltreffer";
+> `_store_suggester_raw` ignoriert die Cache-Einstellung; GND-Counter) und **vier
+> weitere Doc-Aussagen widerlegt** (P6-Dreifachheit, P7s „~298", „kein Test pinnt die
+> Divergenz", „je ein Mirror-Pendant"). Jede Korrektur steht bei ihrem Punkt.
 >
 > ⚠️ **Zeilenrefs unten sind der Stand vom 14. Juli und teils gedriftet** — beim
 > Ausführen neu greppen. Verifiziert am 15. Juli: `_handle_rvk_lookup` ist `:1120`
@@ -32,7 +39,8 @@ Vier Aussagen dieses Docs haben der Prüfung nicht standgehalten:
    `cache_manager=None` (`tool_registry.py:1151`); die RVK-Aufrufe darunter sind seit
    Phase D plugin-geroutet und `cached_call`-gewrappt, sie bekommen nur `km=None`.
    Kein Werteform-Risiko — aber der Fix *aktiviert* einen schlafenden Konflikt, siehe
-   P3 unten.
+   P3 unten. ⚠️ **Teil-Widerruf (July 16): der Konflikt schläft nicht, er ist aktiv** —
+   und trifft zu 100 %, nicht probabilistisch. Siehe die Korrektur unten.
 4. **P5 hat zwei Stellen, nicht eine.** Neben `resolve.py:40-42` synthetisiert
    `_lookup_instances` (`if insts:`) bei „alle deaktiviert" sämtliche Lookup-Typen als
    enabled zurück. Eine Entscheidung, zwei Fixes.
@@ -111,6 +119,31 @@ Drei lebende RVK-Pfade:
 **Entscheidung:** (a) MarcIndex als zweites Lookup-Plugin (`rvk_marc`) vs. bewusst
 dokumentierte Core-Ausnahme; (b) `_handle_rvk_lookup` intern auf das Plugin umstellen
 (Werteform beibehalten — es ist Pipeline-Anker-Maschinerie).
+**Entschieden (July 15):** (a) offen gelassen — `RvkMarcIndex` hat genau eine Call-Site
+(`_inject_rvk_api_fallback`, `pipeline_utils.py:2884`); P3 beschränkt sich auf (b).
+
+#### ⚠️ Vorbedingung: die Cache-Shape-Kollision ist aktiv, nicht schlafend (July 16)
+
+Am Code verifiziert. `rvk_validate`s einziger Parameter *ist* sein Cache-Key → `cache_params`
+ist auf beiden Seiten `{}` → **beide Writer treffen zu 100 % dieselbe Zeile**
+`("rvk_validate", code, {})`:
+
+| Writer | gecachter Wert |
+|---|---|
+| Pipeline `_validate_code` (`pipeline_utils.py:2690-2693`) | **innerer** Dict — hat `status` |
+| Tool-Handler (`tool_registry.py:1550-1593`) | **äußerer** Dict `{"notation","result"}` — kein `status` |
+
+`cache.py:64-65` erklärt das Teilen sogar zur Absicht („`source` should match the plugin tool
+name so the pipeline and the agent share cache entries") — aber die Formen widersprechen sich.
+Folge: `pipeline_utils.py:2730-2733` liest `.get("status") == "standard"` → bei einer
+tool-geschriebenen Zeile `None` → **der RVK-Code fällt lautlos aus `standard_validated_codes`.**
+Plausibel, falsch, ohne Fehlermeldung. Klassik (echter `km`) und Agent kollidieren **heute
+schon** cross-session; P3(b) fügt einen dritten Writer im *selben Lauf* hinzu und macht es
+zuverlässig. `rvk_search` hat dieselbe Asymmetrie (`["results"]` innen vs. voller Dict außen),
+kollidiert aber nur bei `max_results=6`.
+
+**Der Shape-Fix gehört daher vor P3** (eigener Commit C2, ~2 Edits: Unwrap außerhalb
+`cached_call` ziehen). Danach ist P3(b) wieder das, was dieses Doc verspricht: ein kwarg.
 
 ### P4 — DK-Extractor-Resolver generalisieren (mittel)
 Nur der Custom-Plugin-Zweig ist capability-getrieben; die Built-ins sind hand-verdrahtet:
@@ -132,24 +165,54 @@ Die Lookup-Familie ist der schwächere Vertrags-Zwilling der Search-Familie:
 - Instanz-Resolution doppelt: `resolve_lookup_instance` (`lookups/resolve.py:24-42`)
   ↔ `_lookup_instances` (`tool_registry.py:1480-1498`)
 
-**Offener Entscheidungspunkt (Operator, July 14 vertagt): Disable-Semantik.**
+**Entschieden (July 15): Search-Parität** — Disable gated beide Pfade.
 `resolve_lookup_instance` liefert für eine *deaktivierte* Instanz einen synthetischen
 enabled-Default („Pipeline-Anker bricht nie", `resolve.py:40-42`): Operator deaktiviert
 z.B. `rvk_api` im Plugin-Tab → Agent-Tool verschwindet, aber die klassische
 Pipeline-RVK-Validierung läuft (mit Default-Settings!) weiter. Das ist das Gegenteil
-der Search-Familie (`factory.enabled_gnd_provider_ids` gated beide Pfade). Bis zur
-Entscheidung: kein Integrationstest, der die Divergenz festschreibt — wer
-`resolve_lookup_instance` „fixt", ändert still das Pipeline-Verhalten.
+der Search-Familie (`factory.enabled_gnd_provider_ids` gated beide Pfade).
 
-### P6 — Orchestrierungs-Dreifachheit (groß, Backlog)
-Drei parallele Build+Search+Merge+Raw-Write-Implementierungen über derselben Factory:
-1. `service.py` (`search_gnd_keywords` / `_search_from_raw`) — Klassik + GUI
-2. MCP-Handler-Generatoren (`_make_gnd_keywords_handler` etc., `tool_registry.py:1646-1709`)
-   inkl. zweitem Raw-Dual-Write (`_store_suggester_raw` ↔ `provider_base._store_raw_responses`)
-   und zweitem Aggregate-Reader (`_handle_aggregate_gnd_results` ↔ `service._search_from_raw`)
-3. Agentische `deterministic_functions.py` mit hartkodierten source→tool-Maps
-   (`{"swb":"search_swb","lobid":"search_lobid"}` Z. 68; `catalog_multi_search` Z. 955;
-   bare `search_lobid` Z. 1511)
+⚠️ **Korrektur (July 16):** die frühere Warnung „kein Integrationstest schreibt die
+Divergenz fest — wer `resolve_lookup_instance` fixt, ändert still das Pipeline-Verhalten"
+ist **falsch**. `tests/test_lookup_plugins.py:446-456`
+(`test_resolve_falls_back_when_instance_disabled`) pinnt sie direkt und wird laut rot.
+Er ist zu **invertieren, nicht zu löschen** — er ist das natürliche Zuhause der neuen
+Semantik. Im Geiste stimmte die Warnung nur für den *Pipeline-Folgeeffekt*: den deckt
+kein Test ab. Ebenso ungedeckt: der Synthesize-All-Fallback in `_lookup_instances`
+(`if insts:`) — kein Test baut eine Config mit allen Lookups deaktiviert.
+
+### P6 — Source→Tool-Maps (P6a; die „Dreifachheit" war ein Fehlbefund)
+
+**Korrektur (July 16, am Code verifiziert):** die drei sind **Schichten, keine Kopien** —
+und die Vereinheitlichung (ehemals P6f) ist **geschlossen** (Operator-Entscheid):
+1. `service.py` (279 LoC) orchestriert **Provider** für einen Multi-Source-Merge
+2. MCP-Handler orchestrieren **einen Provider je Tool** für einen LLM-JSON-Vertrag
+3. `deterministic_functions.gnd_batch_search` (235 LoC) orchestriert **Tools** — bewusst:
+   nur so gibt es `CachingToolRegistry`-Dedup, `tool_calls`-Accounting und
+   Workflow-Config-Injektion. Es fasst `build_provider` nie an.
+
+Ein Collapse auf eine Implementierung (~1870 LoC) würde den agentischen Pfad von der
+Tool-Registry entkoppeln und genau diese drei Eigenschaften verlieren — das ist eine
+Architekturänderung, keine Dedup.
+
+Zwei Teilbefunde hielten der Prüfung nicht stand:
+- **„zweiter Aggregate-Reader" — falsch.** `_handle_aggregate_gnd_results` (65 LoC) ist ein
+  *reiner Cache-Read*, der den Pool liefert; `service._search_from_raw` (44 LoC) fährt eine
+  *Live-Suche* und liefert nested+errors. Beide rufen schon dasselbe `aggregate_gnd_results`.
+  Echt geteilt: ~5 Zeilen.
+- **„zweiter Raw-Dual-Write" — wahr, aber ~20 LoC** — und das Interessante ist ein *Bug*,
+  keine Dublette: `_store_suggester_raw` hat kein `cache_pref_enabled`-Gate (anders als
+  `provider_base._store_raw_responses`, der Input- und der Lookup-Pfad). → C3.
+
+Die schärfere Dublette nennt dieses Doc gar nicht: `_make_instance_handler` (63 LoC) ↔
+`_make_gnd_keywords_handler` (64 LoC), inkl. eines zweiten `_serialize_provider_gnd`.
+Optional als P6d nach P6a.
+
+**P6a (offen, der einzige Punkt, der das Risiko wert ist):** hartkodierte source→tool-Maps
+in `deterministic_functions.py` — Z. 68-71 (`gnd_batch_search`), Z. 955-958
+(`catalog_multi_search`), Z. 1511 (bare `search_lobid`, **ohne** Escape-Hatch) sowie
+Z. 1101/1253 (`search_catalog_titles`). Der `source_tool_map`-Ausweg existiert und wird von
+**null** Workflows genutzt. Unter dem POC sind die gemappten Ids deaktiviert → leerer Pool.
 
 **Daten-Achse nicht hier duplizieren:** Rename-Shims (`gndid→gnd_ids→gndid`),
 `determinancy`-Typo, 4 Klassifikations-Kodierungen + Webapp-Normalizer
@@ -157,23 +220,57 @@ Drei parallele Build+Search+Merge+Raw-Write-Implementierungen über derselben Fa
 **`BibRecord`-WP** erfasst → [`wp_records_as_first_class.md`](wp_records_as_first_class.md)
 + Counter-Bug [`wp_gnd_counter_divergence.md`](wp_gnd_counter_divergence.md).
 
-### P7 — Config-Mirror-Abbau (Backlog)
-- Drei parallele Synthesizer/Mirror-Ableiter in `plugin_migration.py`
-  (`synthesize_search_instances:80` / `…_input_…:149` / `…_lookup_…:214` + je ein
-  Mirror-/Seeding-Pendant) — eine vierte Kategorie kostet wieder beides
-- Legacy-Mirrors `CatalogConfig`/`SearchProviderConfig` (~298 Reader) — bereits als
-  D-5/D-8 in [`cleanup_findings.md`](cleanup_findings.md) erfasst, dort weiterführen
+### P7 — Config-Mirror-Abbau (machbar, 2–3 Sessions; nicht Backlog)
+
+**Korrektur (July 16, nachgezählt):** die Zahl **„~298 Reader" ist eine 6×-Überschätzung**
+und war der Grund, P7 für unmachbar zu halten. Echt sind es **53 Attributlesungen in 10
+Dateien**. Die 302 String-Treffer zählen u.a. `resolve_dk_extractor`s 15 kwargs (0 Reads),
+`marcxml_client`s Konstruktor-Parameter (0 Reads), `ConfigField`-Key-Deklarationen (das
+*Ersatzsystem*) und ~84 Wizard-**Schreibzugriffe**. Größter Cluster: `execute_dk_search`
+mit 18 — **die frisst P4**. Danach bleiben ~35. `SearchProviderConfig`: 28 Refs, davon 16
+in Tests → **5 Produktions-Sites**.
+
+**Ebenfalls falsch: „je ein Mirror-/Seeding-Pendant".** `lookup` hat **keinen**
+Mirror-Ableiter und **keinen** Reverse-Sync — by design (`plugin_migration.py:215-222`: es
+gibt keine Legacy-Config-Sektion zu spiegeln, die Liste kommt direkt aus der
+`LOOKUP_REGISTRY`). Lookup ist damit der *Beweis, dass das Muster billig skaliert*, nicht
+ein Beleg für Triplizität. Echte Dedup zwischen den drei Synthesizern: ~16 Zeilen (drei
+verschiedene Datenquellen, drei verschiedene Enable-Semantiken). Die einzige echte
+Dublette der Datei nennt dieses Doc nicht: `synthesize_lookup_instances` ↔
+`synthesize_missing_lookup_instances` (~24 geteilte LoC).
+
+**Free deletes (verifiziert):** `sync_instances_from_mirrors` (`plugin_migration.py:300-327`)
+ist **toter Code** — Definition + ein Test + ein staler Docstring, null Produktions-Caller;
+seine Begründung („damit die Legacy-Catalog/System-Tabs weiterlaufen") ist obsolet, die Tabs
+sind entfernt. Dazu `plugin_migration.py:14-16` (Docstring behauptet, `catalog_type` und die
+Web-URLs seien ungemappt — `SEARCH_FIELD_MAP:29-33` mappt alle vier) und
+`sru_database`/`sru_schema` (tot; die einzigen echt ungemappten Felder).
+
+**End-State:** `CatalogConfig` löschen (17 der 19 Felder haben ein Instanz-Zuhause, 2 sind
+tot) + `SearchProviderConfig`. Blocker: die Load-Migration muss überleben →
+`synthesize_search_instances` nimmt ein plain `dict`; `test_plugin_config_roundtrip.py:65-77`
+(assertet `asdict(cfg2.catalog_config) == cat_before`) **ist** D-8s Vertrag und muss auf
+Instanzen umgeschrieben werden. Gated auf P2 (finc) + P4.
 
 ## Empfohlene Reihenfolge + Risiken
 
-| Schritt | Warum zuerst | Hauptrisiko |
+**Aktualisiert July 16** (Plan: `~/.claude/plans/counter-bug-dann-p2-immutable-wadler.md`).
+Vier verifizierte Live-Bugs werden **vorab** als eigene Commits gefixt, damit die
+Refactorings darunter verhaltenserhaltend bleiben und gegen ein dichteres Testnetz laufen:
+`C1` GND-Counter · `C2` RVK-Cache-Shape · `C3` Agentik-Gates (`agg["error"]`-Schlucker +
+fehlendes `_store_suggester_raw`-Gate).
+
+Reihenfolge: `C0 Docs → C1 → C2 → C3 → P2.1 → P2.2 → P4 → P3 → P5 → P6a → P7`
+
+| Schritt | Warum dort | Hauptrisiko |
 |---|---|---|
-| P1 | Löst das sichtbarste Plugin-Versprechen ein; klein genug für eine Session | Aggregate-Default-Änderung berührt agentische Provenienz — Vergleichslauf nötig |
-| P2 | Einziger Provider ohne Factory-Guard; danach gilt „alle Primaries über Factory" | finc ist institutionsspezifisch — Live-Verifikation nur mit erreichbarem finc |
-| P3 | Braucht Operator-Entscheid (MarcIndex), sonst mechanisch | `rvk_lookup` ist Pipeline-Anker: Werteform darf sich nicht ändern |
-| P4 | Baut auf P2 auf (finc-DK-Settings wandern in die Instanz) | DK-Suche ist klassik-kritisch; `test_dk_extractor_resolver.py` erweitern |
-| P5 | Disable-Entscheid zuerst, dann mechanisch | Verhaltensänderung Pipeline-RVK je nach Entscheid |
-| P6/P7 | Groß; nach P1–P5 ist die Restfläche klar umrissen | — |
+| P1 ✅ | Löst das sichtbarste Plugin-Versprechen ein | erledigt (`5360e95`) |
+| P2 | Einziger Provider ohne Factory-Guard; danach gilt „alle Primaries über Factory". **Blockiert P4 + P7.** | finc ist institutionsspezifisch — Live-Verifikation nur mit erreichbarem finc |
+| P4 | Direkt nach P2: *ein* Subsystem (finc/catalog/DK-Konstruktion), teilt sich **einen** finc-Vergleichslauf. Frisst 18 der 53 P7-Reader. | DK-Suche ist klassik-kritisch; Migrations-Hook `sru.dk_enabled` — falsch abgeleitet = stiller DK-Verlust beim Upgrade |
+| P3 | Unabhängig + mechanisch. **Braucht C2 zwingend vorher.** | `rvk_lookup` ist Pipeline-Anker: Werteform darf sich nicht ändern; der bestehende Test mockt den Executor komplett und ist kein Guard |
+| P5 | Nach P3, weil P5 die *gewollte* Verhaltensänderung ist — allein in seinen Vergleichslauf | 120-Kandidaten-Fan-out schneidet bei deaktiviertem `rvk_api` kurz |
+| P6a | Der einzige P6-Punkt, der das Risiko wert ist | `sources` wird Filter- statt Literal-Id-Semantik → speist `rank_pool.source_count` |
+| P7 | Gated auf P2 + P4; danach ~35 Reader | Config-Round-Trip |
 
 ## Was ausdrücklich GUT ist (nicht anfassen)
 
