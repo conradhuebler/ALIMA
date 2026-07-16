@@ -193,6 +193,15 @@ def gnd_batch_search(
             except Exception as e:
                 logger.warning(f"gnd_batch_search: aggregate_gnd_results failed: {e}")
         entries: List[Dict[str, Any]] = list(agg.get("pool") or [])
+        # aggregate_gnd_results signals an unresolved-source failure via an
+        # ``error`` key with an empty pool — explicitly "NOT a zero-hit result".
+        # Without this the empty pool fell through to the "echte Nulltreffer"
+        # message below, reporting a plausible false zero (e.g. under the
+        # own-plugins POC, where the hardcoded source ids don't resolve). - Claude Generated
+        if not entries and agg.get("error"):
+            raise RuntimeError(
+                f"gnd_batch_search: aggregation failed (not a zero-hit result): {agg['error']}"
+            )
         for title, terms in (agg.get("terms_map") or {}).items():
             for term in terms:
                 entries_per_keyword.setdefault(term, []).append(title)

@@ -1735,7 +1735,7 @@ class ToolRegistry:
                         results = sugg.search(list(terms), **kw)
                         # Bypasses the provider fetch seam → dual-write raw here so
                         # non-default searches also populate the raw cache. - Claude Generated
-                        self._store_suggester_raw(spec.provider_id, terms, kw, sugg)
+                        self._store_suggester_raw(spec.provider_id, terms, kw, sugg, inst=inst)
                         errors = {}
                 else:
                     sugg = underlying_suggester(base_provider)
@@ -1818,12 +1818,24 @@ class ToolRegistry:
         if view:
             out["agent_view"] = view
 
-    def _store_suggester_raw(self, source, terms, kw, suggester):
+    def _store_suggester_raw(self, source, terms, kw, suggester, inst=None):
         """Dual-write raw for the non-default MCP GND-keyword path (which uses the
         bare raw_suggester and bypasses the provider seam). Best-effort; keys the
         cache via the shared raw_cache_params_for so it matches the readers.
-        - Claude Generated
+
+        Honours the same cache tri-state gate as every other write path
+        (provider_base._store_raw_responses, the input and lookup handlers): the
+        per-instance ``cache_responses`` (auto/on/off) resolved against the global
+        ``enable_response_cache``. Without it an operator's "cache off" was ignored
+        on this path. - Claude Generated
         """
+        from src.core.plugins.schema import cache_pref_enabled
+
+        settings = getattr(inst, "settings", None) or {}
+        if not cache_pref_enabled(
+            settings.get("cache_responses"), global_enabled=self._response_cache_enabled()
+        ):
+            return
         last_raw = getattr(suggester, "last_raw", None)
         if not last_raw:
             return

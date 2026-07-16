@@ -157,9 +157,13 @@ class AllExternalPluginsPocTest(unittest.TestCase):
         Scope note: this drives ``aggregate_gnd_results`` directly. The *agentic*
         path (``gnd_batch_search``) still passes ``sources`` from a hardcoded
         ``{"swb": "search_swb", "lobid": "search_lobid"}`` map in
-        deterministic_functions — under this POC those ids are disabled, so it
-        would return an empty pool. Testing through it would prove the opposite of
-        the truth; that map is WP P6. - Claude Generated
+        deterministic_functions — under this POC those ids are disabled, so
+        aggregation yields an empty pool. Since C3 (July 16) that empty pool is
+        raised as an aggregation error (see
+        ``test_agents_v2.test_gnd_batch_search_raises_on_aggregation_error``), not a
+        false zero — but making it actually aggregate under the POC is WP P6a
+        (de-hardcode the source→tool map). Until then, still don't assert success
+        through ``gnd_batch_search`` here. - Claude Generated
         """
         from unittest.mock import MagicMock
 

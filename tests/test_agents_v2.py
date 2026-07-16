@@ -749,6 +749,35 @@ class TestAlimaClassicMigration(unittest.TestCase):
         # 4 tool calls (swb, lobid, aggregate, get_gnd_batch).
         self.assertEqual(out["tool_calls"], 4)
 
+    def test_gnd_batch_search_raises_on_aggregation_error(self):
+        # C3: the source tools succeed (no source_errors), but aggregate_gnd_results
+        # signals an unresolved-source failure via {"pool": [], "error": ...} —
+        # explicitly "NOT a zero-hit result". Must raise, not report "echte
+        # Nulltreffer". This is the POC failure mode (disabled/renamed source ids).
+        # - Claude Generated
+        from src.core.agents.registry import get_tool_fn
+        fn = get_tool_fn("gnd_batch_search")
+
+        tool_registry = MagicMock()
+
+        def _exec(tool, args):
+            if tool in ("search_swb", "search_lobid"):
+                return json.dumps({"results": {}})  # succeed → no source error
+            if tool == "aggregate_gnd_results":
+                return json.dumps({
+                    "pool": [], "sources": [], "missing": {}, "terms_map": {},
+                    "error": "Cannot aggregate: none of the requested sources "
+                             "resolved to an enabled provider. This is NOT a zero-hit result.",
+                })
+            return "{}"
+
+        tool_registry.execute.side_effect = _exec
+        ctx = SharedContext(abstract="a")
+        with self.assertRaises(RuntimeError) as cm:
+            fn(keywords=["kw1"], tool_registry=tool_registry, context=ctx,
+               config={"aggregate_from_raw": True})
+        self.assertIn("aggregation failed", str(cm.exception))
+
 
 class TestPoCWorkflows(unittest.TestCase):
     """Phase-3 proof-of-concept workflows: catalog_search, synonym_expansion, batch_metadata."""
