@@ -86,8 +86,6 @@ class GeneratedSearchToolTest(unittest.TestCase):
         )
         reg._tools = {}
         reg._handlers = {}
-        reg._suggesters_initialized = True
-        reg._finc = None
         km = MagicMock()
         km.get_raw_response.return_value = None
         reg._knowledge_manager = km

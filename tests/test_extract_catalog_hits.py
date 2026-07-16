@@ -25,7 +25,7 @@ from src.core.agents.deterministic_functions import (
 
 def _finc_tool_log_entry(terms_to_records: dict) -> dict:
     """Build a realistic search_finc tool_log entry (verified envelope shape:
-    tool_registry._handle_search_finc)."""
+    tool_registry._make_finc_handler)."""
     results = {
         term: {"records": records, "result_count": len(records), "facets": {}, "errors": []}
         for term, records in terms_to_records.items()

@@ -54,18 +54,15 @@ class ToolRegistry:
         self._config_manager = config_manager
         self._llm_service = llm_service
         self._knowledge_manager = None
-        self._suggesters_initialized = False
-        # GND-keyword + catalog sources now build through the search factory from
-        # PluginInstanceConfig (retires the MetaSuggester primaries + the
-        # CatalogConfig mirror). Built providers are memoised per (instance_id,
-        # cache) here; ``refresh()`` clears it. finc keeps its own attribute (its
-        # handler + tests still drive ``_finc`` via ``_init_suggesters``). - Claude Generated
+        # All search sources — finc included since WP P2.2 — build through the
+        # search factory from PluginInstanceConfig (retires the MetaSuggester
+        # primaries + the CatalogConfig mirror). Built providers are memoised per
+        # (instance_id, cache) here; ``refresh()`` clears it. - Claude Generated
         self._provider_cache: Dict[tuple, Any] = {}
         # Lookup plugins likewise memoised per instance (webindex e.g. opens its
         # own SQLite store — a fresh build per tool call would open a new
         # connection each time); ``refresh()`` clears it. - Claude Generated
         self._lookup_cache: Dict[str, Any] = {}
-        self._finc = None
         self._presets: Dict[str, List[str]] = {}
         self._load_default_presets()
 
@@ -140,65 +137,6 @@ class ToolRegistry:
             self._knowledge_manager = UnifiedKnowledgeManager()
         return self._knowledge_manager
 
-    def _init_suggesters(self):
-        """Lazy-init the finc suggester (its handler + web_url reconstruction).
-
-        lobid/swb/catalog now build through the search factory per call
-        (``_provider_for`` / the unified service) — MetaSuggester and the
-        BiblioSuggester-from-CatalogConfig mirror are retired. finc keeps its own
-        CatalogConfig-derived construction here (institution-specific, heavily
-        pinned by ``test_finc_client``). - Claude Generated
-        """
-        if self._suggesters_initialized:
-            return
-        cat_cfg = None
-        if self._config_manager is not None:
-            try:
-                cat_cfg = self._config_manager.get_catalog_config()
-            except Exception as e:
-                logger.debug(f"catalog_config unavailable: {e}")
-        if cat_cfg is None:
-            try:
-                from src.utils.config_manager import ConfigManager
-                cat_cfg = ConfigManager().get_catalog_config()
-            except Exception as e:
-                logger.debug(f"ConfigManager fallback failed: {e}")
-        # finc / VuFind-JSON client. Preferred over Libero when configured
-        # (TU Freiberg finc solrproxy). Operator decision June 2026:
-        # "finc oberste Priorität, dann libero". - Claude Generated
-        try:
-            from src.core.search.providers.finc.suggester import FincSuggester
-            finc_cfg = cat_cfg
-            if finc_cfg is None and self._config_manager is not None:
-                try:
-                    finc_cfg = self._config_manager.get_catalog_config()
-                except Exception as e:
-                    logger.debug(f"catalog_config for finc unavailable: {e}")
-            if finc_cfg is not None:
-                finc_base = getattr(finc_cfg, "finc_base_url", "") or ""
-                if finc_base:
-                    # The catalog record page base: prefer the finc-specific URL,
-                    # but fall back to catalog_web_record_url (the Libero OPAC base
-                    # is the same host) so the FincSuggester builds the catalog
-                    # web_url at the source — independent of whether the
-                    # _handle_search_finc reconstruction (config_manager-gated)
-                    # runs. Without this, GUI ToolRegistry() (no config_manager)
-                    # produced finc records with no catalog link. - Claude Generated
-                    finc_web_record = (
-                        getattr(finc_cfg, "finc_web_record_url", "") or ""
-                        or getattr(finc_cfg, "catalog_web_record_url", "") or ""
-                    )
-                    self._finc = FincSuggester(
-                        base_url=finc_base,
-                        web_record_url=finc_web_record,
-                        default_limit=getattr(finc_cfg, "finc_default_limit", 20),
-                        timeout=getattr(finc_cfg, "finc_timeout", 30),
-                        institution_filter=getattr(finc_cfg, "finc_institution_filter", "") or "",
-                    )
-                    logger.info("FincSuggester initialized (preferred catalog source)")
-        except Exception as e:
-            logger.warning(f"FincSuggester init failed: {e}")
-        self._suggesters_initialized = True
 
     def _alima_config(self):
         """Load the full AlimaConfig via the injected config manager (else global).
@@ -479,89 +417,6 @@ class ToolRegistry:
 
     # search_lobid / search_swb / search_catalog / search_catalog_titles handlers
     # are generated from provider ProviderToolSpecs — see _generated_search_tools().
-
-    # Maps availability enum values (lowercase, LLM-facing) to VuFind facet values.
-    _AVAIL_TO_FACET = {"local": "Local", "online": "Online", "free": "Free"}
-
-    def _handle_search_finc(
-        self,
-        terms: List[str],
-        search_type: str = "kw",
-        filters: Optional[Dict[str, str]] = None,
-        facets: Optional[List[str]] = None,
-        limit: int = 20,
-        availability: Optional[str] = None,
-    ) -> str:
-        """Run a finc / VuFind-JSON search and return normalized records.
-
-        Preferred over search_catalog/search_catalog_titles when the operator's
-        institution runs a finc instance. Each `terms` entry yields a result
-        block with `records` (list of normalized VuFind records) and
-        `result_count`. Per-term failures are reported in `errors` (matches
-        the search_lobid/search_swb shape). - Claude Generated
-        """
-        self._init_suggesters()
-        if self._finc is None:
-            return json.dumps(
-                {"error": "FincSuggester not configured (set finc_base_url in catalog_config)"}
-            )
-        # For DK/RVK field searches, automatically include the classification facets
-        # so callers always get the notation distribution back without having to ask.
-        # Explicit facets from the caller are preserved unchanged. - Claude Generated
-        effective_facets = facets
-        if (search_type or "kw") in ("dk", "rvk") and not facets:
-            effective_facets = ["udk_raw_de105", "rvk_facet"]
-        # Translate availability enum to facet_avail filter; caller-supplied
-        # filters always take precedence. - Claude Generated
-        effective_filters = dict(filters or {})
-        if availability:
-            facet_val = self._AVAIL_TO_FACET.get((availability or "").lower())
-            if facet_val:
-                effective_filters.setdefault("facet_avail", facet_val)
-        try:
-            results = self._finc.search(
-                searches=list(terms or []),
-                search_type=search_type or "kw",
-                filters=effective_filters or None,
-                limit=limit,
-                facets=effective_facets,
-            )
-        except Exception as e:
-            logger.error(f"search_finc failed: {e}")
-            return json.dumps({"source": "finc", "error": str(e)})
-        # Ensure every record has a catalog web_url. The FincClient builds it
-        # from finc_web_record_url + id; if that URL is missing (config gap)
-        # we reconstruct it from catalog_web_record_url, which is the same
-        # catalog host used by the Libero backend. - Claude Generated
-        # Use the injected config_manager if present, else the global singleton
-        # (GUI builds ToolRegistry() without one — otherwise this reconstruction
-        # was a no-op there and finc records had no catalog link). - Claude Generated
-        cat_record_base = ""
-        try:
-            _cm = self._config_manager
-            if _cm is None:
-                from src.utils.config_manager import ConfigManager
-                _cm = ConfigManager()
-            _cc = _cm.get_catalog_config()
-            cat_record_base = (
-                getattr(_cc, "catalog_web_record_url", "") or ""
-            ).rstrip("/")
-        except Exception:
-            pass
-        if cat_record_base:
-            for term_data in results.values():
-                for rec in term_data.get("records", []):
-                    if not rec.get("web_url") and rec.get("id"):
-                        rec["web_url"] = f"{cat_record_base}/{rec['id']}"
-        # results shape: {term: {records, result_count, errors}}
-        return json.dumps(
-            {
-                "source": "finc",
-                "results": results,
-                "errors": dict(getattr(self._finc, "last_errors", {}) or {}),
-            },
-            ensure_ascii=False,
-        )
 
     def _enabled_input_settings(self):
         """Map ``provider_id -> settings`` for enabled input-source instances."""
@@ -1255,8 +1110,7 @@ class ToolRegistry:
         # Canonical instances get the nuanced handler (gnd_url enrichment,
         # agent_view, non-default raw passthrough) regardless of type: it is
         # factory-backed, so it answers from the instance's *own* provider class —
-        # a copied plugin included. ``_handle_search_finc`` is the one exception
-        # that ignores its instance; ``_make_search_handler`` gates it. - Claude Generated
+        # a copied plugin included, finc now too (WP P2.2). - Claude Generated
         tools = []
         used_names = set()
         for provider_id, instances in by_type.items():
@@ -1618,7 +1472,6 @@ class ToolRegistry:
         Transform-on-read consumer of the WP2 raw cache: derives the pipeline view
         from raw via each source's transform + gnd_search_core. - Claude Generated
         """
-        self._init_suggesters()
         from src.core.search.aggregate import aggregate_gnd_results
         from src.core.search.factory import enabled_gnd_provider_ids
         from src.core.search.provider import raw_cache_params_for
@@ -1689,12 +1542,74 @@ class ToolRegistry:
             return self._make_gnd_keywords_handler(spec, inst)
         if spec.result_shape == "title_records":
             return self._make_title_records_handler(spec, inst)
-        if spec.result_shape == "finc" and spec.provider_id == "finc":
-            # The one handler that ignores `inst` and reads self._finc
-            # (CatalogConfig-built) — a copied finc must not land on the built-in
-            # backend. WP P2 deletes this branch. - Claude Generated
-            return self._handle_search_finc  # rich availability/web_url logic
+        if spec.result_shape == "finc":
+            return self._make_finc_handler(spec, inst)
         return self._make_instance_handler(spec, inst)
+
+    def _make_finc_handler(self, spec, inst):
+        """Primary finc handler, factory-backed (WP P2.2).
+
+        Builds FincProvider from the instance config via ``_provider_for`` — so a
+        copied finc plugin uses its own backend, not the built-in one. The
+        availability→facet_avail translation and the dk/rvk auto-facets now live
+        in ``FincProvider.search``; the web_url reconstruction stays here but reads
+        the catalog base from the *instance* (self-contained), falling back to the
+        global catalog config only for instances migrated before the
+        ``catalog_web_record_url`` field existed. - Claude Generated
+        """
+        from src.core.search.provider import SearchCapability
+
+        def handler(terms, search_type="kw", filters=None, facets=None,
+                    limit=20, availability=None):
+            try:
+                provider = self._provider_for(inst)
+            except Exception as e:  # pragma: no cover - build failure
+                return json.dumps({"source": "finc", "error": str(e)})
+            if not (hasattr(provider, "is_available") and provider.is_available()):
+                return json.dumps(
+                    {"error": "finc not available: base_url not configured on the finc plugin"}
+                )
+            try:
+                res = provider.search(
+                    SearchCapability.TITLE_RECORDS,
+                    list(terms or []),
+                    search_type=search_type or "kw",
+                    filters=filters,
+                    limit=limit,
+                    facets=facets,
+                    availability=availability,
+                )
+            except Exception as e:
+                logger.error(f"search_finc failed: {e}")
+                return json.dumps({"source": "finc", "error": str(e)})
+            results = res.to_finc_records()
+            cat_base = ""
+            try:
+                cat_base = provider.catalog_web_record_base()
+            except Exception:
+                pass
+            if not cat_base:
+                try:
+                    _cm = self._config_manager
+                    if _cm is None:
+                        from src.utils.config_manager import ConfigManager
+                        _cm = ConfigManager()
+                    cat_base = (
+                        getattr(_cm.get_catalog_config(), "catalog_web_record_url", "") or ""
+                    ).rstrip("/")
+                except Exception:
+                    pass
+            if cat_base:
+                for term_data in results.values():
+                    for rec in term_data.get("records", []):
+                        if not rec.get("web_url") and rec.get("id"):
+                            rec["web_url"] = f"{cat_base}/{rec['id']}"
+            return json.dumps(
+                {"source": "finc", "results": results, "errors": dict(res.errors or {})},
+                ensure_ascii=False,
+            )
+
+        return handler
 
     def _make_gnd_keywords_handler(self, spec, inst):
         """GND-keyword tool handler built on the search factory (no MetaSuggester).
@@ -1979,7 +1894,6 @@ class ToolRegistry:
             pass
         self._tools.clear()
         self._handlers.clear()
-        self._suggesters_initialized = False
         self._provider_cache = {}
         self._lookup_cache = {}
         self.register_all_tools()

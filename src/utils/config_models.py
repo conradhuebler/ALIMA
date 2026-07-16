@@ -776,8 +776,8 @@ class CatalogConfig:
     # finc / VuFind-JSON catalog configuration - Claude Generated
     # Used by FincClient (src/core/search/providers/finc/finc_client.py) to talk to a local
     # finc/VuFind instance (e.g. TU Freiberg finc solrproxy). Sits alongside
-    # Libero/SRU; priority is set in tool_registry._init_suggesters and
-    # pipeline_utils.execute_dk_search (finc is preferred when configured).
+    # Libero/SRU; finc's DK priority is set in pipeline_utils.execute_dk_search
+    # (finc is preferred when finc_dk_enabled + a base URL are configured).
     finc_base_url: str = ''  # e.g. "https://finc.example.org/fincsolrproxy/proxy.php"
     finc_web_record_url: str = ''  # e.g. "https://katalog.example.org/Record/" (used to build web_url)
     finc_default_limit: int = 20  # Max records per search (1..100)

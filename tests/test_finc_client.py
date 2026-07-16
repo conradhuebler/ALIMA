@@ -9,8 +9,8 @@ Covers:
   result_count, errors}} shape, search_type mapping kw/title/subject/
   author/freetext -> VuFind type, default institution_filter, last_errors
   propagation.
-- ToolRegistry._handle_search_finc: end-to-end MCP path with mocked
-  FincSuggester, including the "finc not configured" error path.
+- ToolRegistry._make_finc_handler: end-to-end MCP path (factory-backed since
+  WP P2.2) with a mocked finc client, including the unavailable error path.
 """
 
 import json
@@ -556,421 +556,259 @@ class TestFincSuggesterUnit(unittest.TestCase):
 # --------------------------------------------------------------------------
 
 class TestSearchFincMCPHandler(unittest.TestCase):
-    """End-to-end test of the search_finc MCP tool."""
+    """End-to-end test of the search_finc MCP tool.
 
-    def _make_registry(self, catalog_cfg):
-        cfg_mgr = MagicMock()
-        cfg_mgr.get_catalog_config.return_value = catalog_cfg
-        reg = ToolRegistry(config_manager=cfg_mgr)  # noqa: F841
-        return reg
+    WP P2.2: the tool is factory-backed — the handler builds FincProvider from
+    the instance config via _provider_for, no longer the CatalogConfig-derived
+    self._finc. Tests drive _make_finc_handler over a FincProvider whose finc
+    client is mocked, and assert on both the JSON output and the client kwargs.
+    """
 
-    def test_init_finc_falls_back_to_catalog_web_record_url(self):
-        # GUI bug: finc_web_record_url empty → the FincSuggester must still build
-        # catalog links by falling back to catalog_web_record_url at the source
-        # (so it works even when ToolRegistry has no injected config_manager).
-        # - Claude Generated
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""  # not configured
-        catalog_cfg.catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
+    def _call(self, settings, client_return, *, config_manager=None, raise_exc=None,
+              **call_kwargs):
+        """Run the finc handler over a FincProvider with a mocked client.
 
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        self.assertEqual(
-            reg._finc.client.web_record_url,
-            "https://katalog.ub.tu-freiberg.de/Record/",
+        Returns (parsed_json, fake_client, provider). ``client_return`` may be
+        None (unavailable path). ``raise_exc`` makes provider.search blow up.
+        - Claude Generated
+        """
+        from src.core.search.providers.finc.provider import FincProvider
+        from src.utils.config_models import PluginInstanceConfig
+
+        prov = FincProvider(**settings)
+        prov._cache_raw = False  # never touch the raw cache in tests
+        fake_client = None
+        if raise_exc is not None:
+            sugg = MagicMock()
+            sugg.search = MagicMock(side_effect=raise_exc)
+            sugg.last_errors = {}
+            prov._suggester = sugg
+        elif client_return is not None:
+            fake_client = MagicMock(return_value=client_return)
+            prov.suggester.client.search = fake_client
+
+        inst = PluginInstanceConfig(
+            instance_id="finc", category="search_provider", provider_id="finc",
+            is_primary=True, settings=settings,
         )
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = config_manager
+        reg._provider_cache = {("finc", False): prov}
+        spec = FincProvider.mcp_tool_specs()[0]
+        handler = reg._make_finc_handler(spec, inst)
+        out = json.loads(handler(**call_kwargs))
+        return out, fake_client, prov
+
+    _BASE = {
+        "base_url": "https://dobby.example/proxy.php",
+        "web_record_url": "",
+        "default_limit": 20,
+        "timeout": 30,
+        "institution_filter": "",
+    }
+
+    def _settings(self, **over):
+        s = dict(self._BASE)
+        s.update(over)
+        return s
+
+    def test_catalog_web_record_base_is_instance_sourced(self):
+        # P2.2: the catalog web-link fallback base is a finc *instance* setting
+        # (self-contained), not read from the catalog plugin. - Claude Generated
+        from src.core.search.providers.finc.provider import FincProvider
+        prov = FincProvider(**self._settings(
+            catalog_web_record_url="https://katalog.ub.tu-freiberg.de/Record/"))
+        self.assertEqual(prov.catalog_web_record_base(),
+                         "https://katalog.ub.tu-freiberg.de/Record")
 
     def test_handler_reconstructs_catalog_web_url_keeps_resource_url(self):
-        # The reported bug: finc record has only a publisher link, no catalog
-        # web_url. The handler MUST fill web_url from catalog_web_record_url (the
-        # catalog link must be there) while resource_url keeps the book link.
-        # - Claude Generated
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""  # finc base not configured
-        catalog_cfg.catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 1, "records": [
+        out, _c, _p = self._call(
+            self._settings(catalog_web_record_url="https://katalog.ub.tu-freiberg.de/Record/"),
+            {"status": "OK", "resultCount": 1, "records": [
                 {"id": "0-1846124905", "title": "Quantenchemie", "authors": {},
                  "subjects": [], "formats": [], "languages": [], "series": [],
                  "urls": [{"url": "https://www.degruyterbrill.com/isbn/9783111215075"}],
                  "web_url": "",
                  "resource_url": "https://www.degruyterbrill.com/isbn/9783111215075",
-                 "raw": {}}
-            ]
-        })
-
-        data = json.loads(reg._handle_search_finc(terms=["Quantenchemie"]))
-        rec = data["results"]["Quantenchemie"]["records"][0]
-        self.assertEqual(
-            rec["web_url"], "https://katalog.ub.tu-freiberg.de/Record/0-1846124905"
+                 "raw": {}}]},
+            terms=["Quantenchemie"],
         )
-        self.assertEqual(
-            rec["resource_url"], "https://www.degruyterbrill.com/isbn/9783111215075"
-        )
+        rec = out["results"]["Quantenchemie"]["records"][0]
+        self.assertEqual(rec["web_url"],
+                         "https://katalog.ub.tu-freiberg.de/Record/0-1846124905")
+        self.assertEqual(rec["resource_url"],
+                         "https://www.degruyterbrill.com/isbn/9783111215075")
 
     def test_handler_returns_records_for_each_term(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = "https://katalog.example/Record/"
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        self.assertIsNotNone(reg._finc, "FincSuggester should be initialized")
-
-        # Mock the underlying client so the test is hermetic
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 1, "records": [
+        out, client, _p = self._call(
+            self._settings(web_record_url="https://katalog.example/Record/"),
+            {"status": "OK", "resultCount": 1, "records": [
                 {"id": "0-1", "title": "Python", "authors": {}, "subjects": [],
                  "formats": [], "languages": [], "series": [], "urls": [],
-                 "web_url": "https://katalog.example/Record/0-1", "raw": {}}
-            ]
-        })
-
-        out = reg._handle_search_finc(
-            terms=["python", "java"],
-            search_type="subject",
-            filters={"udk_facet_de105": "IT."},
-            limit=5,
+                 "web_url": "https://katalog.example/Record/0-1", "raw": {}}]},
+            terms=["python", "java"], search_type="subject",
+            filters={"udk_facet_de105": "IT."}, limit=5,
         )
-        data = json.loads(out)
-        self.assertEqual(data["source"], "finc")
-        self.assertIn("python", data["results"])
-        self.assertIn("java", data["results"])
+        self.assertEqual(out["source"], "finc")
         for term in ("python", "java"):
-            entry = data["results"][term]
+            entry = out["results"][term]
             self.assertEqual(entry["result_count"], 1)
             self.assertEqual(entry["records"][0]["title"], "Python")
-        # Errors should be empty (search succeeded)
-        self.assertEqual(data["errors"], {})
-
-        # Verify params passed through to the client
-        call = reg._finc.client.search.call_args
+        self.assertEqual(out["errors"], {})
+        call = client.call_args
         self.assertEqual(call.kwargs["type"], "Subject")
         self.assertEqual(call.kwargs["filters"], {"udk_facet_de105": "IT."})
         self.assertEqual(call.kwargs["limit"], 5)
 
     def test_handler_threads_facets_through(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 1, "records": [],
-            "facets": {"udk_raw_de105": [{"value": "dk 530.145", "count": 1, "translated": "dk 530.145"}]},
-        })
-
-        out = reg._handle_search_finc(
-            terms=["python"], search_type="subject",
-            facets=["udk_raw_de105"], limit=0,
+        out, client, _p = self._call(
+            self._settings(),
+            {"status": "OK", "resultCount": 1, "records": [],
+             "facets": {"udk_raw_de105": [
+                 {"value": "dk 530.145", "count": 1, "translated": "dk 530.145"}]}},
+            terms=["python"], search_type="subject", facets=["udk_raw_de105"], limit=0,
         )
-        data = json.loads(out)
         self.assertEqual(
-            data["results"]["python"]["facets"]["udk_raw_de105"][0]["value"], "dk 530.145"
-        )
-        call = reg._finc.client.search.call_args
+            out["results"]["python"]["facets"]["udk_raw_de105"][0]["value"], "dk 530.145")
+        call = client.call_args
         self.assertEqual(call.kwargs["facets"], ["udk_raw_de105"])
         self.assertEqual(call.kwargs["limit"], 0)
 
     def test_handler_errors_when_finc_not_configured(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = ""  # not configured
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        self.assertIsNone(reg._finc, "FincSuggester must stay None when not configured")
-
-        out = reg._handle_search_finc(terms=["python"])
-        data = json.loads(out)
-        self.assertIn("error", data)
-        self.assertIn("not configured", data["error"])
+        out, _c, _p = self._call(self._settings(base_url=""), None, terms=["python"])
+        self.assertIn("error", out)
+        self.assertIn("not configured", out["error"])
 
     def test_handler_reports_per_term_errors(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "ERROR", "resultCount": 0, "records": [],
-            "error": "upstream timeout"
-        })
-
-        out = reg._handle_search_finc(terms=["python"])
-        data = json.loads(out)
-        self.assertEqual(data["source"], "finc")
-        self.assertEqual(data["results"]["python"]["records"], [])
-        self.assertIn("python", data["errors"])
-        self.assertIn("upstream timeout", data["errors"]["python"])
+        out, _c, _p = self._call(
+            self._settings(),
+            {"status": "ERROR", "resultCount": 0, "records": [], "error": "upstream timeout"},
+            terms=["python"],
+        )
+        self.assertEqual(out["source"], "finc")
+        self.assertEqual(out["results"]["python"]["records"], [])
+        self.assertIn("python", out["errors"])
+        self.assertIn("upstream timeout", out["errors"]["python"])
 
     def test_handler_uses_default_institution_filter_from_config(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = "DE-105"
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        reg._handle_search_finc(terms=["python"])
-        filters = reg._finc.client.search.call_args.kwargs["filters"]
-        self.assertEqual(filters, {"institution": "DE-105"})
+        out, client, _p = self._call(
+            self._settings(institution_filter="DE-105"),
+            {"status": "OK", "resultCount": 0, "records": []},
+            terms=["python"],
+        )
+        self.assertEqual(client.call_args.kwargs["filters"], {"institution": "DE-105"})
 
     def test_handler_dk_search_type_auto_adds_facets(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": [],
-            "facets": {
+        out, client, _p = self._call(
+            self._settings(),
+            {"status": "OK", "resultCount": 0, "records": [], "facets": {
                 "udk_raw_de105": [{"value": "dk 57", "count": 5, "translated": "dk 57"}],
-                "rvk_facet": [{"value": "WW 3350", "count": 3, "translated": "WW 3350"}],
-            },
-        })
-
-        reg._handle_search_finc(terms=["DK 57"], search_type="dk")
-        call = reg._finc.client.search.call_args
-        # Both facets auto-added when caller passed none
+                "rvk_facet": [{"value": "WW 3350", "count": 3, "translated": "WW 3350"}]}},
+            terms=["DK 57"], search_type="dk",
+        )
+        call = client.call_args
         self.assertIn("udk_raw_de105", call.kwargs["facets"])
         self.assertIn("rvk_facet", call.kwargs["facets"])
         self.assertEqual(call.kwargs["type"], "udk_raw_de105")
 
     def test_handler_dk_search_type_respects_explicit_facets(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        # Caller explicitly requests only one facet — must not be overridden
-        reg._handle_search_finc(terms=["DK 57"], search_type="dk", facets=["udk_raw_de105"])
-        call = reg._finc.client.search.call_args
-        self.assertEqual(call.kwargs["facets"], ["udk_raw_de105"])
+        out, client, _p = self._call(
+            self._settings(),
+            {"status": "OK", "resultCount": 0, "records": []},
+            terms=["DK 57"], search_type="dk", facets=["udk_raw_de105"],
+        )
+        self.assertEqual(client.call_args.kwargs["facets"], ["udk_raw_de105"])
 
     def test_availability_local_injects_facet_avail_filter(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        reg._handle_search_finc(terms=["chemie"], availability="local")
-        call_filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
-        self.assertEqual(call_filters.get("facet_avail"), "Local")
+        out, client, _p = self._call(
+            self._settings(), {"status": "OK", "resultCount": 0, "records": []},
+            terms=["chemie"], availability="local",
+        )
+        self.assertEqual(client.call_args.kwargs.get("filters", {}).get("facet_avail"), "Local")
 
     def test_availability_online_maps_correctly(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        reg._handle_search_finc(terms=["chemie"], availability="online")
-        filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
-        self.assertEqual(filters.get("facet_avail"), "Online")
+        out, client, _p = self._call(
+            self._settings(), {"status": "OK", "resultCount": 0, "records": []},
+            terms=["chemie"], availability="online",
+        )
+        self.assertEqual(client.call_args.kwargs.get("filters", {}).get("facet_avail"), "Online")
 
     def test_availability_free_maps_correctly(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        reg._handle_search_finc(terms=["chemie"], availability="free")
-        filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
-        self.assertEqual(filters.get("facet_avail"), "Free")
+        out, client, _p = self._call(
+            self._settings(), {"status": "OK", "resultCount": 0, "records": []},
+            terms=["chemie"], availability="free",
+        )
+        self.assertEqual(client.call_args.kwargs.get("filters", {}).get("facet_avail"), "Free")
 
     def test_availability_none_does_not_inject_filter(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        reg._handle_search_finc(terms=["chemie"])
-        filters = reg._finc.client.search.call_args.kwargs.get("filters") or {}
+        out, client, _p = self._call(
+            self._settings(), {"status": "OK", "resultCount": 0, "records": []},
+            terms=["chemie"],
+        )
+        filters = client.call_args.kwargs.get("filters") or {}
         self.assertNotIn("facet_avail", filters)
 
     def test_explicit_facet_avail_not_overridden_by_availability(self):
-        # Caller passes filters={"facet_avail": "Online"} AND availability="local" —
-        # explicit filter wins (setdefault semantics).
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 0, "records": []
-        })
-
-        reg._handle_search_finc(
-            terms=["chemie"],
-            filters={"facet_avail": "Online"},
-            availability="local",
+        out, client, _p = self._call(
+            self._settings(), {"status": "OK", "resultCount": 0, "records": []},
+            terms=["chemie"], filters={"facet_avail": "Online"}, availability="local",
         )
-        filters = reg._finc.client.search.call_args.kwargs.get("filters", {})
-        self.assertEqual(filters.get("facet_avail"), "Online")
+        self.assertEqual(client.call_args.kwargs.get("filters", {}).get("facet_avail"), "Online")
 
     def test_web_url_reconstructed_from_catalog_base_when_missing(self):
-        # If finc_web_record_url is not configured, web_url is empty.
-        # The handler must fill it in from catalog_web_record_url + id.
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""     # not configured
-        catalog_cfg.catalog_web_record_url = "https://katalog.example.org/Record"
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 1, "records": [
-                {"id": "0-123", "title": "Chemie", "authors": {},
-                 "subjects": [], "formats": [], "languages": [],
-                 "series": [], "urls": [], "web_url": "", "raw": {}}
-            ]
-        })
-
-        out = reg._handle_search_finc(terms=["chemie"])
-        data = json.loads(out)
-        rec = data["results"]["chemie"]["records"][0]
+        out, _c, _p = self._call(
+            self._settings(catalog_web_record_url="https://katalog.example.org/Record"),
+            {"status": "OK", "resultCount": 1, "records": [
+                {"id": "0-123", "title": "Chemie", "authors": {}, "subjects": [],
+                 "formats": [], "languages": [], "series": [], "urls": [],
+                 "web_url": "", "raw": {}}]},
+            terms=["chemie"],
+        )
+        rec = out["results"]["chemie"]["records"][0]
         self.assertEqual(rec["web_url"], "https://katalog.example.org/Record/0-123")
 
     def test_web_url_not_overwritten_when_already_present(self):
-        # If FincClient already built web_url, the handler must not overwrite it.
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = "https://katalog.example.org/Record/"
-        catalog_cfg.catalog_web_record_url = "https://WRONG.example.org/Record"
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        reg._finc.client.search = MagicMock(return_value={
-            "status": "OK", "resultCount": 1, "records": [
-                {"id": "0-456", "title": "Physik", "authors": {},
-                 "subjects": [], "formats": [], "languages": [],
-                 "series": [], "urls": [],
-                 "web_url": "https://katalog.example.org/Record/0-456",
-                 "raw": {}}
-            ]
-        })
-
-        out = reg._handle_search_finc(terms=["physik"])
-        data = json.loads(out)
-        rec = data["results"]["physik"]["records"][0]
-        # Must keep the original web_url, not replace with WRONG
+        out, _c, _p = self._call(
+            self._settings(web_record_url="https://katalog.example.org/Record/",
+                           catalog_web_record_url="https://WRONG.example.org/Record"),
+            {"status": "OK", "resultCount": 1, "records": [
+                {"id": "0-456", "title": "Physik", "authors": {}, "subjects": [],
+                 "formats": [], "languages": [], "series": [],
+                 "urls": [], "web_url": "https://katalog.example.org/Record/0-456",
+                 "raw": {}}]},
+            terms=["physik"],
+        )
+        rec = out["results"]["physik"]["records"][0]
         self.assertEqual(rec["web_url"], "https://katalog.example.org/Record/0-456")
 
+    def test_web_url_falls_back_to_global_catalog_config(self):
+        # Instances migrated before the catalog_web_record_url field existed have
+        # no instance value; the handler falls back to the global catalog config
+        # so their catalog links keep working. - Claude Generated
+        cm = MagicMock()
+        cm.get_catalog_config.return_value = MagicMock(
+            catalog_web_record_url="https://legacy.example.org/Record/")
+        out, _c, _p = self._call(
+            self._settings(), {"status": "OK", "resultCount": 1, "records": [
+                {"id": "0-9", "title": "Alt", "authors": {}, "subjects": [],
+                 "formats": [], "languages": [], "series": [], "urls": [],
+                 "web_url": "", "raw": {}}]},
+            config_manager=cm, terms=["alt"],
+        )
+        rec = out["results"]["alt"]["records"][0]
+        self.assertEqual(rec["web_url"], "https://legacy.example.org/Record/0-9")
+
     def test_tool_registered_in_library_preset(self):
-        # search_finc is now generated from FincProvider's ProviderToolSpec.
+        # search_finc is generated from FincProvider's ProviderToolSpec.
         from src.mcp.tool_schemas import LIBRARY_TOOLS
         self.assertIn("search_finc", [t.name for t in LIBRARY_TOOLS])
 
     def test_handler_swallows_unexpected_exceptions(self):
-        catalog_cfg = MagicMock()
-        catalog_cfg.finc_base_url = "https://dobby.example/proxy.php"
-        catalog_cfg.finc_web_record_url = ""
-        catalog_cfg.finc_default_limit = 20
-        catalog_cfg.finc_timeout = 30
-        catalog_cfg.finc_institution_filter = ""
-
-        from src.mcp.tool_registry import ToolRegistry
-        reg = self._make_registry(catalog_cfg)
-        reg._init_suggesters()
-        # Make the suggester blow up
-        reg._finc.search = MagicMock(side_effect=RuntimeError("kaboom"))
-
-        out = reg._handle_search_finc(terms=["python"])
-        data = json.loads(out)
-        self.assertIn("error", data)
-        self.assertIn("kaboom", data["error"])
+        out, _c, _p = self._call(
+            self._settings(), None, raise_exc=RuntimeError("kaboom"), terms=["python"],
+        )
+        self.assertIn("error", out)
+        self.assertIn("kaboom", out["error"])
 
 
 # --------------------------------------------------------------------------

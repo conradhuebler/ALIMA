@@ -1155,7 +1155,7 @@ def _extract_finc_hits_from_result(raw: str) -> List[Dict[str, Any]]:
     catalog_hits shape (query/source/rsn/web_url/resource_url/title/
     authors/publisher/edition/year/isbn/formats). Envelope:
     ``{"source": "finc", "results": {term: {"records": [...], ...}}}`` —
-    verified against tool_registry._handle_search_finc. ``formats`` (e.g.
+    verified against tool_registry._make_finc_handler. ``formats`` (e.g.
     ["eBook"] vs ["ElectronicArticle"]) is the key signal
     ``analyze_duplicates`` uses to tell an actual edition of the wishlist
     title apart from a journal article/review *about* it. Defensive: any

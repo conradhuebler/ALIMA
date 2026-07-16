@@ -35,6 +35,7 @@ SEARCH_FIELD_MAP: Dict[str, Dict[str, str]] = {
     "finc": {
         "base_url": "finc_base_url",
         "web_record_url": "finc_web_record_url",
+        "catalog_web_record_url": "catalog_web_record_url",
         "institution_filter": "finc_institution_filter",
         "default_limit": "finc_default_limit",
         "timeout": "finc_timeout",

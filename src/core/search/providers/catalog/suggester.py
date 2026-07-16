@@ -57,8 +57,8 @@ class BiblioSuggester(BaseSuggester):
         # passed through the constructor (not set post-hoc) so BiblioClient's
         # own enable_web_fallback computation (gated on a real web_search_url)
         # is correct — previously web_search_url/web_record_url weren't
-        # forwarded at all here, only in the primary ToolRegistry._init_suggesters
-        # wiring, so any *secondary* catalog instance built through this
+        # forwarded at all here (only in the retired primary-suggester wiring),
+        # so any *secondary* catalog instance built through this
         # plugin's _build_suggester() silently got an empty web_url and no
         # web fallback. - Claude Generated
         self.extractor = BiblioClient(

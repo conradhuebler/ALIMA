@@ -36,6 +36,8 @@ class FincProvider(SuggesterBackedProvider):
         SearchCapability.CLASSIFICATION,
     }
     raw_cache_param_keys = ("search_type", "facets")  # results depend on the facet set
+    # availability enum (lowercase, LLM-facing) → VuFind facet_avail value.
+    _AVAIL_TO_FACET = {"local": "Local", "online": "Online", "free": "Free"}
 
     @classmethod
     def config_fields(cls) -> List[ConfigField]:
@@ -47,6 +49,11 @@ class FincProvider(SuggesterBackedProvider):
             ConfigField(
                 key="web_record_url", label="Web-Record-URL", kind=URL,
                 help="Basis für Katalog-Weblinks (…/Record/<id>).",
+            ),
+            ConfigField(
+                key="catalog_web_record_url", label="Katalog-Record-URL (Fallback)", kind=URL,
+                help="Fallback-Basis für Katalog-Weblinks, wenn Web-Record-URL leer ist "
+                "(gleicher OPAC-Host wie das Libero-Backend).",
             ),
             ConfigField(
                 key="institution_filter", label="Institutions-Filter", kind=TEXT,
@@ -209,12 +216,26 @@ class FincProvider(SuggesterBackedProvider):
     def _build_suggester(self):
         from .suggester import FincSuggester
 
+        # default_limit/timeout were declared + mirrored but never passed here
+        # (latent bug: non-primary finc silently fell back to the client defaults
+        # 20/30 and the primary path's config was ignored on the factory route).
+        # - Claude Generated
         return FincSuggester(
             base_url=self._config.get("base_url", "") or "",
             web_record_url=self._config.get("web_record_url", "") or "",
+            default_limit=int(self._config.get("default_limit", 20) or 20),
+            timeout=int(self._config.get("timeout", 30) or 30),
             institution_filter=self._config.get("institution_filter", "") or "",
             debug=self._config.get("debug", False),
         )
+
+    def catalog_web_record_base(self) -> str:
+        """The catalog-web-link fallback base for records whose web_url is empty.
+
+        Instance-sourced (self-contained: a copied finc plugin carries its own),
+        used by the finc tool handler's web_url reconstruction. - Claude Generated
+        """
+        return (self._config.get("catalog_web_record_url", "") or "").rstrip("/")
 
     def search(
         self,
@@ -226,6 +247,7 @@ class FincProvider(SuggesterBackedProvider):
         filters: Optional[dict] = None,
         limit: Optional[int] = None,
         facets: Optional[List[str]] = None,
+        availability: Optional[str] = None,
         **opts: Any,
     ) -> ProviderResult:
         self._require(capability)
@@ -233,6 +255,17 @@ class FincProvider(SuggesterBackedProvider):
             # DK/RVK extraction is a keyword→classifications operation that does
             # not run the title/facet suggester; delegate to the extractor. - Claude Generated
             return self._classification_search(list(query), progress=progress, **opts)
+        # DK/RVK field searches auto-include the classification facets so callers
+        # always get the notation distribution; explicit facets win. - Claude Generated
+        effective_facets = facets
+        if (search_type or "kw") in ("dk", "rvk") and not facets:
+            effective_facets = ["udk_raw_de105", "rvk_facet"]
+        # Availability enum → facet_avail filter; caller-supplied filters win.
+        effective_filters = dict(filters or {})
+        if availability:
+            facet_val = self._AVAIL_TO_FACET.get((availability or "").lower())
+            if facet_val:
+                effective_filters.setdefault("facet_avail", facet_val)
         if progress is not None:
             try:
                 self.suggester.currentTerm.connect(progress)
@@ -241,14 +274,16 @@ class FincProvider(SuggesterBackedProvider):
         raw = self.suggester.search(
             list(query),
             search_type=search_type,
-            filters=filters,
+            filters=effective_filters or None,
             limit=limit,
-            facets=facets,
+            facets=effective_facets,
         )
         errors = dict(getattr(self.suggester, "last_errors", {}) or {})
         from src.core.search.provider import raw_cache_params_for
         self._store_finc_raw(
-            list(query), raw_cache_params_for("finc", search_type=search_type, facets=facets), raw
+            list(query),
+            raw_cache_params_for("finc", search_type=search_type, facets=effective_facets),
+            raw,
         )
         if capability is SearchCapability.TITLE_RECORDS:
             return ProviderResult.from_finc_records(raw, errors=errors)
