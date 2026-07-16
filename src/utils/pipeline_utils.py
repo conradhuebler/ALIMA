@@ -4542,61 +4542,23 @@ class PipelineStepExecutor:
         if force_update and self.logger:
             self.logger.info("⚠️ Force update enabled: new titles will be merged with existing")
 
-        # Initialize catalog client - supports BiblioClient or MarcXmlClient - Claude Generated
+        # Resolve the DK/RVK extractor (BiblioClient / MarcXmlClient /
+        # FincCatalogClient) from the enabled CLASSIFICATION-capable providers. - Claude Generated
         try:
-            # Determine catalog type from config and fill missing parameters - Claude Generated
-            try:
-                from .config_manager import ConfigManager
-                config_manager = ConfigManager()
-                catalog_config = config_manager.get_catalog_config()
-                catalog_type = getattr(catalog_config, 'catalog_type', 'libero_soap')
-                if catalog_type == 'auto':
-                    catalog_type = catalog_config.get_catalog_type() if hasattr(catalog_config, 'get_catalog_type') else 'libero_soap'
-
-                # Fill missing catalog parameters from config — fixes dk_search_agentic
-                # which calls execute_dk_search without passing catalog config.
-                if not catalog_token or not catalog_token.strip():
-                    catalog_token = getattr(catalog_config, 'catalog_token', '') or ''
-                if not catalog_search_url or not catalog_search_url.strip():
-                    catalog_search_url = getattr(catalog_config, 'catalog_search_url', '') or ''
-                if not catalog_details_url or not catalog_details_url.strip():
-                    catalog_details_url = getattr(catalog_config, 'catalog_details_url', '') or ''
-                if not catalog_web_search_url or not catalog_web_search_url.strip():
-                    catalog_web_search_url = getattr(catalog_config, 'catalog_web_search_url', '') or ''
-                if not catalog_web_record_url or not catalog_web_record_url.strip():
-                    catalog_web_record_url = getattr(catalog_config, 'catalog_web_record_url', '') or ''
-            except Exception as cfg_err:
-                if self.logger:
-                    self.logger.debug(f"Config load failed, using default: {cfg_err}")
-                catalog_type = 'libero_soap'  # Default to original behavior
-
-            # Log catalog configuration status - Claude Generated
-            # (skip the Libero token warning when finc is the active backend) - Claude Generated
-            _finc_url_for_warn = getattr(catalog_config, 'finc_base_url', '') if 'catalog_config' in dir() else ''
-            _finc_dk_active = (
-                isinstance(_finc_url_for_warn, str) and bool(_finc_url_for_warn.strip())
-                and bool(getattr(catalog_config, 'finc_dk_enabled', False) if 'catalog_config' in dir() else False)
-            )
-            if not _finc_dk_active and (not catalog_token or not catalog_token.strip()):
-                if self.logger:
-                    self.logger.warning("No catalog token provided - BiblioClient will use web scraping fallback")
-                if stream_callback:
-                    stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
-                catalog_token = ""  # Empty token triggers automatic web fallback
-
-            # DK/RVK source resolved from the active CLASSIFICATION-capable search
-            # providers (finc opt-in → custom plugin → SRU/Libero), replacing the
-            # former hand-wired FincCatalogClient/MarcXmlClient/BiblioClient
-            # if-elif (the D-4 site in search/factory.py). Precedence preserves
-            # the operator's June-2026 order; any catalog plugin declaring the
-            # CLASSIFICATION capability + a dk_extractor() becomes a DK source with
-            # no change here. finc DK stays opt-in (finc_dk_enabled + a real URL).
-            # All extractors share the extract_dk_classifications_for_keywords
-            # contract, so the per-keyword loop below is unchanged. - Claude Generated
+            # DK/RVK source from the enabled CLASSIFICATION providers (finc opt-in →
+            # custom plugin → SRU opt-in → Libero default), each built through the
+            # factory from its own instance settings (WP P4 — replaces the former
+            # 15-kwarg CatalogConfig wall + the catalog_type if-elif). The
+            # catalog_token/catalog_*_url method args are now vestigial: the backend
+            # reads its endpoints/token from the catalog instance (mirror of
+            # CatalogConfig), dropped with the mirror in WP P7. All extractors share
+            # the extract_dk_classifications_for_keywords contract, so the
+            # per-keyword loop below is unchanged. - Claude Generated
             from src.core.search.factory import resolve_dk_extractor
+            from .config_manager import ConfigManager
 
             try:
-                _full_config = config_manager.load_config()
+                _full_config = ConfigManager().load_config()
             except Exception:
                 _full_config = None
             extractor = resolve_dk_extractor(
@@ -4604,22 +4566,23 @@ class PipelineStepExecutor:
                 logger_=self.logger,
                 stream_callback=(lambda m: stream_callback(m, "dk_search")) if stream_callback else None,
                 debug=(self.logger.level <= 10) if self.logger else False,
-                finc_base_url=getattr(catalog_config, 'finc_base_url', '') if 'catalog_config' in dir() else '',
-                finc_web_record_url=getattr(catalog_config, 'finc_web_record_url', '') or '' if 'catalog_config' in dir() else '',
-                finc_institution_filter=getattr(catalog_config, 'finc_institution_filter', '') or '' if 'catalog_config' in dir() else '',
-                finc_timeout=getattr(catalog_config, 'finc_timeout', 30) or 30 if 'catalog_config' in dir() else 30,
-                finc_default_limit=getattr(catalog_config, 'finc_default_limit', 50) or 50 if 'catalog_config' in dir() else 50,
-                finc_dk_enabled=bool(getattr(catalog_config, 'finc_dk_enabled', False)) if 'catalog_config' in dir() else False,
-                catalog_type=catalog_type,
-                sru_preset=getattr(catalog_config, 'sru_preset', '') if 'catalog_config' in dir() else '',
-                sru_base_url=getattr(catalog_config, 'sru_base_url', '') if 'catalog_config' in dir() else '',
-                sru_max_records=getattr(catalog_config, 'sru_max_records', 50) if 'catalog_config' in dir() else 50,
-                catalog_token=catalog_token,
-                catalog_search_url=catalog_search_url,
-                catalog_details_url=catalog_details_url,
-                catalog_web_search_url=catalog_web_search_url,
-                catalog_web_record_url=catalog_web_record_url,
             )
+            # Operator hint: the Libero backend with no token falls back to web
+            # scraping (finc/SRU backends need no token). - Claude Generated
+            if type(extractor).__name__ == "BiblioClient":
+                _cat_token = ""
+                try:
+                    for _i in (_full_config.enabled_instances_for("search_provider") if _full_config else []):
+                        if getattr(_i, "provider_id", "") == "catalog":
+                            _cat_token = (getattr(_i, "settings", None) or {}).get("token") or ""
+                            break
+                except Exception:
+                    pass
+                if not str(_cat_token).strip():
+                    if self.logger:
+                        self.logger.warning("No catalog token provided - BiblioClient will use web scraping fallback")
+                    if stream_callback:
+                        stream_callback("Kein Katalog-Token: Web-Fallback wird verwendet\n", "dk_search")
             # Preserve the old per-source progress line. - Claude Generated
             _dk_src_label = {
                 "FincCatalogClient": "finc-Katalog (Titelliste + udk_raw pro Titel)",

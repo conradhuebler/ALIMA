@@ -298,28 +298,29 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # Survivor pool is independent of the (mocked) final consolidation result.
         self.assertEqual(final_keywords, ["KW1 (GND-ID: 1)"])
 
-    @patch('src.utils.config_manager.ConfigManager.get_catalog_config')
-    # execute_dk_search now resolves the DK extractor via the capability resolver
-    # (search/factory.resolve_dk_extractor → CatalogProvider → BiblioSuggester),
-    # so BiblioClient is constructed in the suggester — patch it there. - Claude Generated
+    # execute_dk_search resolves the DK extractor via resolve_dk_extractor →
+    # CatalogProvider → BiblioSuggester, so BiblioClient is constructed in the
+    # suggester — patch it there. Since WP P4 the token + SOAP URLs come from the
+    # catalog *instance* (not method args), so patch load_config. - Claude Generated
     @patch('src.core.search.providers.catalog.suggester.BiblioClient')
-    def test_execute_dk_search(self, MockBiblioClient, mock_get_catalog_config):
+    @patch('src.utils.config_manager.ConfigManager.load_config')
+    def test_execute_dk_search(self, mock_load_config, MockBiblioClient):
         """Test the DK search step of the pipeline (Libero/BiblioClient path)."""
-        # Pin a non-finc Libero catalog config so this test exercises the
-        # BiblioClient path deterministically, independent of the operator's
-        # real ~/.config/alima/config.json — which now has finc configured and
-        # would otherwise (correctly) take the finc DK backend. - Claude Generated
-        import types
-        mock_get_catalog_config.return_value = types.SimpleNamespace(
-            finc_base_url="", catalog_type="libero_soap", catalog_token="",
-            catalog_search_url="", catalog_details_url="",
-            catalog_web_search_url="", catalog_web_record_url="",
-        )
+        # Pin a Libero-only catalog instance so this test exercises the BiblioClient
+        # path deterministically, independent of the operator's real config (which
+        # may have finc configured and would take the finc DK backend). - Claude Generated
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            instance_id="catalog", category="search_provider", provider_id="catalog",
+            is_primary=True, enabled=True,
+            settings={"token": "test_token", "catalog_search_url": "test_search_url",
+                      "catalog_details": "test_details_url", "catalog_type": "libero_soap"},
+        )]
+        mock_load_config.return_value = cfg
+
         # 1. Arrange: Define inputs and configure mock responses
         keywords = ["Umweltverschmutzung (GND-ID: 4061694-5)"]
-        catalog_token = "test_token"
-        catalog_search_url = "test_search_url"
-        catalog_details_url = "test_details_url"
 
         # MagicMock — extract_dk_classifications_for_keywords is a regular
         # method (not a context manager), but MagicMock is the safer default
@@ -332,22 +333,15 @@ class TestPipelineStepExecutor(unittest.TestCase):
         MockBiblioClient.return_value = mock_biblio_client_instance
 
         # 2. Act: Call the method we are testing
-        dk_search_results = self.executor.execute_dk_search(
-            keywords=keywords,
-            catalog_token=catalog_token,
-            catalog_search_url=catalog_search_url,
-            catalog_details_url=catalog_details_url,
-        )
+        dk_search_results = self.executor.execute_dk_search(keywords=keywords)
 
-        # 3. Assert
-        # WIP: BiblioClient is constructed with catalog token, debug flag,
-        # and web/SOAP URL overrides. Verify the token + URL kwargs are
-        # forwarded (not the exact full call signature).
+        # 3. Assert: BiblioClient is built from the catalog instance's settings —
+        # token + SOAP URLs forwarded (WP P4: no longer from method args).
         MockBiblioClient.assert_called_once()
         call_kwargs = MockBiblioClient.call_args.kwargs
-        self.assertEqual(call_kwargs.get("token"), catalog_token)
-        self.assertEqual(call_kwargs.get("soap_search_url"), catalog_search_url)
-        self.assertEqual(call_kwargs.get("soap_details_url"), catalog_details_url)
+        self.assertEqual(call_kwargs.get("token"), "test_token")
+        self.assertEqual(call_kwargs.get("soap_search_url"), "test_search_url")
+        self.assertEqual(call_kwargs.get("soap_details_url"), "test_details_url")
 
         # WIP returns a structured dict (classifications, statistics,
         # keyword_results) — not a bare list. Assert shape only.

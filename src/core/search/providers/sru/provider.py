@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from src.core.plugins.schema import CHOICE, INT, TEXT, URL, ConfigField
+from src.core.plugins.schema import BOOL, CHOICE, INT, TEXT, URL, ConfigField
 
 from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
 from src.core.search.registry import register_provider
@@ -59,6 +59,11 @@ class SruProvider:
             ConfigField(key="database", label="Datenbank", kind=TEXT, help="Optionaler SRU-DB-Name."),
             ConfigField(key="schema", label="Record-Schema", kind=CHOICE, choices=_SCHEMAS, default="marcxml"),
             ConfigField(key="max_records", label="Max. Datensätze", kind=INT, default=50),
+            ConfigField(
+                key="dk_enabled", label="SRU für DK-Suche nutzen", kind=BOOL, default=False,
+                help="MARC-XML/SRU als DK/RVK-Backend statt Libero (symmetrisch zu finc). "
+                "Ersetzt das alte catalog_type='marcxml_sru'.",
+            ),
         ]
 
     @classmethod

@@ -19,15 +19,15 @@ categories). Most are *fixed* by that work; a few remain open. Spec:
   availability/web_url shaping — additional instances use the factory handler).
 - **D-3 ✅** stale `SearchProviderConfig` docstring updated (endpoints now in instances).
 - **D-4 ✅** provider config wired by hand at ≥3 sites → single `build_provider` factory.
-- **D-5 🔴 (open — the ✅ was wrong)** `CatalogConfig.get_catalog_type()` was recorded as
-  "superseded by `is_primary`/the `sru` provider type … now-unused mirror helper". **Verified
-  false July 16:** it is still the *live* DK-backend selector — `pipeline_utils.py:4536` calls
-  it to resolve `catalog_type == 'auto'`, and `factory.resolve_dk_extractor` branches on
-  `catalog_type == "marcxml_sru"`. Its `'auto'` branch is literally `SruProvider.is_available()`
-  written a second time. Resolved by **WP Plugin-Konvergenz P4** (operator decision: `sru` gets
-  its own `dk_enabled`, `catalog_type` becomes vestigial); `get_catalog_type()` survives only as
-  the one-shot migration rule, then dies. Same false claim in
-  `src/core/search/providers/sru/provider.py:5-8`.
+- **D-5 ✅ (done in WP Plugin-Konvergenz P4, July 16)** `CatalogConfig.get_catalog_type()` was
+  wrongly recorded as "superseded" in June — it was still the *live* DK-backend selector.
+  **P4 fixed it for real:** `resolve_dk_extractor` now reads every backend from its instance
+  settings; `sru` got its own `dk_enabled` ConfigField (symmetric to finc). `catalog_type` is
+  vestigial — the resolver reads it only as a *transition fallback* (via `_sru_selected_for_dk`)
+  so configs migrated before `sru.dk_enabled` existed keep their SRU backend. `get_catalog_type()`
+  (config_models.py:800) is now **dead** (its only caller, the old `pipeline_utils` `'auto'`
+  resolution, is gone) → delete with the mirror in **P7**. The `catalog_type` ConfigField +
+  fallback read also go in P7 once operators have migrated to `sru.dk_enabled`.
 - **D-6 ✅** `save_config` `preserve_unified` merge extended to carry `plugins` +
   `approved_plugins` (derive-on-save keeps the mirrors exact; round-trip test gates it).
 - **D-7 (open, security)** API keys/tokens still plaintext in `config.json`; plugin

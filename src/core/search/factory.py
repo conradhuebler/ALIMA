@@ -164,7 +164,42 @@ def _call_dk_extractor(provider: Any, *, logger_: Any, stream_callback: Any) -> 
         return provider.dk_extractor()
 
 
-def _custom_classification_extractor(config: Any, *, logger_: Any, stream_callback: Any) -> Any:
+def _dk_extractor_from_instance(
+    inst: Any, *, debug: bool, logger_: Any, stream_callback: Any,
+    require_available: bool = True,
+) -> Any:
+    """Build ``inst``'s provider through the factory and return its DK extractor.
+
+    ``None`` when the instance is missing, unbuildable, declares no
+    ``dk_extractor``, or (when ``require_available``) is unavailable. ``debug`` is
+    threaded into the instance settings so the extractor's client keeps its
+    verbose mode. - Claude Generated
+    """
+    if inst is None:
+        return None
+    try:
+        if debug:
+            from dataclasses import replace
+            inst = replace(inst, settings={**(inst.settings or {}), "debug": True})
+        provider = build_provider(inst)
+    except Exception:
+        logger.warning("Failed to build DK provider '%s'",
+                       getattr(inst, "provider_id", "?"), exc_info=True)
+        return None
+    if not hasattr(provider, "dk_extractor"):
+        return None
+    if require_available:
+        try:
+            if hasattr(provider, "is_available") and not provider.is_available():
+                return None
+        except Exception:
+            pass
+    return _call_dk_extractor(provider, logger_=logger_, stream_callback=stream_callback)
+
+
+def _custom_classification_extractor(
+    config: Any, *, logger_: Any, stream_callback: Any, debug: bool = False,
+) -> Any:
     """First enabled *non-built-in* CLASSIFICATION-capable provider's DK extractor.
 
     The extension point behind the classic DK step: a library without finc/Libero
@@ -188,20 +223,34 @@ def _custom_classification_extractor(config: Any, *, logger_: Any, stream_callba
             continue
         if SearchCapability.CLASSIFICATION not in getattr(cls, "capabilities", set()):
             continue
-        try:
-            provider = build_provider(inst)
-        except Exception:
-            logger.warning("Failed to build custom DK provider '%s'", pid, exc_info=True)
-            continue
-        if not hasattr(provider, "dk_extractor"):
-            continue
-        try:
-            if hasattr(provider, "is_available") and not provider.is_available():
-                continue
-        except Exception:
-            pass
-        return _call_dk_extractor(provider, logger_=logger_, stream_callback=stream_callback)
+        ext = _dk_extractor_from_instance(
+            inst, debug=debug, logger_=logger_, stream_callback=stream_callback
+        )
+        if ext is not None:
+            return ext
     return None
+
+
+def _sru_selected_for_dk(sru_inst: Any, catalog_inst: Any) -> bool:
+    """Whether SRU is the operator's chosen DK backend.
+
+    The new explicit knob is the sru instance's own ``dk_enabled`` (symmetric to
+    finc). For configs migrated before that field existed we still honour the
+    legacy ``catalog_type == 'marcxml_sru'`` on the catalog instance (incl. the
+    ``'auto'`` heuristic: SRU when a preset/base_url is configured) so those
+    libraries keep their DK backend. ``catalog_type`` is thereby vestigial —
+    read only as a transition fallback, dropped with the mirror in WP P7.
+    - Claude Generated
+    """
+    if sru_inst is not None and (getattr(sru_inst, "settings", None) or {}).get("dk_enabled"):
+        return True
+    cat_type = str(((getattr(catalog_inst, "settings", None) or {}).get("catalog_type") or "")).strip()
+    if cat_type == "marcxml_sru":
+        return True
+    if cat_type == "auto" and sru_inst is not None:
+        s = getattr(sru_inst, "settings", None) or {}
+        return bool(s.get("preset") or s.get("base_url"))
+    return False
 
 
 def resolve_dk_extractor(
@@ -210,71 +259,64 @@ def resolve_dk_extractor(
     logger_: Any = None,
     stream_callback: Any = None,
     debug: bool = False,
-    finc_base_url: str = "",
-    finc_web_record_url: str = "",
-    finc_institution_filter: str = "",
-    finc_timeout: int = 30,
-    finc_default_limit: int = 50,
-    finc_dk_enabled: bool = False,
-    catalog_type: str = "libero_soap",
-    sru_preset: str = "",
-    sru_base_url: str = "",
-    sru_max_records: int = 50,
-    catalog_token: str = "",
-    catalog_search_url: str = "",
-    catalog_details_url: str = "",
-    catalog_web_search_url: str = "",
-    catalog_web_record_url: str = "",
 ) -> Any:
-    """Resolve the DK/RVK extractor for the classic DK step from the active
-    CLASSIFICATION-capable search providers — the D-4 hand-wired site this
-    module's docstring names.
+    """Resolve the DK/RVK extractor for the classic DK step from the enabled
+    CLASSIFICATION-capable search providers — the D-4 hand-wired site.
 
-    Precedence (preserves the operator's June-2026 order, now capability-driven
-    instead of an if-elif over client classes):
+    Every backend is built through the factory from its own instance settings
+    (WP P4), replacing the former 15-kwarg ``CatalogConfig`` wall + the
+    ``catalog_type`` if-elif. Precedence preserves the operator's June-2026 order:
 
-    1. **finc** — opt-in (``finc_dk_enabled`` + a real ``finc_base_url``);
-    2. **custom plugin** — any enabled non-built-in provider declaring
-       ``CLASSIFICATION`` (the extensibility point for other libraries);
-    3. **SRU / MARC-XML** — when ``catalog_type == "marcxml_sru"``;
-    4. **Libero SOAP** — default.
+    1. **finc** — opt-in via the finc instance's ``dk_enabled``;
+    2. **custom plugin** — any enabled non-built-in provider declaring CLASSIFICATION;
+    3. **SRU / MARC-XML** — opt-in via the sru instance's ``dk_enabled``
+       (legacy ``catalog_type == 'marcxml_sru'`` still honoured, see
+       :func:`_sru_selected_for_dk`);
+    4. **Libero SOAP** — the catalog instance, the default.
 
     Returns an object implementing the shared
-    ``extract_dk_classifications_for_keywords`` contract, built via the provider
-    layer so it is byte-equivalent to the former direct client construction. - Claude Generated
+    ``extract_dk_classifications_for_keywords`` contract. - Claude Generated
     """
-    # 1. finc (opt-in DK source).
-    if finc_dk_enabled and isinstance(finc_base_url, str) and finc_base_url.strip():
-        prov = get_provider("finc")(
-            base_url=finc_base_url,
-            web_record_url=finc_web_record_url or "",
-            institution_filter=finc_institution_filter or "",
-            timeout=int(finc_timeout or 30),
-            default_limit=int(finc_default_limit or 50),
-        )
-        return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
+    if config is None:
+        try:
+            from src.utils.config_manager import ConfigManager
+            config = ConfigManager().load_config()
+        except Exception:
+            config = None
+
+    by_id: dict = {}
+    if config is not None:
+        try:
+            for inst in config.enabled_instances_for("search_provider"):
+                by_id.setdefault(getattr(inst, "provider_id", ""), inst)
+        except Exception:
+            pass
+
+    common = dict(debug=debug, logger_=logger_, stream_callback=stream_callback)
+
+    # 1. finc — opt-in.
+    finc_inst = by_id.get("finc")
+    if finc_inst is not None and (getattr(finc_inst, "settings", None) or {}).get("dk_enabled"):
+        ext = _dk_extractor_from_instance(finc_inst, **common)
+        if ext is not None:
+            return ext
     # 2. Custom (non-built-in) CLASSIFICATION plugin.
-    ext = _custom_classification_extractor(config, logger_=logger_, stream_callback=stream_callback)
+    ext = _custom_classification_extractor(
+        config, logger_=logger_, stream_callback=stream_callback, debug=debug
+    )
     if ext is not None:
         return ext
-    # 3. SRU / MARC-XML.
-    if catalog_type == "marcxml_sru":
-        prov = get_provider("sru")(
-            preset=sru_preset or "",
-            base_url=(sru_base_url if not sru_preset else ""),
-            max_records=int(sru_max_records or 50),
-            debug=debug,
-        )
-        return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
-    # 4. Libero SOAP (default).
-    prov = get_provider("catalog")(
-        token=catalog_token or "",
-        catalog_search_url=catalog_search_url or "",
-        catalog_details=catalog_details_url or "",
-        catalog_web_search_url=catalog_web_search_url or "",
-        catalog_web_record_url=catalog_web_record_url or "",
-        debug=debug,
-    )
+    # 3. SRU — opt-in (new dk_enabled knob or the legacy catalog_type fallback).
+    if _sru_selected_for_dk(by_id.get("sru"), by_id.get("catalog")):
+        ext = _dk_extractor_from_instance(by_id.get("sru"), **common)
+        if ext is not None:
+            return ext
+    # 4. Libero catalog — default (built unconditionally; empty token → web scraping).
+    ext = _dk_extractor_from_instance(by_id.get("catalog"), require_available=False, **common)
+    if ext is not None:
+        return ext
+    # No catalog instance configured — build the registry default.
+    prov = get_provider("catalog")(debug=debug)
     return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
 
 
