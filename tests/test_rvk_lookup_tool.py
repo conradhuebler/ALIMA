@@ -101,6 +101,18 @@ class TestRvkLookupHandler(unittest.TestCase):
         self.assertEqual(payload, {"rvk": [], "count": 0})
         exec_cls.assert_not_called()
 
+    def test_passes_real_cache_manager_to_executor(self):
+        # WP P3: the executor must receive a real cache_manager (was None) so the
+        # RVK search/validate calls share the WP2 raw cache with the classic
+        # pipeline + the rvk_search/rvk_validate agent tools. - Claude Generated
+        ex = _mock_executor()
+        km = MagicMock()
+        self.reg._knowledge_manager = km
+        with patch("src.utils.pipeline_utils.PipelineStepExecutor", return_value=ex) as exec_cls:
+            self.reg._handle_rvk_lookup(keywords=["Marketing (GND-ID: 123)"], abstract="x")
+        _, kwargs = exec_cls.call_args
+        self.assertIs(kwargs["cache_manager"], km)
+
     def test_dk_codes_feed_semantic_profile(self):
         ex = _mock_executor()
         with patch("src.utils.pipeline_utils.PipelineStepExecutor", return_value=ex):

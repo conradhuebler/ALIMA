@@ -1001,9 +1001,14 @@ class ToolRegistry:
             from src.utils.config_manager import ConfigManager
 
             config_manager = self._config_manager or ConfigManager()
+            # Real cache_manager (WP P3): the RVK search/validate calls underneath
+            # are plugin-routed + cached_call-wrapped, so they now share the WP2 raw
+            # cache with the classic pipeline and the rvk_search/rvk_validate agent
+            # tools. Safe since P3's prerequisite (the rvk_validate cache-shape
+            # collision, C2) is fixed — both writers store the outer dict. - Claude Generated
             executor = PipelineStepExecutor(
                 alima_manager=None,
-                cache_manager=None,
+                cache_manager=self._get_knowledge_manager(),
                 logger=logger,
                 config_manager=config_manager,
             )
