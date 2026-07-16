@@ -328,6 +328,43 @@ class LookupRawCacheHelperTest(unittest.TestCase):
         cached_call(self.km, False, "rvk_validate", "WI 1000", {}, lambda: calls.__setitem__("n", calls["n"] + 1))
         self.assertEqual(calls["n"], 2)
 
+    def test_rvk_validate_row_shared_with_tool_yields_status(self):
+        # Regression: rvk_validate's only parameter IS its cache key, so the
+        # pipeline path and the rvk_validate tool handler share the row
+        # ("rvk_validate", code, {}) 1:1. The tool stores the OUTER {notation,
+        # result} dict; the pipeline used to store the inner one → reading a
+        # tool-written row lost the top-level ``status`` and the code silently
+        # dropped from standard_validated_codes. Both now store the outer dict;
+        # the pipeline unwraps after the read. - Claude Generated
+        import json
+        from src.utils.lookups.cache import cached_call
+
+        # What the rvk_validate tool handler writes (_make_lookup_handler).
+        outer = {"notation": "WI 1000",
+                 "result": {"status": "standard", "notation": "WI 1000", "label": "x"}}
+        self.km.store_raw_response("rvk_validate", "WI 1000", {}, json.dumps(outer))
+
+        def _boom():
+            raise AssertionError("cache miss — pipeline key diverged from the tool handler")
+
+        payload = cached_call(self.km, True, "rvk_validate", "WI 1000", {}, _boom)
+        # Mirrors _validate_code's unwrap in pipeline_utils.
+        result = payload.get("result", payload) if isinstance(payload, dict) else payload
+        self.assertEqual(result.get("status"), "standard")
+
+    def test_rvk_validate_legacy_inner_row_still_yields_status(self):
+        # Transition: a row written by the old pipeline code is the inner dict
+        # (no ``result`` key). The unwrap must return it unchanged. - Claude Generated
+        import json
+        from src.utils.lookups.cache import cached_call
+
+        inner = {"status": "standard", "notation": "WI 1000"}
+        self.km.store_raw_response("rvk_validate", "WI 1000", {}, json.dumps(inner))
+        payload = cached_call(self.km, True, "rvk_validate", "WI 1000", {},
+                              lambda: (_ for _ in ()).throw(AssertionError("cache miss")))
+        result = payload.get("result", payload) if isinstance(payload, dict) else payload
+        self.assertEqual(result.get("status"), "standard")
+
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class LookupSeedingTest(unittest.TestCase):

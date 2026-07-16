@@ -2381,10 +2381,20 @@ class PipelineStepExecutor:
         for keyword in keywords:
             clean_keyword = canonicalize_keyword(keyword)
             try:
-                candidates = cached_call(
+                # Cache the FULL plugin payload {keyword, count, results}, not the
+                # bare ``results`` list. The rvk_search tool handler shares this cache
+                # row and stores/returns the full dict verbatim; unwrapping before the
+                # write made the two writers disagree on shape. Unwrap after the read;
+                # tolerate a legacy bare-list row. - Claude Generated
+                _rvk_payload = cached_call(
                     _km, _rvk_cache_on, "rvk_search", clean_keyword,
                     {"max_results": max_results_per_keyword},
-                    lambda kw=clean_keyword: rvk_plugin.search_keyword(kw, max_results=max_results_per_keyword)["results"],
+                    lambda kw=clean_keyword: rvk_plugin.search_keyword(kw, max_results=max_results_per_keyword),
+                )
+                candidates = (
+                    _rvk_payload.get("results", [])
+                    if isinstance(_rvk_payload, dict)
+                    else (_rvk_payload or [])
                 )
             except Exception as exc:
                 if self.logger:
@@ -2687,10 +2697,18 @@ class PipelineStepExecutor:
             )
 
         def _validate_code(code: str) -> Tuple[str, Dict[str, Any]]:
-            result = cached_call(
+            # Cache the FULL plugin payload {notation, result}. rvk_validate's only
+            # parameter IS its cache key, so this row is shared 1:1 with the
+            # rvk_validate tool handler (which stores/returns the full dict). Storing
+            # the inner ``result`` here made a tool-written row read back without a
+            # top-level ``status`` → the code silently dropped from
+            # standard_validated_codes below. Unwrap after the read; a legacy row is
+            # already the inner dict (no ``result`` key). - Claude Generated
+            payload = cached_call(
                 _km, _rvk_cache_on, "rvk_validate", code, {},
-                lambda c=code: rvk_plugin.validate_notation(c)["result"],
+                lambda c=code: rvk_plugin.validate_notation(c),
             )
+            result = payload.get("result", payload) if isinstance(payload, dict) else payload
             return code, result
 
         if selected_codes:
