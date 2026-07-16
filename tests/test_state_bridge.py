@@ -80,6 +80,36 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
             ctx.gnd_entries_per_keyword["Boden"], ["Cadmium in Soil"]
         )
 
+    def test_flatten_preserves_count_and_display_count(self):
+        # Reload twin of the counter bug: a saved agentic state must keep the
+        # real Häufigkeit (display_count) when flattened back. - Claude Generated
+        ctx = from_keyword_analysis_state({
+            "original_abstract": "x",
+            "search_results": [
+                {
+                    "search_term": "Halbleiter",
+                    "results": {
+                        "Halbleiter": {
+                            "gndid": ["4129772-7"],
+                            "ddc_codes": ["530"],
+                            "count": 1,
+                            "display_count": 87,
+                        },
+                        "Silizium": {
+                            "gndid": ["4130826-8"],
+                            "ddc_codes": ["546"],
+                        },
+                    },
+                },
+            ],
+        })
+        by_title = {e["title"]: e for e in ctx.gnd_entries}
+        self.assertEqual(by_title["Halbleiter"]["count"], 1)
+        self.assertEqual(by_title["Halbleiter"]["display_count"], 87)
+        # Missing display_count → defaults count to 1, omits display_count.
+        self.assertEqual(by_title["Silizium"]["count"], 1)
+        self.assertNotIn("display_count", by_title["Silizium"])
+
     def test_promotes_string_dk_classifications_to_dicts(self):
         ctx = from_keyword_analysis_state({
             "original_abstract": "x",

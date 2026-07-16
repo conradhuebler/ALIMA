@@ -428,7 +428,9 @@ def format_step_compact_csv(step: str, state: KeywordAnalysisState, filename: st
                 results = getattr(result, 'results', {}) or {}
 
             for keyword, info in results.items():
-                count = info.get('count', 0)
+                # Pool ``count`` is the ranking placeholder (1 on a cache hit);
+                # the real Häufigkeit rides in ``display_count``. - Claude Generated
+                count = max(int(info.get('count', 0) or 0), int(info.get('display_count') or 0))
                 result_parts.append(f"{keyword}:{count}")
         data = "|".join(result_parts) if result_parts else ""
 

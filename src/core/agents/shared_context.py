@@ -292,9 +292,14 @@ class SharedContext(BaseSharedContext):
                     gnd_ids = entry.get("gnd_ids", [])
                     primary_gnd_id = entry.get("gnd_id", "")
                     all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
+                    # Carry the frequency: pool ``count`` is the ranking placeholder (1 on
+                    # a cache hit), the real Häufigkeit rides in ``display_count``. Dropping
+                    # them here made agentic runs persist 0. - Claude Generated
                     kw_results[title] = {
                         "gndid": all_gnd_ids,
                         "ddc_codes": entry.get("ddc_codes", []),
+                        "count": entry.get("count", 1),
+                        **({"display_count": entry["display_count"]} if entry.get("display_count") is not None else {}),
                     }
             # Fallback: if no per-keyword mapping, show all (old behavior)
             if not kw_results and not per_keyword:
@@ -308,6 +313,8 @@ class SharedContext(BaseSharedContext):
                     kw_results[title] = {
                         "gndid": all_gnd_ids,
                         "ddc_codes": entry.get("ddc_codes", []),
+                        "count": entry.get("count", 1),
+                        **({"display_count": entry["display_count"]} if entry.get("display_count") is not None else {}),
                     }
             search_results.append(SearchResult(
                 search_term=ekw,

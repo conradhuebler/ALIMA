@@ -852,7 +852,9 @@ class AnalysisReviewTab(QWidget):
                 rows.append({
                     "search_term": result.search_term,
                     "keyword": keyword,
-                    "count": data.get("count", 0),
+                    # Pool ``count`` is the ranking placeholder; real Häufigkeit
+                    # is in ``display_count``. - Claude Generated
+                    "count": max(int(data.get("count", 0) or 0), int(data.get("display_count") or 0)),
                     "gnd_id": next(iter(gnd_ids), "") if gnd_ids else "",
                 })
         GndPoolRenderer().fill_table(self.search_results_table, rows)

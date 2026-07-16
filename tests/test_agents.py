@@ -83,6 +83,36 @@ class TestSharedContext(unittest.TestCase):
         self.assertIn("AN", state.rvk_provenance)
         self.assertIn("Schlagwortketten", state.final_llm_analysis.response_full_text)
 
+    def test_to_keyword_analysis_state_carries_count_and_display_count(self):
+        # Regression: agentic GND-Häufigkeit persisted as 0 because the KAS
+        # projection dropped count/display_count. Main branch (per-keyword
+        # mapping present). - Claude Generated
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Halbleiter"]
+        ctx.gnd_entries_per_keyword = {"Halbleiter": ["Halbleiter"]}
+        ctx.gnd_entries = [
+            {"title": "Halbleiter", "gnd_id": "4129772-7", "gnd_ids": ["4129772-7"],
+             "ddc_codes": ["530"], "count": 1, "display_count": 87},
+        ]
+        state = ctx.to_keyword_analysis_state()
+        entry = state.search_results[0].results["Halbleiter"]
+        self.assertEqual(entry["count"], 1)
+        self.assertEqual(entry["display_count"], 87)
+
+    def test_to_keyword_analysis_state_count_defaults_and_omits_display(self):
+        # Fallback branch (no per-keyword mapping): count defaults to 1 and no
+        # display_count key is emitted when the entry lacks it. - Claude Generated
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Katalog"]
+        ctx.gnd_entries = [
+            {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"],
+             "ddc_codes": ["025.3"]},
+        ]
+        state = ctx.to_keyword_analysis_state()
+        entry = state.search_results[0].results["Katalog"]
+        self.assertEqual(entry["count"], 1)
+        self.assertNotIn("display_count", entry)
+
     def test_to_keyword_analysis_state_carries_report_markdown(self):
         # title_list_search's render_report step writes extra.report_markdown;
         # to_keyword_analysis_state() must surface it so the GUI's

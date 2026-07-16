@@ -21,6 +21,7 @@ try:
     from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
     from src.core.gnd_search_core import _entry_from_kw_data, merge_into_pool, rank_pool
     from src.utils.pipeline_formatters import PipelineResultFormatter
+    from src.core.agents.shared_context import SharedContext
     IMPORT_ERROR = None
 except ModuleNotFoundError as exc:  # pragma: no cover
     IMPORT_ERROR = exc
@@ -188,6 +189,23 @@ class DisplayCountFlowTest(unittest.TestCase):
         entries = [{"gnd_id": "g1", "title": "X", "count": 5}]
         rows = PipelineResultFormatter.flatten_gnd_hits(entries)
         self.assertEqual(rows[0]["count"], 5)
+
+    def test_agentic_kas_projection_preserves_display_count_end_to_end(self):
+        # The counter bug's exact seam: gnd_entries → to_keyword_analysis_state →
+        # flatten_gnd_hits (what _populate_gnd_hits feeds the GUI table on agentic
+        # completion + reload). Must surface 87, not the pool placeholder 1. - Claude Generated
+        ctx = SharedContext(abstract="x", initial_keywords=["Halbleiter"])
+        ctx.extracted_keywords = ["Halbleiter"]
+        ctx.gnd_entries_per_keyword = {"Halbleiter": ["Halbleiter"]}
+        ctx.gnd_entries = [
+            {"title": "Halbleiter", "gnd_id": "4129772-7", "gnd_ids": ["4129772-7"],
+             "ddc_codes": ["530"], "count": 1, "display_count": 87},
+        ]
+        state = ctx.to_keyword_analysis_state()
+        rows = PipelineResultFormatter.flatten_gnd_hits(state.search_results)
+        halbleiter = [r for r in rows if r.get("begriff") == "Halbleiter"]
+        self.assertTrue(halbleiter, f"no Halbleiter row in {rows}")
+        self.assertEqual(halbleiter[0]["count"], 87)
 
 
 if __name__ == "__main__":
