@@ -829,8 +829,13 @@ class SearchTab(QWidget):
 
             QApplication.processEvents()
 
-            # Hole DNB-Klassifikation
-            dnb_class = build_lookup(None, "dnb").classify(gnd_id)
+            # Hole DNB-Klassifikation (Plugin kann deaktiviert sein → None). - Claude Generated
+            _dnb = build_lookup(None, "dnb")
+            if _dnb is None:
+                self.status_label.setText("DNB-Lookup ist deaktiviert (Plugin-Tab).")
+                self.status_label.setStyleSheet(get_status_label_styles()["info"])
+                return
+            dnb_class = _dnb.classify(gnd_id)
 
             # Fortschritt anzeigen
             if self.progressBar.isVisible():

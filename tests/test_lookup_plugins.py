@@ -101,6 +101,14 @@ class LookupRegistryTest(unittest.TestCase):
         k10_keys = [f.key for f in get_lookup("k10plus").config_fields()]
         self.assertIn("cache_dir", k10_keys)
 
+    def test_every_lookup_conforms_to_provider_protocol(self):
+        # WP P5: every registered lookup satisfies the LookupProvider contract
+        # (structural — data members mean issubclass isn't available). - Claude Generated
+        for lid in list_lookups():
+            cls = get_lookup(lid)
+            for member in ("id", "label", "config_fields", "doc", "mcp_tool_specs"):
+                self.assertTrue(hasattr(cls, member), f"{lid} missing {member}")
+
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class LookupToolHandlerTest(unittest.TestCase):
@@ -135,6 +143,23 @@ class LookupToolHandlerTest(unittest.TestCase):
 
     def _handler(self, reg):
         return {td.name: h for td, h in reg._generated_lookup_tools()}["fake_search"]
+
+    def test_all_disabled_yields_no_lookup_tools(self):
+        # Coverage gap the WP flagged (WP P5): a readable config whose lookups are
+        # all disabled must produce NO lookup tools — not resurrect them via a
+        # synthesize-all fallback. - Claude Generated
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "fake_lk", "lookup", "fake_lk", enabled=False, is_primary=True,
+        )]
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = types.SimpleNamespace(load_config=lambda **k: cfg)
+        reg._knowledge_manager = self.km
+        reg._tools = {}
+        reg._handlers = {}
+        self.assertEqual(reg._lookup_instances(), [])
+        names = {td.name for td, _ in reg._generated_lookup_tools()}
+        self.assertNotIn("fake_search", names)
 
     def test_dispatch_and_cache_on(self):
         import json
@@ -480,7 +505,10 @@ class BuildLookupResolverTest(unittest.TestCase):
         inst = resolve_lookup_instance(cfg, "rvk_api")
         self.assertEqual(inst.settings.get("timeout"), 3)
 
-    def test_resolve_falls_back_when_instance_disabled(self):
+    def test_resolve_returns_none_when_instance_disabled(self):
+        # Search parity (WP P5, inverted from the old synthetic-default behaviour):
+        # a readable config with the instance DISABLED gates the path → None, so
+        # the pipeline/CLI/GUI callers stop just like the agent tool. - Claude Generated
         from src.utils.lookups.resolve import resolve_lookup_instance
 
         cfg = AlimaConfig()
@@ -488,9 +516,30 @@ class BuildLookupResolverTest(unittest.TestCase):
             "rvk_api", "lookup", "rvk_api", enabled=False, is_primary=True,
             settings={"timeout": 3},
         )]
-        inst = resolve_lookup_instance(cfg, "rvk_api")
-        # disabled → not matched → synthetic default (no per-instance settings)
-        self.assertNotEqual(inst.settings.get("timeout"), 3)
+        self.assertIsNone(resolve_lookup_instance(cfg, "rvk_api"))
+
+    def test_resolve_synthetic_default_only_on_config_error(self):
+        # config UNREADABLE (raises) → synthetic enabled default (anchor safety),
+        # distinct from disabled (None). Mirrors enabled_gnd_provider_ids' None/[].
+        # - Claude Generated
+        from src.utils.lookups.resolve import resolve_lookup_instance
+
+        class _Boom:
+            def enabled_instances_for(self, category):
+                raise RuntimeError("config unreadable")
+
+        inst = resolve_lookup_instance(_Boom(), "rvk_api")
+        self.assertIsNotNone(inst)
+        self.assertEqual(inst.provider_id, "rvk_api")
+
+    def test_build_lookup_returns_none_when_disabled(self):
+        from src.utils.lookups.resolve import build_lookup
+
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "rvk_api", "lookup", "rvk_api", enabled=False, is_primary=True,
+        )]
+        self.assertIsNone(build_lookup(cfg, "rvk_api"))
 
     def test_build_lookup_honors_per_instance_config(self):
         from src.utils.lookups.resolve import build_lookup

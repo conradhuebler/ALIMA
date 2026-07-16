@@ -47,6 +47,9 @@ class SiegelFetchWorker(StoppableWorker):
                 self.progress.emit(current, total, msg)
 
             k10 = build_lookup(None, "k10plus")
+            if k10 is None:
+                self.error.emit("k10plus-Lookup ist deaktiviert (Plugin-Tab).")
+                return
             records = k10.fetch_records(
                 self.siegel,
                 cache_dir=self.cache_dir or None,
@@ -80,6 +83,9 @@ class SiegelCacheLoadWorker(StoppableWorker):
 
             self.status_message.emit(f"Suche gecachte Dateien für '{self.siegel}'...")
             k10 = build_lookup(None, "k10plus")
+            if k10 is None:
+                self.error.emit("k10plus-Lookup ist deaktiviert (Plugin-Tab).")
+                return
             records = k10.load_cached(self.siegel, cache_dir=self.cache_dir or None, logger=self.logger)
 
             if not records:

@@ -48,10 +48,10 @@ class LookupCategory(PluginCategory):
         warn_operator_urls(cls, instance)
         fields = cls.config_fields() if hasattr(cls, "config_fields") else []
         settings = apply_env_overrides(instance.instance_id, instance.settings, fields)
-        try:
-            return cls(**settings)
-        except TypeError:
-            return cls()
+        # A LookupProvider takes **config, so operator settings must reach it. A
+        # TypeError here means the plugin's __init__ doesn't conform — surface it
+        # instead of silently dropping the settings via cls(). - Claude Generated
+        return cls(**settings)
 
     def register_code_type(self, cls: type) -> str:
         register_lookup(cls)

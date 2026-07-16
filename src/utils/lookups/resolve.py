@@ -7,10 +7,13 @@ instead of instantiating the underlying client/resolver directly. So there is **
 construction path per source**: pipeline + agent share it and both honor the
 operator's per-instance settings (``timeout``, ``cache_dir``, …) and env overrides.
 
-Instance selection mirrors ``ToolRegistry._lookup_instances`` for a single id: the
-operator's enabled config instance if present, else a synthetic primary instance
-built from the live registry — so a pipeline anchor (e.g. RVK) keeps working even
-when the agent-facing instance is disabled.
+Instance selection mirrors ``ToolRegistry._lookup_instances`` for a single id and
+follows the same Search-parity disable semantics (WP P5): a *disabled* instance
+gates this path too (returns ``None`` → ``build_lookup`` returns ``None``), so
+disabling a lookup in the Plugins tab stops both the agent tool and the
+pipeline/CLI/GUI callers. A synthetic default is returned only when the config
+can't be read at all (anchor safety on a config error), mirroring
+``factory.enabled_gnd_provider_ids``' ``None``-vs-``[]`` discipline.
 """
 
 from __future__ import annotations
@@ -22,10 +25,17 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_lookup_instance(config: Any, lookup_id: str):
-    """Return the ``PluginInstanceConfig`` for ``lookup_id`` - Claude Generated.
+    """Return the ``PluginInstanceConfig`` for ``lookup_id``, or ``None`` - Claude Generated.
 
-    The enabled config instance of that type if present, else a synthetic enabled
-    primary instance (empty settings) so lookups without a config section still build.
+    * config readable + an **enabled** instance of that type → return it;
+    * config readable + the instance **disabled** (or absent) → ``None`` — the
+      operator's disable gates this path (Search parity, WP P5);
+    * config **unreadable** (raises) → a synthetic enabled primary so a pipeline
+      anchor still works despite a config error.
+
+    ``ensure_lookup_instances`` seeds one enabled instance per registered lookup
+    type on every load, so a readable config normally *has* the instance — the
+    absent case only survives for a genuinely unmigrated config passed directly.
     """
     import src.utils.lookups  # noqa: F401 — self-registers the category + plugins
     from src.utils.config_models import PluginInstanceConfig
@@ -35,7 +45,8 @@ def resolve_lookup_instance(config: Any, lookup_id: str):
             for inst in config.enabled_instances_for("lookup"):
                 if inst.provider_id == lookup_id:
                     return inst
-        except Exception as e:  # best-effort; never break the caller
+            return None  # readable, not enabled → gated (parity with search)
+        except Exception as e:  # config read error → anchor safety below
             logger.debug(f"resolve_lookup_instance({lookup_id}) config read failed: {e}")
     return PluginInstanceConfig(
         instance_id=lookup_id, category="lookup", provider_id=lookup_id, is_primary=True
@@ -54,12 +65,16 @@ def _load_config_best_effort() -> Optional[Any]:
 
 
 def build_lookup(config: Any, lookup_id: str):
-    """Build the configured lookup plugin object for ``lookup_id`` - Claude Generated.
+    """Build the configured lookup plugin object for ``lookup_id``, or ``None`` - Claude Generated.
 
     The same object the MCP tool handler builds, so callers honor the per-instance
     settings + env overrides and there is a single construction path per source.
     Pass ``config=None`` to auto-load the AlimaConfig (best-effort) — convenient for
     GUI/worker call sites that do not already hold one.
+
+    Returns ``None`` when the operator has disabled the lookup (Search parity, WP
+    P5) — **callers must guard**; a chained ``build_lookup(...).method()`` will
+    otherwise ``AttributeError``.
     """
     import src.utils.lookups  # noqa: F401 — self-registers the category + plugins
     from src.core.plugins.category import get_category
@@ -67,4 +82,6 @@ def build_lookup(config: Any, lookup_id: str):
     if config is None:
         config = _load_config_best_effort()
     inst = resolve_lookup_instance(config, lookup_id)
+    if inst is None:
+        return None
     return get_category("lookup").build(inst)

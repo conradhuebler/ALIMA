@@ -2371,6 +2371,12 @@ class PipelineStepExecutor:
         # - Claude Generated
         _config = self._alima_config_for_cache()
         rvk_plugin = build_lookup(_config, "rvk_api")
+        if rvk_plugin is None:
+            # rvk_api disabled in the Plugins tab → no RVK-API fallback (Search
+            # parity, WP P5: disable gates the pipeline too, not just the agent tool).
+            if stream_callback:
+                stream_callback("RVK-API-Plugin deaktiviert — überspringe RVK-Fallback\n", "dk_search")
+            return []
         # Reuse the WP2 raw cache (F3): RVK API results are cached under the same
         # `rvk_search` key the agent tool uses, gated by the rvk_api plugin's
         # `cache_responses` setting. - Claude Generated
@@ -2482,6 +2488,14 @@ class PipelineStepExecutor:
         # shared with the agent tool). - Claude Generated
         _config = self._alima_config_for_cache()
         rvk_plugin = build_lookup(_config, "rvk_api")
+        if rvk_plugin is None:
+            # rvk_api disabled → skip the API validation (Search parity, WP P5:
+            # this is exactly the "runs with default settings when disabled"
+            # divergence the WP set out to fix). Catalog-derived RVK candidates
+            # pass through unvalidated rather than being dropped. - Claude Generated
+            if stream_callback:
+                stream_callback("RVK-API-Plugin deaktiviert — überspringe RVK-Validierung\n", "dk_search")
+            return keyword_results
         # Persist RVK notation validations in the WP2 raw cache (F3), sharing the
         # `rvk_validate` key with the agent tool. - Claude Generated
         _km = getattr(self, "cache_manager", None)

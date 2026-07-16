@@ -1348,18 +1348,21 @@ class ToolRegistry:
         return handler
 
     def _lookup_instances(self):
-        """Enabled lookup-plugin instances; fall back to one per registered type.
+        """Enabled lookup-plugin instances.
 
-        Lookups are a new category, so existing configs have no lookup instances →
-        fall back on an *empty* list (not just on load failure). - Claude Generated"""
+        Search parity (WP P5): a **readable** config is authoritative — its enabled
+        set is honoured *even when empty* (all lookups disabled → no lookup tools),
+        mirroring ``factory.enabled_gnd_provider_ids``' ``None``-vs-``[]`` split. Only
+        an **unreadable** config falls back to one synthetic instance per registered
+        type (so tools still exist on a config error). ``ensure_lookup_instances``
+        seeds every type on load, so the readable-but-empty case means the operator
+        deliberately disabled them, not an unmigrated config. - Claude Generated"""
         import src.utils.lookups  # noqa: F401 — registers the category + plugins
         from src.utils.lookups import list_lookups
 
         cfg = self._alima_config()
         if cfg is not None:
-            insts = cfg.enabled_instances_for("lookup")
-            if insts:
-                return insts
+            return cfg.enabled_instances_for("lookup")  # readable → honour (incl. empty)
         from src.utils.config_models import PluginInstanceConfig
 
         return [

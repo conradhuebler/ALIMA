@@ -16,7 +16,7 @@ config), ``doc`` (self-description) and ``mcp_tool_specs`` (the tools it exposes
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Protocol, runtime_checkable
 
 from src.core.plugins.schema import ConfigField
 
@@ -39,6 +39,34 @@ class LookupToolSpec:
     provider_id: str = ""  # stamped by the registry when collecting specs
     cacheable: bool = True
     cache_key_param: str = ""
+
+
+@runtime_checkable
+class LookupProvider(Protocol):
+    """Structural contract every lookup plugin satisfies (WP P5).
+
+    Documentation + typecheck only — the four built-ins (rvk_api, k10plus, dnb,
+    webindex) already conform, so declaring it adds no runtime coupling and needs
+    no plugin edits. Deliberately unlike the search family: there is **no**
+    capability enum (lookups dispatch on :attr:`LookupToolSpec.method` — the spec
+    list *is* the capability declaration) and **no** typed result (the returns are
+    JSON-serialised straight to the agent; a typed union would be a tax with one
+    member per plugin). - Claude Generated
+    """
+
+    id: str
+    label: str
+
+    def __init__(self, **config: Any) -> None: ...
+
+    @classmethod
+    def config_fields(cls) -> List[ConfigField]: ...
+
+    @classmethod
+    def doc(cls) -> Any: ...  # PluginDoc — Any to avoid a schema import cycle
+
+    @classmethod
+    def mcp_tool_specs(cls) -> List["LookupToolSpec"]: ...
 
 
 def register_lookup(cls: type) -> type:

@@ -263,6 +263,12 @@ class DNBSyncWorker(QThread):
         from ..utils.lookups.resolve import build_lookup
 
         dnb_lookup = build_lookup(None, "dnb")
+        if dnb_lookup is None:
+            # dnb lookup disabled in the Plugins tab → nothing to sync (Search
+            # parity, WP P5). - Claude Generated
+            self.logger.warning("DNB lookup disabled — skipping DNB sync")
+            self.finished.emit(0, 0)
+            return
         success = 0
         errors = 0
         total = len(self.gnd_ids)

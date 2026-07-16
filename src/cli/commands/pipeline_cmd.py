@@ -417,13 +417,17 @@ def handle_batch(args, config_manager: ConfigManager, llm_service: LlmService,
             # Route through the k10plus lookup plugin (single harvest path, shared
             # with the agent tool); extract DOIs from the full records. - Claude Generated
             k10 = build_lookup(config_manager.load_config(), "k10plus")
-            records = k10.fetch_records(
-                args.siegel,
-                cache_dir=getattr(args, "siegel_cache_dir", None),
-                progress_callback=_siegel_progress,
-                logger=logger,
-            )
-            dois = [r.doi for r in records if r.doi]
+            if k10 is None:
+                logger.warning("k10plus lookup disabled — no DOIs harvested")
+                dois = []
+            else:
+                records = k10.fetch_records(
+                    args.siegel,
+                    cache_dir=getattr(args, "siegel_cache_dir", None),
+                    progress_callback=_siegel_progress,
+                    logger=logger,
+                )
+                dois = [r.doi for r in records if r.doi]
         except Exception as exc:
             logger.error(f"Failed to fetch DOIs for siegel '{args.siegel}': {exc}")
             return
