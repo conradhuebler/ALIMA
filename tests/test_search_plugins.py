@@ -253,5 +253,58 @@ class GndSourceIdsNoneVsEmptyTest(unittest.TestCase):
         self.assertEqual(self._call(["poc_lobid"]), ["poc_lobid"])
 
 
+class ResolveGndSourceToolsTest(unittest.TestCase):
+    """WP P6a: the agentic source→tool map is derived from the enabled GND
+    providers, not hardcoded, and a requested built-in id resolves to the copy
+    backing the same tool name (own-plugins POC). - Claude Generated"""
+
+    def _resolve(self, requested, enabled_ids):
+        from unittest.mock import patch
+        from src.core.search.factory import resolve_gnd_source_tools
+        with patch("src.core.search.factory.enabled_gnd_provider_ids", return_value=enabled_ids):
+            return resolve_gnd_source_tools(requested)
+
+    def test_default_is_every_enabled_provider(self):
+        ids, mp = self._resolve(None, ["lobid", "swb"])
+        self.assertEqual(ids, ["lobid", "swb"])
+        self.assertEqual(mp, {"lobid": "search_lobid", "swb": "search_swb"})
+
+    def test_requested_subset_is_filtered(self):
+        ids, mp = self._resolve(["lobid"], ["lobid", "swb"])
+        self.assertEqual(ids, ["lobid"])
+        self.assertEqual(mp, {"lobid": "search_lobid"})
+
+    def test_unreadable_config_returns_none(self):
+        self.assertIsNone(self._resolve(["lobid"], None))
+
+    def test_all_disabled_returns_empty(self):
+        self.assertEqual(self._resolve(["lobid"], []), ([], {}))
+
+    def test_requested_builtin_resolves_to_enabled_copy(self):
+        # Own-plugins POC: lobid is disabled; a copy backs the same tool name.
+        from src.core.search.provider import ProviderToolSpec, SearchCapability
+        from src.core.search.registry import PROVIDER_REGISTRY, register_provider
+
+        @register_provider
+        class _PocLobid:
+            id = "poc_lobid_x"
+            label = "poc lobid"
+            capabilities = {SearchCapability.GND_KEYWORDS}
+
+            @classmethod
+            def mcp_tool_specs(cls):
+                return [ProviderToolSpec(
+                    name="search_lobid", capability=SearchCapability.GND_KEYWORDS,
+                    description="", parameters={},
+                )]
+
+        try:
+            ids, mp = self._resolve(["lobid"], ["poc_lobid_x"])
+            self.assertEqual(ids, ["poc_lobid_x"])
+            self.assertEqual(mp, {"poc_lobid_x": "search_lobid"})
+        finally:
+            PROVIDER_REGISTRY.pop("poc_lobid_x", None)
+
+
 if __name__ == "__main__":
     unittest.main()

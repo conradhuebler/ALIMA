@@ -149,6 +149,59 @@ def enabled_gnd_provider_ids(
         return None
 
 
+def gnd_tool_name(provider_id: str) -> "str | None":
+    """The generated GND-keyword tool name for a provider id — its GND_KEYWORDS
+    ``ProviderToolSpec`` name (e.g. ``lobid`` → ``search_lobid``). A copied plugin
+    keeps the original tool name (deploy_poc only rewrites the id), which is what
+    lets a requested built-in id resolve to its copy. - Claude Generated"""
+    try:
+        cls = get_provider(provider_id)
+    except KeyError:
+        return None
+    for spec in (cls.mcp_tool_specs() if hasattr(cls, "mcp_tool_specs") else []):
+        if getattr(spec, "capability", None) == SearchCapability.GND_KEYWORDS:
+            return spec.name
+    return None
+
+
+def resolve_gnd_source_tools(requested: Any, config: Any = None):
+    """Resolve requested GND source ids to the enabled providers backing them.
+
+    Returns ``(provider_ids, {provider_id: tool_name})`` — the agentic replacement
+    for the hardcoded ``{"swb": "search_swb", "lobid": "search_lobid"}`` map. Both
+    the ids and their tool names come from the enabled GND providers, so a copied
+    or renamed plugin works. A requested built-in id whose class is registered but
+    *disabled* (own-plugins POC) resolves to the enabled provider sharing its tool
+    name (``swb`` → ``search_swb`` → ``poc_swb``). Empty ``requested`` → every
+    enabled GND provider, in order.
+
+    Returns ``None`` when the config can't be read (caller keeps its legacy
+    default rather than searching nothing); ``([], {})`` when the config is
+    readable but no GND provider is enabled (honour "all disabled"). Mirrors
+    :func:`enabled_gnd_provider_ids`' ``None``-vs-``[]`` discipline. - Claude Generated
+    """
+    ids = enabled_gnd_provider_ids(config)
+    if ids is None:
+        return None
+    pid_to_tool: dict = {}
+    tool_to_pid: dict = {}
+    for pid in ids:
+        tn = gnd_tool_name(pid)
+        if tn:
+            pid_to_tool[pid] = tn
+            tool_to_pid.setdefault(tn, pid)
+    if not requested:
+        return list(pid_to_tool.keys()), pid_to_tool
+    out_ids: list = []
+    out_map: dict = {}
+    for req in requested:
+        pid = req if req in pid_to_tool else tool_to_pid.get(gnd_tool_name(req))
+        if pid and pid not in out_map:
+            out_ids.append(pid)
+            out_map[pid] = pid_to_tool[pid]
+    return out_ids, out_map
+
+
 # Built-in provider ids — lets a *custom* CLASSIFICATION plugin take precedence
 # over the Libero default while preserving the finc→SRU→Libero order for the
 # built-ins. - Claude Generated

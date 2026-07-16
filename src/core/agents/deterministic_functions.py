@@ -65,10 +65,22 @@ def gnd_batch_search(
         sources = sources or config.get("sources")
         enrich_from_local_db = config.get("enrich_from_local_db", enrich_from_local_db)
 
-    sources = sources or ["swb", "lobid"]
-    source_tools = {"swb": "search_swb", "lobid": "search_lobid"}
-    if config:
-        source_tools = config.get("source_tool_map", source_tools)
+    # De-hardcode the source→tool map (WP P6a): ids + tool names come from the
+    # enabled GND providers, so a copied/renamed plugin (own-plugins POC) works.
+    # An explicit source_tool_map (rare — no shipped workflow uses it) still wins.
+    # - Claude Generated
+    _explicit_map = config.get("source_tool_map") if config else None
+    if _explicit_map:
+        source_tools = dict(_explicit_map)
+        sources = sources or list(source_tools.keys())
+    else:
+        from src.core.search.factory import resolve_gnd_source_tools
+        resolved = resolve_gnd_source_tools(sources)
+        if resolved is None:  # config unreadable → never search nothing on an error
+            sources = sources or ["swb", "lobid"]
+            source_tools = {"swb": "search_swb", "lobid": "search_lobid"}
+        else:
+            sources, source_tools = resolved
 
     # WP2 P4.4: build the pool from the raw response cache via aggregate_gnd_results
     # (single source of truth). Step config wins; otherwise the global
@@ -961,10 +973,19 @@ def catalog_multi_search(
         enrich_from_local_db = config.get("enrich_from_local_db", enrich_from_local_db)
         search_type = config.get("search_type", search_type)
 
-    sources = sources or ["swb", "lobid", "catalog"]
-    src_tools = {"swb": "search_swb", "lobid": "search_lobid", "catalog": "search_catalog"}
-    if config:
-        src_tools = config.get("source_tool_map", src_tools)
+    # De-hardcoded source→tool map (WP P6a), see gnd_batch_search. - Claude Generated
+    _explicit_map = config.get("source_tool_map") if config else None
+    if _explicit_map:
+        src_tools = dict(_explicit_map)
+        sources = sources or list(src_tools.keys())
+    else:
+        from src.core.search.factory import resolve_gnd_source_tools
+        resolved = resolve_gnd_source_tools(sources)
+        if resolved is None:  # config unreadable → legacy default
+            sources = sources or ["swb", "lobid", "catalog"]
+            src_tools = {"swb": "search_swb", "lobid": "search_lobid", "catalog": "search_catalog"}
+        else:
+            sources, src_tools = resolved
 
     queries = list(dict.fromkeys(q for q in (queries or []) if q))
     if not queries:
@@ -1512,12 +1533,20 @@ def gnd_batch_metadata(
 
     missing = [g for g in gnd_ids if g not in entries]
 
-    if lobid_fallback and missing:
+    # Resolve the lobid GND tool from the enabled providers (WP P6a) rather than
+    # hardcoding "search_lobid", so a copied/renamed lobid works and a deployment
+    # without lobid skips the fallback instead of calling a missing tool. - Claude Generated
+    from src.core.search.factory import resolve_gnd_source_tools
+    _r = resolve_gnd_source_tools(["lobid"])
+    _lobid_tool = "search_lobid" if _r is None else next(iter(_r[1].values()), None)
+    if lobid_fallback and missing and not _lobid_tool and stream_callback:
+        stream_callback("  ↪ lobid fallback übersprungen (kein lobid-Backer aktiv)\n")
+    if lobid_fallback and missing and _lobid_tool:
         if stream_callback:
             stream_callback(f"  ↪ lobid fallback for {len(missing)} IDs\n")
         for gid in list(missing):
             try:
-                raw = tool_registry.execute("search_lobid", {"terms": [gid]})
+                raw = tool_registry.execute(_lobid_tool, {"terms": [gid]})
                 tool_calls += 1
                 data = json.loads(raw) if isinstance(raw, str) else raw
                 for _term, kws in (data.get("results") or {}).items():

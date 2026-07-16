@@ -828,7 +828,10 @@ class TestPoCWorkflows(unittest.TestCase):
             return "{}"
 
         tool_registry.execute.side_effect = _exec
-        out = fn(queries=["q"], tool_registry=tool_registry)
+        # Explicit source_tool_map → deterministic (WP P6a: the derived default is
+        # the enabled GND providers from the real config; pin it here). - Claude Generated
+        out = fn(queries=["q"], tool_registry=tool_registry, config={"source_tool_map": {
+            "swb": "search_swb", "lobid": "search_lobid", "catalog": "search_catalog"}})
 
         titles = {h["title"] for h in out["hits"]}
         self.assertEqual(titles, {"Titel A", "Titel B", "Titel C"})

@@ -155,15 +155,16 @@ class AllExternalPluginsPocTest(unittest.TestCase):
         """The default source list + agent_view are derived, not id-literals.
 
         Scope note: this drives ``aggregate_gnd_results`` directly. The *agentic*
-        path (``gnd_batch_search``) still passes ``sources`` from a hardcoded
-        ``{"swb": "search_swb", "lobid": "search_lobid"}`` map in
-        deterministic_functions — under this POC those ids are disabled, so
-        aggregation yields an empty pool. Since C3 (July 16) that empty pool is
-        raised as an aggregation error (see
-        ``test_agents_v2.test_gnd_batch_search_raises_on_aggregation_error``), not a
-        false zero — but making it actually aggregate under the POC is WP P6a
-        (de-hardcode the source→tool map). Until then, still don't assert success
-        through ``gnd_batch_search`` here. - Claude Generated
+        path (``gnd_batch_search``) used to pass ``sources`` from a hardcoded
+        ``{"swb": "search_swb", "lobid": "search_lobid"}`` map — under this POC
+        those ids are disabled, so it returned an empty pool. Since WP P6a
+        (July 16) that map is derived from the enabled GND providers and a
+        requested built-in id resolves to the copy backing the same tool name
+        (``swb`` → ``search_swb`` → ``poc_swb``), so the agentic path now
+        aggregates under the POC too; the resolution is unit-tested in
+        ``test_search_plugins.ResolveGndSourceToolsTest``. This test still targets
+        ``aggregate_gnd_results`` for a focused check of the derived default +
+        agent_view. - Claude Generated
         """
         from unittest.mock import MagicMock
 
