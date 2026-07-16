@@ -12,15 +12,21 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, List, Optional
 
-from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField, availability_ok
+from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField
 
 from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
+from src.core.search.provider_base import SuggesterBackedProvider
 from src.core.search.registry import register_provider
 
 
 @register_provider
-class FincProvider:
-    """finc / VuFind-JSON catalog (records + classification facets)."""
+class FincProvider(SuggesterBackedProvider):
+    """finc / VuFind-JSON catalog (records + classification facets).
+
+    Inherits the shared __init__/_ukm/suggester/is_available/_require plumbing;
+    overrides only _build_suggester (finc-specific client) and _store_finc_raw
+    (FincSuggester exposes no ``last_raw`` for the base dual-write). - Claude Generated
+    """
 
     id = "finc"
     label = "finc (VuFind)"
@@ -175,28 +181,16 @@ class FincProvider:
             include_errors=True,
         )]
 
-    def __init__(self, **config: Any):
-        self._config = config or {}
-        self._suggester = None
-        # WP2 raw-first cache injection points (set by search.factory). - Claude Generated
-        self._cache_raw = None
-        self._ukm_ref = None
-
-    def _ukm(self):
-        if self._ukm_ref is None:
-            from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
-
-            self._ukm_ref = UnifiedKnowledgeManager()
-        return self._ukm_ref
-
     def _store_finc_raw(self, query, params, raw):
-        """Dual-write the per-term finc payload to the raw cache. Best-effort. - Claude Generated"""
-        override = self._config.get("cache_responses")
-        if override is not None:
-            enabled = bool(override)
-        else:
-            enabled = self._cache_raw if self._cache_raw is not None else True
-        if not enabled:
+        """Dual-write the per-term finc payload to the raw cache. Best-effort.
+
+        FincSuggester exposes no ``last_raw``/``last_http_status``, so the base
+        _store_raw_responses would be a silent no-op; this shapes the per-term
+        return value instead. The enable policy is the base tri-state gate
+        (``cache_responses`` auto/on/off × the global) — the old ``bool(override)``
+        treated "off"/"auto" as truthy and ignored the operator. - Claude Generated
+        """
+        if not self._cache_raw_enabled():
             return
         try:
             ukm = self._ukm()
@@ -221,23 +215,6 @@ class FincProvider:
             institution_filter=self._config.get("institution_filter", "") or "",
             debug=self._config.get("debug", False),
         )
-
-    @property
-    def suggester(self):
-        if self._suggester is None:
-            self._suggester = self._build_suggester()
-        return self._suggester
-
-    def is_available(self, cfg: Any = None) -> bool:
-        # finc is off until a base URL is configured (base_url gates availability).
-        return availability_ok(type(self).config_fields(), self._config)
-
-    def _require(self, capability: SearchCapability) -> None:
-        if capability not in self.capabilities:
-            raise ValueError(
-                f"Provider '{self.id}' does not support {capability}; "
-                f"declares {sorted(c.value for c in self.capabilities)}"
-            )
 
     def search(
         self,

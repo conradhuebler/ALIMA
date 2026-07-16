@@ -55,6 +55,24 @@ class CacheSettingTest(unittest.TestCase):
             inner = getattr(prov, "inner", prov)
             self.assertEqual(inner._cache_raw_enabled(), expected, f"{pref}/{glob}")
 
+    def test_finc_store_raw_honors_off_setting(self):
+        # Regression: finc's own _store_finc_raw used bool(override), so the
+        # tri-state "off" (a truthy string) was ignored and raw was written
+        # anyway. It now shares the base tri-state gate. - Claude Generated
+        from src.core.search.providers.finc.provider import FincProvider
+
+        raw = {"wasser": {"records": [{"id": "1"}], "result_count": 1}}
+        for pref, glob, should_write in [("off", True, False), ("on", False, True)]:
+            prov = FincProvider(base_url="https://x.example/proxy",
+                                **{CACHE_RESPONSES_KEY: pref})
+            prov._cache_raw = glob
+            writes = []
+            prov._ukm_ref = type("FakeUKM", (), {
+                "store_raw_response": lambda self, *a, **k: writes.append(a),
+            })()
+            prov._store_finc_raw(["wasser"], {"search_type": "kw"}, raw)
+            self.assertEqual(bool(writes), should_write, f"{pref}/{glob}")
+
 
 if __name__ == "__main__":
     unittest.main()
