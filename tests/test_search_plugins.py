@@ -123,16 +123,6 @@ class MigrationTest(unittest.TestCase):
         for attr in ("catalog_token", "catalog_details_url", "finc_base_url", "finc_default_limit", "sru_preset"):
             self.assertEqual(getattr(fresh, attr), getattr(cat, attr), attr)
 
-    def test_reverse_sync_captures_mirror_edit(self):
-        cat = self._catalog()
-        insts = pm.synthesize_search_instances(cat, SearchProviderConfig())
-        # Simulate a legacy Catalog-tab edit
-        cat.catalog_token = "EDITED"
-        pm.sync_instances_from_mirrors(insts, cat, SearchProviderConfig(), None)
-        catalog_inst = next(i for i in insts if i.provider_id == "catalog")
-        self.assertEqual(catalog_inst.settings["token"], "EDITED")
-
-
 class ListPluginsToolTest(unittest.TestCase):
     def test_list_plugins_returns_active_with_docs(self):
         import json

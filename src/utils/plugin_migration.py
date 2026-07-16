@@ -11,9 +11,10 @@ later, DOI ``SystemConfig`` fields) are kept as *derived mirrors*:
   ``CatalogConfig`` + ``SearchProviderConfig`` on save, so the mirror stays exact.
 
 The field maps below are the single definition of which provider setting mirrors
-which ``CatalogConfig`` attribute. Only mapped fields are mirrored; unmapped
-CatalogConfig fields (web URLs, ``catalog_type``, strict-validation flag) are left
-untouched so a load→save→load round-trip is diff-free.
+which ``CatalogConfig`` attribute. Only mapped fields are mirrored — the map now
+covers the web URLs, ``catalog_type`` and the strict-validation flag too, so a
+load→save→load round-trip is diff-free. (An earlier version of this docstring
+claimed those were *unmapped*; they are mapped, see ``SEARCH_FIELD_MAP``.)
 """
 
 from __future__ import annotations
@@ -212,46 +213,17 @@ def derive_input_mirrors(plugins: List, system_config) -> None:
 LOOKUP_CATEGORY = "lookup"
 
 
-def synthesize_lookup_instances() -> List:
-    """Create one primary instance per registered lookup plugin - Claude Generated.
+def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List:
+    """One enabled primary instance per registered lookup type that has no instance
+    yet - Claude Generated.
 
     Unlike search/input, lookups have **no legacy config section** to mirror, so the
-    instance list is built directly from the live ``LOOKUP_REGISTRY`` (importing the
-    package self-registers the built-in lookups). Every lookup gets a single, enabled,
-    primary instance so the Plugins-tab list is populated out of the box (previously
-    only the type combobox was filled — the list stayed empty because nothing seeded
-    ``config.plugins`` for this category).
-    """
-    from src.utils.config_models import PluginInstanceConfig
-    from src.utils.lookups import get_lookup, list_lookups
-
-    instances: List = []
-    for lid in list_lookups():
-        cls = get_lookup(lid)
-        instances.append(
-            PluginInstanceConfig(
-                instance_id=lid,
-                category=LOOKUP_CATEGORY,
-                provider_id=lid,
-                label=getattr(cls, "label", lid),
-                enabled=True,
-                is_primary=True,
-                settings={},
-            )
-        )
-    return instances
-
-
-def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List:
-    """Backfill default instances for lookup types registered *after* the category
-    was first migrated - Claude Generated.
-
-    The category-synthesis gate (``if not any(p.category == LOOKUP_CATEGORY …)``)
-    is all-or-nothing: once a config has *any* lookup instance (rvk_api/k10plus/dnb
-    from an earlier session), a newly-registered lookup plugin (e.g. ``webindex``)
-    is never synthesised — it shows only in the type combobox, never in the
-    instance list. This adds one enabled primary instance per registered lookup
-    type that has no instance yet, leaving operator-configured instances intact.
+    list is built directly from the live ``LOOKUP_REGISTRY`` (importing the package
+    self-registers the built-ins). Backfilling only the *missing* types means it
+    both seeds a fresh config (pass ``[]``) and adds a lookup plugin registered in a
+    later release (e.g. ``webindex``) without disturbing operator-configured
+    instances — the former all-or-nothing category gate stranded newly-registered
+    lookups in the type combobox.
     """
     from src.utils.config_models import PluginInstanceConfig
     from src.utils.lookups import get_lookup, list_lookups
@@ -276,52 +248,17 @@ def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List
     return out
 
 
+def synthesize_lookup_instances() -> List:
+    """One primary instance per registered lookup (all of them) — the fresh-config
+    seed. Thin wrapper over :func:`synthesize_missing_lookup_instances`. - Claude Generated"""
+    return synthesize_missing_lookup_instances([])
+
+
 def ensure_lookup_instances(plugins: List) -> None:
     """Make sure every registered lookup type has at least one instance - Claude Generated.
 
-    Seed the whole category when absent (first migration), otherwise backfill
-    types registered later (e.g. a new lookup plugin added in a later release).
-    Mutates ``plugins`` in place. Replaces the former all-or-nothing category gate,
-    which left newly-registered lookups stranded in the type combobox.
+    Seeds a fresh config and backfills types registered in a later release, in one
+    pass (missing-of-the-empty-set is all of them). Mutates ``plugins`` in place.
     """
     lookup = [p for p in plugins if p.category == LOOKUP_CATEGORY]
-    if not lookup:
-        plugins += synthesize_lookup_instances()
-    else:
-        plugins += synthesize_missing_lookup_instances(lookup)
-
-
-# ---------------------------------------------------------------------------
-# Reverse sync — capture edits made in the legacy Catalog/System tabs into the
-# primary instances, so those tabs keep working alongside the new Plugins tab
-# (the derive-on-save then re-mirrors, a no-op when values already match). - Claude Generated
-# ---------------------------------------------------------------------------
-
-
-def sync_instances_from_mirrors(plugins, catalog_config, search_provider_config, system_config) -> None:
-    """Pull mirrored values from the legacy config sections into the primaries."""
-    search = [p for p in plugins if p.category == SEARCH_CATEGORY]
-    for pid, mapping in SEARCH_FIELD_MAP.items():
-        primary = _primary_of(search, pid)
-        if primary is None:
-            continue
-        if search_provider_config is not None:
-            primary.enabled = search_provider_config.is_enabled(pid)
-        for key, attr in mapping.items():
-            if hasattr(catalog_config, attr):
-                primary.settings[key] = getattr(catalog_config, attr)
-
-    inp = [p for p in plugins if p.category == INPUT_CATEGORY]
-    email = getattr(system_config, "contact_email", "") or ""
-    doi_flags = {
-        "doi_crossref": bool(getattr(system_config, "doi_use_crossref", True)),
-        "doi_openalex": bool(getattr(system_config, "doi_use_openalex", True)),
-        "doi_datacite": bool(getattr(system_config, "doi_use_datacite", True)),
-    }
-    for pid, enabled in doi_flags.items():
-        primary = _primary_of(inp, pid)
-        if primary is None:
-            continue
-        primary.enabled = enabled
-        if "contact_email" in (primary.settings or {}):
-            primary.settings["contact_email"] = email
+    plugins += synthesize_missing_lookup_instances(lookup)

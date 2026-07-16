@@ -8,8 +8,9 @@ plugin, not scattered in the config). Instances can be added, duplicated and
 removed, and several instances of one type may coexist (e.g. two finc endpoints).
 
 The tab reads/writes ``AlimaConfig.plugins`` directly and is authoritative on
-save; the legacy Catalog/System tabs keep working via
-``plugin_migration.sync_instances_from_mirrors``. See ``docs/plugin_system.md``.
+save; the legacy ``CatalogConfig``/``SystemConfig`` sections are derived mirrors
+kept exact by ``plugin_migration.derive_*_mirrors`` on save. See
+``docs/plugin_system.md``.
 """
 
 from __future__ import annotations
