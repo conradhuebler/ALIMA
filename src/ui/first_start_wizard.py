@@ -115,15 +115,17 @@ class FirstStartWizard(QWizard):
             # Mark first run as completed
             self.config.system_config.first_run_completed = True
 
-            # Save catalog SOAP configuration - Claude Generated
-            from ..utils.config_models import CatalogConfig
-            self.config.catalog_config = CatalogConfig(
-                catalog_search_url=self.catalog_page.soap_search_url.text().strip(),
-                catalog_details_url=self.catalog_page.soap_details_url.text().strip(),
-                catalog_token=self.catalog_page.catalog_token.text().strip(),
-                catalog_web_search_url=self.catalog_page.web_search_url.text().strip(),
-                catalog_web_record_url=self.catalog_page.web_record_url.text().strip(),
-            )
+            # Save catalog SOAP configuration onto the catalog instance (WP P7:
+            # was the CatalogConfig mirror, which save_config lifted into the
+            # instances). - Claude Generated
+            from ..core.search.factory import set_primary_settings
+            set_primary_settings(self.config, "catalog", {
+                "catalog_search_url": self.catalog_page.soap_search_url.text().strip(),
+                "catalog_details": self.catalog_page.soap_details_url.text().strip(),
+                "token": self.catalog_page.catalog_token.text().strip(),
+                "catalog_web_search_url": self.catalog_page.web_search_url.text().strip(),
+                "catalog_web_record_url": self.catalog_page.web_record_url.text().strip(),
+            })
 
             # Apply database configuration from database_page - Claude Generated
             if hasattr(self, 'database_page'):

@@ -16,7 +16,7 @@ from urllib.parse import urlparse  # BUGFIX: For parsing Ollama base_url - Claud
 
 from .config_models import (
     AlimaConfig, SystemConfig, DatabaseConfig, UIConfig,
-    CatalogConfig, PromptConfig, UnifiedProviderConfig,
+    PromptConfig, UnifiedProviderConfig,
     UnifiedProvider, TaskPreference, TaskType
 )
 
@@ -280,9 +280,6 @@ class ConfigurationBuilder:
         # Create UI config
         ui_config = UIConfig()
 
-        # Create catalog config
-        catalog_config = CatalogConfig()
-
         # Create prompt config
         prompt_config = PromptConfig()
 
@@ -364,7 +361,6 @@ class ConfigurationBuilder:
             database_config=database_config,
             system_config=system_config,
             ui_config=ui_config,
-            catalog_config=catalog_config,
             prompt_config=prompt_config,
             unified_config=unified_config
         )

@@ -106,6 +106,23 @@ def synthesize_search_instances(catalog_config, search_provider_config) -> List:
     return instances
 
 
+def ensure_search_instances(plugins: List) -> None:
+    """Seed one primary instance per built-in search type when the category is
+    empty - Claude Generated.
+
+    The search twin of :func:`ensure_lookup_instances`, for call sites that build a
+    config from scratch (the setup wizards). They must not leave the category empty
+    *nor* add a lone hand-made instance: the load/save synthesis guard is
+    per-category, so one catalog instance would strand the other five built-ins.
+    Mutates ``plugins`` in place.
+    """
+    if any(p.category == SEARCH_CATEGORY for p in plugins):
+        return
+    from src.utils.config_models import CatalogConfig
+
+    plugins += synthesize_search_instances(CatalogConfig(), None)
+
+
 def derive_search_mirrors(plugins: List, catalog_config, search_provider_config) -> None:
     """Update ``catalog_config`` + ``search_provider_config`` in place from instances.
 

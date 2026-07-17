@@ -131,8 +131,6 @@ def deploy(prefix: str = DEFAULT_PREFIX, disable_builtins: bool = True) -> None:
             if inst.category == _SEARCH_CATEGORY and inst.provider_id in PROVIDER_NAMES:
                 inst.enabled = False
                 disabled.append(inst.provider_id)
-        for pid in PROVIDER_NAMES:
-            config.search_provider_config.set_enabled(pid, False)
         print(f"Disabled built-in providers: {sorted(set(disabled)) or PROVIDER_NAMES}")
 
     cm.save_config(config)
@@ -151,8 +149,6 @@ def revert(prefix: str = DEFAULT_PREFIX) -> None:
     for inst in config.plugins:
         if inst.category == _SEARCH_CATEGORY and inst.provider_id in PROVIDER_NAMES:
             inst.enabled = True
-    for pid in PROVIDER_NAMES:
-        config.search_provider_config.set_enabled(pid, True)
 
     config.plugins = [p for p in config.plugins if not str(p.instance_id).startswith(prefix)]
     for key in [k for k in config.approved_plugins if str(k).startswith(prefix)]:

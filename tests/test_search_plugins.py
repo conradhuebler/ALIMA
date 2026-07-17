@@ -132,6 +132,65 @@ class PrimarySettingsTest(unittest.TestCase):
         self.assertEqual(primary_settings(_Boom(), "catalog"), {})
 
 
+class SetPrimarySettingsTest(unittest.TestCase):
+    """WP P7: the write seam the setup wizards use instead of the mirror.
+
+    The wizards assemble an AlimaConfig from scratch and used to set
+    ``catalog_config``, relying on save_config to lift it into instances. - Claude Generated
+    """
+
+    def _fresh(self):
+        from src.utils.config_models import AlimaConfig
+
+        return AlimaConfig()
+
+    def test_seeds_the_full_builtin_set_not_just_the_written_type(self):
+        # The synthesis guard is per *category*: a lone hand-made catalog instance
+        # would strand the other five built-ins forever.
+        from src.core.search.factory import set_primary_settings
+
+        cfg = self._fresh()
+        set_primary_settings(cfg, "catalog", {"token": "TOK"})
+        self.assertEqual(
+            {p.instance_id for p in cfg.instances_for("search_provider")},
+            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
+        )
+
+    def test_writes_onto_the_primary_and_merges(self):
+        from src.core.search.factory import primary_settings, set_primary_settings
+
+        cfg = self._fresh()
+        set_primary_settings(cfg, "catalog", {"token": "TOK"})
+        set_primary_settings(cfg, "catalog", {"catalog_search_url": "https://s"})
+        cat = primary_settings(cfg, "catalog", enabled_only=False)
+        self.assertEqual(cat["token"], "TOK")            # first write survives
+        self.assertEqual(cat["catalog_search_url"], "https://s")
+
+    def test_equivalent_to_the_old_mirror_synthesis(self):
+        # A/B against what the wizards produced before P7: build the legacy
+        # CatalogConfig and synthesise from it, vs. writing the instances directly.
+        from src.core.search.factory import set_primary_settings
+
+        legacy = CatalogConfig(
+            catalog_token="TOK", catalog_search_url="https://s",
+            catalog_details_url="https://d", finc_base_url="https://finc",
+            finc_default_limit=25, finc_dk_enabled=True,
+        )
+        old = {p.instance_id: dict(p.settings or {})
+               for p in pm.synthesize_search_instances(legacy, None)}
+
+        cfg = self._fresh()
+        set_primary_settings(cfg, "catalog", {
+            "token": "TOK", "catalog_search_url": "https://s", "catalog_details": "https://d",
+        })
+        set_primary_settings(cfg, "finc", {
+            "base_url": "https://finc", "default_limit": 25, "dk_enabled": True,
+        })
+        new = {p.instance_id: dict(p.settings or {})
+               for p in cfg.instances_for("search_provider")}
+        self.assertEqual(old, new)
+
+
 class CatalogWebBasesTest(unittest.TestCase):
     """WP P7: explicit catalog-before-finc precedence for the OPAC link base.
 

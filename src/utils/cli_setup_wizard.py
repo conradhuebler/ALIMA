@@ -75,23 +75,26 @@ class CLISetupWizard:
             )
             config.system_config.first_run_completed = True
 
-            # Apply catalog SOAP settings if configured - Claude Generated
-            from .config_models import CatalogConfig
+            # Apply catalog/finc settings onto their instances (WP P7: was the
+            # CatalogConfig mirror, which save_config lifted into the instances).
+            # - Claude Generated
+            from src.core.search.factory import set_primary_settings
             if (self.catalog_search_url or self.catalog_details_url or self.catalog_token
                     or self.finc_base_url):
-                config.catalog_config = CatalogConfig(
-                    catalog_search_url=self.catalog_search_url,
-                    catalog_details_url=self.catalog_details_url,
-                    catalog_token=self.catalog_token,
-                    # finc fields - Claude Generated (finc integration, June 2026)
-                    finc_base_url=self.finc_base_url,
-                    finc_web_record_url=self.finc_web_record_url,
-                    finc_default_limit=self.finc_default_limit,
-                    finc_timeout=self.finc_timeout,
-                    finc_institution_filter=self.finc_institution_filter,
-                    finc_dk_enabled=self.finc_dk_enabled,
-                    finc_harvest_enabled=self.finc_harvest_enabled,
-                )
+                set_primary_settings(config, "catalog", {
+                    "catalog_search_url": self.catalog_search_url,
+                    "catalog_details": self.catalog_details_url,
+                    "token": self.catalog_token,
+                })
+                set_primary_settings(config, "finc", {
+                    "base_url": self.finc_base_url,
+                    "web_record_url": self.finc_web_record_url,
+                    "default_limit": self.finc_default_limit,
+                    "timeout": self.finc_timeout,
+                    "institution_filter": self.finc_institution_filter,
+                    "dk_enabled": self.finc_dk_enabled,
+                    "harvest_enabled": self.finc_harvest_enabled,
+                })
 
             self.config_manager.save_config(config)
             logger.info("CLI setup wizard completed successfully")

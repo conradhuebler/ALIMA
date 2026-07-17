@@ -426,11 +426,10 @@ def _apply_profile(config: Any, profile: dict) -> Dict[str, Any]:
 
     spc = profile.get("search_provider_config")
     if isinstance(spc, dict):
-        # ``search_provider_config.providers`` is a *derived mirror* of the per-
-        # instance enabled flags (recomputed from instances on every save), so we
-        # must toggle the matching instances — the authoritative state — not the
-        # gate itself (which would be clobbered on save). We snapshot each touched
-        # instance's prior enabled flag for a precise ``remove``. - Claude Generated
+        # ``search_provider_config`` stays the profile's *wire key* (already-exported
+        # bundles carry it), but it only ever addresses the per-instance enabled
+        # flags — the authoritative state. We snapshot each touched instance's prior
+        # enabled flag for a precise ``remove``. - Claude Generated
         providers = spc.get("providers", {}) or {}
         prev_instances: Dict[str, bool] = {}
         for pid, enabled in providers.items():
@@ -438,7 +437,6 @@ def _apply_profile(config: Any, profile: dict) -> Dict[str, Any]:
                 if inst.category == "search_provider" and inst.provider_id == pid:
                     prev_instances.setdefault(inst.instance_id, inst.enabled)
                     inst.enabled = bool(enabled)
-            config.search_provider_config.set_enabled(pid, bool(enabled))  # mirror (re-derived)
         restore["search_provider_instances"] = prev_instances
 
     sysc = profile.get("system_config")

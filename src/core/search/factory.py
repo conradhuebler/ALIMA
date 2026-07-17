@@ -193,6 +193,26 @@ def primary_settings(
     return out
 
 
+def set_primary_settings(config: Any, provider_id: str, settings: Dict[str, Any]) -> None:
+    """Merge ``settings`` into the primary instance of ``provider_id`` - Claude Generated.
+
+    The write-side counterpart of :func:`primary_settings`, for the setup wizards:
+    they assemble an ``AlimaConfig`` from scratch and used to hand their catalog
+    values to the ``CatalogConfig`` mirror, relying on ``save_config`` to lift them
+    into instances. Keys are the plugin's own ``ConfigField`` keys (``token``,
+    ``catalog_details``, …), not the legacy attribute names. Seeds the built-in
+    search instances first, so a fresh config ends up with the full set.
+    """
+    from src.utils.plugin_migration import ensure_search_instances
+
+    ensure_search_instances(config.plugins)
+    inst = config.primary_instance(CATEGORY, provider_id, include_disabled=True)
+    if inst is None:
+        logger.warning(f"set_primary_settings: no {provider_id} instance to write to")
+        return
+    inst.settings = {**(inst.settings or {}), **settings}
+
+
 def catalog_web_bases(config: Any = None) -> "tuple[str, str]":
     """``(web_record_url, web_search_url)`` for OPAC links — catalog before finc.
 
