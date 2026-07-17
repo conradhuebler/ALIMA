@@ -357,9 +357,6 @@ class PipelineConfig:
                     enabled=True,
                     custom_params={
                         "max_results": DEFAULT_DK_MAX_RESULTS,
-                        "catalog_token": "",
-                        "catalog_search_url": None,
-                        "catalog_details_url": None,
                     }
                 ),
                 "dk_classification": PipelineStepConfig(
@@ -1774,26 +1771,16 @@ class PipelineManager:
             # Use the shared pipeline executor for DK search
             step_config = self.config.get_step_config("dk_search")
             
-            # Get catalog configuration from global config if not in step config - Claude Generated
+            # DK-step policy from the global catalog config. The endpoints/token the
+            # extractor needs are not read here: it builds itself from the catalog
+            # instance (resolve_dk_extractor, WP P4). - Claude Generated
             try:
                 from ..utils.config_manager import ConfigManager
                 config_manager = ConfigManager()
                 catalog_config = config_manager.get_catalog_config()
-
-                catalog_token = getattr(step_config, 'catalog_token', '') or getattr(catalog_config, "catalog_token", "")
-                catalog_search_url = getattr(step_config, 'catalog_search_url', '') or getattr(catalog_config, "catalog_search_url", "")
-                catalog_details_url = getattr(step_config, 'catalog_details_url', '') or getattr(catalog_config, "catalog_details_url", "")
-                catalog_web_search_url = getattr(catalog_config, "catalog_web_search_url", "")
-                catalog_web_record_url = getattr(catalog_config, "catalog_web_record_url", "")
                 strict_gnd_validation = getattr(catalog_config, "strict_gnd_validation_for_dk_search", True)
-
             except Exception as e:
                 self.logger.warning(f"Failed to load catalog config: {e}")
-                catalog_token = getattr(step_config, 'catalog_token', '')
-                catalog_search_url = getattr(step_config, 'catalog_search_url', '')
-                catalog_details_url = getattr(step_config, 'catalog_details_url', '')
-                catalog_web_search_url = ""
-                catalog_web_record_url = ""
                 strict_gnd_validation = True
 
             rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
@@ -1809,11 +1796,6 @@ class PipelineManager:
                 rvk_anchor_keywords=rvk_anchor_keywords,
                 stream_callback=self._stream_callback_adapter,
                 max_results=getattr(step_config, 'max_results', DEFAULT_DK_MAX_RESULTS),
-                catalog_token=catalog_token,
-                catalog_search_url=catalog_search_url,
-                catalog_details_url=catalog_details_url,
-                catalog_web_search_url=catalog_web_search_url,
-                catalog_web_record_url=catalog_web_record_url,
                 force_update=getattr(self, 'force_update', False),  # Claude Generated
                 strict_gnd_validation=strict_gnd_validation,  # EXPERT OPTION - Claude Generated
             )

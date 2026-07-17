@@ -4525,11 +4525,6 @@ class PipelineStepExecutor:
         keywords: List[str],
         stream_callback: Optional[callable] = None,
         max_results: int = DEFAULT_DK_MAX_RESULTS,
-        catalog_token: str = None,
-        catalog_search_url: str = None,
-        catalog_details_url: str = None,
-        catalog_web_search_url: str = None,
-        catalog_web_record_url: str = None,
         force_update: bool = False,  # Claude Generated
         strict_gnd_validation: bool = True,  # EXPERT OPTION: Allow disabling strict GND validation
         rvk_anchor_keywords: Optional[List[str]] = None,
@@ -4542,9 +4537,6 @@ class PipelineStepExecutor:
             keywords: List of keywords to search
             stream_callback: Optional callback for progress updates
             max_results: Maximum results per keyword
-            catalog_token: Catalog API token
-            catalog_search_url: Catalog search endpoint URL
-            catalog_details_url: Catalog details endpoint URL
             force_update: If True, results will be merged with existing cache (used by store_classification_results)
             strict_gnd_validation: If True (default), only use GND-validated keywords. If False, include plain text keywords.
 
@@ -4562,11 +4554,8 @@ class PipelineStepExecutor:
             # DK/RVK source from the enabled CLASSIFICATION providers (finc opt-in →
             # custom plugin → SRU opt-in → Libero default), each built through the
             # factory from its own instance settings (WP P4 — replaces the former
-            # 15-kwarg CatalogConfig wall + the catalog_type if-elif). The
-            # catalog_token/catalog_*_url method args are now vestigial: the backend
-            # reads its endpoints/token from the catalog instance (mirror of
-            # CatalogConfig), dropped with the mirror in WP P7. All extractors share
-            # the extract_dk_classifications_for_keywords contract, so the
+            # 15-kwarg CatalogConfig wall + the catalog_type if-elif). All extractors
+            # share the extract_dk_classifications_for_keywords contract, so the
             # per-keyword loop below is unchanged. - Claude Generated
             from src.core.search.factory import resolve_dk_extractor
             from .config_manager import ConfigManager

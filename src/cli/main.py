@@ -119,10 +119,6 @@ def create_argument_parser():
     pipeline_parser.add_argument("--ollama-host", default="http://localhost", help="Ollama host URL")
     pipeline_parser.add_argument("--ollama-port", type=int, default=11434, help="Ollama port")
 
-    # Catalog configuration
-    pipeline_parser.add_argument("--catalog-token", help="Catalog authentication token")
-    pipeline_parser.add_argument("--catalog-search-url", help="SOAP endpoint for catalog search")
-    pipeline_parser.add_argument("--catalog-details-url", help="SOAP endpoint for catalog details")
     pipeline_parser.add_argument("--include-dk-classification", action="store_true", default=True, help="Include DK classification")
     pipeline_parser.add_argument("--disable-dk-classification", action="store_true", help="Disable DK classification")
     pipeline_parser.add_argument("--auto-save-path", help="Path for automatic intermediate saves")

@@ -95,14 +95,8 @@ class PipelineTab(
         self.main_window = main_window
         self.logger = logging.getLogger(__name__)
 
-        # Load catalog configuration
-        self.catalog_token, self.catalog_search_url, self.catalog_details_url = self._load_catalog_config()
-
         # Use injected central PipelineManager instead of creating redundant instance - Claude Generated
         self.pipeline_manager = pipeline_manager
-        
-        # Update pipeline config with catalog settings
-        self._update_pipeline_config_with_catalog_settings()
 
         # Pipeline worker for background execution
         self.pipeline_worker: Optional[PipelineWorker] = None

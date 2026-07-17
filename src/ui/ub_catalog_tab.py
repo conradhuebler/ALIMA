@@ -49,34 +49,12 @@ class DkSearchWorker(QThread):
             def _cb(msg, step_id="dk_search"):
                 self.status_updated.emit(str(msg))
 
-            # Read catalog token from config (same pattern as pipeline_manager.py) - Claude Generated
-            catalog_token = ""
-            catalog_search_url = ""
-            catalog_details_url = ""
-            catalog_web_search_url = ""
-            catalog_web_record_url = ""
-            try:
-                from ..utils.config_manager import ConfigManager
-                catalog_config = ConfigManager().get_catalog_config()
-                catalog_token = getattr(catalog_config, "catalog_token", "") or ""
-                catalog_search_url = getattr(catalog_config, "catalog_search_url", "") or ""
-                catalog_details_url = getattr(catalog_config, "catalog_details_url", "") or ""
-                catalog_web_search_url = getattr(catalog_config, "catalog_web_search_url", "") or ""
-                catalog_web_record_url = getattr(catalog_config, "catalog_web_record_url", "") or ""
-            except Exception as cfg_err:
-                self.logger.debug(f"Could not read catalog config: {cfg_err}")
-                catalog_web_search_url = ""
-                catalog_web_record_url = ""
-
+            # No catalog endpoints/token are passed: the DK extractor builds itself
+            # from the catalog instance (resolve_dk_extractor, WP P4). - Claude Generated
             result = self.executor.execute_dk_search(
                 keywords=self.keywords,
                 stream_callback=_cb,
                 max_results=self.max_results,
-                catalog_token=catalog_token,
-                catalog_search_url=catalog_search_url,
-                catalog_details_url=catalog_details_url,
-                catalog_web_search_url=catalog_web_search_url,
-                catalog_web_record_url=catalog_web_record_url,
                 strict_gnd_validation=False,   # UI accepts plain keywords without GND-IDs
             )
             if not isinstance(result, dict):

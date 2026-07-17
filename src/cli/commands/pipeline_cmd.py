@@ -127,12 +127,6 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
         print(f"  Save preferences: {'✅ Yes' if getattr(args, 'save_preferences', False) else '❌ No'}")
         print()
 
-    # Get catalog configuration
-    catalog_config = config_manager.get_catalog_config()
-    catalog_token = args.catalog_token or getattr(catalog_config, "catalog_token", "")
-    catalog_search_url = args.catalog_search_url or getattr(catalog_config, "catalog_search_url", "")
-    catalog_details_url = args.catalog_details_url or getattr(catalog_config, "catalog_details_url", "")
-
     try:
         input_type = "text"
         input_source = None

@@ -608,58 +608,6 @@ class PipelineTabControlMixin:
         except Exception as e:  # noqa: BLE001
             self.logger.error(f"Agentic panel rebuild failed: {e}")
 
-    def _load_catalog_config(self) -> tuple[str, str, str]:
-        """Load catalog configuration from ConfigManager - Claude Generated"""
-        # Initialize default values
-        catalog_token = ""
-        catalog_search_url = ""
-        catalog_details_url = ""
-
-        try:
-            from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            catalog_config = config_manager.get_catalog_config()
-
-            # Access dataclass attributes directly (not dictionary .get())
-            catalog_token = catalog_config.catalog_token
-            catalog_search_url = catalog_config.catalog_search_url
-            catalog_details_url = catalog_config.catalog_details_url
-
-            if catalog_token:
-                self.logger.debug(f"Loaded catalog token from config (length: {len(catalog_token)})")
-            else:
-                self.logger.warning("No catalog token found in config")
-
-        except Exception as e:
-            self.logger.error(f"Error loading catalog config: {e}")
-
-        return catalog_token, catalog_search_url, catalog_details_url
-    
-    def _update_pipeline_config_with_catalog_settings(self):
-        """Update pipeline config with loaded catalog settings - Claude Generated"""
-        config = self.pipeline_manager.config
-        
-        # Update DK search step configuration
-        if "dk_search" in config.step_configs:
-            # Store catalog settings in step config custom parameters
-            dk_search_config = config.step_configs["dk_search"]
-            dk_search_config.custom_params.update({
-                "catalog_token": self.catalog_token,
-                "catalog_search_url": self.catalog_search_url,
-                "catalog_details_url": self.catalog_details_url,
-            })
-
-        # Also update DK classification step if it exists
-        if "dk_classification" in config.step_configs:
-            dk_classification_config = config.step_configs["dk_classification"]
-            dk_classification_config.custom_params.update({
-                "catalog_token": self.catalog_token,
-                "catalog_search_url": self.catalog_search_url,
-                "catalog_details_url": self.catalog_details_url,
-            })
-        
-        self.logger.debug(f"Updated pipeline config with catalog settings (token present: {bool(self.catalog_token)})")
-
     def _emit_step_results_to_tabs(self, step: PipelineStep) -> None:
         """
         Emit pipeline step results to appropriate tab viewer methods - Claude Generated
