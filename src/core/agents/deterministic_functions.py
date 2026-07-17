@@ -308,7 +308,7 @@ def finc_subject_harvest(
 ) -> Dict[str, Any]:
     """Harvest finc catalog titles + reconcile their subjects into the GND pool.
 
-    Opt-in via ``CatalogConfig.finc_harvest_enabled``. For each extracted
+    Opt-in via the finc instance's ``harvest_enabled``. For each extracted
     keyword it runs a finc Subject search, stores the title records + DK/RVK
     facet distribution on ``context.extra['finc_harvest']`` (reusable by the DK
     step), and reconciles the records' free-text subjects against the LOCAL GND
@@ -331,16 +331,15 @@ def finc_subject_harvest(
         max_records = config.get("max_records", max_records)
         max_subjects = config.get("max_subjects", max_subjects)
 
-    # Gate: opt-in. Explicit config 'enabled' wins; else read the catalog config.
+    # Gate: opt-in. Explicit config 'enabled' wins; else the finc instance's
+    # harvest_enabled. Read enabled-gated (WP P7): a finc source disabled in the
+    # Plugins tab now also stops the harvest, where the CatalogConfig mirror used
+    # to report the flag regardless of the source's enable state. - Claude Generated
     enabled = bool(config.get("enabled")) if config and "enabled" in config else None
     if enabled is None:
-        try:
-            from src.utils.config_manager import ConfigManager
-            cat_cfg = ConfigManager().get_catalog_config()
-            enabled = bool(getattr(cat_cfg, "finc_harvest_enabled", False))
-        except Exception as e:
-            logger.debug(f"finc_subject_harvest: config read failed: {e}")
-            enabled = False
+        from src.core.search.factory import primary_settings
+
+        enabled = bool(primary_settings(None, "finc").get("harvest_enabled", False))
     if not enabled:
         return {"entries": [], "harvested_terms": [], "subjects_reconciled": 0,
                 "merged_added": 0, "tool_calls": 0, "enabled": False}
@@ -949,10 +948,10 @@ def catalog_multi_search(
     finc integration (resolved June 2026): finc is NOT folded into this fn.
     Because finc returns full VuFind records (not the aggregated keyword shape
     this fn produces), it is integrated where its strengths fit instead — opt-in
-    and gated by ``CatalogConfig``:
-      - keyword step: ``finc_subject_harvest`` (finc_harvest_enabled) reconciles
+    and gated by the finc instance's settings:
+      - keyword step: ``finc_subject_harvest`` (harvest_enabled) reconciles
         finc record subjects against the local GND cache into the pool;
-      - DK step: ``PipelineStepExecutor.execute_dk_search`` (finc_dk_enabled)
+      - DK step: ``PipelineStepExecutor.execute_dk_search`` (dk_enabled)
         reads per-title ``udk_raw_de105``/``rvk_facet`` via ``FincCatalogClient``.
     ``catalog_multi_search`` stays swb/lobid/catalog. - Claude Generated
 

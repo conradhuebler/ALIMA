@@ -1052,16 +1052,19 @@ class AlimaConfig:
         """Return the *enabled* plugin instances of ``category``. - Claude Generated"""
         return [p for p in self.plugins if p.category == category and p.enabled]
 
-    def primary_instance(self, category: str, provider_id: Optional[str] = None):
+    def primary_instance(
+        self, category: str, provider_id: Optional[str] = None, *, include_disabled: bool = False
+    ):
         """Return the primary enabled instance for a category (optionally a type).
 
-        Falls back to the first enabled instance when none is flagged primary. - Claude Generated
+        Falls back to the first enabled instance when none is flagged primary.
+        ``include_disabled=True`` ignores the enable state — for *policy* settings
+        that are stored on an instance but are not gated by it (e.g. the DK step's
+        strict-GND flag on the catalog plugin), matching what the CatalogConfig
+        mirror did before WP P7. - Claude Generated
         """
-        pool = [
-            p
-            for p in self.enabled_instances_for(category)
-            if provider_id is None or p.provider_id == provider_id
-        ]
+        source = self.instances_for(category) if include_disabled else self.enabled_instances_for(category)
+        pool = [p for p in source if provider_id is None or p.provider_id == provider_id]
         for p in pool:
             if p.is_primary:
                 return p

@@ -1771,17 +1771,15 @@ class PipelineManager:
             # Use the shared pipeline executor for DK search
             step_config = self.config.get_step_config("dk_search")
             
-            # DK-step policy from the global catalog config. The endpoints/token the
-            # extractor needs are not read here: it builds itself from the catalog
-            # instance (resolve_dk_extractor, WP P4). - Claude Generated
-            try:
-                from ..utils.config_manager import ConfigManager
-                config_manager = ConfigManager()
-                catalog_config = config_manager.get_catalog_config()
-                strict_gnd_validation = getattr(catalog_config, "strict_gnd_validation_for_dk_search", True)
-            except Exception as e:
-                self.logger.warning(f"Failed to load catalog config: {e}")
-                strict_gnd_validation = True
+            # DK-step policy from the catalog instance. A *policy* setting, not a
+            # source gate → read even when the catalog source is disabled (finc/SRU
+            # may be the DK backend). The endpoints/token are not read here: the
+            # extractor builds itself (resolve_dk_extractor, WP P4). - Claude Generated
+            from .search.factory import primary_settings
+            _strict = primary_settings(None, "catalog", enabled_only=False).get(
+                "strict_gnd_validation_for_dk_search"
+            )
+            strict_gnd_validation = True if _strict is None else bool(_strict)
 
             rvk_anchor_keywords = self.pipeline_executor._derive_rvk_anchor_keywords(
                 final_keywords,

@@ -875,15 +875,14 @@ class TestWebLogViewTransportMapping(unittest.TestCase):
 class TestLinkClassification(RendererTestBase):
     """GND/SWB authority links + catalog config wiring. Claude Generated."""
 
-    class _Cfg:
-        catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
-        catalog_web_search_url = "https://katalog.ub.tu-freiberg.de/Search"
+    RECORD_URL = "https://katalog.ub.tu-freiberg.de/Record/"
+    SEARCH_URL = "https://katalog.ub.tu-freiberg.de/Search"
 
     def setUp(self):
         super().setUp()
         # Realistic GUI/webapp state: a catalog host is configured, so link
         # classification is active (no-op otherwise).
-        self.renderer.configure_catalog_from_config(self._Cfg())
+        self.renderer.configure_catalog(self.RECORD_URL, self.SEARCH_URL)
 
     def _finalize(self, markdown_text: str) -> str:
         self.renderer.open_assistant_bubble("m")
@@ -912,12 +911,8 @@ class TestLinkClassification(RendererTestBase):
         html = self._finalize("[Paper](https://doi.org/10.1/xyz)")
         self.assertNotIn("ext-link", html)
 
-    def test_configure_catalog_from_config(self):
-        class _Cfg:
-            catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
-            catalog_web_search_url = "https://katalog.ub.tu-freiberg.de/Search"
-
-        self.renderer.configure_catalog_from_config(_Cfg())
+    def test_configure_catalog(self):
+        self.renderer.configure_catalog(self.RECORD_URL, self.SEARCH_URL)
         self.assertEqual(
             self.renderer._catalog_web_base,
             "https://katalog.ub.tu-freiberg.de/Record",
@@ -926,20 +921,18 @@ class TestLinkClassification(RendererTestBase):
             "https://katalog.ub.tu-freiberg.de", self.renderer._catalog_hosts
         )
 
-    def test_configure_catalog_handles_none(self):
-        # None is a no-op (must not raise, must not clobber existing config).
-        self.renderer.configure_catalog_from_config(None)
-        self.assertEqual(
-            self.renderer._catalog_web_base,
-            "https://katalog.ub.tu-freiberg.de/Record",
-        )
+    def test_configure_catalog_without_urls_disables_links(self):
+        # No catalog configured (factory.catalog_web_bases returns ("", "") when
+        # nothing is set or the config is unreadable): must not raise, and the
+        # marker feature stays off. - Claude Generated
+        self.renderer.configure_catalog("", "")
+        self.assertEqual(self.renderer._catalog_web_base, "")
+        html = self._finalize("Treffer: <<CAT:25515640|Quantenchemie>>")
+        self.assertNotIn("href=", html)
+        self.assertIn("Quantenchemie", html)
 
     def test_catalog_marker_links_after_config(self):
-        class _Cfg:
-            catalog_web_record_url = "https://katalog.ub.tu-freiberg.de/Record/"
-            catalog_web_search_url = ""
-
-        self.renderer.configure_catalog_from_config(_Cfg())
+        self.renderer.configure_catalog(self.RECORD_URL, "")
         html = self._finalize("Treffer: <<CAT:25515640|Quantenchemie>>")
         self.assertIn(
             'href="https://katalog.ub.tu-freiberg.de/Record/0-25515640"', html

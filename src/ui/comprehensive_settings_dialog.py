@@ -947,21 +947,23 @@ class ComprehensiveSettingsDialog(QDialog):
         if task_models:
             llm_block["task_models"] = task_models
 
-        # Build catalog block
-        cat_cfg = getattr(self.config_to_edit, 'catalog_config', None)
+        # Build catalog block from the catalog instance (WP P7: was the CatalogConfig
+        # mirror). Read regardless of the source's enable state — exporting a preset
+        # is about the endpoints, not about what is switched on right now. The
+        # preset's wire keys stay as they are: presets are read by other
+        # installations. - Claude Generated
+        from src.core.search.factory import primary_settings
+        cat = primary_settings(self.config_to_edit, "catalog", enabled_only=False)
         catalog_block: dict = {}
-        if cat_cfg:
-            if getattr(cat_cfg, 'catalog_search_url', ''):
-                catalog_block["soap_search_url"] = cat_cfg.catalog_search_url
-            if getattr(cat_cfg, 'catalog_details_url', ''):
-                catalog_block["soap_details_url"] = cat_cfg.catalog_details_url
-            if getattr(cat_cfg, 'catalog_token', ''):
-                catalog_block["token"] = cat_cfg.catalog_token
-            # Web fallback URLs - Claude Generated
-            if getattr(cat_cfg, 'catalog_web_search_url', ''):
-                catalog_block["web_search_url"] = cat_cfg.catalog_web_search_url
-            if getattr(cat_cfg, 'catalog_web_record_url', ''):
-                catalog_block["web_record_url"] = cat_cfg.catalog_web_record_url
+        for wire_key, setting_key in (
+            ("soap_search_url", "catalog_search_url"),
+            ("soap_details_url", "catalog_details"),
+            ("token", "token"),
+            ("web_search_url", "catalog_web_search_url"),
+            ("web_record_url", "catalog_web_record_url"),
+        ):
+            if cat.get(setting_key):
+                catalog_block[wire_key] = cat[setting_key]
 
         # Build database block - Claude Generated
         db_cfg = getattr(self.config_to_edit, 'database_config', None)

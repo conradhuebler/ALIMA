@@ -149,6 +149,67 @@ def enabled_gnd_provider_ids(
         return None
 
 
+def primary_settings(
+    config: Any, provider_id: str, *, enabled_only: bool = True
+) -> Dict[str, Any]:
+    """Settings of the primary instance of ``provider_id``, over its declared defaults.
+
+    The read-side counterpart of :func:`build_provider` for the handful of call
+    sites that need a single setting rather than a built provider — the successor
+    of the ``CatalogConfig`` mirror reads (WP P7). Returns ``{}`` when no such
+    instance exists or the config can not be read.
+
+    ``enabled_only`` picks the semantics deliberately:
+
+    * ``True`` (default) — *source gates*: a disabled instance yields ``{}``, so
+      disabling a plugin stops the feature (Search parity, WP P5).
+    * ``False`` — *policy* settings that merely live on a plugin but are not gated
+      by it (the DK step's strict-GND flag, the OPAC web bases). This is what the
+      mirror did: ``derive_search_mirrors`` copied from the primary regardless of
+      its enable state.
+
+    ``ConfigField`` defaults are layered underneath, replacing the dataclass
+    defaults the mirror used to supply for unset fields. - Claude Generated
+    """
+    try:
+        if config is None:
+            from src.utils.config_manager import ConfigManager
+
+            config = ConfigManager().load_config()
+        inst = config.primary_instance(CATEGORY, provider_id, include_disabled=not enabled_only)
+    except Exception as e:
+        logger.debug(f"primary_settings({provider_id}) config read failed: {e}")
+        return {}
+    if inst is None:
+        return {}
+    try:
+        from src.core.plugins.schema import defaults
+
+        cls = get_provider(provider_id)
+        out = defaults(cls.config_fields() if hasattr(cls, "config_fields") else [])
+    except KeyError:  # unregistered type (e.g. a plugin that is no longer installed)
+        out = {}
+    out.update(inst.settings or {})
+    return out
+
+
+def catalog_web_bases(config: Any = None) -> "tuple[str, str]":
+    """``(web_record_url, web_search_url)`` for OPAC links — catalog before finc.
+
+    Both the ``catalog`` and the ``finc`` plugin declare a ``catalog_web_record_url``
+    (finc records link into the same OPAC). They used to mirror onto *one*
+    ``CatalogConfig`` field, where dict order silently let finc win — so a catalog
+    URL set without a finc one produced no links at all. Precedence is explicit
+    here: the catalog instance owns the OPAC base, finc fills in only when catalog
+    has none. Policy read (``enabled_only=False``): a link base stays valid for
+    rendering old results even when the source is switched off. - Claude Generated
+    """
+    cat = primary_settings(config, "catalog", enabled_only=False)
+    finc = primary_settings(config, "finc", enabled_only=False)
+    record = (cat.get("catalog_web_record_url") or finc.get("catalog_web_record_url") or "")
+    return str(record or ""), str(cat.get("catalog_web_search_url") or "")
+
+
 def gnd_tool_name(provider_id: str) -> "str | None":
     """The generated GND-keyword tool name for a provider id — its GND_KEYWORDS
     ``ProviderToolSpec`` name (e.g. ``lobid`` → ``search_lobid``). A copied plugin

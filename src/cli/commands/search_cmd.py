@@ -11,7 +11,6 @@ from src.core.search_cli import SearchCLI
 from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
 from src.core.search import SearchCapability, providers_for_capability
 from src.utils.logging_utils import print_result
-from src.utils.config_manager import ConfigManager
 
 
 def handle_search(args, logger: logging.Logger):
@@ -80,13 +79,16 @@ def handle_test_catalog(args, logger: logging.Logger):
     print("-" * 60)
 
     try:
-        # Get catalog configuration
-        config_manager = ConfigManager()
-        catalog_config = config_manager.get_catalog_config()
+        # Endpoints from the catalog instance (WP P7: was the CatalogConfig mirror);
+        # the --catalog-* flags still win. Read regardless of the instance's enable
+        # state: this is the diagnostic command for exactly the case where the
+        # source is not working yet. - Claude Generated
+        from src.core.search.factory import primary_settings
+        cat = primary_settings(None, "catalog", enabled_only=False)
 
-        catalog_token = args.catalog_token or getattr(catalog_config, "catalog_token", "")
-        catalog_search_url = args.catalog_search_url or getattr(catalog_config, "catalog_search_url", "")
-        catalog_details_url = args.catalog_details_url or getattr(catalog_config, "catalog_details_url", "")
+        catalog_token = args.catalog_token or cat.get("token") or ""
+        catalog_search_url = args.catalog_search_url or cat.get("catalog_search_url") or ""
+        catalog_details_url = args.catalog_details_url or cat.get("catalog_details") or ""
 
         if not catalog_token:
             logger.error("❌ No catalog token found. Configure in settings or use --catalog-token TOKEN")

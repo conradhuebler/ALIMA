@@ -69,7 +69,7 @@ class GeneratedSearchToolTest(unittest.TestCase):
 
     def _registry(self):
         from unittest.mock import MagicMock
-        from src.utils.config_models import AlimaConfig, PluginInstanceConfig, SearchProviderConfig
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
         from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
 
         cfg = AlimaConfig()
@@ -80,10 +80,7 @@ class GeneratedSearchToolTest(unittest.TestCase):
             PluginInstanceConfig("finc", "search_provider", "finc", enabled=True, is_primary=True),
         ]
         reg = ToolRegistry.__new__(ToolRegistry)
-        reg._config_manager = types.SimpleNamespace(
-            load_config=lambda **k: cfg,
-            get_search_provider_config=lambda: SearchProviderConfig(),
-        )
+        reg._config_manager = types.SimpleNamespace(load_config=lambda **k: cfg)
         reg._tools = {}
         reg._handlers = {}
         km = MagicMock()
@@ -170,15 +167,21 @@ class GeneratedSearchToolTest(unittest.TestCase):
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class ProviderConfigGatingTest(unittest.TestCase):
     def test_disabled_provider_tool_not_generated(self):
-        from src.utils.config_models import SearchProviderConfig
+        # Gating is per *instance* (WP P7 dropped the SearchProviderConfig
+        # fallback, which no production path could reach). - Claude Generated
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
 
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(
+                pid, "search_provider", pid,
+                enabled=pid not in ("finc", "swb"), is_primary=True,
+            )
+            for pid in ("lobid", "swb", "catalog", "finc")
+        ]
         reg = ToolRegistry()
         reg._suggesters_initialized = True
-        reg._config_manager = types.SimpleNamespace(
-            get_search_provider_config=lambda: SearchProviderConfig(
-                providers={"finc": False, "swb": False}
-            )
-        )
+        reg._config_manager = types.SimpleNamespace(load_config=lambda **k: cfg)
         names = {td.name for td, _ in reg._generated_search_tools()}
         self.assertNotIn("search_finc", names)
         self.assertNotIn("search_swb", names)

@@ -70,10 +70,8 @@ def _build_session_renderer(session: "Session"):
     # Webapp parity with the GUI panel: wire the catalog web-OPAC base + hosts so
     # <<CAT:rsn|…>> markers become links here too. Degrades silently. Claude Generated.
     try:
-        from src.utils.config_manager import ConfigManager
-        renderer.configure_catalog_from_config(
-            ConfigManager().get_catalog_config()
-        )
+        from src.core.search.factory import catalog_web_bases
+        renderer.configure_catalog(*catalog_web_bases())
     except Exception:
         pass
     return renderer

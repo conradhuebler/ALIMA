@@ -781,13 +781,20 @@ class TestSearchFincMCPHandler(unittest.TestCase):
         rec = out["results"]["physik"]["records"][0]
         self.assertEqual(rec["web_url"], "https://katalog.example.org/Record/0-456")
 
-    def test_web_url_falls_back_to_global_catalog_config(self):
+    def test_web_url_falls_back_to_catalog_instance(self):
         # Instances migrated before the catalog_web_record_url field existed have
-        # no instance value; the handler falls back to the global catalog config
-        # so their catalog links keep working. - Claude Generated
+        # no instance value; the handler falls back to the *catalog* instance's
+        # OPAC base so their catalog links keep working (WP P7: this was the
+        # global CatalogConfig mirror). - Claude Generated
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+            settings={"catalog_web_record_url": "https://legacy.example.org/Record/"},
+        )]
         cm = MagicMock()
-        cm.get_catalog_config.return_value = MagicMock(
-            catalog_web_record_url="https://legacy.example.org/Record/")
+        cm.load_config.return_value = cfg
         out, _c, _p = self._call(
             self._settings(), {"status": "OK", "resultCount": 1, "records": [
                 {"id": "0-9", "title": "Alt", "authors": {}, "subjects": [],

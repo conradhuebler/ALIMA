@@ -84,6 +84,107 @@ class FactoryTest(unittest.TestCase):
         self.assertEqual(set(built), {"lobid"})
 
 
+class PrimarySettingsTest(unittest.TestCase):
+    """WP P7: the read-side successor of the CatalogConfig mirror. - Claude Generated"""
+
+    def _cfg(self, *insts):
+        from src.utils.config_models import AlimaConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = list(insts)
+        return cfg
+
+    def test_settings_layered_over_configfield_defaults(self):
+        # The mirror used to supply the dataclass default for an unset field; the
+        # instance side must supply the ConfigField default instead.
+        from src.core.search.factory import primary_settings
+
+        cfg = self._cfg(PluginInstanceConfig(
+            "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+            settings={"token": "TOK"},
+        ))
+        out = primary_settings(cfg, "catalog")
+        self.assertEqual(out["token"], "TOK")                            # instance wins
+        self.assertEqual(out["catalog_type"], "libero_soap")             # declared default
+        self.assertIs(out["strict_gnd_validation_for_dk_search"], True)  # declared default
+
+    def test_enabled_only_gates_source_reads_but_not_policy_reads(self):
+        from src.core.search.factory import primary_settings
+
+        cfg = self._cfg(PluginInstanceConfig(
+            "finc", "search_provider", "finc", enabled=False, is_primary=True,
+            settings={"harvest_enabled": True},
+        ))
+        # source gate (default): disabled instance contributes nothing
+        self.assertEqual(primary_settings(cfg, "finc"), {})
+        # policy read: enable state ignored, mirroring derive_search_mirrors
+        self.assertIs(primary_settings(cfg, "finc", enabled_only=False)["harvest_enabled"], True)
+
+    def test_unknown_provider_and_unreadable_config_are_empty(self):
+        from src.core.search.factory import primary_settings
+
+        self.assertEqual(primary_settings(self._cfg(), "catalog"), {})
+
+        class _Boom:
+            def primary_instance(self, *a, **k):
+                raise RuntimeError("unreadable")
+
+        self.assertEqual(primary_settings(_Boom(), "catalog"), {})
+
+
+class CatalogWebBasesTest(unittest.TestCase):
+    """WP P7: explicit catalog-before-finc precedence for the OPAC link base.
+
+    Both plugins declare ``catalog_web_record_url``; they used to mirror onto one
+    CatalogConfig field where dict order let finc win. - Claude Generated
+    """
+
+    def _cfg(self, cat_url, finc_url, *, cat_search=""):
+        from src.utils.config_models import AlimaConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(
+                "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+                settings={"catalog_web_record_url": cat_url,
+                          "catalog_web_search_url": cat_search},
+            ),
+            PluginInstanceConfig(
+                "finc", "search_provider", "finc", enabled=True, is_primary=True,
+                settings={"catalog_web_record_url": finc_url},
+            ),
+        ]
+        return cfg
+
+    def test_catalog_wins_over_finc(self):
+        from src.core.search.factory import catalog_web_bases
+
+        record, _ = catalog_web_bases(self._cfg("https://cat/Record/", "https://finc/Record/"))
+        self.assertEqual(record, "https://cat/Record/")
+
+    def test_empty_finc_no_longer_blanks_the_base(self):
+        # The regression the mirror caused: catalog URL set, finc's left empty →
+        # finc overwrote the shared field with "" → no OPAC links at all.
+        from src.core.search.factory import catalog_web_bases
+
+        record, _ = catalog_web_bases(self._cfg("https://cat/Record/", ""))
+        self.assertEqual(record, "https://cat/Record/")
+
+    def test_finc_fills_in_when_catalog_has_none(self):
+        from src.core.search.factory import catalog_web_bases
+
+        record, _ = catalog_web_bases(self._cfg("", "https://finc/Record/"))
+        self.assertEqual(record, "https://finc/Record/")
+
+    def test_search_base_comes_from_catalog_only(self):
+        from src.core.search.factory import catalog_web_bases
+
+        record, search = catalog_web_bases(
+            self._cfg("https://cat/Record/", "", cat_search="https://cat/Search")
+        )
+        self.assertEqual(search, "https://cat/Search")
+
+
 class MigrationTest(unittest.TestCase):
     def _catalog(self):
         return CatalogConfig(
@@ -172,14 +273,13 @@ class InputToolGenerationTest(unittest.TestCase):
     def _registry(self, plugins):
         import types
         from src.mcp.tool_registry import ToolRegistry
-        from src.utils.config_models import AlimaConfig, SearchProviderConfig
+        from src.utils.config_models import AlimaConfig
 
         cfg = AlimaConfig()
         cfg.plugins = plugins
         tr = ToolRegistry.__new__(ToolRegistry)
         tr._config_manager = types.SimpleNamespace(
             load_config=lambda force_reload=False: cfg,
-            get_search_provider_config=lambda: SearchProviderConfig(),
         )
         tr._tools = {}
         tr._handlers = {}

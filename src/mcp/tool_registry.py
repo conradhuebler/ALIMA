@@ -1160,32 +1160,13 @@ class ToolRegistry:
     def _search_instances(self):
         """Enabled search-provider instances driving tool generation.
 
-        Primary source: the per-instance ``plugins`` config. If a full config can
-        not be loaded (tests / minimal config managers), fall back to one primary
-        per registered type gated by ``SearchProviderConfig`` — preserving the
-        prior enable/disable semantics. - Claude Generated"""
-        cfg = None
-        try:
-            cm = self._config_manager
-            if cm is None:
-                from src.utils.config_manager import ConfigManager
-                cm = ConfigManager()
-            cfg = cm.load_config()
-        except Exception:
-            cfg = None
-        if cfg is not None:
-            return cfg.enabled_instances_for("search_provider")
-
-        spc = self._search_provider_config()
-        from src.core.search import list_providers
-        from src.utils.config_models import PluginInstanceConfig
-        return [
-            PluginInstanceConfig(
-                instance_id=pid, category="search_provider", provider_id=pid, is_primary=True
-            )
-            for pid in list_providers()
-            if spc.is_enabled(pid)
-        ]
+        The per-instance ``plugins`` config is the only source; an unreadable
+        config yields no search tools. The former ``SearchProviderConfig``-gated
+        fallback (one primary per registered type) was unreachable in production
+        — a readable config always returned above it — and existed only for
+        minimal test stubs, which now bring a real config. - Claude Generated"""
+        cfg = self._alima_config()
+        return cfg.enabled_instances_for("search_provider") if cfg is not None else []
 
     @staticmethod
     def _canonical_instance(instances):
@@ -1205,19 +1186,6 @@ class ToolRegistry:
     def _describe_with_hint(description, inst):
         hint = (getattr(inst, "usage_hint", "") or "").strip()
         return f"{description}\n\nInstanz-Hinweis: {hint}" if hint else description
-
-    def _search_provider_config(self):
-        """Load SearchProviderConfig; fall back to all-enabled if config is
-        unavailable (e.g. tests / no providers configured). - Claude Generated"""
-        try:
-            cm = self._config_manager
-            if cm is None:
-                from src.utils.config_manager import ConfigManager
-                cm = ConfigManager()
-            return cm.get_search_provider_config()
-        except Exception:
-            from src.utils.config_models import SearchProviderConfig
-            return SearchProviderConfig()
 
     # ============================================================
     # Input-source tools — generated per enabled input instance
@@ -1597,14 +1565,17 @@ class ToolRegistry:
             except Exception:
                 pass
             if not cat_base:
+                # Pre-P2.2 finc instances carry no own base — fall back to the
+                # catalog instance's OPAC base (WP P7: was the CatalogConfig
+                # mirror). - Claude Generated
                 try:
-                    _cm = self._config_manager
-                    if _cm is None:
-                        from src.utils.config_manager import ConfigManager
-                        _cm = ConfigManager()
-                    cat_base = (
-                        getattr(_cm.get_catalog_config(), "catalog_web_record_url", "") or ""
-                    ).rstrip("/")
+                    from src.core.search.factory import catalog_web_bases
+
+                    # Only via the injected config manager — never let a failed
+                    # load reach for the global one behind the caller's back.
+                    _cfg = self._alima_config()
+                    if _cfg is not None:
+                        cat_base = (catalog_web_bases(_cfg)[0] or "").rstrip("/")
                 except Exception:
                     pass
             if cat_base:

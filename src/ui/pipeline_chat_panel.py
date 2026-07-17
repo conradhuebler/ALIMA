@@ -196,12 +196,10 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # P-δ.5: wire catalog web-OPAC base URL so the renderer can turn
         # <<CAT:rsn|text>> markers into clickable links. Degrades cleanly
         # (markers are reduced to plain text) if config is missing. Shared with
-        # the webapp via configure_catalog_from_config (Claude Generated).
+        # the webapp via configure_catalog (Claude Generated).
         try:
-            from src.utils.config_manager import ConfigManager
-            self._renderer.configure_catalog_from_config(
-                ConfigManager().get_catalog_config()
-            )
+            from src.core.search.factory import catalog_web_bases
+            self._renderer.configure_catalog(*catalog_web_bases())
         except Exception:
             pass  # feature disabled silently — see _replace_cat_markers
 

@@ -118,8 +118,8 @@ class UnifiedMessageRenderer:
         self._bus_id_to_tool_id: Dict[str, str] = {}
 
         # P-δ.5: <<CAT:rsn|text>> marker → clickable catalog link. The web
-        # base is set by the panel from CatalogConfig.catalog_web_record_url;
-        # empty default disables the feature (markers reduced to display text).
+        # base is set by the panel via configure_catalog(); empty default
+        # disables the feature (markers reduced to display text).
         self._catalog_web_base: str = ""
         self._catalog_hosts: set = set()
         # URLs seen in tool results this turn — exempt from ext-link flagging.
@@ -170,25 +170,20 @@ class UnifiedMessageRenderer:
             if u and isinstance(u, str) and u.startswith(("http://", "https://")):
                 self._trusted_urls.add(u)
 
-    def configure_catalog_from_config(self, catalog_config: Any) -> None:
-        """Wire the catalog web-OPAC base + host(s) from a CatalogConfig.
+    def configure_catalog(self, web_record_url: str = "", web_search_url: str = "") -> None:
+        """Wire the catalog web-OPAC base + host(s) for ``<<CAT:rsn|…>>`` markers.
 
-        Claude Generated. Single source of truth shared by the GUI panel and the
-        webapp so both frontends turn ``<<CAT:rsn|…>>`` markers into links and
-        classify catalog hosts identically. Degrades silently when config is
-        missing (markers reduce to plain text). The GND/SWB authority hosts are
-        always trusted regardless of this config (see ``__init__``).
+        Claude Generated. Takes the resolved URLs rather than a config object, so
+        the GUI panel and the webapp share one call shape (``factory.catalog_web_bases``
+        does the resolving). Empty URLs degrade silently — markers reduce to plain
+        text. The GND/SWB authority hosts are always trusted regardless (see
+        ``__init__``).
         """
-        if catalog_config is None:
-            return
         from urllib.parse import urlparse
 
-        web_base = getattr(catalog_config, "catalog_web_record_url", "") or ""
+        web_base = web_record_url or ""
         self.set_catalog_web_base(web_base)
-        for url in (
-            web_base,
-            getattr(catalog_config, "catalog_web_search_url", "") or "",
-        ):
+        for url in (web_base, web_search_url or ""):
             if url:
                 p = urlparse(url)
                 if p.scheme and p.netloc:

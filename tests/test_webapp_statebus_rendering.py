@@ -85,16 +85,18 @@ class TestSessionBusSubscriber(unittest.TestCase):
     def test_build_session_renderer_wires_catalog_config(self):
         from unittest import mock as _mock
         from src.webapp.app import _build_session_renderer, Session
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
 
-        cfg = _mock.MagicMock()
-        cfg.get_catalog_config.return_value = type(
-            "C", (), {
-                "catalog_web_record_url": "https://katalog.ub.tu-freiberg.de/Record/",
-                "catalog_web_search_url": "",
-            },
-        )()
+        # The OPAC base comes from the catalog *instance* since WP P7.
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+            settings={"catalog_web_record_url": "https://katalog.ub.tu-freiberg.de/Record/"},
+        )]
+        cm = _mock.MagicMock()
+        cm.load_config.return_value = cfg
         with _mock.patch(
-            "src.utils.config_manager.ConfigManager", return_value=cfg
+            "src.utils.config_manager.ConfigManager", return_value=cm
         ):
             r = _build_session_renderer(Session("s1"))
         self.assertEqual(
