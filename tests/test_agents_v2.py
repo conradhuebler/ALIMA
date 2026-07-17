@@ -46,6 +46,20 @@ def _agent_result(content: str) -> AgentResult:
     return AgentResult(content=content, tool_log=[], iterations=1)
 
 
+def _pin_sources(*ids):
+    """Pin the enabled GND providers for one test - Claude Generated.
+
+    Since WP P6a the agentic search fns derive their default sources (and tool
+    names) from the *enabled* GND providers, i.e. from the operator's real config.
+    Without this the fake registries below raise "unexpected tool" as soon as a
+    source is enabled in the Plugins tab. ``new=`` keeps the patch from injecting
+    an argument into the test signature.
+    """
+    return patch(
+        "src.core.search.factory.enabled_gnd_provider_ids", new=lambda *a, **k: list(ids)
+    )
+
+
 class TestContextPath(unittest.TestCase):
     def setUp(self):
         self.ctx = SharedContext(
@@ -650,6 +664,7 @@ class TestAlimaClassicMigration(unittest.TestCase):
         # Every merged item carries a non-empty canonical ``keyword`` field.
         self.assertTrue(all(p.get("keyword") for p in picked))
 
+    @_pin_sources("swb", "lobid")
     def test_gnd_batch_search_fn_legacy(self):
         """Legacy path (aggregate_from_raw=False): parse SWB/Lobid results, merge, enrich."""
         from src.core.agents.registry import get_tool_fn
@@ -694,6 +709,7 @@ class TestAlimaClassicMigration(unittest.TestCase):
         # 3 tool calls (swb, lobid, get_gnd_batch)
         self.assertEqual(out["tool_calls"], 3)
 
+    @_pin_sources("swb", "lobid")
     def test_gnd_batch_search_fn_aggregate_from_raw(self):
         """Default path: pool comes from aggregate_gnd_results (raw), then enrich."""
         from src.core.agents.registry import get_tool_fn
@@ -749,6 +765,7 @@ class TestAlimaClassicMigration(unittest.TestCase):
         # 4 tool calls (swb, lobid, aggregate, get_gnd_batch).
         self.assertEqual(out["tool_calls"], 4)
 
+    @_pin_sources("swb", "lobid")
     def test_gnd_batch_search_raises_on_aggregation_error(self):
         # C3: the source tools succeed (no source_errors), but aggregate_gnd_results
         # signals an unresolved-source failure via {"pool": [], "error": ...} —
@@ -802,6 +819,7 @@ class TestPoCWorkflows(unittest.TestCase):
                 if s.type == "deterministic":
                     get_tool_fn(s.raw.get("function"))
 
+    @_pin_sources("swb", "lobid", "catalog")
     def test_catalog_multi_search_fn(self):
         """catalog_multi_search: fan-out over SWB/Lobid/catalog, merged+ranked hits."""
         from src.core.agents.registry import get_tool_fn
@@ -897,6 +915,7 @@ class TestPoCWorkflows(unittest.TestCase):
         self.assertEqual(out["missing"], ["missing"])
         self.assertEqual(out["tool_calls"], 1)
 
+    @_pin_sources("lobid")
     def test_gnd_batch_metadata_lobid_fallback(self):
         from src.core.agents.registry import get_tool_fn
         fn = get_tool_fn("gnd_batch_metadata")
@@ -917,6 +936,7 @@ class TestPoCWorkflows(unittest.TestCase):
         self.assertEqual(out["entries"]["4053309-8"]["title"], "Recovered")
         self.assertEqual(out["missing"], [])
 
+    @_pin_sources("swb", "lobid")
     def test_gnd_batch_search_accepts_dicts(self):
         """Validate step in synonym_expansion feeds LLM candidate dicts straight in."""
         from src.core.agents.registry import get_tool_fn

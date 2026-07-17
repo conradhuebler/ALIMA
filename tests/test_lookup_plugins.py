@@ -26,6 +26,24 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     IMPORT_ERROR = exc
 
 
+def _lookup_registry():
+    """ToolRegistry over a config with every registered lookup enabled - Claude Generated.
+
+    A bare ``ToolRegistry()`` reads the operator's real config, where a lookup
+    disabled in the Plugins tab generates no tool (Search parity, WP P5). The tests
+    below assert that a registered lookup *has* a tool, so they must bring their own
+    enable state instead of inheriting whatever was last clicked.
+    """
+    cfg = AlimaConfig()
+    cfg.plugins = [
+        PluginInstanceConfig(lid, "lookup", lid, enabled=True, is_primary=True)
+        for lid in list_lookups()
+    ]
+    reg = ToolRegistry(config_manager=types.SimpleNamespace(load_config=lambda **k: cfg))
+    reg.register_all_tools()
+    return reg
+
+
 class _FakeLookup:
     id = "fake_lk"
     label = "Fake"
@@ -253,8 +271,7 @@ class K10PlusLookupTest(unittest.TestCase):
         self.assertEqual(out["records"][0]["ppn"], "p0")
 
     def test_tool_generated(self):
-        reg = ToolRegistry(); reg.register_all_tools()
-        self.assertIn("k10plus_package", reg.get_tool_names())
+        self.assertIn("k10plus_package", _lookup_registry().get_tool_names())
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
@@ -285,8 +302,7 @@ class DnbLookupTest(unittest.TestCase):
     def test_registered_and_tool_generated(self):
         from src.utils.lookups.registry import list_lookups
         self.assertIn("dnb", list_lookups())
-        reg = ToolRegistry(); reg.register_all_tools()
-        self.assertIn("dnb_classification", reg.get_tool_names())
+        self.assertIn("dnb_classification", _lookup_registry().get_tool_names())
 
     def test_classify_passes_timeout_and_returns_data(self):
         captured = []
@@ -559,10 +575,18 @@ class BuildLookupResolverTest(unittest.TestCase):
 
         from src.utils.lookups.resolve import build_lookup
 
+        # Explicit config: ``build_lookup(None, …)`` would auto-load the operator's
+        # real config, where a disabled rvk_api makes this shape test fail for an
+        # unrelated reason. This test locks the return shape, not the gating.
+        cfg = AlimaConfig()
+        cfg.plugins = [PluginInstanceConfig(
+            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+        )]
+
         with patch("src.utils.clients.rvk_api_client.RvkApiClient") as MC:
             MC.return_value.search_keyword.return_value = [{"notation": "AN 94700"}]
             MC.return_value.validate_notation.return_value = {"valid": True, "label": "x"}
-            plugin = build_lookup(None, "rvk_api")
+            plugin = build_lookup(cfg, "rvk_api")
             out = plugin.search_keyword("Biologie", max_results=6)
             self.assertEqual(out["results"], [{"notation": "AN 94700"}])
             v = plugin.validate_notation("AN 94700")
@@ -632,7 +656,7 @@ class LookupPresetTest(unittest.TestCase):
     agent gets automatically)."""
 
     def test_lookup_preset_resolves_to_registered_tools(self):
-        reg = ToolRegistry(); reg.register_all_tools()
+        reg = _lookup_registry()
         preset = reg.get_preset("lookup")
         self.assertEqual(
             set(preset),
@@ -643,8 +667,7 @@ class LookupPresetTest(unittest.TestCase):
             self.assertIn(t, names)   # every preset tool is an actual registered tool
 
     def test_classification_preset_includes_rvk(self):
-        reg = ToolRegistry(); reg.register_all_tools()
-        preset = reg.get_preset("classification")
+        preset = _lookup_registry().get_preset("classification")
         self.assertIn("rvk_search", preset)
         self.assertIn("rvk_validate", preset)
 

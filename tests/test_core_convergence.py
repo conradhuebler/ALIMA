@@ -85,9 +85,19 @@ class TestGndBatchSearchConvergence(unittest.TestCase):
             "src.core.search.aggregate.default_aggregate_from_raw", return_value=True
         )
         self._agg_patch.start()
+        # Likewise for the source list: since WP P6a gnd_batch_search derives its
+        # default sources from the *enabled* GND providers, so enabling e.g. catalog
+        # in the Plugins tab would make _FakeRegistry raise "unexpected tool". Pin
+        # the two sources this fake serves. - Claude Generated
+        self._src_patch = patch(
+            "src.core.search.factory.enabled_gnd_provider_ids",
+            return_value=["swb", "lobid"],
+        )
+        self._src_patch.start()
 
     def tearDown(self):
         self._agg_patch.stop()
+        self._src_patch.stop()
 
     def test_source_count_ranking(self):
         """Entries confirmed by multiple sources rank first."""
