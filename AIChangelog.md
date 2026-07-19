@@ -6,6 +6,52 @@
 
 ## 2026
 
+### WP Chat-UX-Aufräumen: GUI + Webapp (July 19, 2026)
+
+Neun Commits (`07537d1`…`6985c8b`), Plan aus drei Explorationsberichten + vier
+Operator-Entscheidungen (Vollpaket; §9.4 beides-ein-Stil; echte i18n; inkrementelles
+Markdown). Kernergebnisse:
+
+- **1/9 Totcode**: `static/index.html`, `toggle_tool_call`+`tool://`-Kette,
+  `render_tool_marker`-Shim raus.
+- **2/9 i18n-Fundament**: `src/utils/i18n.py` + `locales/de,en.json` (flache Dot-Keys,
+  nie raisen), `UIConfig.ui_language` (Hook im Config-Load deckt GUI/Webapp/CLI),
+  `alimaT()`/`window.__alimaI18n` fürs geteilte JS; LLM-Antwortsprache bleibt eigene Achse.
+- **3/9 Fehler-Rendering (wp12 §9.3)**: additives `kind="error"` auf Collapsibles →
+  rotes `rc-error`-Chrome; beide Bus-Konsumenten reichen den bisher verworfenen
+  `payload["error"]`-Text durch; Chat-Fehler beider Frontends via `render_error_block`.
+- **4/9 Live-Markdown**: Assistant-Bubble rendert den Stream-Puffer throttled (120 ms)
+  durch den vorhandenen JS-Formatter (Escape-sicher, unclosed Konstrukte = Literal),
+  Cursor-Blink, 200-kB-Cap; Python-markdown-it-Finalize bleibt autoritativ
+  (Link-Trust bewusst nur dort). Node-Contract-Test.
+- **5/9 Webapp-Einflächigkeit**: Legacy-`#stream-text` komplett raus (~25 Call-Sites);
+  klassische LLM-Tokens als geteilte Stream-Blöcke (klassisch-gated — derselbe
+  `stream_callback` feuert auch agentisch!), Client-Notices via `appendLocalNotice`,
+  DK-Progress als In-Place-Element in der Pipeline-Bar, `displayResults`-Freitext-Recap
+  entfällt (Server-Karten + Summary tragen es).
+- **6/9 Theming (§9.4 „ein Stil")**: `--alima-*`-Variablen im geteilten CSS (Dark-Default
+  = GUI unverändert), Webapp-Light-Overrides — der Theme-Toggle erreicht endlich das Log;
+  Renderer emittiert Klassen statt Inline-Hex; Summary-Styles unter `#results-summary`
+  gescoped, verwaiste Duplikat-Blöcke gelöscht.
+- **7/9 GUI-Politur**: Status-Strip statt Emoji-Spam im Verlauf (🧭/💾/🤖/✅),
+  Assistant-Bubble = visueller Peer der User-Bubble (Header in die Bubble),
+  Pipeline-Reset kündigt sich an (war stumm), Placeholder vereinheitlicht,
+  Worker-Status-Leak → Logger.
+- **8/9 i18n-Sweep**: Bus-Systemzeilen, gemischtsprachige JS-Alerts, restliche
+  Chat-Messages → Katalog (de+en synchron, Parity-Test).
+- **9/9 Guard + Doku**: Chat-Endpoint subscribt mit `tool_events=False`
+  (Doppelrender strukturell unmöglich); Ownership-Notizen für die drei
+  Bus-Konsumenten (volle `BusRenderBridge`-Extraktion bewusst Follow-up —
+  `renderer.subscribe` hat zwei echte Mini-Log-Caller); wp12 §3-Tabelle
+  vervollständigt, §9.3 ✅, §9.4 entschieden, §9.5 als stale geschlossen
+  (agentisches Tool-Chrome erreicht die Webapp längst, Test als Beleg).
+
+Suite 1305 → **1321** (neue Tests: i18n 9, Fehler-Chrome 5, JS-Contract 1,
+Klassik-Stream-Integration 1, Guard 1; 4 Totcode-Tests entfernt). Offene
+Operator-Sign-offs: Klick-/Browser-Checkliste (Live-Markdown, Fehlerkarte,
+Status-Strip, Bubble-Optik, Reset-Hinweis, Light/Dark im `#log`,
+Sprachumschaltung, WS-Reconnect) + die wp12-§9.2-Liste.
+
 ### WP Struktur-Aufräumen: Audit-Funde + Klassifikations-Extraktion (July 19, 2026)
 
 Struktur-Audit nach den Konvergenz-WPs: **keine toten Module** (Import-Scan über alle

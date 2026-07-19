@@ -109,6 +109,17 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **WP Chat-UX-Aufräumen (GUI + Webapp) ✅ CODE-COMPLETE (July 19):** 9 Commits
+  (`07537d1`…`6985c8b`) — Webapp-Einflächigkeit (`#stream-text` weg), Live-Markdown
+  beim Streamen, geteiltes Fehler-Chrome (`kind="error"`, wp12 §9.3 ✅), Theming via
+  `--alima-*` (Light-Mode erreicht das Log, §9.4 entschieden: beides-ein-Stil),
+  GUI-Status-Strip statt Verlaufs-Spam, leichte i18n (`locales/`, `UIConfig.ui_language`,
+  DE/EN), Chat-Doppelrender-Guard; §9.5 als stale geschlossen. Suite 1321. Details:
+  `AIChangelog.md` (July 19). **Offen (Operator, GUI/Browser):** Klick-Checkliste —
+  Live-Markdown, Fehlerkarte (Step+Chat), Status-Strip, Bubble-Optik, Reset-Hinweis,
+  Webapp Light/Dark, `ui_language`-Wechsel, WS-Reconnect ohne Duplikate — plus
+  wp12-§9.2-Liste. Follow-up notiert: `BusRenderBridge`-Extraktion (drei Konsumenten,
+  Ownership-Notizen in `_chat_panel_bus.py`/`render_bridge.py`).
 - **WP Struktur-Aufräumen ✅ DONE (July 19):** Audit ergab keine toten Module; Restschuld
   behoben in 5 Commits (`04d9eb0`…`32670d5`): `suggesters/`-Rest + finc-Shims weg,
   20 stale Docs → `docs/legacy/`, Lobid-Dump-Download aus dem Konstruktor (lazy,
