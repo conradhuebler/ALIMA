@@ -700,19 +700,19 @@ class AlimaWebapp {
     // Start analysis
     async startAnalysis() {
         if (!this.sessionId) {
-            alert('Session not initialized. Please refresh the page.');
+            alert(alimaT('js.alert.no_session', 'Session nicht initialisiert. Bitte Seite neu laden.'));
             return;
         }
 
         if (this.isAnalyzing) {
-            alert('Analysis is already running');
+            alert(alimaT('js.alert.already_running', 'Analyse läuft bereits'));
             return;
         }
 
         // Read ALWAYS from the main text field - Claude Generated
         const textContent = document.getElementById('text-input').value.trim();
         if (!textContent) {
-            alert('Bitte geben Sie Text ein oder laden Sie eine Quelle');
+            alert(alimaT('js.alert.need_input', 'Bitte geben Sie Text ein oder laden Sie eine Quelle'));
             return;
         }
 
@@ -741,7 +741,7 @@ class AlimaWebapp {
         const message = chatInput.value.trim();
         if (!message) return;
         if (!this.sessionId) {
-            alert('Session not initialized. Please refresh the page.');
+            alert(alimaT('js.alert.no_session', 'Session nicht initialisiert. Bitte Seite neu laden.'));
             return;
         }
 
@@ -1632,7 +1632,7 @@ class AlimaWebapp {
 
         } catch (error) {
             console.error('Export error:', error);
-            alert(`Export fehlgeschlagen: ${error.message}`);
+            alert(alimaT('js.alert.export_failed', 'Export fehlgeschlagen: {msg}').replace('{msg}', error.message));
         }
     }
 
@@ -1798,7 +1798,7 @@ class AlimaWebapp {
     // Cancel running analysis - Claude Generated
     async cancelAnalysis() {
         if (!this.isAnalyzing || !this.sessionId) {
-            alert('Keine Analyse läuft');
+            alert(alimaT('js.alert.no_analysis', 'Keine Analyse läuft'));
             return;
         }
 
@@ -1822,7 +1822,7 @@ class AlimaWebapp {
 
         } catch (error) {
             console.error('Error cancelling analysis:', error);
-            alert('Fehler beim Abbrechen: ' + error.message);
+            alert(alimaT('js.alert.abort_failed', 'Fehler beim Abbrechen: {msg}').replace('{msg}', error.message));
         }
     }
 

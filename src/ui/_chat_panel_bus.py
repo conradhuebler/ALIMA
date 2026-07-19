@@ -152,7 +152,8 @@ class BusEventMixin:
         acknowledges the end of a pipeline run consistently.
         """
         try:
-            label = "✅ Pipeline abgeschlossen"
+            from ..utils.i18n import t
+            label = t("render.pipeline_completed")
             workflow = (payload or {}).get("workflow")
             if workflow:
                 label += f" ({workflow})"

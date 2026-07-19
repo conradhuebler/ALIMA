@@ -11,6 +11,8 @@ re-exports these names for backward compatibility.
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from src.utils.i18n import t
+
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from src.webapp.session_state import Session
 
@@ -281,7 +283,7 @@ class _SessionBusSubscriber:
         self._renderer.update_collapsible_meta(tool_id, meta)
 
     def _handle_pipeline_completed(self, payload: Dict[str, Any]) -> None:
-        label = "✅ Pipeline abgeschlossen"
+        label = t("render.pipeline_completed")
         workflow = (payload or {}).get("workflow")
         if workflow:
             label += f" ({workflow})"
@@ -290,5 +292,5 @@ class _SessionBusSubscriber:
     def _handle_pipeline_started(self, payload: Dict[str, Any]) -> None:
         pid = (payload or {}).get("pipeline_id", "") or ""
         self._renderer.render_system_message(
-            f"🚀 Pipeline gestartet{f' ({pid[:8]})' if pid else ''}"
+            t("render.pipeline_started") + (f" ({pid[:8]})" if pid else "")
         )

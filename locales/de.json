@@ -18,5 +18,17 @@
   "chat.reset_notice": "🔄 Chat-Verlauf für neuen Pipeline-Lauf geleert — abschaltbar über die 🔄-Reset-Option.",
   "chat.input.placeholder": "Frage stellen — Enter = senden, Shift+Enter = neue Zeile",
   "chat.input.generating": "Antwort wird generiert …",
-  "chat.input.stopping": "Wird abgebrochen …"
+  "chat.input.stopping": "Wird abgebrochen …",
+  "chat.cancelled": "⏹ Chat abgebrochen",
+  "chat.answer_done": "✅ Assistant-Antwort abgeschlossen",
+  "render.pipeline_completed": "✅ Pipeline abgeschlossen",
+  "render.pipeline_started": "🚀 Pipeline gestartet",
+  "js.alert.no_session": "Session nicht initialisiert. Bitte Seite neu laden.",
+  "js.alert.already_running": "Analyse läuft bereits",
+  "js.alert.need_input": "Bitte geben Sie Text ein oder laden Sie eine Quelle",
+  "js.alert.export_failed": "Export fehlgeschlagen: {msg}",
+  "js.alert.no_analysis": "Keine Analyse läuft",
+  "js.alert.abort_failed": "Fehler beim Abbrechen: {msg}",
+  "chat.no_provider": "⚠️ Kein LLM-Provider konfiguriert. Bitte in den Pipeline-Einstellungen ein Modell wählen.",
+  "chat.system_prompt_updated": "✅ System-Prompt aktualisiert."
 }

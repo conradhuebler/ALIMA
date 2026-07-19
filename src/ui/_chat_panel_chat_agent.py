@@ -289,10 +289,7 @@ class ChatAgentMixin:
         # Resolve provider/model + config first — needed to pick the prompt tier.
         provider, model = self._resolve_provider_model()
         if not provider or not model:
-            self._append_system_message(
-                "⚠️ Kein LLM-Provider konfiguriert. Bitte in Pipeline-Einstellungen "
-                "ein Modell wählen."
-            )
+            self._append_system_message(t("chat.no_provider"))
             return
 
         chat_config = self._get_chat_config()
@@ -428,7 +425,7 @@ class ChatAgentMixin:
         self._hide_typing()
         self._finalize_assistant_message()
         if self._stopping:
-            self._append_system_message("⏹ Abgebrochen.")
+            self._append_system_message(t("chat.cancelled"))
         self._set_ui_running(False)
 
     @pyqtSlot(str)

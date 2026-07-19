@@ -456,7 +456,7 @@ class TestCancelLifecycle(unittest.TestCase):
         # and re-arms the cancel button.
         self.assertFalse(stub._stopping)
         stub.cancel_btn.setEnabled.assert_called_with(True)
-        self.assertTrue(any("Abgebrochen" in m for m in stub.system_messages))
+        self.assertTrue(any("abgebrochen" in m.lower() for m in stub.system_messages))
 
 
 class TestPipelineLogSummaries(unittest.TestCase):

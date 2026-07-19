@@ -18,5 +18,17 @@
   "chat.reset_notice": "🔄 Chat history cleared for the new pipeline run — disable via the 🔄 reset option.",
   "chat.input.placeholder": "Ask a question — Enter = send, Shift+Enter = new line",
   "chat.input.generating": "Generating answer …",
-  "chat.input.stopping": "Cancelling …"
+  "chat.input.stopping": "Cancelling …",
+  "chat.cancelled": "⏹ Chat cancelled",
+  "chat.answer_done": "✅ Assistant answer complete",
+  "render.pipeline_completed": "✅ Pipeline completed",
+  "render.pipeline_started": "🚀 Pipeline started",
+  "js.alert.no_session": "Session not initialized. Please refresh the page.",
+  "js.alert.already_running": "Analysis is already running",
+  "js.alert.need_input": "Please enter text or load a source",
+  "js.alert.export_failed": "Export failed: {msg}",
+  "js.alert.no_analysis": "No analysis is running",
+  "js.alert.abort_failed": "Cancelling failed: {msg}",
+  "chat.no_provider": "⚠️ No LLM provider configured. Please pick a model in the pipeline settings.",
+  "chat.system_prompt_updated": "✅ System prompt updated."
 }

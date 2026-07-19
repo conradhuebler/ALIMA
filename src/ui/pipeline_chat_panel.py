@@ -690,4 +690,5 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
             new_prompt = dialog.get_prompt()
             if new_prompt:
                 self.system_prompt = new_prompt
-                self._append_system_message("✅ System-Prompt aktualisiert.")
+                from ..utils.i18n import t as _t
+                self._append_system_message(_t("chat.system_prompt_updated"))

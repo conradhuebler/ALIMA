@@ -518,9 +518,9 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
                 tool_log=_tool_calls_full,
             )
             if should_stop():
-                session_renderer.render_system_message("⏹ Chat abgebrochen")
+                session_renderer.render_system_message(t("chat.cancelled"))
             else:
-                session_renderer.render_system_message("✅ Assistant-Antwort abgeschlossen")
+                session_renderer.render_system_message(t("chat.answer_done"))
             session.status = "idle"
             return result
         except Exception as e:
