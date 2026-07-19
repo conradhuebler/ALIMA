@@ -124,21 +124,15 @@ When documenting implemented features, the AI must apply these rules:
   (heute kaputt, sollte jetzt gehen), agentischer Lauf mit deaktiviertem finc
   (Harvest darf **nicht** mehr laufen), First-Start-Wizard + `alima wizard`
   (Werte im Plugins-Tab?), Bundle export→install, find_keywords.
-- **WP Data-Flow-Vereinheitlichung (`BibRecord`) + Counter-Bug** 🔴 ANALYSIERT,
-  ENTSCHEIDUNG OFFEN (July 10): zwei verifizierte Analysen zeigen — das Plugin-System hat
-  die *Verrohrung* vereinheitlicht, nicht die *Daten*. (1) **Feldnamen-Audit**: ALIMA
-  transportiert Round-Trip-Rename-Shims (`gnd_search_core.py:116-128` ↔
-  `aggregate.py:188-193`), duale DOI-Shapes (Capitalized vs snake_case), `ddc` mit 3
-  Werttypen, Klassifikation in 4 Kodierungen → `BibRecord` gerechtfertigt; Draft
-  unterspezifiziert `authors`-Typ / URL-Rollen / `count`-Konvention. (2) **Counter-Bug**
-  („Pipeline≠Agent-Häufigkeit, nach wie vor"): `SharedContext.to_keyword_analysis_state`
-  (`shared_context.py:295-298`) + `state_bridge._flatten_search_results` droppen
-  `count`/`display_count` → agentische Häufigkeit persistiert als 0, klassisch echt; Fix
-  ~2 Edits, landmine-sicher. **Entscheidung f. neue Session:** (a) Counter-Bug als
-  Quick-Win zuerst, dann (b) `BibRecord`-WP P0 (F-1-Collapse via bestehendes
-  `ResultItem`). Docs: [`docs/wp_gnd_counter_divergence.md`](docs/wp_gnd_counter_divergence.md),
-  [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md) (Findings +
-  Decision point). Beide verifiziert, **kein Code geschrieben.**
+- **WP Data-Flow-Vereinheitlichung (`BibRecord`)** — ENTSCHEIDUNG OFFEN (July 10):
+  das Plugin-System hat die *Verrohrung* vereinheitlicht, nicht die *Daten*. Feldnamen-Audit:
+  Round-Trip-Rename-Shims (`gnd_search_core.py:116-128` ↔ `aggregate.py:188-193`), duale
+  DOI-Shapes, `ddc` mit 3 Werttypen, Klassifikation in 4 Kodierungen → `BibRecord`
+  gerechtfertigt; Draft unterspezifiziert `authors`-Typ / URL-Rollen / `count`-Konvention.
+  Doc: [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md).
+  Der zugehörige **Counter-Bug ist ✅ GEFIXT** (`038738e`, July 16, alle 4 C1-Edits +
+  Unit-Tests; [`docs/wp_gnd_counter_divergence.md`](docs/wp_gnd_counter_divergence.md)) —
+  **offen nur Operator-Vergleichslauf** (agentisch vs. klassisch, gleiche Häufigkeit, GUI).
 - **WP Lookup-Plugin-Integration (Pipeline+Agent) — Phase D** ✅ CODE-COMPLETE
   (July 10): rvk_api/k10plus/dnb liefen bisher nur im Chat-Agent; jetzt *ein*
   Aufrufpfad je Quelle. Geteilter `build_lookup(config,id)`

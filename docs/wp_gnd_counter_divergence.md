@@ -1,9 +1,10 @@
 # WP: GND-Häufigkeit — Pipeline vs. Agent divergieren beim Persistieren
 
-> **Status:** Diagnosed + verified (July 10, 2026), **no code written**. Ready-to-execute
-> ~2-edit fix. Split off from `docs/wp_records_as_first_class.md` (it is the sharpest
-> single instance of the count fragmentation, F-5) because it is a self-contained bugfix,
-> not the larger `BibRecord` normalization. **Recommended as a quick-win before that WP.**
+> **Status:** ✅ FIXED (commit `038738e`, July 16, 2026) — all 4 edits (C1) applied incl.
+> unit tests (`test_agents.py`, `test_state_bridge.py`, `test_caching_provider.py`).
+> **Open: operator comparison run** (§Verification below — GUI, not headless-checkable).
+> Split off from `docs/wp_records_as_first_class.md` (sharpest single instance of the
+> count fragmentation, F-5); the larger `BibRecord` normalization remains undecided.
 
 ## Symptom (operator, "nach wie vor")
 
