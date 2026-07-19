@@ -535,20 +535,6 @@ class UnifiedMessageRenderer:
         )
         self._touch_scroll()
 
-    def toggle_tool_call(self, tool_id: str) -> bool:
-        """Flip the server-side ``expanded`` mirror and return the new value.
-
-        The real expand/collapse is handled natively by ``<details>``; this
-        method only keeps the mirrored state for API compatibility (no caller
-        in the panel invokes it anymore — link clicks no longer carry a
-        ``tool://toggle`` anchor).
-        """
-        tc = self._tool_calls.get(tool_id)
-        if tc is None:
-            return False
-        tc["expanded"] = not tc["expanded"]
-        return tc["expanded"]
-
     def render_collapsible(
         self,
         title: str,
@@ -682,34 +668,6 @@ class UnifiedMessageRenderer:
         if not result:
             return ""
         return self._escape_html(result)
-
-    # ------------------------------------------------------------------
-    # Legacy marker (plain text, no collapse)
-    # ------------------------------------------------------------------
-
-    def render_tool_marker(self, text: str, tool_name: Optional[str] = None) -> None:
-        """Monospace grey line for tool calls / results / step progress.
-
-        .. deprecated::
-            Prefer :meth:`render_tool_call` / :meth:`render_tool_result` for
-            new code — they give collapsible blocks, status icons, and
-            history entries. ``render_tool_marker`` remains only for status
-            echoes that are not tool-driven and for the ``PipelineChatPanel``
-            shim.
-        """
-        html = (
-            f'<div style="margin: 2px 0 2px 8px; '
-            f'font-family: monospace; font-size: 9pt; color: #888;">'
-            f"{self._escape_html(text)}</div>"
-        )
-        self.transport.send(ev.block(html, kind=ev.KIND_TOOL_MARKER))
-        self.history.append(
-            MessageEntry(
-                role=MessageRole.TOOL_MARKER,
-                content=text,
-                metadata={"tool_name": tool_name},
-            )
-        )
 
     def render_system_message(self, text: str) -> None:
         """Centered italic green status line."""

@@ -8,8 +8,8 @@ Covered:
 1. ``_shared_context_from_analysis_state`` maps a KeywordAnalysisState into
    a SharedContext with gnd_entries, dk_classifications, missing concepts.
 2. ``_format_tool_args`` truncates long args sensibly.
-3. ``_on_bus_tool_called`` / ``_on_bus_tool_result`` append markers via
-   the panel's ``_append_tool_marker`` (intercepted).
+3. ``_on_bus_tool_called`` / ``_on_bus_tool_result`` render collapsible
+   tool blocks via the renderer (intercepted).
 """
 from __future__ import annotations
 
@@ -34,8 +34,6 @@ def _make_stub_panel() -> SimpleNamespace:
     tool_call_counter = {"n": 0}
 
     class FakeRenderer:
-        def render_tool_marker(self, text, tool_name=None):
-            markers.append(text)
         def render_tool_call(self, name, args):
             tool_call_counter["n"] += 1
             tcid = f"tc_{tool_call_counter['n']}"
@@ -48,7 +46,6 @@ def _make_stub_panel() -> SimpleNamespace:
 
     stub = SimpleNamespace(
         logger=MagicMock(),
-        _append_tool_marker=markers.append,
         _append_system_message=system_messages.append,
         _renderer=FakeRenderer(),
         _bus_tool_call_ids={},
@@ -286,8 +283,6 @@ class TestStepStatusAccumulator(unittest.TestCase):
         pipeline_logs: list[tuple] = []
 
         class FakeRenderer:
-            def render_tool_marker(self, text, tool_name=None):
-                markers.append(text)
             def render_pipeline_log(self, text, level="info", step_id=None):
                 pipeline_logs.append((text, level))
             def render_tool_call(self, name, args):
@@ -309,7 +304,6 @@ class TestStepStatusAccumulator(unittest.TestCase):
             pipeline_logs=pipeline_logs,
             tool_calls=tool_calls,
             tool_results=tool_results,
-            _append_tool_marker=markers.append,
         )
         # Bind real panel methods.
         stub._on_status_message = PipelineChatPanel._on_status_message.__get__(stub)

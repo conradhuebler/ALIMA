@@ -591,10 +591,6 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
     def _append_user_message(self, text: str):
         self._renderer.render_user_bubble(text)
 
-    def _append_tool_marker(self, text: str):
-        """Backwards-compat shim. Prefer ``renderer.render_tool_call`` for new code."""
-        self._renderer.render_tool_marker(text)
-
     def _append_system_message(self, text: str):
         self._renderer.render_system_message(text)
 
@@ -625,8 +621,6 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         scheme = url.scheme()
         if scheme == "mutation":
             self._handle_mutation_link(url)
-        elif scheme == "tool":
-            self._handle_tool_link(url)
         elif scheme in ("http", "https"):
             # P-δ.5: external catalog/web links from <<CAT:rsn|…>> markers.
             # setOpenExternalLinks(False) is set on the text browser, so we
@@ -657,23 +651,6 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
             f'<div style="margin: 2px 24px; color: {color}; font-size: 9pt;">'
             f'{status} (#audit_{audit_id})</div>'
         )
-
-    def _handle_tool_link(self, url: QUrl) -> None:
-        """Toggle collapsible tool-call block.
-
-        URL format: ``tool://toggle/<tool_id>``.
-        Host = "toggle", Path = "<tool_id>".
-        """
-        action = url.host()
-        tool_id = url.path().lstrip("/")
-        if action != "toggle" or not tool_id:
-            return
-        try:
-            self._renderer.toggle_tool_call(tool_id)
-        except Exception:
-            self.logger.exception(
-                "PipelineChatPanel: toggle_tool_call failed"
-            )
 
     @staticmethod
     def _escape_html(text: str) -> str:

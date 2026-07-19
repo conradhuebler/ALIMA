@@ -232,19 +232,6 @@ class TestAssistantBubble(RendererTestBase):
         self.assertEqual(self.renderer.history[0].role.name, "ASSISTANT_BUBBLE")
 
 
-class TestToolMarker(RendererTestBase):
-
-    def test_tool_marker_monospace(self):
-        self.renderer.render_tool_marker("🔧 search(query='x')")
-        self.assertIn("monospace", self.view.to_html())
-
-    def test_tool_marker_history(self):
-        self.renderer.render_tool_marker("marker", tool_name="search")
-        self.assertEqual(len(self.renderer.history), 1)
-        self.assertEqual(self.renderer.history[0].role.name, "TOOL_MARKER")
-        self.assertEqual(self.renderer.history[0].metadata["tool_name"], "search")
-
-
 class TestCollapsibleToolCall(RendererTestBase):
     """Native <details>: no toggle anchor, no arrow glyph; the body is always
     in the DOM and the ``open`` flag controls initial expansion."""
@@ -268,14 +255,6 @@ class TestCollapsibleToolCall(RendererTestBase):
         # the result text.
         self.assertIn("✓", self.view.collapsibles[tid]["summary"])
         self.assertIn("hits", self.view.collapsibles[tid]["body"])
-
-    def test_tool_toggle_mirror(self):
-        """toggle_tool_call flips the server-side mirror and returns it
-        (native <details> owns the real open/closed state)."""
-        tid = self.renderer.render_tool_call("search", {"q": "x"})
-        self.renderer.render_tool_result(tid, '{"hits": 5}')
-        self.assertTrue(self.renderer.toggle_tool_call(tid))   # expand
-        self.assertFalse(self.renderer.toggle_tool_call(tid))  # collapse
 
     def test_tool_call_history(self):
         self.renderer.render_tool_call("search", {"q": "x"})
@@ -401,11 +380,6 @@ class TestCollapsible(RendererTestBase):
         )
         self.assertTrue(self.view.collapsibles[tid]["open"])
         self.assertIn("VISIBLE BODY", self.view.collapsibles[tid]["body"])
-
-    def test_collapsible_toggle_mirror(self):
-        tid = self.renderer.render_collapsible("t", "BODY", collapsed=True)
-        self.assertTrue(self.renderer.toggle_tool_call(tid))   # mirror → expanded
-        self.assertFalse(self.renderer.toggle_tool_call(tid))  # mirror → collapsed
 
     def test_update_collapsible_meta(self):
         tid = self.renderer.render_collapsible("t", "b", collapsed=True, meta="14:00:00")

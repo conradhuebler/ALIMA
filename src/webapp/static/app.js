@@ -688,7 +688,7 @@ class AlimaWebapp {
                 return;
             }
 
-            // Fallback: Create new session via API (old behavior for index.html)
+            // Fallback: create a new session via API when the template injected no sessionId
             const response = await fetch('/api/session', { method: 'POST' });
             const data = await response.json();
             this.sessionId = data.session_id;
