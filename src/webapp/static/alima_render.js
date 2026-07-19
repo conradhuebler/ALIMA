@@ -31,6 +31,13 @@ function appendBlock(html) {
 }
 
 function _ensureLinksNewTab(root) {
+  // GUI embedder (QWebEngineView) sets window.__alimaSameWindowLinks:
+  // target="_blank" would make Chromium request a popup window the GUI
+  // never creates — the click silently dies. Same-window clicks are
+  // intercepted by the page (acceptNavigationRequest) and opened in the
+  // system browser via QDesktopServices. The webapp keeps the new-tab
+  // behavior.
+  if (window.__alimaSameWindowLinks) return;
   root.querySelectorAll('a:not([target])').forEach(function (a) {
     a.setAttribute('target', '_blank');
     a.setAttribute('rel', 'noopener noreferrer');

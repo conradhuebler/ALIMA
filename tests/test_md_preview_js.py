@@ -33,6 +33,16 @@ for (const [input, expect] of cases) {
 if (typeof appendToken !== 'function' || typeof _renderMdPreview !== 'function') {
   console.error('FAIL preview functions missing'); fails++;
 }
+// GUI same-window flag: _ensureLinksNewTab must be a no-op (a stamped
+// target="_blank" makes Chromium request a popup the GUI never creates,
+// so the link click dies silently — July 19 regression).
+window.__alimaSameWindowLinks = true;
+let touched = false;
+_ensureLinksNewTab({ querySelectorAll: () => { touched = true; return []; } });
+if (touched) { console.error('FAIL _ensureLinksNewTab ignored same-window flag'); fails++; }
+delete window.__alimaSameWindowLinks;
+_ensureLinksNewTab({ querySelectorAll: () => { touched = true; return []; } });
+if (!touched) { console.error('FAIL _ensureLinksNewTab inactive without flag'); fails++; }
 process.exit(fails ? 1 : 0);
 """
 

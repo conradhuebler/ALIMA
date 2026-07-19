@@ -76,6 +76,11 @@ _SCAFFOLD_TEMPLATE = (
     "<!DOCTYPE html>\n"
     '<html><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
     '<body><div id="log"></div>\n'
+    # Same-window links: keeps _ensureLinksNewTab from stamping
+    # target="_blank" (a Chromium popup request the GUI never fulfils —
+    # the click would die); clicks route via acceptNavigationRequest
+    # → link_clicked → QDesktopServices instead.
+    "<script>window.__alimaSameWindowLinks = true;</script>\n"
     "<script>window.__alimaI18n = {i18n};</script>\n"
     "<script>\n{js}\n</script></body></html>"
 )
@@ -121,6 +126,13 @@ class _LogPage(QWebEnginePage):
     # emitting target="_blank" in the first place, rather than trying to
     # intercept the new-window path (a urlChanged/temp-page idiom was tried
     # and discarded: it double-fired in testing). - Claude Generated
+    #
+    # ⚠️ Regression history (July 19): the WP12 shared JS broke exactly this
+    # invariant — _ensureLinksNewTab stamped target="_blank" onto every
+    # untargeted link in tool bodies / finalized bubbles, so GUI link clicks
+    # died silently. The scaffold now sets window.__alimaSameWindowLinks,
+    # which turns _ensureLinksNewTab into a no-op in the GUI (webapp keeps
+    # new-tab). Keep that flag if the scaffold is ever rebuilt.
 
 
 class WebLogView(QWidget):
