@@ -12,6 +12,12 @@
 > The prereq (Phase C) is committed. A **decision point for a new session** is at the
 > end of this doc. The sharpest single instance of the count fragmentation is split off
 > as a ready-to-execute bugfix: `docs/wp_gnd_counter_divergence.md`.
+>
+> **Update (July 19, 2026): P0 decisions pinned by the operator — see
+> "Pinned decisions" section.** P0 (F-1 collapse) is in execution; plan:
+> canonical vocabulary = `ResultItem` names, suggester plugin contract moves to
+> v2 (emits canonical keys), **hard cut** — no legacy readers, the old key set
+> was never used in the wild.
 
 ## Problem
 
@@ -174,17 +180,46 @@ BibRecord = {
 - A new `record_source` plugin category (explicitly rejected — extend existing).
 - Changing agent-facing tool names.
 
-## Decision point (for a new session)
+## Pinned decisions (operator, July 19, 2026)
 
-The design is grounded, the audit confirms real debt, and the prereq (Phase C) is
-committed — **B is startable.** Open operator decisions before P0:
-1. **P0 scope** — just the F-1 collapse (2 modules, high ratio) as a first landing, or
-   the full `to_bibrecord()` normalizer set + DOI casing fix in one go?
-2. **Canonical shapes** — confirm the three under-specified conventions above
-   (`authors: List[str]`, typed `urls{}` sub-map, `count` + `display_count`).
-3. **Sequencing vs. the counter bug** (`docs/wp_gnd_counter_divergence.md`) — that is a
-   self-contained ~2-edit fix; **recommended as a quick-win before B**, because it also
-   exercises the exact `count`/`display_count` convention P0 will formalize.
+All P0 conventions are decided; this section is the contract.
 
-Status of inputs: field-name audit + counter-divergence diagnosis both done + verified
-(July 10, 2026); no code written for either yet.
+### Canonical GND-pool vocabulary
+
+| Concept | Canonical key | Container |
+|---|---|---|
+| GND ids | `gnd_ids` | `set` in nested per-term views (merge dedup), `list` in pool entries (display order; `gnd_id` = first element stays as pool convenience) |
+| classifications | `classifications` | dict `{system: codes}` — systems are equal-rank keys (`"dk"`, `"ddc"`, `"rvk"`, …); code containers: set (nested) / list (pool). **Replaces the separate `ddc`/`dk` fields** — this is the General-Notation direction pulled into the data shape (July 19 operator decision); WP-D2 keeps only the *logic* generalization (DDC harvest, mixin generalization, `dk_*` renames). |
+| ranking count | `count` | int — max-merged, never summed; stays `1` on cache hits (count landmine) |
+| display count | `display_count` | int, optional — the real Häufigkeit; display-only, NEVER read by ranking (`rank_pool`) |
+
+Container types are intentionally not unified (see "Not-a-bug" above).
+`BibRecord.classifications[(system, notation)]` pairs are the serialized view of
+the same dict (trivial conversion).
+
+### The three formerly under-specified conventions
+
+1. **`authors: List[str]`** — canonical container; every producer normalizer
+   converts (dict/str → list).
+2. **URL roles** — typed sub-map `urls{landing?, catalog?, fulltext?, authority?}`
+   plus one canonical `url`.
+3. **Frequency** — `count` + `display_count` exactly as in the table above
+   (the `038738e` counter-fix convention, now the written contract).
+
+### Scope + compatibility decisions
+
+- **P0 scope = the F-1 collapse** (this doc's "cheapest first step"), not the full
+  `to_bibrecord()` set. DOI casing (F-2), classification encodings (F-6 → WP-D2)
+  stay out.
+- **Suggester plugin contract v2**: the `transform()` output uses the canonical
+  keys (`gnd_ids` + `classifications{system: codes}`) — the legacy
+  `{gndid, ddc, dk}` shape is retired everywhere, including the blueprint
+  provider dirs and the docs.
+- **Hard cut, no backward compatibility**: no tolerant legacy readers, no
+  `gndid` fallbacks, no old-save migration — the legacy key set was never used
+  in production. Final gate: `grep -rn "gndid" src/` → zero hits.
+
+Execution plan (5 phases, per-phase green suite): see the WP-D1 entry in
+[`open_workpackages.md`](open_workpackages.md). The counter bug
+(`wp_gnd_counter_divergence.md`) was already fixed (`038738e`) and its
+convention is pinned above.
