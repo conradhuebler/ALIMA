@@ -46,8 +46,15 @@ Markdown). Kernergebnisse:
   vervollständigt, §9.3 ✅, §9.4 entschieden, §9.5 als stale geschlossen
   (agentisches Tool-Chrome erreicht die Webapp längst, Test als Beleg).
 
-Suite 1305 → **1321** (neue Tests: i18n 9, Fehler-Chrome 5, JS-Contract 1,
-Klassik-Stream-Integration 1, Guard 1; 4 Totcode-Tests entfernt). Offene
+**Nachtrag `e4101fd`:** GUI-Links waren tot (WP12-Regression) — das geteilte
+`_ensureLinksNewTab` stempelte `target="_blank"` auf alle Links; im
+QWebEngineView fordert das ein nie erzeugtes Popup an, der Klick verpuffte.
+Fix: Scaffold-Flag `window.__alimaSameWindowLinks` → No-op im GUI (Klicks
+laufen wieder über `acceptNavigationRequest` → `QDesktopServices`), Webapp
+behält Neu-Tab. +2 Tests.
+
+Suite 1305 → **1323** (neue Tests: i18n 9, Fehler-Chrome 5, JS-Contract 1,
+Klassik-Stream-Integration 1, Guard 1, Link-Flag 2; 4 Totcode-Tests entfernt). Offene
 Operator-Sign-offs: Klick-/Browser-Checkliste (Live-Markdown, Fehlerkarte,
 Status-Strip, Bubble-Optik, Reset-Hinweis, Light/Dark im `#log`,
 Sprachumschaltung, WS-Reconnect) + die wp12-§9.2-Liste.
