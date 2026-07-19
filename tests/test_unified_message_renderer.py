@@ -135,17 +135,23 @@ class TestPipelineLogRendering(RendererTestBase):
         self.assertIn("STEP1", html.upper())
         self.assertIn("test msg", html)
 
-    def test_error_log_red_color(self):
+    def test_error_log_level_class(self):
+        # Colors live in alima_render.css (--alima-*); the renderer emits
+        # semantic classes (Chat-UX 6/9).
         self.renderer.render_pipeline_log("err", "error")
-        self.assertIn("#ff5555", self.view.to_html())
+        self.assertIn("log-lvl--error", self.view.to_html())
 
-    def test_success_log_green_color(self):
+    def test_success_log_level_class(self):
         self.renderer.render_pipeline_log("ok", "success")
-        self.assertIn("#50fa7b", self.view.to_html())
+        self.assertIn("log-lvl--success", self.view.to_html())
 
-    def test_step_tag_bold(self):
+    def test_unknown_level_falls_back_to_info(self):
+        self.renderer.render_pipeline_log("odd", "nonsense")
+        self.assertIn("log-lvl--info", self.view.to_html())
+
+    def test_step_tag_class(self):
         self.renderer.render_pipeline_log("start", "step", "init")
-        self.assertIn("font-weight: bold", self.view.to_html())
+        self.assertIn("log-step", self.view.to_html())
 
     def test_history_appended(self):
         self.renderer.render_pipeline_log("msg", "info", "s1")
@@ -170,7 +176,7 @@ class TestStreamingTokens(RendererTestBase):
         blk = next(iter(self.view.stream_blocks.values()))
         self.assertFalse(blk["collapsed"])                  # open during stream
         self.assertIn("hello keywords", "".join(blk["tokens"]))
-        self.assertIn("#bd93f9", self.view.to_html())       # purple title
+        self.assertIn("sl-title", self.view.to_html())      # styled title class
 
     def test_streaming_block_collapses_with_preview(self):
         """On end the block collapses and the summary keeps a text preview."""

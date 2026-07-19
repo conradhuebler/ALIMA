@@ -797,7 +797,7 @@ body {
 .results-summary-item.keyword       { border-left-color: var(--clr-success); }
 .results-summary-item.classification { border-left-color: var(--clr-warning); }
 
-.classification-validation-summary {
+#results-summary .classification-validation-summary {
     display: flex;
     gap: var(--sp-2);
     flex-wrap: wrap;
@@ -805,40 +805,40 @@ body {
     margin-bottom: var(--sp-2);
 }
 
-.classification-entry-list {
+#results-summary .classification-entry-list {
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
     margin-top: var(--sp-2);
 }
 
-.classification-entry {
+#results-summary .classification-entry {
     padding: 8px 10px;
     border-radius: var(--r-sm);
     background: rgba(255, 255, 255, 0.45);
     border: 1px solid var(--clr-border);
 }
 
-.classification-entry__head {
+#results-summary .classification-entry__head {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     flex-wrap: wrap;
 }
 
-.classification-entry__code {
+#results-summary .classification-entry__code {
     font-family: var(--font-mono);
     font-size: 0.82rem;
     color: var(--clr-text);
 }
 
-.classification-entry__meta {
+#results-summary .classification-entry__meta {
     margin-top: 4px;
     font-size: 0.77rem;
     color: var(--clr-muted);
 }
 
-.classification-badge {
+#results-summary .classification-badge {
     display: inline-flex;
     align-items: center;
     border-radius: var(--r-pill);
@@ -848,32 +848,32 @@ body {
     letter-spacing: 0.01em;
 }
 
-.classification-badge--dk {
+#results-summary .classification-badge--dk {
     background: var(--clr-info-bg);
     color: var(--clr-info);
 }
 
-.classification-badge--ddc {
+#results-summary .classification-badge--ddc {
     background: var(--clr-warning-bg);
     color: var(--clr-warning);
 }
 
-.classification-badge--rvk {
+#results-summary .classification-badge--rvk {
     background: var(--clr-primary-light);
     color: var(--clr-primary);
 }
 
-.classification-badge--standard {
+#results-summary .classification-badge--standard {
     background: var(--clr-success-bg);
     color: var(--clr-success);
 }
 
-.classification-badge--non-standard {
+#results-summary .classification-badge--non-standard {
     background: var(--clr-warning-bg);
     color: var(--clr-warning);
 }
 
-.classification-badge--unknown {
+#results-summary .classification-badge--unknown {
     background: var(--clr-error-bg);
     color: var(--clr-error);
 }
@@ -1035,136 +1035,8 @@ body {
     white-space: nowrap;
 }
 
-.stream-log-line {
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--clr-stream-text);
-}
-
-.stream-log-line--info {
-    color: #bfdbfe;
-    font-weight: 600;
-    padding: 6px 10px;
-    background: rgba(37, 99, 235, 0.12);
-    border: 1px solid rgba(37, 99, 235, 0.18);
-    border-radius: var(--r-sm);
-    margin: var(--sp-2) 0;
-}
-
-.stream-log-blank {
-    height: 0.8rem;
-}
-
-.stream-md-heading {
-    font-family: var(--font-display);
-    line-height: 1.25;
-    color: #f8fafc;
-    margin: var(--sp-3) 0 var(--sp-2);
-}
-
-.stream-md-heading--1 {
-    font-size: 1rem;
-    letter-spacing: -0.02em;
-}
-
-.stream-md-heading--2 {
-    font-size: 0.86rem;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: #bfdbfe;
-}
-
-.stream-md-heading--3 {
-    font-size: 0.8rem;
-    color: #cbd5e1;
-}
-
-.stream-md-list {
-    margin: 0 0 var(--sp-3) 1.2rem;
-    color: #dbe4f0;
-}
-
-.stream-md-list li {
-    margin-bottom: var(--sp-1);
-}
-
-.stream-md-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: var(--sp-3) 0;
-    font-family: var(--font-body);
-    font-size: 0.8rem;
-    color: #dbe4f0;
-    background: rgba(148, 163, 184, 0.06);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    border-radius: var(--r-md);
-    overflow: hidden;
-}
-
-.stream-md-table th,
-.stream-md-table td {
-    padding: 8px 10px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-    text-align: left;
-    vertical-align: top;
-}
-
-.stream-md-table th {
-    font-family: var(--font-display);
-    font-size: 0.72rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #bfdbfe;
-    background: rgba(37, 99, 235, 0.1);
-}
-
-.stream-md-table tr:last-child td {
-    border-bottom: none;
-}
-
-.stream-md-table tr:last-child th {
-    border-bottom: none;
-}
-
-.stream-md-table--keyvalue .stream-record-head {
-    width: 140px;
-    min-width: 140px;
-    font-family: var(--font-display);
-    font-size: 0.78rem;
-    letter-spacing: 0.03em;
-    color: #bbf7d0;
-    background: rgba(34, 197, 94, 0.08);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-    vertical-align: top;
-    padding: 10px 12px;
-    text-align: left;
-}
-
-.stream-record-detail {
-    display: grid;
-    grid-template-columns: 130px minmax(0, 1fr);
-    gap: 8px;
-    padding: 4px 0;
-}
-
-.stream-record-detail + .stream-record-detail {
-    border-top: 1px dashed rgba(148, 163, 184, 0.12);
-    margin-top: 4px;
-    padding-top: 8px;
-}
-
-.stream-record-detail__label {
-    font-family: var(--font-display);
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #93c5fd;
-}
-
-.stream-record-detail__value {
-    color: #dbe4f0;
-    word-break: break-word;
-}
+/* (stream-formatter styles live in alima_render.css, scoped under #log —
+   the unscoped duplicates were removed with the #stream-text region.) */
 
 
 /* ═══════════════════════════════════════════════════
@@ -1550,10 +1422,43 @@ body {
 }
 
 /* WP12: shared render region — DK/GND cards rendered via alima_render.js.
-   The #log container carries its own dark theme from alima_render.css; these
-   rules are webapp layout only (rounding + hide-when-empty). */
+   The #log container ships dark --alima-* defaults from alima_render.css
+   (the GUI needs them); these rules are webapp layout only. */
 .alima-render-region { border-radius: 6px; margin-top: 8px; overflow: auto; }
 .alima-render-region:empty { display: none; }
+
+/* Chat-UX 6/9: light-theme palette for the shared #log chrome. Applies when
+   the page is light — explicit toggle, or system-light without an explicit
+   dark toggle. (The two selector blocks must stay identical; the values
+   can't be shared without a preprocessor.) */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) #log {
+        --alima-bg: #f8fafc; --alima-fg: #1e293b; --alima-body: #24313a;
+        --alima-muted: #64748b; --alima-muted-strong: #6b7280; --alima-meta: #64748b;
+        --alima-ts: #7c86b8; --alima-accent: #0369a1; --alima-purple: #7c3aed;
+        --alima-green: #15803d; --alima-yellow: #a16207; --alima-orange: #c2410c;
+        --alima-error: #dc2626; --alima-error-soft: #b91c1c;
+        --alima-link: #2563eb; --alima-link-ext: #ea580c;
+        --alima-surface: #eef2f6; --alima-surface-deep: #e2e8f0; --alima-surface-alt: #f1f5f9;
+        --alima-border: #cbd5e1; --alima-border-soft: #dbe3ea;
+        --alima-user-bubble: #d1f4e0; --alima-system: #15803d;
+        --alima-stream-live: #4c1d95; --alima-info: #1d4ed8;
+        --alima-info-bg: rgba(37, 99, 235, 0.08); --alima-info-border: rgba(37, 99, 235, 0.25);
+    }
+}
+[data-theme="light"] #log {
+    --alima-bg: #f8fafc; --alima-fg: #1e293b; --alima-body: #24313a;
+    --alima-muted: #64748b; --alima-muted-strong: #6b7280; --alima-meta: #64748b;
+    --alima-ts: #7c86b8; --alima-accent: #0369a1; --alima-purple: #7c3aed;
+    --alima-green: #15803d; --alima-yellow: #a16207; --alima-orange: #c2410c;
+    --alima-error: #dc2626; --alima-error-soft: #b91c1c;
+    --alima-link: #2563eb; --alima-link-ext: #ea580c;
+    --alima-surface: #eef2f6; --alima-surface-deep: #e2e8f0; --alima-surface-alt: #f1f5f9;
+    --alima-border: #cbd5e1; --alima-border-soft: #dbe3ea;
+    --alima-user-bubble: #d1f4e0; --alima-system: #15803d;
+    --alima-stream-live: #4c1d95; --alima-info: #1d4ed8;
+    --alima-info-bg: rgba(37, 99, 235, 0.08); --alima-info-border: rgba(37, 99, 235, 0.25);
+}
 
 /* ═══════════════════════════════════════════════════
    UNIFIED CHAT INPUT (Phase 2)

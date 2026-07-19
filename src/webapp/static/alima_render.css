@@ -2,8 +2,7 @@
  *
  * Single source of truth for the log/chat/result chrome rendered by BOTH the
  * GUI (WebLogView, QWebEngineView, inlined at construction) and the webapp
- * (served as a static asset). Colours ported from the former QTextBrowser
- * stylesheet (#1e1e1e / #f8f8f2) and the bubble palette (#202c33 / #005c4b).
+ * (served as a static asset).
  *
  * IMPORTANT: every rule is scoped under the #log container so the file can be
  * loaded into the multi-element webapp page without clobbering its theme or
@@ -11,44 +10,78 @@
  * chrome (page background, scrollbars) in its own scaffold. Font size is driven
  * by the --alima-fs custom property (default 10pt), inherited from <body>; the
  * GUI updates it via WebLogView.set_font_pt. - Claude Generated
+ *
+ * Chat-UX 6/9: the palette lives in --alima-* custom properties (defaults =
+ * the historical dark theme, so the GUI is unchanged). The webapp's light
+ * theme overrides them in styles.css ([data-theme="light"] #log { … }) — the
+ * renderer emits classes, never inline hex, so the whole chrome follows.
  */
 #log {
+  --alima-bg: #1e1e1e;
+  --alima-fg: #f8f8f2;
+  --alima-body: #e9edef;          /* body text on raised surfaces */
+  --alima-muted: #a8a8a8;         /* tool-block body text */
+  --alima-muted-strong: #888;     /* collapsed tool line / dim notes */
+  --alima-meta: #8a8a8a;          /* card meta / stream preview */
+  --alima-ts: #6272a4;            /* timestamps + debug level */
+  --alima-accent: #8be9fd;        /* cyan: step tags, headers, marker arrows */
+  --alima-purple: #bd93f9;        /* stream titles, RVK badge */
+  --alima-green: #50fa7b;         /* success */
+  --alima-yellow: #f1fa8c;        /* warning */
+  --alima-orange: #ffb86c;        /* DDC badge / proposals */
+  --alima-error: #ff5555;
+  --alima-error-soft: #ffb3b3;
+  --alima-link: #5af;
+  --alima-link-ext: #ff9800;
+  --alima-surface: #202c33;       /* bubbles, cards, tables */
+  --alima-surface-deep: #1a2228;  /* table heads, <pre> */
+  --alima-surface-alt: #1d272e;   /* zebra rows */
+  --alima-border: #33414a;
+  --alima-border-soft: #2a3942;
+  --alima-user-bubble: #005c4b;
+  --alima-system: #4caf50;
+  --alima-stream-live: #cdc6f0;
+  --alima-info: #bfdbfe;
+  --alima-info-bg: rgba(37, 99, 235, 0.12);
+  --alima-info-border: rgba(37, 99, 235, 0.25);
+
   display: flex; flex-direction: column;
   box-sizing: border-box; padding: 8px;
-  background: #1e1e1e; color: #f8f8f2;
+  background: var(--alima-bg); color: var(--alima-fg);
   font-family: 'Consolas', 'Monaco', monospace; font-size: var(--alima-fs, 10pt);
   word-wrap: break-word;
 }
 #log .block { margin: 1px 0; word-wrap: break-word; }
 #log details { margin: 2px 0; }
 #log summary {
-  cursor: pointer; color: #888; font-family: monospace; font-size: 9pt;
+  cursor: pointer; color: var(--alima-muted-strong); font-family: monospace; font-size: 9pt;
   list-style: none; outline: none;
 }
 #log summary::-webkit-details-marker { display: none; }
-#log summary::before { content: '\25B6 '; color: #8be9fd; }
-#log details[open] > summary::before { content: '\25BC '; color: #8be9fd; }
+#log summary::before { content: '\25B6 '; color: var(--alima-accent); }
+#log details[open] > summary::before { content: '\25BC '; color: var(--alima-accent); }
 /* WP12 §9.3: red error chrome (kind="error" collapsibles) */
 #log details.rc-error > summary,
 #log details.rc-error > summary span,
-#log .rc-error-title { color: #ff5555; }
+#log .rc-error-title { color: var(--alima-error); }
+#log .rc-error-title { font-family: monospace; font-size: 9pt; }
 #log details.rc-error > summary::before,
-#log details.rc-error[open] > summary::before { color: #ff5555; }
+#log details.rc-error[open] > summary::before { color: var(--alima-error); }
 #log details.rc-error > .tc-body {
-  color: #ffb3b3;
-  border-left: 2px solid #ff5555;
+  color: var(--alima-error-soft);
+  border-left: 2px solid var(--alima-error);
   padding-left: 8px;
 }
-#log .system-message--error { color: #ff5555; }
+#log .system-message--error { color: var(--alima-error); }
 #log .tc-body {
   margin: 2px 0 6px 14px; font-family: monospace; font-size: 9pt;
-  color: #a8a8a8; white-space: pre-wrap; word-wrap: break-word;
+  color: var(--alima-muted); white-space: pre-wrap; word-wrap: break-word;
 }
-#log .sl-body { color: #cdc6f0; font-size: 9.5pt; }  /* live LLM stream text */
+#log .sl-body { color: var(--alima-stream-live); font-size: 9.5pt; }  /* live LLM stream text */
 #log .assistant { margin: 6px 0; }
-#log .ahdr { color: #8be9fd; font-size: 9pt; font-style: italic; margin-bottom: 2px; }
+#log .ahdr { color: var(--alima-accent); font-size: 9pt; font-style: italic; margin-bottom: 2px; }
 #log .stream, #log .rendered {
-  background: #202c33; border-radius: 6px; padding: 8px; color: #e9edef;
+  background: var(--alima-surface); border-radius: 6px; padding: 8px; color: var(--alima-body);
   max-width: 75%; word-wrap: break-word;
 }
 #log .stream { white-space: pre-wrap; }
@@ -59,18 +92,38 @@
 #log .stream .stream-tail { white-space: pre-wrap; }
 #log .stream--live::after {
   content: '\258A';
-  color: #8be9fd;
+  color: var(--alima-accent);
   animation: alima-cursor-blink 1s steps(1) infinite;
 }
 @keyframes alima-cursor-blink { 50% { opacity: 0; } }
 #log .rendered table { border-collapse: collapse; margin: 4px 0; }
-#log .rendered td, #log .rendered th { border: 1px solid #444; padding: 2px 6px; }
-#log .rendered pre { background: #1a2228; padding: 6px; border-radius: 4px; overflow-x: auto; }
+#log .rendered td, #log .rendered th { border: 1px solid var(--alima-border); padding: 2px 6px; }
+#log .rendered pre { background: var(--alima-surface-deep); padding: 6px; border-radius: 4px; overflow-x: auto; }
 #log .rendered code { font-family: monospace; }
-#log a { color: #5af; }
+#log a { color: var(--alima-link); text-decoration: underline; }
 #log a.cat-link::after { content: " 📖"; font-style: normal; }  /* local catalog entry */
-#log a.ext-link { color: #ff9800; }   /* external / non-catalog link warning */
+#log a.ext-link { color: var(--alima-link-ext); }   /* external / non-catalog link warning */
 #log a.ext-link::after { content: " ↗"; }
+
+/* Renderer-emitted semantic classes (Chat-UX 6/9 — formerly inline hex). */
+#log .ts { color: var(--alima-ts); }
+#log .log-step { font-weight: bold; }
+#log .log-lvl--info { color: var(--alima-fg); }
+#log .log-lvl--success { color: var(--alima-green); }
+#log .log-lvl--warning { color: var(--alima-yellow); }
+#log .log-lvl--error { color: var(--alima-error); }
+#log .log-lvl--step { color: var(--alima-accent); }
+#log .log-lvl--stream { color: var(--alima-purple); }
+#log .log-lvl--debug { color: var(--alima-ts); }
+#log .tc-line { color: var(--alima-muted-strong); font-family: monospace; font-size: 9pt; }
+#log .tc-title { color: var(--alima-accent); font-family: monospace; font-size: 9pt; }
+#log .tc-meta { color: var(--alima-ts); font-size: 9pt; }
+#log .tc-result { color: var(--alima-green); }
+#log .sl-title { color: var(--alima-purple); font-family: monospace; font-size: 9pt; }
+#log .sl-preview { color: var(--alima-meta); font-size: 9pt; }
+#log .md-body { color: var(--alima-body); font-size: 10pt; }
+#log .md-body--raw { white-space: pre-wrap; }
+#log pre.md-body--raw { margin: 0; font-family: inherit; }
 
 /* Chat bubble alignment helpers (used by UnifiedMessageRenderer inline HTML) */
 #log .user-bubble {
@@ -78,60 +131,60 @@
 }
 #log .user-bubble-inner {
   display: inline-block; max-width: 75%; text-align: left;
-  background: #005c4b; color: #e9edef; font-size: 10pt; padding: 8px;
+  background: var(--alima-user-bubble); color: var(--alima-body); font-size: 10pt; padding: 8px;
   border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;
 }
 #log .system-message {
   text-align: center; margin: 4px 0;
-  color: #4caf50; font-size: 9pt; font-style: italic;
+  color: var(--alima-system); font-size: 9pt; font-style: italic;
 }
 
 /* Typing indicator */
 #log .typing-indicator {
-  color: #8be9fd; font-size: 9pt; font-style: italic;
+  color: var(--alima-accent); font-size: 9pt; font-style: italic;
   padding: 4px 12px; margin: 4px 0;
 }
 
 /* Classification badge cards — shared GUI ↔ webapp render of DK/RVK results.
  * Ported from the webapp's structured cards (WP12), recoloured for the dark
  * #log surface using the GUI's existing palette. */
-#log .classification-card-title { color: #8be9fd; font-weight: bold; font-size: 10pt; margin: 6px 0 2px; }
+#log .classification-card-title { color: var(--alima-accent); font-weight: bold; font-size: 10pt; margin: 6px 0 2px; }
 #log .classification-validation-summary { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 #log .classification-entry-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-#log .classification-entry { padding: 8px 10px; border-radius: 6px; background: #202c33; border: 1px solid #33414a; }
+#log .classification-entry { padding: 8px 10px; border-radius: 6px; background: var(--alima-surface); border: 1px solid var(--alima-border); }
 #log .classification-entry__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-#log .classification-entry__code { font-family: monospace; font-size: 10pt; color: #e9edef; }
-#log .classification-entry__meta { margin-top: 4px; font-size: 9pt; color: #8a8a8a; }
-#log .classification-entry__titles { margin: 4px 0 0; padding-left: 18px; font-size: 9pt; color: #a8a8a8; }
+#log .classification-entry__code { font-family: monospace; font-size: 10pt; color: var(--alima-body); }
+#log .classification-entry__meta { margin-top: 4px; font-size: 9pt; color: var(--alima-meta); }
+#log .classification-entry__titles { margin: 4px 0 0; padding-left: 18px; font-size: 9pt; color: var(--alima-muted); }
 #log .classification-badge {
   display: inline-flex; align-items: center; border-radius: 999px;
   padding: 2px 8px; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.01em;
 }
-#log .classification-badge--dk { background: rgba(139, 233, 253, 0.15); color: #8be9fd; }
-#log .classification-badge--ddc { background: rgba(255, 184, 108, 0.18); color: #ffb86c; }
-#log .classification-badge--rvk { background: rgba(189, 147, 249, 0.18); color: #bd93f9; }
-#log .classification-badge--standard { background: rgba(80, 250, 123, 0.15); color: #50fa7b; }
-#log .classification-badge--non-standard { background: rgba(241, 250, 140, 0.15); color: #f1fa8c; }
-#log .classification-badge--unknown { background: rgba(255, 85, 85, 0.15); color: #ff5555; }
+#log .classification-badge--dk { background: rgba(139, 233, 253, 0.15); color: var(--alima-accent); }
+#log .classification-badge--ddc { background: rgba(255, 184, 108, 0.18); color: var(--alima-orange); }
+#log .classification-badge--rvk { background: rgba(189, 147, 249, 0.18); color: var(--alima-purple); }
+#log .classification-badge--standard { background: rgba(80, 250, 123, 0.15); color: var(--alima-green); }
+#log .classification-badge--non-standard { background: rgba(241, 250, 140, 0.15); color: var(--alima-yellow); }
+#log .classification-badge--unknown { background: rgba(255, 85, 85, 0.15); color: var(--alima-error); }
 
 /* RVK-Analytik / Auswertung tables — shared GUI ↔ webapp render of the
  * classic-pipeline frequency statistics and RVK provenance (WP12). */
 #log .alima-auswertung { margin: 6px 0; }
-#log .alima-auswertung__sub { font-size: 9pt; color: #8a8a8a; margin: 2px 0 6px; }
+#log .alima-auswertung__sub { font-size: 9pt; color: var(--alima-meta); margin: 2px 0 6px; }
 #log .alima-auswertung-table {
   width: 100%; border-collapse: collapse; margin: 2px 0 8px;
-  font-size: 9pt; background: #202c33; border: 1px solid #33414a; border-radius: 6px;
+  font-size: 9pt; background: var(--alima-surface); border: 1px solid var(--alima-border); border-radius: 6px;
 }
 #log .alima-auswertung-table th {
-  text-align: left; padding: 5px 8px; background: #1a2228; color: #8be9fd;
-  font-weight: 700; border-bottom: 1px solid #33414a;
+  text-align: left; padding: 5px 8px; background: var(--alima-surface-deep); color: var(--alima-accent);
+  font-weight: 700; border-bottom: 1px solid var(--alima-border);
 }
 #log .alima-auswertung-table td {
-  padding: 4px 8px; color: #e9edef; border-bottom: 1px solid #2a3942; vertical-align: top;
+  padding: 4px 8px; color: var(--alima-body); border-bottom: 1px solid var(--alima-border-soft); vertical-align: top;
 }
-#log .alima-auswertung-table tbody tr:nth-child(even) { background: #1d272e; }
+#log .alima-auswertung-table tbody tr:nth-child(even) { background: var(--alima-surface-alt); }
 #log .alima-auswertung-table tbody tr:last-child td { border-bottom: none; }
-#log .alima-auswertung__code { font-family: monospace; color: #bd93f9; white-space: nowrap; }
+#log .alima-auswertung__code { font-family: monospace; color: var(--alima-purple); white-space: nowrap; }
 #log .alima-auswertung__num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #log .alima-auswertung__conf { white-space: nowrap; }
 #log .alima-auswertung-table--prov { width: auto; min-width: 260px; }
@@ -140,34 +193,34 @@
  * RVK-Zweitranking pipe/markdown tables, headings and lists. Mirrors the
  * webapp's styles.css class names so the GUI #log renders Jens Mittelbach's
  * tables identically (single source of truth for the rendering logic). */
-#log .stream-log-line { white-space: pre-wrap; word-break: break-word; color: #e9edef; }
+#log .stream-log-line { white-space: pre-wrap; word-break: break-word; color: var(--alima-body); }
 #log .stream-log-line--info {
-  color: #bfdbfe; font-weight: 600; padding: 6px 10px; margin: 6px 0;
-  background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 6px;
+  color: var(--alima-info); font-weight: 600; padding: 6px 10px; margin: 6px 0;
+  background: var(--alima-info-bg); border: 1px solid var(--alima-info-border); border-radius: 6px;
 }
 #log .stream-log-blank { height: 0.6rem; }
-#log .stream-md-heading { line-height: 1.25; color: #f8f8f2; margin: 8px 0 4px; }
+#log .stream-md-heading { line-height: 1.25; color: var(--alima-fg); margin: 8px 0 4px; }
 #log .stream-md-heading--1 { font-size: 12pt; }
-#log .stream-md-heading--2 { font-size: 10.5pt; letter-spacing: 0.03em; text-transform: uppercase; color: #8be9fd; }
-#log .stream-md-heading--3 { font-size: 10pt; color: #bd93f9; }
-#log .stream-md-list { margin: 0 0 8px 1.2rem; color: #e9edef; }
+#log .stream-md-heading--2 { font-size: 10.5pt; letter-spacing: 0.03em; text-transform: uppercase; color: var(--alima-accent); }
+#log .stream-md-heading--3 { font-size: 10pt; color: var(--alima-purple); }
+#log .stream-md-list { margin: 0 0 8px 1.2rem; color: var(--alima-body); }
 #log .stream-md-list li { margin-bottom: 2px; }
 #log .stream-md-table {
   width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 9pt;
-  color: #e9edef; background: #202c33; border: 1px solid #33414a; border-radius: 6px; overflow: hidden;
+  color: var(--alima-body); background: var(--alima-surface); border: 1px solid var(--alima-border); border-radius: 6px; overflow: hidden;
 }
 #log .stream-md-table th, #log .stream-md-table td {
-  padding: 6px 8px; border-bottom: 1px solid #2a3942; text-align: left; vertical-align: top;
+  padding: 6px 8px; border-bottom: 1px solid var(--alima-border-soft); text-align: left; vertical-align: top;
 }
 #log .stream-md-table th {
-  font-size: 8.5pt; letter-spacing: 0.04em; text-transform: uppercase; color: #8be9fd; background: #1a2228;
+  font-size: 8.5pt; letter-spacing: 0.04em; text-transform: uppercase; color: var(--alima-accent); background: var(--alima-surface-deep);
 }
 #log .stream-md-table tr:last-child td, #log .stream-md-table tr:last-child th { border-bottom: none; }
 #log .stream-md-table--keyvalue .stream-record-head {
-  width: 150px; min-width: 150px; color: #50fa7b; background: rgba(80, 250, 123, 0.08);
+  width: 150px; min-width: 150px; color: var(--alima-green); background: rgba(80, 250, 123, 0.08);
   vertical-align: top; padding: 8px 10px;
 }
 #log .stream-record-detail { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
-#log .stream-record-detail + .stream-record-detail { border-top: 1px dashed #2a3942; margin-top: 4px; padding-top: 6px; }
-#log .stream-record-detail__label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: #8be9fd; }
-#log .stream-record-detail__value { color: #e9edef; word-break: break-word; }
+#log .stream-record-detail + .stream-record-detail { border-top: 1px dashed var(--alima-border-soft); margin-top: 4px; padding-top: 6px; }
+#log .stream-record-detail__label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: var(--alima-accent); }
+#log .stream-record-detail__value { color: var(--alima-body); word-break: break-word; }

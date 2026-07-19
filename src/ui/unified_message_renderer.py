@@ -44,15 +44,10 @@ if TYPE_CHECKING:
 # Module-level style constants
 # ----------------------------------------------------------------------
 
-_PIPELINE_COLOR_MAP = {
-    "info": "#f8f8f2",
-    "success": "#50fa7b",
-    "warning": "#f1fa8c",
-    "error": "#ff5555",
-    "step": "#8be9fd",
-    "stream": "#bd93f9",
-    "debug": "#6272a4",
-}
+# Log levels with a dedicated CSS class in alima_render.css (Chat-UX 6/9:
+# colors live in the stylesheet as --alima-* variables so the webapp light
+# theme can restyle them; the renderer emits classes, not inline hex).
+_PIPELINE_LOG_LEVELS = {"info", "success", "warning", "error", "step", "stream", "debug"}
 
 
 class UnifiedMessageRenderer:
@@ -202,18 +197,18 @@ class UnifiedMessageRenderer:
     ) -> None:
         """Append a timestamped, colour-coded pipeline log line."""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        color = _PIPELINE_COLOR_MAP.get(level, "#f8f8f2")
+        lvl = level if level in _PIPELINE_LOG_LEVELS else "info"
 
         if step_id:
             formatted = (
-                f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-                f"<span style='color: {color}; font-weight: bold;'>[{step_id.upper()}]</span> "
-                f"<span style='color: {color};'>{self._escape_html(message)}</span>"
+                f"<span class='ts'>[{timestamp}]</span> "
+                f"<span class='log-lvl--{lvl} log-step'>[{step_id.upper()}]</span> "
+                f"<span class='log-lvl--{lvl}'>{self._escape_html(message)}</span>"
             )
         else:
             formatted = (
-                f"<span style='color: #6272a4;'>[{timestamp}]</span> "
-                f"<span style='color: {color};'>{self._escape_html(message)}</span>"
+                f"<span class='ts'>[{timestamp}]</span> "
+                f"<span class='log-lvl--{lvl}'>{self._escape_html(message)}</span>"
             )
 
         self.transport.send(ev.block(formatted, kind=ev.KIND_PIPELINE_LOG))
@@ -275,15 +270,13 @@ class UnifiedMessageRenderer:
     def _stream_summary_html(self, title: str, timestamp: str, preview: str) -> str:
         """Header for the live/collapsed stream block (no arrow — native marker)."""
         prev = (
-            f' <span style="color: #8a8a8a; font-size: 9pt;">— '
-            f'{self._escape_html(preview)}</span>'
+            f' <span class="sl-preview">— {self._escape_html(preview)}</span>'
             if preview
             else ""
         )
         return (
-            f'<span style="color: #bd93f9; font-family: monospace; font-size: 9pt;">'
-            f"{self._escape_html(title)}</span>"
-            f' <span style="color: #6272a4; font-size: 9pt;">[{timestamp}]</span>'
+            f'<span class="sl-title">{self._escape_html(title)}</span>'
+            f' <span class="ts">[{timestamp}]</span>'
             f"{prev}"
         )
 
@@ -339,14 +332,11 @@ class UnifiedMessageRenderer:
                 _md = MarkdownIt("commonmark", {"breaks": True}).enable("table")
                 md_html = _md.render(render_text)
                 md_html = self._classify_links(md_html)
-                md_html = (
-                    f'<span style="color: #e9edef; font-size: 10pt;">{md_html}</span>'
-                )
+                md_html = f'<span class="md-body">{md_html}</span>'
             except Exception:
                 # Keep raw text if markdown fails.
                 md_html = (
-                    '<span style="color: #e9edef; font-size: 10pt; '
-                    'white-space: pre-wrap;">'
+                    '<span class="md-body md-body--raw">'
                     f"{self._escape_html(self._current_assistant_text)}</span>"
                 )
 
@@ -389,7 +379,7 @@ class UnifiedMessageRenderer:
                 # nothing. Same-window clicks are already correctly
                 # intercepted and opened via QDesktopServices. - Claude Generated
                 f'<a href="{url}" rel="noopener noreferrer" '
-                f'style="color: #5af; text-decoration: underline;">'
+                f'class="cat-anchor">'
                 f"{display}</a>"
             )
 
@@ -415,7 +405,7 @@ class UnifiedMessageRenderer:
             return (
                 # No target="_blank" — see _replace_cat_markers. - Claude Generated
                 f'<a href="{url}" rel="noopener noreferrer" '
-                f'style="color: #5af; text-decoration: underline;">'
+                f'class="cat-anchor">'
                 f"{display}</a>"
             )
 
@@ -591,8 +581,7 @@ class UnifiedMessageRenderer:
         self._tool_call_id += 1
         tool_id = f"tc_{self._tool_call_id}"
         summary = (
-            f'<span class="rc-error-title" style="font-family: monospace; '
-            f'font-size: 9pt;">❌ {self._escape_html(title)}</span>'
+            f'<span class="rc-error-title">❌ {self._escape_html(title)}</span>'
         )
         self.transport.send(
             ev.collapsible(
@@ -636,15 +625,11 @@ class UnifiedMessageRenderer:
             icon = tc.get("icon", "📄")
             meta = tc.get("meta", "")
             meta_html = (
-                f' <span style="color: #6272a4; font-size: 9pt;">'
-                f"{self._escape_html(meta)}</span>"
+                f' <span class="tc-meta">{self._escape_html(meta)}</span>'
                 if meta
                 else ""
             )
-            return (
-                f'<span style="color: #8be9fd; font-family: monospace; '
-                f'font-size: 9pt;">{icon} {title}</span>{meta_html}'
-            )
+            return f'<span class="tc-title">{icon} {title}</span>{meta_html}'
 
         name = self._escape_html(tc["name"])
         args_preview = self._escape_html(tc["args_preview"])
@@ -657,12 +642,12 @@ class UnifiedMessageRenderer:
         # is reviewable without expanding each block. - Claude Generated
         result_summary = self._result_summary(tc.get("result") or "")
         result_html = (
-            f' <span style="color: #50fa7b;">→ {self._escape_html(result_summary)}</span>'
+            f' <span class="tc-result">→ {self._escape_html(result_summary)}</span>'
             if result_summary
             else ""
         )
         return (
-            f'<span style="color: #888; font-family: monospace; font-size: 9pt;">'
+            f'<span class="tc-line">'
             f"🔧 {name}({args_preview})  {status_icon}{result_html}{duration_str}</span>"
         )
 
@@ -744,10 +729,10 @@ class UnifiedMessageRenderer:
             from markdown_it import MarkdownIt
 
             md_html = MarkdownIt("commonmark", {"breaks": True}).enable("table").render(markdown_text)
-            html = f'<div style="color: #e9edef; font-size: 10pt;">{md_html}</div>'
+            html = f'<div class="md-body">{md_html}</div>'
         except Exception:
             html = (
-                '<pre style="color: #e9edef; font-size: 10pt; white-space: pre-wrap;">'
+                '<pre class="md-body md-body--raw">'
                 f"{self._escape_html(markdown_text)}</pre>"
             )
         self.render_html_block(html, kind=kind, plain_text=markdown_text)
