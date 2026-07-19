@@ -3,10 +3,10 @@
 
 from typing import List, Dict, Any, Set, Optional, Union
 from pathlib import Path
+import os
 import sys
 import json
 import logging
-import tempfile
 from abc import ABC, ABCMeta, abstractmethod
 
 try:
@@ -80,8 +80,11 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
     def default_data_dir(cls) -> Path:
         """Data dir used when none is configured — exposed so callers (e.g. the
         GUI import pre-check) can locate the files of a factory-built suggester
-        without constructing one. - Claude Generated"""
-        return Path(tempfile.gettempdir()) / "alima_data" / cls.__name__.lower()
+        without constructing one. Lives under the per-user ALIMA config dir
+        (same base as config.json / the knowledge DB) so downloaded data — e.g.
+        the 25 MB DNB subject dump — survives reboots; the former tempdir
+        default forced a re-download after every temp clean. - Claude Generated"""
+        return Path(os.path.expanduser("~/.config/alima")) / "suggesters" / cls.__name__.lower()
 
     def _get_data_dir(self, data_dir: Optional[Union[str, Path]] = None) -> Path:
         """

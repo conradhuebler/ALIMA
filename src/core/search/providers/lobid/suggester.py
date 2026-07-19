@@ -88,7 +88,8 @@ class LobidSuggester(BaseSuggester):
         Initialize the LobidSuggester.
 
         Args:
-            data_dir: Directory to store GND data files (default: script_dir/data/lobidsuggestor)
+            data_dir: Directory to store GND data files (default:
+                ``BaseSuggester.default_data_dir()``, under ``~/.config/alima``)
             debug: Whether to enable debug output
         """
         super().__init__(data_dir, debug)
@@ -96,10 +97,10 @@ class LobidSuggester(BaseSuggester):
         # File paths for the GND data
         self.subjects_file_gz = self.data_dir / self.GND_URL.split("/")[-1]
         self.subjects_file_json = self.data_dir / "subjects.json"
-        self.gnd_subjects = None
-
-        # Prepare the suggester
-        self.prepare(False)
+        # Loaded lazily on first transform() — constructing the suggester used
+        # to download+parse the 25 MB DNB dump via prepare(False), which made
+        # every provider build a potential network call. - Claude Generated
+        self.gnd_subjects: Optional[Dict[str, str]] = None
 
     def _create_subjects_file_from_gnd(self):
         """Download and process the GND subjects file."""
@@ -201,14 +202,27 @@ class LobidSuggester(BaseSuggester):
             self._last_fetch_status = getattr(response, "status", None)
         return result
 
+    def _ensure_subjects(self) -> None:
+        """Lazy-load the GND-ID→label table (first use downloads the DNB dump).
+
+        Moved out of ``__init__`` (July 19): constructing the suggester is now
+        I/O-free; the dump is fetched/parsed once, on the first transform that
+        needs it. - Claude Generated"""
+        if self.gnd_subjects is None:
+            self.prepare(False)
+
     def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
         """Reduce a raw lobid response to the ``{subject: {count,gndid,ddc,dk}}`` view.
 
-        Pure (no I/O). This is the exact former parsing body — the reduced output
-        is byte-identical to the pre-split behaviour (locked by a regression
-        test). ``search_type`` only affected the URL (in :meth:`fetch`); it is
-        accepted here for a uniform transform signature. - Claude Generated
+        Deterministic; the only I/O is the memoised one-time lazy load of the
+        GND subject table (``_ensure_subjects``). The parsing body is the exact
+        former one — the reduced output is byte-identical to the pre-split
+        behaviour (locked by a regression test). ``search_type`` only affected
+        the URL (in :meth:`fetch`); it is accepted here for a uniform transform
+        signature. - Claude Generated
         """
+        if self.gnd_subjects is None:
+            self._ensure_subjects()
         subjects: Dict[str, Dict[str, Any]] = {}
         for entry in raw.get("aggregation", {}).get("subject.componentList.id", []):
             key = entry["key"].split("/")[-1]
