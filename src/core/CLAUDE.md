@@ -20,7 +20,7 @@ The `src/core/` directory contains the fundamental business logic and data manag
 
 **GND-keyword search:**
 - Unified entry point `src/core/search/service.py` (`search_gnd_keywords` / `resolve_gnd_instances`): builds providers via `factory.build_provider` from `AlimaConfig.plugins` instances, merges, preserves the WP2 raw seam. Classic (`SearchCLI`), MCP (`ToolRegistry`), GUI (`find_keywords`) all route through it. **`MetaSuggester` retired July 8.**
-- `BaseSuggester` (in `suggesters/`) is the per-source contract, wrapped by the capability-based providers (`src/core/search/`).
+- `BaseSuggester` (`src/core/search/base_suggester.py`, moved from `src/utils/suggesters/` July 19) is the per-source contract, wrapped by the capability-based providers; per-source suggesters live in their plugin dirs (`search/providers/<name>/suggester.py`).
 
 **Key Design Patterns:**
 - Signal/slot architecture for asynchronous communication

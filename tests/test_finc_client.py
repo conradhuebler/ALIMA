@@ -19,7 +19,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from src.mcp.tool_registry import ToolRegistry
-from src.utils.clients.finc_client import FincClient
+from src.core.search.providers.finc.finc_client import FincClient
 from src.core.search.providers.finc.suggester import FincSuggester
 
 

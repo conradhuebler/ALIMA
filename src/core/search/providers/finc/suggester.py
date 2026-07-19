@@ -23,7 +23,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
+from src.core.search.base_suggester import BaseSuggester, BaseSuggesterError
 
 from .finc_client import FincClient  # vendored in-plugin so this dir is self-contained
 

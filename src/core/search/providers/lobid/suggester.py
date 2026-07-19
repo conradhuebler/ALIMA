@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Set, Optional, Union
 from pprint import pprint
 
-from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
+from src.core.search.base_suggester import BaseSuggester, BaseSuggesterError
 
 
 def ex_to_str(ex):

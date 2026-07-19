@@ -43,8 +43,8 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 ### net_guard (July 6)
 `net_guard.py` — two-posture URL validation: `check_operator_url`/`require_http_url` for operator-configured endpoints (scheme gate, intranet allowed) and `assert_public_http_url`/`fetch_guarded` (strict SSRF guard, redirect-per-hop, size cap) for runtime/LLM-supplied URLs (`url_fetch`, MCP `scrape_url`). Exceptions: `SystemConfig.url_fetch_allowlist`.
 
-### Suggester relocation (July 6)
-`lobid/swb/biblio/finc`-Suggester moved into their plugin dirs (`src/core/search/providers/<name>/suggester.py`); `src/utils/suggesters/` keeps only `base_suggester.py` (shared contract) — **`meta_suggester.py` retired July 8**, its orchestration folded into `src/core/search/service.py`. Shared transport clients stay in `src/utils/clients/` — **except `finc_client.py` + `finc_catalog_client.py`, now vendored into `providers/finc/` (self-contained plugin incl. its DK-extractor, July 7)**; the old `clients/finc_*` paths are re-export shims.
+### Suggester relocation (July 6, completed July 19)
+`lobid/swb/biblio/finc`-Suggester live in their plugin dirs (`src/core/search/providers/<name>/suggester.py`); the shared contract `base_suggester.py` moved to `src/core/search/` and **`src/utils/suggesters/` is gone** (July 19). `meta_suggester.py` retired July 8 (folded into `src/core/search/service.py`). Shared transport clients stay in `src/utils/clients/`; the finc clients are vendored in `providers/finc/` and their old `clients/finc_*` shim paths were **deleted** (July 19) — import the plugin paths directly.
 
 ### WIP: DK Classification Splitting
 Split the DK list into equal halves for parallel LLM classification, merge with dedup (top 15). `execute_dk_classification_split()` in `pipeline_utils.py`, gated by `enable_dk_splitting` + `dk_split_threshold`. Details: `docs/dk_classification_splitting.md`.

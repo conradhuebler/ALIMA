@@ -337,4 +337,8 @@ config.bak
 localhost_migrated.json
 migrated_llm_config.json
 llmachine.json
-my_backup.json.claude/
+my_backup.json
+
+# Claude Code local session files
+.claude/settings.local.json
+.claude/plans/

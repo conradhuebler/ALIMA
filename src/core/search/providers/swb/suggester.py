@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Set, Optional, Union
 from bs4 import BeautifulSoup
 
-from src.utils.suggesters.base_suggester import BaseSuggester, BaseSuggesterError
+from src.core.search.base_suggester import BaseSuggester, BaseSuggesterError
 
 # Every SWB HTTP request carries this timeout — a hung endpoint must not hang
 # the pipeline (project HTTP convention). - Claude Generated

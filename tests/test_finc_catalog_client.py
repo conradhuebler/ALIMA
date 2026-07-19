@@ -14,7 +14,7 @@ import time
 import unittest
 from unittest.mock import MagicMock
 
-from src.utils.clients.finc_catalog_client import FincCatalogClient
+from src.core.search.providers.finc.finc_catalog_client import FincCatalogClient
 
 
 # --------------------------------------------------------------------------
