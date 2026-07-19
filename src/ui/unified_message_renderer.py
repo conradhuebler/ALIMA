@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 from PyQt6.QtWidgets import QCheckBox
 
 from src.core import render_events as ev
+from src.utils.i18n import t
 from .message_entry import MessageEntry, MessageRole
 
 if TYPE_CHECKING:
@@ -310,7 +311,7 @@ class UnifiedMessageRenderer:
     def open_assistant_bubble(self, model_label: str) -> None:
         """Open a left-aligned grey assistant bubble with model label."""
         self._current_assistant_text = ""
-        header = f'🤖 {self._escape_html(model_label or "Modell")}'
+        header = f'🤖 {self._escape_html(model_label or t("render.assistant.model_fallback"))}'
         self.transport.send(ev.assistant_open(header))
         self._assistant_block_open = True
         self._assistant_cell_cursor = True  # "open" sentinel (back-compat)
@@ -649,16 +650,18 @@ class UnifiedMessageRenderer:
             parsed = json.loads(result)
         except (json.JSONDecodeError, TypeError):
             n = len(result)
-            return f"{n} Zeichen" if n < 1024 else f"{n / 1024:.1f} kB"
+            if n < 1024:
+                return t("render.summary.chars", n=n)
+            return t("render.summary.kb", n=f"{n / 1024:.1f}")
         if isinstance(parsed, list):
-            return f"{len(parsed)} Treffer"
+            return t("render.summary.hits", n=len(parsed))
         if isinstance(parsed, dict):
             list_vals = [v for v in parsed.values() if isinstance(v, list)]
             if list_vals and len(list_vals) == len(parsed):
-                return f"{sum(len(v) for v in list_vals)} Treffer"
+                return t("render.summary.hits", n=sum(len(v) for v in list_vals))
             if "error" in parsed:
-                return "Fehler"
-            return f"{len(parsed)} Felder"
+                return t("render.summary.error")
+            return t("render.summary.fields", n=len(parsed))
         return ""
 
     def _tool_body_html(self, tool_id: str) -> str:

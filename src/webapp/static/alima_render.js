@@ -140,6 +140,12 @@ function clearLog() {
   curStream = null;
   curStreamBlock = null;
 }
+function alimaT(key, fallback) {
+  // UI-chrome i18n: the embedding page injects window.__alimaI18n (the js.*
+  // subset of locales/<lang>.json); fall back to the literal when absent.
+  var cat = window.__alimaI18n || {};
+  return (cat[key] !== undefined) ? cat[key] : fallback;
+}
 var typingEl = null;
 function showTyping(model) {
   if (!typingEl) {
@@ -149,7 +155,8 @@ function showTyping(model) {
     _log().appendChild(typingEl);
   }
   typingEl.style.display = 'block';
-  typingEl.textContent = '🤖 ' + (model || 'Modell') + ' schreibt …';
+  typingEl.textContent = '🤖 ' + (model || alimaT('js.typing.model_fallback', 'Modell'))
+    + ' ' + alimaT('js.typing.suffix', 'schreibt …');
   maybeScroll();
 }
 function hideTyping() {

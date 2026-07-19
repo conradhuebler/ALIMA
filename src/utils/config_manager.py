@@ -422,6 +422,10 @@ class ConfigManager:
             # Parse UI config - Claude Generated (Webcam Feature Fix)
             ui_config_data = config_data.get("ui_config", {})
             ui_config = UIConfig(**ui_config_data) if ui_config_data else UIConfig()
+            # UI-chrome language (chat panel / renderer / webapp) follows the
+            # config; one hook covers every frontend. - Claude Generated
+            from .i18n import set_language
+            set_language(ui_config.ui_language)
 
             # Parse Chat config - Claude Generated (WP10 P-δ.1)
             chat_config_data = config_data.get("chat_config", {})

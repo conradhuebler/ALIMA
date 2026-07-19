@@ -316,6 +316,8 @@
         window.sessionId = "{{ session_id }}";
         console.log(`Session ID injected BEFORE app.js: ${window.sessionId}`);
     </script>
+    <!-- UI-chrome i18n catalog (js.* keys) — must precede alima_render.js -->
+    <script>window.__alimaI18n = {{ i18n_js | tojson }};</script>
     <!-- WP12: shared render-layer DOM dispatcher (must load before app.js) -->
     <script src="/static/alima_render.js"></script>
     <script src="/static/app.js"></script>

@@ -76,17 +76,21 @@ _SCAFFOLD_TEMPLATE = (
     "<!DOCTYPE html>\n"
     '<html><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
     '<body><div id="log"></div>\n'
+    "<script>window.__alimaI18n = {i18n};</script>\n"
     "<script>\n{js}\n</script></body></html>"
 )
 
 
 def _build_scaffold_html(base_font_pt: int) -> str:
     """Assemble the WebLogView document from the shared CSS + JS assets."""
+    from ..utils.i18n import catalog_for_js
+
     fs = max(8, int(base_font_pt))
     return _SCAFFOLD_TEMPLATE.format(
         doc_css=_DOC_CHROME_CSS.format(fs=fs),
         css=_load_render_asset("alima_render.css"),
         js=_load_render_asset("alima_render.js"),
+        i18n=json.dumps(catalog_for_js()),
         fs=fs,
     )
 

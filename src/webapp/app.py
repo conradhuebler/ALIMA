@@ -206,10 +206,12 @@ async def get_webapp(request: Request, session: str = None) -> HTMLResponse:
         sessions[session] = Session(session)
         logger.info(f"Created session from webapp route: {session}")
 
-    # Render template with injected session ID
+    # Render template with injected session ID + UI-chrome i18n catalog
+    from src.utils.i18n import catalog_for_js
+
     return templates.TemplateResponse(
         "webapp.html",
-        {"request": request, "session_id": session}
+        {"request": request, "session_id": session, "i18n_js": catalog_for_js()}
     )
 
 

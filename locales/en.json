@@ -1,0 +1,10 @@
+{
+  "js.typing.suffix": "is typing …",
+  "js.typing.model_fallback": "Model",
+  "render.assistant.model_fallback": "Model",
+  "render.summary.chars": "{n} characters",
+  "render.summary.kb": "{n} kB",
+  "render.summary.hits": "{n} hits",
+  "render.summary.error": "Error",
+  "render.summary.fields": "{n} fields"
+}

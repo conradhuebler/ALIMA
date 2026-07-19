@@ -839,6 +839,10 @@ class UIConfig:
     enable_webcam_input: bool = False  # Enable webcam capture in Pipeline tab
     font_size: int = 10  # Global base font size in pt (8–16) — Claude Generated
     ptheta_banner_seen: bool = False  # WP10 P-θ.4 one-time banner flag
+    # UI-chrome language for the chat/webapp surfaces ("de"/"en"); the chat
+    # panel's DE/EN toggle (LLM answer language) is a separate axis. Read by
+    # src/utils/i18n.py on config load. - Claude Generated
+    ui_language: str = "de"
 
 
 @dataclass
