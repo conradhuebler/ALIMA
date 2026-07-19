@@ -109,7 +109,15 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **WP Plugin-Konvergenz — P1–P5 + P6a + P7 ✅ CODE-COMPLETE (July 17):**
+- **WP Struktur-Aufräumen ✅ DONE (July 19):** Audit ergab keine toten Module; Restschuld
+  behoben in 5 Commits (`04d9eb0`…`32670d5`): `suggesters/`-Rest + finc-Shims weg,
+  20 stale Docs → `docs/legacy/`, Lobid-Dump-Download aus dem Konstruktor (lazy,
+  persistenter Pfad `~/.config/alima/suggesters/`), `pipeline_utils.py` 5166→2041
+  (DK/RVK verbatim in `DkStepsMixin`/`RvkScoringMixin`). Suite 1308. Details:
+  `AIChangelog.md` (July 19); neue Register-Zeilen F-10/F-11 in
+  [`docs/cleanup_findings.md`](docs/cleanup_findings.md). **Offen (Operator):**
+  Counter-Bug-Vergleichslauf, Lobid-Download-Klick-Test (neuer Cache-Pfad).
+- **WP Plugin-Konvergenz — P1–P5 + P6a + P7 ✅ COMMITTED (July 19, `27a2901`):**
   **Eine** Konfigurationswahrheit: `CatalogConfig`/`SearchProviderConfig` gelöscht,
   `AlimaConfig.plugins` ist es allein — Lesen `factory.primary_settings(cfg, id,
   enabled_only=…)`, Schreiben `set_primary_settings`; Legacy-JSON-Sektionen sind
@@ -119,11 +127,11 @@ When documenting implemented features, the AI must apply these rules:
   5 Params, AST-geprüft), der Dict-Umbau war eine `None`-Falle, und der Mirror
   hatte einen Live-Bug (`catalog_web_record_url`-Kollision → keine OPAC-Links).
   Suite 1305. Details: [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md)
-  + `AIChangelog.md` (July 17). **Offen: Operator-Klick-Tests** — DK-Suche (Pipeline
-  + UB-Katalog-Tab), OPAC-Links mit gesetzter Katalog- und *leerer* finc-URL
-  (heute kaputt, sollte jetzt gehen), agentischer Lauf mit deaktiviertem finc
-  (Harvest darf **nicht** mehr laufen), First-Start-Wizard + `alima wizard`
-  (Werte im Plugins-Tab?), Bundle export→install, find_keywords.
+  + `AIChangelog.md` (July 17). Klick-Tests: **OPAC-Links ✅ bestanden (July 19,
+  „bugfix hat gegriffen")**; noch offen — DK-Suche (Pipeline + UB-Katalog-Tab),
+  agentischer Lauf mit deaktiviertem finc (Harvest darf **nicht** mehr laufen),
+  First-Start-Wizard + `alima wizard` (Werte im Plugins-Tab?), Bundle
+  export→install, find_keywords.
 - **WP Data-Flow-Vereinheitlichung (`BibRecord`)** — ENTSCHEIDUNG OFFEN (July 10):
   das Plugin-System hat die *Verrohrung* vereinheitlicht, nicht die *Daten*. Feldnamen-Audit:
   Round-Trip-Rename-Shims (`gnd_search_core.py:116-128` ↔ `aggregate.py:188-193`), duale

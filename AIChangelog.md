@@ -6,6 +6,44 @@
 
 ## 2026
 
+### WP Struktur-Aufräumen: Audit-Funde + Klassifikations-Extraktion (July 19, 2026)
+
+Struktur-Audit nach den Konvergenz-WPs: **keine toten Module** (Import-Scan über alle
+Verdachtskandidaten in `clients/`, `lookups/`, `core/` — jedes Modul hat Nutzer); die
+Restschuld war Konzentration, Duplikat-Datenpfade und Doku-Drift. Fünf Commits:
+
+- **`04d9eb0` Strukturreste** — `src/utils/suggesters/` aufgelöst (`base_suggester.py` →
+  `src/core/search/`, alle 4 Importer sind die Plugin-Suggester dort); finc-Client-Shims
+  (`clients/finc_*.py`) gelöscht, Tests auf die kanonischen `providers/finc/`-Pfade;
+  leeres `src/core/tests/` weg; `.gitignore`-Bug repariert (Zeile
+  `my_backup.json.claude/` war ein verschmolzener fehlender Newline — `.claude/` wurde
+  nie ignoriert).
+- **`b8f25ca` Doku-Sweep** — 20 überholte Mai/Juni-Planungsdocs → `docs/legacy/`
+  (provider_strategy-Quartett, UI/Chat-Design-Cluster, Audits, Handoff), eingehende
+  Links umgeschrieben; CLAUDE.md-Drift abgeräumt (Future-Tasks #6/#9/#10, stale
+  Residual-Notizen); `chat_agent_roadmap.md` korrigiert: **Anthropic streamt mit Tools**
+  (code-verifiziert, per-Chunk `should_stop`), nur Gemini bleibt deferred.
+- **`9f726ca` Status-Korrektur Counter-Bug** — der C1-Fix (agentische GND-Häufigkeit
+  persistierte als 0) war **schon am July 16 gelandet** (`038738e`, 4 Edits + Tests);
+  Spec + CLAUDE.md behaupteten noch „kein Code geschrieben". Offen nur der
+  Operator-Vergleichslauf (GUI).
+- **`3e4d0cd` LobidSuggester-Download entschärft** — `prepare(False)` raus aus
+  `__init__` (Provider-Bau ist jetzt I/O-frei, GND-Label-Tabelle lazy+memoisiert beim
+  ersten `transform()`); `default_data_dir` von tempdir → persistent
+  `~/.config/alima/suggesters/<name>/` (tempdir erzwang 25-MB-Re-Download nach jedem
+  Temp-Clean; die noch ältere script-relative Ära hatte Kopien in
+  `src/{,cli/,webapp/}data/` hinterlassen — lokal gelöscht). +3 Tests
+  (`test_lobid_lazy_init.py`).
+- **`32670d5` Klassifikations-Extraktion** — `pipeline_utils.py` 5166 → 2041 Zeilen:
+  der zusammenhängende DK/RVK-Block (~3100 Zeilen) verbatim in `DkStepsMixin`
+  (`_pipeline_dk_steps.py`) + `RvkScoringMixin` (`_pipeline_rvk_scoring.py`), F-5-Technik,
+  null Call-Site-Änderungen. Verifiziert: Diff-byte-identisch gegen HEAD-Blöcke,
+  Bytecode-`LOAD_GLOBAL`-Scan 0 unresolved, MRO-Smoke, Suite 1308. **Keine**
+  Notation-Generalisierung — die Extraktion schafft nur die Naht dafür.
+
+Suite durchgängig grün (1305 → 1308 mit den neuen Tests). Offene Operator-Sign-offs:
+Counter-Bug-Vergleichslauf, Lobid-Erst-Download-Klick (neuer Cache-Pfad), P7-Restklicks.
+
 ### APPROVED: Kern-Konvergenz klassisch↔agentisch WP-K1–K4 (July 19, 2026)
 
 Aus dem CLAUDE.md-Variable-Block abgeräumt (Status war TESTED seit dem
