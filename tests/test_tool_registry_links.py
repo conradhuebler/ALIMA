@@ -35,19 +35,22 @@ class TestGndEntryDict(unittest.TestCase):
 
 
 class TestSerializeSuggesterResults(unittest.TestCase):
-    def test_gnd_urls_added_from_gndid_set(self):
+    def test_gnd_urls_added_from_gnd_ids_set(self):
         results = {
             "quantenchemie": {
-                "Quantenchemie": {"gndid": {"4047979-1"}, "count": 3, "ddc": {"540"}}
+                "Quantenchemie": {"gnd_ids": {"4047979-1"}, "count": 3,
+                                  "classifications": {"ddc": {"540"}}}
             }
         }
         out = ToolRegistry._serialize_suggester_results(results)
         row = out["quantenchemie"]["Quantenchemie"]
         self.assertEqual(row["gnd_urls"], ["https://d-nb.info/gnd/4047979-1"])
+        # nested classification sets are serialized to lists too
+        self.assertEqual(row["classifications"], {"ddc": ["540"]})
 
-    def test_no_gndid_no_gnd_urls(self):
+    def test_no_gnd_ids_no_gnd_urls(self):
         out = ToolRegistry._serialize_suggester_results(
-            {"t": {"K": {"count": 1, "ddc": {"540"}}}}
+            {"t": {"K": {"count": 1, "classifications": {"ddc": {"540"}}}}}
         )
         self.assertNotIn("gnd_urls", out["t"]["K"])
 

@@ -28,7 +28,7 @@ class PipelineResultFormatter:
 
         for search_term, results in search_results.items():
             for keyword, data in results.items():
-                gnd_ids = data.get("gndid", set())
+                gnd_ids = data.get("gnd_ids", set())
                 for gnd_id in gnd_ids:
                     formatted_results.append(f"{keyword} (GND: {gnd_id})")
 
@@ -42,7 +42,7 @@ class PipelineResultFormatter:
         for search_term, results in search_results.items():
             search_results_text += f"Search Term: {search_term}\n"
             for keyword, data in results.items():
-                gnd_ids = ", ".join(data.get("gndid", [])) if data.get("gndid") else ""
+                gnd_ids = ", ".join(data.get("gnd_ids", [])) if data.get("gnd_ids") else ""
                 formatted_keyword = f"{keyword} ({gnd_ids})" if gnd_ids else keyword
                 search_results_text += f"  - {formatted_keyword}\n"
 
@@ -249,7 +249,7 @@ class PipelineResultFormatter:
         """Flatten GND search results into deduplicated per-GND-ID display rows - Claude Generated
 
         Accepts any of the shapes the pipeline produces:
-        * dict ``{search_term: {label: {gndid: set|list, count, ...}}}`` (classic);
+        * dict ``{search_term: {label: {gnd_ids: set|list, count, ...}}}`` (classic);
         * ``List[SearchResult]`` (``.search_term`` + ``.results`` dict);
         * a flat ``List[Dict]`` of GND entries with a top-level ``gnd_id`` (agentic
           snapshots' ``gnd_entries``).
@@ -320,7 +320,7 @@ class PipelineResultFormatter:
                         continue
                     count = data.get("count", 0)
                     display_count = data.get("display_count")
-                    for gnd_id in (data.get("gndid", []) or []):
+                    for gnd_id in (data.get("gnd_ids", []) or []):
                         _add(label, gnd_id, count, term, display_count)
 
         rows = list(by_id.values())
@@ -987,7 +987,7 @@ class PipelineResultFormatter:
 
         for results in search_results.values():
             for keyword, data in results.items():
-                gnd_ids = data.get("gndid", set())
+                gnd_ids = data.get("gnd_ids", set())
                 for gnd_id in gnd_ids:
                     gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
 

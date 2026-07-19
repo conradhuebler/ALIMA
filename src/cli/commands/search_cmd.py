@@ -50,7 +50,7 @@ def handle_search(args, logger: logging.Logger):
 
         for keyword, data in term_results.items():
             print_result(f"  - {keyword}:")
-            print_result(f"    GND IDs: {data.get('gndid')}")
+            print_result(f"    GND IDs: {data.get('gnd_ids')}")
             print_result(f"    Count: {data.get('count')}")
 
 

@@ -101,11 +101,15 @@ class PipelineJsonManager:
     def convert_lists_to_sets(obj):
         """Convert known list fields back to sets after JSON loading - Claude Generated
 
-        Enhanced to handle all known set fields: gndid, ddc, dk, missing_concepts
+        Handles the canonical set fields: ddc, dk (inside classifications), missing_concepts
         """
         if isinstance(obj, dict):
             # Known set fields in search results and data models
-            SET_FIELDS = {"gndid", "ddc", "dk", "missing_concepts"}
+            # Canonical nested keys (WP-D1): "ddc"/"dk" live inside the
+            # ``classifications`` dict and are matched here by key name during
+            # recursion. ``gnd_ids`` stays a LIST (display order, gnd_id = first
+            # element) — never add it here.
+            SET_FIELDS = {"ddc", "dk", "missing_concepts"}
 
             result = {}
             for key, value in obj.items():
@@ -215,7 +219,7 @@ class PipelineJsonManager:
             if data.get("search_results"):
                 reconstructed_search_results = []
                 for item in data["search_results"]:
-                    # Convert known list fields back to sets (e.g., gndid fields)
+                    # Convert known list fields back to sets (classification code sets)
                     if "results" in item:
                         item["results"] = PipelineJsonManager.convert_lists_to_sets(item["results"])
                     reconstructed_search_results.append(SearchResult(**item))

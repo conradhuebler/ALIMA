@@ -74,9 +74,8 @@ class _FakeSearchCLI:
             term: {
                 "Limnologie": {
                     "count": 3,
-                    "gndid": {"4035769-7"},
-                    "ddc": set(),
-                    "dk": set(),
+                    "gnd_ids": {"4035769-7"},
+                    "classifications": {},
                 }
             }
             for term in search_terms

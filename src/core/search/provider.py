@@ -72,11 +72,14 @@ class ResultItem:
     """One typed result. Which fields are populated depends on the capability:
 
     * ``GND_KEYWORDS``  → ``label``, ``gnd_ids``, ``count``, ``display_count``,
-      ``ddc``, ``dk``.
+      ``classifications``.
     * ``TITLE_RECORDS`` → ``record`` (raw bibliographic dict), ``label`` (title).
     * ``SUBJECT_FACETS``→ ``code`` (facet value), ``count``, ``label`` (translated),
       ``extra["facet"]`` (facet field name).
     * ``CLASSIFICATION``→ ``code`` (DK/RVK), ``label``, ``count``.
+
+    ``classifications`` is the canonical ``{system: codes}`` dict (WP-D1):
+    dk/ddc/rvk are equal-rank system keys, only non-empty systems are carried.
 
     ``display_count`` is the *display-only* hit count (F-4): it never feeds ranking
     (see ``src/core/gnd_search_core.py`` count-landmine). ``None`` means "use
@@ -87,8 +90,7 @@ class ResultItem:
     gnd_ids: Set[str] = field(default_factory=set)
     count: int = 0
     display_count: Optional[int] = None
-    ddc: Set[str] = field(default_factory=set)
-    dk: Set[str] = field(default_factory=set)
+    classifications: Dict[str, Set[str]] = field(default_factory=dict)
     record: Optional[Dict[str, Any]] = None
     code: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -124,31 +126,39 @@ class ProviderResult:
             for kw, data in (keywords or {}).items():
                 data = data or {}
                 dc = data.get("display_count")
+                classifications = {
+                    system: set(data.get(system, set()) or set())
+                    for system in ("ddc", "dk")
+                    if data.get(system)
+                }
                 items.append(
                     ResultItem(
                         label=kw,
                         gnd_ids=set(data.get("gndid", set()) or set()),
                         count=int(data.get("count", 0) or 0),
                         display_count=None if dc is None else int(dc),
-                        ddc=set(data.get("ddc", set()) or set()),
-                        dk=set(data.get("dk", set()) or set()),
+                        classifications=classifications,
                     )
                 )
             per_term[term] = items
         return cls(SearchCapability.GND_KEYWORDS, per_term=per_term, errors=dict(errors or {}))
 
     def to_gnd_keywords(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        """Render back to the legacy ``{term: {keyword: {count, gndid, ddc, dk}}}``
-        shape. ``display_count`` is emitted only when set (additive, F-4)."""
+        """Render to the canonical nested ``{term: {keyword: {count, gnd_ids,
+        classifications}}}`` shape (WP-D1). ``display_count`` is emitted only
+        when set (additive, F-4)."""
         out: Dict[str, Dict[str, Dict[str, Any]]] = {}
         for term, items in self.per_term.items():
             kw_map: Dict[str, Dict[str, Any]] = {}
             for it in items:
                 entry: Dict[str, Any] = {
                     "count": it.count,
-                    "gndid": set(it.gnd_ids),
-                    "ddc": set(it.ddc),
-                    "dk": set(it.dk),
+                    "gnd_ids": set(it.gnd_ids),
+                    "classifications": {
+                        system: set(codes)
+                        for system, codes in it.classifications.items()
+                        if codes
+                    },
                 }
                 if it.display_count is not None:
                     entry["display_count"] = it.display_count

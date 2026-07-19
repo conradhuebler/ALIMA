@@ -84,7 +84,7 @@ class GndLocalProvider:
                         label=e.title,
                         gnd_ids={e.gnd_id} if e.gnd_id else set(),
                         count=0,  # local DB has no occurrence count
-                        ddc=ddc,
+                        classifications={"ddc": ddc} if ddc else {},
                     )
                 )
             per_term[term] = items

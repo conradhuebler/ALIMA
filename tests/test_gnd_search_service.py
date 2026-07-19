@@ -167,8 +167,8 @@ class SearchServiceTest(unittest.TestCase):
         self.assertEqual(errors, {})
         wasser = results["wasser"]["Wasser"]
         self.assertEqual(wasser["count"], 47)                      # max, never summed
-        self.assertEqual(wasser["gndid"], {"g1", "g2"})            # union
-        self.assertEqual(wasser["ddc"], {"5"})
+        self.assertEqual(wasser["gnd_ids"], {"g1", "g2"})          # union
+        self.assertEqual(wasser["classifications"], {"ddc": {"5"}})
         self.assertEqual(wasser["display_count"], 47)              # max across sources
         self.assertEqual(results["wasser"]["Klima"]["count"], 3)   # from B only
 
@@ -213,7 +213,7 @@ class SearchServiceTest(unittest.TestCase):
         wasser = results["wasser"]["Wasser"]
         self.assertEqual(wasser["count"], 1)             # landmine
         self.assertEqual(wasser["display_count"], 47)    # real count
-        self.assertEqual(wasser["gndid"], {"g1"})
+        self.assertEqual(wasser["gnd_ids"], {"g1"})
 
 
 if __name__ == "__main__":

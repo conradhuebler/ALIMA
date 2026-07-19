@@ -275,7 +275,7 @@ class SharedContext(BaseSharedContext):
                 "top_10": top_10,
             }
 
-        # --- search_results: GUI expects {title → {gndid: [gnd_id], ddc_codes: [...]}} format ---
+        # --- search_results: canonical {title → {gnd_ids: [...], classifications: {system: [codes]}}} ---
         # Build per-keyword so each keyword only shows titles that matched it
         search_results = []
         per_keyword = self.gnd_entries_per_keyword or {}
@@ -296,8 +296,8 @@ class SharedContext(BaseSharedContext):
                     # a cache hit), the real Häufigkeit rides in ``display_count``. Dropping
                     # them here made agentic runs persist 0. - Claude Generated
                     kw_results[title] = {
-                        "gndid": all_gnd_ids,
-                        "ddc_codes": (entry.get("classifications") or {}).get("ddc", []),
+                        "gnd_ids": all_gnd_ids,
+                        "classifications": dict(entry.get("classifications") or {}),
                         "count": entry.get("count", 1),
                         **({"display_count": entry["display_count"]} if entry.get("display_count") is not None else {}),
                     }
@@ -311,8 +311,8 @@ class SharedContext(BaseSharedContext):
                     primary_gnd_id = entry.get("gnd_id", "")
                     all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
                     kw_results[title] = {
-                        "gndid": all_gnd_ids,
-                        "ddc_codes": (entry.get("classifications") or {}).get("ddc", []),
+                        "gnd_ids": all_gnd_ids,
+                        "classifications": dict(entry.get("classifications") or {}),
                         "count": entry.get("count", 1),
                         **({"display_count": entry["display_count"]} if entry.get("display_count") is not None else {}),
                     }

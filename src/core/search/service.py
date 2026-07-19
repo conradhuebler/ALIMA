@@ -10,7 +10,7 @@ three hand-wired construction sites that each built providers their own way:
 All three now build providers through :func:`search.factory.build_provider` from
 the authoritative :class:`PluginInstanceConfig` list, run the capability-based
 ``search(GND_KEYWORDS, ...)``, and merge into the legacy
-``{term: {keyword: {count, gndid, ddc, dk, display_count?}}}`` shape via the single
+``{term: {keyword: {count, gnd_ids, classifications, display_count?}}}`` shape via the single
 :func:`gnd_search_core.merge_code_entry` atom.
 
 Two read modes, same signature (parity with the retired ``MetaSuggester`` /
@@ -236,17 +236,21 @@ def _merge_term(target: Dict[str, Dict[str, Any]], kw_map: Dict[str, Dict[str, A
         if kw not in target:
             entry: Dict[str, Any] = {
                 "count": data.get("count", 1),
-                "gndid": set(data.get("gndid", set()) or set()),
-                "ddc": set(data.get("ddc", set()) or set()),
-                "dk": set(data.get("dk", set()) or set()),
+                "gnd_ids": set(data.get("gnd_ids", set()) or set()),
+                "classifications": {
+                    system: set(codes)
+                    for system, codes in (data.get("classifications") or {}).items()
+                    if codes
+                },
             }
             if data.get("display_count") is not None:
                 entry["display_count"] = data["display_count"]
             target[kw] = entry
         else:
             merge_code_entry(
-                target[kw], data, code_fields=("gndid", "ddc", "dk"),
+                target[kw], data, code_fields=("gnd_ids",),
                 display_count_field="display_count",
+                classifications_field="classifications",
             )
 
 

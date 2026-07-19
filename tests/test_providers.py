@@ -108,11 +108,28 @@ class GndKeywordRoundTripTest(unittest.TestCase):
         }
     }
 
-    def test_lossless_roundtrip(self):
+    # Canonical nested emission (WP-D1): legacy suggester input in,
+    # {count, gnd_ids, classifications} out.
+    EXPECTED = {
+        "wasser": {
+            "Wassermanagement": {
+                "count": 47,
+                "gnd_ids": {"gnd1", "gnd2"},
+                "classifications": {"ddc": {"333.7"}},
+            },
+            "Wasserwirtschaft": {
+                "count": 3,
+                "gnd_ids": {"gnd3"},
+                "classifications": {"dk": {"AR 1000"}},
+            },
+        }
+    }
+
+    def test_canonical_emission_from_legacy_input(self):
         pr = ProviderResult.from_gnd_keywords(self.SAMPLE, errors={"wasser": "boom"})
         self.assertEqual(pr.capability, SearchCapability.GND_KEYWORDS)
         self.assertEqual(pr.errors, {"wasser": "boom"})
-        self.assertEqual(pr.to_gnd_keywords(), self.SAMPLE)
+        self.assertEqual(pr.to_gnd_keywords(), self.EXPECTED)
 
     def test_display_count_is_additive(self):
         # Without display_count the legacy shape is unchanged...
@@ -127,6 +144,7 @@ class GndKeywordRoundTripTest(unittest.TestCase):
 
 class GndProviderSearchTest(unittest.TestCase):
     OUT = {"x": {"Kw": {"count": 5, "gndid": {"g1"}, "ddc": set(), "dk": set()}}}
+    OUT_CANONICAL = {"x": {"Kw": {"count": 5, "gnd_ids": {"g1"}, "classifications": {}}}}
 
     def _provider_with_fake(self, pid, out, errors=None):
         prov = get_provider(pid)()
@@ -137,7 +155,7 @@ class GndProviderSearchTest(unittest.TestCase):
     def test_lobid_search_wraps_output(self):
         prov, fake = self._provider_with_fake("lobid", self.OUT, errors={"x": "err"})
         res = prov.search(SearchCapability.GND_KEYWORDS, ["x"], search_type="kw")
-        self.assertEqual(res.to_gnd_keywords(), self.OUT)
+        self.assertEqual(res.to_gnd_keywords(), self.OUT_CANONICAL)
         self.assertEqual(res.errors, {"x": "err"})
         self.assertEqual(fake.recorded_kwargs, {"search_type": "kw"})
 
@@ -231,7 +249,7 @@ class GndLocalProviderTest(unittest.TestCase):
         item = res.per_term["halbleiter"][0]
         self.assertEqual(item.label, "Halbleiter")
         self.assertEqual(item.gnd_ids, {"g1"})
-        self.assertEqual(item.ddc, {"537"})
+        self.assertEqual(item.classifications, {"ddc": {"537"}})
         self.assertEqual(item.count, 0)
 
 

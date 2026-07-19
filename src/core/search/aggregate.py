@@ -188,9 +188,10 @@ def nested_from_aggregate(agg: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, 
         for term in terms:
             reduced = {
                 "count": entry.get("count", 1),
-                "gndid": set(entry.get("gnd_ids", [])),
-                "ddc": set(cls.get("ddc", [])),
-                "dk": set(cls.get("dk", [])),
+                "gnd_ids": set(entry.get("gnd_ids", [])),
+                "classifications": {
+                    system: set(codes) for system, codes in cls.items() if codes
+                },
             }
             if entry.get("display_count") is not None:
                 reduced["display_count"] = entry["display_count"]

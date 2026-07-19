@@ -81,12 +81,16 @@ def merge_code_entry(
 
 
 def _merge_codes(existing: Any, new_vals: Iterable[Any]) -> Any:
-    """Union ``new_vals`` into ``existing``, preserving its container type:
-    ``set`` → ``set.update``; ``list``/``None`` → order-preserving dedup append.
+    """Union ``new_vals`` into ``existing``, preserving the container type:
+    ``set`` → ``set.update``; ``list`` → order-preserving dedup append. When the
+    target has no container yet (sparse ``classifications``), the SOURCE type
+    wins — a set source must not degrade to a nondeterministically ordered list.
     - Claude Generated"""
     if isinstance(existing, set):
         existing.update(new_vals)
         return existing
+    if existing is None and isinstance(new_vals, set):
+        return set(new_vals)
     merged: List[Any] = list(existing or [])
     seen: Set[Any] = set(merged)
     for value in new_vals:

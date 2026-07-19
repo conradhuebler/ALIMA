@@ -91,7 +91,7 @@ class GeneratedSearchToolTest(unittest.TestCase):
         def _gnd_result(errors=None):
             return ProviderResult(
                 SearchCapability.GND_KEYWORDS,
-                per_term={"t": [ResultItem(label="Kw", gnd_ids={"4074335-4"}, count=5, ddc={"333"})]},
+                per_term={"t": [ResultItem(label="Kw", gnd_ids={"4074335-4"}, count=5, classifications={"ddc": {"333"}})]},
                 errors=errors or {},
             )
 

@@ -155,23 +155,22 @@ class TestSearchCliMergeEquivalence(unittest.TestCase):
 
     def test_union_and_max_on_existing_keyword(self):
         cli = self._cli()
-        combined = {"term": {"Cadmium": {"count": 3, "gndid": {"1"},
-                                         "ddc": {"546"}, "dk": set()}}}
-        new = {"term": {"Cadmium": {"count": 7, "gndid": {"2"},
-                                    "ddc": set(), "dk": {"a"}}}}
+        combined = {"term": {"Cadmium": {"count": 3, "gnd_ids": {"1"},
+                                         "classifications": {"ddc": {"546"}}}}}
+        new = {"term": {"Cadmium": {"count": 7, "gnd_ids": {"2"},
+                                    "classifications": {"dk": {"a"}}}}}
         cli.merge_results(combined, new)
         entry = combined["term"]["Cadmium"]
         self.assertEqual(entry["count"], 7)
-        self.assertEqual(entry["gndid"], {"1", "2"})
-        self.assertEqual(entry["ddc"], {"546"})
-        self.assertEqual(entry["dk"], {"a"})
+        self.assertEqual(entry["gnd_ids"], {"1", "2"})
+        self.assertEqual(entry["classifications"], {"ddc": {"546"}, "dk": {"a"}})
 
     def test_new_term_and_keyword_copied(self):
         cli = self._cli()
         combined = {}
-        new = {"term": {"Neu": {"count": 1, "gndid": {"9"}, "ddc": set(), "dk": set()}}}
+        new = {"term": {"Neu": {"count": 1, "gnd_ids": {"9"}, "classifications": {}}}}
         cli.merge_results(combined, new)
-        self.assertEqual(combined["term"]["Neu"]["gndid"], {"9"})
+        self.assertEqual(combined["term"]["Neu"]["gnd_ids"], {"9"})
 
 
 if __name__ == "__main__":

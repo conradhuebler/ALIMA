@@ -2249,9 +2249,8 @@ class PipelineManager:
                                     keywords_list.append(final_keyword)
                                     mock_results["user_provided"][final_keyword] = {
                                         "count": 1,
-                                        "gndid": {gnd_id},  # Real GND-ID from parsed text!
-                                        "ddc": set(),
-                                        "dk": set()
+                                        "gnd_ids": {gnd_id},  # Real GND-ID from parsed text!
+                                        "classifications": {},
                                     }
                                     self.logger.debug(f"Parsed GND keyword: '{final_keyword}' (GND-ID: {gnd_id})")
                                 else:
@@ -2259,9 +2258,8 @@ class PipelineManager:
                                     keywords_list.append(kw)
                                     mock_results["user_provided"][kw] = {
                                         "count": 1,
-                                        "gndid": set(),  # No GND-ID
-                                        "ddc": set(),
-                                        "dk": set()
+                                        "gnd_ids": set(),  # No GND-ID
+                                        "classifications": {},
                                     }
                                     self.logger.debug(f"Parsed plain keyword: '{kw}'")
 

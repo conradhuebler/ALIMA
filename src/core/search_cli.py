@@ -115,5 +115,6 @@ class SearchCLI:
                     merge_code_entry(
                         combined_results[search_term][keyword],
                         data,
-                        code_fields=("gndid", "ddc", "dk"),
+                        code_fields=("gnd_ids",),
+                        classifications_field="classifications",
                     )

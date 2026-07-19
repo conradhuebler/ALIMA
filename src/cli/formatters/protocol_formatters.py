@@ -142,16 +142,16 @@ def format_step_search(state: KeywordAnalysisState):
 
         if results:
             for keyword, data in results.items():
-                gndids = data.get('gndid', [])
+                gnd_ids = data.get('gnd_ids', [])
                 count = data.get('count', 0)
 
-                if isinstance(gndids, (list, tuple, set)):
-                    gndid_str = ", ".join(str(gndid) for gndid in gndids)
+                if isinstance(gnd_ids, (list, tuple, set)):
+                    gnd_id_str = ", ".join(str(g) for g in gnd_ids)
                 else:
-                    gndid_str = str(gndids)
+                    gnd_id_str = str(gnd_ids)
 
                 print(f"    -> {keyword}")
-                print(f"      GND ID: {gndid_str}")
+                print(f"      GND ID: {gnd_id_str}")
                 print(f"      Hits: {count}")
         else:
             print("    (No results for this term)")
@@ -187,9 +187,9 @@ def format_step_keywords(state: KeywordAnalysisState):
             if isinstance(kw, str) and '(' in kw and ')' in kw:
                 parts = kw.rsplit('(', 1)
                 term = parts[0].strip()
-                gndid = parts[1].rstrip(')')
+                gnd_id = parts[1].rstrip(')')
                 print(f"  [OK] {term}")
-                print(f"    GND ID: {gndid}")
+                print(f"    GND ID: {gnd_id}")
             else:
                 print(f"  [OK] {kw}")
     else:

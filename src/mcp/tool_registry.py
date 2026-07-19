@@ -406,8 +406,13 @@ class ToolRegistry:
                     k: list(v) if isinstance(v, set) else v
                     for k, v in data.items()
                 }
+                if isinstance(row.get("classifications"), dict):
+                    row["classifications"] = {
+                        system: list(codes) if isinstance(codes, set) else codes
+                        for system, codes in row["classifications"].items()
+                    }
                 gnd_urls = [
-                    u for g in (row.get("gndid") or [])
+                    u for g in (row.get("gnd_ids") or [])
                     if (u := gnd_url(str(g)))
                 ]
                 if gnd_urls:

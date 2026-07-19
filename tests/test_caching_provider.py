@@ -176,7 +176,7 @@ class DisplayCountFlowTest(unittest.TestCase):
 
     def test_flatten_uses_display_count_dict_form(self):
         results = {"wasser": {"Wassermanagement": {
-            "gndid": ["g1"], "count": 1, "display_count": 47, "ddc": set(), "dk": set()}}}
+            "gnd_ids": ["g1"], "count": 1, "display_count": 47, "classifications": {}}}}
         rows = PipelineResultFormatter.flatten_gnd_hits(results)
         self.assertEqual(rows[0]["count"], 47)
 

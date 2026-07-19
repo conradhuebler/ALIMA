@@ -57,8 +57,8 @@ def _flatten_search_results(
     """Flatten KAS ``search_results`` into SharedContext shape.
 
     KAS shape (per :class:`SearchResult`):
-        ``[{search_term: "...", results: {title: {gndid: [...], ddc_codes: [...],
-        count: N, display_count?: M}}}]``
+        ``[{search_term: "...", results: {title: {gnd_ids: [...],
+        classifications: {system: [codes]}, count: N, display_count?: M}}}]``
 
     SharedContext shape:
         - ``gnd_entries``: ``[{title, gnd_id, gnd_ids,
@@ -76,16 +76,19 @@ def _flatten_search_results(
             per_keyword[term].append(title)
             if title in entries_by_title:
                 continue
-            gnd_ids = list(meta.get("gndid", []) or [])
+            gnd_ids = list(meta.get("gnd_ids", []) or [])
             # Carry the frequency back so a reloaded agentic state keeps the
             # real Häufigkeit (``display_count``); dropping it re-zeroed the
             # count on every JSON round-trip. - Claude Generated
-            ddc = list(meta.get("ddc_codes", []) or [])
             entry = {
                 "title": title,
                 "gnd_id": gnd_ids[0] if gnd_ids else "",
                 "gnd_ids": gnd_ids,
-                "classifications": {"ddc": ddc} if ddc else {},
+                "classifications": {
+                    system: list(codes)
+                    for system, codes in (meta.get("classifications") or {}).items()
+                    if codes
+                },
                 "count": meta.get("count", 1),
             }
             if meta.get("display_count") is not None:

@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 from ..core.search_cli import SearchCLI
+from ..core.gnd_search_core import merge_code_entry
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..utils.config_models import PipelineStepConfig, PipelineMode
 from .workers import PipelineWorker
@@ -586,10 +587,11 @@ class SearchTab(QWidget):
                         existing_data["count"], data.get("count", 0)
                     )
 
-                    # Sets vereinigen
-                    existing_data["gndid"].update(data.get("gndid", set()))
-                    existing_data["ddc"].update(data.get("ddc", set()))
-                    existing_data["dk"].update(data.get("dk", set()))
+                    # Sets vereinigen (kanonisch: gnd_ids + classifications)
+                    merge_code_entry(
+                        existing_data, data, code_fields=("gnd_ids",),
+                        count_field="", classifications_field="classifications",
+                    )
 
     def process_results(self, results):
         """Verarbeitet die Suchergebnisse und stellt sie dar"""
@@ -614,7 +616,7 @@ class SearchTab(QWidget):
                     if isinstance(item, dict):
                         # Extract keyword and data from the item
                         keyword = item.get("label", item.get("title", ""))
-                        gnd_id = item.get("gnd_id", item.get("gndid", ""))
+                        gnd_id = item.get("gnd_id", "")
                         count = item.get("count", 1)
 
                         self.logger.info(
@@ -655,7 +657,7 @@ class SearchTab(QWidget):
                     relation = self.determine_relation(keyword, search_term)
 
                     # Ermittle GND-ID (erste aus dem Set oder leer)
-                    gnd_id = next(iter(data.get("gndid", [])), "")
+                    gnd_id = next(iter(data.get("gnd_ids", [])), "")
                     self.logger.debug(f"  Extracted GND-ID: {gnd_id}")
 
                     # Anzahl der Treffer
@@ -1322,7 +1324,7 @@ class SearchTab(QWidget):
                     # Add results to display with manual indicator
                     for keyword, data in results.items():
                         # Extract GND-ID
-                        gnd_ids = data.get('gndid', set())
+                        gnd_ids = data.get('gnd_ids', set())
                         gnd_id = next(iter(gnd_ids), None)
 
                         if not gnd_id:

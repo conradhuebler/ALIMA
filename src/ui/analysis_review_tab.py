@@ -848,7 +848,7 @@ class AnalysisReviewTab(QWidget):
         rows = []
         for result in self.current_analysis.search_results:
             for keyword, data in result.results.items():
-                gnd_ids = data.get("gndid", set())
+                gnd_ids = data.get("gnd_ids", set())
                 rows.append({
                     "search_term": result.search_term,
                     "keyword": keyword,

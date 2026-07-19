@@ -87,14 +87,14 @@ class MainWindowResultsMixin:
                 # Dict format: {search_term: {keyword: data}}
                 for results in analysis_state.search_results.values():
                     for keyword, data in results.items():
-                        gnd_ids = data.get("gndid", set())
+                        gnd_ids = data.get("gnd_ids", set())
                         for gnd_id in gnd_ids:
                             gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
             else:
                 # List[SearchResult] format
                 for search_result in analysis_state.search_results:
                     for keyword, data in search_result.results.items():
-                        gnd_ids = data.get("gndid", set())
+                        gnd_ids = data.get("gnd_ids", set())
                         for gnd_id in gnd_ids:
                             gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
             if gnd_keywords:

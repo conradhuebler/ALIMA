@@ -376,13 +376,15 @@ class NestedFromAggregateTest(unittest.TestCase):
         nested = nested_from_aggregate(agg)
         self.assertEqual(set(nested.keys()), {"wasser", "h2o"})
         w = nested["wasser"]["Wasser"]
-        self.assertEqual(w["gndid"], {"g1"})
-        self.assertEqual(w["ddc"], {"540"})
+        self.assertEqual(w["gnd_ids"], {"g1"})
+        self.assertEqual(w["classifications"], {"ddc": {"540"}})
         self.assertEqual(w["count"], 1)
         self.assertEqual(w["display_count"], 9)
         # Sets are per-term copies (no shared mutation across terms).
-        w["gndid"].add("x")
-        self.assertNotIn("x", nested["h2o"]["Wasser"]["gndid"])
+        w["gnd_ids"].add("x")
+        self.assertNotIn("x", nested["h2o"]["Wasser"]["gnd_ids"])
+        w["classifications"]["ddc"].add("y")
+        self.assertNotIn("y", nested["h2o"]["Wasser"]["classifications"]["ddc"])
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
@@ -445,7 +447,7 @@ class SearchFromRawTest(unittest.TestCase):
         w = nested["wasser"]["Wasser"]
         self.assertEqual(w["count"], 1)           # count-landmine
         self.assertEqual(w["display_count"], 7)   # real count
-        self.assertEqual(w["gndid"], {"g1"})
+        self.assertEqual(w["gnd_ids"], {"g1"})
 
 
 if __name__ == "__main__":

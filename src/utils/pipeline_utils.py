@@ -27,6 +27,7 @@ from ..core.data_models import (
     SearchResult,
 )
 from ..core.search_cli import SearchCLI
+from ..core.gnd_search_core import merge_code_entry
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.search import SearchCapability, enabled_gnd_provider_ids, providers_for_capability
 from ..core.processing_utils import (
@@ -690,7 +691,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
 
                         # Count total GND-IDs found
                         total_gnd_ids = sum(
-                            len(data.get("gndid", set()))
+                            len(data.get("gnd_ids", set()))
                             for data in search_result_dict[concept].values()
                         )
 
@@ -713,19 +714,16 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
 
         try:
             for concept, concept_data in new_results.items():
-                # concept_data is: {keyword: {gndid: set(), ddc: set(), dk: set(), count: int}}
+                # concept_data is: {keyword: {gnd_ids: set(), classifications: {system: set()}, count: int}}
                 for keyword, data in concept_data.items():
                     if concept in merged_results:
                         # Concept already exists as search term - merge at keyword level
                         if keyword in merged_results[concept]:
-                            # Merge GND-IDs, DDC, and DK codes
-                            merged_results[concept][keyword]["gndid"].update(data.get("gndid", set()))
-                            merged_results[concept][keyword]["ddc"].update(data.get("ddc", set()))
-                            merged_results[concept][keyword]["dk"].update(data.get("dk", set()))
-                            # Update count
-                            merged_results[concept][keyword]["count"] = max(
-                                merged_results[concept][keyword].get("count", 0),
-                                data.get("count", 0)
+                            # Merge GND-IDs, classifications, and count via the shared atom
+                            merge_code_entry(
+                                merged_results[concept][keyword], data,
+                                code_fields=("gnd_ids",),
+                                classifications_field="classifications",
                             )
                         else:
                             # New keyword for existing search term - deep copy to isolate
@@ -1055,7 +1053,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         
         for search_term, term_results in search_results.items():
             for subject, data in term_results.items():
-                gnd_ids = data.get("gndid", set())
+                gnd_ids = data.get("gnd_ids", set())
                 if not gnd_ids:  # Subject from catalog without GND-ID
                     catalog_subjects_found += 1
                     
@@ -1063,7 +1061,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                     cached_gnd_ids = self.cache_manager.get_all_gnd_ids_for_keyword(subject)
                     if cached_gnd_ids:
                         # Found in cache - add all GND-IDs
-                        data["gndid"].update(cached_gnd_ids)
+                        data["gnd_ids"].update(cached_gnd_ids)
                         if self.logger:
                             self.logger.debug(f"Cache hit: {subject} -> {len(cached_gnd_ids)} GND-IDs")
                     else:
@@ -1099,7 +1097,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                     if self.logger:
                         total_swb_subjects = sum(len(term_results) for term_results in swb_results.values())
                         total_swb_gnd_ids = sum(
-                            len(data.get("gndid", set()))
+                            len(data.get("gnd_ids", set()))
                             for term_results in swb_results.values()
                             for data in term_results.values()
                         )
@@ -1113,7 +1111,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                             for j, (subject, data) in enumerate(term_results.items()):
                                 if j >= 3:  # Limit to first 3 subjects per term
                                     break
-                                gnd_count = len(data.get("gndid", set()))
+                                gnd_count = len(data.get("gnd_ids", set()))
                                 self.logger.info(f"    - '{subject}': {gnd_count} GND-IDs")
 
                     # Merge SWB results back into original results
@@ -1155,7 +1153,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         
         for swb_term, swb_term_results in swb_results.items():
             for swb_keyword, swb_data in swb_term_results.items():
-                swb_gnd_ids = swb_data.get("gndid", set())
+                swb_gnd_ids = swb_data.get("gnd_ids", set())
                 
                 if swb_gnd_ids:
                     swb_key = swb_keyword.lower()
@@ -1179,9 +1177,12 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                                 if swb_keyword not in original_results[search_term]:
                                     original_results[search_term][swb_keyword] = {
                                         "count": swb_data.get("count", 1),
-                                        "gndid": swb_gnd_ids.copy(),
-                                        "ddc": swb_data.get("ddc", set()),
-                                        "dk": swb_data.get("dk", set())
+                                        "gnd_ids": swb_gnd_ids.copy(),
+                                        "classifications": {
+                                            system: set(codes)
+                                            for system, codes in (swb_data.get("classifications") or {}).items()
+                                            if codes
+                                        },
                                     }
                                     swb_matches += len(swb_gnd_ids)
                                     if self.logger:
@@ -1189,11 +1190,13 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                                 else:
                                     # Update existing SWB subject entry
                                     existing_data = original_results[search_term][swb_keyword]
-                                    old_count = len(existing_data["gndid"])
-                                    existing_data["gndid"].update(swb_gnd_ids)
-                                    existing_data["ddc"].update(swb_data.get("ddc", set()))
-                                    existing_data["dk"].update(swb_data.get("dk", set()))
-                                    new_count = len(existing_data["gndid"])
+                                    old_count = len(existing_data["gnd_ids"])
+                                    merge_code_entry(
+                                        existing_data, swb_data,
+                                        code_fields=("gnd_ids",), count_field="",
+                                        classifications_field="classifications",
+                                    )
+                                    new_count = len(existing_data["gnd_ids"])
                                     
                                     if new_count > old_count:
                                         added_gnd_ids = new_count - old_count
@@ -1207,10 +1210,13 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                         target_term = swb_term if swb_term in original_results else list(original_results.keys())[0]
                         if swb_keyword not in original_results[target_term]:
                             original_results[target_term][swb_keyword] = {
-                                "count": swb_data.get("count", 1), 
-                                "gndid": swb_gnd_ids.copy(),
-                                "ddc": swb_data.get("ddc", set()),
-                                "dk": swb_data.get("dk", set())
+                                "count": swb_data.get("count", 1),
+                                "gnd_ids": swb_gnd_ids.copy(),
+                                "classifications": {
+                                    system: set(codes)
+                                    for system, codes in (swb_data.get("classifications") or {}).items()
+                                    if codes
+                                },
                             }
                             swb_matches += len(swb_gnd_ids)
                             if self.logger:
@@ -1289,7 +1295,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         all_gnd_ids = set()
         for results in search_results.values():
             for keyword, data in results.items():
-                gnd_ids = data.get("gndid", set())
+                gnd_ids = data.get("gnd_ids", set())
                 all_gnd_ids.update(gnd_ids)
 
         # Batch query: retrieve all GND entries in optimized batches instead of N individual queries
@@ -1304,7 +1310,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
 
         for results in search_results.values():
             for keyword, data in results.items():
-                gnd_ids = data.get("gndid", set())
+                gnd_ids = data.get("gnd_ids", set())
 
                 # Handle keywords without GND-IDs (user-provided plain text) - Claude Generated
                 if not gnd_ids:

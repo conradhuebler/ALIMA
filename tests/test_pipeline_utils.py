@@ -112,10 +112,10 @@ class TestPipelineStepExecutor(unittest.TestCase):
         mock_search_cli_instance.__enter__.return_value = mock_search_cli_instance
         nested = {
             "Machine Learning": {
-                "Maschinelles Lernen": {"count": 100, "gndid": {"4037877-9"}},
+                "Maschinelles Lernen": {"count": 100, "gnd_ids": {"4037877-9"}},
             },
             "Artificial Intelligence": {
-                "Künstliche Intelligenz": {"count": 120, "gndid": {"4033597-0"}},
+                "Künstliche Intelligenz": {"count": 120, "gnd_ids": {"4033597-0"}},
             },
         }
         # Default path is now search_from_raw (WP2 P4.4b, raw-derived); both are
@@ -151,8 +151,8 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertIn("Artificial Intelligence", search_results)
         self.assertIn("Maschinelles Lernen", search_results["Machine Learning"])
         self.assertIn("Künstliche Intelligenz", search_results["Artificial Intelligence"])
-        self.assertEqual(search_results["Machine Learning"]["Maschinelles Lernen"]["gndid"], {"4037877-9"})
-        self.assertEqual(search_results["Artificial Intelligence"]["Künstliche Intelligenz"]["gndid"], {"4033597-0"})
+        self.assertEqual(search_results["Machine Learning"]["Maschinelles Lernen"]["gnd_ids"], {"4037877-9"})
+        self.assertEqual(search_results["Artificial Intelligence"]["Künstliche Intelligenz"]["gnd_ids"], {"4033597-0"})
 
     def test_execute_final_keyword_analysis(self):
         """Test the final keyword analysis step of the pipeline."""
@@ -160,11 +160,11 @@ class TestPipelineStepExecutor(unittest.TestCase):
         original_abstract = "This is an abstract about environmental pollution."
         search_results = {
             "environmental pollution": {
-                "Umweltverschmutzung": {"count": 50, "gndid": {"4061694-5"}},
+                "Umweltverschmutzung": {"count": 50, "gnd_ids": {"4061694-5"}},
             },
             "cadmium contamination": {
-                "Cadmium": {"count": 30, "gndid": {"4009274-4"}},
-                "Kontamination": {"count": 20, "gndid": {"4032184-0"}},
+                "Cadmium": {"count": 30, "gnd_ids": {"4009274-4"}},
+                "Kontamination": {"count": 20, "gnd_ids": {"4032184-0"}},
             },
         }
         model = "final-model"
@@ -419,8 +419,8 @@ class TestPipelineStepExecutor(unittest.TestCase):
         
         # Mock SearchResult objects
         mock_search_results_dict = {
-            "term1": {"kw1": {"gndid": {"1"}}},
-            "term2": {"kw2": {"gndid": {"2"}}},
+            "term1": {"kw1": {"gnd_ids": {"1"}}},
+            "term2": {"kw2": {"gnd_ids": {"2"}}},
         }
         
         # Mock LlmKeywordAnalysis objects
@@ -507,8 +507,8 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
     def test_flatten_gnd_hits_dict_form(self):
         search_results = {
             "Halbleiter": {
-                "Halbleiter": {"gndid": {"4129772-7"}, "count": 42},
-                "Halbleitertechnik": {"gndid": {"4023744-8"}, "count": 12},
+                "Halbleiter": {"gnd_ids": {"4129772-7"}, "count": 42},
+                "Halbleitertechnik": {"gnd_ids": {"4023744-8"}, "count": 12},
             }
         }
         rows = self.fmt.flatten_gnd_hits(search_results)
@@ -520,8 +520,8 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
 
     def test_flatten_gnd_hits_dedups_by_gnd_id(self):
         search_results = {
-            "A": {"Begriff": {"gndid": {"111-1"}, "count": 5}},
-            "B": {"Begriff": {"gndid": {"111-1"}, "count": 9}},
+            "A": {"Begriff": {"gnd_ids": {"111-1"}, "count": 5}},
+            "B": {"Begriff": {"gnd_ids": {"111-1"}, "count": 9}},
         }
         rows = self.fmt.flatten_gnd_hits(search_results)
         self.assertEqual(len(rows), 1)
@@ -542,13 +542,13 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
             def __init__(self, term, results):
                 self.search_term = term
                 self.results = results
-        srs = [_SR("Kw", {"Label": {"gndid": ["999-9"], "count": 1}})]
+        srs = [_SR("Kw", {"Label": {"gnd_ids": ["999-9"], "count": 1}})]
         rows = self.fmt.flatten_gnd_hits(srs)
         self.assertEqual(rows[0]["gnd_id"], "999-9")
         self.assertEqual(rows[0]["search_terms"], ["Kw"])
 
     def test_flatten_gnd_hits_skips_missing_ids(self):
-        rows = self.fmt.flatten_gnd_hits({"A": {"X": {"gndid": set(), "count": 0}}})
+        rows = self.fmt.flatten_gnd_hits({"A": {"X": {"gnd_ids": set(), "count": 0}}})
         self.assertEqual(rows, [])
 
     # --- extract_selected_gnd_keys -------------------------------------
