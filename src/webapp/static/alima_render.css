@@ -51,6 +51,17 @@
   max-width: 75%; word-wrap: break-word;
 }
 #log .stream { white-space: pre-wrap; }
+/* Incremental markdown preview: once the formatter takes over, block
+ * elements carry their own whitespace handling; only the raw-token tail
+ * stays pre-wrap. Blinking cursor while the bubble is live. */
+#log .stream--md { white-space: normal; }
+#log .stream .stream-tail { white-space: pre-wrap; }
+#log .stream--live::after {
+  content: '\258A';
+  color: #8be9fd;
+  animation: alima-cursor-blink 1s steps(1) infinite;
+}
+@keyframes alima-cursor-blink { 50% { opacity: 0; } }
 #log .rendered table { border-collapse: collapse; margin: 4px 0; }
 #log .rendered td, #log .rendered th { border: 1px solid #444; padding: 2px 6px; }
 #log .rendered pre { background: #1a2228; padding: 6px; border-radius: 4px; overflow-x: auto; }

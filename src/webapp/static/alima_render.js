@@ -79,24 +79,66 @@ function openAssistant(header) {
   h.className = 'ahdr';
   h.innerHTML = header;
   var s = document.createElement('div');
-  s.className = 'stream';
+  s.className = 'stream stream--live';
   wrap.appendChild(h);
   wrap.appendChild(s);
   _log().appendChild(wrap);
   curStream = s;
+  curStreamBuf = '';
+  _cancelMdPreview();
+  maybeScroll();
+}
+/* Incremental markdown preview while the assistant streams (Chat-UX WP,
+ * July 2026). Tokens land instantly as plain text in a trailing
+ * .stream-tail node; a throttled re-render pushes the accumulated buffer
+ * through alimaFormatStreamBlockHtml (escaped, closed-form inlines/tables
+ * only — unclosed constructs stay literal). The Python-side
+ * finalizeAssistant() pass (markdown-it) remains AUTHORITATIVE: link
+ * classification (<<CAT:>>/external-link trust) is a Python-side decision
+ * and appears only at finalize, deliberately never in this preview.
+ * Re-rendering is a pure function of the buffer, so WS replays reproduce
+ * the same DOM (seq-dedupe unaffected). */
+var curStreamBuf = '';
+var mdPreviewTimer = null;
+var MD_PREVIEW_INTERVAL_MS = 120;
+var MD_PREVIEW_MAX_CHARS = 200000; // beyond this: plain append only
+function _cancelMdPreview() {
+  if (mdPreviewTimer) { clearTimeout(mdPreviewTimer); mdPreviewTimer = null; }
+}
+function _streamTail() {
+  var tail = curStream.lastElementChild;
+  if (!tail || tail.className !== 'stream-tail') {
+    tail = document.createElement('span');
+    tail.className = 'stream-tail';
+    curStream.appendChild(tail);
+  }
+  return tail;
+}
+function _renderMdPreview() {
+  mdPreviewTimer = null;
+  if (!curStream) return;
+  curStream.classList.add('stream--md');
+  curStream.innerHTML = window.alimaFormatStreamBlockHtml(curStreamBuf);
+  _streamTail();  // fresh (empty) tail for the tokens after this render
   maybeScroll();
 }
 function appendToken(text) {
   if (!curStream) return;
-  curStream.appendChild(document.createTextNode(text));
+  curStreamBuf += text;
+  _streamTail().appendChild(document.createTextNode(text));
+  if (curStreamBuf.length <= MD_PREVIEW_MAX_CHARS && !mdPreviewTimer) {
+    mdPreviewTimer = setTimeout(_renderMdPreview, MD_PREVIEW_INTERVAL_MS);
+  }
   maybeScroll();
 }
 function finalizeAssistant(html) {
   if (!curStream) return;
+  _cancelMdPreview();
   curStream.className = 'rendered';
   curStream.innerHTML = html;
   _ensureLinksNewTab(curStream);
   curStream = null;
+  curStreamBuf = '';
   maybeScroll();
 }
 function openStreamBlock(id, summary) {
@@ -146,6 +188,8 @@ function clearLog() {
   if (el) el.innerHTML = '';
   curStream = null;
   curStreamBlock = null;
+  curStreamBuf = '';
+  _cancelMdPreview();
 }
 function alimaT(key, fallback) {
   // UI-chrome i18n: the embedding page injects window.__alimaI18n (the js.*
