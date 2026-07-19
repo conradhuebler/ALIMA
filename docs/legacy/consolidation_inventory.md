@@ -1,7 +1,7 @@
 # Konsolidierungs-Inventar
 
 **Was geht schon, was wiederverwendbar?** Vermeidet Neubau wo
-existierender Code Pattern liefert. Quellen: [`audit_findings.md`](audit_findings.md).
+existierender Code Pattern liefert. Quellen: [`audit_findings.md`](../audit_findings.md).
 
 ## A. Backend-Bausteine die direkt tragen
 

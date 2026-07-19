@@ -39,19 +39,19 @@ state shape and `PipelineStepExecutor` logic.
 - [`webapp_session_history.md`](webapp_session_history.md) — Webapp
   session/recovery model.
 - [`configuration.md`](configuration.md) — Config file locations + format.
-- [`llm_reproducibility_analysis.md`](llm_reproducibility_analysis.md) —
+- [`llm_reproducibility_analysis.md`](legacy/llm_reproducibility_analysis.md) —
   LLM determinism analysis (Nov 2025).
 
 ## Provider Strategy
 
 Analysis-only (not yet implemented). **Teilweise überholt** durch
-[`wp_detailed_plans.md` WP11](wp_detailed_plans.md) — Details siehe
-Status-Update in `provider_strategy_summary.md`.
+[`wp_detailed_plans.md` WP11](legacy/wp_detailed_plans.md) — Details siehe
+Status-Update in `legacy/provider_strategy_summary.md`.
 
-- [`provider_strategy_summary.md`](provider_strategy_summary.md) — Executive Summary + Status-Update
-- [`provider_strategy_analysis.md`](provider_strategy_analysis.md)
-- [`provider_strategy_technical_spec.md`](provider_strategy_technical_spec.md)
-- [`provider_strategy_migration_guide.md`](provider_strategy_migration_guide.md)
+- [`provider_strategy_summary.md`](legacy/provider_strategy_summary.md) — Executive Summary + Status-Update
+- [`provider_strategy_analysis.md`](legacy/provider_strategy_analysis.md)
+- [`provider_strategy_technical_spec.md`](legacy/provider_strategy_technical_spec.md)
+- [`provider_strategy_migration_guide.md`](legacy/provider_strategy_migration_guide.md)
 
 ## Legacy / Archived
 

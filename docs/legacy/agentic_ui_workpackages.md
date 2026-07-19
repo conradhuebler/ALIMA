@@ -3,7 +3,7 @@
 > **Update**: WP11 (Provider-Portabilität) hinzugefügt nach Operator-Hinweis
 > "Pipeline/Agent getestet, optimiert für eines [Modell], muss aber mit
 > verschiedenen funktionieren". Audit-Findings in
-> [`audit_findings.md`](audit_findings.md).
+> [`audit_findings.md`](../audit_findings.md).
 
 **Status**: Planungsdokument. **Keine Implementation.** Output dieses
 Dokuments = klare WP-Liste mit Scope, Abhängigkeiten, Decision-Points,
@@ -526,7 +526,7 @@ Chrome nicht teilbar. Macht den Frontend-/Transport-Teil von WP4 + WP9 konkret.
 **Dependency**: WP4 (Render-Slots), WP9 (Tier-Modell — welche Events spiegelt die
 Webapp?), WP3 (Output-Schema).
 
-**Output**: [`wp12_unified_render_layer.md`](wp12_unified_render_layer.md) —
+**Output**: [`wp12_unified_render_layer.md`](../wp12_unified_render_layer.md) —
 3-Schichten-Architektur, Event-Protokoll, Teil-Pakete WP12.1–.4, Risiken,
 Akzeptanzkriterien (~5–7 PT). **Stand 2026-06-10**: WP12.1–.4 implementiert
 (uncommitted, headless verifiziert); Restarbeiten als WP12.5 in der Spec
@@ -551,7 +551,7 @@ Outage-Caching-Bugs).
 **Dependency**: WP12 committet (§9.1 der WP12-Spec) — sonst kollidieren
 Löschungen mit dem offenen Worktree.
 
-**Output**: [`wp13_cleanup.md`](wp13_cleanup.md) — verifizierte Arbeitsliste
+**Output**: [`wp13_cleanup.md`](../wp13_cleanup.md) — verifizierte Arbeitsliste
 mit grep-Belegen, Akzeptanzkriterien, ~1–2 PT.
 
 ---
@@ -605,7 +605,7 @@ mehreren WPs auf:
 
 ## Related
 
-- [`agentic_workflow.md`](agentic_workflow.md)
-- [`workflow_yaml_spec.md`](workflow_yaml_spec.md)
+- [`agentic_workflow.md`](../agentic_workflow.md)
+- [`workflow_yaml_spec.md`](../workflow_yaml_spec.md)
 - [`agentic_chat_plan.md`](agentic_chat_plan.md)
 - [`ui_requirements_catalog.md`](ui_requirements_catalog.md)

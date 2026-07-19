@@ -139,13 +139,6 @@ When documenting implemented features, the AI must apply these rules:
   `ResultItem`). Docs: [`docs/wp_gnd_counter_divergence.md`](docs/wp_gnd_counter_divergence.md),
   [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md) (Findings +
   Decision point). Beide verifiziert, **kein Code geschrieben.**
-- **Doku-Drift / Vision-Standortbestimmung** (July 10, aus Vision-Analyse): mehrere
-  Future-Tasks unten sind faktisch erledigt, aber nicht abgeräumt — Chat-Agent P-δ.4→P-ι
-  (`docs/chat_agent_roadmap.md`, alle ✅ Mai 2026) steht noch als Future #6; WP13 (#9)
-  DONE `93ccc19`; Search-Plugins (#10) done bis Click-Test. `chat_agent_roadmap.md` selbst
-  stale: „Anthropic/Gemini deferred" vs. #7 „Anthropic done, nur Gemini offen". Größter
-  *unbegonnener* Architektur-Vision-Punkt: Agentic Hauptagent (#5, `main_agent:`-Block).
-  Größter *inhaltlicher* Gap: Daten-Achse (Eintrag oben). Aufräumen ist billig, lohnt sich.
 - **WP Lookup-Plugin-Integration (Pipeline+Agent) — Phase D** ✅ CODE-COMPLETE
   (July 10): rvk_api/k10plus/dnb liefen bisher nur im Chat-Agent; jetzt *ein*
   Aufrufpfad je Quelle. Geteilter `build_lookup(config,id)`
@@ -185,9 +178,10 @@ When documenting implemented features, the AI must apply these rules:
   gelöscht (`grep "MetaSuggester("`→0). Live gegen lobid verifiziert (Klassik
   live/merge + raw-first, MCP-Tools, agentisches `aggregate_gnd_results`); Suite
   1152 grün. Defaults: lobid+swb zero-config, catalog/finc `is_available()`-gated
-  Blueprints, gnd_local offline. **Residual:** finc-MCP-Handler bleibt
-  `CatalogConfig`-basiert. **Offen:** Operator-Click-Test `find_keywords` (GUI nicht
-  headless verifizierbar). Doc: [`AIChangelog.md`](AIChangelog.md) (July 8).
+  Blueprints, gnd_local offline. (Residual finc-MCP-Handler: seit WP P7 auf
+  Instanzen umgestellt, `CatalogConfig` existiert nicht mehr.) **Offen:**
+  Operator-Click-Test `find_keywords` (GUI nicht headless verifizierbar).
+  Doc: [`AIChangelog.md`](AIChangelog.md) (July 8).
 - **WP Plugin-Blueprints + Security-Härtung** ✅ CODE-COMPLETE (July 6): alle 6
   Built-in-Provider sind self-contained, kopierbare Plugin-Dirs
   (`src/core/search/providers/<name>/` mit plugin.toml + README); Loader lädt
@@ -204,7 +198,8 @@ When documenting implemented features, the AI must apply these rules:
   Leer-Schnittmengen-Fallback in `execute_gnd_search`, E2E
   `test_all_external_plugins_poc.py` (agentisch+klassisch grün). Grenzen:
   Built-in-*Klassen* bleiben registriert (nur Instanzen/Tools aus), WP2-Raw-Cache
-  + GUI-`find_keywords` weiter auf `lobid`/`swb` verdrahtet. Offen:
+  weiter auf `lobid`/`swb` verdrahtet (`find_keywords` liest seit July 8 die
+  Instanzliste, lobid+swb nur noch Fallback). Offen:
   Operator-GUI-Sign-off (`examples/plugins_poc/README.md` §Verifikation).
   Guide: [`docs/plugin_authoring.md`](docs/plugin_authoring.md) §10.
 - **WP Institutional Bundles** ✅ (July 6): `alima bundle
@@ -237,7 +232,6 @@ When documenting implemented features, the AI must apply these rules:
   **swb/catalog** (+ catalog_titles) — dort echte Per-Record-Reduktion; Pool braucht
   `{count,gndid,ddc,dk}`, daher volles `record` *zusätzlich*. Spec: [`docs/wp_tool_data_passthrough.md`](docs/wp_tool_data_passthrough.md).
 - **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline F-3 Search-Provider-Plugins + F-4 „Häufigkeit zeigt 1" ✅ DONE (June 29); F-6 webapp `app.py`-Split 2537→240 ✅ DONE (June 30, sandbox-verifiziert); F-5 GUI-God-Files ✅ CODE-COMPLETE (June 30, alle 5 gesplittet, statisch verifiziert — nur Operator-Click-Test-Sign-off offen). Offen: F-5/F-7 nur noch Operator-Click-Test (Refactor war nicht GUI-gated, nur das Sign-off), F-8 opportunistisch (decide-on-touch). Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
-- **TESTED — Kern-Konvergenz klassisch↔agentisch (WP-K1–K4)**: mapping-first GND-Suche in MCP-Tools, `verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating, source_count-Ranking. Details: `AIChangelog.md` (June 10, 2026). Operator-Vergleichslauf June 29, 2026: beide Pfade laufen durch, reasonable results (klassisch≠agentisch by design). → bereit für APPROVED (Operator-Entscheid: in Changelog verschieben + hier entfernen).
 
 ## [Instructions Block — Operator-Defined Tasks]
 
@@ -254,11 +248,10 @@ When documenting implemented features, the AI must apply these rules:
 3. **Batch Enhancement**: Extended image analysis, URL scraping.
 4. **Performance**: Connection pooling, result pagination, memory optimization.
 5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools.
-6. **Chat-Agent Phases P-δ.4 → P-ι**: Mini-Polish + UnifiedMessageWidget (shared renderer for chat + pipeline-logger) + Mutation Tools + Pipeline-Orchestration + Input-Beschaffung (DOI/URL/PDF/Image) + Export + Headless/CLI/API. Permission-Layer via `ChatConfig.autonomous_pipeline` (default explicit, confirmation dialog for destructive ops). Roadmap: [`docs/chat_agent_roadmap.md`](docs/chat_agent_roadmap.md).
-7. **Streaming-with-Tools Backend** (P-δ.5): ✅ Ollama, OpenAI, Anthropic stream text deltas when tools are active (`_generate_*_with_tools` in `llm_service.py`). Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers). Renderer is now QWebEngineView-based (`src/ui/web_log_view.py` `WebLogView`) — native `<details>` collapse, live token append; see `AIChangelog.md` (June 9, 2026).
-8. **WP12 — Unified Render Layer (GUI ↔ Webapp)**: shared CSS+JS render layer + JSON render-event protocol; WP12.1–.4 committed in `9552d93`. Remaining work tracked as **WP12.5** §9.2–.5 (visual verification, error-event rendering, 2 operator decisions on webapp double-display & agentic tier). Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md).
-9. **WP13 — Cleanup**: ✅ DONE (commit `93ccc19`) — dead modules + dead test + tracked backups + `workflows/legacy/` removed, sub-CLAUDE.md hygiene. Remaining: one-time local SWB cache purge (`swb_gnd_cache.json`, operator, no code). Spec: [`docs/wp13_cleanup.md`](docs/wp13_cleanup.md).
-10. **Search-Provider-Plugins**: ✅ DONE (June 29, P1+P2+P3) — capability-based `SearchProvider` + `@register_provider` registry (`src/core/search/`) replacing `SuggesterType`/MetaSuggester if-elif; `CachingProvider` wrapper (F-4 `display_count`); MCP tools generated from `ProviderToolSpec`; finc in the standard; `SearchProviderConfig` + GUI selector. Spec: [`docs/search_provider_plugins.md`](docs/search_provider_plugins.md). Remaining: GUI click-test + agentic verification lauf.
+6. **Streaming-with-Tools Backend** (P-δ.5): Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers); Ollama/OpenAI/Anthropic ✅ stream with tools. Renderer is QWebEngineView-based (`src/ui/web_log_view.py`); see `AIChangelog.md` (June 9, 2026).
+7. **WP12 — Unified Render Layer (GUI ↔ Webapp)**: shared CSS+JS render layer + JSON render-event protocol; WP12.1–.4 committed in `9552d93`. Remaining work tracked as **WP12.5** §9.2–.5 (visual verification, error-event rendering, 2 operator decisions on webapp double-display & agentic tier). Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md).
+
+(Erledigt + abgeräumt July 19: Chat-Agent-Phasen P-δ.4→P-ι ✅ Mai 2026, Roadmap `docs/chat_agent_roadmap.md`; WP13-Cleanup ✅ `93ccc19` inkl. SWB-Cache-Purge; Search-Provider-Plugins ✅ June 29 — Details im `AIChangelog.md`.)
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.

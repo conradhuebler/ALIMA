@@ -8,7 +8,7 @@ sind **per grep verifiziert** (Stand: commit `dc05125`), nicht aus Doku
 sich geändert haben).
 
 **Einordnung**: schließt an die WP1–WP12-Serie an
-([`agentic_ui_workpackages.md`](agentic_ui_workpackages.md)). Reines
+([`agentic_ui_workpackages.md`](legacy/agentic_ui_workpackages.md)). Reines
 Hygiene-Paket: **kein** Verhaltenswechsel, keine Restrukturierung (die
 utils/core/suggesters-Konsolidierung aus der Vision ist ein eigenes,
 größeres Thema und gehört NICHT hierher).

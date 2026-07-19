@@ -8,7 +8,7 @@ Verifikations-Reads). Telemetrie nicht vorhanden — User-Aussagen
 müssen Sektion 7 schließen.
 
 **Querverweise**:
-- [`audit_findings.md`](audit_findings.md) — 17 punktuelle Vorbefunde.
+- [`audit_findings.md`](../audit_findings.md) — 17 punktuelle Vorbefunde.
 - [`consolidation_inventory.md`](consolidation_inventory.md) —
   wiederverwendbare Bausteine (Sektion B = UI).
 - [`wp_detailed_plans.md`](wp_detailed_plans.md) — WP-Pläne, die

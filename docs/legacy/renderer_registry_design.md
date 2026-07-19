@@ -7,13 +7,13 @@ Registry-Skizze*. **Pseudo-Code only — keine Implementation.** Die
 Migration in produktiven Code erfolgt in WP10.
 
 **Methode**: Synthese von
-- WP3-Slot-Vokabular ([`workflow_output_schemas.md`](workflow_output_schemas.md))
+- WP3-Slot-Vokabular ([`workflow_output_schemas.md`](../workflow_output_schemas.md))
 - bestehendem Registry-Pattern in [`registry.py`](../src/core/agents/registry.py)
 - bestehender Render-Logik (`AnalysisReviewTab`, `AgenticContextWidget`,
   diverse `setHtml`-Aufrufe).
 
 **Querverweise**:
-- [`workflow_output_schemas.md`](workflow_output_schemas.md) — Slot-Vokabular (WP3).
+- [`workflow_output_schemas.md`](../workflow_output_schemas.md) — Slot-Vokabular (WP3).
 - [`wp_detailed_plans.md`](wp_detailed_plans.md) WP4 — Soll-Definition.
 - [`agentic_ui_workpackages.md`](agentic_ui_workpackages.md) WP4 — frühere Skizze.
 - [`audit_tab_inventory.md`](audit_tab_inventory.md) — AnalysisReviewTab-Audit (WP1).

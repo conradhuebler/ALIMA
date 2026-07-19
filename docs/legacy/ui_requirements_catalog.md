@@ -283,6 +283,6 @@ Tool-Set ist auf `KeywordAnalysisState` + ALIMA-Pipeline-Felder zugeschnitten. B
 
 ## Related
 
-- [`agentic_workflow.md`](agentic_workflow.md) — Backend, das die UI bedient.
+- [`agentic_workflow.md`](../agentic_workflow.md) — Backend, das die UI bedient.
 - [`agentic_chat_plan.md`](agentic_chat_plan.md) — Chat-Plan, hat UI-Berührung in Phase 4 + 7.
 - [`legacy/ui_restructuring_2025.md`](legacy/ui_restructuring_2025.md) — vorherige Restrukturierung (Service-Layer-Unification 2025). War backend-fokussiert, hat UI-Wildwuchs nicht reduziert.

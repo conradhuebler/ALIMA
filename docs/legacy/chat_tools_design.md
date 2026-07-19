@@ -16,14 +16,14 @@ ChatWorker), Cross-Read agentic_chat_plan.md MVP-Phasen, WP3 Slot-
 Vokabular für Discovery-Mechanik.
 
 **Querverweise**:
-- [`workflow_output_schemas.md`](workflow_output_schemas.md) (WP3) —
+- [`workflow_output_schemas.md`](../workflow_output_schemas.md) (WP3) —
   Slot-Vokabular für Tool-Discovery.
-- [`state_sync_design.md`](state_sync_design.md) (WP6) — Mutations-API
+- [`state_sync_design.md`](../state_sync_design.md) (WP6) — Mutations-API
   + EventBus für Schreib-Tools.
 - [`provider_portability_design.md`](provider_portability_design.md)
   (WP11) — Chat-Provider-Default.
 - [`agentic_chat_plan.md`](agentic_chat_plan.md) — MVP-Phasen 1-7.
-- [`audit_findings.md`](audit_findings.md) — Audit-Finding S5
+- [`audit_findings.md`](../audit_findings.md) — Audit-Finding S5
   (Read-Only-Modus), Finding 14 (AgentLoop multi-turn).
 - [`wp_detailed_plans.md`](wp_detailed_plans.md) WP7 — Soll-Definition.
 

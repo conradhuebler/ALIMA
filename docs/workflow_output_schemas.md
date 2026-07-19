@@ -2,17 +2,17 @@
 
 **Status**: Faktenbasis-Dokument für T1-Entscheidung **„Render-Slot-
 Vokabular fixiert"**. Output von WP3 aus
-[`wp_detailed_plans.md`](wp_detailed_plans.md).
+[`wp_detailed_plans.md`](legacy/wp_detailed_plans.md).
 
 **Methode**: YAML-Inspektion aller 6 aktiven Workflows + Code-
 Inspektion von SharedContext, register-fns, MCP-Tool-Registry und
 JSONPath-Resolver.
 
 **Querverweise**:
-- [`audit_tab_inventory.md`](audit_tab_inventory.md) — Strukturvorbild.
-- [`research_classic_vs_agentic.md`](research_classic_vs_agentic.md)
+- [`audit_tab_inventory.md`](legacy/audit_tab_inventory.md) — Strukturvorbild.
+- [`research_classic_vs_agentic.md`](legacy/research_classic_vs_agentic.md)
   — WP2-Output-Feld-Diff.
-- [`wp_detailed_plans.md`](wp_detailed_plans.md) WP3 — Soll-Definition.
+- [`wp_detailed_plans.md`](legacy/wp_detailed_plans.md) WP3 — Soll-Definition.
 - [`agentic_workflow.md`](agentic_workflow.md),
   [`workflow_yaml_spec.md`](workflow_yaml_spec.md) — Workflow-Details.
 
@@ -214,7 +214,7 @@ Liefert Felder als direkter Schreiber in `KeywordAnalysisState` (kein
 | `repetition_meta` | `slot:raw_json` (Vorschlag eigener `slot:repetition_warning`) | classic-only |
 | `dk_statistics` (= `dk_catalog_stats` befüllt) | `slot:raw_json` (Vorschlag eigener `slot:dk_statistics_panel`) | classic-only |
 
-Vollständige Diff-Tabelle in [`research_classic_vs_agentic.md`](research_classic_vs_agentic.md)
+Vollständige Diff-Tabelle in [`research_classic_vs_agentic.md`](legacy/research_classic_vs_agentic.md)
 Sektion 1.
 
 ## 5. Tool-Inventar-Matrizen
@@ -370,7 +370,7 @@ Registry-Mapping + Tests). Implementation NICHT in WP3.
 ## 8. Decision-Point T1
 
 T1 = „Render-Slot-Vokabular fixiert" aus
-[`agentic_ui_workpackages.md`](agentic_ui_workpackages.md)
+[`agentic_ui_workpackages.md`](legacy/agentic_ui_workpackages.md)
 Sektion 2.
 
 Konkretes WP3-Deliverable für T1:

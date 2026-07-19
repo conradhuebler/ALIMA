@@ -438,7 +438,7 @@ confirmation** before mutation. Adds:
 
 ## Related docs
 
-- [`agentic_workflow.md`](agentic_workflow.md) — v4 architecture (same
+- [`agentic_workflow.md`](../agentic_workflow.md) — v4 architecture (same
   AgentLoop / ToolRegistry stack the chat will reuse).
-- [`workflow_yaml_spec.md`](workflow_yaml_spec.md) — registered tool
+- [`workflow_yaml_spec.md`](../workflow_yaml_spec.md) — registered tool
   functions overview.

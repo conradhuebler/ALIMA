@@ -388,7 +388,7 @@ class MainWindow(
                 "• 🔍 GND-Suche + 📚 UB-Katalog → „Suche"
                 " mit Quellen-Picker (GND/SWB/Lobid oder UB-Katalog/DK).\n"
                 "• 🧬 Workflow-Picker jetzt prominent im Pipeline-Header.\n\n"
-                "Details: docs/migration_roadmap.md — §P-θ.",
+                "Details: docs/legacy/migration_roadmap.md — §P-θ.",
             )
             config.ui_config.ptheta_banner_seen = True
             self.config_manager.save_config(config)

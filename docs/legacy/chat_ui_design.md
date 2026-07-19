@@ -17,7 +17,7 @@ Webapp-WS-Endpoint), WP7 (Tools), WP6 (EventBus), WP11 (Provider).
 **Querverweise**:
 - [`chat_tools_design.md`](chat_tools_design.md) (WP7) — Tool-
   Architektur, Schreib-Tools, ChatAgentWorker.
-- [`state_sync_design.md`](state_sync_design.md) (WP6) — Mutations-API
+- [`state_sync_design.md`](../state_sync_design.md) (WP6) — Mutations-API
   + EventBus für `proposal_*`-Events.
 - [`provider_portability_design.md`](provider_portability_design.md)
   (WP11) — Chat-Provider-Default + Capability-Check.

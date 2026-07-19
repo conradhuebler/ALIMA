@@ -2,24 +2,24 @@
 
 **Status**: Faktenbasis-Dokument für T2-Decision **„EventBus-Pattern
 fix"**. Output von WP6 aus
-[`wp_detailed_plans.md`](wp_detailed_plans.md). **Pseudo-Code only —
+[`wp_detailed_plans.md`](legacy/wp_detailed_plans.md). **Pseudo-Code only —
 keine Implementation.** Implementierung erfolgt in WP10.
 
 **Methode**: Code-Inspektion (`KeywordAnalysisState`, `SharedContext`,
 `PipelineManager` + alle Mutations-Sites, bestehende `pyqtSignal`-
 Pattern) plus Audit-Finding 5
 ([`audit_findings.md`](audit_findings.md)) und
-[`agentic_chat_plan.md`](agentic_chat_plan.md) Sek 7.
+[`agentic_chat_plan.md`](legacy/agentic_chat_plan.md) Sek 7.
 
 **Querverweise**:
-- [`audit_tab_inventory.md`](audit_tab_inventory.md) (WP1)
-- [`research_classic_vs_agentic.md`](research_classic_vs_agentic.md) (WP2)
+- [`audit_tab_inventory.md`](legacy/audit_tab_inventory.md) (WP1)
+- [`research_classic_vs_agentic.md`](legacy/research_classic_vs_agentic.md) (WP2)
 - [`workflow_output_schemas.md`](workflow_output_schemas.md) (WP3)
-- [`renderer_registry_design.md`](renderer_registry_design.md) (WP4)
-- [`provider_portability_design.md`](provider_portability_design.md) (WP11)
-- [`agentic_chat_plan.md`](agentic_chat_plan.md) — Sek 7 für
+- [`renderer_registry_design.md`](legacy/renderer_registry_design.md) (WP4)
+- [`provider_portability_design.md`](legacy/provider_portability_design.md) (WP11)
+- [`agentic_chat_plan.md`](legacy/agentic_chat_plan.md) — Sek 7 für
   `last_shared_context`-Retention.
-- [`wp_detailed_plans.md`](wp_detailed_plans.md) WP6 — Soll-Definition.
+- [`wp_detailed_plans.md`](legacy/wp_detailed_plans.md) WP6 — Soll-Definition.
 
 ## 1. Executive Summary
 
@@ -89,7 +89,7 @@ Heute: `SharedContext` wird nach Lauf verworfen → Chat hat keinen
 Zugriff auf Raw-`gnd_entries` (1000 Items), Chunk-Responses,
 Tool-Result-Cache.
 
-[`docs/agentic_chat_plan.md`](agentic_chat_plan.md) Sek 7 schlägt vor,
+[`docs/legacy/agentic_chat_plan.md`](legacy/agentic_chat_plan.md) Sek 7 schlägt vor,
 `PipelineManager.last_shared_context` als
 Read-Only-Attribut zu exponieren. **WP6 übernimmt diese Empfehlung**:
 - Property `PipelineManager.last_shared_context: Optional[SharedContext]`

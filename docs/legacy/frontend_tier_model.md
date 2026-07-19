@@ -13,11 +13,11 @@ Telemetrie.
   Webapp-Endpoints, CLI-Mapping aus WP1.
 - [`research_classic_vs_agentic.md`](research_classic_vs_agentic.md)
   — WP2.
-- [`workflow_output_schemas.md`](workflow_output_schemas.md) — WP3.
+- [`workflow_output_schemas.md`](../workflow_output_schemas.md) — WP3.
 - [`ui_requirements_catalog.md`](ui_requirements_catalog.md) — M1-M6
   Soll-Liste.
 - [`agentic_chat_plan.md`](agentic_chat_plan.md) — M6-Phasen.
-- [`webapp_session_history.md`](webapp_session_history.md) — Webapp-
+- [`webapp_session_history.md`](../webapp_session_history.md) — Webapp-
   Roadmap (geplant, nicht implementiert).
 
 ## 1. Executive Summary

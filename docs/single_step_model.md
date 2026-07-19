@@ -2,7 +2,7 @@
 
 **Status**: Faktenbasis-Dokument für T3-Decision **„Auto-generierte
 Tabs vs hardcoded"**. Output von WP5 aus
-[`wp_detailed_plans.md`](wp_detailed_plans.md). **Pseudo-Code only —
+[`wp_detailed_plans.md`](legacy/wp_detailed_plans.md). **Pseudo-Code only —
 keine Implementation.** Implementierung erfolgt in WP10.
 
 **Methode**: Code-Inspektion (CLI `--only-step`, `WorkflowExecutor`,
@@ -12,15 +12,15 @@ aller 6 Workflows + Status-quo-Audit der heutigen UI.
 **Querverweise**:
 - [`workflow_output_schemas.md`](workflow_output_schemas.md) (WP3) —
   Input-Schema-Quelle.
-- [`renderer_registry_design.md`](renderer_registry_design.md) (WP4) —
+- [`renderer_registry_design.md`](legacy/renderer_registry_design.md) (WP4) —
   Output-Renderer.
 - [`state_sync_design.md`](state_sync_design.md) (WP6) — Mutations-API
   für Output-Übernahme.
-- [`frontend_tier_model.md`](frontend_tier_model.md) (WP9) — Single-
+- [`frontend_tier_model.md`](legacy/frontend_tier_model.md) (WP9) — Single-
   Step ist Tier-1 (F-M2.1, F-M2.2, F-M2.3).
-- [`audit_tab_inventory.md`](audit_tab_inventory.md) (WP1) — Tab-
+- [`audit_tab_inventory.md`](legacy/audit_tab_inventory.md) (WP1) — Tab-
   Inflation-Risiko.
-- [`wp_detailed_plans.md`](wp_detailed_plans.md) WP5 — Soll-Definition.
+- [`wp_detailed_plans.md`](legacy/wp_detailed_plans.md) WP5 — Soll-Definition.
 
 ## 1. Executive Summary
 

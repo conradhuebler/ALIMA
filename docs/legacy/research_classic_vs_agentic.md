@@ -9,11 +9,11 @@ Token-Untergrenze. **Echte Test-Runs sind offene Aufgabe**
 (Sektion 5), Ausführung gehört zu WP11.
 
 **Querverweise**:
-- [`audit_findings.md`](audit_findings.md) — Finding 8 (Seed-Lücke
+- [`audit_findings.md`](../audit_findings.md) — Finding 8 (Seed-Lücke
   agentic) ist zentrale Referenz.
 - [`audit_tab_inventory.md`](audit_tab_inventory.md) — Strukturvorbild.
-- [`pipeline_classic_flow.md`](pipeline_classic_flow.md),
-  [`agentic_workflow.md`](agentic_workflow.md) — Pfad-Details.
+- [`pipeline_classic_flow.md`](../pipeline_classic_flow.md),
+  [`agentic_workflow.md`](../agentic_workflow.md) — Pfad-Details.
 - [`agentic_ui_workpackages.md`](agentic_ui_workpackages.md) Sektion 0
   — Operator-Vorgabe `alima_classic.yaml` = Forschungspfad/Fallback.
 - [`wp_detailed_plans.md`](wp_detailed_plans.md) WP2 — Soll-Definition.

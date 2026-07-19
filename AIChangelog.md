@@ -6,6 +6,14 @@
 
 ## 2026
 
+### APPROVED: Kern-Konvergenz klassisch↔agentisch WP-K1–K4 (July 19, 2026)
+
+Aus dem CLAUDE.md-Variable-Block abgeräumt (Status war TESTED seit dem
+Operator-Vergleichslauf June 29, 2026 — beide Pfade laufen durch, reasonable
+results, klassisch≠agentisch by design): mapping-first GND-Suche in MCP-Tools,
+`verify_keywords`-Step, geteilte DK-Vorfilterung, Klassifikations-Gating,
+source_count-Ranking. Implementierungsdetails: Eintrag June 10, 2026.
+
 ### WP Plugin-Konvergenz P7: Config-Mirror abgebaut — `CatalogConfig` + `SearchProviderConfig` gelöscht (July 17, 2026)
 
 `AlimaConfig.plugins` war schon autoritativ, aber zwei Dataclasses spiegelten es bei jedem

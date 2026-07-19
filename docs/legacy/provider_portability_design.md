@@ -12,7 +12,7 @@ Provider-Strategy-Docs.
 - [`audit_tab_inventory.md`](audit_tab_inventory.md) (WP1)
 - [`research_classic_vs_agentic.md`](research_classic_vs_agentic.md)
   (WP2) — Seed-Lücke verifiziert
-- [`workflow_output_schemas.md`](workflow_output_schemas.md) (WP3) —
+- [`workflow_output_schemas.md`](../workflow_output_schemas.md) (WP3) —
   Slot-Vokabular, prompts.json-Status
 - [`frontend_tier_model.md`](frontend_tier_model.md) (WP9)
 - [`wp_detailed_plans.md`](wp_detailed_plans.md) WP11 — Soll-Definition

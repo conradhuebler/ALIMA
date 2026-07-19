@@ -1,7 +1,7 @@
 # Audit Findings — Wissensbasis für WP-Planung
 
 **Status**: Snapshot der Code-Inspektion. Soll Annahmen in
-`agentic_ui_workpackages.md` durch Fakten ersetzen.
+`legacy/agentic_ui_workpackages.md` durch Fakten ersetzen.
 
 ## 1. Prompts: JSON ist Basis, YAML überschreibt (BEIDE live)
 > **Korrektur (July 1, 2026):** Der ursprüngliche Befund unten ("YAML nirgends

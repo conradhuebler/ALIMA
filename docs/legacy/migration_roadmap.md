@@ -11,10 +11,10 @@ plus Operator-Memory zur Tab-Nutzung.
 **Inputs**:
 - [WP1](audit_tab_inventory.md) — Tab-Audit (10→7 Empfehlung)
 - [WP2](research_classic_vs_agentic.md) — Forschungspfad-Definition
-- [WP3](workflow_output_schemas.md) — 11 Render-Slots
+- [WP3](../workflow_output_schemas.md) — 11 Render-Slots
 - [WP4](renderer_registry_design.md) — Renderer-Architektur
-- [WP5](single_step_model.md) — Single-Step-Modell
-- [WP6](state_sync_design.md) — Mutations-API + EventBus
+- [WP5](../single_step_model.md) — Single-Step-Modell
+- [WP6](../state_sync_design.md) — Mutations-API + EventBus
 - [WP7](chat_tools_design.md) — Chat-Tool-Architektur
 - [WP8](chat_ui_design.md) — Chat-UI-Konzept
 - [WP9](frontend_tier_model.md) — Frontend-Tier-Modell
@@ -453,11 +453,11 @@ P-θ. CHANGELOG separat.
 
 | Phase | Quell-WP-Sektionen |
 |---|---|
-| P-α | [WP3](workflow_output_schemas.md) Sek 2, [WP4](renderer_registry_design.md) Sek 2-3 |
+| P-α | [WP3](../workflow_output_schemas.md) Sek 2, [WP4](renderer_registry_design.md) Sek 2-3 |
 | P-β | [WP4](renderer_registry_design.md) Sek 5, [WP1](audit_tab_inventory.md) Sub-Tab-Karte (AnalysisReviewTab) |
-| P-γ | [WP5](single_step_model.md) Sek 2-10 |
-| P-δ | [WP6](state_sync_design.md) Sek 2-4, [WP7](chat_tools_design.md) Sek 2-5, [WP11](provider_portability_design.md) Sek 11 |
-| P-ε | [WP6](state_sync_design.md) Sek 4-7, [WP7](chat_tools_design.md) Sek 6-7, [WP8](chat_ui_design.md) Sek 4-5 |
+| P-γ | [WP5](../single_step_model.md) Sek 2-10 |
+| P-δ | [WP6](../state_sync_design.md) Sek 2-4, [WP7](chat_tools_design.md) Sek 2-5, [WP11](provider_portability_design.md) Sek 11 |
+| P-ε | [WP6](../state_sync_design.md) Sek 4-7, [WP7](chat_tools_design.md) Sek 6-7, [WP8](chat_ui_design.md) Sek 4-5 |
 | P-ζ | [WP9](frontend_tier_model.md) Sek 5 (5-Punkt-Roadmap) |
 | P-η | [WP11](provider_portability_design.md) Sek 3-8 |
 | P-θ | [WP1](audit_tab_inventory.md) Sek 6, [tab_usage_reality.md](../../.claude/projects/-home-conrad-src-ALIMA/memory/tab_usage_reality.md) |

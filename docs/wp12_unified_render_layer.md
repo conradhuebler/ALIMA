@@ -21,14 +21,14 @@ Engine, die Render-Chrome lässt sich erstmals teilen.
 bestehende Konsolidierungs-Vorarbeit aus WP4/WP9.
 
 **Querverweise**:
-- [`renderer_registry_design.md`](renderer_registry_design.md) — WP4, Render-
+- [`renderer_registry_design.md`](legacy/renderer_registry_design.md) — WP4, Render-
   Slot-Architektur (Option C). WP12 ist der **Transport-/Frontend-Teil** dazu.
-- [`frontend_tier_model.md`](frontend_tier_model.md) — WP9, Tier-Modell;
+- [`frontend_tier_model.md`](legacy/frontend_tier_model.md) — WP9, Tier-Modell;
   Webapp = Tier-3 für die klassische Pipeline, Empfehlung „(B) Catch-Up".
 - [`workflow_output_schemas.md`](workflow_output_schemas.md) — WP3, Slot-Vokabular.
-- [`research_classic_vs_agentic.md`](research_classic_vs_agentic.md) — WP2, die
+- [`research_classic_vs_agentic.md`](legacy/research_classic_vs_agentic.md) — WP2, die
   DK/GND-Divergenz, die diese Doppel-Pflege motiviert.
-- [`agentic_ui_workpackages.md`](agentic_ui_workpackages.md) — WP-Übersicht.
+- [`agentic_ui_workpackages.md`](legacy/agentic_ui_workpackages.md) — WP-Übersicht.
 
 ---
 

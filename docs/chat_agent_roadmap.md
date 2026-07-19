@@ -188,14 +188,18 @@ jetzt immer `stream=True` wenn `stream_callback` gesetzt ist.
 `stream=True` mit `tools=[...]`. Text streamt per Chunk, `tool_calls`
 werden atomar vom finalen `done=True`-Chunk übernommen.
 
-**Anthropic / Gemini**: Deferred. Weiterhin `stream=False` mit Tools.
+**Behoben für Anthropic (P-δ.5, Juni 2026)**: `_generate_anthropic_with_tools`
+streamt Text-Deltas bei aktiven Tools (verifiziert July 19).
+
+**Gemini**: Deferred. Weiterhin `stream=False` mit Tools
+(`_generate_gemini_with_tools` completes-then-delivers).
 
 ### Cancel-Latenz
 **Verbessert in P-δ.5b + P-δ.5c**: `should_stop` wird an
-`generate_with_tools` übergeben. OpenAI + Ollama: per-Chunk-Check →
-sub-Sekunde. Anthropic/Gemini/Fallback: post-blocking-call-Check →
+`generate_with_tools` übergeben. OpenAI + Ollama + Anthropic:
+per-Chunk-Check → sub-Sekunde. Gemini/Fallback: post-blocking-call-Check →
 1 LLM-Generation (vorher: 1 volle Iteration). Mid-token-Abbruch bei
-Anthropic/Gemini nicht möglich (blocking API).
+Gemini nicht möglich (blocking API).
 
 ### Kein Permissions-Audit
 Heute hat Chat-Agent denselben DB-Access wie Pipeline-Worker. Für
@@ -231,4 +235,4 @@ ein größeres Modell setzen (z.B. `cogito:14b`).
 - AgentLoop: `src/core/agent_loop.py`
 - ChatWidget: `src/ui/chat_widget.py`
 - Chat-Tools: `src/ui/chat_tools/`
-- WP-Übersicht: `docs/agentic_ui_workpackages.md`
+- WP-Übersicht: `docs/legacy/agentic_ui_workpackages.md`
