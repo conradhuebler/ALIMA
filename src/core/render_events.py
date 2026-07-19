@@ -65,23 +65,35 @@ def block(html: str, kind: Optional[str] = None) -> Dict[str, Any]:
     return ev
 
 
-def collapsible(block_id: str, summary: str, body: str, open_: bool) -> Dict[str, Any]:
-    return {
+def collapsible(
+    block_id: str, summary: str, body: str, open_: bool, kind: Optional[str] = None
+) -> Dict[str, Any]:
+    ev: Dict[str, Any] = {
         "type": COLLAPSIBLE,
         "id": block_id,
         "summary": summary,
         "body": body or "",
         "open": bool(open_),
     }
+    if kind:
+        # Additive (no PROTOCOL_VERSION bump): stale clients ignore the extra
+        # field. "error" switches on the red error chrome. - Claude Generated
+        ev["kind"] = kind
+    return ev
 
 
-def collapsible_update(block_id: str, summary: str, body: str) -> Dict[str, Any]:
-    return {
+def collapsible_update(
+    block_id: str, summary: str, body: str, kind: Optional[str] = None
+) -> Dict[str, Any]:
+    ev: Dict[str, Any] = {
         "type": COLLAPSIBLE_UPDATE,
         "id": block_id,
         "summary": summary,
         "body": body or "",
     }
+    if kind:
+        ev["kind"] = kind
+    return ev
 
 
 def assistant_open(header: str) -> Dict[str, Any]:

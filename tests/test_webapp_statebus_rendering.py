@@ -125,6 +125,28 @@ class TestSessionBusSubscriber(unittest.TestCase):
         self.assertIn("✓", updates[0]["summary"])
         self.assertIn("completed: verify keywords", updates[0]["body"])
 
+    def test_state_pipeline_step_error_carries_error_text_and_kind(self):
+        # WP12 §9.3: payload["error"] must reach the block body and the
+        # update must carry kind="error" for the red chrome.
+        self.sub.subscribe()
+        self.bus.emit_event("state.pipeline_step", {
+            "status": "running",
+            "step_id": "classification",
+            "name": "classification",
+        })
+        self.bus.emit_event("state.pipeline_step", {
+            "status": "error",
+            "step_id": "classification",
+            "name": "classification",
+            "error": "LLM timeout after 30s",
+        })
+
+        updates = self._of_type("collapsible_update")
+        self.assertEqual(len(updates), 1)
+        self.assertIn("✗", updates[0]["summary"])
+        self.assertIn("LLM timeout after 30s", updates[0]["body"])
+        self.assertEqual(updates[0].get("kind"), "error")
+
     def test_state_pipeline_prompt_renders_collapsible(self):
         self.sub.subscribe()
         self.bus.emit_event("state.pipeline_prompt", {

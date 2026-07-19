@@ -532,6 +532,7 @@ class UnifiedMessageRenderer:
                 tool_id,
                 self._tool_summary_html(tool_id),
                 self._tool_body_html(tool_id),
+                kind="error" if status == "error" else None,
             )
         )
         self._touch_scroll()
@@ -579,6 +580,35 @@ class UnifiedMessageRenderer:
                 role=MessageRole.TOOL_MARKER,
                 content=f"{icon} {title}",
                 metadata={"kind": "collapsible"},
+            )
+        )
+        return tool_id
+
+    def render_error_block(self, title: str, error_text: str) -> str:
+        """Open (uncollapsed) red error block — the shared error chrome for
+        failed chat turns and step failures (WP12 §9.3). Returns the block
+        id. - Claude Generated"""
+        self._tool_call_id += 1
+        tool_id = f"tc_{self._tool_call_id}"
+        summary = (
+            f'<span class="rc-error-title" style="font-family: monospace; '
+            f'font-size: 9pt;">❌ {self._escape_html(title)}</span>'
+        )
+        self.transport.send(
+            ev.collapsible(
+                tool_id,
+                summary,
+                self._escape_html(error_text or ""),
+                True,
+                kind="error",
+            )
+        )
+        self._touch_scroll()
+        self.history.append(
+            MessageEntry(
+                role=MessageRole.SYSTEM_MESSAGE,
+                content=f"❌ {title}: {error_text}",
+                metadata={"kind": "error"},
             )
         )
         return tool_id

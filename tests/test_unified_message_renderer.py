@@ -30,15 +30,17 @@ class _MockWebLogView:
     def append_block(self, html: str) -> None:
         self.blocks.append(html)
 
-    def append_collapsible(self, block_id, summary, body, open_) -> None:
+    def append_collapsible(self, block_id, summary, body, open_, kind=None) -> None:
         self.collapsibles[block_id] = {
-            "summary": summary, "body": body or "", "open": bool(open_)
+            "summary": summary, "body": body or "", "open": bool(open_),
+            "kind": kind,
         }
 
-    def update_collapsible(self, block_id, summary, body) -> None:
+    def update_collapsible(self, block_id, summary, body, kind=None) -> None:
         prev = self.collapsibles.get(block_id, {})
         self.collapsibles[block_id] = {
-            "summary": summary, "body": body or "", "open": prev.get("open", False)
+            "summary": summary, "body": body or "", "open": prev.get("open", False),
+            "kind": kind or prev.get("kind"),
         }
 
     def open_assistant(self, header: str) -> None:
@@ -261,6 +263,25 @@ class TestCollapsibleToolCall(RendererTestBase):
         self.assertEqual(len(self.renderer.history), 1)
         self.assertEqual(self.renderer.history[0].role.name, "TOOL_MARKER")
         self.assertEqual(self.renderer.history[0].metadata["tool_name"], "search")
+
+    def test_error_result_marks_kind_error(self):
+        tid = self.renderer.render_tool_call("search", {"q": "x"})
+        self.renderer.render_tool_result(tid, "boom", status="error")
+        self.assertEqual(self.view.collapsibles[tid]["kind"], "error")
+        self.assertIn("✗", self.view.collapsibles[tid]["summary"])
+
+    def test_success_result_has_no_kind(self):
+        tid = self.renderer.render_tool_call("search", {"q": "x"})
+        self.renderer.render_tool_result(tid, '{"hits": 5}')
+        self.assertIsNone(self.view.collapsibles[tid]["kind"])
+
+    def test_render_error_block_open_red(self):
+        tid = self.renderer.render_error_block("Chat-Fehler", "Timeout after 30s")
+        block = self.view.collapsibles[tid]
+        self.assertEqual(block["kind"], "error")
+        self.assertTrue(block["open"])
+        self.assertIn("❌", block["summary"])
+        self.assertIn("Timeout after 30s", block["body"])
 
     def test_unknown_tool_id_fallback(self):
         self.renderer.render_tool_result("nonexistent", "result")

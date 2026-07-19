@@ -36,11 +36,17 @@ function _ensureLinksNewTab(root) {
     a.setAttribute('rel', 'noopener noreferrer');
   });
 }
-function appendCollapsible(id, summary, body, open) {
+function _applyCollapsibleKind(det, kind) {
+  // kind === 'error' marks the block with the red error chrome. Kinds are
+  // append-only: an error never un-errors (replay safety).
+  if (kind === 'error') det.classList.add('rc-error');
+}
+function appendCollapsible(id, summary, body, open, kind) {
   // Idempotent per id: a replay/duplicate updates the existing block.
-  if (document.getElementById(id)) { updateCollapsible(id, summary, body); return; }
+  if (document.getElementById(id)) { updateCollapsible(id, summary, body, kind); return; }
   var det = document.createElement('details');
   det.id = id;
+  _applyCollapsibleKind(det, kind);
   if (open) det.open = true;
   var s = document.createElement('summary');
   s.innerHTML = summary;
@@ -53,9 +59,10 @@ function appendCollapsible(id, summary, body, open) {
   _log().appendChild(det);
   maybeScroll();
 }
-function updateCollapsible(id, summary, body) {
+function updateCollapsible(id, summary, body, kind) {
   var det = document.getElementById(id);
   if (!det) return;
+  _applyCollapsibleKind(det, kind);
   var s = det.querySelector('summary');
   if (s) s.innerHTML = summary;
   var b = det.querySelector('.tc-body');

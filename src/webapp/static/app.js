@@ -1100,8 +1100,8 @@ class AlimaWebapp {
                 if (ev.kind === 'proposal') return;  // GUI-only — Tier-3 webapp ignores
                 appendBlock(ev.html);
                 break;
-            case 'collapsible': appendCollapsible(ev.id, ev.summary, ev.body, ev.open); break;
-            case 'collapsible_update': updateCollapsible(ev.id, ev.summary, ev.body); break;
+            case 'collapsible': appendCollapsible(ev.id, ev.summary, ev.body, ev.open, ev.kind); break;
+            case 'collapsible_update': updateCollapsible(ev.id, ev.summary, ev.body, ev.kind); break;
             case 'assistant_open': openAssistant(ev.header); break;
             case 'assistant_token': appendToken(ev.text); break;
             case 'assistant_finalize': finalizeAssistant(ev.html); break;

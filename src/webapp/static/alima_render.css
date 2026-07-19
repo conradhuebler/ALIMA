@@ -28,6 +28,17 @@
 #log summary::-webkit-details-marker { display: none; }
 #log summary::before { content: '\25B6 '; color: #8be9fd; }
 #log details[open] > summary::before { content: '\25BC '; color: #8be9fd; }
+/* WP12 §9.3: red error chrome (kind="error" collapsibles) */
+#log details.rc-error > summary,
+#log details.rc-error > summary span,
+#log .rc-error-title { color: #ff5555; }
+#log details.rc-error > summary::before,
+#log details.rc-error[open] > summary::before { color: #ff5555; }
+#log details.rc-error > .tc-body {
+  color: #ffb3b3;
+  border-left: 2px solid #ff5555;
+  padding-left: 8px;
+}
 #log .tc-body {
   margin: 2px 0 6px 14px; font-family: monospace; font-size: 9pt;
   color: #a8a8a8; white-space: pre-wrap; word-wrap: break-word;

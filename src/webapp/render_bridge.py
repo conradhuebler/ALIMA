@@ -219,6 +219,11 @@ class _SessionBusSubscriber:
             result_text = "\n".join(self._open_step_status)
         else:
             result_text = f"{status or 'done'}: {name}"
+        # WP12 §9.3: surface the actual error text — the payload carries it
+        # since WP A, but it used to be dropped here.
+        error_text = payload.get("error")
+        if result_status == "error" and error_text:
+            result_text = f"{error_text}\n{result_text}"
         self._open_step_status.clear()
         self._pipeline_step_open = False
 

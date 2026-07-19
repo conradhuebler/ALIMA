@@ -6,5 +6,6 @@
   "render.summary.kb": "{n} kB",
   "render.summary.hits": "{n} Treffer",
   "render.summary.error": "Fehler",
-  "render.summary.fields": "{n} Felder"
+  "render.summary.fields": "{n} Felder",
+  "chat.error_title": "Chat-Fehler"
 }

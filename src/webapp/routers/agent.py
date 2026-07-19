@@ -23,6 +23,7 @@ from src.webapp.result_serialization import (
     build_export_payload as _build_export_payload,
     extract_results_from_analysis_state as _extract_results_from_analysis_state,
 )
+from src.utils.i18n import t
 from src.webapp.session_io import _parse_think_override
 from src.webapp.session_state import AppContext, Session, sessions
 
@@ -524,7 +525,8 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
             return result
         except Exception as e:
             logger.exception("Session chat turn failed")
-            session_renderer.render_system_message(f"❌ Chat-Fehler: {e}")
+            # WP12 §9.3: shared red error chrome instead of a bare system line.
+            session_renderer.render_error_block(t("chat.error_title"), str(e))
             session.status = "error"
             session.error_message = str(e)
             raise

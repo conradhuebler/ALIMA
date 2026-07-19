@@ -27,7 +27,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
@@ -175,19 +175,28 @@ class WebLogView(QWidget):
         self._run_js(f"appendBlock({_js_str(html)});")
 
     def append_collapsible(
-        self, block_id: str, summary_html: str, body_html: str, open_: bool
+        self,
+        block_id: str,
+        summary_html: str,
+        body_html: str,
+        open_: bool,
+        kind: Optional[str] = None,
     ) -> None:
         self._run_js(
             f"appendCollapsible({_js_str(block_id)}, {_js_str(summary_html)}, "
-            f"{_js_str(body_html)}, {str(bool(open_)).lower()});"
+            f"{_js_str(body_html)}, {str(bool(open_)).lower()}, {_js_str(kind or '')});"
         )
 
     def update_collapsible(
-        self, block_id: str, summary_html: str, body_html: str
+        self,
+        block_id: str,
+        summary_html: str,
+        body_html: str,
+        kind: Optional[str] = None,
     ) -> None:
         self._run_js(
             f"updateCollapsible({_js_str(block_id)}, {_js_str(summary_html)}, "
-            f"{_js_str(body_html)});"
+            f"{_js_str(body_html)}, {_js_str(kind or '')});"
         )
 
     def open_assistant(self, header_html: str) -> None:

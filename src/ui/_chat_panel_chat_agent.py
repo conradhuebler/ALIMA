@@ -27,6 +27,7 @@ from ..core.chat_prompts import (
     resolve_prompt_compact,
 )
 from ..core.headless_agent import resolve_provider_model
+from ..utils.i18n import t
 from .chat_agent_worker import ChatAgentWorker
 from .chat_tools import build_chat_toolset
 
@@ -427,7 +428,8 @@ class ChatAgentMixin:
     @pyqtSlot(str)
     def _on_error(self, error: str):
         self._hide_typing()
-        self._append_system_message(f"❌ Fehler: {error}")
+        # WP12 §9.3: shared red error chrome instead of a bare system line.
+        self._renderer.render_error_block(t("chat.error_title"), error)
         self._renderer._assistant_block_open = False
         self._renderer._assistant_cell_cursor = None
         self._set_ui_running(False)
