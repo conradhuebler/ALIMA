@@ -7,5 +7,16 @@
   "render.summary.hits": "{n} hits",
   "render.summary.error": "Error",
   "render.summary.fields": "{n} fields",
-  "chat.error_title": "Chat error"
+  "chat.error_title": "Chat error",
+  "chat.state.on": "on",
+  "chat.state.off": "off",
+  "chat.untitled": "Untitled",
+  "chat.status.mode": "🧭 Mode: {mode} (auto-detected)",
+  "chat.status.autonomous": "🤖 Autonomous mode: {state}",
+  "chat.status.default_saved": "💾 Chat default saved: {provider} | {model}",
+  "chat.status.context_loaded": "✅ Context loaded: {title} ({kw} keywords, {dk} DK codes, tools active)",
+  "chat.reset_notice": "🔄 Chat history cleared for the new pipeline run — disable via the 🔄 reset option.",
+  "chat.input.placeholder": "Ask a question — Enter = send, Shift+Enter = new line",
+  "chat.input.generating": "Generating answer …",
+  "chat.input.stopping": "Cancelling …"
 }

@@ -7,5 +7,16 @@
   "render.summary.hits": "{n} Treffer",
   "render.summary.error": "Fehler",
   "render.summary.fields": "{n} Felder",
-  "chat.error_title": "Chat-Fehler"
+  "chat.error_title": "Chat-Fehler",
+  "chat.state.on": "aktiv",
+  "chat.state.off": "aus",
+  "chat.untitled": "Unbenannt",
+  "chat.status.mode": "🧭 Modus: {mode} (auto-erkannt)",
+  "chat.status.autonomous": "🤖 Autonom-Modus: {state}",
+  "chat.status.default_saved": "💾 Chat-Default gespeichert: {provider} | {model}",
+  "chat.status.context_loaded": "✅ Kontext geladen: {title} ({kw} Keywords, {dk} DK-Codes, Tools aktiv)",
+  "chat.reset_notice": "🔄 Chat-Verlauf für neuen Pipeline-Lauf geleert — abschaltbar über die 🔄-Reset-Option.",
+  "chat.input.placeholder": "Frage stellen — Enter = senden, Shift+Enter = neue Zeile",
+  "chat.input.generating": "Antwort wird generiert …",
+  "chat.input.stopping": "Wird abgebrochen …"
 }

@@ -39,8 +39,10 @@ def _make_stub(selection, toggle_on: bool) -> SimpleNamespace:
     """Build a minimal duck-typed object with the attributes
     ChatWidget._on_model_selection_changed / _persist_combo_to_chat_config
     access. ``selection`` is the (provider, model) tuple the shared selector
-    would return. Side-effects observable via the system-message list."""
+    would return. Side-effects observable via the status-strip list (the
+    persist echo moved out of the conversation stream, Chat-UX 7/9)."""
     system_messages: list[str] = []
+    status_strip: list[str] = []
     stub = SimpleNamespace(
         provider_selector=SimpleNamespace(get_selection=lambda: selection),
         persist_combo_toggle=SimpleNamespace(isChecked=lambda: toggle_on),
@@ -48,7 +50,9 @@ def _make_stub(selection, toggle_on: bool) -> SimpleNamespace:
         model_status_label=SimpleNamespace(setText=lambda _t: None),
         _refresh_model_status=lambda: None,
         _append_system_message=system_messages.append,
+        set_status_strip=status_strip.append,
     )
+    stub.status_strip_texts = status_strip
     # Bind methods from ChatWidget — descriptor protocol gives us a
     # callable bound to ``stub``.
     stub._on_model_selection_changed = (
@@ -93,8 +97,10 @@ class TestComboPersistence(unittest.TestCase):
         # Mutation landed on the persisted object.
         self.assertEqual(chat_cfg.default_provider, "ollama")
         self.assertEqual(chat_cfg.default_model, "cogito:32b")
-        self.assertEqual(len(stub.system_messages), 1)
-        self.assertIn("Chat-Default gespeichert", stub.system_messages[0])
+        # Echo lands in the status strip, not the conversation stream.
+        self.assertEqual(stub.system_messages, [])
+        self.assertEqual(len(stub.status_strip_texts), 1)
+        self.assertIn("Chat-Default gespeichert", stub.status_strip_texts[0])
 
     def test_combo_auto_entry_skips_persist(self):
         """Auto selection (("", "")) should not attempt to persist."""

@@ -84,6 +84,18 @@
   background: var(--alima-surface); border-radius: 6px; padding: 8px; color: var(--alima-body);
   max-width: 75%; word-wrap: break-word;
 }
+/* Chat-UX 7/9: assistant bubble as a visual peer of the user bubble — the
+ * model header is a caption row INSIDE the bubble; the inner .stream/.rendered
+ * containers become transparent (the bubble carries the surface). */
+#log .abubble {
+  display: inline-block; max-width: 75%;
+  background: var(--alima-surface); border-radius: 6px; padding: 8px;
+  word-wrap: break-word;
+}
+#log .abubble .ahdr { font-size: 8.5pt; opacity: 0.85; margin-bottom: 4px; }
+#log .abubble .stream, #log .abubble .rendered {
+  background: transparent; border-radius: 0; padding: 0; max-width: none;
+}
 #log .stream { white-space: pre-wrap; }
 /* Incremental markdown preview: once the formatter takes over, block
  * elements carry their own whitespace handling; only the raw-token tail

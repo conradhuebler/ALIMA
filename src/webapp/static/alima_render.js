@@ -73,15 +73,20 @@ function updateCollapsible(id, summary, body, kind) {
   maybeScroll();
 }
 function openAssistant(header) {
+  // Chat-UX 7/9: the model header lives INSIDE the bubble (caption row), so
+  // the assistant bubble is a visual peer of the user bubble.
   var wrap = document.createElement('div');
   wrap.className = 'assistant';
+  var bubble = document.createElement('div');
+  bubble.className = 'abubble';
   var h = document.createElement('div');
   h.className = 'ahdr';
   h.innerHTML = header;
   var s = document.createElement('div');
   s.className = 'stream stream--live';
-  wrap.appendChild(h);
-  wrap.appendChild(s);
+  bubble.appendChild(h);
+  bubble.appendChild(s);
+  wrap.appendChild(bubble);
   _log().appendChild(wrap);
   curStream = s;
   curStreamBuf = '';

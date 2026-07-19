@@ -341,15 +341,15 @@ class TestStepStatusAccumulator(unittest.TestCase):
         # Accumulator reset for the next step.
         self.assertEqual(stub._open_step_status, [])
 
-    def test_status_outside_step_still_emits_log(self):
-        """Status lines without an open step go to dim pipeline log
-        (LLM streaming tokens, chat-agent status, etc.) — not legacy markers."""
+    def test_status_outside_step_goes_to_logger_only(self):
+        """Status lines without an open step no longer leak into the chat
+        surface (Chat-UX 7/9) — they go to the logger; tool activity is
+        already visible via the collapsible blocks."""
         stub = self._make_stub()
         stub._on_status_message("🔄 Tool-Call 1/30")
         self.assertEqual(stub.markers, [])
-        self.assertEqual(len(stub.pipeline_logs), 1)
-        self.assertEqual(stub.pipeline_logs[0][0], "🔄 Tool-Call 1/30")
-        self.assertEqual(stub.pipeline_logs[0][1], "debug")
+        self.assertEqual(stub.pipeline_logs, [])
+        stub.logger.debug.assert_called_once()
 
     def test_step_with_no_status_uses_fallback_summary(self):
         """If a step emits no status lines, the old summary text is used."""

@@ -353,3 +353,6 @@ class PipelineLogMixin:
             self.current_context = ""
             self.working_title = ""
             self._renderer.clear()
+            # Chat-UX 7/9: announce the wipe — it used to happen silently.
+            from ..utils.i18n import t
+            self._renderer.render_system_message(t("chat.reset_notice"))

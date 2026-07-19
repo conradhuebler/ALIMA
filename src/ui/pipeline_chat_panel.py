@@ -419,6 +419,19 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
         outer.addWidget(header)
 
+        # --- Transient status strip (Chat-UX 7/9) -----------------------
+        # One-line, overwrite-in-place home for chat-config/status echoes
+        # (🧭 Modus, 💾 Default gespeichert, 🤖 Autonom, ✅ Kontext) that used
+        # to spam the conversation stream as system messages.
+        self.status_strip = QLabel("")
+        self.status_strip.setVisible(False)
+        self.status_strip.setStyleSheet(
+            "QLabel { background-color: #262626; color: #9aa5b1;"
+            " font-size: 8pt; padding: 2px 8px;"
+            " border-bottom: 1px solid #444; }"
+        )
+        outer.addWidget(self.status_strip)
+
         # --- Vertical splitter between log + input (user-draggable) ----
         self.body_splitter = QSplitter(Qt.Orientation.Vertical)
         self.body_splitter.setChildrenCollapsible(False)
@@ -483,9 +496,8 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         input_layout.setSpacing(6)
 
         self.input_field = ChatInputEdit()
-        self.input_field.setPlaceholderText(
-            "Frage stellen — Enter = senden, Shift+Enter = neue Zeile"
-        )
+        from ..utils.i18n import t
+        self.input_field.setPlaceholderText(t("chat.input.placeholder"))
         # Right padding reserves room for the floating send button so text
         # never flows underneath it. Claude Generated.
         self.input_field.setStyleSheet(
@@ -590,6 +602,14 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
     def _append_user_message(self, text: str):
         self._renderer.render_user_bubble(text)
+
+    def set_status_strip(self, text: str) -> None:
+        """Transient status line under the header — kept out of the
+        conversation stream (Chat-UX 7/9). Empty text hides the strip."""
+        if not hasattr(self, "status_strip"):
+            return
+        self.status_strip.setText(text)
+        self.status_strip.setVisible(bool(text))
 
     def _append_system_message(self, text: str):
         self._renderer.render_system_message(text)

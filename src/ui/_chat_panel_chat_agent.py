@@ -86,8 +86,8 @@ class ChatAgentMixin:
                 return
             chat_cfg.autonomous_pipeline = new_value
             cm.save_config(full, preserve_unified=True)
-            msg = "aktiv" if new_value else "aus"
-            self._append_system_message(f"🤖 Autonom-Modus: {msg}")
+            state = t("chat.state.on") if new_value else t("chat.state.off")
+            self.set_status_strip(t("chat.status.autonomous", state=state))
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: persist autonomous_pipeline failed"
@@ -110,8 +110,8 @@ class ChatAgentMixin:
             chat_cfg.default_provider = provider
             chat_cfg.default_model = model
             cm.save_config(full, preserve_unified=True)
-            self._append_system_message(
-                f"💾 Chat-Default gespeichert: {provider} | {model}"
+            self.set_status_strip(
+                t("chat.status.default_saved", provider=provider, model=model)
             )
         except Exception:
             self.logger.exception(
@@ -255,9 +255,13 @@ class ChatAgentMixin:
         if not kw_count and ctx:
             kw_count = len(getattr(ctx, "initial_keywords", []) or [])
         dk_count = len(getattr(ctx, "dk_classifications", []) or []) if ctx else 0
-        self._append_system_message(
-            f"✅ Kontext geladen: {self.working_title or 'Unbenannt'}"
-            f" ({kw_count} Keywords, {dk_count} DK-Codes, Tools aktiv)"
+        self.set_status_strip(
+            t(
+                "chat.status.context_loaded",
+                title=self.working_title or t("chat.untitled"),
+                kw=kw_count,
+                dk=dk_count,
+            )
         )
 
     @staticmethod
@@ -295,7 +299,7 @@ class ChatAgentMixin:
 
         # Mode-aware prompt assembly + tier + language/history directives - Claude Generated
         mode = detect_mode(text, self.current_context)
-        self._append_system_message(f"🧭 Modus: {mode} (auto-erkannt)")
+        self.set_status_strip(t("chat.status.mode", mode=mode))
         history = list(self.session.messages[-CHAT_HISTORY_WINDOW:])
         history_truncated = len(self.session.messages) > len(history)
         compact = resolve_prompt_compact(
@@ -400,8 +404,10 @@ class ChatAgentMixin:
         if self._pipeline_step_open:
             self._open_step_status.append(text)
             return
-        # No open step → dim log line (chat-agent status, LLM progress, etc.).
-        self._renderer.render_pipeline_log(text, "debug")
+        # No open step → logger only (Chat-UX 7/9): worker status / LLM
+        # progress used to leak into the chat surface as dim debug lines;
+        # tool activity is already visible via the collapsible blocks.
+        self.logger.debug("chat-agent status: %s", text)
 
     @pyqtSlot(object)
     def _on_finished(self, result):
@@ -458,11 +464,11 @@ class ChatAgentMixin:
         self.cancel_btn.setEnabled(True)
         self.input_field.setEnabled(not running)
         if running:
-            self.input_field.setPlaceholderText("Antwort wird generiert...")
+            self.input_field.setPlaceholderText(t("chat.input.generating"))
         else:
-            self.input_field.setPlaceholderText(
-                "Frage zu den Pipeline-Ergebnissen stellen..."
-            )
+            # Same text as the initial placeholder — the ready state used to
+            # show a different wording (Chat-UX 7/9).
+            self.input_field.setPlaceholderText(t("chat.input.placeholder"))
             self.input_field.setFocus()
 
     def _set_ui_stopping(self):
@@ -473,4 +479,4 @@ class ChatAgentMixin:
         self.cancel_btn.setVisible(True)
         self.cancel_btn.setEnabled(False)
         self.input_field.setEnabled(False)
-        self.input_field.setPlaceholderText("Wird abgebrochen …")
+        self.input_field.setPlaceholderText(t("chat.input.stopping"))
