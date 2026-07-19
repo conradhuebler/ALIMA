@@ -88,12 +88,26 @@ class _SessionBusSubscriber:
     therefore instantiated per-run and unsubscribed when the run ends to avoid
     leaking handlers on the singleton bus.
 
-    Claude Generated (Phase 4).
+    ``tool_events=False`` skips the ``tool.called``/``tool.result``
+    subscriptions — used by the chat endpoint, which already renders tool
+    calls via the agent runner's direct callbacks: if a chat toolset ever
+    routed through the bus-emitting ``CachingToolRegistry``, every call
+    would otherwise render twice (Chat-UX 9/9 guard).
+
+    Ownership note: this is one of THREE StateBus→renderer consumers —
+    (1) this class (webapp, Qt-free), (2) the GUI ``BusEventMixin``
+    (``src/ui/_chat_panel_bus.py``, adds panel state like elapsed-time
+    meta), (3) ``UnifiedMessageRenderer.subscribe`` (tool events only, for
+    embedded mini-logs). Behavioral edits to the shared handler logic must
+    be applied to (1) and (2) in lockstep — see the Phase-3 error-text
+    edit for the pattern. Full extraction into one Qt-free bridge is a
+    known follow-up. Claude Generated (Phase 4).
     """
 
-    def __init__(self, renderer):
+    def __init__(self, renderer, tool_events: bool = True):
         self._renderer = renderer
         self._bus = None
+        self._tool_events = bool(tool_events)
         # Pipeline-step block state
         self._step_tool_id: Optional[str] = None
         self._open_step_status: List[str] = []
@@ -117,8 +131,9 @@ class _SessionBusSubscriber:
         from src.core.state_bus import AlimaStateBus
 
         self._bus = AlimaStateBus()
-        self._bus.subscribe("tool.called", self._on_tool_called)
-        self._bus.subscribe("tool.result", self._on_tool_result)
+        if self._tool_events:
+            self._bus.subscribe("tool.called", self._on_tool_called)
+            self._bus.subscribe("tool.result", self._on_tool_result)
         self._bus.subscribe("state.pipeline_step", self._on_pipeline_step)
         self._bus.subscribe("state.pipeline_prompt", self._on_pipeline_prompt)
         self._bus.subscribe(
@@ -131,8 +146,9 @@ class _SessionBusSubscriber:
         if self._bus is None:
             return
         try:
-            self._bus.unsubscribe("tool.called", self._on_tool_called)
-            self._bus.unsubscribe("tool.result", self._on_tool_result)
+            if self._tool_events:
+                self._bus.unsubscribe("tool.called", self._on_tool_called)
+                self._bus.unsubscribe("tool.result", self._on_tool_result)
             self._bus.unsubscribe("state.pipeline_step", self._on_pipeline_step)
             self._bus.unsubscribe("state.pipeline_prompt", self._on_pipeline_prompt)
             self._bus.unsubscribe(

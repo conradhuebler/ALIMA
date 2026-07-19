@@ -879,10 +879,14 @@ class UnifiedMessageRenderer:
     def subscribe(self) -> None:
         """Subscribe to ``tool.called`` / ``tool.result`` on AlimaStateBus.
 
-        Lets a renderer instance participate in the same event flow as
-        PipelineChatPanel without manual Qt-signal wiring. Bound methods are
-        stored on ``self`` so ``unsubscribe`` can find the *same* object — the
-        bus compares handlers by identity.
+        This is the *embedder* bus consumer: mini-log renderers without a
+        panel (``image_analysis_tab``, ``analysis_review_tab``) use it to show
+        tool activity. It deliberately covers only tool events — pipeline
+        step/prompt chrome is the job of the two full consumers (GUI
+        ``BusEventMixin``, webapp ``_SessionBusSubscriber``; see the
+        ownership note in ``_chat_panel_bus.py``). Bound methods are stored
+        on ``self`` so ``unsubscribe`` can find the *same* object — the bus
+        compares handlers by identity.
         """
         try:
             from src.core.state_bus import AlimaStateBus

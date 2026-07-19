@@ -14,6 +14,14 @@ handlers stays in ``PipelineChatPanel.__init__`` (so the module source keeps the
 (``self._renderer``, ``self._bus_tool_call_ids`` …) and ChatAgentMixin helpers
 (``self._refresh_shared_context``) resolved through the MRO; not a standalone
 widget.
+
+Ownership note (Chat-UX 9/9): this is one of THREE StateBus→renderer
+consumers — (1) this GUI mixin, (2) the webapp's ``_SessionBusSubscriber``
+(``src/webapp/render_bridge.py``, Qt-free, near-identical handler bodies),
+(3) ``UnifiedMessageRenderer.subscribe`` (tool events only, for embedded
+mini-logs). Behavioral edits to the shared handler logic (e.g. the §9.3
+error-text passthrough) must be applied to (1) and (2) in lockstep; full
+extraction into one Qt-free bridge is a known follow-up.
 """
 from __future__ import annotations
 

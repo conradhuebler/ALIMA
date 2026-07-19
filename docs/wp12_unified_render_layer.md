@@ -95,12 +95,17 @@ Event-Liste, deren Typen 1:1 die Schicht-1-Funktionen treffen:
 |---|---|---|
 | `pipeline_log` | `html` | `appendBlock` |
 | `block` / `html_block` | `html`, `kind?` | `appendBlock` |
-| `collapsible` | `id`, `summary`, `body`, `open` | `appendCollapsible` |
-| `collapsible_update` | `id`, `summary`, `body` | `updateCollapsible` |
+| `collapsible` | `id`, `summary`, `body`, `open`, `kind?` | `appendCollapsible` |
+| `collapsible_update` | `id`, `summary`, `body`, `kind?` | `updateCollapsible` |
 | `assistant_open`/`_token`/`_finalize` | `header` / `text` / `html` | `openAssistant`/… |
 | `stream_open`/`_token`/`_close` | `id`,`summary` / `text` / `id`,`summary`,`collapse` | `openStreamBlock`/… |
 | `proposal` | `audit_id`, `tool`, `payload` | `appendBlock` (GUI) / ignorierbar (Webapp) |
 | `system` | `text` | `appendBlock` |
+| `typing` | `model`, `active` | `showTyping`/`hideTyping` |
+| `clear` | — | `clearLog` |
+
+(`kind="error"` auf `collapsible`/`collapsible_update` schaltet das rote
+Fehler-Chrome — additives Feld, kein `PROTOCOL_VERSION`-Bump; Chat-UX 3/9.)
 
 Append-only + idempotent (per `id`), damit Webapp-Reconnect/Replay funktioniert
 (die Webapp hat bereits Recovery + 30-min-WS-Timeout).
@@ -224,7 +229,12 @@ beide Frontends):
 - [ ] Browser: zwei Tabs, zwei Sessions → keine Event-Leckage zwischen Sessions.
 - [ ] GUI: Schriftgrößen-Wechsel (`--alima-fs`) wirkt auf Karten + Chrome.
 
-### 9.3 Fehler-Events rendern (Anschluss an WP A) ⬜
+### 9.3 Fehler-Events rendern (Anschluss an WP A) ✅
+**Erledigt (July 19, Chat-UX 3/9, Commit `a970e44`):** `kind="error"` auf
+`collapsible`/`collapsible_update` (additiv, kein Protokoll-Bump) →
+`rc-error`-Chrome in `alima_render.css`; beide Bus-Konsumenten reichen den
+`error`-Payload-Text in den Block-Body; Chat-Fehler beider Frontends nutzen
+`renderer.render_error_block`. Ursprünglicher Plan folgt:
 Seit WP A (commit `7850222`) emittiert der `PipelineManager`
 `state.pipeline_step` mit `status="error"` **und** `error`-Payload
 (Fehlertext); ein fehlgeschlagener Schritt stoppt die Pipeline. Das Rendering
@@ -240,16 +250,18 @@ vermischen. Zu tun (nach 9.1):
   fehlgeschlagen …`) kommen bereits als Stream-Tokens durch beide Frontends —
   nur prüfen, nicht neu bauen.
 
-### 9.4 Webapp-Doppelanzeige DK/GND — Operator-Review ⬜
-Die Webapp zeigt Klassifikationen doppelt: kompaktes Summary-Panel **und**
-geteilte `#log`-Karten. Gewollt komplementär (wie GUI), aber nie von einem
-Operator UX-geprüft. Entscheidung: behalten / Summary eindampfen /
-`#log`-Karten nur auf Anforderung.
+### 9.4 Webapp-Doppelanzeige DK/GND — Operator-Review ✅
+**Entschieden (July 19, Operator): beides behalten, ein Stil.** Summary-Panel
+(kompakter Überblick, Pendant zu den GUI-Ergebnistabs) und `#log`-Karten
+(Verlaufskontext) bleiben; die Summary-Styles sind unter `#results-summary`
+gescoped und beide folgen dem `--alima-*`-Theming (Chat-UX 6/9, `c842734`).
 
-### 9.5 Tier-Entscheidung: agentic Tool-Bus-Chrome → Webapp ⬜
-Der agentische Tool-Bus (Tool-Calls/-Results als Collapsibles) wird derzeit
-**nicht** an die Webapp emittiert; nur der klassische DK/GND-Pfad ist
-serverseitig verdrahtet. Per WP9 ist die Webapp Tier-3 — explizit
-entscheiden (und hier dokumentieren), ob das so bleibt oder agentische
-Läufe im Browser sichtbar werden sollen. Kein Code-Zwang, aber eine
-offene Festlegung.
+### 9.5 Tier-Entscheidung: agentic Tool-Bus-Chrome → Webapp ✅
+**Geschlossen (July 19):** Die frühere Aussage „wird nicht an die Webapp
+emittiert" war stale — `_SessionBusSubscriber` (Phase 4) brückt
+`tool.called`/`tool.result` für jeden Lauf, und agentische Steps emittieren
+diese Events; empirischer Beleg ist der Test
+`test_agentic_analysis_emits_bus_tool_call_into_render_buffer`
+(`tests/test_webapp_statebus_rendering.py`). Festlegung: agentisches
+Tool-Chrome **ist** im Browser sichtbar (gewollt). Der Chat-Endpoint
+subscribt mit `tool_events=False` (Doppelrender-Guard, Chat-UX 9/9).

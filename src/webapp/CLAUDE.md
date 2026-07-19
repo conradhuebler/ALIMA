@@ -126,7 +126,6 @@ Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workf
 - ✅ True isolation: each browser tab = separate HTML document
 - ✅ No DOM ID conflicts possible (different documents)
 - ✅ Unlimited concurrent browser tabs supported
-- ✅ Backward compatible - old `/` route still works with `/api/session` fallback
 - ✅ Simple to understand and debug - each tab is independent
 - ✅ Zero overhead - just template rendering (~1-2ms per request)
 
@@ -134,8 +133,11 @@ Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workf
 ```
 New analysis:     /webapp              → generates random session UUID
 With existing ID: /webapp?session=abc  → uses session 'abc'
-Old behavior:     /                    → serves index.html, uses /api/session API
+Root:             /                    → 301-redirect to /webapp
 ```
+(The legacy `static/index.html` page was removed July 2026 — Chat-UX 1/9;
+`app.js` keeps a `/api/session` POST fallback only for a missing injected
+`window.sessionId`.)
 
 ## API Endpoints
 
@@ -199,5 +201,22 @@ Then visit `http://localhost:8000` in browser.
 - Result history/session recall (persistent session storage)
 - Batch processing UI (process multiple documents in queue)
 - Docker containerization
-- Dark/light theme toggle
 - Monitoring & metrics (queue depth, execution time histograms, error rates)
+
+## Chat-UX WP (July 2026)
+
+- **One display surface**: the legacy `#stream-text` region is gone; classic
+  LLM tokens, notices, DK progress and errors all render in the shared `#log`
+  (stream blocks / `appendLocalNotice` / `#dk-progress` in the pipeline bar).
+  `streaming_tokens` WS/poll frames remain for the API but are not rendered.
+- **Theming**: `#log` chrome is driven by `--alima-*` variables
+  (`alima_render.css`, dark defaults for the GUI); the webapp light theme
+  overrides them in `styles.css` — the theme toggle now reaches the log.
+- **Errors**: `kind="error"` collapsibles (red chrome) carry the step/chat
+  error text in both frontends.
+- **i18n**: UI-chrome strings come from `locales/de.json`/`en.json`
+  (`src/utils/i18n.py`; `window.__alimaI18n` for JS via template injection),
+  switched by `UIConfig.ui_language`.
+- **Bus-consumer ownership**: see the note in `render_bridge.py` /
+  `_chat_panel_bus.py` — webapp + GUI handler bodies must stay in lockstep;
+  the chat endpoint subscribes with `tool_events=False` (double-render guard).

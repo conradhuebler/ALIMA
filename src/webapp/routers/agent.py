@@ -400,9 +400,13 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
 
     # Renderer writes into the same append-only buffer the WebSocket broadcasts.
     session_renderer = _build_session_renderer(session)
-    # Phase 4: bridge AlimaStateBus events (extra tool calls, pipeline state)
-    # during the chat turn into the same render buffer.
-    bus_subscriber = _SessionBusSubscriber(session_renderer)
+    # Phase 4: bridge AlimaStateBus events (pipeline state, prompts) during
+    # the chat turn into the same render buffer. tool_events=False because
+    # the agent runner already renders tool calls via its direct
+    # on_tool_call/on_tool_result callbacks below — if a chat toolset ever
+    # emits bus tool events (CachingToolRegistry), the double subscription
+    # would render every call twice (Chat-UX 9/9 guard).
+    bus_subscriber = _SessionBusSubscriber(session_renderer, tool_events=False)
     bus_subscriber.subscribe()
 
     session_renderer.render_user_bubble(message)

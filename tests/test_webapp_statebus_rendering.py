@@ -179,6 +179,24 @@ class TestSessionBusSubscriber(unittest.TestCase):
         blocks = self._of_type("block")
         self.assertTrue(any("Pipeline abgeschlossen" in e.get("html", "") for e in blocks))
 
+    def test_tool_events_false_skips_tool_bridging(self):
+        # Chat-UX 9/9 guard: the chat endpoint renders tool calls via direct
+        # runner callbacks; the bus subscriber must not double-render them.
+        from src.webapp.app import _SessionBusSubscriber
+
+        sub = _SessionBusSubscriber(self.renderer, tool_events=False)
+        sub.subscribe()
+        try:
+            self.bus.emit_event("tool.called", {
+                "id": "tc_chat1", "name": "gnd_search", "arguments": {},
+            })
+            self.assertNotIn("collapsible", self._types())
+            # Pipeline events still bridge.
+            self.bus.emit_event("state.pipeline_started", {"pipeline_id": "p1"})
+            self.assertIn("block", self._types())
+        finally:
+            sub.unsubscribe()
+
     def test_unsubscribe_removes_handlers(self):
         self.sub.subscribe()
         self.sub.unsubscribe()
