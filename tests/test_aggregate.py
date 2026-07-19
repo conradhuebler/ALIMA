@@ -367,8 +367,9 @@ class NestedFromAggregateTest(unittest.TestCase):
 
         agg = {
             "pool": [
-                {"title": "Wasser", "gnd_ids": ["g1"], "ddc_codes": ["540"],
-                 "dk_codes": [], "count": 1, "display_count": 9},
+                {"title": "Wasser", "gnd_ids": ["g1"],
+                 "classifications": {"ddc": ["540"]},
+                 "count": 1, "display_count": 9},
             ],
             "terms_map": {"Wasser": ["wasser", "h2o"]},
         }

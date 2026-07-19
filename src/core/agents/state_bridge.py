@@ -61,7 +61,8 @@ def _flatten_search_results(
         count: N, display_count?: M}}}]``
 
     SharedContext shape:
-        - ``gnd_entries``: ``[{title, gnd_id, gnd_ids, ddc_codes, count, display_count?}]`` (deduped)
+        - ``gnd_entries``: ``[{title, gnd_id, gnd_ids,
+          classifications: {system: [codes]}, count, display_count?}]`` (deduped)
         - ``gnd_entries_per_keyword``: ``{term: [title, ...]}``
     """
     entries_by_title: Dict[str, Dict[str, Any]] = {}
@@ -79,11 +80,12 @@ def _flatten_search_results(
             # Carry the frequency back so a reloaded agentic state keeps the
             # real Häufigkeit (``display_count``); dropping it re-zeroed the
             # count on every JSON round-trip. - Claude Generated
+            ddc = list(meta.get("ddc_codes", []) or [])
             entry = {
                 "title": title,
                 "gnd_id": gnd_ids[0] if gnd_ids else "",
                 "gnd_ids": gnd_ids,
-                "ddc_codes": list(meta.get("ddc_codes", []) or []),
+                "classifications": {"ddc": ddc} if ddc else {},
                 "count": meta.get("count", 1),
             }
             if meta.get("display_count") is not None:

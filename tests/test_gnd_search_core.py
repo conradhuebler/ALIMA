@@ -35,15 +35,28 @@ class TestMergeCodeEntry(unittest.TestCase):
 
     def test_list_fields_order_preserving_dedup(self):
         """Agentic shape: code fields are lists — dedup but keep first-seen order."""
-        target = {"count": 1, "gnd_ids": ["1", "2"], "ddc_codes": [], "dk_codes": []}
-        source = {"count": 5, "gnd_ids": ["2", "3"], "ddc_codes": ["d"], "dk_codes": []}
+        target = {"count": 1, "gnd_ids": ["1", "2"], "classifications": {}}
+        source = {"count": 5, "gnd_ids": ["2", "3"], "classifications": {"ddc": ["d"]}}
         merge_code_entry(
-            target, source, code_fields=("gnd_ids", "ddc_codes", "dk_codes")
+            target, source, code_fields=("gnd_ids",),
+            classifications_field="classifications",
         )
         self.assertEqual(target["count"], 5)
         self.assertEqual(target["gnd_ids"], ["1", "2", "3"])
-        self.assertEqual(target["ddc_codes"], ["d"])
+        self.assertEqual(target["classifications"]["ddc"], ["d"])
         self.assertIsInstance(target["gnd_ids"], list)
+
+    def test_classifications_merge_per_system(self):
+        """WP-D1: {system: codes} merges per system — union, order-preserving,
+        systems are equal-rank keys; source dict is never mutated."""
+        target = {"count": 1, "classifications": {"dk": ["530.145"]}}
+        source = {"count": 2, "classifications": {"dk": ["530.145", "539"], "rvk": ["UK 1000"]}}
+        merge_code_entry(
+            target, source, code_fields=(), classifications_field="classifications"
+        )
+        self.assertEqual(target["classifications"]["dk"], ["530.145", "539"])
+        self.assertEqual(target["classifications"]["rvk"], ["UK 1000"])
+        self.assertEqual(source["classifications"], {"dk": ["530.145", "539"], "rvk": ["UK 1000"]})
 
     def test_missing_fields_are_noops(self):
         target = {"count": 2, "gndid": {"1"}}
@@ -60,19 +73,19 @@ class TestMergeIntoPool(unittest.TestCase):
         self.assertEqual(pool["cadmium"]["count"], 3)
 
     def test_existing_title_unions_and_maxes(self):
-        pool = {"cadmium": {"title": "Cadmium", "gnd_ids": ["1"], "ddc_codes": [],
-                            "dk_codes": [], "count": 3, "gnd_id": "1"}}
+        pool = {"cadmium": {"title": "Cadmium", "gnd_ids": ["1"],
+                            "classifications": {}, "count": 3, "gnd_id": "1"}}
         merge_into_pool(pool, {"Cadmium": {"title": "Cadmium", "gnd_ids": ["2"],
-                                           "ddc_codes": ["d"], "dk_codes": [], "count": 9}})
+                                           "classifications": {"ddc": ["d"]}, "count": 9}})
         self.assertEqual(pool["cadmium"]["count"], 9)
         self.assertEqual(pool["cadmium"]["gnd_ids"], ["1", "2"])
-        self.assertEqual(pool["cadmium"]["ddc_codes"], ["d"])
+        self.assertEqual(pool["cadmium"]["classifications"]["ddc"], ["d"])
 
     def test_gnd_id_backfilled_when_empty(self):
-        pool = {"x": {"title": "X", "gnd_ids": [], "ddc_codes": [], "dk_codes": [],
+        pool = {"x": {"title": "X", "gnd_ids": [], "classifications": {},
                       "count": 0, "gnd_id": ""}}
-        merge_into_pool(pool, {"X": {"title": "X", "gnd_ids": ["77"], "ddc_codes": [],
-                                     "dk_codes": [], "count": 1}})
+        merge_into_pool(pool, {"X": {"title": "X", "gnd_ids": ["77"],
+                                     "classifications": {}, "count": 1}})
         self.assertEqual(pool["x"]["gnd_id"], "77")
 
 
@@ -91,6 +104,8 @@ class TestParseBatchResponse(unittest.TestCase):
         from_str = parse_batch_response(json.dumps(self.PAYLOAD))
         self.assertEqual(from_dict, from_str)
         self.assertEqual(from_dict["Cadmium"]["gnd_id"], "1")
+        self.assertEqual(from_dict["Cadmium"]["classifications"], {"ddc": ["546"]})
+        self.assertNotIn("dk", from_dict["Cadmium"]["classifications"])
         self.assertEqual(from_dict["Schwermetall"]["count"], 9)
 
     def test_entries_without_ids_or_title_skipped(self):

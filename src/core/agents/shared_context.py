@@ -230,7 +230,7 @@ class SharedContext(BaseSharedContext):
         initial_gnd_classes = []
         seen_ddc = set()
         for entry in self.gnd_entries:
-            for ddc in entry.get("ddc_codes", []):
+            for ddc in (entry.get("classifications") or {}).get("ddc", []):
                 if ddc and ddc not in seen_ddc:
                     seen_ddc.add(ddc)
                     initial_gnd_classes.append(ddc)
@@ -297,7 +297,7 @@ class SharedContext(BaseSharedContext):
                     # them here made agentic runs persist 0. - Claude Generated
                     kw_results[title] = {
                         "gndid": all_gnd_ids,
-                        "ddc_codes": entry.get("ddc_codes", []),
+                        "ddc_codes": (entry.get("classifications") or {}).get("ddc", []),
                         "count": entry.get("count", 1),
                         **({"display_count": entry["display_count"]} if entry.get("display_count") is not None else {}),
                     }
@@ -312,7 +312,7 @@ class SharedContext(BaseSharedContext):
                     all_gnd_ids = list(gnd_ids) if gnd_ids else ([primary_gnd_id] if primary_gnd_id else [])
                     kw_results[title] = {
                         "gndid": all_gnd_ids,
-                        "ddc_codes": entry.get("ddc_codes", []),
+                        "ddc_codes": (entry.get("classifications") or {}).get("ddc", []),
                         "count": entry.get("count", 1),
                         **({"display_count": entry["display_count"]} if entry.get("display_count") is not None else {}),
                     }

@@ -34,6 +34,7 @@ def merge_code_entry(
     code_fields: Sequence[str],
     count_field: str = "count",
     display_count_field: Optional[str] = None,
+    classifications_field: Optional[str] = None,
 ) -> None:
     """Merge one search entry into another in place — the shared merge-atom.
 
@@ -49,6 +50,10 @@ def merge_code_entry(
     ``display_count_field`` (opt-in) max-merges the display-only F-4 count across
     sources — the single-merge home for what ``MetaSuggester._merge_suggester_results``
     did inline. Only carried when a source provides it (display-only, never ranked).
+
+    ``classifications_field`` (opt-in, WP-D1) merges the canonical
+    ``{system: codes}`` dict per system with the same container-preserving
+    union semantics as ``code_fields`` — dk/ddc/rvk are equal-rank keys.
     - Claude Generated
     """
     if count_field:
@@ -63,16 +68,32 @@ def merge_code_entry(
     for field in code_fields:
         new_vals: Iterable[Any] = source.get(field) or []
         existing = target.get(field)
-        if isinstance(existing, set):
-            existing.update(new_vals)
-        else:
-            merged: List[Any] = list(existing or [])
-            seen: Set[Any] = set(merged)
-            for value in new_vals:
-                if value not in seen:
-                    merged.append(value)
-                    seen.add(value)
-            target[field] = merged
+        target[field] = _merge_codes(existing, new_vals)
+    if classifications_field:
+        src_cls = source.get(classifications_field) or {}
+        if src_cls:
+            # Copy-on-write: pool inserts are shallow ``dict(entry)`` copies, so
+            # mutating the stored dict in place would leak into the source entry.
+            tgt_cls = dict(target.get(classifications_field) or {})
+            for system, new_codes in src_cls.items():
+                tgt_cls[system] = _merge_codes(tgt_cls.get(system), new_codes or [])
+            target[classifications_field] = tgt_cls
+
+
+def _merge_codes(existing: Any, new_vals: Iterable[Any]) -> Any:
+    """Union ``new_vals`` into ``existing``, preserving its container type:
+    ``set`` → ``set.update``; ``list``/``None`` → order-preserving dedup append.
+    - Claude Generated"""
+    if isinstance(existing, set):
+        existing.update(new_vals)
+        return existing
+    merged: List[Any] = list(existing or [])
+    seen: Set[Any] = set(merged)
+    for value in new_vals:
+        if value not in seen:
+            merged.append(value)
+            seen.add(value)
+    return merged
 
 
 def merge_into_pool(
@@ -86,7 +107,10 @@ def merge_into_pool(
         key = title.lower()
         if key in pool:
             existing = pool[key]
-            merge_code_entry(existing, entry, code_fields=("gnd_ids", "ddc_codes", "dk_codes"))
+            merge_code_entry(
+                existing, entry, code_fields=("gnd_ids",),
+                classifications_field="classifications",
+            )
             _merge_display_count(existing, entry)
             if existing.get("gnd_ids") and not existing.get("gnd_id"):
                 existing["gnd_id"] = existing["gnd_ids"][0]
@@ -116,12 +140,18 @@ def _merge_display_count(target: Dict[str, Any], source: Dict[str, Any]) -> None
 def _entry_from_kw_data(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any]:
     """Build a canonical pool entry from a single suggester keyword payload."""
     gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
+    # Canonical classifications dict (WP-D1): {system: [codes]}, systems are
+    # equal-rank keys; only non-empty systems are carried.
+    classifications = {
+        system: list(kw_data.get(system, []))
+        for system in ("ddc", "dk")
+        if kw_data.get(system)
+    }
     entry = {
         "title": kw_title,
         "gnd_ids": gnd_ids,
         "gnd_id": gnd_ids[0] if gnd_ids else "",
-        "ddc_codes": list(kw_data.get("ddc", [])),
-        "dk_codes": list(kw_data.get("dk", [])),
+        "classifications": classifications,
         "count": kw_data.get("count", 0),
         "description": "",
         "synonyms": [],

@@ -426,8 +426,9 @@ def finc_subject_harvest(
             "title": title,
             "gnd_ids": [gid] if gid else [],
             "gnd_id": gid,
-            "ddc_codes": list(best.get("ddcs", []) or []),
-            "dk_codes": [],
+            "classifications": (
+                {"ddc": list(best.get("ddcs") or [])} if best.get("ddcs") else {}
+            ),
             "count": freq,
             "description": best.get("description", "") or "",
             "synonyms": list(best.get("synonyms", []) or []),
@@ -961,8 +962,8 @@ def catalog_multi_search(
 
     Returns:
         ``{"hits": [...], "queries": [...], "tool_calls": N}``.
-        Each hit: ``{title, gnd_ids, gnd_id, ddc_codes, dk_codes, count,
-        description, synonyms, sources}``.
+        Each hit: ``{title, gnd_ids, gnd_id, classifications: {system: [codes]},
+        count, description, synonyms, sources}``.
     """
     if tool_registry is None:
         raise RuntimeError("catalog_multi_search requires tool_registry")

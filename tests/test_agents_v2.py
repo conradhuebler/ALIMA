@@ -726,11 +726,11 @@ class TestAlimaClassicMigration(unittest.TestCase):
                 return json.dumps({
                     "pool": [
                         {"title": "Titel1", "gnd_ids": ["123-4", "999-9"], "gnd_id": "123-4",
-                         "ddc_codes": ["540"], "dk_codes": ["DK1"], "count": 1,
+                         "classifications": {"ddc": ["540"], "dk": ["DK1"]}, "count": 1,
                          "display_count": 5, "description": "", "synonyms": [],
                          "sources": ["lobid", "swb"], "source_count": 2},
                         {"title": "Titel2", "gnd_ids": ["456-7"], "gnd_id": "456-7",
-                         "ddc_codes": [], "dk_codes": [], "count": 1, "display_count": 2,
+                         "classifications": {}, "count": 1, "display_count": 2,
                          "description": "", "synonyms": [],
                          "sources": ["lobid"], "source_count": 1},
                     ],

@@ -114,7 +114,7 @@ class GetGndEntriesTool(BaseChatTool):
     name = "get_gnd_entries"
     description = (
         "Return ALL GND entries from the Phase 2 catalog search. "
-        "Each entry has title, gnd_id, gnd_ids, ddc_codes. "
+        "Each entry has title, gnd_id, gnd_ids, classifications. "
         "Use this when you need the complete GND result set, not just "
         "a substring search."
     )
