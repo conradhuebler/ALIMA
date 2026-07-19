@@ -17,6 +17,7 @@
 ### Pipeline modules
 Split out of the former `pipeline_utils.py` god-module; all re-exported from `pipeline_utils` via a facade, so `from …pipeline_utils import X` keeps working:
 - `pipeline_utils.py`: `PipelineStepExecutor` (shared CLI/GUI/Webapp step logic) + classic-step helpers (`_emit_classic_*`, `_run_classic_step`).
+- `_pipeline_dk_steps.py` / `_pipeline_rvk_scoring.py`: `DkStepsMixin` + `RvkScoringMixin` — the DK/RVK classification methods of `PipelineStepExecutor` (verbatim mixin extraction July 19; methods stay on the class via MRO, cross-calls über `self`). Seam for the geplante `(system, notation)`-Generalisierung.
 - `pipeline_input.py`: `execute_input_extraction` (PDF/image/text/OCR).
 - `gnd_keyword_utils.py`: GND-pool verification + keyword/RVK canonicalisation (leaf).
 - `pipeline_text_utils.py`: pure text/display/title helpers (leaf, shared by executor + formatter).
