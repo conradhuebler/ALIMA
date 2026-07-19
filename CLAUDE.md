@@ -110,11 +110,18 @@ When documenting implemented features, the AI must apply these rules:
 
 ## [Variable Section — Current Tasks]
 - **➡️ Offene WPs: [`docs/open_workpackages.md`](docs/open_workpackages.md)** (July 19,
-  ausführungsreifes Register): Schwerpunkt Daten-Achse **D1 BibRecord P0** + **D2
-  Notation-Generalisierung**; Konsolidierungen **K1** BusRenderBridge, **K2**
-  Lobid-Label aus gnd_local, **K3** DOI-Mirror-Abbau (P8), **K4** Tool-Passthrough
-  swb/catalog, **K5** SearchTab-Refresh; T-Reihe anlassbezogen (Gemini+LlmService-Split,
-  Session-Persistenz, Keyring, i18n-Ausbau); V1 Agentic Hauptagent.
+  ausführungsreifes Register): Daten-Achse **D1 Rest** (Vergleichslauf, dann P1–P4 +
+  `to_bibrecord()`) + **D2 Logik-Generalisierung**; Konsolidierungen **K1**
+  BusRenderBridge, **K2** Lobid-Label aus gnd_local, **K3** DOI-Mirror-Abbau (P8),
+  **K4** Tool-Passthrough swb/catalog, **K5** SearchTab-Refresh; T-Reihe
+  anlassbezogen (Gemini+LlmService-Split, Session-Persistenz, Keyring,
+  i18n-Ausbau); V1 Agentic Hauptagent.
+- **WP-D1 P0 F-1-Collapse ✅ DONE (July 19, 5 Commits ab `6991d57`):** EIN
+  GND-Pool-Vokabular `{count, gnd_ids, classifications{system}, display_count?}`
+  end-to-end (Suggester-Vertrag v2 → persistierte KAS-Form); dk/ddc/rvk
+  gleichrangig (D2-Datenform vorgezogen); harter Schnitt, Rename-Shims weg.
+  Suite 1324. Offen: Vergleichslauf klassisch↔agentisch. Details:
+  `AIChangelog.md` + [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md).
 - **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
   beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
   statischer Verifikation als DONE.

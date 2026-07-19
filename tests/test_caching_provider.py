@@ -19,7 +19,7 @@ try:
     from src.utils.config_models import DatabaseConfig
     from src.core.search.caching import CachingProvider
     from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
-    from src.core.gnd_search_core import _entry_from_kw_data, merge_into_pool, rank_pool
+    from src.core.gnd_search_core import pool_entry_from_reduced, merge_into_pool, rank_pool
     from src.utils.pipeline_formatters import PipelineResultFormatter
     from src.core.agents.shared_context import SharedContext
     IMPORT_ERROR = None
@@ -149,7 +149,7 @@ class DisplayCountFlowTest(unittest.TestCase):
 
     def test_entry_carries_display_count_but_rank_ignores_it(self):
         kw_data = {"count": 1, "gnd_ids": {"g1"}, "classifications": {}, "display_count": 47}
-        entry = _entry_from_kw_data("Wassermanagement", kw_data)
+        entry = pool_entry_from_reduced("Wassermanagement", kw_data)
         self.assertEqual(entry["count"], 1)
         self.assertEqual(entry["display_count"], 47)
 
@@ -161,10 +161,10 @@ class DisplayCountFlowTest(unittest.TestCase):
         self.assertEqual(ranked[0]["display_count"], 47)
 
     def test_merge_max_merges_display_count(self):
-        cached = _entry_from_kw_data(
+        cached = pool_entry_from_reduced(
             "T", {"count": 1, "gnd_ids": {"g1"}, "classifications": {}, "display_count": 47}
         )
-        live = _entry_from_kw_data(
+        live = pool_entry_from_reduced(
             "T", {"count": 3, "gnd_ids": {"g2"}, "classifications": {}}
         )
         pool = {}

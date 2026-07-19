@@ -15,30 +15,28 @@ T-Reihe anlassbezogen; V1 ist neues Terrain.
 
 ## D — Daten-Achse (der eigentliche Rest der Umstrukturierung)
 
-### WP-D1 · BibRecord P0 — Datenformen vereinheitlichen
-**Status:** analysiert + verifiziert (July 10), Entscheidung getroffen: machen.
-**Problem:** Das Plugin-System hat die *Verrohrung* vereinheitlicht, nicht die
-*Daten*: Round-Trip-Rename-Shims (`gnd_search_core.py:116-128` ↔
-`aggregate.py:188-193`), duale DOI-Shapes (Capitalized vs snake_case), `ddc`
-mit 3 Werttypen, Klassifikation in 4 Kodierungen.
-**Ansatz:** P0 = F-1-Collapse übers bestehende `ResultItem` (kein neuer Typ als
-Erstschritt). Vorab drei Spec-Entscheidungen fixieren, die der Draft offen
-lässt: (a) `authors`-Typ (Liste strukturiert vs. String), (b) URL-Rollen
-(web/opac/api getrennt statt ein Feld), (c) `count`-Konvention (Pool-`count`=1
-vs. `display_count` ist seit `038738e` etabliert — als Kontrakt festschreiben).
-**Doc:** [`wp_records_as_first_class.md`](wp_records_as_first_class.md)
-(Findings + Decision Point). **Größe:** groß (mehrere Sessions, phasenweise).
-**Verifikation:** Suite + Vergleichslauf klassisch↔agentisch auf demselben Input.
+### WP-D1 · BibRecord — Datenformen vereinheitlichen
+**Status: P0 ✅ DONE (July 19, 5 Commits ab `6991d57`).** F-1-Collapse
+ausgeführt — EIN kanonisches GND-Pool-Vokabular `{count, gnd_ids,
+classifications: {system: codes}, display_count?}` von Suggester-Vertrag v2 bis
+persistierter KAS-Form; Rename-Shims weg, Spec-Pins (authors `List[str]`,
+`urls{}`-Map, count-Kontrakt) festgeschrieben; **D2-Datenform vorgezogen**
+(dk/ddc/rvk gleichrangig im `classifications`-Dict). Harter Schnitt, Suite 1324.
+Details: `AIChangelog.md` (July 19) + [`wp_records_as_first_class.md`](wp_records_as_first_class.md).
+**Offen in D1:** Vergleichslauf klassisch↔agentisch (Harness) als
+Verifikations-Nachlauf; danach die Konsumenten-Pfade P1–P4 (Record→Input,
+→Priors, →GND-Signale, Crosswalk) + `to_bibrecord()`-Normalizer + F-2
+DOI-Casing — Specs im WP-Doc.
 
-### WP-D2 · Notation-Generalisierung — (system, notation)-Paare
-**Status:** Naht existiert (Mixin-Extraktion `32670d5`), Arbeit unbegonnen.
-**Ziel:** weg von DK-zentrisch; DK/DDC/RVK als gleichwertige
-`(system, notation)`-Paare (Operator-Richtung, siehe Memory
-`general_notation_direction`). Umfasst: DDC-Harvest, `dk_*`-Renames, Logik in
-`_pipeline_dk_steps.py`/`_pipeline_rvk_scoring.py` generalisieren.
-**Ansatz:** auf den frisch extrahierten Mixins arbeiten (nicht mehr im
-5000-Zeilen-Executor); Datenform mit WP-D1 abstimmen — die Paare sind ein
-`ResultItem`/`BibRecord`-Feld. Deshalb **nach oder mit D1**, nicht davor.
+### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
+**Status:** **Datenform ✅ in D1-P0 erledigt** (July 19): Pool/Nested/
+`ResultItem` tragen `classifications: {system: codes}` mit dk/ddc/rvk als
+gleichrangigen Keys. **Rest = Logik-Generalisierung:** DDC-Harvest,
+`dk_*`-Renames, Logik in `_pipeline_dk_steps.py`/`_pipeline_rvk_scoring.py`
+generalisieren; Katalog-Title-Record-Keys (`dk_codes`/`rvk_codes`/`ddc_codes`
+in `biblio_client`/`tool_providers`/`title_list`) in die kanonische Form ziehen.
+**Ansatz:** auf den extrahierten Mixins arbeiten (Naht `32670d5`); Richtung:
+Memory `general_notation_direction`.
 **Größe:** groß. **Verifikation:** Suite + DK- und RVK-Pipeline-Läufe.
 
 ---
@@ -91,9 +89,9 @@ DOI-Leser (`doi_resolver`-Aufrufer, Webapp `_get_doi_config`).
 ([`wp_tool_data_passthrough.md`](wp_tool_data_passthrough.md)); DOI/finc/lobid ✅.
 **Problem:** `search_swb`/`search_catalog` (+ `catalog_titles`) reduzieren
 per-Record; Agenten sehen nur den Pipeline-Ausschnitt.
-**Ansatz:** Pool-View `{count,gndid,ddc,dk}` unverändert lassen (Ranking-
-Landmine!), volles `record` *zusätzlich* durchreichen (Muster: lobid
-`transform_agent_view`). **Verifikation:** Transform-Golden-Tests bleiben
+**Ansatz:** kanonische Pool-View `{count, gnd_ids, classifications}` unverändert
+lassen (Ranking-Landmine!), volles `record` *zusätzlich* durchreichen (Muster:
+lobid `transform_agent_view`). **Verifikation:** Transform-Golden-Tests bleiben
 byte-identisch; neuer agent_view-Test je Quelle.
 
 ### WP-K5 · SearchTab (`find_keywords.py`) — refresh + Zweck

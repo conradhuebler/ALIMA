@@ -68,7 +68,8 @@ Replaces the former MetaAgent + 4 SubAgents dispatch (removed April 2026).
   - `WorkflowExecutor` runs steps sequentially against a `SharedContext`
   - `LLMAgentStep` + `DeterministicStep` (registered via `@register_step` in `registry.py`)
   - `deterministic_functions.py`: `gnd_batch_search`, `dk_classification_twophase`, `catalog_multi_search`, `catalog_title_search`, `gnd_entry_lookup`, `extract_gnd_related`, `gnd_batch_metadata`
-- **Shared GND-search core** (`src/core/gnd_search_core.py`, classic↔agentic): `merge_code_entry` (also backs classic `SearchCLI.merge_results`), `merge_into_pool`/`parse_batch_response*`/`rank_pool`. ⚠️ pool `count` drives `selection_chunks`→`selection` — only `max`, never sum. Equal-chunk splitting shared via `src/utils/chunking.py`.
+- **Shared GND-search core** (`src/core/gnd_search_core.py`, classic↔agentic): `merge_code_entry` (also backs classic `SearchCLI.merge_results`; `classifications_field` merges per system), `merge_into_pool`/`parse_batch_response*`/`pool_entry_from_reduced`/`rank_pool`. ⚠️ pool `count` drives `selection_chunks`→`selection` — only `max`, never sum. Equal-chunk splitting shared via `src/utils/chunking.py`.
+- ✅ **Canonical GND-pool vocabulary (WP-D1 P0, July 19)**: one shape end-to-end — `{count, gnd_ids, classifications: {system: codes}, display_count?}` (suggester contract v2 → nested → pool → persisted KAS). dk/ddc/rvk are equal-rank system keys. Spec: [`docs/wp_records_as_first_class.md`](../../docs/wp_records_as_first_class.md) "Pinned decisions".
 - **Workflows** (`workflows/`): `alima_classic`, `catalog_search`, `synonym_expansion`, `batch_metadata` (all v4). Legacy v3 YAMLs removed June 2026 (git history; see `docs/legacy/agentic_workflow_v3.md`).
 - **Tool caching**: `CachingToolRegistry` (in `sub_agents/`) deduplicates tool calls
 - **Agent Loop**: `src/core/agent_loop.py` — provider-agnostic tool-calling (used by LLMAgentStep)

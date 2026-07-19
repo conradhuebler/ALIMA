@@ -13,11 +13,15 @@
 > end of this doc. The sharpest single instance of the count fragmentation is split off
 > as a ready-to-execute bugfix: `docs/wp_gnd_counter_divergence.md`.
 >
-> **Update (July 19, 2026): P0 decisions pinned by the operator — see
-> "Pinned decisions" section.** P0 (F-1 collapse) is in execution; plan:
-> canonical vocabulary = `ResultItem` names, suggester plugin contract moves to
-> v2 (emits canonical keys), **hard cut** — no legacy readers, the old key set
-> was never used in the wild.
+> **Update (July 19, 2026): P0 ✅ EXECUTED** (5 commits from `6991d57`; details
+> in `AIChangelog.md`). Decisions pinned by the operator — see "Pinned
+> decisions" section: canonical vocabulary `{count, gnd_ids, classifications:
+> {system: codes}, display_count?}` end-to-end (suggester contract v2 →
+> persisted KAS), the **generalized notation data shape pulled forward from
+> WP-D2** (dk/ddc/rvk equal-rank system keys), **hard cut** — no legacy
+> readers, the old key set was never used in the wild. Remaining verification:
+> classic↔agentic comparison run on the same input. Next: consumer paths P1–P4
+> + `to_bibrecord()` normalizers + F-2 DOI casing.
 
 ## Problem
 

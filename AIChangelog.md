@@ -6,6 +6,50 @@
 
 ## 2026
 
+### WP-D1 P0: F-1-Collapse — ein GND-Pool-Vokabular + Notation-Datenform (July 19, 2026)
+
+Fünf Commits (`6991d57`…), Plan aus Explore+Plan-Runde + vier Operator-Entscheidungen
+(Spec-Pins wie empfohlen; **Plugin-Vertrag v2 mitziehen**; **harter Schnitt** — die
+alte Form war nie produktiv im Umlauf; **D2-Datenform vorgezogen**: statt
+`ddc`/`dk`-Rename direkt EIN Feld `classifications: {system: codes}` mit dk/ddc/rvk
+als gleichrangigen Systemen — WP-D2 behält nur die Logik-Generalisierung).
+
+- **Vorher vier Vokabulare** für dieselben Konzepte: Suggester-nested
+  `{gndid,ddc,dk}`, Pool `{gnd_ids,ddc_codes,dk_codes}`, `ResultItem`
+  (`gnd_ids/ddc/dk`), persistierte KAS-Hybridform (`gndid`+`ddc_codes`) — plus
+  Live-Roundtrip-Rename `_entry_from_kw_data` ↔ `nested_from_aggregate` (F-1).
+- **Jetzt eins**: `{count, gnd_ids, classifications: {system: codes},
+  display_count?}` überall — Suggester-Vertrag v2, nested, Pool, agentische
+  `gnd_entries`, persistierte `SearchResult.results`. Container: Set (nested) /
+  Liste (Pool), pro System; `gnd_id` = erstes Element bleibt Pool-Konvenienz.
+- **Merge-Atom**: `merge_code_entry` + `classifications_field` (per-System-Union,
+  Copy-on-Write gegen Pool-Aliasing); `_merge_codes` erhält bei sparsem Ziel den
+  Quell-Containertyp (Set degradierte sonst zur ungeordneten Liste — von den
+  Tests gefangen). Count-Landmine unangetastet (max-merge, count=1 bei
+  Cache-Hits, `display_count` display-only).
+- **Ingestion** heißt jetzt `pool_entry_from_reduced` — konvertiert nur noch
+  Repräsentation, keine Namen; `nested_from_aggregate` ist reine
+  terms_map-Inversion + Fresh-Sets.
+- **Persistenz**: `SET_FIELDS` = `{ddc, dk, missing_concepts}` (greifen via
+  Rekursion in `classifications`); `gnd_ids` bleibt Liste → der latente
+  Set-Roundtrip-Nichtdeterminismus (`gnd_id` wechselte nach Save/Load) ist weg.
+  Alte Saves laden ohne Codes (harter Schnitt, akzeptiert).
+- **SWB-Sonderfall**: der Raw-Cache-Blob ist die *reduzierte* Form → der
+  `transform` behält einen dokumentierten Storage-Format-Fallback für
+  pre-v2-Zeilen (altern binnen `max_age` aus); Datei-Session-Cache per
+  v2-Dateinamen hart geschnitten. Einzige verbleibenden `gndid`-Zeilen in `src/`.
+- **MCP-sichtbar**: serialisierte Tool-Antworten tragen `gnd_ids` +
+  `classifications` (geteilte `_serialize_result_row`, serialisiert auch nested
+  Sets); Tool-*Namen*/-Parameter unverändert.
+- **Out of scope** (→ WP-D2 bzw. später): Katalog-Title-Record-Keys
+  (`dk_codes`/`rvk_codes`/`ddc_codes` in `biblio_client`/`tool_providers`
+  :301-337/`title_list`), DOI-Casing (F-2), DDC-Harvest + Mixin-Generalisierung.
+- **Verifikation**: Suite 1324 grün pro Phase; Grep-Gates (null Alt-Keys außer
+  dokumentiertem SWB-Fallback + Record-Shape); Spec gepinnt in
+  `docs/wp_records_as_first_class.md` (authors `List[str]`, `urls{}`-Map,
+  count-Kontrakt). Offen: Vergleichslauf klassisch↔agentisch auf demselben
+  Input (Harness), GUI-Klick-Tests on the fly.
+
 ### WP Chat-UX-Aufräumen: GUI + Webapp (July 19, 2026)
 
 Neun Commits (`07537d1`…`6985c8b`), Plan aus drei Explorationsberichten + vier

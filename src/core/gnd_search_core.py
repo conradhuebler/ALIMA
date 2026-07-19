@@ -105,7 +105,8 @@ def merge_into_pool(
     new_data: Dict[str, Dict[str, Any]],
 ) -> None:
     """Fold a per-source title→entry map into the running ``pool`` (keyed by
-    lower-cased title). Unions GND IDs / DDC / DK codes and keeps the max count.
+    lower-cased title). Unions ``gnd_ids`` and per-system ``classifications``
+    codes, keeps the max count.
     """
     for title, entry in new_data.items():
         key = title.lower()
@@ -141,8 +142,12 @@ def _merge_display_count(target: Dict[str, Any], source: Dict[str, Any]) -> None
         target["display_count"] = best
 
 
-def _entry_from_kw_data(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a canonical pool entry from a single suggester keyword payload."""
+def pool_entry_from_reduced(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """THE nested→pool ingestion point: build a canonical pool entry from one
+    reduced suggester keyword payload (contract v2). Since the F-1 collapse
+    (WP-D1) this converts *representation* (nested sets / serialized lists →
+    pool lists, ``gnd_id`` convenience), not names — there is no rename layer
+    anymore."""
     gnd_ids = [str(g) for g in kw_data.get("gnd_ids", []) if g]
     # Canonical classifications dict (WP-D1): {system: [codes]}, systems are
     # equal-rank keys; only non-empty systems are carried. Accepts sets (direct
@@ -189,7 +194,7 @@ def parse_batch_response(raw: Any) -> Dict[str, Dict[str, Any]]:
         for kw_title, kw_data in term_results.items():
             if not isinstance(kw_data, dict):
                 continue
-            entry = _entry_from_kw_data(kw_title, kw_data)
+            entry = pool_entry_from_reduced(kw_title, kw_data)
             if not entry["gnd_ids"] and not kw_title:
                 continue
             out[kw_title] = entry
@@ -216,7 +221,7 @@ def parse_batch_response_with_terms(
         for kw_title, kw_data in term_results.items():
             if not isinstance(kw_data, dict):
                 continue
-            entry = _entry_from_kw_data(kw_title, kw_data)
+            entry = pool_entry_from_reduced(kw_title, kw_data)
             if not entry["gnd_ids"] and not kw_title:
                 continue
             out[kw_title] = entry
